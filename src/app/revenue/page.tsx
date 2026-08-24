@@ -25,6 +25,12 @@ import {
   type PortfolioTotals,
 } from '@/lib/revenue-snapshot';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import {
+  loadProjectionBaselines,
+  summarizeVsProjection,
+  type VsProjectionSummary,
+  type PropertyVsProjection,
+} from '@/lib/revenue-vs-projection';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,16 +136,29 @@ export default async function RevenuePage({ searchParams }: PageProps) {
     ? `${customMonth.year}-${String(customMonth.month + 1).padStart(2, '0')}`
     : preset;
 
-  const [{ lastSyncedAt, isStale }, current, priorFull] = await Promise.all([
+  const [{ lastSyncedAt, isStale }, current, priorFull, projectionBaselines] = await Promise.all([
     readSyncStatus(),
     computeRevenueSnapshot(rangeStart, rangeEnd, { applyPacing: view === 'pacing' }),
     prior
       ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd)
       : Promise.resolve(null),
+    loadProjectionBaselines(),
   ]);
 
   const { snapshots, portfolio, pacing } = current;
   const priorPortfolio = priorFull?.portfolio ?? null;
+
+  // Against-projection: the proposal each owner was shown, prorated to this
+  // range. Only properties carrying a projection contribute to BOTH sides of
+  // the ratio, so the comparison stays like-for-like; coverage is printed
+  // next to it rather than hidden.
+  const vsProjection = summarizeVsProjection(
+    snapshots.map((s) => ({ propertyId: s.propertyId, revenue: s.metrics.totalRevenue })),
+    projectionBaselines,
+    rangeStart,
+    rangeEnd,
+  );
+  const vsProjectionByProperty = new Map(vsProjection.covered.map((c) => [c.propertyId, c]));
 
   // Build a per-property prior-payout lookup so each card can show its own
   // period-over-period delta on Owner Payout.
@@ -215,6 +234,21 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         <PortfolioStrip totals={portfolio} prior={priorPortfolio} />
       </section>
 
+      {/* AGAINST PROJECTION — actuals vs the proposal each owner was shown.
+          Hidden entirely when no property in range has a projection
+          baseline, so the strip never renders as a row of dashes. */}
+      {vsProjection.coveredCount > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+            <div className="eyebrow">Against Projection</div>
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              {vsProjection.coveredCount} of {vsProjection.totalCount} homes projected
+            </span>
+          </div>
+          <VsProjectionStrip summary={vsProjection} />
+        </section>
+      )}
+
       {/* CHANNEL MIX */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
@@ -251,6 +285,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
               snapshot={s}
               priorPayout={priorPayoutById.get(s.propertyId) ?? null}
               showDelta={!isForwardLooking}
+              vsProjection={vsProjectionByProperty.get(s.propertyId) ?? null}
             />
           ))}
         </div>
@@ -507,14 +542,69 @@ function PortfolioStrip({
   );
 }
 
+/**
+ * Actuals against the projection each owner was shown, for the selected
+ * range. Four cells rather than an eighth cell in the portfolio strip: the
+ * comparison only means something alongside its target and its coverage,
+ * and a lone percentage with no denominator invites the wrong read.
+ *
+ * Variance is colored by direction (ahead = positive, behind = negative)
+ * with a dead band around par, so a property tracking within a couple
+ * points of plan doesn't read as a problem.
+ */
+function VsProjectionStrip({ summary }: { summary: VsProjectionSummary }) {
+  const pct = summary.ratio != null ? summary.ratio * 100 : null;
+  const variance = pct != null ? pct - 100 : null;
+  const varianceColor =
+    variance == null || Math.abs(variance) < 2
+      ? undefined
+      : variance > 0
+        ? 'var(--positive)'
+        : 'var(--negative)';
+
+  return (
+    <div
+      className="rt-helm-stat-strip"
+      style={{
+        borderTop: '1px solid var(--ink)',
+        borderBottom: '1px solid var(--ink)',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+      }}
+    >
+      <Stat label="Actual" value={fmtCurrency(summary.actual)} sub="projected homes only" />
+      <Stat label="Projection" value={fmtCurrency(summary.target)} sub="prorated to range" />
+      <Stat
+        label="vs Projection"
+        value={pct != null ? `${pct.toFixed(0)}%` : '—'}
+        valueColor={varianceColor}
+        sub={
+          variance == null
+            ? undefined
+            : `${variance >= 0 ? '+' : ''}${variance.toFixed(0)}% vs plan`
+        }
+      />
+      <Stat
+        label="Variance"
+        value={fmtCurrency(summary.actual - summary.target)}
+        valueColor={varianceColor}
+        sub={summary.actual >= summary.target ? 'ahead of plan' : 'behind plan'}
+        last
+      />
+    </div>
+  );
+}
+
 function PropertyCard({
   snapshot,
   priorPayout,
   showDelta,
+  vsProjection,
 }: {
   snapshot: PropertySnapshot;
   priorPayout: number | null;
   showDelta: boolean;
+  vsProjection: PropertyVsProjection | null;
 }) {
   const m = snapshot.metrics;
   // A month can have revenue with zero stays: a cross-month installment
@@ -590,6 +680,40 @@ function PropertyCard({
         </dl>
       )}
       {!noData && <CardChannelBar mix={snapshot.channelMix} />}
+      {/* Against this property's own proposal, prorated to the range. Only
+          renders for homes carrying a projection that covers the window. */}
+      {vsProjection && vsProjection.ratio != null && (
+        <div
+          style={{
+            marginTop: 12,
+            paddingTop: 10,
+            borderTop: '1px solid var(--rule-soft)',
+            fontSize: 11,
+            color: 'var(--ink-3)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 8,
+          }}
+        >
+          <span>vs projection</span>
+          <span className="font-mono tabular-nums">
+            <span
+              style={{
+                color:
+                  Math.abs(vsProjection.ratio * 100 - 100) < 2
+                    ? 'var(--ink-2)'
+                    : vsProjection.ratio >= 1
+                      ? 'var(--positive)'
+                      : 'var(--negative)',
+                fontWeight: 500,
+              }}
+            >
+              {(vsProjection.ratio * 100).toFixed(0)}%
+            </span>{' '}
+            <span style={{ color: 'var(--ink-4)' }}>of {fmtCurrency(vsProjection.target)}</span>
+          </span>
+        </div>
+      )}
     </article>
   );
 }

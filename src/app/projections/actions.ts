@@ -32,7 +32,8 @@ import {
   sendCountersignNotification,
   fetchContractPdf,
 } from '@/lib/contract-email';
-import { archiveContractToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
+import { archiveContractToDrive, archiveProposalToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
+import { renderProjectionPdf } from '@/lib/projection-pdf';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
 import { buildInitialLaunchSteps } from '@/lib/launch-checklist';
@@ -358,12 +359,59 @@ export async function markSent(id: string) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
+  const sentAt = new Date().toISOString();
   const { error } = await supabase
     .from('projections')
-    .update({ status: 'sent', sent_at: new Date().toISOString() })
+    .update({ status: 'sent', sent_at: sentAt })
     .eq('id', id);
 
   if (error) throw new Error(error.message);
+
+  // Archive the proposal deck to the Rising Tide Drive (Helm Records /
+  // Proposals / <year>/), the same way countersignContract files the
+  // executed contract. Best-effort: the render is the slow (~10s) step and
+  // a Drive outage must never lose the "sent" stamp, which is already
+  // persisted above. Failures are logged; /api/archive-projection is the
+  // manual retry. Skipped entirely when Drive isn't configured.
+  if (isDriveArchiveConfigured()) {
+    try {
+      const { data: projRow } = await supabase
+        .from('projections')
+        .select('property_address, prospect_name, projection_drive_url')
+        .eq('id', id)
+        .maybeSingle();
+      const proj = projRow as {
+        property_address: string | null;
+        prospect_name: string | null;
+        projection_drive_url: string | null;
+      } | null;
+      // Re-sending an already-archived proposal keeps the original file.
+      if (proj && !proj.projection_drive_url) {
+        const origin = await getRequestOrigin();
+        if (origin) {
+          const stamp = sentAt.slice(0, 10);
+          const pdf = await renderProjectionPdf({ projectionId: id, type: 'projection', origin });
+          const filename = `${proj.property_address ?? 'Proposal'} - ${proj.prospect_name ?? 'Prospect'} - Sent ${stamp}.pdf`
+            .replace(/[\\/:*?"<>|]/g, '')
+            .trim();
+          const archive = await archiveProposalToDrive({ pdf, filename, year: stamp.slice(0, 4) });
+          if (archive.ok && archive.url) {
+            await supabase
+              .from('projections')
+              .update({ projection_drive_url: archive.url })
+              .eq('id', id);
+          } else {
+            console.warn('[markSent] Drive archive skipped:', archive.reason);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(
+        '[markSent] proposal archive failed:',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
 
   revalidatePath('/properties');
   revalidatePath(`/prospects/${id}`);
