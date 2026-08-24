@@ -104,27 +104,22 @@ export async function GET(req: Request) {
       trash_day: clean(p.trash_day),
       recycling_day: clean(p.recycling_day),
       trash_notes: clean(p.trash_notes),
-      // Per-property check-in / checkout times, synced from each Guesty
-      // listing's own defaults by /api/sync-guesty. These are the reason
-      // this pair is here: the guest AI carries a portfolio-wide "checkout
+      // Per-property check-in / checkout times: the same columns the cleaner
+      // checkout schedule reads (filled from each Guesty listing's defaults
+      // by /api/sync-guesty, operator-editable on /turnovers/schedule),
+      // normalized through the schedule's own normalizeTime so the guest AI
+      // can never quote a time the cleaner schedule doesn't use. The reason
+      // this pair is here: the guest AI carried a portfolio-wide "checkout
       // is 11 AM" fact, and on 2026-08-24 it quoted that as "the standard"
       // to a guest at 3 Windward, whose real checkout is 10:00 -- handing
       // over an hour the cleaning schedule had not planned for. Three homes
       // (3 Windward, 3 South, 225 Washington) run 10:00, not 11:00.
-      check_in_time: clean(p.default_checkin_time),
-      check_out_time: clean(p.default_checkout_time),
+      check_in_time: normalizeTime(p.default_checkin_time) ?? '',
+      check_out_time: normalizeTime(p.default_checkout_time) ?? '',
       // On-site guest gear: lets the AI answer a pack-n-play / high-chair ask
       // with "it's already in the home" instead of promising to bring one.
       has_pack_n_play: p.has_pack_n_play === true,
       has_high_chair: p.has_high_chair === true,
-      // Per-property default times, the same columns the cleaner checkout
-      // schedule reads (filled from Guesty by sync-guesty, operator-editable
-      // on /turnovers/schedule). Normalized through the schedule's own
-      // normalizeTime so the guest AI can never quote a time the cleaner
-      // schedule doesn't use (2026-08-24: the AI told a 3 Windward guest
-      // "standard 11 AM checkout" when the property's default is 10:00).
-      check_in_time: normalizeTime(p.default_checkin_time) ?? '',
-      check_out_time: normalizeTime(p.default_checkout_time) ?? '',
       guest_notes: (notesByProp.get(p.id) ?? [])
         .map((n) => ({ title: clean(n.title), body: clean(n.body) }))
         .filter((n) => n.title || n.body),
