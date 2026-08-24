@@ -9,6 +9,7 @@ import {
   buildCheckoutSchedule,
   todayET,
   formatTime12,
+  adjustmentSourceLabel,
   SCHEDULE_EXCLUDED_PROPERTY_IDS,
   type CheckoutAdjustment,
   type ScheduleRow,
@@ -86,7 +87,7 @@ function StayRow({ row, today }: { row: ScheduleRow; today: string }) {
         )}
         {adj?.adjustedTime && (
           <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            was {formatTime12(row.defaultTime)} · {adj.source === 'miner' ? 'from guest thread' : 'set by hand'}
+            was {formatTime12(row.defaultTime)} · {adjustmentSourceLabel(adj.source)}
           </span>
         )}
         {adj?.adjustedDate && adj.adjustedDate !== row.baseCheckOut && (
@@ -224,7 +225,7 @@ export default async function CheckoutSchedulePage({
       </Section>
 
       {proposals.length > 0 && (
-        <Section id="schedule-proposals" title="Mined from guest threads" eyebrow={`${proposals.length} waiting`} paddingTop={8} paddingBottom={8}>
+        <Section id="schedule-proposals" title="Detected but not applied" eyebrow={`${proposals.length} waiting`} paddingTop={8} paddingBottom={8}>
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {proposals.map((p) => (
               <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: '1px solid var(--rule)', flexWrap: 'wrap' }}>

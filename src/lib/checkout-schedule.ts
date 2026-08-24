@@ -93,6 +93,11 @@ export function normalizeTime(raw: string | null | undefined): string | null {
 
 // ─── types ────────────────────────────────────────────────────────────
 
+/** operator = set by hand on /turnovers/schedule; miner = mined from a
+ *  guest thread; guesty_hold = derived from a corroborated extension hold
+ *  in the Guesty calendar mirror (src/lib/extension-holds.ts). */
+export type AdjustmentSource = 'operator' | 'miner' | 'guesty_hold';
+
 export type CheckoutAdjustment = {
   id: string;
   property_id: string;
@@ -101,7 +106,7 @@ export type CheckoutAdjustment = {
   adjusted_check_out: string | null;
   adjusted_checkout_time: string | null;
   note: string;
-  source: 'operator' | 'miner';
+  source: AdjustmentSource;
   miner_key: string | null;
   evidence: string | null;
   confidence: 'high' | 'medium' | 'low' | null;
@@ -130,7 +135,7 @@ export type ScheduleRow = {
   nextGuestName: string | null;
   adjustment: {
     id: string;
-    source: 'operator' | 'miner';
+    source: AdjustmentSource;
     note: string;
     adjustedTime: string | null;
     adjustedDate: string | null;
@@ -166,6 +171,13 @@ type PropertyLite = {
   default_checkout_time: string | null;
   default_checkin_time: string | null;
 };
+
+/** How an adjustment is described on the card and the schedule page. */
+export function adjustmentSourceLabel(source: AdjustmentSource): string {
+  if (source === 'miner') return 'from guest thread';
+  if (source === 'guesty_hold') return 'from Guesty hold';
+  return 'set by hand';
+}
 
 // ─── stay collapse ────────────────────────────────────────────────────
 
@@ -390,7 +402,7 @@ export async function insertAdjustment(
     adjustedCheckOut?: string | null;
     adjustedCheckoutTime?: string | null;
     note?: string;
-    source: 'operator' | 'miner';
+    source: AdjustmentSource;
     minerKey?: string;
     evidence?: string;
     confidence?: 'high' | 'medium' | 'low';
@@ -405,8 +417,11 @@ export async function insertAdjustment(
     .eq('status', 'active')
     .maybeSingle();
 
+  // Only a human's own edit lands active unconditionally. Every derived
+  // source (thread miner, Guesty hold) must be high-confidence AND must
+  // not be overriding something an operator set by hand.
   let status: 'active' | 'proposed' = 'active';
-  if (input.source === 'miner') {
+  if (input.source !== 'operator') {
     const operatorStanding = standing?.source === 'operator';
     status = input.confidence === 'high' && !operatorStanding ? 'active' : 'proposed';
   }
