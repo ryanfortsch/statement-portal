@@ -81,6 +81,9 @@ export type MineCheckoutChangesResult = {
   proposed: number;
   alreadyMined: number;
   unchanged: number;
+  /** Mined a time that already equals the property default - nothing
+   *  diverges, so no adjustment is written. */
+  matchesDefault: number;
   invalid: number;
   truncated: boolean;
   errors: string[];
@@ -135,6 +138,7 @@ export async function mineCheckoutChanges(
     proposed: 0,
     alreadyMined: 0,
     unchanged: 0,
+    matchesDefault: 0,
     invalid: 0,
     truncated: false,
     errors: [],
@@ -163,12 +167,17 @@ export async function mineCheckoutChanges(
   for (const r of (listingRows ?? []) as Array<{ listing_id: string | null; property_id: string | null }>) {
     if (r.listing_id && r.property_id) propertyByListing.set(r.listing_id, r.property_id);
   }
-  const { data: propRows } = await supabase.from('properties').select('id, name');
+  const { data: propRows } = await supabase
+    .from('properties')
+    .select('id, name, default_checkout_time');
   const propertyNames = new Map<string, string>();
   const propertyIdByName = new Map<string, string>();
-  for (const p of (propRows ?? []) as Array<{ id: string; name: string }>) {
+  const defaultCheckout = new Map<string, string>();
+  for (const p of (propRows ?? []) as Array<{ id: string; name: string; default_checkout_time: string | null }>) {
     propertyNames.set(p.id, p.name);
     propertyIdByName.set(p.name.trim().toLowerCase(), p.id);
+    const t = normalizeTime(p.default_checkout_time);
+    if (t) defaultCheckout.set(p.id, t);
   }
 
   const cutoffMs = Date.now() - (opts?.sinceHours ?? DEFAULT_SINCE_HOURS) * 3600_000;
@@ -263,6 +272,16 @@ export async function mineCheckoutChanges(
         continue;
       }
 
+      // A time the thread merely CONFIRMS as standard is not a divergence
+      // if it already matches what this property's schedule assumes. Only
+      // record when it actually differs (3 Windward, 2026-08-24: the
+      // concierge told the guest 11 AM while the Guesty listing default is
+      // 10:00 - exactly the disagreement the schedule exists to surface).
+      if (time && !date && time === defaultCheckout.get(propertyId)) {
+        result.matchesDefault += 1;
+        continue;
+      }
+
       // A time-only agreement must not clobber a standing extension (and
       // vice versa): the new row carries the mined value plus whatever the
       // standing adjustment already established on the other axis.
@@ -324,6 +343,8 @@ async function mineThread(
     model: 'anthropic/claude-sonnet-4.5',
     schema: AgreementSchema,
     system: `You read guest message threads for Rising Tide STR, a vacation-rental manager on Cape Ann MA, and extract SETTLED changes to when the guest leaves: checkout time changes (a late checkout granted, "we'll be out by 8") and checkout date changes (a stay extension agreed, an early departure). The cleaning crew's schedule is built from what you extract, so precision beats recall.
+
+Also extract when the host STATES or CONFIRMS the checkout time the guest will leave at, even when it is framed as the standard time ("we have a same-day turnover, so we'll need to stick with the standard 11 AM checkout"). Downstream code compares it against this property's own default and drops it when they agree, so a plain confirmation costs nothing while a disagreement gets caught.
 
 Extract a change ONLY when the thread shows it is settled: the host or team explicitly confirmed it ("11 works, no problem", "you're all set for the extra night"), or the guest stated a firm plan of their own that needs no permission ("we're actually heading out Tuesday morning"). Do NOT extract: a guest ask with no host answer, a host "let me check", an extension OFFER the guest never accepted, price discussion about a possible extension, or hypotheticals. If a change was agreed and later reverted or re-negotiated in the same thread, extract only the FINAL settled state.
 

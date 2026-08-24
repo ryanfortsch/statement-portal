@@ -21,6 +21,7 @@ import {
 } from '@/lib/cleaner-digest';
 import { buildCheckoutSchedule } from '@/lib/checkout-schedule';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
+import { detectExtensionHolds } from '@/lib/extension-holds';
 
 const CARD = '/cleaner-messaging';
 const CARD_ANCHOR = `${CARD}#schedule-digest`;
@@ -99,6 +100,11 @@ export async function refreshDigestDraft(formData: FormData): Promise<void> {
 export async function rescanMessagesAction(formData: FormData): Promise<void> {
   await requireEmail();
   const serviceDate = String(formData.get('serviceDate') || tomorrowET());
+  try {
+    await detectExtensionHolds(supabase);
+  } catch {
+    // Fail-soft: the thread pass below still runs.
+  }
   try {
     await mineCheckoutChanges(supabase, { sinceHours: 72, maxThreads: 10 });
   } catch {

@@ -12,6 +12,7 @@ import {
 import {
   buildCheckoutSchedule,
   formatTime12,
+  adjustmentSourceLabel,
   type ScheduleDay,
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
@@ -92,13 +93,13 @@ function RowLine({ row }: { row: ScheduleRow }) {
         {row.adjustment?.adjustedTime && (
           <span title={row.adjustment.note || row.adjustment.evidence || ''}>
             <Chip tone="muted">
-              {row.adjustment.source === 'miner' ? 'from guest thread' : 'adjusted'} · was {formatTime12(row.defaultTime)}
+              {adjustmentSourceLabel(row.adjustment.source)} · was {formatTime12(row.defaultTime)}
             </Chip>
           </span>
         )}
         {row.adjustment?.adjustedDate && row.adjustment.adjustedDate !== row.baseCheckOut && (
           <span title={row.adjustment.note || row.adjustment.evidence || ''}>
-            <Chip tone="muted">extended · Guesty says {row.baseCheckOut.slice(5)}</Chip>
+            <Chip tone="muted">extended ({adjustmentSourceLabel(row.adjustment.source)}) · Guesty says {row.baseCheckOut.slice(5)}</Chip>
           </span>
         )}
         {row.adjustment?.drifted && <Chip tone="warn">Guesty moved · re-check</Chip>}
@@ -113,7 +114,7 @@ function Proposals({ day }: { day: ScheduleDay }) {
   return (
     <div style={{ marginTop: 14, padding: '12px 14px', border: '1px solid #d6a51e', borderRadius: 6, background: 'rgba(214,165,30,.06)' }}>
       <div style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 700, color: '#8a6d1a' }}>
-        Mined from guest threads · needs your call
+        Detected but not applied · needs your call
       </div>
       {withProposals.flatMap((r) =>
         r.proposals.map((p) => (

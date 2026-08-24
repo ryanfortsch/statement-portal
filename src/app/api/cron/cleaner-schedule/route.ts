@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeCron } from '@/lib/cron-auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
+import { detectExtensionHolds } from '@/lib/extension-holds';
 import { upsertDigestDraft, expireStaleDigests, tomorrowET } from '@/lib/cleaner-digest';
 
 /**
@@ -24,7 +25,7 @@ import { upsertDigestDraft, expireStaleDigests, tomorrowET } from '@/lib/cleaner
  *
  * Manual params:
  *   ?date=YYYY-MM-DD  draft a specific service date (default tomorrow ET)
- *   ?skip_mine=1      skip the AI pass (draft only, fast)
+ *   ?skip_mine=1      skip the AI thread pass (holds + draft only, fast)
  *   ?dry=1            report what would be drafted without writing
  */
 export const runtime = 'nodejs';
@@ -44,6 +45,18 @@ async function handle(request: NextRequest) {
   }
 
   const expired = dry ? 0 : await expireStaleDigests(supabase);
+
+  // Deterministic first: a paid extension held in the Guesty calendar is
+  // hard data, and it must land whether or not the concierge (and so the
+  // AI thread miner) is reachable at all.
+  let holds = null;
+  if (!dry) {
+    try {
+      holds = await detectExtensionHolds(supabase);
+    } catch (err) {
+      holds = { errors: [err instanceof Error ? err.message : String(err)] };
+    }
+  }
 
   let mine = null;
   if (!skipMine && !dry) {
@@ -71,6 +84,7 @@ async function handle(request: NextRequest) {
     digestStatus: digest.status,
     counts: day.counts,
     expired,
+    holds,
     mine,
   });
 }
