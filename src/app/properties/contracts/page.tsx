@@ -85,6 +85,27 @@ async function getUnregisteredSigned(
   }
 }
 
+type DriveOrphan = { drive_file_id: string; title: string; folder_year: string; drive_url: string };
+
+/**
+ * Signed PDFs the weekly contracts-sweep cron found in the Drive Contracts
+ * folder with no matching register row — a contract someone dug up and
+ * dropped in Drive announces itself here until it's registered.
+ */
+async function getDriveOrphans(): Promise<DriveOrphan[]> {
+  if (!isHelmConfigured) return [];
+  try {
+    const { data, error } = await supabase
+      .from('contract_drive_orphans')
+      .select('drive_file_id, title, folder_year, drive_url')
+      .order('folder_year', { ascending: false });
+    if (error) throw error;
+    return (data ?? []) as DriveOrphan[];
+  } catch {
+    return [];
+  }
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', {
@@ -108,9 +129,10 @@ const chipStyle: React.CSSProperties = {
 
 export default async function PropertyContractsPage() {
   const todayIso = new Date().toISOString().slice(0, 10);
-  const [properties, contracts] = await Promise.all([
+  const [properties, contracts, driveOrphans] = await Promise.all([
     getManagedProperties(),
     getAllPropertyContracts(),
+    getDriveOrphans(),
   ]);
   const unregistered = await getUnregisteredSigned(properties, contracts);
 
@@ -132,7 +154,7 @@ export default async function PropertyContractsPage() {
   const attention = active
     .map((c) => ({ c, a: contractAttention(c, todayIso) }))
     .filter((x): x is { c: PropertyContractRow; a: NonNullable<ReturnType<typeof contractAttention>> } => x.a !== null);
-  const attentionCount = attention.length + uncovered.length;
+  const attentionCount = attention.length + uncovered.length + driveOrphans.length;
 
   const fees = active.map((c) => c.fee_pct).filter((f): f is number => f != null);
   const feeSpan = fees.length ? `${Math.min(...fees)}–${Math.max(...fees)}%` : '—';
@@ -170,7 +192,7 @@ export default async function PropertyContractsPage() {
       </section>
 
       {/* RENEWAL RADAR — renders only when something needs a decision. */}
-      {(attention.length > 0 || uncovered.length > 0 || unregistered.length > 0) && (
+      {(attention.length > 0 || uncovered.length > 0 || unregistered.length > 0 || driveOrphans.length > 0) && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 34 }}>
           <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 18 }}>
             <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 12 }}>
@@ -214,6 +236,19 @@ export default async function PropertyContractsPage() {
                     {expiredIds.has(p.id)
                       ? 'last agreement expired; operating without a live contract'
                       : 'no management agreement on file'}
+                  </span>
+                </li>
+              ))}
+              {driveOrphans.map((o) => (
+                <li key={o.drive_file_id} style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 11, color: 'var(--signal)', minWidth: 86 }}>
+                    in Drive
+                  </span>
+                  <span>
+                    <a href={o.drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--ink)', fontWeight: 600 }}>
+                      {o.title}
+                    </a>
+                    {` — found in the Contracts/${o.folder_year} folder but not in this register yet`}
                   </span>
                 </li>
               ))}

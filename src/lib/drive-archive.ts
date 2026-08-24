@@ -176,6 +176,75 @@ export async function archiveToDrive(args: {
   }
 }
 
+export type ContractDriveFile = {
+  id: string;
+  name: string;
+  year: string;
+  webViewLink: string;
+  createdTime: string;
+};
+
+/**
+ * List every PDF under Helm Records / Contracts / <year>/, across all year
+ * folders. Read-only counterpart to archiveContractToDrive, used by the
+ * weekly contracts sweep to spot signed PDFs that were dropped into the
+ * folder (by hand or by the countersign path) but never registered in
+ * property_contracts. Throws on API failure — the caller decides how to
+ * degrade.
+ */
+export async function listContractDriveFiles(): Promise<ContractDriveFile[]> {
+  const rootId = process.env.DRIVE_HELM_RECORDS_FOLDER_ID;
+  if (!rootId || !process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+    throw new Error('Drive archive not configured');
+  }
+  const token = await getGoogleAccessToken([DRIVE_SCOPE]);
+  const contractsId = await findOrCreateFolder(token, 'Contracts', rootId);
+
+  const yearsQ = [
+    `'${contractsId}' in parents`,
+    `mimeType = 'application/vnd.google-apps.folder'`,
+    'trashed = false',
+  ].join(' and ');
+  const yearsRes = await fetch(
+    `${DRIVE_API}/files?q=${encodeURIComponent(yearsQ)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=50`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!yearsRes.ok) {
+    throw new Error(`Drive year-folder list failed: ${yearsRes.status} ${await yearsRes.text()}`);
+  }
+  const years = ((await yearsRes.json()) as { files?: { id: string; name: string }[] }).files ?? [];
+
+  const out: ContractDriveFile[] = [];
+  for (const y of years) {
+    const filesQ = [
+      `'${y.id}' in parents`,
+      `mimeType = 'application/pdf'`,
+      'trashed = false',
+    ].join(' and ');
+    const filesRes = await fetch(
+      `${DRIVE_API}/files?q=${encodeURIComponent(filesQ)}&fields=files(id,name,webViewLink,createdTime)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=200`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!filesRes.ok) {
+      throw new Error(`Drive contract list failed for ${y.name}: ${filesRes.status} ${await filesRes.text()}`);
+    }
+    const files =
+      ((await filesRes.json()) as {
+        files?: { id: string; name: string; webViewLink?: string; createdTime?: string }[];
+      }).files ?? [];
+    for (const f of files) {
+      out.push({
+        id: f.id,
+        name: f.name,
+        year: y.name,
+        webViewLink: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+        createdTime: f.createdTime || '',
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * Archive a fully-executed contract PDF to Helm Records / Contracts /
  * <year>/. Thin wrapper over archiveToDrive — kept so the call site in
