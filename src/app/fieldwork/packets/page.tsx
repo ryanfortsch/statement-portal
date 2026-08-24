@@ -320,11 +320,13 @@ export default async function PacketsBoard({
           </div>
         )}
 
+        {/* Finished work is history, not the day's job: folded away like
+            Cancelled so the board opens on what still needs a decision. */}
         {completed.length > 0 && (
-          <div style={{ marginTop: 32 }}>
-            <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
-              Completed · {completed.length}
-            </h2>
+          <details style={{ marginTop: 32 }}>
+            <summary style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8, cursor: 'pointer', listStyle: 'none' }}>
+              Completed · {completed.length} ▾
+            </summary>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {completed.slice(0, 25).map((p) => (
                 <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim />
@@ -333,7 +335,7 @@ export default async function PacketsBoard({
             {completed.length > 25 && (
               <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 6 }}>Showing the 25 most recent of {completed.length}.</div>
             )}
-          </div>
+          </details>
         )}
 
         {cancelled.length > 0 && (
