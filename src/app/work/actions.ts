@@ -259,6 +259,10 @@ export async function updateWorkSlipAssignment(args: {
   const patch: Record<string, unknown> = {
     assigned_to_email: email,
     assigned_to_type: email ? 'team' : 'unassigned',
+    // Vendor label from markRunScheduled displays over the email on the
+    // board and property rows; clear it so a reassign or unassign doesn't
+    // keep showing the old vendor.
+    assigned_to_label: null,
   };
   if (email) {
     // Lightly stamp claimed_at when transitioning into a claimed state.
@@ -368,6 +372,9 @@ export async function bulkUpdateWorkSlips(args: {
     const email = args.patch.assigned_to_email?.trim() || null;
     patch.assigned_to_email = email;
     patch.assigned_to_type = email ? 'team' : 'unassigned';
+    // Same as updateWorkSlipAssignment: drop any vendor label from
+    // markRunScheduled so it can't mask the new assignee (or unassigned).
+    patch.assigned_to_label = null;
   }
   if (Object.keys(patch).length === 0) return { ok: false, error: 'Nothing to update' };
 
