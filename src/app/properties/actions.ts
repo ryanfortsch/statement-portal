@@ -194,6 +194,10 @@ async function performPropertyUpdate(
     // On-site guest gear (drives the approved-gear-request -> work-slip flow).
     has_pack_n_play: boolFromCheckbox(formData, 'has_pack_n_play'),
     has_high_chair: boolFromCheckbox(formData, 'has_high_chair'),
+    // Pullout sofa + where its sheets live. Drives the Pullout Bed +
+    // Linens inspection card (see lib/pullout-beds.ts).
+    has_pullout_bed: boolFromCheckbox(formData, 'has_pullout_bed'),
+    pullout_linens_location: strOrNull(formData, 'pullout_linens_location'),
 
     // Utilities
     electricity_provider: strOrNull(formData, 'electricity_provider'),

@@ -31,6 +31,9 @@ type StepperCardShape = {
   zoneName: string | null;
   zoneFloorLabel: string | null;
   walkOrder: number | null;
+  /** Situational text frozen onto the card at Start (auto cards only). */
+  note: string | null;
+  noteLevel: 'info' | 'alert';
 };
 
 function cardKeyOf(itemId: string, zoneId: string | null): string {
@@ -132,6 +135,8 @@ async function getInspection(id: string): Promise<{
         zoneName: z?.name ?? null,
         zoneFloorLabel: z?.floor_label ?? null,
         walkOrder: z?.walk_order ?? null,
+        note: c.note ?? null,
+        noteLevel: c.noteLevel ?? 'info',
       };
     })
     .filter((c): c is StepperCardShape => c !== null);

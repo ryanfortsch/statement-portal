@@ -487,6 +487,12 @@ export type HelmPropertyRow = {
   has_pack_n_play: boolean;
   has_high_chair: boolean;
 
+  // Pullout sofa. has_pullout_bed puts the "Pullout Bed + Linens" card on
+  // every inspection at this home; pullout_linens_location is what that
+  // card tells the inspector (the sheets are never in the linen closet).
+  has_pullout_bed: boolean;
+  pullout_linens_location: string | null;
+
   // Utilities
   electricity_provider: string | null;
   heating: string | null;

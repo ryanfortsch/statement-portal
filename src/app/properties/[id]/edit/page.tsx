@@ -118,7 +118,14 @@ export default async function PropertyEditPage({
           >
             <CheckField name="has_pack_n_play" label="Pack-n-play" checked={p.has_pack_n_play} />
             <CheckField name="has_high_chair" label="High chair" checked={p.has_high_chair} />
+            <CheckField name="has_pullout_bed" label="Pullout bed" checked={p.has_pullout_bed} />
           </CheckGroup>
+          <Field
+            name="pullout_linens_location"
+            label="Pullout linens location"
+            defaultValue={p.pullout_linens_location}
+            hint="Where the pullout sheets are kept — e.g. drawers under the TV. Shows on the inspection's pullout card."
+          />
         </Group>
 
         {/* ── Utilities ── */}

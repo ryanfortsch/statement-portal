@@ -38,6 +38,17 @@ export type InspectionRow = {
 export type OrderedCard = {
   itemId: string;
   zoneId: string | null;
+  /** Situational text for THIS walk, frozen at Start and shown above the
+   *  card's standing description (e.g. "a guest asked for the pullout bed
+   *  to be made up. Sheets: drawers under the TV"). Absent on every card
+   *  that has nothing situational to say, and on every deck stored before
+   *  auto cards existed. */
+  note?: string | null;
+  /** How loudly to show `note`. 'alert' is for something that changes what
+   *  the inspector has to DO here (a guest asked for the pullout bed);
+   *  'info' is standing context they just need to hand (where the sheets
+   *  are). Defaults to 'info'. */
+  noteLevel?: 'info' | 'alert';
 };
 
 export type InspectionItemRow = {

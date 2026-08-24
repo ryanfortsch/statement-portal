@@ -34,6 +34,13 @@ type StepperCard = {
   zoneName: string | null;
   zoneFloorLabel: string | null;
   walkOrder: number | null;
+  /** Situational text for this walk only, frozen onto the card when the
+   *  deck was generated (lib/inspection-deck.ts). Today: the pullout card's
+   *  linen location plus any live guest request to have it made up. */
+  note?: string | null;
+  /** 'alert' when the note changes what has to be done here (a guest is
+   *  waiting on it); 'info' for standing context. */
+  noteLevel?: 'info' | 'alert';
 };
 
 /** A one-off task attached to this stop, woven into the deck as a trailing card
@@ -470,6 +477,18 @@ export function Stepper({
                       </div>
                     )}
                     <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{card.title}</div>
+                    {card.note && (
+                      <div
+                        style={{
+                          marginTop: 3,
+                          fontSize: 12,
+                          lineHeight: 1.45,
+                          color: card.noteLevel === 'alert' ? 'var(--signal)' : 'var(--ink-3)',
+                        }}
+                      >
+                        {card.note.split('\n')[0]}
+                      </div>
+                    )}
                     {r?.notes && (
                       <div style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>
                         &ldquo;{r.notes}&rdquo;
@@ -648,6 +667,26 @@ export function Stepper({
         >
           {activeCard.title}
         </h1>
+        {activeCard.note && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: '12px 16px',
+              borderLeft:
+                activeCard.noteLevel === 'alert'
+                  ? '3px solid var(--signal)'
+                  : '2px solid var(--rule)',
+              background:
+                activeCard.noteLevel === 'alert' ? 'rgba(200,90,58,0.06)' : 'transparent',
+              fontSize: 15,
+              lineHeight: 1.55,
+              color: activeCard.noteLevel === 'alert' ? 'var(--ink)' : 'var(--ink-3)',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {activeCard.note}
+          </div>
+        )}
         {activeCard.description && (
           <p style={{ marginTop: 14, fontSize: 16, lineHeight: 1.5, color: 'var(--ink-3)' }}>
             {activeCard.description}
