@@ -47,18 +47,26 @@ type Props = {
 };
 
 type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
-type TabId = 'all' | 'slips' | 'tasks';
+
+// The board has two faces: property work, where you land, and the team
+// task list one tab over. The old third "All" tab stacked both sections
+// on one page, so the thing you came for sat above a second full list
+// you had to scroll past. One at a time.
+type TabId = 'slips' | 'tasks';
 
 const FILTER_IDS: FilterId[] = ['all', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
-const TAB_IDS: TabId[] = ['all', 'slips', 'tasks'];
+
+/** Filters that only mean anything to a work slip. On the Tasks tab they
+ *  neither render nor apply, but they stay in the URL so tabbing back to
+ *  Property Work restores the view you left. */
+const SLIP_ONLY_FILTERS: FilterId[] = ['owner-action', 'snoozed'];
 
 function parseFilter(value: string | null): FilterId {
   if (!value) return 'all';
   return (FILTER_IDS as string[]).includes(value) ? (value as FilterId) : 'all';
 }
 function parseTab(value: string | null): TabId {
-  if (!value) return 'all';
-  return (TAB_IDS as string[]).includes(value) ? (value as TabId) : 'all';
+  return value === 'tasks' ? 'tasks' : 'slips';
 }
 function parseOpen(value: string | null): Set<string> {
   return new Set((value ?? '').split(',').map((s) => s.trim()).filter(Boolean));
@@ -134,7 +142,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     const params = new URLSearchParams(window.location.search);
     if (nextFilter === 'all') params.delete('filter');
     else params.set('filter', nextFilter);
-    if (nextTab === 'all') params.delete('tab');
+    if (nextTab === 'slips') params.delete('tab');
     else params.set('tab', nextTab);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -254,32 +262,35 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   const propertyMap = useMemo(() => new Map(properties.map((p) => [p.id, p])), [properties]);
   const todayIso = new Date().toISOString().slice(0, 10);
 
+  // A slip-only filter left over from the Property Work tab reads as "all"
+  // over on Tasks rather than blanking the list. The URL keeps the real
+  // one, so tabbing back restores it.
+  const activeFilter: FilterId =
+    tab === 'tasks' && SLIP_ONLY_FILTERS.includes(filter) ? 'all' : filter;
+
   const filteredSlips = useMemo(() => {
     // Snoozed pill switches the source bucket entirely — operator wants
     // to see what they pushed off, not what's active.
-    const source = filter === 'snoozed' ? snoozedSlips : workSlips;
+    const source = activeFilter === 'snoozed' ? snoozedSlips : workSlips;
     return source.filter((w) => {
-      if (filter === 'mine' && w.assigned_to_email !== myEmail) return false;
-      if (filter === 'high' && w.priority !== 'high') return false;
-      if (filter === 'due-today' && w.scheduled_date !== todayIso) return false;
-      if (filter === 'unclaimed' && (w.assigned_to_type !== 'unassigned' || w.assigned_to_email)) return false;
-      if (filter === 'owner-action' && !w.owner_action_required) return false;
+      if (activeFilter === 'mine' && w.assigned_to_email !== myEmail) return false;
+      if (activeFilter === 'high' && w.priority !== 'high') return false;
+      if (activeFilter === 'due-today' && w.scheduled_date !== todayIso) return false;
+      if (activeFilter === 'unclaimed' && (w.assigned_to_type !== 'unassigned' || w.assigned_to_email)) return false;
+      if (activeFilter === 'owner-action' && !w.owner_action_required) return false;
       return true;
     });
-  }, [workSlips, snoozedSlips, filter, myEmail, todayIso]);
+  }, [workSlips, snoozedSlips, activeFilter, myEmail, todayIso]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
-      if (filter === 'mine' && t.assigned_to_email !== myEmail) return false;
-      if (filter === 'high' && t.priority !== 'high') return false;
-      if (filter === 'due-today' && t.due_date !== todayIso) return false;
-      if (filter === 'unclaimed' && t.assigned_to_email) return false;
-      // Slip-only filters: collapse tasks section when these are active.
-      if (filter === 'owner-action') return false;
-      if (filter === 'snoozed') return false;
+      if (activeFilter === 'mine' && t.assigned_to_email !== myEmail) return false;
+      if (activeFilter === 'high' && t.priority !== 'high') return false;
+      if (activeFilter === 'due-today' && t.due_date !== todayIso) return false;
+      if (activeFilter === 'unclaimed' && t.assigned_to_email) return false;
       return true;
     });
-  }, [tasks, filter, myEmail, todayIso]);
+  }, [tasks, activeFilter, myEmail, todayIso]);
 
   /** The ideal ranking: urgency first, then backlog size. What order the
    *  board WOULD be in if it re-sorted right now. */
@@ -362,28 +373,33 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     [slipsByProperty, rankedProperties],
   );
 
-  const counts = {
-    all: workSlips.length + tasks.length,
-    slips: workSlips.length,
-    tasks: tasks.length,
-    mine:
-      workSlips.filter((w) => w.assigned_to_email === myEmail).length +
-      tasks.filter((t) => t.assigned_to_email === myEmail).length,
-    high:
-      workSlips.filter((w) => w.priority === 'high').length +
-      tasks.filter((t) => t.priority === 'high').length,
-    dueToday:
-      workSlips.filter((w) => w.scheduled_date === todayIso).length +
-      tasks.filter((t) => t.due_date === todayIso).length,
-    unclaimed:
-      workSlips.filter((w) => w.assigned_to_type === 'unassigned' && !w.assigned_to_email).length +
-      tasks.filter((t) => !t.assigned_to_email).length,
-    ownerAction: workSlips.filter((w) => w.owner_action_required).length,
-    snoozed: snoozedSlips.length,
-  };
+  // Pill counts belong to whichever tab you're on. A combined number was
+  // a lie on a board that only ever shows one list: "High Priority 5"
+  // while reading Property Work now means five slips, full stop.
+  const counts = useMemo(() => {
+    if (tab === 'tasks') {
+      return {
+        all: tasks.length,
+        mine: tasks.filter((t) => t.assigned_to_email === myEmail).length,
+        high: tasks.filter((t) => t.priority === 'high').length,
+        dueToday: tasks.filter((t) => t.due_date === todayIso).length,
+        unclaimed: tasks.filter((t) => !t.assigned_to_email).length,
+        ownerAction: 0,
+        snoozed: 0,
+      };
+    }
+    return {
+      all: workSlips.length,
+      mine: workSlips.filter((w) => w.assigned_to_email === myEmail).length,
+      high: workSlips.filter((w) => w.priority === 'high').length,
+      dueToday: workSlips.filter((w) => w.scheduled_date === todayIso).length,
+      unclaimed: workSlips.filter((w) => w.assigned_to_type === 'unassigned' && !w.assigned_to_email).length,
+      ownerAction: workSlips.filter((w) => w.owner_action_required).length,
+      snoozed: snoozedSlips.length,
+    };
+  }, [tab, workSlips, snoozedSlips, tasks, myEmail, todayIso]);
 
-  const showSlipsSection = tab !== 'tasks';
-  const showTasksSection = tab !== 'slips';
+  const onSlips = tab === 'slips';
 
   return (
     <>
@@ -397,10 +413,6 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             >
               The board.
             </h1>
-            <p style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-3)' }}>
-              {counts.slips} work slip{counts.slips === 1 ? '' : 's'} &middot; {counts.tasks} task
-              {counts.tasks === 1 ? '' : 's'} active
-            </p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -414,86 +426,81 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         </div>
       </section>
 
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 16, width: '100%' }}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <TabButton active={tab === 'all'} onClick={() => setTab('all')} label="All" count={counts.all} />
-          <TabButton active={tab === 'slips'} onClick={() => setTab('slips')} label="Slips" count={counts.slips} />
-          <TabButton active={tab === 'tasks'} onClick={() => setTab('tasks')} label="Tasks" count={counts.tasks} />
-        </div>
-      </section>
-
-      {/* Filter pills: only render the ones with > 0 matches, plus the
-          currently-selected filter (so a pill doesn't disappear out from
-          under your finger when its count drops to zero), plus the All
-          reset. On a typical day 5 of 7 filters are empty - rendering
-          them as full pill buttons was visual weight that didn't earn
-          its keep. Snoozed is the one exception: it switches to a
-          separate server-side bucket that this pill is the only door to,
-          so it always renders (dimmed at zero) instead of self-hiding. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 28, width: '100%' }}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Pill active={filter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
-          {(counts.mine > 0 || filter === 'mine') && (
-            <Pill active={filter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
-          )}
-          {(counts.high > 0 || filter === 'high') && (
-            <Pill active={filter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
-          )}
-          {(counts.dueToday > 0 || filter === 'due-today') && (
-            <Pill active={filter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
-          )}
-          {(counts.unclaimed > 0 || filter === 'unclaimed') && (
-            <Pill active={filter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
-          )}
-          {(counts.ownerAction > 0 || filter === 'owner-action') && (
-            <Pill active={filter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
-          )}
-          <Pill
-            active={filter === 'snoozed'}
-            onClick={() => setFilter('snoozed')}
-            label="Snoozed"
-            count={counts.snoozed}
-            accent="var(--tide-deep)"
-            dimmed={counts.snoozed === 0}
-          />
-        </div>
-      </section>
-
-      {showSlipsSection && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-            <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              Property Work
-            </h2>
-            <span className="eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-              {orderIsStale && (
-                <button
-                  type="button"
-                  className="rt-no-print"
-                  onClick={() => setFrozenOrder({ filter, tab, ids: rankedProperties.map(([pid]) => pid) })}
-                  title="Closing work changed the ranking. The board held its order so nothing moved while you were in it."
-                  style={{
-                    background: 'none',
-                    border: '1px solid var(--rule)',
-                    color: 'var(--ink-3)',
-                    padding: '3px 9px',
-                    font: 'inherit',
-                    letterSpacing: 'inherit',
-                    textTransform: 'inherit',
-                    cursor: 'pointer',
-                  }}
-                >
-                  ↕ Re-sort
-                </button>
-              )}
-              <span>{filteredSlips.length} active</span>
-            </span>
+      {/* One header row does the work of three: the two board faces are the
+          section heading, so picking a tab and naming the list are the same
+          gesture. The filter pills sit under it, scoped to whichever face is
+          up — only the ones with > 0 matches render, plus the selected one
+          (so a pill can't vanish out from under your finger when its count
+          hits zero), plus the All reset. Snoozed is the exception: it's the
+          only door to a separate server-side bucket, so on Property Work it
+          always renders, dimmed at zero. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
+        <div className="flex items-baseline justify-between flex-wrap gap-3" style={{ marginBottom: 18 }}>
+          <div className="flex items-baseline" style={{ gap: 24 }}>
+            <BoardTab active={onSlips} onClick={() => setTab('slips')} label="Property Work" count={workSlips.length} />
+            <BoardTab active={!onSlips} onClick={() => setTab('tasks')} label="Tasks" count={tasks.length} />
           </div>
+          <span className="eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+            {onSlips && orderIsStale && (
+              <button
+                type="button"
+                className="rt-no-print"
+                onClick={() => setFrozenOrder({ filter, tab, ids: rankedProperties.map(([pid]) => pid) })}
+                title="Closing work changed the ranking. The board held its order so nothing moved while you were in it."
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--rule)',
+                  color: 'var(--ink-3)',
+                  padding: '3px 9px',
+                  font: 'inherit',
+                  letterSpacing: 'inherit',
+                  textTransform: 'inherit',
+                  cursor: 'pointer',
+                }}
+              >
+                ↕ Re-sort
+              </button>
+            )}
+            <span>{onSlips ? `${filteredSlips.length} active` : `${filteredTasks.length} outstanding`}</span>
+          </span>
+        </div>
 
+        <div className="flex items-center gap-2 flex-wrap">
+          <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
+          {(counts.mine > 0 || activeFilter === 'mine') && (
+            <Pill active={activeFilter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
+          )}
+          {(counts.high > 0 || activeFilter === 'high') && (
+            <Pill active={activeFilter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
+          )}
+          {(counts.dueToday > 0 || activeFilter === 'due-today') && (
+            <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
+          )}
+          {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && (
+            <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
+          )}
+          {onSlips && (counts.ownerAction > 0 || activeFilter === 'owner-action') && (
+            <Pill active={activeFilter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
+          )}
+          {onSlips && (
+            <Pill
+              active={activeFilter === 'snoozed'}
+              onClick={() => setFilter('snoozed')}
+              label="Snoozed"
+              count={counts.snoozed}
+              accent="var(--tide-deep)"
+              dimmed={counts.snoozed === 0}
+            />
+          )}
+        </div>
+      </section>
+
+      {onSlips && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', flex: 1 }}>
           {slipsByProperty.length === 0 ? (
             <EmptyBlock
               message={
-                filter === 'snoozed'
+                activeFilter === 'snoozed'
                   ? 'Nothing snoozed. Snooze a slip from its detail page.'
                   : 'No work slips match this filter.'
               }
@@ -529,15 +536,8 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
         </section>
       )}
 
-      {showTasksSection && (
+      {!onSlips && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', flex: 1 }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-            <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              Team Tasks
-            </h2>
-            <span className="eyebrow">{filteredTasks.length} outstanding</span>
-          </div>
-
           {filteredTasks.length === 0 ? (
             <EmptyBlock message="No tasks match this filter." />
           ) : (
@@ -659,24 +659,46 @@ function CollapsibleList<T>({
   );
 }
 
-function TabButton({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
+/**
+ * The board's two faces. Serif and heading-sized on purpose: this strip
+ * stands where the "Property Work" and "Team Tasks" headings used to, so
+ * it has to read as the name of the list beneath it, not as a third row
+ * of navigation under the masthead and the Board/Maintenance/Gear strip.
+ */
+function BoardTab({ active, onClick, label, count }: { active: boolean; onClick: () => void; label: string; count: number }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
+      className="font-serif"
       style={{
-        background: active ? 'var(--ink)' : 'transparent',
-        color: active ? 'var(--paper)' : 'var(--ink)',
-        border: '1px solid var(--ink)',
-        padding: '8px 16px',
-        fontSize: 11,
-        letterSpacing: '.18em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        cursor: 'pointer',
+        background: 'none',
+        border: 'none',
+        borderBottom: `2px solid ${active ? 'var(--signal)' : 'transparent'}`,
+        padding: '0 0 6px',
+        margin: 0,
+        fontSize: 22,
+        fontWeight: 400,
+        letterSpacing: '-0.01em',
+        color: active ? 'var(--ink)' : 'var(--ink-4)',
+        cursor: active ? 'default' : 'pointer',
       }}
     >
-      {label} <span style={{ opacity: 0.7, marginLeft: 6 }}>{count}</span>
+      {label}
+      <span
+        style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: 11,
+          fontWeight: 500,
+          letterSpacing: '.1em',
+          marginLeft: 8,
+          verticalAlign: 'middle',
+          opacity: 0.7,
+        }}
+      >
+        {count}
+      </span>
     </button>
   );
 }
