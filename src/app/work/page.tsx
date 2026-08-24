@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -106,14 +105,6 @@ export default async function WorkQueuePage() {
 
   return (
     <>
-      {/* Quiet utility shelf above the board (the guest-gear matrix lives on
-          its own page so the board stays the board). */}
-      <div className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-        <Link href="/work/gear" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-          Guest gear grid →
-        </Link>
-      </div>
-
       <QueueClient
         workSlips={workSlips}
         snoozedSlips={snoozedSlips}
