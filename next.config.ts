@@ -58,6 +58,17 @@ const nextConfig: NextConfig = {
 
   async redirects() {
     return [
+      // ─── Cleaner live-schedule link shortened to /c/ ────────────────
+      // The link ships at the end of every cleaner SMS, so the path was
+      // cut from "/clean/<32 hex>?d=YYYY-MM-DD" (85 chars) to
+      // "/c/<16 hex>" (~48). Never remove this redirect: a texted link
+      // lives on a cleaner's phone indefinitely and there is no way to
+      // reissue one already delivered.
+      {
+        source: '/clean/:token',
+        destination: '/c/:token',
+        permanent: true,
+      },
       // ─── Canonical domain: statements. → helm. ──────────────────────
       // The deployment answers on multiple aliases (helm.risingtidestr.com,
       // statements.risingtidestr.com, plus vercel.app URLs), but AUTH_URL

@@ -357,7 +357,7 @@ export async function ScheduleDigestCard({
                 <br />
                 {enabledList[0]
                   ? portalLink(enabledList[0].portal_token, digest.service_date)
-                  : `${digestBaseUrl()}/clean/<each cleaner's own token>`}
+                  : `${digestBaseUrl()}/c/<each cleaner's own token>`}
                 {enabledList.length > 1 ? ` (${enabledList[0].display_name}; the others get their own)` : ''}
               </div>
             </div>

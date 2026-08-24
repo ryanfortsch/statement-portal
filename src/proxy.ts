@@ -37,10 +37,13 @@ const PUBLIC_PATH_PREFIXES = [
   // service-role client, so opening this prefix exposes no internal data.
   "/field/",
   // Cleaner checkout schedule (mobile page linked from the daily digest
-  // SMS). Gated by a per-cleaner 32-hex portal token on the RLS-locked
+  // SMS). Gated by a per-cleaner portal token on the RLS-locked
   // cleaner_schedule_recipients table, read only through the service-role
   // client; the page shows addresses + checkout times, never guest names
-  // or codes.
+  // or codes. The path is a bare "/c/" because the link ships in every
+  // SMS and every character counts; "/clean/" stays open for the
+  // permanent redirect in next.config.ts.
+  "/c/",
   "/clean/",
 ];
 

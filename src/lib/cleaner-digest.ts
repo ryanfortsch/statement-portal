@@ -18,7 +18,7 @@
  * NOT cleaner_phones, which still carries permissive anon RLS; the
  * portal token must never be anon-readable). Each enabled recipient
  * gets the digest body plus their own tokenized link to the live
- * mobile schedule page (/clean/<token>), so a text sent at 4pm is
+ * mobile schedule page (/c/<token>), so a text sent at 4pm is
  * never stale by 7am: the page re-merges bookings + adjustments on
  * every load.
  *
@@ -256,8 +256,19 @@ export async function listScheduleRecipients(
   return (data ?? []) as ScheduleRecipient[];
 }
 
+/**
+ * The cleaner's live-schedule link, kept deliberately short because it
+ * rides at the end of every SMS: `/c/<16 hex>`, no query string. It was
+ * `/clean/<32 hex>?d=YYYY-MM-DD` (85 characters, most of it token), which
+ * ate an SMS segment and read as noise on a phone.
+ *
+ * The date parameter is gone rather than shortened: the page now defaults
+ * to the day of the digest that was actually sent, so the link lands on
+ * the right day without carrying it. `serviceDate` is still accepted for
+ * an explicit operator preview of some other day.
+ */
 export function portalLink(token: string, serviceDate?: string): string {
-  return `${digestBaseUrl()}/clean/${token}${serviceDate ? `?d=${serviceDate}` : ''}`;
+  return `${digestBaseUrl()}/c/${token}${serviceDate ? `?d=${serviceDate}` : ''}`;
 }
 
 // ─── send ─────────────────────────────────────────────────────────────
