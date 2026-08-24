@@ -36,6 +36,12 @@ const PUBLIC_PATH_PREFIXES = [
   // SSO. The Field tables are RLS-locked and read only through the
   // service-role client, so opening this prefix exposes no internal data.
   "/field/",
+  // Cleaner checkout schedule (mobile page linked from the daily digest
+  // SMS). Gated by a per-cleaner 32-hex portal token on the RLS-locked
+  // cleaner_schedule_recipients table, read only through the service-role
+  // client; the page shows addresses + checkout times, never guest names
+  // or codes.
+  "/clean/",
 ];
 
 /**

@@ -262,6 +262,44 @@ async function refreshListingMap(
         .is('guesty_listing_id', null);
       if (stampErr) console.warn('[sync-guesty] listing-id stamp skipped:', propId, stampErr.message);
     }
+
+    // Fill-empty the per-property default checkout / check-in times from the
+    // listing's own defaultCheckOutTime / defaultCheckInTime ("10:00" /
+    // "16:00" strings in Guesty). These feed the cleaner checkout schedule
+    // (lib/checkout-schedule.ts); an operator-set value on /turnovers/schedule
+    // is never overwritten, same contract as the listing-id stamp above.
+    const timesByListing = new Map<string, { in: string | null; out: string | null }>();
+    for (const l of all) {
+      timesByListing.set(l._id, {
+        in: typeof l.defaultCheckInTime === 'string' ? l.defaultCheckInTime : null,
+        out: typeof l.defaultCheckOutTime === 'string' ? l.defaultCheckOutTime : null,
+      });
+    }
+    const asHHMM = (raw: string | null): string | null => {
+      const m = raw ? /^(\d{1,2}):(\d{2})/.exec(raw.trim()) : null;
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+      return `${m[1].padStart(2, '0')}:${m[2]}`;
+    };
+    for (const [propId, ids] of byProp) {
+      if (ids.length !== 1) continue;
+      const t = timesByListing.get(ids[0]);
+      const checkout = asHHMM(t?.out ?? null);
+      const checkin = asHHMM(t?.in ?? null);
+      if (checkout) {
+        await getSupabase()
+          .from('properties')
+          .update({ default_checkout_time: checkout })
+          .eq('id', propId)
+          .is('default_checkout_time', null);
+      }
+      if (checkin) {
+        await getSupabase()
+          .from('properties')
+          .update({ default_checkin_time: checkin })
+          .eq('id', propId)
+          .is('default_checkin_time', null);
+      }
+    }
   }
   return { rows, unmatched };
 }

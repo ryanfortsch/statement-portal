@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { listApprovals, listOwnerApprovals, listCleanerApprovals, listContractorApprovals, isStayConciergeConfigured } from '@/lib/stay-concierge';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { todayET } from '@/lib/checkout-schedule';
 
 /**
  * Lightweight count endpoint for the Messaging nav badge.
@@ -20,15 +22,34 @@ import { listApprovals, listOwnerApprovals, listCleanerApprovals, listContractor
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// The cleaner tab also carries the Helm-native schedule-digest card:
+// one pending digest for today-or-later counts as one pending card,
+// exactly matching what /cleaner-messaging renders (a sent/skipped
+// digest renders as history, not an ask). Independent of the concierge.
+async function pendingDigestCount(): Promise<number> {
+  try {
+    const { count } = await supabase
+      .from('cleaner_schedule_digests')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .gte('service_date', todayET());
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function GET() {
   if (!isStayConciergeConfigured()) {
-    return NextResponse.json({ count: 0, guests: 0, owners: 0, cleaners: 0, contractors: 0 });
+    const digests = await pendingDigestCount();
+    return NextResponse.json({ count: digests, guests: 0, owners: 0, cleaners: digests, contractors: 0 });
   }
-  const [guestRes, ownerRes, cleanerRes, contractorRes] = await Promise.all([
+  const [guestRes, ownerRes, cleanerRes, contractorRes, digests] = await Promise.all([
     listApprovals(),
     listOwnerApprovals(),
     listCleanerApprovals(),
     listContractorApprovals(),
+    pendingDigestCount(),
   ]);
   // Mirror the messaging PAGES' own filters exactly. Each prior tweak
   // (data.count, then approvals.length, then resolved_at filter) failed to
@@ -52,7 +73,7 @@ export async function GET() {
   const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
   const guests = guestRes.ok ? guestRes.data.approvals.filter(notScheduled).length : 0;
   const owners = ownerRes.ok ? ownerRes.data.approvals.filter(notScheduled).length : 0;
-  const cleaners = cleanerRes.ok ? cleanerRes.data.approvals.filter(notScheduled).length : 0;
+  const cleaners = (cleanerRes.ok ? cleanerRes.data.approvals.filter(notScheduled).length : 0) + digests;
   const contractors = contractorRes.ok ? contractorRes.data.approvals.filter(notScheduled).length : 0;
   return NextResponse.json({
     count: guests + owners + cleaners + contractors,

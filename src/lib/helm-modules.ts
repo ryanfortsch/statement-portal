@@ -132,6 +132,20 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
+  // A Turnovers tab (TurnoverTabs), so no menu entry of its own. Registered
+  // for search; the daily digest approval lives on /cleaner-messaging.
+  {
+    id: 'checkout-schedule',
+    href: '/turnovers/schedule',
+    number: '02b',
+    title: 'Cleaner Schedule',
+    description: 'Checkout schedule the cleaners can trust: Guesty bookings merged with late checkouts and extensions Helm knows about. Feeds the daily digest text to Rosa and her live mobile page.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'operations',
+  },
   // FieldTabs still handles the job-type/lens sub-navigation underneath.
   {
     id: 'field',
