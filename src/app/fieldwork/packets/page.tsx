@@ -200,16 +200,13 @@ export default async function PacketsBoard({
       <HelmMasthead />
       <FieldTabs current="packets" trade={trade} />
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        {/* One calm header: title + subtitle left, the two CREATE actions right.
+        {/* One calm header: title left, the two CREATE actions right.
             "Manage contractors" was a duplicate of the CONTRACTORS tab above;
             the date filter and test console are secondary, so they whisper on
             their own line instead of crowding the title. */}
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderBottom: '1px solid var(--ink)', paddingBottom: 16 }}>
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field packets</div>
-            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
-              Each property&apos;s open days. Pick a day where nearby ones overlap, then bundle and send.
-            </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Link href="/fieldwork/packets/setup" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Property setup</Link>
