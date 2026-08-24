@@ -76,11 +76,15 @@ export async function GET(req: Request) {
   const access = await getPropertyAccessMap(ids);
 
   // Guest-facing notes only (the operator's explicit "safe to tell a guest" flag).
+  // Ordered so the payload is deterministic: without it, multi-note properties
+  // came back in whichever row order the backend picked that request, and the
+  // stay-concierge KB sync rewrote 16 Waterman's section on every 30-min pass.
   const { data: noteData } = await supabase
     .from('property_notes')
     .select('property_id, title, body')
     .eq('guest_facing', true)
-    .is('resolved_at', null);
+    .is('resolved_at', null)
+    .order('created_at', { ascending: true });
   const notesByProp = new Map<string, NoteRow[]>();
   for (const n of (noteData ?? []) as NoteRow[]) {
     if (!notesByProp.has(n.property_id)) notesByProp.set(n.property_id, []);
