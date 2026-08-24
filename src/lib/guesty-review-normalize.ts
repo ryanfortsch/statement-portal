@@ -11,14 +11,15 @@
  * 123 VRBO and 17 Booking.com reviews sat invisible in the table while
  * /guests looked like an Airbnb-only business.
  *
- * This module is the translation layer. Airbnb and Booking.com have
- * documented shapes and get exact mappings. Anything else (VRBO's
- * `homeaway2` today, whatever channel gets connected next) goes through a
- * tolerant reader that tries the field names those feeds commonly use and
+ * This module is the translation layer. Airbnb, Booking.com and VRBO each
+ * get an exact mapping; any channel connected later goes through a
+ * tolerant reader that tries the field names these feeds commonly use and
  * then, failing that, scans the payload for a rating-shaped number and a
  * review-shaped string. sync-guesty stores the raw payload alongside the
  * parsed columns, so a channel the tolerant reader mis-reads can be given
  * an exact mapping here without waiting for the next review to arrive.
+ * VRBO's mapping below was written from those stored payloads: its shape
+ * is Expedia's, and nothing about it resembles the others.
  */
 
 export type NormalizedGuestyReview = {
@@ -139,10 +140,67 @@ function fromBookingCom(rw: Raw): NormalizedGuestyReview {
   };
 }
 
-// ---- Everything else, VRBO included ----
+// ---- VRBO (channelId "homeaway2") ----
+
+/**
+ * VRBO comes through Guesty as Expedia's review object, which shares no
+ * field names with Airbnb's or Booking.com's. The text is `body.value`
+ * (with an optional `title.value` headline, usually blank), the overall
+ * score is the string `starRatingOverall`, and the sub-scores are an
+ * array of `{ category, value }` pairs rather than named keys. There is
+ * no private-feedback equivalent, so private_feedback stays null.
+ *
+ * Status is deliberately not filtered. Most rows are APPROVED; a review
+ * still inside VRBO's owner-response window reads OWNER_GRACE_PERIOD, and
+ * that is exactly when seeing it is worth something.
+ */
+const VRBO_CATEGORIES = {
+  cleanliness: 'roomCleanliness',
+  // Expedia's "onlineListing" asks whether the listing matched the home,
+  // which is the same question Airbnb files under accuracy.
+  accuracy: 'onlineListing',
+  checkin: 'checkIn',
+  communication: 'communication',
+  location: 'location',
+  value: 'valueForMoney',
+} as const;
+
+function starRating(rw: Raw, category: string): number | null {
+  const arr = rw.starRatings;
+  if (!Array.isArray(arr)) return null;
+  for (const entry of arr) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Raw;
+    if (String(e.category) === category) return num(e.value);
+  }
+  return null;
+}
+
+function fromVrbo(rw: Raw): NormalizedGuestyReview {
+  const body = str(at(rw, 'body.value'));
+  const title = str(at(rw, 'title.value'));
+  return {
+    overall_rating: toStars(num(rw.starRatingOverall) ?? starRating(rw, 'overall')),
+    public_review: joinParts([
+      title && (!body || !body.startsWith(title)) ? title : null,
+      body,
+    ]),
+    private_feedback: null,
+    category_cleanliness: toStars(starRating(rw, VRBO_CATEGORIES.cleanliness)),
+    category_accuracy: toStars(starRating(rw, VRBO_CATEGORIES.accuracy)),
+    category_checkin: toStars(starRating(rw, VRBO_CATEGORIES.checkin)),
+    category_communication: toStars(starRating(rw, VRBO_CATEGORIES.communication)),
+    category_location: toStars(starRating(rw, VRBO_CATEGORIES.location)),
+    category_value: toStars(starRating(rw, VRBO_CATEGORIES.value)),
+  };
+}
+
+// ---- Everything else ----
 
 const RATING_PATHS = [
   'overall_rating',
+  'starRatingOverall',
+  'ratingOverall',
   'overallRating',
   'rating.overall',
   'ratings.overall',
@@ -159,6 +217,7 @@ const RATING_PATHS = [
 
 const TEXT_PATHS = [
   'public_review',
+  'body.value',
   'publicReview',
   'reviewerComments',
   'review.text',
@@ -174,7 +233,7 @@ const TEXT_PATHS = [
   'review',
 ];
 
-const HEADLINE_PATHS = ['headline', 'title', 'review.headline', 'review.title', 'summary'];
+const HEADLINE_PATHS = ['headline', 'title.value', 'title', 'review.headline', 'review.title', 'summary'];
 
 const PRIVATE_PATHS = [
   'private_feedback',
@@ -298,10 +357,37 @@ export function normalizeGuestyReview(
 
   if (channel.startsWith('airbnb')) return fromAirbnb(rw);
   if (channel.startsWith('booking')) return fromBookingCom(rw);
+  if (channel.startsWith('homeaway') || channel === 'vrbo') return fromVrbo(rw);
   return fromUnknownChannel(rw);
 }
 
 /** True when a parsed review carries something worth showing an owner. */
 export function hasReviewContent(n: NormalizedGuestyReview): boolean {
   return n.overall_rating !== null || !!n.public_review || !!n.private_feedback;
+}
+
+/**
+ * The guest's name as the channel spells it, for the 42 VRBO reviews
+ * whose Guesty guest lookup comes back empty (no guestId on the review,
+ * so /v1/guests has nothing to resolve). The Reviews card leads with the
+ * guest's name, and a nameless row reads like a bug. Only ever used as a
+ * fallback: Guesty's own guest record wins when it exists.
+ */
+export function guestNameFromRawReview(
+  channelId: string | undefined | null,
+  rawReview: unknown,
+): string | null {
+  if (!rawReview || typeof rawReview !== 'object' || Array.isArray(rawReview)) return null;
+  const rw = rawReview as Raw;
+
+  // VRBO / Expedia.
+  const first = str(at(rw, 'reservation.primaryGuest.firstName'));
+  const last = str(at(rw, 'reservation.primaryGuest.lastName'));
+  if (first || last) return [first, last].filter(Boolean).join(' ');
+
+  for (const p of ['reviewer.name', 'reviewerName', 'guest.fullName', 'guestName', 'primaryGuest.fullName']) {
+    const s = str(at(rw, p));
+    if (s) return s;
+  }
+  return null;
 }
