@@ -6,15 +6,14 @@ import type { WorkSlipRow, WorkSlipCommentRow } from '@/lib/work-types';
 import {
   WORK_SLIP_CATEGORY_LABELS,
 } from '@/lib/work-types';
-import { StatusChanger } from './StatusChanger';
 import { BackToBoardLink } from './BackToBoardLink';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
 import { SlipScopeEditor } from './SlipScopeEditor';
 import { SlipComments } from './SlipComments';
-import { SnoozeButton } from './SnoozeButton';
 import { SlipTitleEditor } from './SlipTitleEditor';
 import { SlipBringListEditor } from './SlipBringListEditor';
+import { SlipClosePanel } from './SlipClosePanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +106,8 @@ export default async function WorkSlipDetailPage({
   const isSnoozed = !!slip.snoozed_until && slip.snoozed_until > new Date().toISOString().slice(0, 10);
   const backFallbackHref = `/work?open=${slip.property_id}${isSnoozed ? '&filter=snoozed' : ''}#prop-${slip.property_id}`;
 
+  const hasPhotos = (slip.photo_urls ?? []).length > 0;
+
   return (
     <>
       {/* BACK — returns to the board as you left it (filter/tab/expanded
@@ -129,18 +130,19 @@ export default async function WorkSlipDetailPage({
         </div>
       </section>
 
-      {/* STAT GRID */}
+      {/* STAT GRID — assignment lives here as an inline picker instead of
+          its own section (only 1-in-25 slips is ever assigned). */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          {/* auto-fit lets the cells wrap on narrow viewports; the
+              TeamPicker cell is wider than plain text and would overflow
+              a rigid four-column track on a phone. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
             <Stat
               label="Property"
               value={property ? property.name : slip.property_id}
+              sub={slip.location || undefined}
               href={property ? `/properties/${property.id}` : undefined}
-            />
-            <Stat
-              label="Location"
-              value={slip.location || '—'}
             />
             <Stat
               label="Created"
@@ -155,8 +157,14 @@ export default async function WorkSlipDetailPage({
                   ? `due ${formatDate(slip.scheduled_date)}`
                   : undefined
               }
-              last
             />
+            <StatCell label="Assigned" last>
+              <SlipAssignEditor
+                slipId={slip.id}
+                initialAssignedToEmail={slip.assigned_to_email}
+                myEmail={myEmail}
+              />
+            </StatCell>
           </div>
         </div>
       </section>
@@ -182,50 +190,6 @@ export default async function WorkSlipDetailPage({
           )}
         </Section>
       )}
-
-      {/* SUPPLY RUN — what the inspector grabs at 85 Eastern to finish this job */}
-      <Section title="Supply run" eyebrow="Before the visit">
-        <SlipBringListEditor slipId={slip.id} initialBringList={slip.bring_list ?? null} />
-      </Section>
-
-      {/* ASSIGNMENT */}
-      <Section
-        title="Assignment"
-        eyebrow={slip.assigned_to_email ? 'Claimed' : 'Unclaimed'}
-      >
-        <SlipAssignEditor
-          slipId={slip.id}
-          initialAssignedToEmail={slip.assigned_to_email}
-          myEmail={myEmail}
-        />
-      </Section>
-
-      {/* WHO DOES THIS — maintenance-run triage */}
-      {slip.category === 'maintenance' && (
-        <Section title="Who does this" eyebrow="Run triage">
-          <SlipScopeEditor
-            slipId={slip.id}
-            initialScope={slip.run_scope ?? null}
-            initialNote={slip.run_scope_note ?? null}
-          />
-        </Section>
-      )}
-
-      {/* PHOTOS */}
-      <Section
-        title="Photos"
-        eyebrow={
-          slip.photo_urls && slip.photo_urls.length > 0
-            ? `${slip.photo_urls.length} attached`
-            : 'Take or upload'
-        }
-      >
-        <SlipPhotoEditor
-          slipId={slip.id}
-          propertyId={slip.property_id}
-          initialUrls={slip.photo_urls ?? []}
-        />
-      </Section>
 
       {/* SOURCE INSPECTION */}
       {inspection && (
@@ -256,29 +220,73 @@ export default async function WorkSlipDetailPage({
         </Section>
       )}
 
-      {/* STATUS + RESOLUTION */}
+      {/* WHO DOES THIS — maintenance-run triage */}
+      {slip.category === 'maintenance' && (
+        <Section title="Who does this" eyebrow="Run triage">
+          <SlipScopeEditor
+            slipId={slip.id}
+            initialScope={slip.run_scope ?? null}
+            initialNote={slip.run_scope_note ?? null}
+          />
+        </Section>
+      )}
+
+      {/* PHOTOS — a full section only when there are photos to show;
+          otherwise adding one lives in the quiet row below. */}
+      {hasPhotos && (
+        <Section title="Photos" eyebrow={`${slip.photo_urls.length} attached`}>
+          <SlipPhotoEditor
+            slipId={slip.id}
+            propertyId={slip.property_id}
+            initialUrls={slip.photo_urls ?? []}
+          />
+        </Section>
+      )}
+
+      {/* CLOSE OUT — notes + the operator's actual verbs (Mark done,
+          Dismiss, Snooze, Reopen). Machine states like in_progress and
+          scheduled still display in the hero pill; they were never
+          buttons anyone pressed. */}
       <Section
-        title="Update"
+        title="Wrap up"
         eyebrow={
-          slip.snoozed_until && slip.snoozed_until > new Date().toISOString().slice(0, 10)
-            ? `Snoozed until ${slip.snoozed_until}`
-            : 'Mark progress'
+          // Closed beats snoozed: a done slip can carry a stale snooze
+          // date, and "Snoozed until" over a completed slip reads wrong.
+          slip.status === 'done'
+            ? 'Completed'
+            : slip.status === 'dismissed'
+              ? 'Dismissed'
+              : isSnoozed
+                ? `Snoozed until ${slip.snoozed_until}`
+                : 'When it’s handled'
         }
       >
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
-          <SnoozeButton slipId={slip.id} initialSnoozedUntil={slip.snoozed_until ?? null} />
-        </div>
-        <StatusChanger
+        <SlipClosePanel
           workSlipId={slip.id}
+          propertyId={slip.property_id}
           initialStatus={slip.status}
           initialResolutionNotes={slip.resolution_notes ?? null}
+          initialSnoozedUntil={slip.snoozed_until ?? null}
         />
       </Section>
 
-      {/* COMMENTS */}
-      <Section title="Comments" eyebrow={`${comments.length} on the thread`}>
-        <SlipComments slipId={slip.id} initialComments={comments} myEmail={myEmail} />
-      </Section>
+      {/* THE QUIET ROW — rarely-used extras collapse to one line each
+          until they have content: supply run (3% of slips), photos when
+          none yet, comments (1% of slips). */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <SlipBringListEditor slipId={slip.id} initialBringList={slip.bring_list ?? null} />
+          {!hasPhotos && (
+            <SlipPhotoEditor
+              slipId={slip.id}
+              propertyId={slip.property_id}
+              initialUrls={[]}
+              collapsed
+            />
+          )}
+          <SlipComments slipId={slip.id} initialComments={comments} myEmail={myEmail} />
+        </div>
+      </section>
 
       {/* FOOTER */}
       <footer style={{ borderTop: '1px solid var(--ink)', marginTop: 'auto' }}>
@@ -324,6 +332,28 @@ function Section({
   );
 }
 
+function StatCell({
+  label,
+  children,
+  last = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        padding: '20px 22px',
+        borderRight: last ? 'none' : '1px solid var(--rule)',
+      }}
+    >
+      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
 function Stat({
   label,
   value,
@@ -338,20 +368,14 @@ function Stat({
   last?: boolean;
 }) {
   const inner = (
-    <div
-      style={{
-        padding: '20px 22px',
-        borderRight: last ? 'none' : '1px solid var(--rule)',
-      }}
-    >
-      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
+    <StatCell label={label} last={last}>
       <div className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>
         {value}
       </div>
       {sub && (
         <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>{sub}</div>
       )}
-    </div>
+    </StatCell>
   );
   if (href) {
     return (

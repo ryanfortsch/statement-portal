@@ -22,6 +22,9 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  // Almost no slip has a thread, so the compose box stays behind a quiet
+  // "+ Comment" line until asked for (or until a thread exists).
+  const [composeOpen, setComposeOpen] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -67,13 +70,38 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
     });
   }
 
+  if (comments.length === 0 && !composeOpen) {
+    return (
+      <button
+        type="button"
+        onClick={() => setComposeOpen(true)}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          fontSize: 11,
+          letterSpacing: '.16em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          color: 'var(--ink-3)',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        + Comment
+        <span style={{ marginLeft: 8, letterSpacing: 0, textTransform: 'none', color: 'var(--ink-4)', fontWeight: 400 }}>
+          what was bought, who was called, owner decisions
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div>
-      {comments.length === 0 ? (
-        <p style={{ fontSize: 13, color: 'var(--ink-3)', margin: '4px 0 18px' }}>
-          No comments yet. Use this thread to capture context — what was bought, who was called, owner decisions, etc.
-        </p>
-      ) : (
+      <div className="eyebrow" style={{ marginBottom: comments.length > 0 ? 4 : 8 }}>
+        Comments{comments.length > 0 ? ` · ${comments.length}` : ''}
+      </div>
+      {comments.length === 0 ? null : (
         <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 18px' }}>
           {comments.map((c) => (
             <li
@@ -143,6 +171,26 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
           <span style={{ fontSize: 11, color: err ? 'var(--negative)' : 'var(--ink-4)' }}>
             {err ?? `Posting as ${displayNameForEmail(myEmail)}`}
           </span>
+          {comments.length === 0 && (
+            <button
+              type="button"
+              onClick={() => { setComposeOpen(false); setBody(''); setErr(null); }}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                marginLeft: 'auto',
+                marginRight: 14,
+                fontSize: 11,
+                letterSpacing: '.16em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-4)',
+                cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          )}
           <button
             type="submit"
             disabled={submitting || !body.trim()}

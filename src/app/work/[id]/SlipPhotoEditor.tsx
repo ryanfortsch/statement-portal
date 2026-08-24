@@ -8,6 +8,9 @@ type Props = {
   slipId: string;
   propertyId: string;
   initialUrls: string[];
+  /** Start as a one-line "+ Photos" affordance instead of the full
+   *  uploader dropzone. Used when the slip has no photos yet. */
+  collapsed?: boolean;
 };
 
 /**
@@ -17,11 +20,12 @@ type Props = {
  * keeps optimistic local state so removals stay snappy even if the
  * write is in flight.
  */
-export function SlipPhotoEditor({ slipId, propertyId, initialUrls }: Props) {
+export function SlipPhotoEditor({ slipId, propertyId, initialUrls, collapsed = false }: Props) {
   const [urls, setUrls] = useState<string[]>(initialUrls);
   const [pending, startTransition] = useTransition();
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState(!collapsed);
 
   function handleChange(next: string[]) {
     setUrls(next);
@@ -34,6 +38,32 @@ export function SlipPhotoEditor({ slipId, propertyId, initialUrls }: Props) {
       }
       setSavedAt(Date.now());
     });
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          fontSize: 11,
+          letterSpacing: '.16em',
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          color: 'var(--ink-3)',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        + Photos
+        <span style={{ marginLeft: 8, letterSpacing: 0, textTransform: 'none', color: 'var(--ink-4)', fontWeight: 400 }}>
+          take or upload
+        </span>
+      </button>
+    );
   }
 
   return (
