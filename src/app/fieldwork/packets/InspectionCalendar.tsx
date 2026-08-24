@@ -174,6 +174,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
         <Swatch bg="rgba(63,153,34,0.18)" label="open to inspect" />
         <Swatch bg="rgba(58,107,138,0.38)" label="already out to a contractor" />
+        <Swatch bg="rgba(63,153,34,0.42)" label="already inspected" />
         <Swatch bg="rgba(30,46,52,0.08)" label="guest in house" />
         <Swatch bg="rgba(30,46,52,0.16)" label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
@@ -356,6 +357,8 @@ function CalendarRow({
         else if (isSel) bg = 'var(--signal)';
         else if (c?.inspectable) bg = 'rgba(63,153,34,0.18)';
         else if (c?.covered) bg = 'rgba(58,107,138,0.38)';
+        // Deeper than open-green: this day is DONE, not available.
+        else if (c?.inspected) bg = 'rgba(63,153,34,0.42)';
         else bg = 'rgba(30,46,52,0.025)';
         return (
           <button
@@ -368,7 +371,9 @@ function CalendarRow({
                 ? `${row.propertyName} is open ${fmtDay(d)} — click to inspect that day`
                 : c?.covered
                   ? `${row.propertyName}'s next guest is already out to a contractor`
-                  : undefined
+                  : c?.inspected
+                    ? `${row.propertyName} is already inspected for its next guest`
+                    : undefined
             }
             style={{
               minHeight: 34,
