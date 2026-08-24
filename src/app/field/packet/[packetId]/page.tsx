@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
+import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
+import { formatTime12 } from '@/lib/checkout-schedule';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
@@ -531,6 +533,20 @@ export default async function PacketPage({
   const locked = isMine
     ? await loadLockEquippedPropertyIds(packet.stops.map((s) => s.property_id))
     : new Set<string>();
+  // Cape Ann Elite's booked cleaning times for THIS visit day. Keyed on the
+  // visit date rather than each stop's turnover date on purpose: "will a
+  // cleaner be in this house while I am" is a question about the day I am
+  // here, and a maintenance stop on a vacant day collides exactly as hard
+  // as a checkout-day inspection -- most upcoming packets are maintenance.
+  // Silence means the vendor has not announced (they run T-2), never that
+  // nobody is coming, so this surface only ever speaks when a row exists.
+  const vendorTimes = isMine
+    ? await loadVendorTimesForDay(fieldDb(), packet.visit_date)
+    : new Map<string, string>();
+  const cleaningToday = packet.stops
+    .map((s) => ({ stop: s, time: vendorTimes.get(s.property_id) }))
+    .filter((x): x is { stop: typeof x.stop; time: string } => !!x.time)
+    .sort((a, b) => a.time.localeCompare(b.time));
   // One consistent label per stop — never the guest-facing listing title.
   // Full address once it's theirs; otherwise the real property name if they're
   // vetted (background-cleared), else an anonymized "Home N" so an un-cleared
@@ -822,6 +838,47 @@ export default async function PacketPage({
         <p style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6, margin: '4px 0 20px' }}>
           The route and exact addresses are shared the moment you claim.
         </p>
+      )}
+
+      {cleaningToday.length > 0 && (
+        <div
+          style={{
+            margin: '0 0 20px',
+            padding: '12px 14px',
+            border: '1px solid #d6a51e',
+            borderRadius: 8,
+            background: 'rgba(214,165,30,.06)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 700,
+              color: '#875a17',
+            }}
+          >
+            Cleaning booked today
+          </div>
+          {cleaningToday.map(({ stop, time }) => (
+            <div key={stop.id} style={{ fontSize: 14, marginTop: 6, color: 'var(--ink)' }}>
+              <span style={{ fontFamily: 'var(--font-mono), monospace', fontWeight: 700 }}>
+                {formatTime12(time)}
+              </span>
+              {' · '}
+              {/* Property NAME, never the address: 53 Rocky Neck and its
+                  downstairs unit are one street address, and sending an
+                  inspector to the wrong half of a two-unit house is the
+                  same class of error the vendor matcher guards against. */}
+              {stop.property.name}
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, lineHeight: 1.5 }}>
+            {VENDOR_LABEL}&rsquo;s own booking for today. Times move. If a home is still being
+            cleaned when you arrive, call the office rather than working around them.
+          </div>
+        </div>
       )}
 
       <section>

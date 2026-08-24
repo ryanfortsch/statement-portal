@@ -4,6 +4,8 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
+import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
+import { formatTime12 } from '@/lib/checkout-schedule';
 import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier } from '@/lib/field-packets';
 import { StopAttachments, PacketInstructions } from './StopAttachments';
 import { BonusFields } from './BonusFields';
@@ -98,6 +100,15 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   const attachEditable = isAttachableStatus(packet.status);
   // Add a stop while the trip can still take one; exclude homes already on it.
   const canAddStop = ['draft', 'published', 'claimed', 'in_progress'].includes(packet.status);
+  // Cape Ann Elite's own booked times for this visit day, so lining up a
+  // packet shows where a cleaner is already committed. Keyed on the
+  // VISIT date, not the turnover date: the question is who else is in
+  // the house while the contractor is, and a maintenance stop on a
+  // vacant day collides just as hard as a checkout-day inspection.
+  // Only ever speaks when a row exists -- the vendor announces T-2, so
+  // silence on a further-out packet means unannounced, not unscheduled.
+  const vendorTimes = await loadVendorTimesForDay(fieldDb(), packet.visit_date);
+
   const onTrip = new Set(packet.stops.map((s) => s.property_id));
 
   // None of these depend on one another. Fetch them in ONE parallel batch: every
@@ -733,6 +744,14 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 <div className="font-serif" style={{ fontSize: 16 }}>{s.property.name}</div>
                 <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
                   {s.property.address} · {windowLabel(s)}
+                  {vendorTimes.get(s.property_id) && (
+                    <>
+                      {' · '}
+                      <span style={{ color: '#875a17', fontWeight: 600 }}>
+                        {VENDOR_LABEL} {formatTime12(vendorTimes.get(s.property_id)!)}
+                      </span>
+                    </>
+                  )}
                 </div>
                 {/* The visit ledger: when they got in (door-verified when the
                     lock saw their code) and how long they were inside. */}

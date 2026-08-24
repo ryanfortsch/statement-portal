@@ -270,6 +270,39 @@ export async function loadVendorAppointments(
   return { rows, horizon: (maxRow as { service_date: string } | null)?.service_date ?? null };
 }
 
+/**
+ * propertyId -> committed cleaning time, for ONE day.
+ *
+ * Deliberately not `loadVendorAppointments`: that runs a second,
+ * unbounded MAX(service_date) probe to establish the announcement
+ * horizon, which only the reconciliation needs. Callers that just want
+ * "is a cleaner booked at this house that day" (the Field packet pages,
+ * which re-render on a 20s AutoRefresh) should not pay for it.
+ *
+ * Returns an empty map on any failure: a vendor outage must never take
+ * down a working inspector's packet.
+ */
+export async function loadVendorTimesForDay(
+  supabase: SupabaseClient,
+  date: string,
+): Promise<Map<string, string>> {
+  try {
+    const { data } = await supabase
+      .from('vendor_appointments')
+      .select('property_id, service_time')
+      .eq('vendor', VENDOR_ID)
+      .eq('service_date', date);
+    return new Map(
+      ((data ?? []) as Array<{ property_id: string; service_time: string }>).map((r) => [
+        r.property_id,
+        r.service_time,
+      ]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 /** Compare one schedule day against the vendor's bookings for that day. */
 export function reconcileDay(
   day: ScheduleDay,
