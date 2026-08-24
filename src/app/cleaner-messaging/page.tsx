@@ -16,6 +16,7 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { CleanerMessagingQueue } from './CleanerMessagingQueue';
+import { ScheduleDigestCard } from './ScheduleDigestCard';
 import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
 import {
   fetchProactiveReminders,
@@ -27,6 +28,9 @@ import {
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
+// Headroom for the digest card's "Re-scan messages" action (a bounded
+// AI pass over recent guest threads).
+export const maxDuration = 120;
 
 // Static shell renders synchronously; data streams below via <Suspense>.
 function Shell({ children }: { children: ReactNode }) {
@@ -131,10 +135,34 @@ async function ProposedUpdatesSection() {
   );
 }
 
-export default function CleanerMessagingPage() {
+// The daily checkout-schedule digest (Helm-native, sends via Helm's own
+// Quo credentials): rendered ABOVE the concierge queue and in the
+// unconfigured branch too, because it must survive a sleeping Mac Mini.
+async function ScheduleDigestSection({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = searchParams ? await searchParams : {};
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  return (
+    <ScheduleDigestCard
+      notice={{ sent: first(sp.sent), failed: first(sp.failed), err: first(sp.err) }}
+    />
+  );
+}
+
+export default function CleanerMessagingPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   if (!isStayConciergeConfigured()) {
     return (
       <Shell>
+        <Suspense fallback={null}>
+          <ScheduleDigestSection searchParams={searchParams} />
+        </Suspense>
         <NotReachable message="STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel." />
       </Shell>
     );
@@ -142,6 +170,9 @@ export default function CleanerMessagingPage() {
 
   return (
     <Shell>
+      <Suspense fallback={null}>
+        <ScheduleDigestSection searchParams={searchParams} />
+      </Suspense>
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
       </Suspense>
