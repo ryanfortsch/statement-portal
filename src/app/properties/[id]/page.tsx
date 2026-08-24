@@ -32,6 +32,14 @@ import { GuestCodesPanel } from './GuestCodesPanel';
 import { MarkSlipDoneButton } from './MarkSlipDoneButton';
 import { QuickCapture } from './QuickCapture';
 import { getPropertyDocuments } from '@/lib/property-documents';
+import {
+  getPropertyContracts,
+  contractAttention,
+  currentTermEnd,
+  noticeDeadline,
+  daysUntil,
+  renewalSummary,
+} from '@/lib/property-contracts';
 import { getClimateProfile, listSeamThermostatsSafe } from '@/lib/climate';
 import { getGuestCodeView } from '@/lib/guest-locks';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
@@ -461,7 +469,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices, propertyContracts] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -495,8 +503,19 @@ export default async function PropertyDetailPage({
     getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
     getForwardDistinctPrices(p.id),
+    getPropertyContracts(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
+
+  // Management-contract registry facts (property_contracts). The active row
+  // is the canonical agreement; contractFacts (projection columns) remains
+  // the fallback for a promoted prospect whose contract isn't registered yet.
+  const contractTodayIso = new Date().toISOString().slice(0, 10);
+  const activeContract = propertyContracts.find((c) => c.status === 'active') ?? null;
+  const pastContracts = propertyContracts.filter((c) => c.status !== 'active');
+  const activeContractAttention = activeContract
+    ? contractAttention(activeContract, contractTodayIso)
+    : null;
 
   // Launch progress for the Today tab launch chip, computed with the SAME
   // derivation the launch page uses (computeLaunchProgress), so the chip
@@ -1700,62 +1719,206 @@ export default async function PropertyDetailPage({
         </div>
       </CollapsibleSection>
       {/* MANAGEMENT AGREEMENT — the deal facts the onboarding checklist's
-          "Open records" links land on. Term dates come from the linked
-          projection (they fill the contract's Term clause); renewal is the
-          contract's standard clause. Absent for the pre-Projections fleet,
-          whose signed copies live in Documents below. */}
-      {p.projection_id && (
+          "Open records" links land on. The property_contracts registry row
+          (seeded from the Drive Contracts corpus) is the canonical source:
+          fee, term, renewal mechanics, and negotiated clauses as signed.
+          Falls back to the linked projection's contract columns for a
+          promoted prospect whose contract isn't registered yet. */}
+      {activeContract ? (
         <CollapsibleSection
           title="Management Agreement"
           summary={
-            contractFacts.termStart && contractFacts.termEnd
-              ? `${fmtTermDate(contractFacts.termStart)} to ${fmtTermDate(contractFacts.termEnd)}`
-              : 'term dates incomplete'
+            activeContractAttention
+              ? activeContractAttention.kind === 'notice_window'
+                ? `notice deadline ${fmtTermDate(activeContractAttention.deadline)}`
+                : 'needs attention'
+              : `through ${fmtTermDate(currentTermEnd(activeContract, contractTodayIso))} · ${activeContract.fee_pct != null ? `${activeContract.fee_pct}%` : 'fee n/a'}`
           }
+          defaultOpen={!!activeContractAttention}
         >
-          <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 720 }}>
-            <div className="eyebrow">Status</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
+            <div className="eyebrow">Parties</div>
             <div style={{ color: 'var(--ink)' }}>
-              {contractFacts.executed ? 'Executed (signed and countersigned)' : 'Not fully executed'}
+              {activeContract.owner_party} · signed via{' '}
+              {activeContract.signed_via === 'helm' ? 'Helm e-sign' : activeContract.signed_via === 'docusign' ? 'Docusign' : 'external paperwork'}
+              {activeContract.executed_on ? ` on ${fmtTermDate(activeContract.executed_on)}` : ' (copy on file is undated)'}
             </div>
             <div className="eyebrow">Term</div>
-            <div style={{ color: contractFacts.termStart && contractFacts.termEnd ? 'var(--ink)' : 'var(--signal)' }}>
-              {contractFacts.termStart ? fmtTermDate(contractFacts.termStart) : 'start not recorded'}
+            <div style={{ color: 'var(--ink)' }}>
+              {activeContract.term_start ? fmtTermDate(activeContract.term_start) : 'start not recorded'}
               {' to '}
-              {contractFacts.termEnd ? fmtTermDate(contractFacts.termEnd) : 'end not recorded'}
+              {fmtTermDate(currentTermEnd(activeContract, contractTodayIso))}
+              {currentTermEnd(activeContract, contractTodayIso) > activeContract.term_end && (
+                <span style={{ color: 'var(--ink-3)' }}>
+                  {' '}(auto-renewed; written term ended {fmtTermDate(activeContract.term_end)})
+                </span>
+              )}
             </div>
             <div className="eyebrow">Renewal</div>
-            <div style={{ color: 'var(--ink-3)', lineHeight: 1.55 }}>
-              Auto-renews for successive one-year terms unless either party gives written
-              non-renewal notice at least 120 days before term end (standard clause; redlines, if any, control).
+            <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>
+              {renewalSummary(activeContract)}
+              {(() => {
+                const deadline = noticeDeadline(activeContract, contractTodayIso);
+                if (!deadline) return null;
+                const days = daysUntil(deadline, contractTodayIso);
+                return (
+                  <span
+                    className="tabular-nums"
+                    style={{
+                      color: days <= 14 ? 'var(--negative)' : days <= 75 ? 'var(--signal)' : 'var(--ink-3)',
+                      fontWeight: days <= 75 ? 600 : 400,
+                    }}
+                  >
+                    {' '}· notice deadline {fmtTermDate(deadline)}{days >= 0 ? ` (${days}d)` : ''}
+                  </span>
+                );
+              })()}
             </div>
+            <div className="eyebrow">Fee</div>
+            <div style={{ color: 'var(--ink)', lineHeight: 1.55 }}>
+              {activeContract.fee_pct != null ? `${activeContract.fee_pct}% of gross rental income` : 'not recorded'}
+              {activeContract.fee_pct != null &&
+                p.management_fee_pct != null &&
+                Number(p.management_fee_pct) !== Number(activeContract.fee_pct) && (
+                  <span style={{ color: 'var(--negative)' }}>
+                    {' '}— contract disagrees with the {p.management_fee_pct}% Helm bills; reconcile before the next statement
+                  </span>
+                )}
+              {activeContract.fee_notes && (
+                <span style={{ color: 'var(--ink-3)' }}> · {activeContract.fee_notes}</span>
+              )}
+            </div>
+            {activeContract.min_availability && (
+              <>
+                <div className="eyebrow">Availability</div>
+                <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>{activeContract.min_availability}</div>
+              </>
+            )}
+            {activeContract.special_terms.length > 0 && (
+              <>
+                <div className="eyebrow">Negotiated</div>
+                <ul style={{ margin: 0, paddingLeft: 16, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                  {activeContract.special_terms.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
-          {(!contractFacts.termStart || !contractFacts.termEnd) && (
-            <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-              A missing term date here is a missing renewal deadline. Set it on the projection
-              and this line (plus the onboarding checklist item) resolves itself.
+          {activeContractAttention && (
+            <p style={{ margin: '14px 0 0', fontSize: 12.5, color: 'var(--signal)', lineHeight: 1.55, maxWidth: 760 }}>
+              {activeContractAttention.detail}
+            </p>
+          )}
+          {activeContract.notes && (
+            <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 760 }}>
+              {activeContract.notes}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
+            {activeContract.drive_url && (
+              <a href={activeContract.drive_url} target="_blank" rel="noreferrer" style={primaryActionStyle}>
+                Signed PDF ↗
+              </a>
+            )}
+            {p.projection_id && (
+              <Link
+                href={`/projections/${p.projection_id}/contract`}
+                target="_blank"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                Contract page
+              </Link>
+            )}
+            <Link
+              href="/properties/contracts"
+              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+            >
+              All contracts
+            </Link>
+          </div>
+          {pastContracts.length > 0 && (
+            <div style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+              {pastContracts.map((c) => (
+                <div key={c.id}>
+                  {c.status === 'superseded' ? 'Superseded' : 'Expired'}:{' '}
+                  {c.term_start ? fmtTermDate(c.term_start) : '—'} to {fmtTermDate(c.term_end)}
+                  {c.fee_pct != null ? ` at ${c.fee_pct}%` : ''}
+                  {c.drive_url && (
+                    <>
+                      {' · '}
+                      <a href={c.drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                        PDF ↗
+                      </a>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CollapsibleSection>
+      ) : (
+        <CollapsibleSection
+          title="Management Agreement"
+          summary={
+            pastContracts.length > 0
+              ? 'expired — no live contract'
+              : p.projection_id
+                ? contractFacts.executed
+                  ? 'signed — not yet registered'
+                  : 'not fully executed'
+                : 'none on file'
+          }
+          defaultOpen={pastContracts.length > 0}
+        >
+          {pastContracts.length > 0 && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--negative)', lineHeight: 1.6, maxWidth: 760 }}>
+              The last agreement ({pastContracts[0].term_start ? fmtTermDate(pastContracts[0].term_start) : '—'} to{' '}
+              {fmtTermDate(pastContracts[0].term_end)}
+              {pastContracts[0].fee_pct != null ? ` at ${pastContracts[0].fee_pct}%` : ''}) has ended and nothing
+              renews it — this property is operating without a live contract.
+              {pastContracts[0].drive_url && (
+                <>
+                  {' '}
+                  <a href={pastContracts[0].drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                    Last signed PDF ↗
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+          {pastContracts.length === 0 && p.projection_id && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 720 }}>
+              <div className="eyebrow">Status</div>
+              <div style={{ color: 'var(--ink)' }}>
+                {contractFacts.executed ? 'Executed (signed and countersigned)' : 'Not fully executed'}
+              </div>
+              <div className="eyebrow">Term</div>
+              <div style={{ color: contractFacts.termStart && contractFacts.termEnd ? 'var(--ink)' : 'var(--signal)' }}>
+                {contractFacts.termStart ? fmtTermDate(contractFacts.termStart) : 'start not recorded'}
+                {' to '}
+                {contractFacts.termEnd ? fmtTermDate(contractFacts.termEnd) : 'end not recorded'}
+              </div>
+            </div>
+          )}
+          {pastContracts.length === 0 && !p.projection_id && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 760 }}>
+              No management agreement is registered for this property. If a signed copy exists, it belongs in the
+              Drive Contracts folder and in the register.
             </p>
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
-            <Link href={`/projections/${p.projection_id}/contract`} target="_blank" style={primaryActionStyle}>
-              View contract ↗
-            </Link>
-            {(!contractFacts.termStart || !contractFacts.termEnd) && (
-              <Link
-                href={`/prospects/${p.projection_id}`}
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  letterSpacing: '.18em',
-                  textTransform: 'uppercase',
-                  color: 'var(--ink-3)',
-                  textDecoration: 'none',
-                  padding: '9px 12px',
-                }}
-              >
-                Fix on projection
+            {p.projection_id && (
+              <Link href={`/projections/${p.projection_id}/contract`} target="_blank" style={primaryActionStyle}>
+                View contract ↗
               </Link>
             )}
+            <Link
+              href="/properties/contracts"
+              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+            >
+              All contracts
+            </Link>
           </div>
         </CollapsibleSection>
       )}
