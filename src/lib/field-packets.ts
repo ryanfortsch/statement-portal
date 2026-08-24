@@ -211,10 +211,14 @@ async function deriveDayCandidates(
     );
     for (const stay of upcoming) {
       const checkIn = stay.check_in;
-      // Most recent checkout on/before this check-in (the turnover this preps).
+      // Most recent GUEST checkout on/before this check-in (the turnover this
+      // preps). Guest stays only: a block's end is not a guest walking out at
+      // 11 AM, and Guesty's phantom auto-cancelled blocks were faking
+      // "Checkout today" on homes that had been empty since the day before
+      // (20 Hammond, 2026-08-24). Blocks still count as occupancy above.
       const priorCheckout =
         propBookings
-          .filter((b) => b.check_out <= checkIn && b.id !== stay.id)
+          .filter((b) => isGuestStay(b) && b.check_out <= checkIn && b.id !== stay.id)
           .map((b) => b.check_out)
           .sort()
           .at(-1) ?? null;
@@ -955,11 +959,12 @@ export async function resyncPacketStopBookings(packetId: string): Promise<{ upda
 
   const { data: sData } = await fieldDb()
     .from('packet_stops')
-    .select('id, property_id, status, started_at, booking_id, next_checkin, prior_checkout, work_slip_id')
+    .select('id, property_id, status, started_at, booking_id, next_checkin, prior_checkout, window_basis, work_slip_id')
     .eq('packet_id', packetId);
   const stops = (sData ?? []) as Array<{
     id: string; property_id: string; status: string; started_at: string | null;
-    booking_id: string | null; next_checkin: string | null; prior_checkout: string | null; work_slip_id: string | null;
+    booking_id: string | null; next_checkin: string | null; prior_checkout: string | null;
+    window_basis: WindowBasis; work_slip_id: string | null;
   }>;
   // Only re-point genuinely untouched stops: not terminal, not started.
   const movable = stops.filter((s) => s.status !== 'complete' && s.status !== 'skipped' && !s.started_at && !s.work_slip_id);
@@ -987,7 +992,21 @@ export async function resyncPacketStopBookings(packetId: string): Promise<{ upda
   for (const stop of movable) {
     const cand = candidates.get(stop.property_id);
     if (!cand || !cand.bookingId) continue;            // occupied / blocked / no successor -> leave inert, NEVER null
-    if (cand.bookingId === stop.booking_id) continue;  // already correct
+    if (cand.bookingId === stop.booking_id) {
+      // Same booking, but the WINDOW may have drifted: a shortened prior stay,
+      // or a phantom block that faked "Checkout today" and then got cancelled
+      // (20 Hammond, 2026-08-24 - the stop kept telling the inspector to wait
+      // for a checkout that had happened the day before). Refresh the shape
+      // columns so the label follows reality.
+      if (cand.basis !== stop.window_basis || cand.priorCheckout !== stop.prior_checkout || cand.nextCheckin !== stop.next_checkin) {
+        await fieldDb()
+          .from('packet_stops')
+          .update({ window_basis: cand.basis, prior_checkout: cand.priorCheckout, next_checkin: cand.nextCheckin })
+          .eq('id', stop.id);
+        updated++;
+      }
+      continue;
+    }
     if (taken.has(cand.bookingId)) continue;           // another live stop owns it
     await fieldDb()
       .from('packet_stops')
@@ -1229,7 +1248,9 @@ async function candidatesForDay(
     // uses. The old unconditional `check_in <= day` test made every same-day
     // turnover invisible here: never bundleable, never booking-linked.
     if (pb.some((b) => b.check_in <= day && day < b.check_out) && !(next && next.check_in === day)) continue;
-    const priorCheckout = pb.filter((b) => b.check_out <= day).map((b) => b.check_out).sort().at(-1) ?? null;
+    // Guest checkouts only (mirrors deriveDayCandidates): a block ending on
+    // the visit day must not fake a "Checkout today" turn.
+    const priorCheckout = pb.filter((b) => isGuestStay(b) && b.check_out <= day).map((b) => b.check_out).sort().at(-1) ?? null;
     let basis: WindowBasis = 'vacant';
     if (priorCheckout && day === priorCheckout) basis = 'checkout_day';
     else if (next && day === next.check_in) basis = 'pre_checkin';
@@ -1543,9 +1564,19 @@ export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRun> 
     lowByProp.set(w.property_id, arr);
   }
 
+  // Slips authored elsewhere often carry their own "<Home>: " prefix (prep
+  // rules title them that way for the board). The supply rows already lead
+  // with the home name, so strip it — otherwise the card reads
+  // "30 Woodward · 30 Woodward: Bring purple trash bags…" and the phone
+  // renders a wall of doubled text.
+  const stripHomePrefix = (title: string, home: string): string =>
+    title.toLowerCase().startsWith(`${home.toLowerCase()}:`)
+      ? title.slice(home.length + 1).trim()
+      : title;
+
   const bins = propIds.map((id) => {
     const name = nameById.get(id) ?? id;
-    return { propertyName: name, binLabel: name, lowItems: lowByProp.get(id) ?? [] };
+    return { propertyName: name, binLabel: name, lowItems: (lowByProp.get(id) ?? []).map((t) => stripHomePrefix(t, name)) };
   });
 
   // Materials to complete the work slips on this packet (maintenance stops, plus
@@ -1562,7 +1593,8 @@ export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRun> 
     for (const j of (jData ?? []) as { property_id: string; title: string; bring_list: string | null }[]) {
       const bring = (j.bring_list ?? '').trim();
       if (!bring) continue;
-      jobs.push({ title: j.title, propertyName: nameById.get(j.property_id) ?? j.property_id, bring });
+      const home = nameById.get(j.property_id) ?? j.property_id;
+      jobs.push({ title: stripHomePrefix(j.title, home), propertyName: home, bring });
     }
   }
 
