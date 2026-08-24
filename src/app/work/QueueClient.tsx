@@ -403,17 +403,46 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
   return (
     <>
-      {/* No masthead: the section strip above already says Work / Board, and
-          the tab row below names the list. What's left is the doing — the two
-          create buttons, and the quiet door to the guest-gear matrix, which
-          lives on its own page so the board stays the board. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20, width: '100%' }}>
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <Link href="/work/gear" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
-            Guest gear grid →
-          </Link>
-
-          <div className="flex items-center gap-3">
+      {/* The whole head of the board is two rows. No masthead: the section
+          strip above already says Work / Board, and the tabs below name the
+          list, so the two board faces ARE the heading — picking a tab and
+          naming the list are one gesture. The create buttons ride along on
+          that row instead of holding a row of their own, and the filter
+          pills take the second, scoped to whichever face is up: only the
+          ones with > 0 matches render, plus the selected one (so a pill
+          can't vanish out from under your finger when its count hits zero),
+          plus the All reset. Snoozed is the exception — it's the only door
+          to a separate server-side bucket, so on Property Work it always
+          renders, dimmed at zero. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 24, width: '100%' }}>
+        <div className="flex items-end justify-between flex-wrap gap-4" style={{ marginBottom: 18 }}>
+          <div className="flex items-end" style={{ gap: 24 }}>
+            <BoardTab active={onSlips} onClick={() => setTab('slips')} label="Property Work" count={workSlips.length} />
+            <BoardTab active={!onSlips} onClick={() => setTab('tasks')} label="Tasks" count={tasks.length} />
+          </div>
+          <div className="flex items-center" style={{ gap: 12 }}>
+            {/* The tab already carries the total, so this only earns its
+                place once a filter has narrowed the list below it. */}
+            {activeFilter !== 'all' && (
+              <span className="eyebrow">{onSlips ? filteredSlips.length : filteredTasks.length} shown</span>
+            )}
+            {onSlips && orderIsStale && (
+              <button
+                type="button"
+                className="eyebrow rt-no-print"
+                onClick={() => setFrozenOrder({ filter, tab, ids: rankedProperties.map(([pid]) => pid) })}
+                title="Closing work changed the ranking. The board held its order so nothing moved while you were in it."
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--rule)',
+                  color: 'var(--ink-3)',
+                  padding: '3px 9px',
+                  cursor: 'pointer',
+                }}
+              >
+                ↕ Re-sort
+              </button>
+            )}
             <button type="button" onClick={() => setShowTaskModal(true)} style={ghostBtn()}>
               + Task
             </button>
@@ -422,74 +451,43 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             </button>
           </div>
         </div>
-      </section>
 
-      {/* One header row does the work of three: the two board faces are the
-          section heading, so picking a tab and naming the list are the same
-          gesture. The filter pills sit under it, scoped to whichever face is
-          up — only the ones with > 0 matches render, plus the selected one
-          (so a pill can't vanish out from under your finger when its count
-          hits zero), plus the All reset. Snoozed is the exception: it's the
-          only door to a separate server-side bucket, so on Property Work it
-          always renders, dimmed at zero. */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
-        <div className="flex items-baseline justify-between flex-wrap gap-3" style={{ marginBottom: 18 }}>
-          <div className="flex items-baseline" style={{ gap: 24 }}>
-            <BoardTab active={onSlips} onClick={() => setTab('slips')} label="Property Work" count={workSlips.length} />
-            <BoardTab active={!onSlips} onClick={() => setTab('tasks')} label="Tasks" count={tasks.length} />
-          </div>
-          <span className="eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-            {onSlips && orderIsStale && (
-              <button
-                type="button"
-                className="rt-no-print"
-                onClick={() => setFrozenOrder({ filter, tab, ids: rankedProperties.map(([pid]) => pid) })}
-                title="Closing work changed the ranking. The board held its order so nothing moved while you were in it."
-                style={{
-                  background: 'none',
-                  border: '1px solid var(--rule)',
-                  color: 'var(--ink-3)',
-                  padding: '3px 9px',
-                  font: 'inherit',
-                  letterSpacing: 'inherit',
-                  textTransform: 'inherit',
-                  cursor: 'pointer',
-                }}
-              >
-                ↕ Re-sort
-              </button>
+        <div className="flex items-center justify-between flex-wrap" style={{ gap: 12 }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
+            {(counts.mine > 0 || activeFilter === 'mine') && (
+              <Pill active={activeFilter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
             )}
-            <span>{onSlips ? `${filteredSlips.length} active` : `${filteredTasks.length} outstanding`}</span>
-          </span>
-        </div>
+            {(counts.high > 0 || activeFilter === 'high') && (
+              <Pill active={activeFilter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
+            )}
+            {(counts.dueToday > 0 || activeFilter === 'due-today') && (
+              <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
+            )}
+            {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && (
+              <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
+            )}
+            {onSlips && (counts.ownerAction > 0 || activeFilter === 'owner-action') && (
+              <Pill active={activeFilter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
+            )}
+            {onSlips && (
+              <Pill
+                active={activeFilter === 'snoozed'}
+                onClick={() => setFilter('snoozed')}
+                label="Snoozed"
+                count={counts.snoozed}
+                accent="var(--tide-deep)"
+                dimmed={counts.snoozed === 0}
+              />
+            )}
+          </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
-          {(counts.mine > 0 || activeFilter === 'mine') && (
-            <Pill active={activeFilter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
-          )}
-          {(counts.high > 0 || activeFilter === 'high') && (
-            <Pill active={activeFilter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
-          )}
-          {(counts.dueToday > 0 || activeFilter === 'due-today') && (
-            <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
-          )}
-          {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && (
-            <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
-          )}
-          {onSlips && (counts.ownerAction > 0 || activeFilter === 'owner-action') && (
-            <Pill active={activeFilter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
-          )}
-          {onSlips && (
-            <Pill
-              active={activeFilter === 'snoozed'}
-              onClick={() => setFilter('snoozed')}
-              label="Snoozed"
-              count={counts.snoozed}
-              accent="var(--tide-deep)"
-              dimmed={counts.snoozed === 0}
-            />
-          )}
+          {/* Quiet lens link: the guest-gear matrix lives on its own page so
+              the board stays the board. Rides the filter row rather than a
+              shelf of its own. */}
+          <Link href="/work/gear" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+            Guest gear grid →
+          </Link>
         </div>
       </section>
 
