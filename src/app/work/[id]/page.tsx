@@ -14,6 +14,7 @@ import { SlipComments } from './SlipComments';
 import { SlipTitleEditor } from './SlipTitleEditor';
 import { SlipBringListEditor } from './SlipBringListEditor';
 import { SlipClosePanel } from './SlipClosePanel';
+import { SlipOwnerActionEditor } from './SlipOwnerActionEditor';
 
 export const dynamic = 'force-dynamic';
 
@@ -231,6 +232,36 @@ export default async function WorkSlipDetailPage({
         </Section>
       )}
 
+      {/* OWNER INPUT — same shape as Photos: a full section only when the
+          slip is flagged; arming it lives in the quiet row below. This is
+          the writer for the whole owner-action rail (board filter, OWNER
+          badges, daily brief, Draft-owner-email bundler). */}
+      {slip.owner_action_required && (
+        <Section
+          title="Owner input"
+          eyebrow={
+            slip.owner_status === 'approved'
+              ? 'Owner approved'
+              : slip.owner_status === 'declined'
+                ? 'Owner declined'
+                : slip.owner_status === 'questions'
+                  ? 'Owner has questions'
+                  : slip.owner_status === 'sent'
+                    ? 'Asked, awaiting reply'
+                    : 'Not asked yet'
+          }
+        >
+          <SlipOwnerActionEditor
+            slipId={slip.id}
+            propertyId={slip.property_id}
+            initialType={slip.owner_action_type ?? null}
+            initialNotes={slip.owner_action_notes ?? null}
+            ownerStatus={slip.owner_status ?? null}
+            ownerLastContactedAt={slip.owner_last_contacted_at ?? null}
+          />
+        </Section>
+      )}
+
       {/* PHOTOS — a full section only when there are photos to show;
           otherwise adding one lives in the quiet row below. */}
       {hasPhotos && (
@@ -276,6 +307,17 @@ export default async function WorkSlipDetailPage({
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <SlipBringListEditor slipId={slip.id} initialBringList={slip.bring_list ?? null} />
+          {!slip.owner_action_required && (
+            <SlipOwnerActionEditor
+              slipId={slip.id}
+              propertyId={slip.property_id}
+              initialType={null}
+              initialNotes={null}
+              ownerStatus={slip.owner_status ?? null}
+              ownerLastContactedAt={slip.owner_last_contacted_at ?? null}
+              collapsed
+            />
+          )}
           {!hasPhotos && (
             <SlipPhotoEditor
               slipId={slip.id}
