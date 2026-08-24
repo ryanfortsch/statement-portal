@@ -1,8 +1,16 @@
 /**
  * The cleaning vendor's own schedule, and whether it agrees with ours.
  *
- * A-1 Maintenance & Cleaning dispatches through Jobber, which texts an
- * appointment reminder to the 24/7 Quo line ~2 days before every visit.
+ * A-1 Maintenance & Cleaning -- the same company Helm knows everywhere
+ * else as CAPE ANN ELITE, which is the name it does business under
+ * (confirmed by Dotti, 2026-08-24) -- dispatches through Jobber, which
+ * texts an appointment reminder to the 24/7 Quo line ~2 days before every
+ * visit. The bank feed bills "CAPE ANN ELITE", cleaner_phones lists Rosa
+ * and Nina under that vendor, and the Jobber texts are branded "A-1": one
+ * outfit, three spellings. Operator surfaces say Cape Ann Elite because
+ * that is what the team calls them; VENDOR_ID stays 'a1_maintenance'
+ * because it names the Jobber SENDER this parser keys on, and 52 stored
+ * rows already carry it.
  * Those texts have been landing in `quo_events` unread for weeks: the
  * sender isn't in `cleaner_phones`, so the Quo ingest files them as
  * unattributable chatter.
@@ -33,8 +41,11 @@ function vendorPhone(): string {
   return process.env.VENDOR_DISPATCH_PHONE || '+15592351822';
 }
 
+/** Stored key: names the Jobber sender the parser keys on, not the brand. */
 export const VENDOR_ID = 'a1_maintenance';
-export const VENDOR_LABEL = 'A-1';
+/** What the operator sees. Cape Ann Elite is the DBA the whole rest of Helm
+ *  uses (bank charges, cleaner_phones.vendor), so the chip matches it. */
+export const VENDOR_LABEL = 'Cape Ann Elite';
 
 /**
  * "Aug 25, 2026 11:30AM at 84 Thatcher Road / Gloucester, Massachusetts"
