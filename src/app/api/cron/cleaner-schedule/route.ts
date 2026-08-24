@@ -4,6 +4,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import { upsertDigestDraft, expireStaleDigests, tomorrowET } from '@/lib/cleaner-digest';
+import { ingestVendorAppointments } from '@/lib/vendor-schedule';
 
 /**
  * Daily cleaner-schedule digest draft (the day BEFORE, afternoon ET).
@@ -58,6 +59,18 @@ async function handle(request: NextRequest) {
     }
   }
 
+  // The cleaning vendor's own Jobber reminders, sitting unread in
+  // quo_events. Parsed here so /turnovers/schedule can show whether A-1
+  // agrees with us before a cleaner walks into an occupied house.
+  let vendor = null;
+  if (!dry) {
+    try {
+      vendor = await ingestVendorAppointments(supabase);
+    } catch (err) {
+      vendor = { errors: [err instanceof Error ? err.message : String(err)] };
+    }
+  }
+
   let mine = null;
   if (!skipMine && !dry) {
     try {
@@ -84,6 +97,7 @@ async function handle(request: NextRequest) {
     digestStatus: digest.status,
     counts: day.counts,
     expired,
+    vendor,
     holds,
     mine,
   });

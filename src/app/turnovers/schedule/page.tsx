@@ -8,6 +8,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
   buildCheckoutSchedule,
   todayET,
+  addDays,
   formatTime12,
   adjustmentSourceLabel,
   SCHEDULE_EXCLUDED_PROPERTY_IDS,
@@ -15,6 +16,13 @@ import {
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
 import { listScheduleRecipients, portalLink, type DigestRow } from '@/lib/cleaner-digest';
+import {
+  loadVendorAppointments,
+  reconcileDay,
+  verdictLabel,
+  VENDOR_LABEL,
+  type VendorDayReport,
+} from '@/lib/vendor-schedule';
 import {
   saveAdjustmentAction,
   removeAdjustmentAction,
@@ -57,7 +65,13 @@ const inputStyle: React.CSSProperties = {
   color: 'var(--ink)',
 };
 
-function StayRow({ row, today }: { row: ScheduleRow; today: string }) {
+const VERDICT_TONE = {
+  ok:   { color: 'var(--ink-3)', border: '1px solid var(--rule)' },
+  warn: { color: '#8a6d1a', border: '1px solid #d6a51e' },
+  bad:  { color: 'var(--signal)', border: '1px solid var(--signal)' },
+} as const;
+
+function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; verdict?: ReturnType<typeof verdictLabel> }) {
   const adj = row.adjustment;
   return (
     <details
@@ -95,6 +109,22 @@ function StayRow({ row, today }: { row: ScheduleRow; today: string }) {
         )}
         {adj?.drifted && (
           <span style={{ fontSize: 11, fontWeight: 700, color: '#8a6d1a' }}>Guesty moved since - re-check</span>
+        )}
+        {verdict && (
+          <span
+            style={{
+              fontSize: 10,
+              letterSpacing: '.06em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              padding: '2px 7px',
+              borderRadius: 3,
+              whiteSpace: 'nowrap',
+              ...VERDICT_TONE[verdict.tone],
+            }}
+          >
+            {verdict.text}
+          </span>
         )}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-4)' }}>adjust ▾</span>
       </summary>
@@ -157,7 +187,7 @@ export default async function CheckoutSchedulePage({
   const err = first(sp.err);
   const today = todayET();
 
-  const [days, recipients, digestsRes, proposalsRes, propsRes] = await Promise.all([
+  const [days, recipients, digestsRes, proposalsRes, propsRes, vendorData] = await Promise.all([
     buildCheckoutSchedule(supabase, { startDate: today, days: DAYS }),
     listScheduleRecipients(supabase).catch(() => []),
     supabase
@@ -176,6 +206,10 @@ export default async function CheckoutSchedulePage({
       .from('properties')
       .select('id, name, default_checkout_time, default_checkin_time, is_active, kind')
       .order('name'),
+    loadVendorAppointments(supabase, today, addDays(today, DAYS - 1)).catch(() => ({
+      rows: [],
+      horizon: null,
+    })),
   ]);
 
   const digestByDate = new Map<string, DigestRow>();
@@ -184,6 +218,13 @@ export default async function CheckoutSchedulePage({
   const timeProps = ((propsRes.data ?? []) as Array<{ id: string; name: string; default_checkout_time: string | null; default_checkin_time: string | null; is_active: boolean | null; kind: string | null }>)
     .filter((p) => p.is_active !== false && p.kind !== 'hq' && !SCHEDULE_EXCLUDED_PROPERTY_IDS.has(p.id));
   const propNames = new Map(timeProps.map((p) => [p.id, p.name]));
+  // The vendor's own schedule, judged only on days it has actually
+  // announced (reminders run ~2 days out; past that, silence is not a
+  // discrepancy).
+  const vendorByDate = new Map<string, VendorDayReport>();
+  for (const day of days) {
+    vendorByDate.set(day.date, reconcileDay(day, vendorData.rows, vendorData.horizon, propNames));
+  }
   const enabledRecipient = recipients.find((r) => r.enabled) ?? recipients[0];
 
   return (
@@ -284,7 +325,26 @@ export default async function CheckoutSchedulePage({
           >
             <div style={{ borderTop: '1px solid var(--ink)' }}>
               {day.rows.map((row) => (
-                <StayRow key={`${row.propertyId}|${row.checkIn}`} row={row} today={today} />
+                <StayRow
+                  key={`${row.propertyId}|${row.checkIn}`}
+                  row={row}
+                  today={today}
+                  verdict={verdictLabel(vendorByDate.get(day.date)?.byRow.get(`${row.propertyId}|${row.checkIn}`))}
+                />
+              ))}
+              {(vendorByDate.get(day.date)?.orphans ?? []).map((o) => (
+                <div
+                  key={`orphan-${o.propertyId}`}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 12, padding: '11px 0', borderTop: '1px solid var(--rule)', flexWrap: 'wrap' }}
+                >
+                  <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 16, fontWeight: 600, minWidth: 56, color: 'var(--signal)' }}>
+                    {o.time}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{o.propertyName}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--signal)' }}>
+                    {VENDOR_LABEL} is booked to clean, but nobody checks out. They will arrive at an occupied house.
+                  </span>
+                </div>
               ))}
             </div>
           </Section>
