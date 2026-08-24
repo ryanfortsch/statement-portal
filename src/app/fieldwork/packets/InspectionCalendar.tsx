@@ -248,7 +248,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
           of mark, so it gets its own line instead of sitting among the fills. */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
         <Swatch bg="rgba(63,153,34,0.18)" label="open to inspect" />
-        <Swatch bg="rgba(58,107,138,0.16)" label="already out to a contractor" />
+        <Swatch bg="rgba(58,107,138,0.38)" label="already out to a contractor" />
         <Swatch bg="rgba(30,46,52,0.08)" label="guest in house" />
         <Swatch bg="rgba(30,46,52,0.16)" label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
@@ -430,7 +430,7 @@ function CalendarRow({
         else if (c?.state === 'occupied') bg = 'rgba(30,46,52,0.08)';
         else if (isSel) bg = 'var(--signal)';
         else if (c?.inspectable) bg = 'rgba(63,153,34,0.18)';
-        else if (c?.covered) bg = 'rgba(58,107,138,0.16)';
+        else if (c?.covered) bg = 'rgba(58,107,138,0.38)';
         else bg = 'rgba(30,46,52,0.025)';
         return (
           <button
