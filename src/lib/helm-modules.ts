@@ -255,6 +255,20 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'growth',
     section: 'properties',
   },
+  // Contracts register is a tab on the Properties surface.
+  // Registered here for search, surfaced in-context (hidden from menus).
+  {
+    id: 'property-contracts',
+    href: '/properties/contracts',
+    number: '05c',
+    title: 'Management Contracts',
+    description: 'Every owner agreement: fee, term, renewal mechanics, notice deadlines, negotiated clauses, signed PDFs.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'properties',
+  },
   // Prospects is now a TAB inside Properties (the Prospects tab at
   // /properties/prospects), same pattern as Statements / Revenue under
   // Financials. Hidden from the nav lists so it doesn't duplicate the
