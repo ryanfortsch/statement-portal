@@ -172,7 +172,6 @@ export default async function PacketsBoard({
   const today = todayET();
   const outToday = packets.filter((p) => p.visit_date === today && (isWorkingStatus(p.status)));
   const startedToday = outToday.filter((p) => p.status === 'in_progress').length;
-  const awaitingApproval = packets.filter((p) => p.status === 'submitted');
   const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
   // At risk: claimed but never started, and the window is genuinely slipping —
   // the contractor may no-show before the guest arrives.
@@ -182,7 +181,7 @@ export default async function PacketsBoard({
   // new date, a Record, or a Dismiss - so it belongs in the brief, not just the
   // Drafts list below.
   const expiredDrafts = drafts.filter((p) => daysUntilET(p.visit_date) < 0);
-  const hasBrief = outToday.length > 0 || awaitingApproval.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0 || expiredDrafts.length > 0;
+  const hasBrief = outToday.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0 || expiredDrafts.length > 0;
 
   // Live per-packet progress (done stops) for claimed/in-progress packets, so
   // the office can watch a visit move stop-by-stop on the board.
@@ -214,20 +213,6 @@ export default async function PacketsBoard({
             <Link href="/fieldwork/packets/maintenance" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Maintenance run</Link>
           </div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16, marginTop: 10 }}>
-          <form method="get" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              From
-              <input type="date" name="from" defaultValue={from} style={inDate} />
-            </label>
-            <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              To
-              <input type="date" name="to" defaultValue={to} style={inDate} />
-            </label>
-            <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 12, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }}>Apply</button>
-          </form>
-          <Link href="/fieldwork/packets/test" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'underline', textUnderlineOffset: 3 }}>Test console</Link>
-        </div>
 
         {sp.sent === '1' && (
           <div style={{ marginTop: 18, border: '1px solid var(--positive)', background: 'rgba(63,153,34,0.08)', color: 'var(--positive)', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
@@ -247,9 +232,6 @@ export default async function PacketsBoard({
             )}
             {outToday.length > 0 && (
               <TodayStat n={outToday.length} label="out today" sub={`${startedToday} started`} tone="var(--tide-deep)" />
-            )}
-            {awaitingApproval.length > 0 && (
-              <TodayStat n={awaitingApproval.length} label="awaiting your approval" tone="var(--signal)" />
             )}
             {unclaimedSoon.length > 0 && (
               <TodayStat n={unclaimedSoon.length} label="unclaimed within 48h" tone="#7a5512" />
@@ -493,16 +475,6 @@ const btnDark: React.CSSProperties = {
   padding: '8px 14px',
 };
 
-const inDate: React.CSSProperties = {
-  display: 'block',
-  marginTop: 4,
-  font: 'inherit',
-  fontSize: 13,
-  color: 'var(--ink)',
-  background: 'var(--paper)',
-  border: '1px solid var(--rule)',
-  padding: '6px 8px',
-};
 const btnGhost: React.CSSProperties = {
   background: 'transparent',
   color: 'var(--ink-3)',
