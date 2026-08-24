@@ -11,7 +11,7 @@
  * component only fetches when a thread is opened.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Section } from '@/components/Section';
 import type { ConversationSummary } from '@/lib/stay-concierge';
 import { ThreadPanel } from './Thread';
@@ -192,25 +192,49 @@ export function ConversationsBrowser({ initialConversations, initialError }: Pro
   );
 }
 
-function ConversationRow({
+/**
+ * One ledger row. Exported so the Send lens can reuse the exact row the
+ * Inbox uses - same guest/property/channel/stay reading, so a stay looks
+ * identical wherever she meets it.
+ *
+ * `variant='pick'` turns the row from a thread disclosure into a selectable
+ * target: clicking selects instead of expanding, the thread never mounts,
+ * and the caller supplies its own `trailing` slot.
+ */
+export function ConversationRow({
   c,
   open,
   onToggle,
+  variant = 'thread',
+  selected = false,
+  trailing,
+  showChevron = true,
 }: {
   c: ConversationSummary;
   open: boolean;
   onToggle: () => void;
+  variant?: 'thread' | 'pick';
+  selected?: boolean;
+  trailing?: ReactNode;
+  showChevron?: boolean;
 }) {
   const propertyLabel = c.property_name || prettifySlug(c.listing_id) || 'unknown property';
   const stay = STAY_CHIP[c.stay_status];
   const stayLabel = formatStayDates(c.check_in, c.check_out);
   const lastAt = c.last_activity_at ? relativeTimeShort(c.last_activity_at) : '';
   return (
-    <li style={{ borderBottom: '1px solid var(--rule)' }}>
+    <li
+      style={{
+        borderBottom: '1px solid var(--rule)',
+        background: selected ? 'var(--paper-2)' : 'transparent',
+        borderLeft: selected ? '3px solid var(--signal)' : '3px solid transparent',
+      }}
+    >
       <button
         type="button"
         onClick={onToggle}
-        aria-expanded={open}
+        aria-expanded={variant === 'thread' ? open : undefined}
+        aria-pressed={variant === 'pick' ? selected : undefined}
         // Explicit resets rather than `all: unset`: unset would also kill
         // the global :focus-visible outline, leaving keyboard users with no
         // focus indicator on the row.
@@ -295,10 +319,11 @@ function ConversationRow({
           style={{ color: 'var(--ink-4)', whiteSpace: 'nowrap' }}
           title={c.last_activity_at || undefined}
         >
-          {lastAt || '—'} {open ? '▴' : '▾'}
+          {lastAt || '—'} {showChevron ? (open ? '▴' : '▾') : ''}
         </span>
+        {trailing}
       </button>
-      {open && (
+      {variant === 'thread' && open && (
         <div style={{ padding: '0 2px 16px' }}>
           <ThreadPanel
             conversationId={c.conversation_id}
