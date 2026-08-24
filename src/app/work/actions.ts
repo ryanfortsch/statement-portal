@@ -8,6 +8,8 @@ import type {
   WorkSlipCategory,
   WorkSlipPriority,
   WorkSlipStatus,
+  WorkSlipOwnerActionType,
+  WorkSlipOwnerStatus,
   RunScope,
   TaskScope,
   TaskPriority,
@@ -54,6 +56,10 @@ export async function createWorkSlip(args: {
       description: args.description?.trim() || null,
       location: args.location?.trim() || null,
       category: args.category ?? 'maintenance',
+      // Filing under Owner IS the ask: the slip enters the owner-action
+      // rail (board filter, OWNER badge, draft-owner-email) immediately.
+      // The detail page's Owner section refines type/notes afterward.
+      owner_action_required: args.category === 'owner',
       priority: args.priority ?? 'normal',
       scheduled_date: args.scheduled_date || null,
       inspection_id: args.inspection_id || null,
@@ -309,6 +315,81 @@ export async function updateWorkSlipScope(args: {
     })
     .eq('id', args.id);
   if (error) return { ok: false, error: error.message };
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+const OWNER_ACTION_TYPES: WorkSlipOwnerActionType[] = ['approve', 'purchase', 'schedule', 'decide', 'reimburse'];
+const OWNER_STATUSES: WorkSlipOwnerStatus[] = ['not_sent', 'sent', 'approved', 'declined', 'questions'];
+
+/**
+ * Flag (or un-flag) a slip as needing the owner's input, with the kind of
+ * ask and optional context for the email draft. This and the Owner
+ * category at create time are the only writers of the flag -- the board's
+ * Owner Action filter and OWNER badges, the /properties rollup, the home
+ * card, the daily brief, and /api/work/draft-owner-email all read it.
+ * Pass undefined to leave type/notes unchanged, null/empty to clear.
+ */
+export async function updateWorkSlipOwnerAction(args: {
+  id: string;
+  owner_action_required: boolean;
+  owner_action_type?: WorkSlipOwnerActionType | null;
+  owner_action_notes?: string | null;
+  propertyId?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (args.owner_action_type != null && !OWNER_ACTION_TYPES.includes(args.owner_action_type)) {
+    return { ok: false, error: 'Bad action type' };
+  }
+
+  const patch: Record<string, unknown> = { owner_action_required: args.owner_action_required };
+  if (args.owner_action_required) {
+    if (args.owner_action_type !== undefined) patch.owner_action_type = args.owner_action_type;
+    if (args.owner_action_notes !== undefined) {
+      patch.owner_action_notes = args.owner_action_notes?.trim() || null;
+    }
+  } else {
+    // Withdrawing the ask clears its details and resets the loop; the
+    // owner_last_contacted_at stamp stays as history of any email sent.
+    patch.owner_action_type = null;
+    patch.owner_action_notes = null;
+    patch.owner_status = 'not_sent';
+  }
+
+  const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  // The flag feeds count badges on the home card and /properties rollup.
+  revalidatePath('/');
+  revalidatePath('/properties');
+  if (args.propertyId) revalidatePath(`/properties/${args.propertyId}`);
+  return { ok: true };
+}
+
+/**
+ * Record where the owner-ask stands. 'sent' is stamped by the
+ * draft-owner-email routes; approved / declined / questions are the
+ * operator logging the owner's reply from their inbox or a call. The
+ * daily brief keeps nagging until a flagged slip reaches 'approved'.
+ */
+export async function updateWorkSlipOwnerStatus(args: {
+  id: string;
+  owner_status: WorkSlipOwnerStatus;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!OWNER_STATUSES.includes(args.owner_status)) return { ok: false, error: 'Bad owner status' };
+
+  const { error } = await supabase
+    .from('work_slips')
+    .update({ owner_status: args.owner_status })
+    .eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
   revalidatePath('/work');
   revalidatePath(`/work/${args.id}`);
   return { ok: true };
