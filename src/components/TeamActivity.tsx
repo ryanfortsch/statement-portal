@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { displayNameForEmail } from '@/lib/team';
+import { stampActorNames } from '@/lib/actor-names';
 
 type ActivityKind =
   | 'slip-created'
@@ -17,6 +18,10 @@ type ActivityEvent = {
   at: string;
   kind: ActivityKind;
   actor: string | null;
+  /** Resolved display name for `actor`, stamped by stampActorNames() at load
+   *  time. Actors are no longer team-only: a slip closed in the field portal
+   *  or by packet approval carries the contractor's address. */
+  actorName?: string | null;
   property: string;       // display name (for contact-touch: contact name)
   label: string;          // verb phrase, e.g. "filed kitchen leak"
   href?: string;
@@ -155,7 +160,7 @@ function ActivityRow({ event: e }: { event: ActivityEvent }) {
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink)' }}>
-          {e.actor && <span style={{ fontWeight: 500 }}>{displayNameForEmail(e.actor)} </span>}
+          {e.actor && <span style={{ fontWeight: 500 }}>{e.actorName ?? displayNameForEmail(e.actor)} </span>}
           {e.label}{' '}
           <span style={{ fontWeight: 500, color: 'var(--ink)' }}>{e.property}</span>
         </div>
@@ -376,7 +381,9 @@ async function loadTeamActivity(limit: number): Promise<ActivityEvent[]> {
   }
 
   events.sort((a, b) => b.at.localeCompare(a.at));
-  return events.slice(0, limit);
+  const top = events.slice(0, limit);
+  await stampActorNames(top);
+  return top;
 }
 
 function truncate(s: string, n: number): string {

@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle, resyncPacketStopBookings } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, pruneClosedSlipStops, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle, resyncPacketStopBookings } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes, revokePacketPropertyCode } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -945,6 +945,22 @@ export async function publishPacket(formData: FormData): Promise<void> {
   // Stale stops are dropped (and the packet cancelled if none survive, in
   // which case the publish update below no-ops on the status guard).
   await revalidatePacket(packetId);
+  // Second staleness test, for work rather than occupancy: a stop whose work
+  // slip has since been closed is dead. The run planner picks off the OPEN
+  // pool, but a slip can be closed between planning and publish (a contractor
+  // fixes it on another visit, or the office marks it done), and nothing else
+  // prunes the stop, so publishing anyway dispatches a paid trip to a
+  // finished job. Empties the packet to 'cancelled' if nothing survives, in which case
+  // the status-guarded update below no-ops and publishRun reports it.
+  const pruned = await pruneClosedSlipStops(packetId);
+  if (pruned.removed > 0) {
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      actor_email: email,
+      event_type: 'stops_pruned_closed_slips',
+      payload: { removed: pruned.removed, remaining: pruned.remaining, emptied: pruned.emptied },
+    });
+  }
   await fieldDb()
     .from('inspection_packets')
     .update({
@@ -1208,12 +1224,21 @@ export async function approvePacket(formData: FormData): Promise<void> {
     }
     // Close the maintenance work slips this packet covered — terminal "done"
     // is office-approved, not self-reported.
+    //
+    // closed_by_email carries the CONTRACTOR, not the approver: it is the
+    // only column on the slip that can name who actually did the work, and
+    // it is what the Recent Activity feed + property timeline render as the
+    // "marked X done" actor. Who authorized the close is already recorded
+    // twice over, on inspection_packets.approved_by_email and the 'approved'
+    // packet_event. Falls back to the approver for a packet with no awarded
+    // contractor (an office-completed packet).
+    const closerEmail = contractor?.email ?? email;
     const { data: mstops } = await fieldDb().from('packet_stops').select('work_slip_id').eq('packet_id', packetId).not('work_slip_id', 'is', null);
     const slipIds = ((mstops ?? []) as { work_slip_id: string }[]).map((s) => s.work_slip_id);
     if (slipIds.length) {
       await fieldDb()
         .from('work_slips')
-        .update({ status: 'done', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .update({ status: 'done', completed_at: new Date().toISOString(), closed_by_email: closerEmail, updated_at: new Date().toISOString() })
         .in('id', slipIds);
     }
     // Same for the ATTACHED slips the inspector completed (they live in
@@ -1224,7 +1249,7 @@ export async function approvePacket(formData: FormData): Promise<void> {
     if (attWorkSlipIds.length) {
       await fieldDb()
         .from('work_slips')
-        .update({ status: 'done', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .update({ status: 'done', completed_at: new Date().toISOString(), closed_by_email: closerEmail, updated_at: new Date().toISOString() })
         .in('id', attWorkSlipIds);
     }
     // Emails leave the response path entirely. The held inspection reports

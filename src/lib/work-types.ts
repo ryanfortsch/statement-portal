@@ -128,7 +128,13 @@ export type MaintenanceRunCard = {
   /** True for auto-planned drafts (suggestion_key 'maintrun:...'). */
   suggested: boolean;
   postedPriceCents: number | null;
+  /** Only the slips still ACTIVE. A slip closed after the run was planned
+   *  (e.g. a contractor fixed it on another visit) is dropped here so the
+   *  card, its job count, and the work-order email never dispatch done work. */
   slips: { id: string; title: string; priority: WorkSlipPriority; propertyName: string }[];
+  /** How many of this run's stops point at an already-closed slip. Surfaced
+   *  on the card so the shrink is visible rather than silent. */
+  closedSlipCount: number;
 };
 
 export type VendorNeededSlip = {

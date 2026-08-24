@@ -18,6 +18,7 @@
  */
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
+import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { getContractorShootStats } from '@/lib/creative-shoots';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
 import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder, osrmOptimalOrder } from '@/lib/proximity';
@@ -700,6 +701,67 @@ export async function staleStopIds(
     if (occupied.has(s.property_id as string) || blocked.has(s.property_id as string)) stale.add(s.id);
   }
   return stale;
+}
+
+/**
+ * Drop any stop whose work slip has already been closed, reprice from the
+ * survivors, and cancel the packet if nothing is left. Same contract as
+ * revalidatePacket, for a different kind of staleness: the run planner picks
+ * slips off the OPEN pool, but a slip can be closed between planning and
+ * dispatch (a contractor fixes it on another visit, or the office marks it
+ * done). Nothing else prunes the stop, so without this a published run sends
+ * someone to a finished job and pays a stop price for it.
+ *
+ * Draft/published only, mirroring revalidatePacket: once a packet is claimed
+ * that is a contractor's agreed work, and repricing it out from under them is
+ * an operator decision, never a silent one. Stops with no work_slip_id (every
+ * inspection and cleaning stop) are untouched.
+ */
+export async function pruneClosedSlipStops(
+  packetId: string,
+): Promise<{ removed: number; remaining: number; emptied: boolean }> {
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status')
+    .eq('id', packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string } | null;
+  if (!packet || !['draft', 'published'].includes(packet.status)) {
+    return { removed: 0, remaining: 0, emptied: false };
+  }
+
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, base_price_cents, work_slip_id')
+    .eq('packet_id', packetId);
+  const stops = (sData ?? []) as Array<{ id: string; base_price_cents: number; work_slip_id: string | null }>;
+  const slipIds = stops.map((s) => s.work_slip_id).filter((v): v is string => !!v);
+  if (slipIds.length === 0) return { removed: 0, remaining: stops.length, emptied: false };
+
+  const { data: wData } = await fieldDb().from('work_slips').select('id, status').in('id', slipIds);
+  const active = new Set(
+    ((wData ?? []) as Array<{ id: string; status: string }>)
+      .filter((w) => (ACTIVE_WORK_SLIP_STATUSES as string[]).includes(w.status))
+      .map((w) => w.id),
+  );
+  // A stop whose slip row has vanished entirely is dead too: it can never
+  // be worked, and leaving it would keep charging a stop price for nothing.
+  const dead = new Set(stops.filter((s) => s.work_slip_id && !active.has(s.work_slip_id)).map((s) => s.id));
+  if (dead.size === 0) return { removed: 0, remaining: stops.length, emptied: false };
+
+  await fieldDb().from('packet_stops').delete().in('id', [...dead]);
+  const remaining = stops.filter((s) => !dead.has(s.id));
+  const emptied = remaining.length === 0;
+  await fieldDb()
+    .from('inspection_packets')
+    .update({
+      stop_count: remaining.length,
+      posted_price_cents: remaining.reduce((a, s) => a + s.base_price_cents, 0),
+      status: emptied ? 'cancelled' : packet.status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', packetId);
+  return { removed: dead.size, remaining: remaining.length, emptied };
 }
 
 /**

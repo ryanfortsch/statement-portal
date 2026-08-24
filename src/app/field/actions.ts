@@ -141,6 +141,12 @@ export async function completeBoardSlip(formData: FormData) {
     .update({
       status: 'done',
       completed_at: new Date().toISOString(),
+      // Stamp the closer structurally, not just inside the note text. The
+      // Recent Activity feed and the property timeline read closed_by_email
+      // for the "marked X done" actor, so without this a field close renders
+      // as an anonymous checkmark. resolveActorNames() turns the contractor
+      // address into their real name on those surfaces.
+      closed_by_email: contractor.email,
       resolution_notes: slip.resolution_notes ? `${slip.resolution_notes}\n${attribution}` : attribution,
       photo_urls: [...new Set([...(slip.photo_urls ?? []), ...photos])],
       updated_at: new Date().toISOString(),

@@ -79,7 +79,10 @@ export async function publishRun(packetId: string): Promise<{ ok: true } | { ok:
   const status = (data as { status: string } | null)?.status;
   if (!status) return { ok: false, error: 'This run was re-planned away — refresh the board' };
   if (status === 'draft' || status === 'cancelled') {
-    return { ok: false, error: 'Publish did not go through (a guest may have booked the day) — check the packet' };
+    // Two ways to land here: a guest booked the visit day (revalidatePacket
+    // dropped the stops) or every job on the run was already closed
+    // (pruneClosedSlipStops emptied it). Both leave nothing to dispatch.
+    return { ok: false, error: 'Publish did not go through. The day may have been booked, or the jobs are already closed. Check the packet' };
   }
   return { ok: true };
 }
