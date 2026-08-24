@@ -15,7 +15,7 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows, submitPacketForContractor } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows, submitPacketForContractor, orderStopsByCleaningTime } from '../actions';
 import { StopList } from './StopList';
 import { canClaim, fmtVisitTime, parseTrade, navTrade, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
@@ -728,6 +728,35 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             </div>
           )}
         </div>
+
+        {/* One click to make the route follow the cleaner. Only offered when
+            the vendor has actually announced times for this day AND the
+            resulting order would differ from what is stored, so it never
+            appears as a no-op button. */}
+        {canAddStop && (() => {
+          const movable = packet.stops.filter((s) => !s.started_at && s.status !== 'complete' && s.status !== 'skipped');
+          const announced = movable.filter((s) => vendorTimes.get(s.property_id));
+          if (announced.length < 2) return null;
+          const wanted = [
+            ...packet.stops.filter((s) => s.started_at || s.status === 'complete' || s.status === 'skipped'),
+            ...announced.slice().sort((a, b) =>
+              vendorTimes.get(a.property_id)!.localeCompare(vendorTimes.get(b.property_id)!)),
+            ...movable.filter((s) => !vendorTimes.get(s.property_id)),
+          ].map((s) => s.id);
+          const current = packet.stops.map((s) => s.id);
+          if (wanted.every((id, i) => id === current[i])) return null;
+          return (
+            <form action={orderStopsByCleaningTime} style={{ margin: '0 0 10px' }}>
+              <input type="hidden" name="packet_id" value={packet.id} />
+              <PendingButton
+                label={`Order stops by ${VENDOR_LABEL}'s times`}
+                busyLabel="Reordering…"
+                spinnerTone="ink"
+                style={{ ...quietCtl, color: '#875a17', borderColor: '#d6a51e' }}
+              />
+            </form>
+          );
+        })()}
 
         {/* Stops — StopList owns the order (drag ⋮⋮ to reorder, optimistic);
             each row's content stays server-rendered and is passed in by id. */}
