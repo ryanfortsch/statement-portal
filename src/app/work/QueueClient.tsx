@@ -281,7 +281,9 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     });
   }, [tasks, filter, myEmail, todayIso]);
 
-  const slipsByProperty = useMemo(() => {
+  /** The ideal ranking: urgency first, then backlog size. What order the
+   *  board WOULD be in if it re-sorted right now. */
+  const rankedProperties = useMemo(() => {
     const groups = new Map<string, WorkSlipRow[]>();
     for (const ws of filteredSlips) {
       const existing = groups.get(ws.property_id);
@@ -311,6 +313,54 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       return an.localeCompare(bn);
     });
   }, [filteredSlips, propertyMap]);
+
+  // ── Rank order freezes while you work ────────────────────────────────
+  // The ranking is the good part; re-applying it on every ✓ Done was the
+  // problem. Closing a property's last HIGH slip demoted it below every
+  // property that still had one, and with INITIAL_PROPERTY_LIMIT at 5 that
+  // routinely pushed the group being worked straight past the "Show more"
+  // fold, so it vanished mid-triage, still expanded, while the operator was
+  // holding "what's left here" in their head (Dotti, 2026-08-24).
+  //
+  // So the order you land on is the order you keep. It re-ranks on a
+  // deliberate view change (filter or tab), on an explicit Re-sort, and on
+  // a fresh page load. Never underneath a close.
+  const [frozenOrder, setFrozenOrder] = useState<{ filter: FilterId; tab: TabId; ids: string[] } | null>(null);
+  // Adjust-state-during-render rather than an effect: eslint's
+  // react-hooks/set-state-in-effect forbids the effect version, and this
+  // re-renders before paint so the board never flashes the stale order.
+  if (!frozenOrder || frozenOrder.filter !== filter || frozenOrder.tab !== tab) {
+    setFrozenOrder({ filter, tab, ids: rankedProperties.map(([pid]) => pid) });
+  }
+
+  const slipsByProperty = useMemo(() => {
+    if (!frozenOrder) return rankedProperties;
+    const slotOf = new Map(frozenOrder.ids.map((pid, i) => [pid, i]));
+    // A property with no frozen slot is one that had zero matching slips
+    // when the order was taken. Rather than stranding it at the bottom,
+    // give it a fractional slot just after whatever it outranks in the
+    // live ranking, so a newly urgent home still lands where it belongs.
+    let lastSlot = -1;
+    let run = 0;
+    const placed = rankedProperties.map((entry) => {
+      const slot = slotOf.get(entry[0]);
+      if (slot !== undefined) {
+        lastSlot = slot;
+        run = 0;
+        return { entry, key: slot };
+      }
+      run += 1;
+      return { entry, key: lastSlot + run / (rankedProperties.length + 1) };
+    });
+    return placed.sort((a, b) => a.key - b.key).map((p) => p.entry);
+  }, [rankedProperties, frozenOrder]);
+
+  /** True once closing things has left the frozen order out of step with
+   *  the live ranking, which is when Re-sort is worth offering. */
+  const orderIsStale = useMemo(
+    () => slipsByProperty.some(([pid], i) => rankedProperties[i][0] !== pid),
+    [slipsByProperty, rankedProperties],
+  );
 
   const counts = {
     all: workSlips.length + tasks.length,
@@ -415,7 +465,29 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
               Property Work
             </h2>
-            <span className="eyebrow">{filteredSlips.length} active</span>
+            <span className="eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+              {orderIsStale && (
+                <button
+                  type="button"
+                  className="rt-no-print"
+                  onClick={() => setFrozenOrder({ filter, tab, ids: rankedProperties.map(([pid]) => pid) })}
+                  title="Closing work changed the ranking. The board held its order so nothing moved while you were in it."
+                  style={{
+                    background: 'none',
+                    border: '1px solid var(--rule)',
+                    color: 'var(--ink-3)',
+                    padding: '3px 9px',
+                    font: 'inherit',
+                    letterSpacing: 'inherit',
+                    textTransform: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ↕ Re-sort
+                </button>
+              )}
+              <span>{filteredSlips.length} active</span>
+            </span>
           </div>
 
           {slipsByProperty.length === 0 ? (
@@ -431,7 +503,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
               items={slipsByProperty}
               initial={INITIAL_PROPERTY_LIMIT}
               moreLabel={(n) => `Show ${n} more propert${n === 1 ? 'y' : 'ies'}`}
-              defaultExpanded={slipsByProperty.slice(INITIAL_PROPERTY_LIMIT).some(([pid]) => openProps.has(pid))}
+              pinnedKeys={openProps}
               renderItem={([propId, list]) => (
                 <PropertyGroup
                   key={propId}
@@ -537,20 +609,25 @@ function CollapsibleList<T>({
   moreLabel,
   renderItem,
   keyFor,
-  defaultExpanded = false,
+  pinnedKeys,
 }: {
   items: T[];
   initial: number;
   moreLabel: (n: number) => string;
   renderItem: (item: T) => React.ReactNode;
   keyFor: (item: T) => string;
-  /** Start with the tail shown — e.g. when a ?open= property group would
-   *  otherwise be hidden behind the "Show more" fold on a return visit. */
-  defaultExpanded?: boolean;
+  /** Items that must render in place even when they fall past `initial`.
+   *  An expanded property group is the case that matters: it is the one
+   *  the operator is working, and folding it away mid-triage is exactly
+   *  the disappearing act this list used to pull. Shows it where it sits
+   *  rather than unfurling the whole tail to reach it. */
+  pinnedKeys?: Set<string>;
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const visible = expanded ? items : items.slice(0, initial);
-  const hiddenCount = Math.max(0, items.length - initial);
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded
+    ? items
+    : items.filter((item, i) => i < initial || !!pinnedKeys?.has(keyFor(item)));
+  const hiddenCount = Math.max(0, items.length - visible.length);
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
       {visible.map((item) => (
