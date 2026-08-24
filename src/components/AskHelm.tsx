@@ -95,84 +95,72 @@ export function AskHelm({
           // ───────── Home hero: framed "command bar" with brass top
           // accent, larger type, and a real button. This is the page's
           // primary call to action.
-          <>
-            <div
-              className="rt-ask-bar"
+          <div
+            className="rt-ask-bar"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-end',
+              gap: 12,
+              border: '1px solid var(--rule)',
+              borderTop: '3px solid var(--signal)',
+              borderRadius: 14,
+              background: 'var(--paper)',
+              boxShadow:
+                '0 1px 2px rgba(30,46,52,0.06), 0 20px 44px -28px rgba(30,46,52,0.28)',
+              padding: '10px 10px 10px 18px',
+            }}
+          >
+            <textarea
+              ref={inputRef}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  ask(question);
+                }
+              }}
+              rows={2}
+              placeholder="Ask Helm anything about the business…"
               style={{
-                display: 'flex',
-                alignItems: 'flex-end',
-                gap: 12,
-                border: '1px solid var(--rule)',
-                borderTop: '3px solid var(--signal)',
-                borderRadius: 14,
-                background: 'var(--paper)',
-                boxShadow:
-                  '0 1px 2px rgba(30,46,52,0.06), 0 20px 44px -28px rgba(30,46,52,0.28)',
-                padding: '10px 10px 10px 18px',
+                flex: 1,
+                resize: 'none',
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--ink)',
+                fontFamily: 'inherit',
+                fontSize: 17,
+                lineHeight: 1.5,
+                padding: '4px 2px',
+                outline: 'none',
+              }}
+            />
+            <button
+              type="submit"
+              disabled={loading || !question.trim()}
+              style={{
+                flexShrink: 0,
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                border: 'none',
+                borderRadius: 10,
+                padding: '12px 24px',
+                fontSize: 12,
+                fontWeight: 600,
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+                cursor:
+                  loading || !question.trim() ? 'default' : 'pointer',
+                opacity: loading || !question.trim() ? 0.55 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
               }}
             >
-              <textarea
-                ref={inputRef}
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    ask(question);
-                  }
-                }}
-                rows={2}
-                placeholder="Ask Helm anything about the business…"
-                style={{
-                  flex: 1,
-                  resize: 'none',
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--ink)',
-                  fontFamily: 'inherit',
-                  fontSize: 17,
-                  lineHeight: 1.5,
-                  padding: '4px 2px',
-                  outline: 'none',
-                }}
-              />
-              <button
-                type="submit"
-                disabled={loading || !question.trim()}
-                style={{
-                  flexShrink: 0,
-                  background: 'var(--ink)',
-                  color: 'var(--paper)',
-                  border: 'none',
-                  borderRadius: 10,
-                  padding: '12px 24px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                  cursor:
-                    loading || !question.trim() ? 'default' : 'pointer',
-                  opacity: loading || !question.trim() ? 0.55 : 1,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                {loading ? 'Asking' : 'Ask'}
-                {!loading && <span aria-hidden style={{ fontSize: 15 }}>→</span>}
-              </button>
-            </div>
-            <p
-              style={{
-                margin: '12px 2px 0',
-                fontSize: 11,
-                color: 'var(--ink-4)',
-                letterSpacing: '.04em',
-              }}
-            >
-              Reads your data live. Always verify the figures.
-            </p>
-          </>
+              {loading ? 'Asking' : 'Ask'}
+              {!loading && <span aria-hidden style={{ fontSize: 15 }}>→</span>}
+            </button>
+          </div>
         ) : (
           <textarea
             ref={inputRef}

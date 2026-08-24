@@ -32,6 +32,12 @@ type Props = {
    * renders inside its layout, so the chrome is already on screen).
    */
   bare?: boolean;
+  /**
+   * Render the eyebrow + headline placeholder. Pages that dropped their
+   * masthead (the Work board leads with its action row) pass false, so the
+   * skeleton doesn't flash a hero the real page never draws.
+   */
+  hero?: boolean;
 };
 
 export function HelmLoading({
@@ -39,6 +45,7 @@ export function HelmLoading({
   headlineWidth = 380,
   contentRows = 4,
   bare = false,
+  hero = true,
 }: Props) {
   // Inside a section layout (bare) the shell already provides the viewport
   // height and background; a second min-h-screen here would push a full
@@ -51,24 +58,26 @@ export function HelmLoading({
       {!bare && <HelmMasthead />}
 
       {/* HERO placeholder */}
-      <section
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}
-      >
-        <div
-          className="eyebrow"
-          style={{ marginBottom: 14, color: 'var(--ink-4)', opacity: 0.7 }}
+      {hero && (
+        <section
+          className="max-w-[1100px] mx-auto px-10"
+          style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}
         >
-          {eyebrow}
-        </div>
-        <Block height={48} width={headlineWidth} />
-        <Block height={14} width={Math.min(headlineWidth + 60, 580)} mt={18} />
-      </section>
+          <div
+            className="eyebrow"
+            style={{ marginBottom: 14, color: 'var(--ink-4)', opacity: 0.7 }}
+          >
+            {eyebrow}
+          </div>
+          <Block height={48} width={headlineWidth} />
+          <Block height={14} width={Math.min(headlineWidth + 60, 580)} mt={18} />
+        </section>
+      )}
 
       {/* FIRST SECTION placeholder (stat strip / list) */}
       <section
         className="max-w-[1100px] mx-auto px-10"
-        style={{ width: '100%', paddingBottom: 56 }}
+        style={{ width: '100%', paddingTop: hero ? 0 : 40, paddingBottom: 56 }}
       >
         <Block height={14} width={120} mb={14} />
         <div
