@@ -6,6 +6,7 @@ import {
   getOpenDigest,
   listScheduleRecipients,
   portalLink,
+  composeDigestBody,
   type DigestRow,
   type ScheduleRecipient,
 } from '@/lib/cleaner-digest';
@@ -252,6 +253,15 @@ export async function ScheduleDigestCard({
   }
 
   const pending = digest.status === 'pending' || digest.status === 'sending';
+  // Show the LIVE composition, not the stored snapshot. The stored body is
+  // whatever the schedule looked like when the cron (or a refresh) last ran,
+  // so any adjustment logged afterwards left the operator reading stale text
+  // -- on 2026-08-24 the draft still said "prox. entrada 16:00" minutes after
+  // check-in guidance moved to 15:00 (#1293). The send already recomposed
+  // live, so the textarea was the only thing lying. Recomposing here makes
+  // what she reads and what Rosa receives the same string by construction,
+  // and draftedBody carries it too so the unedited-check still holds.
+  const shownBody = pending && day ? composeDigestBody(day) : digest.body;
   const lastBatch = digest.sent_log?.[digest.sent_log.length - 1];
   const anyEnabled = recipients.some((r) => r.enabled);
 
@@ -298,14 +308,14 @@ export async function ScheduleDigestCard({
           <form action={approveAndSendDigest} style={{ marginTop: 16 }}>
             <input type="hidden" name="digestId" value={digest.id} />
             <input type="hidden" name="serviceDate" value={digest.service_date} />
-            <input type="hidden" name="draftedBody" value={digest.body} />
+            <input type="hidden" name="draftedBody" value={shownBody} />
             <label style={{ display: 'block', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)', marginBottom: 6 }}>
               The text that goes out
             </label>
             <textarea
               name="body"
-              defaultValue={digest.body}
-              rows={Math.min(14, digest.body.split('\n').length + 2)}
+              defaultValue={shownBody}
+              rows={Math.min(14, shownBody.split('\n').length + 2)}
               style={{
                 width: '100%',
                 fontFamily: 'var(--font-mono), monospace',
@@ -320,7 +330,7 @@ export async function ScheduleDigestCard({
               }}
             />
             <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '6px 0 12px' }}>
-              Left untouched, the send composes from the live schedule at that moment (a change logged after this draft still goes out right). Edited text goes verbatim. Each cleaner&rsquo;s text ends with their live-schedule link.
+              This is composed from the live schedule right now, and left untouched the send recomposes it again at that moment. Edited text goes verbatim. Each cleaner&rsquo;s text ends with their live-schedule link.
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <SubmitButton
