@@ -174,7 +174,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
         <Swatch bg="rgba(63,153,34,0.18)" label="open to inspect" />
         <Swatch bg="rgba(58,107,138,0.38)" label="already out to a contractor" />
-        <Swatch bg="rgba(63,153,34,0.42)" label="already inspected" />
+        <Swatch bg="rgba(63,153,34,0.42)" label="already inspected or done" />
         <Swatch bg="rgba(30,46,52,0.08)" label="guest in house" />
         <Swatch bg="rgba(30,46,52,0.16)" label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
@@ -372,7 +372,7 @@ function CalendarRow({
                 : c?.covered
                   ? `${row.propertyName}'s next guest is already out to a contractor`
                   : c?.inspected
-                    ? `${row.propertyName} is already inspected for its next guest`
+                    ? `${row.propertyName}'s next turnover is already handled — inspected or marked done`
                     : undefined
             }
             style={{

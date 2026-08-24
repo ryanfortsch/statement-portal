@@ -2435,11 +2435,28 @@ export async function loadInspectionCalendar(
     inspectedDays.set(r.property_id, arr);
   }
 
-  /** Did a finished inspection prep THIS arrival? Only one done after the prior
-   *  guest walked out counts — an inspection from before that checkout prepped
-   *  the previous stay, not this one. With no prior checkout on record, fall
-   *  back to a two-week look-back so a routine check still counts. */
+  // THIRD coverage source: the Turnovers rail's own "mark done", which writes
+  // turnover_completions keyed exactly on (property, check_in). No packet, no
+  // inspection row — so a turnover Ryan ticked off by hand still read as
+  // uncovered here (79 Main's Aug 27 arrival, marked done 2026-08-24).
+  const { data: tcData } = await fieldDb()
+    .from('turnover_completions')
+    .select('property_id, check_in')
+    .in('property_id', propIds)
+    .gte('check_in', fetchStart)
+    .lte('check_in', fetchEnd);
+  const markedDone = new Set(
+    ((tcData ?? []) as { property_id: string; check_in: string }[]).map((r) => `${r.property_id}:${r.check_in.slice(0, 10)}`),
+  );
+
+  /** Is THIS arrival already handled outside the packet rail — either ticked
+   *  done on the Turnovers rail (exact match on the arrival) or prepped by a
+   *  finished inspection? For inspections only one done after the prior guest
+   *  walked out counts: an earlier walk prepped the PREVIOUS stay, not this
+   *  one. With no prior checkout on record, fall back to a two-week look-back
+   *  so a routine check still counts. */
   const preppedFor = (propertyId: string, pb: BookingRaw[], checkIn: string): boolean => {
+    if (markedDone.has(`${propertyId}:${checkIn}`)) return true;
     const days = inspectedDays.get(propertyId);
     if (!days?.length) return false;
     const prior =
