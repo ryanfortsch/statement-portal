@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 import { getPropertyAccessMap } from '@/lib/property-access';
+import { normalizeTime } from '@/lib/checkout-schedule';
 
 /**
  * Outbound sync endpoint: the guest-relevant property facts the stay-concierge
@@ -116,6 +117,14 @@ export async function GET(req: Request) {
       // with "it's already in the home" instead of promising to bring one.
       has_pack_n_play: p.has_pack_n_play === true,
       has_high_chair: p.has_high_chair === true,
+      // Per-property default times, the same columns the cleaner checkout
+      // schedule reads (filled from Guesty by sync-guesty, operator-editable
+      // on /turnovers/schedule). Normalized through the schedule's own
+      // normalizeTime so the guest AI can never quote a time the cleaner
+      // schedule doesn't use (2026-08-24: the AI told a 3 Windward guest
+      // "standard 11 AM checkout" when the property's default is 10:00).
+      check_in_time: normalizeTime(p.default_checkin_time) ?? '',
+      check_out_time: normalizeTime(p.default_checkout_time) ?? '',
       guest_notes: (notesByProp.get(p.id) ?? [])
         .map((n) => ({ title: clean(n.title), body: clean(n.body) }))
         .filter((n) => n.title || n.body),
