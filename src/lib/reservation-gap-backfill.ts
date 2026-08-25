@@ -31,6 +31,22 @@
  *   5. run the guesty_reservations -> bookings backfill so a recovered stay
  *      reaches the turnover rail, revenue, cleaner scheduling and messaging
  *
+ * TWO LAYERS, because there are two ways to be missing. `guesty_reservations`
+ * is only a cache; `bookings` is what every consumer actually reads, and the
+ * copy between them is its own step on its own schedule. Andrea sat in the
+ * cache for hours after being recovered, still invisible to the turnover rail,
+ * because the copy had not run since. So the pass also asks which cached
+ * reservations have no `bookings` row yet, and runs the copy when any do -- no
+ * Guesty call needed, and it is idempotent.
+ *
+ * That second question is asked BY ID, never by night. A stay can be present
+ * in `bookings` and still not cover its nights: 21 Horton's Robin Tellier
+ * Aug 8-22 is there, confirmed, but deduped against a cancelled iCal twin that
+ * won canonical. That is a dedupe problem, this pass cannot fix it, and a
+ * night-based check would flag all 66 such runs fleet-wide and re-run the copy
+ * against them every half hour forever. Asking by id keeps the check to
+ * exactly what the copy inserts, so it converges to zero.
+ *
  * Detection is exact and free; only step 4 talks to Guesty, and only when a
  * gap exists, so the steady-state cost is one paged database read. It also
  * reaches where the bulk feed cannot: the feed is scoped to a 90-day floor, so
@@ -93,6 +109,9 @@ export type ReservationGapResult = {
   window: { startDate: string; endDate: string };
   booked_days: number;
   runs_found: number;
+  /** Cached reservations with no `bookings` row yet: a copy that lagged,
+   *  healed without touching Guesty. */
+  reservations_awaiting_copy: number;
   runs_probed: number;
   runs_skipped_cooldown: number;
   reservations_inserted: number;
@@ -135,6 +154,7 @@ export async function backfillReservationGaps(opts: {
     window: { startDate, endDate },
     booked_days: 0,
     runs_found: 0,
+    reservations_awaiting_copy: 0,
     runs_probed: 0,
     runs_skipped_cooldown: 0,
     reservations_inserted: 0,
@@ -180,6 +200,7 @@ export async function backfillReservationGaps(opts: {
     //    inquiry-only row covers nothing -- if the mirror still calls the
     //    night sold, the two disagree and we want the probe.
     const reservationRows = await selectAllPaged<{
+      guesty_reservation_id: string;
       property_id: string | null;
       check_in: string | null;
       check_out: string | null;
@@ -188,7 +209,7 @@ export async function backfillReservationGaps(opts: {
       (from, to) =>
         sb
           .from('guesty_reservations')
-          .select('property_id, check_in, check_out, status')
+          .select('guesty_reservation_id, property_id, check_in, check_out, status')
           .lte('check_in', endDate)
           .gt('check_out', startDate)
           .order('guesty_reservation_id', { ascending: true })
@@ -205,6 +226,40 @@ export async function backfillReservationGaps(opts: {
       coveredByProperty.set(r.property_id, set);
     }
 
+    // 2b. Which of those the copy into `bookings` has not made yet. Asked by
+    //     id, for the reason in the header: present-but-deduped is a dedupe
+    //     problem, not a missing row, and flagging it would never converge.
+    //     Properties Helm does not manage are excluded the same way
+    //     backfillGuestyToBookings excludes them, so they cannot pin this
+    //     above zero forever.
+    const [copiedIds, managed] = await Promise.all([
+      selectAllPaged<{ external_booking_id: string | null }>(
+        (from, to) =>
+          sb
+            .from('bookings')
+            .select('external_booking_id')
+            .eq('source', 'guesty_legacy')
+            .order('external_booking_id', { ascending: true })
+            .range(from, to),
+        { label: 'copied booking ids' },
+      ),
+      selectAllPaged<{ id: string }>(
+        (from, to) => sb.from('properties').select('id').order('id', { ascending: true }).range(from, to),
+        { label: 'managed properties' },
+      ),
+    ]);
+    const copied = new Set(copiedIds.map((r) => r.external_booking_id).filter(Boolean));
+    const managedIds = new Set(managed.map((r) => r.id));
+    result.reservations_awaiting_copy = reservationRows.filter(
+      (r) =>
+        r.property_id != null &&
+        managedIds.has(r.property_id) &&
+        r.check_in != null &&
+        r.check_out != null &&
+        !NON_OCCUPYING_STATUSES.has((r.status ?? '').toLowerCase()) &&
+        !copied.has(r.guesty_reservation_id),
+    ).length;
+
     // 3. The runs.
     const allRuns: BookedRun[] = [];
     for (const [propertyId, booked] of bookedByProperty) {
@@ -215,6 +270,7 @@ export async function backfillReservationGaps(opts: {
     allRuns.sort((a, b) => (a.check_in < b.check_in ? 1 : a.check_in > b.check_in ? -1 : 0));
     result.runs_found = allRuns.length;
     if (allRuns.length === 0) {
+      if (result.reservations_awaiting_copy > 0) await runBookingsBackfill(result, errors);
       await writeMemo({}, result, errors);
       return result;
     }
@@ -236,6 +292,7 @@ export async function backfillReservationGaps(opts: {
 
     if (probing.length === 0) {
       result.unresolved = allRuns;
+      if (result.reservations_awaiting_copy > 0) await runBookingsBackfill(result, errors);
       await writeMemo(memo, result, errors);
       return result;
     }
@@ -349,15 +406,11 @@ export async function backfillReservationGaps(opts: {
       if (carried) nextMemo[runKey(run)] = carried;
     }
 
-    // 5. Carry the recovered stays through to `bookings`, which is what the
-    //    turnover rail, revenue and messaging actually read.
-    if (rows.length > 0) {
-      try {
-        const b = await backfillGuestyToBookings({});
-        result.bookings_backfill = { inserted: b.inserted, updated: b.updated, deduped: b.deduped };
-      } catch (err) {
-        errors.push(`bookings backfill: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    // 5. Carry everything through to `bookings`, which is what the turnover
+    //    rail, revenue and messaging actually read -- both what we just
+    //    recovered and anything the copy had already fallen behind on.
+    if (rows.length > 0 || result.reservations_awaiting_copy > 0) {
+      await runBookingsBackfill(result, errors);
     }
 
     await writeMemo(nextMemo, result, errors);
@@ -367,6 +420,19 @@ export async function backfillReservationGaps(opts: {
     result.errors = errors;
     await recordSyncFailure('guesty-reservation-gaps', errors[0]);
     return result;
+  }
+}
+
+/** Idempotent; failure is recorded, never thrown. */
+async function runBookingsBackfill(
+  result: ReservationGapResult,
+  errors: string[],
+): Promise<void> {
+  try {
+    const b = await backfillGuestyToBookings({});
+    result.bookings_backfill = { inserted: b.inserted, updated: b.updated, deduped: b.deduped };
+  } catch (err) {
+    errors.push(`bookings backfill: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
