@@ -8,7 +8,7 @@ import { MAINTENANCE_BASE_CENTS } from '@/lib/field-pricing';
 import { loadContractorShoots, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
-import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail , GUEST_ACCESS_LABEL } from '@/lib/field-types';
+import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail , tripWindowLabel } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { ContractorHeader } from './ContractorHeader';
@@ -49,12 +49,10 @@ export const metadata: Metadata = {
 function windowSummary(p: PacketDetail): string {
   if (p.kind === 'setup') return 'new-property setup · 2 to 4 hours on site';
   if (p.trade === 'maintenance') return `${p.stop_count} ${p.stop_count === 1 ? 'job' : 'jobs'} to fix`;
-  // The claim decision hinges on whether the day has a hard finish time — say
-  // so on the card, not a made-up fixed window.
-  const arriving = p.stops.filter((s) => s.next_checkin === p.visit_date).length;
-  if (arriving === 0) return 'no check-ins that day · flexible';
-  if (arriving === p.stops.length) return `guests can arrive ${GUEST_ACCESS_LABEL} · finish by then`;
-  return `${arriving} of ${p.stops.length} with a ${GUEST_ACCESS_LABEL} arrival`;
+  // The real working window, not a slogan: when they can start (the first
+  // stop's own checkout hour, or 9:30 if that home is already empty) through
+  // the earliest guest arrival. Homes differ — a few check out at 10.
+  return tripWindowLabel(p.visit_date, p.stops) ?? 'flexible';
 }
 
 function eyebrowDate(d: string): string {

@@ -72,7 +72,10 @@ const isGuestStay = (b: { status: string | null }): boolean =>
 // they're merged in via getPropertyAccessMap, not selected here.
 const PROPERTY_COLS =
   'id, name, title, address, city, kind, latitude, longitude, inspection_base_price_cents, bedrooms, ' +
-  'guest_access_method, smart_lock_brand, parking, supply_closet_location';
+  'guest_access_method, smart_lock_brand, parking, supply_closet_location, ' +
+  // The real working window comes from these: a checkout-day stop can't start
+  // before the guest is out, and the arrival is the hard finish.
+  'default_checkout_time, default_checkin_time';
 
 /** Layer a property's access codes (from property_access) onto the row read
  *  from properties, producing the full FieldProperty the access bundle needs. */

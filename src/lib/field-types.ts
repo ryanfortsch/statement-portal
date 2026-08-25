@@ -11,6 +11,58 @@
  */
 export const GUEST_ACCESS_LABEL = '3 PM';
 
+/** When an EMPTY home can be walked: the office opens early, so a stop with no
+ *  guest leaving that morning is workable well before any checkout hour. */
+export const VACANT_START = '09:30';
+/** Fallbacks when a home has no clock of its own on file. */
+const FALLBACK_CHECKOUT = '11:00';
+const FALLBACK_CHECKIN = '15:00';
+
+/** "9:30 AM" / "11 AM" / "3 PM" — drop ":00", keep a real half hour. */
+export function clockLabel(hhmm: string): string {
+  const [hStr, mStr] = hhmm.split(':');
+  const h = Number(hStr);
+  const m = Number(mStr ?? '0');
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12} ${suffix}` : `${h12}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+
+type WindowStop = {
+  window_basis: WindowBasis;
+  next_checkin: string | null;
+  property: { default_checkout_time: string | null; default_checkin_time: string | null };
+};
+
+/**
+ * The trip's real working window: when the inspector can start, and the hard
+ * finish. Start = the FIRST stop's earliest — a home with a guest leaving that
+ * morning can't be walked before its own checkout hour (11 at most homes, 10 at
+ * a few), while an already-empty home is open from 9:30. Finish = the earliest
+ * guest arrival across the stops. Null when nobody arrives that day: no
+ * deadline, so the card says "flexible" instead of inventing one.
+ */
+export function tripWindow(visitDate: string, stops: WindowStop[]): { start: string; end: string | null } | null {
+  if (stops.length === 0) return null;
+  const first = stops[0];
+  const start =
+    first.window_basis === 'checkout_day'
+      ? (first.property.default_checkout_time ?? FALLBACK_CHECKOUT).slice(0, 5)
+      : VACANT_START;
+  const arrivals = stops
+    .filter((s) => s.next_checkin === visitDate)
+    .map((s) => (s.property.default_checkin_time ?? FALLBACK_CHECKIN).slice(0, 5))
+    .sort();
+  return { start, end: arrivals[0] ?? null };
+}
+
+/** "11 AM – 3 PM", or the open-ended form when no guest arrives that day. */
+export function tripWindowLabel(visitDate: string, stops: WindowStop[]): string | null {
+  const w = tripWindow(visitDate, stops);
+  if (!w) return null;
+  return w.end ? `${clockLabel(w.start)} – ${clockLabel(w.end)}` : `from ${clockLabel(w.start)} · no check-ins that day`;
+}
+
 export type ContractorStatus = 'invited' | 'onboarding' | 'active' | 'paused' | 'archived';
 export type ContractorTrade = 'inspection' | 'maintenance' | 'cleaning' | 'creative';
 
@@ -277,6 +329,10 @@ export type FieldProperty = {
    *  info for the inspector's supplies-and-inventory pass; not a secret code, so
    *  it lives on properties, not the RLS-locked access table. */
   supply_closet_location: string | null;
+  /** This home's own checkout / check-in clock (HH:MM:SS). Most check out at
+   *  11, a few at 10; arrivals are 3 PM. Drives the trip's working window. */
+  default_checkout_time: string | null;
+  default_checkin_time: string | null;
 };
 
 /** Entry/access info shown to a contractor after they claim a packet. */
