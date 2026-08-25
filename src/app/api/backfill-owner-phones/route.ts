@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 
 /**
  * One-shot backfill: copy phones from properties.owners[] into the
@@ -72,15 +73,8 @@ function getServiceClient() {
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.STAY_CONCIERGE_KEY;
-  if (!expected) {
-    return NextResponse.json({ error: 'no auth key set' }, { status: 503 });
-  }
-  const url = new URL(req.url);
-  const provided = url.searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = authorizeStayConcierge(req);
+  if (denied) return denied;
 
   let sb;
   try {

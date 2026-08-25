@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listPhoneNumbers, normalizePhone, sendMessage } from '@/lib/quo';
 import { briefHeadline, helmBaseUrl, loadDailyBrief } from '@/lib/daily-brief';
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -15,18 +16,17 @@ export const maxDuration = 60;
  *   DOTTI_PHONE        — E.164 recipient (e.g. +15555551234). Required.
  *   QUO_FROM_NUMBER    — E.164 of the Quo line to send from. Optional;
  *                        falls back to the first phone returned by Quo.
- *   CRON_SECRET        — Optional; if set, requests must include
- *                        `Authorization: Bearer <secret>`.
+ *   CRON_SECRET        — Vercel Cron sends it as
+ *                        `Authorization: Bearer <secret>`. Auth fails
+ *                        closed without it; a signed-in Helm user can
+ *                        still trigger a manual run.
  *
  * Same `?dry=1` escape hatch as the other cron handlers: returns the
  * brief without sending an SMS, useful for manual smoke-testing.
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   const url = new URL(request.url);
   const dry = url.searchParams.get('dry') === '1';

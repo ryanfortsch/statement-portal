@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 
 /**
  * Inbound sync endpoint: prospective-owner leads captured by the
@@ -47,15 +48,8 @@ type Submission = {
 };
 
 export async function POST(req: Request) {
-  const expected = process.env.STAY_CONCIERGE_KEY;
-  if (!expected) {
-    return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
-  }
-  const { searchParams } = new URL(req.url);
-  const provided = searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = authorizeStayConcierge(req);
+  if (denied) return denied;
 
   let body: { submissions?: Submission[] };
   try {

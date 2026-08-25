@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { expireStalePackets, revalidatePublishedPackets, resyncLivePacketBookings } from '@/lib/field-packets';
 import { planMaintenanceRuns } from '@/lib/maintenance-runs';
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const maxDuration = 300;
 
@@ -14,16 +15,14 @@ export const maxDuration = 300;
  * emails a human moved to /api/cron/field-morning so it lands at a humane hour.
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   // In production the secret is mandatory — never let the revalidation cron run
   // unauthenticated (it's what keeps the marketplace off occupied houses).
   if (process.env.NODE_ENV === 'production' && !cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   try {
     // FIRST: pull expired listings (published, visit day passed, never
