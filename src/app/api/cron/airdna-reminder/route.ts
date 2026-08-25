@@ -25,7 +25,7 @@ export const maxDuration = 30;
  * returns ok: true, sent: false. That keeps the cron quiet so the
  * absence of a text means "we're in good shape."
  *
- * Env (same pattern as cron/daily-brief):
+ * Env:
  *   DOTTI_PHONE     - E.164 recipient. Required.
  *   QUO_FROM_NUMBER - E.164 of the Quo line to send from. Optional.
  *   CRON_SECRET     - Optional bearer token check.
