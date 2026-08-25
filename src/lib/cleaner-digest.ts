@@ -222,12 +222,35 @@ export async function expireStaleDigests(supabase: SupabaseClient): Promise<numb
 // ─── reads for the card / pages ───────────────────────────────────────
 
 export async function getOpenDigest(supabase: SupabaseClient): Promise<DigestRow | null> {
-  // The digest the operator should see: today's or a future one, newest
-  // relevant first (normally exactly one - tomorrow's).
+  const today = todayET();
+  // The card is the approval gate, so a digest WAITING on the operator
+  // always wins, soonest first.
+  //
+  // This used to take the soonest row dated today-or-later regardless of
+  // status, on the assumption there would be "normally exactly one -
+  // tomorrow's". That only held on day one. From the second day on,
+  // TODAY's already-sent digest still sorts first and keeps winning, so
+  // tomorrow's pending one never surfaces and cannot be approved. Found
+  // live 2026-08-25: the card showed Monday's sent digest while Tuesday's
+  // sat unapproved behind it, and the schedule read as if it had gone
+  // backwards to "today" instead of a day forward.
+  const { data: pending } = await supabase
+    .from('cleaner_schedule_digests')
+    .select('*')
+    .eq('status', 'pending')
+    .gte('service_date', today)
+    .order('service_date', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (pending) return pending as DigestRow;
+
+  // Nothing waiting on approval: fall back to the soonest upcoming day so a
+  // digest already sent stays reachable for "Send an update" when the
+  // schedule moves after it went out.
   const { data } = await supabase
     .from('cleaner_schedule_digests')
     .select('*')
-    .gte('service_date', todayET())
+    .gte('service_date', today)
     .order('service_date', { ascending: true })
     .limit(1)
     .maybeSingle();
