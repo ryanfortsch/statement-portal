@@ -22,7 +22,13 @@
  *
  * Run: node --experimental-strip-types scripts/forecast_rerack_check.mjs
  */
-import { categorizeOverhead, dropSupersededCardProxy, CARD_PROXY_CATEGORY } from '../src/lib/overhead-categories.ts';
+import {
+  categorizeOverhead,
+  dropSupersededCardProxy,
+  cardCompleteMonths,
+  resolveCardSpendSource,
+  CARD_PROXY_CATEGORY,
+} from '../src/lib/overhead-categories.ts';
 import {
   calcYear,
   CC_OPERATING_BREAKDOWN,
@@ -121,7 +127,31 @@ if (!kept.some((r) => r.month === '2026-07' && r.category === CARD_PROXY_CATEGOR
   fail('card-payment proxy was dropped from a month with no card detail (gap)');
 }
 
+/* -- invariant 5: partial card months fall back to the proxy ------------- */
+// Card export stopped 2026-06-06. May is covered (ends 05-31), June is not
+// (ends 06-30), July has no card rows at all.
+const MIXED = [
+  { month: '2026-05', account: 'card', category: 'Software', amount: 2314 },
+  { month: '2026-05', account: 'operating', category: CARD_PROXY_CATEGORY, amount: 8000 },
+  { month: '2026-06', account: 'card', category: 'Guest supplies', amount: 5362 },
+  { month: '2026-06', account: 'operating', category: CARD_PROXY_CATEGORY, amount: 8000 },
+  { month: '2026-07', account: 'operating', category: CARD_PROXY_CATEGORY, amount: 13997 },
+  { month: '2026-07', account: 'operating', category: 'Contractors', amount: 4890 },
+];
+const complete = cardCompleteMonths(MIXED, '2026-06-06');
+if (!complete.has('2026-05')) fail('2026-05 should be card-complete (export runs to 06-06, month ends 05-31)');
+if (complete.has('2026-06')) fail('2026-06 must NOT be card-complete: six days of data, month ends 06-30');
+
+const resolved = resolveCardSpendSource(MIXED, complete);
+const has = (month, pred) => resolved.some((r) => r.month === month && pred(r));
+if (!has('2026-05', (r) => r.account === 'card')) fail('2026-05 lost its complete card detail');
+if (has('2026-05', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-05 kept a proxy on top of complete card detail');
+if (has('2026-06', (r) => r.account === 'card')) fail('2026-06 kept six days of card charges as if they were a whole month');
+if (!has('2026-06', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-06 lost the proxy that should cover its partial card month');
+if (!has('2026-07', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-07 lost the proxy for a month with no card data');
+if (!has('2026-07', (r) => r.category === 'Contractors')) fail('resolveCardSpendSource dropped a non-card row');
+
 console.log(failures === 0
-  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, and the card-payment proxy fills gap months without double-counting real card detail.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);
