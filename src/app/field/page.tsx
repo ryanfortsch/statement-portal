@@ -8,7 +8,7 @@ import { MAINTENANCE_BASE_CENTS } from '@/lib/field-pricing';
 import { loadContractorShoots, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
-import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail } from '@/lib/field-types';
+import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail , GUEST_ACCESS_LABEL } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { ContractorHeader } from './ContractorHeader';
@@ -53,8 +53,8 @@ function windowSummary(p: PacketDetail): string {
   // so on the card, not a made-up fixed window.
   const arriving = p.stops.filter((s) => s.next_checkin === p.visit_date).length;
   if (arriving === 0) return 'no check-ins that day · flexible';
-  if (arriving === p.stops.length) return 'guests arrive 4 PM · finish by then';
-  return `${arriving} of ${p.stops.length} with a 4 PM check-in`;
+  if (arriving === p.stops.length) return `guests can arrive ${GUEST_ACCESS_LABEL} · finish by then`;
+  return `${arriving} of ${p.stops.length} with a ${GUEST_ACCESS_LABEL} arrival`;
 }
 
 function eyebrowDate(d: string): string {

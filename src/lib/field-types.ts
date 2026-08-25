@@ -3,6 +3,14 @@
  * Mirrors the schema in 20260620_field_contractor_portal.sql.
  */
 
+/**
+ * When a guest can first get into a home — Rising Tide releases the door code
+ * at 3 PM, so that, not the 4 PM check-in time, is the inspector's real
+ * deadline. Universal across the portfolio: there is no per-property variant.
+ * Every Field surface reads this instead of writing an hour inline.
+ */
+export const GUEST_ACCESS_LABEL = '3 PM';
+
 export type ContractorStatus = 'invited' | 'onboarding' | 'active' | 'paused' | 'archived';
 export type ContractorTrade = 'inspection' | 'maintenance' | 'cleaning' | 'creative';
 
