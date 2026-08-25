@@ -79,7 +79,15 @@ function randomPin(): string {
 
 // Eastern offset; pilot properties are Cape Ann. The hour-level approximation
 // across DST is harmless for a stay-length window (mirrors field-locks).
-const CHECKIN_HOUR = '16:00:00';
+// The code goes live at MIDNIGHT on the check-in day, not at the 4 PM check-in
+// time. Rising Tide releases it around 3 PM, guests turn up early, flights land
+// at odd hours — a code that says "invalid" on the doorstep is a phone call for
+// Ryan and a bad first five minutes for the guest. The night before is still
+// someone else's stay, so the day itself is the honest boundary.
+const CHECKIN_HOUR = '00:00:00';
+// Checkout keeps its hour: on a same-day turnover the next guest can key in at
+// 3 PM, and a departed guest whose code still worked all evening could walk in
+// on them.
 const CHECKOUT_HOUR = '11:00:00';
 const ET_OFFSET = '-04:00';
 
