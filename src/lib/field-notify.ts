@@ -231,20 +231,27 @@ export async function sendTripStopRemovedEmail(
 export async function sendClaimConfirmation(
   contractor: ContractorRow,
   packet: PacketRow,
+  /** The office handed them this trip instead of them claiming it off the
+   *  board — "You claimed ..." would be plainly untrue. */
+  opts: { assigned?: boolean } = {},
 ): Promise<boolean> {
   const link = packetLink(contractor.portal_token, packet.id);
+  const headline = opts.assigned ? `We booked you for ${packet.title}` : `You claimed ${packet.title}`;
+  const lede = opts.assigned
+    ? "This one's assigned to you — nothing to claim, it's already on your board. You're booked for"
+    : "You're booked for";
   const html = shell(`
-    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">You claimed ${packet.title}</h1>
-    <p>You're booked for <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? `, starting any time from ${fmtVisitTime(packet.visit_time)}` : ''}</strong>${packet.complete_by ? `, to be <strong>completed by ${fmtVisitTime(packet.complete_by)}</strong>` : ''}. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">${headline}</h1>
+    <p>${lede} <strong>${packet.visit_date}${fmtVisitTime(packet.visit_time) ? `, starting any time from ${fmtVisitTime(packet.visit_time)}` : ''}</strong>${packet.complete_by ? `, to be <strong>completed by ${fmtVisitTime(packet.complete_by)}</strong>` : ''}. Estimated pay is <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the route, each property's window, and entry details.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({
     to: contractor.email,
-    subject: `Confirmed: ${packet.title} on ${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` from ${fmtVisitTime(packet.visit_time)}` : ''}`,
+    subject: `${opts.assigned ? 'Booked for you' : 'Confirmed'}: ${packet.title} on ${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` from ${fmtVisitTime(packet.visit_time)}` : ''}`,
     fromName: FROM_NAME,
     cc: OFFICE_CC,
     html,
-    text: `You claimed ${packet.title} on ${packet.visit_date}. Estimated pay ${dollars(packet.posted_price_cents)}, confirmed after your visit. ${link}`,
+    text: `${opts.assigned ? `We booked you for ${packet.title}` : `You claimed ${packet.title}`} on ${packet.visit_date}. Estimated pay ${dollars(packet.posted_price_cents)}, confirmed after your visit. ${link}`,
   });
 }
 
