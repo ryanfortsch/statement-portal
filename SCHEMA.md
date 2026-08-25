@@ -126,13 +126,14 @@ math hands-off zone.
 
 ## People
 
-Helm distinguishes three populations and they each have their own table:
+Helm distinguishes four populations and they each have their own table:
 
 | Table | Who | Source | Sensitive? |
 |---|---|---|---|
 | `contacts` | Owners, vendors, leads | CRM module (`/crm`); inbound Quo / Gmail webhooks add unknown numbers | RLS-locked (service role only) since 2026-06-21 |
 | `audience_contacts` | Guests who have booked, signed up, or unsubscribed | `/api/guests/subscribe`, Guesty guests sync, Resend webhook | RLS-locked since 2026-06-21 |
 | `owners` | Structured ownership graph (property-to-owner) | `/api/owners-sync` (stay-concierge writes) | not anon-readable |
+| `trade_vendors` | Outside trade companies we hire by the job (plumber, electrician, appliance, pest) | Hand-maintained on `/fieldwork/trades`; seeded from `bank-charges.ts` + `books-vendor-hints.ts` | RLS-locked (service role only) |
 
 `contact_touches` is the cross-channel communication log for `contacts`
 (Quo SMS + calls, Gmail). RLS-locked. `audience_events` is the
@@ -141,6 +142,17 @@ is the broader unified outbound log.
 
 `contractor_sessions` + `contractors`: the Field external contractor
 portal (`/field`). Token-gated, NOT Helm-SSO gated. Service-role only.
+
+`trade_vendors` is deliberately NOT `contractors`. A contractor is a
+person we onboard onto the portal: portal token, W-9, background check,
+claims packets, paid per packet. A trade vendor is a company we phone:
+no token, no packet, ranked by `standing` within its `category` (which
+is free text validated in code against `TRADE_CATEGORIES` in
+`src/lib/trades.ts`, so adding a trade is a one-file change). Nor is it
+`contacts`: the CRM's `type='vendor'` row is a person and a touch
+timeline, not a dispatchable outfit with an after-hours line and a COI
+expiry. Rows are retired via `archived_at`, never deleted -- old bank
+descriptors still name them.
 
 ---
 

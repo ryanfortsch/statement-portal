@@ -80,7 +80,7 @@ Load-bearing `src/lib` modules by import count: `supabase-admin` (144), `propert
 | `/turnovers` | Turnover pipeline and the six-stage cleaning lifecycle |
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions |
 | `/inspections` | Property inspection runs |
-| `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger) |
+| `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger), trades (the outside vendor directory) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
 | `/work` | Work slips per property plus team tasks. `/work/gear` tracks guest gear |
 | `/properties` | Property registry. The largest module: 23 pages, ~21k lines |
