@@ -378,8 +378,19 @@ async function collectFiles(
               droneBoxId = c.id;
             }
             if (insideFinals) {
-              for (const parked of await listChildren(token, c.id)) {
-                if (parked.mimeType !== FOLDER_MIME) parkedFileIds.add(parked.id);
+              // Walk the dump for ids only (never for deliverables), so a file
+              // moved into it — at any depth Helm could have captured it from —
+              // reads as parked rather than deleted.
+              let dumps = [c.id];
+              for (let depth = folder.depth; depth < 3 && dumps.length > 0; depth++) {
+                const deeper: string[] = [];
+                for (const dumpId of dumps) {
+                  for (const parked of await listChildren(token, dumpId)) {
+                    if (parked.mimeType === FOLDER_MIME) deeper.push(parked.id);
+                    else parkedFileIds.add(parked.id);
+                  }
+                }
+                dumps = deeper;
               }
             }
             continue;
