@@ -61,6 +61,26 @@ function removeNew(a) {
   return resolveGapNew(a);
 }
 
+// ---- /api/ingest ---------------------------------------------------------
+// Ingest hand-rolled its own attribution read and selected only
+// `amount, apply_mgmt_fee`, with no `direction`. Every attributed row was
+// therefore added to addOnsRevenue, so a DEBIT (which should reduce the
+// payout) increased it instead, and because apply_mgmt_fee defaults TRUE the
+// debit also inflated the fee base. It never wrote attributed_debits_total.
+
+function ingestOld({ rentalRevenue, feePct, cleaning, repairs, reserve, addOnsRevenue, addOnsMgmtBase, attributedDebits, debitAppliesMgmtFee }) {
+  // The old loop could not tell a debit from a deposit.
+  const seenAsAddOns = addOnsRevenue + attributedDebits;
+  const seenAsMgmtBase = addOnsMgmtBase + (debitAppliesMgmtFee ? attributedDebits : 0);
+  const fee = round2((rentalRevenue + seenAsMgmtBase) * (feePct / 100));
+  const payout = round2(rentalRevenue + seenAsAddOns - fee - cleaning - repairs - reserve);
+  return { fee, payout };
+}
+
+function ingestNew(a) {
+  return canonical(a);
+}
+
 // ---- canonical reference (statement-addons.ts docblock, transcribed) ------
 
 function canonical({ rentalRevenue, feePct, cleaning, repairs, reserve, addOnsRevenue, addOnsMgmtBase, attributedDebits }) {
@@ -173,6 +193,49 @@ for (const r of sample) {
   const dRm = round2(r.payoutNow - r.payoutWasRemove);
   console.log(`  ${r.case.padEnd(30)} fee ${String(r.feeWas).padStart(9)} -> ${String(r.feeNow).padStart(9)}`);
   console.log(`  ${''.padEnd(30)} payout correction: resolve-gap ${dRg >= 0 ? '+' : ''}${dRg}, remove ${dRm >= 0 ? '+' : ''}${dRm}`);
+}
+
+console.log('\n=== 4. /api/ingest: what the missing `direction` column cost ===\n');
+{
+  // 4a. SAFETY: no attributions at all, and deposit-only attributions, are
+  // both unchanged. The old code was correct for deposits; only statements
+  // carrying an attributed DEBIT ever moved. That is the blast radius.
+  let same = 0;
+  for (const c of noAttributionCases()) {
+    checked++;
+    const o = ingestOld({ ...c, debitAppliesMgmtFee: true });
+    const n = ingestNew(c);
+    if (o.fee !== n.fee || o.payout !== n.payout) fail(`ingest zero-attribution rev=${c.rentalRevenue}`);
+    else same++;
+  }
+  console.log(`  ${same} zero-attribution cases unchanged.`);
+
+  let depSame = 0, depTotal = 0;
+  for (const c of attributionCases()) {
+    if (c.attributedDebits !== 0) continue;
+    depTotal++; checked++;
+    const o = ingestOld({ ...c, debitAppliesMgmtFee: true });
+    const n = ingestNew(c);
+    if (o.fee !== n.fee || o.payout !== n.payout) fail(`ingest deposit-only ${c.label}`);
+    else depSame++;
+  }
+  console.log(`  ${depSame}/${depTotal} deposit-only cases unchanged.`);
+  console.log('  => Only statements with an attributed DEBIT were ever wrong.\n');
+
+  // 4b. The debit cases, quantified.
+  console.log('  (25% fee, $20,853.63 rental revenue, $325 cleaning)\n');
+  for (const c of attributionCases()) {
+    if (c.attributedDebits === 0 || c.feePct !== 25 || c.rentalRevenue !== 20853.63) continue;
+    checked++;
+    const o = ingestOld({ ...c, debitAppliesMgmtFee: true });
+    const n = ingestNew(c);
+    if (n.fee !== canonical(c).fee || n.payout !== canonical(c).payout) fail(`ingest != canonical ${c.label}`);
+    const dFee = round2(n.fee - o.fee);
+    const dPay = round2(n.payout - o.payout);
+    console.log(`  ${c.label.padEnd(30)} debit $${c.attributedDebits}`);
+    console.log(`  ${''.padEnd(30)} fee ${o.fee} -> ${n.fee} (${dFee >= 0 ? '+' : ''}${dFee})`);
+    console.log(`  ${''.padEnd(30)} payout ${o.payout} -> ${n.payout} (${dPay >= 0 ? '+' : ''}${dPay}, owner was overpaid)`);
+  }
 }
 
 console.log(`\n${'='.repeat(62)}`);

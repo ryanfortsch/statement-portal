@@ -6,6 +6,7 @@ import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, type Installment } from '@/lib/installments';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { loadAddOnTotals } from '@/lib/statement-addons';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -1194,35 +1195,25 @@ export async function POST(request: NextRequest) {
     // Linked by property_id + month so they survive the wholesale
     // delete-and-replace re-ingest pattern below.
     totalRevenue = Math.round(totalRevenue * 100) / 100;
-    let addOnsRevenue = 0;
-    let addOnsMgmtBase = 0;
-    {
-      const { data: priorAttrs, error: priorAttrsErr } = await supabase
-        .from('bank_deposit_attributions')
-        .select('amount, apply_mgmt_fee')
-        .eq('property_id', propertyId)
-        .eq('month', month)
-        .eq('status', 'attributed');
-      // Tolerate the table not existing yet (migration unrun) so the
-      // ingest keeps working until the schema lands.
-      if (priorAttrsErr && priorAttrsErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(priorAttrsErr.message || '')) {
-        throw priorAttrsErr;
-      }
-      for (const a of priorAttrs || []) {
-        const amt = Number(a.amount) || 0;
-        addOnsRevenue += amt;
-        if (a.apply_mgmt_fee) addOnsMgmtBase += amt;
-      }
-      addOnsRevenue = Math.round(addOnsRevenue * 100) / 100;
-      addOnsMgmtBase = Math.round(addOnsMgmtBase * 100) / 100;
-    }
+    // Read the attributed add-on totals through the shared helper, the same
+    // one every other recompute site uses. This file used to hand-roll the
+    // read and omitted the `direction` column, so an attributed DEBIT was
+    // added as add-on revenue instead of subtracted from the payout, and
+    // attributed_debits_total was never written. The helper keeps the
+    // migration-unrun tolerance (a missing table returns zeros, any other
+    // read error throws rather than silently zeroing real totals).
+    const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(
+      supabase,
+      propertyId,
+      month,
+    );
     const feeBase = Math.round((totalRevenue + addOnsMgmtBase) * 100) / 100;
     const managementFee = Math.round(feeBase * (propConfig.fee_pct / 100) * 100) / 100;
     // Owner payout deducts reserve_holdback last -- placeholder here; the
     // actual value is preserved from any existing property_statement row
     // (see section 8) and applied when we recompute after the delete-then-
     // insert. Baseline (before reserve) is captured here for clarity.
-    const ownerPayoutBeforeReserve = Math.round((totalRevenue + addOnsRevenue - managementFee - cleaningTotal - repairsTotal) * 100) / 100;
+    const ownerPayoutBeforeReserve = Math.round((totalRevenue + addOnsRevenue - managementFee - cleaningTotal - repairsTotal - attributedDebits) * 100) / 100;
 
     // 6. Confidence
     const hasGuesty = reservations.length > 0;
@@ -1288,6 +1279,7 @@ export async function POST(request: NextRequest) {
         management_fee_pct: propConfig.fee_pct,
         rental_revenue: totalRevenue,
         add_ons_revenue: addOnsRevenue,
+        attributed_debits_total: attributedDebits,
         management_fee: managementFee,
         cleaning_total: cleaningTotal,
         repairs_total: repairsTotal,

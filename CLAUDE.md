@@ -231,7 +231,7 @@ Know which class you are in before you touch one. Getting this wrong is how #132
 | `/api/reservations/remove` | `loadAddOnTotals()` |
 | `src/lib/stripe-sync.ts` | `loadAddOnTotals()` |
 | `/api/bank-deposits/[id]` | inline, correct (it owns the attribution write, so it has the rows) |
-| `/api/ingest` | inline, **diverges**, see below |
+| `/api/ingest` | `loadAddOnTotals()` |
 
 **Class 2, payout adjusters.** These read the stored `management_fee` as given and never recompute
 it, so they do not need the fee base at all. They only move the payout by their own line item:
@@ -242,12 +242,11 @@ enter the fee base.
 If you add a recompute site, use `loadAddOnTotals()`. If you change the formula, change it in
 `statement-addons.ts` first, then propagate.
 
-### Known divergence: `/api/ingest` does not use the helper
-
-`/api/ingest` has its own inline attribution read that selects `amount, apply_mgmt_fee` **without
-`direction`**, so on a full re-ingest an attributed **debit** is added as add-on revenue instead of
-subtracted, and `attributed_debits_total` is never written. This is a bug, not the intended
-formula. Do not copy it. Treat `statement-addons.ts` as canonical.
+All seven now go through `loadAddOnTotals()` or compute the identical three terms inline. There is
+no longer a recompute site that diverges from `statement-addons.ts`. Keep it that way: the last
+divergence was `/api/ingest`, which hand-rolled the read, omitted the `direction` column, and so
+added an attributed debit as add-on revenue instead of subtracting it. On a $275 debit at a 25% fee
+that overpaid the owner by $481.25 and under-charged the fee by $68.75.
 
 ## Stripe fees: actuals are the rule
 
