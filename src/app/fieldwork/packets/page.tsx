@@ -229,7 +229,7 @@ export default async function PacketsBoard({
         {sp.sent === '1' && (
           <div style={{ marginTop: 18, border: '1px solid var(--positive)', background: 'rgba(63,153,34,0.08)', color: 'var(--positive)', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
             {sp.who
-              ? `Packet sent to ${sp.who} — it's on their board, and nobody else was texted.`
+              ? `Packet sent to ${sp.who} — only they can see and claim it, and nobody else was texted.`
               : "Packet sent — it's out to contractors below."}
           </div>
         )}

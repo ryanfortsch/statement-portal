@@ -189,6 +189,13 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   for (const e of eligible) tierCounts[e.tier]++;
   const nearestMi = eligible.reduce<number | null>((m, e) => (e.miles == null ? m : m == null ? e.miles : Math.min(m, e.miles)), null);
   const showCoverage = packet.status === 'published' && !packet.awarded_contractor_id;
+  // A restricted offer: only these inspectors can see or claim it, so the
+  // coverage read above ("who's in range") isn't the whole story.
+  const offeredIds = packet.offered_to_contractor_ids ?? [];
+  const offeredNames = offeredIds.length
+    ? (((await fieldDb().from('contractors').select('id, full_name').in('id', offeredIds)).data ?? []) as Array<{ id: string; full_name: string }>)
+        .map((c) => c.full_name)
+    : [];
   // Live progress, so the office can watch a claimed visit move stop-by-stop.
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const tracking = isWorkingStatus(packet.status) && packet.stops.length > 0;
@@ -265,6 +272,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         </div>
 
+        {offeredNames.length > 0 && packet.status === 'published' && (
+          <div style={{ marginTop: 18, border: '1px solid var(--tide-deep)', borderRadius: 10, padding: '10px 16px', background: 'rgba(58,107,138,0.06)', fontSize: 13.5, color: 'var(--ink)' }}>
+            Offered to <strong>{offeredNames.join(' & ')}</strong> only — nobody else sees it on their board, and they still claim it themselves.
+          </div>
+        )}
         {showCoverage && (
           <div style={{ marginTop: 18, border: `1px solid ${eligible.length === 0 ? 'var(--signal)' : 'var(--rule)'}`, borderRadius: 10, padding: '12px 16px', background: eligible.length === 0 ? 'rgba(200,90,58,0.06)' : 'var(--paper-2, #fff)' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 6 }}>Coverage</div>

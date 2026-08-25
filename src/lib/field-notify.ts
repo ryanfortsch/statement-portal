@@ -347,6 +347,8 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
   if (!from) return 0;
   const packet = await loadPacketDetail(packetId);
   if (!packet || packet.status !== 'published') return 0;
+  // A restricted offer texts only the inspectors it was offered to.
+  const audience = packet.offered_to_contractor_ids ?? null;
 
   // Only text contractors of this packet's trade who can actually claim right
   // now — active, onboarded (agreement signed + W-9 on file), with a phone.
@@ -367,9 +369,9 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     // keep it glued to the select above when refactoring, or the opt-out
     // becomes decorative again.
     .eq('sms_opt_in', true);
-  const contractors = (data ?? []) as Array<
+  const contractors = ((data ?? []) as Array<
     Pick<ContractorRow, 'id' | 'full_name' | 'phone' | 'portal_token' | 'home_lat' | 'home_lng' | 'service_radius_miles'>
-  >;
+  >).filter((c) => !audience?.length || audience.includes(c.id));
 
   // Ping the most reliable inspectors first (proven on-time + low-rework get
   // the head start on a first-come claim). New/unproven inspectors sort in the
