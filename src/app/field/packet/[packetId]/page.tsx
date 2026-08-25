@@ -7,7 +7,7 @@ import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { formatTime12 } from '@/lib/checkout-schedule';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , GUEST_ACCESS_LABEL } from '@/lib/field-types';
+import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , GUEST_ACCESS_LABEL, clockLabel, tripWindowLabel } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
@@ -97,7 +97,10 @@ function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; fi
   // empty-since-yesterday 20 Hammond was startable at 8 AM).
   const open = s.window_basis !== 'checkout_day';
   const first = !open
-    ? 'Checkout today'
+    // Name the hour: this home's guest is leaving this morning, and not every
+    // home checks out at 11 (a few are 10). Walking up before then finds the
+    // guest still in the house.
+    ? `Checkout today · open after ${clockLabel((s.property.default_checkout_time ?? '11:00').slice(0, 5))}`
     : s.prior_checkout && s.prior_checkout < visitDate
       ? `Open now · empty since ${fmtShortDate(s.prior_checkout)}`
       : 'Open now';
@@ -709,7 +712,14 @@ export default async function PacketPage({
           wrapper out of layout. */}
       <fieldset disabled={preview} style={{ display: 'contents', border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, textTransform: 'uppercase' }}>
-        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · from ${fmtVisitTime(packet.visit_time)}` : ''}{packet.complete_by && !(working && packet.entry_code) ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
+        {fmtDate(packet.visit_date)}{fmtVisitTime(packet.visit_time) ? ` · from ${fmtVisitTime(packet.visit_time)}` : ''}{(() => {
+          // Same window the marketplace card quoted — the trip page must not
+          // disagree with what they claimed.
+          const w = !fmtVisitTime(packet.visit_time) && packet.trade === 'inspection' && packet.kind === 'standard'
+            ? tripWindowLabel(packet.visit_date, packet.stops)
+            : null;
+          return w ? ` · ${w}` : '';
+        })()}{packet.complete_by && !(working && packet.entry_code) ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
         {packetHeadline(packet)}
@@ -1159,7 +1169,7 @@ export default async function PacketPage({
                             <>
                               <span style={{ color: 'var(--ink-4)' }}>{s.status === 'in_progress' ? ' · ' : ''}{lead}</span>
                               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--signal)', marginTop: 4 }}>
-                                Guests can arrive from {GUEST_ACCESS_LABEL} today — finish by then
+                                Guests can arrive from {clockLabel((s.property.default_checkin_time ?? '15:00').slice(0, 5))} today — finish by then
                               </div>
                             </>
                           );
