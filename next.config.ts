@@ -2,11 +2,29 @@ import type { NextConfig } from "next";
 
 // One stable identifier per production deployment, for version-skew
 // detection: a tab whose JS came from build A while the server is already
-// serving build B (Hobby plan, so Vercel Skew Protection is unavailable
-// and old builds vanish the moment a deploy lands). NEXT_DEPLOYMENT_ID is
-// checked first because when a platform sets it, Next itself adopts it and
-// errors if the config disagrees. Locally all three are absent and every
-// skew feature stays inert.
+// serving build B, and the old build vanishes the moment a deploy lands.
+// NEXT_DEPLOYMENT_ID is checked first because when a platform sets it, Next
+// itself adopts it and errors if the config disagrees. Locally all three are
+// absent and every skew feature stays inert.
+//
+// WHY THE HOMEGROWN SUBSYSTEM STILL EXISTS (verified 2026-08-25):
+// This was built on the premise that the project was on Vercel Hobby, where
+// Skew Protection is unavailable. That premise is now wrong in one direction
+// and right in the other. The team ("Rising Tide") is on the PRO plan, so
+// Skew Protection IS available. It has simply never been turned on: the
+// project carries no skewProtectionMaxAge, so the platform is not holding old
+// deployments and the homegrown machinery below is the only thing doing this
+// job. Do NOT delete it on the assumption that the platform has it covered.
+//
+// To retire most of it: enable Skew Protection in the Vercel project settings
+// (Settings > Advanced > Skew Protection), give it a max age comfortably
+// longer than a typical tab's idle life, and let a few deploys land. Once the
+// platform routes a stale tab to its original deployment, the proactive
+// pollers become belt-and-braces rather than the mechanism, and
+// VersionGuard's global 60s interval plus /api/version can go. Keep
+// `deploymentId` below either way: it is Next's own native check and is
+// independent of the platform feature. Keep the SubmitButton watchdog too,
+// since it also covers a lost response, not just skew.
 const deploymentId =
   process.env.NEXT_DEPLOYMENT_ID ||
   process.env.VERCEL_DEPLOYMENT_ID ||
