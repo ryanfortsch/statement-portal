@@ -9,6 +9,15 @@ import { bundleAndSend, bundleAsDraft } from './actions';
 
 // Greedy proximity clusters of the properties open (inspectable) on a given
 // day. Each cluster is one feasible "one visit"; the largest is the best bundle.
+// One hue per meaning: green = you can act, blue = someone already has,
+// grey = the home isn't available (flat for a guest, striped for an owner
+// block so the two greys can't blur together), orange = your current pick.
+const OPEN_BG = 'rgba(63,153,34,0.22)';
+const HANDLED_BG = 'rgba(58,107,138,0.34)';
+const OCCUPIED_BG = 'rgba(30,46,52,0.10)';
+const BLOCKED_BG =
+  'repeating-linear-gradient(45deg, rgba(30,46,52,0.16) 0 4px, rgba(30,46,52,0.05) 4px 8px)';
+
 function clustersOnDay(day: string, rows: CalRow[]): CalRow[][] {
   const open = rows.filter(
     (r) => r.cells.find((c) => c.date === day)?.inspectable && r.lat != null && r.lng != null,
@@ -172,11 +181,10 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
       {/* Color states in one key; the check-in edge accent is a different kind
           of mark, so it gets its own line instead of sitting among the fills. */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
-        <Swatch bg="rgba(63,153,34,0.18)" label="open to inspect" />
-        <Swatch bg="rgba(58,107,138,0.38)" label="already out to a contractor" />
-        <Swatch bg="rgba(63,153,34,0.42)" label="already inspected or done" />
-        <Swatch bg="rgba(30,46,52,0.08)" label="guest in house" />
-        <Swatch bg="rgba(30,46,52,0.16)" label="owner / blocked" />
+        <Swatch bg={OPEN_BG} label="open to inspect" />
+        <Swatch bg={HANDLED_BG} label="handled — out to a contractor, or done" />
+        <Swatch bg={OCCUPIED_BG} label="guest in house" />
+        <Swatch bg={BLOCKED_BG} label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
@@ -352,14 +360,15 @@ function CalendarRow({
         const isSel = selDay === d && selected.includes(row.propertyId);
         const clickable = !!c?.inspectable;
         let bg = 'transparent';
-        if (c?.state === 'blocked') bg = 'rgba(30,46,52,0.16)';
-        else if (c?.state === 'occupied') bg = 'rgba(30,46,52,0.08)';
+        if (c?.state === 'blocked') bg = BLOCKED_BG;
+        else if (c?.state === 'occupied') bg = OCCUPIED_BG;
         else if (isSel) bg = 'var(--signal)';
-        else if (c?.inspectable) bg = 'rgba(63,153,34,0.18)';
-        else if (c?.covered) bg = 'rgba(58,107,138,0.38)';
-        // Deeper than open-green: this day is DONE, not available.
-        else if (c?.inspected) bg = 'rgba(63,153,34,0.42)';
-        else bg = 'rgba(30,46,52,0.025)';
+        else if (c?.inspectable) bg = OPEN_BG;
+        // Out to a contractor and already-done both mean the same thing to the
+        // operator here — not your problem — so they share one fill; the hover
+        // says which. (Two greens for "act" vs "handled" read as one colour.)
+        else if (c?.covered || c?.inspected) bg = HANDLED_BG;
+        else bg = 'rgba(30,46,52,0.03)';
         return (
           <button
             key={d}
