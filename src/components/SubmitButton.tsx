@@ -10,7 +10,7 @@ import { reloadedForNewDeployment } from '@/lib/version-skew';
 // for minutes", 2026-08-04). Long enough that a legitimately slow action
 // (approve sending reports, publish texting inspectors) won't trip it.
 const STUCK_PENDING_MS = 10000;
-// If it's STILL pending here, the response is lost, not slow - Vercel Hobby
+// If it's STILL pending here, the response is lost, not slow - Vercel
 // sheds an action response mid-burst after committing the write ("SAVING…"
 // spun 2+ minutes on 2026-08-13 while the value had landed in 11 seconds),
 // and the version probe stands down when no deploy landed. Reload once: the
@@ -77,7 +77,7 @@ export function SubmitButton({
   // Stuck-pending watchdog, two rungs. At 10s: the version-skew check — on a
   // stale bundle this hard-reloads the tab (at most once per deploy), landing
   // on the state the action already committed. At 30s: the response is lost
-  // (Hobby shed), not slow — re-probe for a deploy, then reload regardless.
+  // (request shed), not slow. Re-probe for a deploy, then reload regardless.
   // Both timers clear the moment the action actually resolves.
   useEffect(() => {
     if (!status.pending) return;

@@ -4,7 +4,7 @@
  * fire its own fetch on its own interval, so ONE open Helm tab produced
  * bursts of five identical requests, and several open tabs (all aligned to
  * the wall clock) produced the request stampedes that get shed with 503s on
- * Hobby and trip the /messaging error boundary. One in-flight promise plus
+ * under load and trip the /messaging error boundary. One in-flight promise plus
  * a short TTL collapse all of them into a single request per tab per window.
  */
 

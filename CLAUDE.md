@@ -39,10 +39,11 @@ Related docs:
 - **PDF**: `puppeteer-core` + `@sparticuz/chromium` driving the HTML render page. See below.
 - **Fonts**: Fraunces (serif), Inter (sans), JetBrains Mono (mono)
 
-Note on the Vercel plan: several source comments and older docs call this a Hobby project. Do not
-rely on that. `vercel.json` registers 22 cron jobs (8 of them sub-daily) and 18 routes declare
-`maxDuration = 300`, none of which Hobby permits. Treat the plan as paid and confirm in the Vercel
-dashboard before writing a plan name anywhere.
+**Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
+`plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
+Practical consequences: the 22 crons and the 18 routes at `maxDuration = 300` are all fine, and
+platform Skew Protection is available. It is **not currently enabled** (no `skewProtectionMaxAge` on
+the project), which is why the homegrown skew subsystem below is still load-bearing.
 
 ## Shape of the codebase
 
@@ -536,7 +537,10 @@ The gate before shipping is `npx tsc --noEmit`. Run it. Chain commits on it.
    `rental_income` is the in-memory name inside `/api/ingest` before the write.
 4. **Deploy skew.** A tab on an old bundle cannot apply a new build's RSC payload. `VersionGuard`,
    `AutoRefresh` and the `SubmitButton` watchdog hard-reload once on mismatch. The tell is a DB
-   write landing while the button spins forever.
+   write landing while the button spins forever. This machinery is the MECHANISM, not a backstop:
+   platform Skew Protection is available on Pro but has never been enabled, so nothing else is
+   doing this job. Do not delete it on the assumption the platform has it covered. `next.config.ts`
+   carries the runbook for enabling Skew Protection and what can be retired afterwards.
 5. **Agent sessions run in git worktrees** under `.claude/worktrees/<branch>`, where `node_modules`
    may need symlinking back to the parent checkout before `tsc` will run.
 6. **This is a high-concurrency multi-agent repo.** Branch off fresh `origin/main` and stage only

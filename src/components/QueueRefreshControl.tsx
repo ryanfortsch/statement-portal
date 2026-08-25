@@ -14,7 +14,7 @@ import { useRouter } from 'next/navigation';
  *
  * The interval skips ticks while the tab is hidden (each tick is a full
  * server render; hidden tabs polling in wall-clock lockstep is the burst
- * that gets requests shed on Hobby and trips the error boundary, #1236)
+ * that gets requests shed under load and trips the error boundary, #1236)
  * and runs on a jittered period so several open tabs drift apart. The
  * refresh runs inside a transition so Suspense keeps the current UI (and
  * any half-typed form) mounted while the new payload streams.
