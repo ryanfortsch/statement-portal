@@ -2556,15 +2556,27 @@ export async function loadInspectionCalendar(
       // use (#1049). The old unconditional `check_in <= D` test painted every
       // same-day turnover "guest in house", so its ONLY feasible inspection
       // day was unclickable here while the bundle path would happily take it.
+      // The same-day turnover: the outgoing guest is gone by 11 and the next
+      // arrives at 4, so the day IS workable. Neither the outgoing stay nor
+      // the mirror's "booked" (it counts the arrival night) makes it occupied.
+      const arrivalDay = !!next && next.check_in === D;
+      // A day Guesty calls booked is occupied even when no booking row spans
+      // it — the reservations feed drops a guest the moment they check in.
       const guestOccupied =
-        pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out) &&
-        !(next && next.check_in === D);
+        (pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out) ||
+          mirrorBooked.has(`${p.id}:${D}`)) &&
+        !arrivalDay;
       const blockOccupied = pb.some((b) => !isGuestStay(b) && b.check_in <= D && D < b.check_out);
       const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied || mirrorUnavailable.has(`${p.id}:${D}`);
       const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
-      // A day Guesty calls booked is occupied even when no booking row spans it.
+      // A GUEST outranks a block. Guesty mirrors a reservation with its own
+      // `block` row (21 Horton carries one spanning Eva Madruga's entire stay,
+      // Aug 28 - Sep 13), and marks reservation-held days `unavailable`; both
+      // are its bookkeeping, not an owner hold. Painting those "owner /
+      // blocked" mislabels a full house — invisible while the two greys were
+      // near-identical, obvious once blocked became striped.
       const state: CalCellState =
-        isBlocked ? 'blocked' : guestOccupied || mirrorBooked.has(`${p.id}:${D}`) ? 'occupied' : 'open';
+        guestOccupied ? 'occupied' : isBlocked ? 'blocked' : 'open';
       const nextCovered = !!next && isCoveredStay(coveredBookings, p.id, next.id, next.check_in);
       const nextPrepped = !!next && preppedFor(p.id, pb, next.check_in);
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered && !nextPrepped;
