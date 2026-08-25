@@ -27,7 +27,7 @@ function Shell({ children }: { children: ReactNode }) {
       <MessagingTabs current="guests" lens="send" />
       {children}
       <div style={{ flex: 1 }} />
-      <HelmFooter left="Stay Concierge · messages send as typed" />
+      <HelmFooter left="Stay Concierge · polish is optional, messages send as typed" />
     </div>
   );
 }

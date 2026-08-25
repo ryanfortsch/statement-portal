@@ -9,9 +9,15 @@
  * time, a start date, an end date...) with: pick the guest, type, send.
  *
  * The message goes out EXACTLY as typed through the same rail the Inbox
- * composer uses (sendThreadMessage -> sendConversationMessage): no AI
- * rewrite, no draft step, no approval hop. What she types is what the guest
- * reads.
+ * composer uses (sendThreadMessage -> sendConversationMessage): no draft
+ * step, no approval hop. What is in the box when Send is pressed is what
+ * the guest reads.
+ *
+ * Polish (Dotti, 2026-08-25) is an OPT-IN step before that, never a
+ * rewrite-on-send: shorthand goes up to the same engine that drafts guest
+ * replies (voice references + this property's KB, via polishProactive),
+ * and the polished text lands back IN the box for her to read, edit, or
+ * undo. Send stays verbatim, so "messages send as typed" is still true.
  */
 
 import { useEffect, useRef, useState, useTransition } from 'react';
@@ -19,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { ConversationSummary } from '@/lib/stay-concierge';
 import { sendThreadMessage } from '../thread-actions';
+import { polishProactiveAction } from '../reminders-actions';
 import { formatStayDates, channelTone, prettifySlug } from '../format';
 import { StayPicker } from './StayPicker';
 
@@ -42,6 +49,10 @@ export function SendPanel({
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [stalled, setStalled] = useState(false);
   const [isPending, startTransition] = useTransition();
+  // Polish state: `prePolish` holds the shorthand so Undo can put it back,
+  // and doubles as the "this text was polished" flag.
+  const [polishing, setPolishing] = useState(false);
+  const [prePolish, setPrePolish] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Focus the composer the moment a stay is picked: the next thing she wants
@@ -64,7 +75,7 @@ export function SendPanel({
   const canSend = !!picked?.module;
 
   const doSend = () => {
-    if (!picked || !text.trim() || isPending || !canSend) return;
+    if (!picked || !text.trim() || isPending || polishing || !canSend) return;
     setError(null);
     setSentTo(null);
     startTransition(async () => {
@@ -80,9 +91,47 @@ export function SendPanel({
       }
       setSentTo(picked.guest_full || picked.guest_first || 'the guest');
       setText('');
+      setPrePolish(null);
       // Bring the thread preview and the queue counts back in step.
       router.refresh();
     });
+  };
+
+  // Shorthand -> our voice, grounded in this stay's KB. Deliberately NOT
+  // wired into doSend: she reads (and can edit or undo) the result before
+  // anything reaches the guest.
+  const doPolish = async () => {
+    const rough = text.trim();
+    if (!picked || !rough || polishing || isPending) return;
+    setError(null);
+    setSentTo(null);
+    setPolishing(true);
+    try {
+      const res = await polishProactiveAction(picked.reservation_id || '', rough);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      const polished = (res.polished || '').trim();
+      if (!polished || polished === rough) {
+        setError('The polish came back empty. Sending as written is fine.');
+        return;
+      }
+      setPrePolish(rough);
+      setText(polished);
+      composerRef.current?.focus();
+    } catch {
+      setError('Could not reach the polish service. Sending as written is fine.');
+    } finally {
+      setPolishing(false);
+    }
+  };
+
+  const undoPolish = () => {
+    if (prePolish === null) return;
+    setText(prePolish);
+    setPrePolish(null);
+    composerRef.current?.focus();
   };
 
   const propertyLabel = picked
@@ -103,6 +152,7 @@ export function SendPanel({
               setText('');
               setError(null);
               setSentTo(null);
+              setPrePolish(null);
             }}
             className="eyebrow"
             style={{
@@ -189,12 +239,14 @@ export function SendPanel({
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault();
-                doSend();
+                // Shift = polish the shorthand; plain = send what's here.
+                if (e.shiftKey) doPolish();
+                else doSend();
               }
             }}
             rows={6}
-            disabled={!canSend}
-            placeholder={`Write to ${picked.guest_first || 'them'}...`}
+            disabled={!canSend || polishing}
+            placeholder={`Write to ${picked.guest_first || 'them'}... shorthand is fine, Polish cleans it up`}
             aria-label="Message"
             style={{
               width: '100%',
@@ -214,7 +266,7 @@ export function SendPanel({
             <button
               type="button"
               onClick={doSend}
-              disabled={!canSend || !text.trim() || isPending}
+              disabled={!canSend || !text.trim() || isPending || polishing}
               style={{
                 padding: '11px 22px',
                 fontSize: 11,
@@ -224,15 +276,59 @@ export function SendPanel({
                 color: 'var(--paper)',
                 background: 'var(--ink)',
                 border: 'none',
-                cursor: !canSend || !text.trim() || isPending ? 'default' : 'pointer',
-                opacity: !canSend || !text.trim() || isPending ? 0.5 : 1,
+                cursor:
+                  !canSend || !text.trim() || isPending || polishing ? 'default' : 'pointer',
+                opacity: !canSend || !text.trim() || isPending || polishing ? 0.5 : 1,
               }}
             >
               {isPending ? 'Sending' : 'Send now'}
             </button>
+            <button
+              type="button"
+              onClick={doPolish}
+              disabled={!canSend || !text.trim() || isPending || polishing}
+              title="Rewrite your shorthand in our voice, using this property's knowledge base. You still read and send it."
+              style={{
+                padding: '11px 18px',
+                fontSize: 11,
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+                fontWeight: 600,
+                color: 'var(--ink)',
+                background: 'transparent',
+                border: '1px solid var(--ink)',
+                cursor:
+                  !canSend || !text.trim() || isPending || polishing ? 'default' : 'pointer',
+                opacity: !canSend || !text.trim() || isPending || polishing ? 0.5 : 1,
+              }}
+            >
+              {polishing ? 'Polishing' : 'Polish'}
+            </button>
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-              Cmd + Enter
+              Cmd + Enter to send · Cmd + Shift + Enter to polish
             </span>
+            {prePolish !== null && !polishing && (
+              <span style={{ fontSize: 12, color: 'var(--ink-3)' }} role="status">
+                Polished.{' '}
+                <button
+                  type="button"
+                  onClick={undoPolish}
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--ink)',
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Undo
+                </button>{' '}
+                to get your version back. Edit anything before sending.
+              </span>
+            )}
             {stalled && (
               <span style={{ fontSize: 12, color: 'var(--ink-3)' }} role="status">
                 Still working. If this hangs, reload before resending so the guest doesn&apos;t get it twice.
