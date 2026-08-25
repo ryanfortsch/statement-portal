@@ -79,14 +79,9 @@ export default async function FieldSchedulePage() {
 
   return (
     <FieldShell contractorName={contractor.full_name}>
-      <h1 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: '4px 0 6px' }}>
+      <h1 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: '4px 0 22px' }}>
         Your schedule
       </h1>
-      <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, margin: '0 0 22px' }}>
-        Your claimed work, with {VENDOR_LABEL}&rsquo;s booked cleaning time where they have
-        confirmed it. They confirm about two days ahead.
-      </p>
-
       {packets.length === 0 && (
         <div
           style={{
