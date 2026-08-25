@@ -7,6 +7,7 @@ import {
 } from "@/lib/market-metrics";
 import { helmBaseUrl } from "@/lib/daily-brief";
 import { listPhoneNumbers, normalizePhone, sendMessage } from "@/lib/quo";
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -34,11 +35,8 @@ export const maxDuration = 30;
  *     -H "Authorization: Bearer $CRON_SECRET"
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   const url = new URL(request.url);
   const dry = url.searchParams.get("dry") === "1";

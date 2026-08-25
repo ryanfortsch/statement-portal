@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
+import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 
 /**
  * Owner touches feed for stay-concierge — both directions, both channels.
@@ -46,20 +47,14 @@ type TouchRow = {
 };
 
 export async function GET(req: Request) {
-  const expected = process.env.STAY_CONCIERGE_KEY;
-  if (!expected) {
-    return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
-  }
-  const url = new URL(req.url);
-  const provided = url.searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = authorizeStayConcierge(req);
+  if (denied) return denied;
   if (!isConfigured) {
     return NextResponse.json({ error: 'helm db not configured' }, { status: 503 });
   }
 
-  const sinceParam = url.searchParams.get('since');
+  // `since` is an ordinary, non-secret query param and stays in the URL.
+  const sinceParam = new URL(req.url).searchParams.get('since');
   const since = sinceParam || new Date(Date.now() - 14 * 86400_000).toISOString();
 
   const { data, error } = await supabase

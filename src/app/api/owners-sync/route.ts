@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
+import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 
 /**
  * Outbound sync endpoint: returns the structured owners for every active
@@ -39,15 +40,8 @@ type PropertyRow = {
 };
 
 export async function GET(req: Request) {
-  const expected = process.env.STAY_CONCIERGE_KEY;
-  if (!expected) {
-    return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
-  }
-  const { searchParams } = new URL(req.url);
-  const provided = searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = authorizeStayConcierge(req);
+  if (denied) return denied;
   if (!isConfigured) {
     return NextResponse.json({ error: 'helm db not configured' }, { status: 503 });
   }

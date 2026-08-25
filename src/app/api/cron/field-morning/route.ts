@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { renotifyDuePackets, remindClaimedVisitsToday, sendOfficeFieldDigest, sendCreativeCountsDue, sendCreativeDayOfChecks } from '@/lib/field-notify';
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const maxDuration = 300;
 
@@ -17,14 +18,12 @@ export const maxDuration = 300;
  * shifts an hour across DST — both ends of that shift are business hours).
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   if (process.env.NODE_ENV === 'production' && !cronSecret) {
     return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 });
   }
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   try {
     // Re-ping inspectors about unclaimed-but-due packets, remind whoever has a

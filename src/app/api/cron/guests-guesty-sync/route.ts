@@ -4,23 +4,20 @@
  * Vercel cron schedule: 0 13 * * *  (9am ET, after the daily Guesty
  * reservation/review sync at 5am UTC has completed).
  *
- * Auth: optional CRON_SECRET in Authorization header. If unset, the route
- * is open (Vercel cron is the only scheduled caller) — set CRON_SECRET in
- * env to lock it to scheduled runs in prod.
+ * Auth: authorizeCron — Vercel Cron's bearer, or a signed-in Helm user
+ * running it by hand. Fails closed when CRON_SECRET is unset.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { syncGuestyGuestsToList } from '@/lib/guests-guesty-sync';
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   try {
     const result = await syncGuestyGuestsToList();

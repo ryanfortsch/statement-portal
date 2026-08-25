@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { backfillGuestyToBookings } from '@/lib/guesty-backfill';
 import { backfillBookingFinance } from '@/lib/finance-backfill';
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const maxDuration = 300;
 
@@ -14,11 +15,8 @@ export const maxDuration = 300;
  * guesty_reservations directly. Idempotent.
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   try {
     const result = await backfillGuestyToBookings({});

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncAllSitesForDate, yesterdayUTC } from '@/lib/marketing/sync';
+import { authorizeCron } from '@/lib/cron-auth';
 
 // Long-running upserts across two GA4 properties + Vercel API.
 // Stay well under the 5-minute Fluid Compute default ceiling.
@@ -10,14 +11,11 @@ export const maxDuration = 300;
 // (site_id, date) per table -- safe to retry.
 export async function GET(request: NextRequest) {
   // Optional CRON_SECRET auth: Vercel signs cron requests with the
-  // configured CRON_SECRET in the Authorization header. If unset, we
-  // skip the check (Vercel cron is the only scheduled caller); set
-  // CRON_SECRET in env to lock down the route to scheduled runs only.
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  // Auth via the shared helper: Vercel Cron's bearer, or a signed-in Helm
+  // user hitting it as a manual sync. Fails closed when CRON_SECRET is
+  // unset, so an anonymous caller is never let through.
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   // Allow ?date=YYYY-MM-DD for manual re-runs / spot fixes; default d-1.
   const url = new URL(request.url);

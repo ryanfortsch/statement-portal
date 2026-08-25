@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
+import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 
 /**
  * Service-created work slips — stay-concierge's write path into /work.
@@ -60,15 +61,8 @@ type Payload = {
 };
 
 export async function POST(req: Request) {
-  const expected = process.env.STAY_CONCIERGE_KEY;
-  if (!expected) {
-    return NextResponse.json({ error: 'sync disabled (no key configured)' }, { status: 503 });
-  }
-  const url = new URL(req.url);
-  const provided = url.searchParams.get('key') ?? req.headers.get('x-stay-concierge-key');
-  if (provided !== expected) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = authorizeStayConcierge(req);
+  if (denied) return denied;
   if (!isConfigured) {
     return NextResponse.json({ error: 'helm db not configured' }, { status: 503 });
   }

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { parseInquiryEmail, splitAddressLine, inferMarketFromCity, inquiryDedupKey } from '@/lib/inquiry-parser';
 import type { Owner } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
+import { authorizeCron } from '@/lib/cron-auth';
 
 /**
  * GET /api/cron/import-inquiries
@@ -318,20 +319,12 @@ export async function GET(request: NextRequest) {
   // `x-vercel-cron: 1`, which Vercel doesn't reliably send — that's
   // why every 15-min tick was 401'ing silently.
   //
-  // If CRON_SECRET is unset, the route's open (early dev) — both
-  // Vercel cron and any ad-hoc caller hit it. Once set, only requests
-  // with the matching bearer get through, plus `?secret=` for manual
-  // testing without crafting a header.
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = request.headers.get('authorization') || '';
-  const queryParam = request.nextUrl.searchParams.get('secret');
-  if (cronSecret) {
-    const headerOk = authHeader === `Bearer ${cronSecret}`;
-    const queryOk = queryParam === cronSecret;
-    if (!headerOk && !queryOk) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
-  }
+  // Fails closed when CRON_SECRET is unset. The old `?secret=` form is
+  // gone: a secret in a query string lands in every access log it passes
+  // through. Manual runs use a signed-in Helm session instead, which
+  // authorizeCron accepts.
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   if (MAILBOXES.length === 0) {
     return NextResponse.json({

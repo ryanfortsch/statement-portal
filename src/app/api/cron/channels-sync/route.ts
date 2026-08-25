@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncAllListings } from '@/lib/ical-sync';
 import { loadGuestyListingMap, syncCalendarDays } from '@/lib/calendar-days';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
+import { authorizeCron } from '@/lib/cron-auth';
 
 export const maxDuration = 300;
 
@@ -40,11 +41,8 @@ async function syncCalendarWindow(): Promise<Record<string, unknown>> {
 }
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  const denied = await authorizeCron(request);
+  if (denied) return denied;
 
   try {
     const result = await syncAllListings({});
