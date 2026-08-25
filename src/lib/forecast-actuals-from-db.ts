@@ -19,9 +19,15 @@
  *     Insurance         → exp_insurance
  *     Bank fees         → exp_bank
  *     Software          → exp_software
- *     Payroll           → exp_software (Gusto is a recurring SaaS fee,
- *                         not a hiring cost — matches the convention
- *                         the old hand-built ACTUALS_2026 used)
+ *     Payroll           → exp_contractors (Gusto NET + TAX are wages.
+ *                         The old mapping sent these to exp_software,
+ *                         which put $29,473 of lifetime wages on the
+ *                         Software row. W-2 payroll ran Mar-Oct 2025 and
+ *                         stopped; the 1099 bench replaced that rail.)
+ *     Contractors       → exp_contractors (the 1099 bench: Delaney's
+ *                         field labor, Cooper's creative work, and the
+ *                         one-off handymen. Paid direct from ...5130,
+ *                         never through Gusto.)
  *     Health benefits   → dropped (out of scope for the mgmt business)
  *     Professional      → exp_debt for MH Partners, exp_accounting for
  *                         MS Consultants, else exp_cc_ops
@@ -93,6 +99,7 @@ function blank(month: string): MonthlyActual {
     exp_accounting: 0,
     exp_bank: 0,
     exp_cc_ops: 0,
+    exp_contractors: 0,
     exp_hire: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
@@ -169,7 +176,12 @@ export async function getActualsFromDb(
           case 'Insurance':       ma.exp_insurance += amt; break;
           case 'Bank fees':       ma.exp_bank += amt; break;
           case 'Software':        ma.exp_software += amt; break;
-          case 'Payroll':         ma.exp_software += amt; break; // Gusto SaaS, not a hire
+          // Gusto NET + TAX are wages and belong on the people line. The old
+          // convention sent the whole Payroll category to exp_software on the
+          // theory that Gusto is a SaaS fee; that was true of the ~$68/mo
+          // platform fee and false of the $29,473 of wages it also carried.
+          case 'Payroll':         ma.exp_contractors += amt; break;
+          case 'Contractors':     ma.exp_contractors += amt; break;
           case 'Health benefits': /* out of scope for the mgmt-business forecast */ break;
           case 'Professional':
             if (desc.includes('MH PARTNERS') || desc.includes('MHPARTNERS')) {
@@ -226,6 +238,7 @@ export async function getActualsFromDb(
         exp_accounting: round2(ma.exp_accounting),
         exp_bank: round2(ma.exp_bank),
         exp_cc_ops: round2(ma.exp_cc_ops),
+        exp_contractors: round2(ma.exp_contractors),
         exp_hire: round2(ma.exp_hire),
       };
     }

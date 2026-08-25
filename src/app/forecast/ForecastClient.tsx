@@ -1479,10 +1479,16 @@ function ForecastTable({
           fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
         />
 
-        <SubsectionRow label="Hiring" />
+        <SubsectionRow label="People" />
+        <DataRow
+          label="Contractors & payroll"
+          info="Everyone RT pays to do the work, other than a salaried hire. Invisible to the model until this rerack: the bench is paid straight out of Chase ...5130 by Zelle and the Chase payroll rail, and Gusto wages were landing on the Software row. Delaney Jordan's field labor started 2026-07-07 and is paid per job, clustered on checkout days, so it rides the seasonality curve and scales with the portfolio. Cooper's creative work adds $1,300/mo flat from 2026-07-29. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The whole bench ran $8,288/mo across July and August 2026."
+          values={monthly.map((r) => r.exp_contractors)}
+          fy={monthly.reduce((a, r) => a + r.exp_contractors, 0)}
+        />
         <DataRow
           label="New hire"
-          info="First hire at $5,000/mo joins August 2026. A second hire ($5K/mo more) is automatically added once active property count reaches 20 — a step function based on the portfolio size each month."
+          info="A salaried body, on top of the 1099 bench rather than instead of it. The original plan put a $5,000/mo hire in August 2026. It did not happen that way: Delaney and Cooper started in July and ran $8,288/mo between them, so 2026 now carries $0 here and the bench line above carries the money. 2027 still budgets a salaried hire from January, which is a planning choice rather than something the bank data settles. A second hire is added automatically once active property count reaches 20."
           values={monthly.map((r) => r.exp_hire)}
           fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
         />

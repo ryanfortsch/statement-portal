@@ -41,6 +41,7 @@ export type OverheadCategory =
   | 'Rent & office'
   | 'Professional'
   | 'Payroll'
+  | 'Contractors'
   | 'Travel'
   | 'Bank fees'
   | 'Other';
@@ -61,6 +62,11 @@ const VENDOR_RULES: Rule[] = [
   { category: 'Health benefits', matches: ['COMMONWEALTH HEA', 'BLUE CROSS', 'BLUECROSS', 'BCBS', 'HARVARD PILGRIM', 'TUFTS HEALTH', 'UNITEDHEALTH', 'AETNA', 'CIGNA'] },
   { category: 'Rent & office', matches: ['85EASTERN', 'EASTERN LANDLORD', 'EASTERNLANDLORD', 'LANDLORD', 'STAPLES', 'OFFICE DEPOT', 'DUMPSTER', 'WASTE MGMT', 'WASTE MANAGEMENT', 'REPUBLIC SERVICES'] },
   { category: 'Professional', matches: ['MSCONSULTANTS', 'MS CONSULTANTS', 'MH PARTNERS', 'MHPARTNERS', 'SUPPORTING STRATEGIES', 'LEGALZOOM', 'ATTORNEY', 'LAW OFFICE', 'LAW LLC', 'TEMPUS FUGIT', 'CPA', 'ACCOUNTING'] },
+  // 1099 field/creative contractors paid direct from the operating account by
+  // Zelle, bill-pay or the Chase "Basic Online Payroll" rail. Must sit BEFORE
+  // the Payroll rule: "Basic Online Payroll Payment ... to #######4113" is
+  // Cooper, not a Gusto run, and would otherwise land in Payroll.
+  { category: 'Contractors', matches: ['DELANEY', 'COOPER', 'BASIC ONLINE PAYROLL', 'MAGGIE BUTLER', 'NICOLE WHITTEN', 'MARK BELL', 'OWEN BRILL', 'MORGAN DENHART', 'IAN DROMETER', 'LUKE WALLACE', 'SANDY MAID', 'ONYX INFRASTRUCTURE', 'TOMER', 'MORRIS HOME SERVICES'] },
   { category: 'Payroll', matches: ['GUSTO', 'ADP', 'PAYCHEX', 'PAYROLL'] },
   { category: 'Travel', matches: ['DELTA AIR', 'JETBLUE', 'UNITED AIR', 'AMERICAN AIR', 'SOUTHWEST AIR', 'ENTERPRISE RENT', 'HERTZ', 'AVIS', 'BUDGET RENT', 'NATIONAL CAR', 'UBER', 'LYFT', 'AMTRAK'] },
   { category: 'Bank fees', matches: ['STOP PAYMENT', 'SERVICE CHARGE', 'OVERDRAFT', 'WIRE FEE', 'RETURNED ITEM', 'NSF', 'MONTHLY SERVICE FEE'] },
@@ -130,6 +136,14 @@ export function categorizeOverhead(args: {
   // Drop every internal transfer / card payoff / non-vendor movement.
   const t = (type || '').toUpperCase();
   if (t === 'ACCT_XFER' || t === 'LOAN_PMT') return null;
+  // A bounced deposit is a wash, not a cost: the credit that created it was
+  // already dropped by the amount >= 0 rule above, so booking the reversal
+  // as an expense invents money that never left. These rows read
+  // "DEPOSITED ITEM RETURNED ... Stop Payment", which used to match the
+  // 'STOP PAYMENT' bank-fee rule and post $1,315.60 of phantom expense
+  // across the two that exist. The real stop-payment FEE is a separate
+  // FEE_TRANSACTION row and still lands in Bank fees.
+  if (t === 'DEPOSIT_RETURN' || descUpper.includes('DEPOSITED ITEM RETURNED')) return null;
   if (TRANSFER_SIGNALS.some(s => descUpper.includes(s))) return null;
   // Personal debit-card spend on the operating account (Starbucks etc.).
   if (descUpper.includes('STARBUCKS') || descUpper.includes('DUNKIN') || /\bGAS\b/.test(descUpper)) return null;
@@ -142,7 +156,7 @@ export function categorizeOverhead(args: {
 export const OVERHEAD_CATEGORIES: OverheadCategory[] = [
   'Software', 'Marketing', 'Listing platforms', 'Guest supplies',
   'Repairs & upkeep', 'Insurance', 'Health benefits', 'Rent & office',
-  'Professional', 'Payroll', 'Travel', 'Bank fees', 'Other',
+  'Professional', 'Payroll', 'Contractors', 'Travel', 'Bank fees', 'Other',
 ];
 
 /* --------------------------------------------------------------------- */

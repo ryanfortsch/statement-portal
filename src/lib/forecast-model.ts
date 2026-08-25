@@ -128,20 +128,32 @@ export const OFFICE_START_MONTH = 3;
 
 /**
  * Software subscriptions, consolidated from the corporate card (...3878).
- * Trailing-12-month baseline $1,687/mo (Guesty, PriceLabs, Squarespace,
- * QuickBooks, Adobe, AirDNA, AI tools, Quo, Zoom, Dropbox, DocuSign).
- * Subscription cuts: ~$400 trimmed effective May 2026, a further ~$100
- * from June 2026 — software lands at $1,187/mo.
+ * Guesty, PriceLabs, Squarespace, QuickBooks, Adobe, AirDNA, AI tools, Quo,
+ * Zoom, Dropbox, DocuSign, Vercel, Supabase, Resend, Tailscale.
+ *
+ * RERACKED Aug 2026 against `overhead_expenses` card rows. The previous
+ * $1,687 baseline and its two "subscription cuts" did not survive contact
+ * with the data:
+ *
+ *   trailing 12mo (Jun 2025 - May 2026)  $1,798/mo
+ *   trailing  9mo (Sep 2025 - May 2026)  $1,978/mo
+ *   2026 YTD      (Jan - May 2026)       $2,311/mo
+ *   May 2026 alone                       $2,314/mo
+ *
+ * The model claimed May 2026 would land at $1,287 and June onward at
+ * $1,187. May actually came in at $2,314, 80% above the claim, and the
+ * line has risen every window, driven by the AI tooling stack. The cuts
+ * are removed rather than deferred: there is no month in the record where
+ * software spend stepped down.
+ *
+ * Card detail stops 2026-06-06, so June onward is uncorroborated. If a cut
+ * did land after that date, re-upload the card export on Cost Analysis and
+ * the ACT rows will overwrite this projection for the affected months.
  */
-export const SOFTWARE_MONTHLY = 1687;
+export const SOFTWARE_MONTHLY = 2300;
 
-export function softwareCost(year: number, month: number): number {
-  if (year === 2026) {
-    if (month <= 4) return SOFTWARE_MONTHLY;        // pre-cut (actuals override)
-    if (month === 5) return SOFTWARE_MONTHLY - 400; // first cut → $1,287
-    return SOFTWARE_MONTHLY - 500;                  // June onward → $1,187
-  }
-  return SOFTWARE_MONTHLY - 500; // 2027+ — both cuts in effect
+export function softwareCost(_year: number, _month: number): number {
+  return SOFTWARE_MONTHLY;
 }
 
 /**
@@ -165,35 +177,88 @@ export const INSURANCE_ANNUAL = 5264;
 export const INSURANCE_MONTH = 3;
 
 /**
- * Accounting — historically MS Consultants. The $4,442.96 paid 4/15/2026
- * was a one-time engagement; not recurring. Forward run rate is $0.
+ * Accounting (MS Consultants). RERACKED Aug 2026: this was modeled as a
+ * one-time engagement at $0 forward, but the bank shows it recurring
+ * annually - $4,156.62 on 2025-01-13 and $4,442.96 on 2026-04-15. It is a
+ * tax-season lump, not a monthly retainer, so it is modeled the same way
+ * as the insurance premium: one hit, in April.
  */
 export const ACCOUNTING_MONTHLY = 0;
-
-/** Bank fees, stop payments, returned checks. */
-export const BANK_FEES_MONTHLY = 100;
+export const ACCOUNTING_ANNUAL = 4450;
+export const ACCOUNTING_MONTH = 4;
 
 /**
- * Operating CC pass-through — the corporate card (...3878) with software
- * carved out to its own line and insurance and out-of-scope personal
- * charges removed. Trailing 12 months at ~9 properties: $4,976/mo,
- * itemized in CC_OPERATING_BREAKDOWN below. Scales with the portfolio at
- * 0.5x elasticity — doubling property count adds +50%, not +100%.
+ * Bank fees and stop payments. RERACKED Aug 2026: actual FEE_TRANSACTION
+ * rows total $75.00 across 24 months ($3.12/mo) - three $15 monthly service
+ * charges in 2024 and one $30 stop-payment fee in April 2026. The old $100
+ * conflated real fees with the bounced check deposits, which are a wash
+ * rather than a cost (see the DEPOSIT_RETURN note in overhead-categories).
+ * Set to $10 to leave headroom without inventing $1,164/yr of cost.
  */
-export const CC_BASELINE_MONTHLY = 4976;
+export const BANK_FEES_MONTHLY = 10;
+
+/**
+ * Operating CC pass-through, the corporate cards with software carved out
+ * to its own line. RERACKED Aug 2026 against `overhead_expenses` card rows
+ * for the trailing 12 months Jun 2025 - May 2026 (the last full month of
+ * card-level detail): total card $7,843/mo, less software $1,798/mo, gives
+ * $6,045/mo, itemized in CC_OPERATING_BREAKDOWN below.
+ *
+ * Note the pairing with SOFTWARE_MONTHLY: $6,045 + $2,300 projects $8,345
+ * of card spend a month against $7,843 actual on the same window. The gap
+ * is deliberate, the card baseline is a stable trailing-12 figure while
+ * software is set to its rising 2026 run rate rather than its T12 average.
+ *
+ * A second card (...6250) opened July 2026 and is additive, not a
+ * replacement, both cards were paid in July and August. Its spend is not
+ * yet in the card-detail table, so it is NOT in this baseline. See the
+ * card-payment note in forecast-actuals.ts.
+ *
+ * Scales with the portfolio at 0.5x elasticity, doubling property count
+ * adds +50%, not +100%.
+ */
+export const CC_BASELINE_MONTHLY = 6045;
 export const CC_BASELINE_PROP_COUNT = 9;
-export const CC_ELASTICITY = 0.5;
+/**
+ * How card spend scales with the portfolio. Was 0.5 (half-elastic).
+ *
+ * RERACKED Aug 2026 to 0.75, bottom-up from the breakdown: guest supplies,
+ * listing platforms and repairs are 72% of the baseline and are fully
+ * per-property; marketing, vehicle insurance and travel are the fixed 28%.
+ * Bank-measured elasticity across the 2025-2026 fleet growth reads 0.85 to
+ * 1.52, so 0.75 stays conservative.
+ */
+export const CC_ELASTICITY = 0.75;
 
 /**
  * Marketing & advertising portion of the operating-CC baseline (the
  * Facebook/Meta ad spend). Cut to $0 effective June 2026 — from then on
  * the CC baseline drops to CC_BASELINE_MONTHLY − CC_MARKETING_MONTHLY.
+ *
+ * Must stay equal to the 'Marketing & advertising' entry in
+ * CC_OPERATING_BREAKDOWN: the render layer uses this value both to zero
+ * that row and to shrink the denominator of the proportional split, so a
+ * mismatch makes the itemized rows stop summing to exp_cc_ops.
+ *
+ * UNVERIFIED: card detail ends 2026-06-06, so no month of the claimed cut
+ * is observable. Through May 2026 the line ran $680/mo, above its own
+ * trailing average. Re-upload the card export to settle it.
  */
-export const CC_MARKETING_MONTHLY = 403;
+export const CC_MARKETING_MONTHLY = 427;
 
-/** Marketing & advertising spend runs only through May 2026, then $0. */
-export function isMarketingActive(year: number, month: number): boolean {
-  return year === 2026 && month <= 5;
+/**
+ * Whether Meta ad spend is still running.
+ *
+ * RERACKED Aug 2026: this used to return false from June 2026, booking a
+ * $427/mo saving. No month of that cut is observable. Card detail stops
+ * 2026-06-06, and through May 2026 the line ran $680/mo, ABOVE its own
+ * trailing average rather than below it. Over the same window total
+ * card-funded spend went from $6,522/mo to $21,888/mo. Claiming a category
+ * cut while the total triples is a reclassification, not a saving, so the
+ * line now runs until the card export proves otherwise.
+ */
+export function isMarketingActive(_year: number, _month: number): boolean {
+  return true;
 }
 
 export function ccOperatingCost(
@@ -219,38 +284,130 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
 }> = [
   {
     label: 'Guest supplies & inventory',
-    monthly: 2924,
-    info: 'Amazon, Fix Linens, amenities and consumables — $35,092 over the trailing 12 months, the largest slice of card spend.',
+    monthly: 3373,
+    info: 'Amazon, Fix Linens, amenities and consumables, $40,470 over the trailing 12 months, the largest slice of card spend by far. Sharply seasonal: $5,086 in April 2026, $6,865 in May, and $5,362 in the first six days of June alone.',
   },
   {
     label: 'Listing platforms',
-    monthly: 714,
-    info: 'VRBO and Furnished Finder host/listing fees — $8,570 trailing 12 months.',
+    monthly: 699,
+    info: 'VRBO and Furnished Finder host/listing fees, $8,391 trailing 12 months. Billed in annual lumps, so 2026 year-to-date reads much lighter ($142/mo) than the trailing average.',
   },
   {
     label: 'Marketing & advertising',
-    monthly: 403,
-    info: 'Facebook/Meta ads. Cut to $0 effective June 2026 — ran $4,832 over the trailing 12 months before the cut.',
+    monthly: 427,
+    info: 'Facebook/Meta ads, $5,123 trailing 12 months. The model still cuts this to $0 from June 2026, but that cut is UNVERIFIED: card detail stops 2026-06-06, and through May the line was running $680/mo in 2026, above the trailing average rather than below it.',
+  },
+  {
+    label: 'Vehicle & other insurance',
+    monthly: 784,
+    info: 'GEICO auto and other policies charged to the card, $9,410 trailing 12 months. Separate from the Phillips commercial premium, which is an annual ACH out of the operating account and has its own line below.',
   },
   {
     label: 'Repairs & upkeep',
-    monthly: 285,
-    info: 'Hardware stores and small contractor charges on the card — $3,415 trailing 12 months.',
+    monthly: 218,
+    info: 'Hardware stores and small contractor charges on the card, $2,612 trailing 12 months.',
   },
   {
     label: 'Travel & other',
-    monthly: 650,
-    info: 'Flights, car rental, fuel, meals and miscellaneous office spend — $7,797 trailing 12 months.',
+    monthly: 544,
+    info: 'Flights, car rental, fuel, meals and miscellaneous office spend, $6,535 trailing 12 months.',
   },
 ];
 
+/* --------------------------------------------------------------------- */
+/* 1099 contractors: the field + creative bench                          */
+/* --------------------------------------------------------------------- */
+
 /**
- * Hire economics. First hire ($5K/mo) joins August 2026. A second hire
- * ($5K/mo more) is triggered automatically once active property count
- * reaches 20 — a step function, not a smooth ramp.
+ * Field labor (Delaney Jordan and successors). Paid per job by Zelle out of
+ * ...5130, not through Gusto, so it never touched the old payroll line and
+ * the model carried it as $0 until this rerack.
+ *
+ * Calibration: the whole 1099 bench ran $15,248 over the 56 days from
+ * 2026-07-01 to 2026-08-25, $272.29/day, $8,288/mo, in peak season. Net
+ * out the flat creative and misc lines below and field labor is $6,738/mo
+ * at a July share of 20% of the Cape Ann year, so $33,700 annualized.
+ *
+ * PROP_COUNT is 10 because that is the model's OWN active count in July
+ * 2026 (9 CURRENT_2026 entries plus the first slider add), which is what
+ * `activeCount` passes in. It is deliberately not the 15 properties that
+ * actually filed statements that month. CURRENT_2026 is a stale roster,
+ * and calibrating the divisor to the real fleet while the numerator comes
+ * from the model's own count would scale this line down by a third.
+ *
+ * The work is per-turnover: payments cluster on Monday and Thursday (62.3%
+ * of dollars, 59.0% of payments), track checkout volume, and grew by
+ * frequency rather than by rate. So it rides the same seasonality curve as
+ * revenue and scales with the portfolio at full elasticity, unlike the
+ * card baseline's 0.5x.
+ */
+export const CONTRACTOR_FIELD_ANNUAL = 33700;
+export const CONTRACTOR_FIELD_PROP_COUNT = 10;
+/** First month field labor appears (2026 only, it starts mid-year). */
+export const CONTRACTOR_FIELD_START_MONTH_2026 = 7;
+
+/**
+ * Creative bench (Cooper). Paid $300/wk on the Chase "Basic Online Payroll"
+ * rail from 2026-07-29, with occasional larger weeks, $2,300 through 08/25.
+ * Flat monthly: shoots are scheduled against the content calendar, not
+ * against turnover volume, so this does not ride the seasonality curve.
+ */
+export const CONTRACTOR_CREATIVE_MONTHLY = 1300;
+export const CONTRACTOR_CREATIVE_START_MONTH_2026 = 7;
+
+/**
+ * Everyone else on the 1099 bench, Nicole Whitten, Ian Drometer, handymen,
+ * one-off trades. Lumpy but persistent across the whole 24-month file:
+ * ~$250/mo blended. Nicole alone took $2,400 on 2026-08-11, so single
+ * months run well above this.
+ */
+export const CONTRACTOR_MISC_MONTHLY = 250;
+
+/**
+ * Total contractor cost for a month.
+ *
+ * @param month        1-12
+ * @param year         forecast year
+ * @param activeCount  properties producing this month
+ * @param seasonShare  this month's share of the Cape Ann annual curve
+ */
+export function contractorCost(
+  year: number,
+  month: number,
+  activeCount: number,
+  seasonShare: number,
+): number {
+  // 2026 is the ramp year: nothing before the bench actually started.
+  const fieldStart = year === 2026 ? CONTRACTOR_FIELD_START_MONTH_2026 : 1;
+  const creativeStart = year === 2026 ? CONTRACTOR_CREATIVE_START_MONTH_2026 : 1;
+
+  let field = 0;
+  if (month >= fieldStart) {
+    const scale = activeCount / CONTRACTOR_FIELD_PROP_COUNT;
+    field = CONTRACTOR_FIELD_ANNUAL * seasonShare * scale;
+  }
+  const creative = month >= creativeStart ? CONTRACTOR_CREATIVE_MONTHLY : 0;
+  const misc = CONTRACTOR_MISC_MONTHLY;
+  return field + creative + misc;
+}
+
+/**
+ * Hire economics, a SALARIED body, distinct from the 1099 bench above.
+ *
+ * The plan put a first hire at $5K/mo in August 2026. It did not happen
+ * that way: Ryan built a contractor bench instead. Delaney started
+ * 2026-07-07 and Cooper 2026-07-29, and between them they ran $7,958 in
+ * the first 25 days of August alone, the hire budget, spent, and then
+ * some. Carrying both lines in 2026 double-counts the same money, so
+ * 2026's hire start moves past the end of the year (see getYearConfig).
+ *
+ * 2027 keeps a salaried hire from January. That is a forward planning
+ * choice rather than something the bank data settles, and it sits on top
+ * of the contractor line, not instead of it.
  */
 export const HIRE_MONTHLY = 5000;
-export const HIRE_START_MONTH = 8;
+/** 13 = never within the year. 2026's hire became the 1099 bench instead. */
+export const HIRE_START_MONTH = 13;
 export const SECOND_HIRE_AT_PROP_COUNT = 20;
 
 export function hireCost(month: number, hireStartMonth: number, activeCount: number): number {
@@ -321,7 +478,7 @@ export function getYearConfig(year: ForecastYear, rolledForward: number = 0): Ye
       presigned: PRESIGNED_2026,
       newOrder: NEW_ORDER_2026,
       bookkeeperLastMonth: 5,
-      hireStartMonth: 8, // First hire Aug 2026
+      hireStartMonth: HIRE_START_MONTH, // 13 = no salaried hire in 2026; the bench absorbed it
       officeStartMonth: 3,
     };
   }
@@ -384,6 +541,8 @@ export type MonthRow = {
   exp_bank: number;
   /** Operating CC pass-through (median of trailing 12 mo). */
   exp_cc_ops: number;
+  /** 1099 contractor bench, field labor + creative + misc. */
+  exp_contractors: number;
   /** New hire from Oct. */
   exp_hire: number;
   /** Onboarding cost for pre-signed contracts — $0 (folded into supplies). */
@@ -433,6 +592,7 @@ export type ActualsByMonth = ReadonlyArray<{
   exp_accounting: number;
   exp_bank: number;
   exp_cc_ops: number;
+  exp_contractors: number;
   exp_hire: number;
   exp_onboard_presigned: number;
   exp_onboard_new: number;
@@ -517,6 +677,7 @@ export function calcYear(
         a.exp_accounting +
         a.exp_bank +
         a.exp_cc_ops +
+        a.exp_contractors +
         a.exp_hire +
         a.exp_onboard_presigned +
         a.exp_onboard_new;
@@ -540,6 +701,7 @@ export function calcYear(
         exp_accounting: a.exp_accounting,
         exp_bank: a.exp_bank,
         exp_cc_ops: a.exp_cc_ops,
+        exp_contractors: a.exp_contractors,
         exp_hire: a.exp_hire,
         exp_onboard_presigned: a.exp_onboard_presigned,
         exp_onboard_new: a.exp_onboard_new,
@@ -631,9 +793,10 @@ export function calcYear(
     const exp_software = softwareCost(year, m);
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
     const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
-    const exp_accounting = ACCOUNTING_MONTHLY;
+    const exp_accounting = m === ACCOUNTING_MONTH ? ACCOUNTING_ANNUAL : ACCOUNTING_MONTHLY;
     const exp_bank = BANK_FEES_MONTHLY;
     const exp_cc_ops = ccOperatingCost(activeCount, year, m);
+    const exp_contractors = contractorCost(year, m, activeCount, dist.CA);
     const exp_hire = hireCost(m, config.hireStartMonth, activeCount);
     const exp_onboard_presigned = presignedStartCount * ONBOARDING_COST;
     const exp_onboard_new = newStartCount * ONBOARDING_COST;
@@ -645,6 +808,7 @@ export function calcYear(
       exp_accounting +
       exp_bank +
       exp_cc_ops +
+      exp_contractors +
       exp_hire +
       exp_onboard_presigned +
       exp_onboard_new;
@@ -664,6 +828,7 @@ export function calcYear(
       exp_accounting,
       exp_bank,
       exp_cc_ops,
+      exp_contractors,
       exp_hire,
       exp_onboard_presigned,
       exp_onboard_new,
