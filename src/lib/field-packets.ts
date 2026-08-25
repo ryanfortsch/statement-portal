@@ -2426,14 +2426,16 @@ export async function loadInspectionCalendar(
     .from('inspections')
     .select('property_id, completed_at')
     .in('property_id', propIds)
-    .not('completed_at', 'is', null)
-    .gte('completed_at', fetchStart);
+    .not('completed_at', 'is', null);
   const inspectedDays = new Map<string, string[]>();
   for (const r of (iData ?? []) as { property_id: string; completed_at: string }[]) {
     const arr = inspectedDays.get(r.property_id) ?? [];
     arr.push(etDate(r.completed_at));
     inspectedDays.set(r.property_id, arr);
   }
+  // Ever inspected at all (not just inside the window): the tell for whether a
+  // home is in the rotation yet.
+  const everInspected = new Set(inspectedDays.keys());
 
   // THIRD coverage source: the Turnovers rail's own "mark done", which writes
   // turnover_completions keyed exactly on (property, check_in). No packet, no
@@ -2477,6 +2479,14 @@ export async function loadInspectionCalendar(
   const rows: CalRow[] = [];
   for (const p of withCoords) {
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
+    // A home that has never hosted a guest AND has never been inspected isn't
+    // in the turnover rotation yet — its first arrival is a launch, prepped by
+    // a setup packet, not a turnover inspection. Without this a brand-new home
+    // paints every day green "open to inspect" from the moment it's seeded
+    // (225 Washington, first guest 2026-09-02). It joins the board for real
+    // the moment that first guest checks out.
+    const everHosted = pb.some((b) => isGuestStay(b) && b.check_out <= today);
+    if (!everHosted && !everInspected.has(p.id)) continue;
     const uncovered = pb.filter(
       (b) =>
         isGuestStay(b) &&
