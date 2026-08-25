@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
 import { reconcileStaleReservations } from '@/lib/reservation-reconcile';
+import { backfillGuestyToBookings } from '@/lib/guesty-backfill';
 import { guestNameFromRawReview, normalizeGuestyReview } from '@/lib/guesty-review-normalize';
 
 const GUESTY_API = 'https://open-api.guesty.com';
@@ -727,6 +728,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Carry the pull the rest of the way into `bookings`. syncReservations
+    // only fills the guesty_reservations CACHE; the copy into the Helm-native
+    // bookings table is a separate step that ran on its own cron 15 minutes
+    // later. So the dashboard's "Syncing bookings…" button truthfully synced
+    // nothing a booking-reading page could see until the next morning
+    // (2026-08-25: Andrea Richmond's stay reached the cache at 2:37 PM and
+    // still wasn't in `bookings`). Idempotent, and skipped when the pull
+    // failed — there'd be nothing new to copy.
+    let backfillResult: Record<string, unknown> = { skipped_reason: 'reservations_sync_failed' };
+    if (!('error' in reservationsResult)) {
+      try {
+        backfillResult = await backfillGuestyToBookings({}) as unknown as Record<string, unknown>;
+        await recordSyncSuccess('guesty-bookings-backfill', backfillResult);
+      } catch (err) {
+        backfillResult = { error: err instanceof Error ? err.message : String(err) };
+        await recordSyncFailure('guesty-bookings-backfill', err);
+      }
+    }
+
     // Calendar blocks (seasonal closures, manual date blocks). Pull a
     // window of 3 months back through 12 months forward — enough for any
     // current/future Revenue range we care about.
@@ -755,6 +775,7 @@ export async function POST(request: NextRequest) {
       reviews_to_slips: reviewsToSlipsResult,
       reservations: reservationsResult,
       reservations_reconcile: reconcileResult,
+      bookings_backfill: backfillResult,
       calendar: calendarResult,
     });
   } catch (err) {
