@@ -14,6 +14,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { dedupeAllBookings } from '@/lib/ical-sync';
+import { selectAllPaged } from '@/lib/paged-select';
 import type { BookingChannel, BookingStatus } from '@/lib/channels-types';
 
 let _service: SupabaseClient | null = null;
@@ -38,6 +39,13 @@ export type BackfillResult = {
   inserted: number;
   updated: number;
   deduped: number;
+  /**
+   * Rows that looked new (absent from the loaded guesty_legacy map) but turned
+   * out to already exist when re-checked by id immediately before the insert.
+   * A paged read makes this 0; any non-zero value means the bookings read came
+   * back short and this guard stopped a duplicate row being minted.
+   */
+  skipped_already_present: number;
 };
 
 export async function backfillGuestyToBookings(
@@ -46,10 +54,33 @@ export async function backfillGuestyToBookings(
   const dryRun = opts.dryRun === true;
   const sb = getServiceClient();
 
-  const { data: gr, error: grErr } = await sb
-    .from('guesty_reservations')
-    .select('guesty_reservation_id, property_id, guest_name, confirmation_code, check_in, check_out, nights, channel, status, host_payout');
-  if (grErr) throw new Error(`read guesty_reservations: ${grErr.message}`);
+  // All three reads below are paged. A bare .select() stops at PostgREST's
+  // 1000-row cap with no error, and each truncation fails differently here:
+  // a short guesty_reservations read silently backfills only part of the
+  // feed, a short properties read inflates skipped_unknown_property, and a
+  // short bookings read is the corrupting one -- see the comment on
+  // existingByBid below.
+  type GuestyRow = {
+    guesty_reservation_id: string | null;
+    property_id: string | null;
+    guest_name: string | null;
+    confirmation_code: string | null;
+    check_in: string | null;
+    check_out: string | null;
+    nights: number | null;
+    channel: string | null;
+    status: string | null;
+    host_payout: number | string | null;
+  };
+  const gr = await selectAllPaged<GuestyRow>(
+    (from, to) =>
+      sb
+        .from('guesty_reservations')
+        .select('guesty_reservation_id, property_id, guest_name, confirmation_code, check_in, check_out, nights, channel, status, host_payout')
+        .order('guesty_reservation_id', { ascending: true })
+        .range(from, to),
+    { label: 'read guesty_reservations' },
+  );
 
   // Existing guesty_legacy rows, with the fields we mirror from
   // guesty_reservations, so we can update a row in place when Guesty changes a
@@ -57,11 +88,13 @@ export async function backfillGuestyToBookings(
   // external_booking_id. INSERT-only would freeze a row at its first-seen
   // state: a later cancellation or rename in Guesty would never reach
   // `bookings`, leaving a stale `confirmed` row behind.
-  const { data: existing, error: exErr } = await sb
-    .from('bookings')
-    .select('external_booking_id, channel, external_confirmation_code, check_in, check_out, nights, status, guest_name, payout')
-    .eq('source', 'guesty_legacy');
-  if (exErr) throw new Error(`read bookings: ${exErr.message}`);
+  //
+  // This is the read that must not truncate. Everything missing from the map
+  // is treated as new and goes down the plain insert() path below, which has
+  // no onConflict and no unique index to reject it (the only index on
+  // external_booking_id is non-unique and partial), so a short read here
+  // mints a fresh duplicate guesty_legacy row on every nightly run. Those
+  // duplicates then feed dedupeAllBookings, making its job harder.
   type ExistingRow = {
     external_booking_id: string;
     channel: BookingChannel;
@@ -73,16 +106,28 @@ export async function backfillGuestyToBookings(
     guest_name: string | null;
     payout: number | null;
   };
+  const existing = await selectAllPaged<ExistingRow>(
+    (from, to) =>
+      sb
+        .from('bookings')
+        .select('external_booking_id, channel, external_confirmation_code, check_in, check_out, nights, status, guest_name, payout')
+        .eq('source', 'guesty_legacy')
+        .order('external_booking_id', { ascending: true })
+        .range(from, to),
+    { label: 'read bookings' },
+  );
   const existingByBid = new Map<string, ExistingRow>();
-  for (const e of (existing ?? []) as ExistingRow[]) {
+  for (const e of existing) {
     if (e.external_booking_id) existingByBid.set(e.external_booking_id, e);
   }
 
   // Only properties Helm actually manages -- guesty_reservations can reference
   // personal listings absent from `properties`, which the FK would reject.
-  const { data: propRows, error: propErr } = await sb.from('properties').select('id');
-  if (propErr) throw new Error(`read properties: ${propErr.message}`);
-  const knownPropertyIds = new Set((propRows ?? []).map((r) => r.id as string));
+  const propRows = await selectAllPaged<{ id: string }>(
+    (from, to) => sb.from('properties').select('id').order('id', { ascending: true }).range(from, to),
+    { label: 'read properties' },
+  );
+  const knownPropertyIds = new Set(propRows.map((r) => r.id));
 
   type Row = {
     property_id: string;
@@ -103,7 +148,7 @@ export async function backfillGuestyToBookings(
   let skippedInvalid = 0;
   let skippedUnknownProperty = 0;
 
-  for (const r of (gr ?? [])) {
+  for (const r of gr) {
     const id = r.guesty_reservation_id as string | null;
     if (!id) { skippedInvalid++; continue; }
     if (!r.property_id || !r.check_in || !r.check_out) { skippedInvalid++; continue; }
@@ -150,8 +195,8 @@ export async function backfillGuestyToBookings(
 
   const base = {
     ok: true as const,
-    total_guesty_reservations: gr?.length ?? 0,
-    already_backfilled: (gr?.length ?? 0) - toInsert.length - skippedInvalid - skippedUnknownProperty,
+    total_guesty_reservations: gr.length,
+    already_backfilled: gr.length - toInsert.length - skippedInvalid - skippedUnknownProperty,
     skipped_invalid: skippedInvalid,
     skipped_unknown_property: skippedUnknownProperty,
     to_insert: toInsert.length,
@@ -159,13 +204,39 @@ export async function backfillGuestyToBookings(
   };
 
   if (dryRun) {
-    return { ...base, dryRun: true, inserted: 0, updated: 0, deduped: 0 };
+    return { ...base, dryRun: true, inserted: 0, updated: 0, deduped: 0, skipped_already_present: 0 };
   }
+
+  // Belt and braces on top of the paged read. Nothing in the database stops a
+  // duplicate guesty_legacy row: the insert carries no onConflict and the only
+  // index on external_booking_id is non-unique and partial. So before writing,
+  // re-ask for exactly the ids about to be inserted. This is bounded (only the
+  // ids in hand) and it makes a duplicate impossible on a short read rather
+  // than merely unlikely. It narrows but does not close a true concurrent-run
+  // race; the nightly cron is the only scheduled caller.
+  const VERIFY_CHUNK = 100; // keeps the `in` list well inside URL length limits
+  const alreadyPresent = new Set<string>();
+  for (let i = 0; i < toInsert.length; i += VERIFY_CHUNK) {
+    const ids = toInsert.slice(i, i + VERIFY_CHUNK).map((r) => r.external_booking_id);
+    const { data, error } = await sb
+      .from('bookings')
+      .select('external_booking_id')
+      .eq('source', 'guesty_legacy')
+      .in('external_booking_id', ids);
+    if (error) throw new Error(`verify before insert: ${error.message}`);
+    for (const row of data ?? []) alreadyPresent.add(row.external_booking_id as string);
+  }
+  if (alreadyPresent.size > 0) {
+    console.warn(
+      `[guesty-backfill] ${alreadyPresent.size} row(s) were already in bookings despite being absent from the loaded map -- the bookings read looks short`,
+    );
+  }
+  const insertable = toInsert.filter((r) => !alreadyPresent.has(r.external_booking_id));
 
   let inserted = 0;
   const chunkSize = 500;
-  for (let i = 0; i < toInsert.length; i += chunkSize) {
-    const chunk = toInsert.slice(i, i + chunkSize);
+  for (let i = 0; i < insertable.length; i += chunkSize) {
+    const chunk = insertable.slice(i, i + chunkSize);
     const { error: insErr } = await sb.from('bookings').insert(chunk);
     if (insErr) throw new Error(`insert chunk ${i / chunkSize}: ${insErr.message}`);
     inserted += chunk.length;
@@ -193,7 +264,7 @@ export async function backfillGuestyToBookings(
     console.error('[guesty-backfill] dedupe failed:', err);
   }
 
-  return { ...base, dryRun: false, inserted, updated, deduped };
+  return { ...base, dryRun: false, inserted, updated, deduped, skipped_already_present: alreadyPresent.size };
 }
 
 function mapChannel(raw: string | null): BookingChannel {
