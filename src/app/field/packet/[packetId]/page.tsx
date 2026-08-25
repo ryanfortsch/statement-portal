@@ -409,9 +409,9 @@ function AccessLines({ a, hasTripCode }: { a: AccessBundle; hasTripCode: boolean
   if (present.length === 0) {
     return (
       <div style={{ fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-        {hasTripCode
-          ? <>No smart lock here. Use your trip code above, then let the office know you&apos;re in.</>
-          : <>No smart lock here. Text or call the office and we&apos;ll get you in.</>}
+        {/* Never point at the trip code here: this renders only for stops whose
+            lock the trip PIN was NOT written into, so it cannot open this door. */}
+        <>No smart lock here, and no code on file. Text or call the office and we&apos;ll get you in.</>
         <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
           <a href={`sms:${OFFICE_TEL}`} style={signalPill}>Text the office</a>
           <a href={`tel:${OFFICE_TEL}`} style={signalPill}>Call the office</a>
@@ -424,6 +424,14 @@ function AccessLines({ a, hasTripCode }: { a: AccessBundle; hasTripCode: boolean
       <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 7 }}>
         How to get in
       </div>
+      {/* This home isn't on a smart lock (17 Beach and friends): its code is
+          permanent and the rotating trip code above does nothing here. Say so,
+          or the inspector stands at the door punching the wrong number. */}
+      {hasTripCode && (
+        <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginBottom: 8, lineHeight: 1.45 }}>
+          Your trip code doesn&apos;t open this one — use the code below.
+        </div>
+      )}
       {/* Roomier rows: each value is a tap-to-copy chip, and 6px between
           38px+ chips made mis-taps easy with winter gloves at a keypad. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px 14px', fontSize: 13, alignItems: 'center' }}>
@@ -777,6 +785,18 @@ export default async function PacketPage({
           )}
         </div>
       )}
+      {/* A trip PIN is only written into the locks Seam can reach. On a mixed
+          trip the pill reads as "the code for today" for every door, so name
+          the homes it does NOT open right under it. */}
+      {working && packet.entry_code && (() => {
+        const without = packet.stops.filter((s) => s.property_id && !codedProps.has(s.property_id));
+        if (without.length === 0) return null;
+        return (
+          <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: -16, marginBottom: 20, lineHeight: 1.45 }}>
+            Doesn&apos;t open {without.map((s) => s.property.name).join(', ')} — {without.length === 1 ? 'that one has' : 'those have'} their own code on the stop below.
+          </div>
+        );
+      })()}
 
 
       {/* One prioritized alert region. Only the hard account block is red; the
