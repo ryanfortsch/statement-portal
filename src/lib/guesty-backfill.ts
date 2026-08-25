@@ -97,6 +97,7 @@ export async function backfillGuestyToBookings(
   // duplicates then feed dedupeAllBookings, making its job harder.
   type ExistingRow = {
     external_booking_id: string;
+    property_id: string;
     channel: BookingChannel;
     external_confirmation_code: string | null;
     check_in: string;
@@ -110,7 +111,7 @@ export async function backfillGuestyToBookings(
     (from, to) =>
       sb
         .from('bookings')
-        .select('external_booking_id, channel, external_confirmation_code, check_in, check_out, nights, status, guest_name, payout')
+        .select('external_booking_id, property_id, channel, external_confirmation_code, check_in, check_out, nights, status, guest_name, payout')
         .eq('source', 'guesty_legacy')
         .order('external_booking_id', { ascending: true })
         .range(from, to),
@@ -178,6 +179,13 @@ export async function backfillGuestyToBookings(
     // downgrade a real guest name to null -- a previous run (or dedup
     // enrichment) may hold a better value than a momentarily-blank API row.
     const patch: Partial<Row> = {};
+    // property_id is Guesty-owned too, via the listing map, and it MOVES: when
+    // a sub-unit is split out into its own Helm property (53 Rocky Neck DOWN,
+    // 2026-07-07) every already-backfilled stay stays frozen under the parent
+    // unless this mirrors. Found live 2026-08-25 -- the Gorgone Jul 17-20 stay
+    // sat on 53_rocky_neck while guesty_reservations had it right on
+    // 53_rocky_neck_2, so the sub-unit read empty for those nights.
+    if (prior.property_id !== desired.property_id) patch.property_id = desired.property_id;
     if (prior.channel !== desired.channel) patch.channel = desired.channel;
     if ((prior.external_confirmation_code ?? null) !== desired.external_confirmation_code)
       patch.external_confirmation_code = desired.external_confirmation_code;

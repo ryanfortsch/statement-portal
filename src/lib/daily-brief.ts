@@ -1168,6 +1168,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { source: 'guesty-reviews',      maxAgeMs: 36 * 3_600_000 },
     { source: 'guesty-reservations', maxAgeMs: 36 * 3_600_000 },
     { source: 'guesty-cancel-reconcile', maxAgeMs: 36 * 3_600_000 },
+    { source: 'guesty-reservation-gaps', maxAgeMs: 36 * 3_600_000 },
     { source: 'guesty-calendar',     maxAgeMs: 36 * 3_600_000 },
     { source: 'guesty-guests',       maxAgeMs: 36 * 3_600_000 },
     { source: 'gmail-replies',       maxAgeMs:  6 * 3_600_000 },
