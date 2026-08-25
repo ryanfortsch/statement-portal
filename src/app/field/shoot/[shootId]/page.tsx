@@ -157,6 +157,7 @@ export default async function ShootBriefPage({
         <Section title="Delivering">
           <p style={sectionText}>
             Drop finals in your Drive folder{shoot.drive_finals_folder_id ? ' (the dated Finals folder inside it)' : ''} — the moment the full set lands, your delivery pay goes due on its own.
+            {shoot.drive_drone_folder_id ? ' Raw drone footage goes in the DRONE folder in there; parked, it never counts against the set.' : ''}
             {detail.pay.settlesOn ? ` Current posts settle ${fmtShortDate(detail.pay.settlesOn)}.` : ''}
           </p>
         </Section>

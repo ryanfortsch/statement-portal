@@ -19,7 +19,8 @@
  * Reels group like carousels do: videos inside one subfolder of finals — or
  * loose ones whose names differ only by version wording ("no music") — are
  * VERSIONS of one reel, one asset, one base. Folders named like raw/b-roll
- * are skipped everywhere.
+ * are skipped everywhere, as is the DRONE box Helm creates inside finals: the
+ * DJI masters park there and never read as a delivered reel.
  *
  * Money safety: this file never pays anything, and never deletes or edits a
  * paid, posted, viewed, or view-locked asset. The only assets it removes are
@@ -68,6 +69,7 @@ export type ShootSyncReport = {
   title: string;
   folderId: string | null;
   finalsFolderId: string | null;
+  droneFolderId: string | null;
   packageComplete: boolean | null; // null = legacy mode (paid assets exist)
   newFiles: number;
   linkedToExisting: number;
@@ -76,6 +78,8 @@ export type ShootSyncReport = {
   removedAssets: number;
   otherFiles: number;
   removedFiles: number;
+  /** Rows dropped because the file is parked in a raw dump inside finals. */
+  parkedFiles: number;
   note: string | null;
 };
 
@@ -322,16 +326,45 @@ function fileDuration(f: DriveFile): number | null {
 
 type FoundFile = DriveFile & { parentFolderId: string; parentFolderName: string; inFinals: boolean };
 
+/** The name Helm gives the raw-footage box it creates inside finals. */
+export const DRONE_BOX_NAME = 'DRONE';
+
+/** True for a folder that holds raw footage, never deliverables. Raw and
+ *  b-roll dumps are skipped anywhere. A drone box is a dump anywhere too,
+ *  finals included — that is where the DJI masters get parked, and a dump of
+ *  clips sharing one folder would otherwise read as one delivered reel. A
+ *  folder whose name says it IS a deliverable ("Drone reel") is not a dump. */
+function isDumpFolder(name: string): boolean {
+  const n = norm(name);
+  if (n.includes('raw') || n.includes('b roll') || n.includes('broll')) return true;
+  return n.includes('drone') && !n.includes('reel') && !n.includes('carousel');
+}
+
+type CollectResult = {
+  files: FoundFile[];
+  /** Files sitting in a skipped dump folder inside finals. Helm may still hold
+   *  rows for them from before they were parked; they are not deliveries and
+   *  not deletions, so those rows get dropped rather than read as removed. */
+  parkedFileIds: Set<string>;
+  /** The drone box inside finals, if one is already there. */
+  droneBoxId: string | null;
+};
+
 /** Every non-folder file under rootId, up to 3 folder levels deep, tagged with
  *  whether it sits inside the finals subtree. Folders named like raw footage
- *  dumps are skipped so they can't spawn phantom reels. */
+ *  dumps are skipped so they can't spawn phantom reels; a dump inside finals
+ *  is shallow-listed anyway so what's parked in it can be told from what's
+ *  been deleted. */
 async function collectFiles(
   token: string,
   rootId: string,
   rootName: string,
   finalsId: string | null,
-): Promise<FoundFile[]> {
+  pinnedDroneId: string | null,
+): Promise<CollectResult> {
   const out: FoundFile[] = [];
+  const parkedFileIds = new Set<string>();
+  let droneBoxId: string | null = null;
   let frontier = [{ id: rootId, name: rootName, depth: 0, inFinals: rootId === finalsId }];
   while (frontier.length > 0) {
     const next: typeof frontier = [];
@@ -339,13 +372,19 @@ async function collectFiles(
       const children = await listChildren(token, folder.id);
       for (const c of children) {
         if (c.mimeType === FOLDER_MIME) {
-          const n = norm(c.name);
-          // Outside finals, "drone" folders are dumps too (Dotti parks the DJI
-          // masters there) — but inside finals a folder may NAME a deliverable
-          // ("Drone reel"), so the drone skip never applies there.
           const insideFinals = folder.inFinals || c.id === finalsId;
-          const isDump = n.includes('raw') || n.includes('b roll') || n.includes('broll') || (!insideFinals && n.includes('drone'));
-          if (folder.depth < 3 && !isDump) {
+          if (c.id === pinnedDroneId || isDumpFolder(c.name)) {
+            if (droneBoxId == null && (c.id === pinnedDroneId || (folder.id === finalsId && norm(c.name).includes('drone')))) {
+              droneBoxId = c.id;
+            }
+            if (insideFinals) {
+              for (const parked of await listChildren(token, c.id)) {
+                if (parked.mimeType !== FOLDER_MIME) parkedFileIds.add(parked.id);
+              }
+            }
+            continue;
+          }
+          if (folder.depth < 3) {
             next.push({ id: c.id, name: c.name, depth: folder.depth + 1, inFinals: insideFinals });
           }
         } else {
@@ -355,7 +394,7 @@ async function collectFiles(
     }
     frontier = next;
   }
-  return out;
+  return { files: out, parkedFileIds, droneBoxId };
 }
 
 /**
@@ -439,6 +478,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
       title: shoot.title,
       folderId: shoot.drive_folder_id,
       finalsFolderId: shoot.drive_finals_folder_id,
+      droneFolderId: shoot.drive_drone_folder_id,
       packageComplete: null,
       newFiles: 0,
       linkedToExisting: 0,
@@ -447,6 +487,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
       removedAssets: 0,
       otherFiles: 0,
       removedFiles: 0,
+      parkedFiles: 0,
       note: null,
     };
     report.shoots.push(sr);
@@ -508,12 +549,32 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
       }
 
       // 3. What's in the folder right now?
-      const found = await collectFiles(token, sr.folderId, shoot.title, sr.finalsFolderId);
+      const scan = await collectFiles(token, sr.folderId, shoot.title, sr.finalsFolderId, shoot.drive_drone_folder_id);
+      const found = scan.files;
       report.shootsScanned++;
 
       const known = new Map((filesByShoot.get(shoot.id) ?? []).map((f) => [f.drive_file_id, f]));
       const now = new Date().toISOString();
       const seenIds = new Set<string>();
+
+      // 3b. The DRONE box — raw masters get a home inside finals that never
+      // counts, so dumping a card of DJI clips can't read as a delivered reel.
+      sr.droneFolderId = scan.droneBoxId;
+      if (sr.finalsFolderId && !sr.droneFolderId) {
+        // Never fatal: the box is a convenience, and a delivery must still be
+        // read and paid on a folder Helm can only see into.
+        try {
+          sr.droneFolderId = await createFolder(token, DRONE_BOX_NAME, sr.finalsFolderId);
+        } catch {
+          addNote('could not create the DRONE box in the Finals folder');
+        }
+      }
+      if (sr.droneFolderId && sr.droneFolderId !== shoot.drive_drone_folder_id) {
+        await db
+          .from('creative_shoots')
+          .update({ drive_drone_folder_id: sr.droneFolderId, updated_at: now })
+          .eq('id', shoot.id);
+      }
 
       // Refresh known rows (files move INTO finals — track parent + flag) and
       // claim fresh ones (unique drive_file_id: if another run beat us to one,
@@ -823,9 +884,18 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
         }
       }
 
-      // Files that vanished from the folder: mark, keep the asset + pay records.
+      // Files no longer in the delivery tree. One parked in the DRONE box (or
+      // another raw dump inside finals) was never a deliverable, so its row is
+      // dropped outright — it isn't a deletion and shouldn't read as one.
+      // Everything else: mark, and keep the asset + pay records.
       for (const [driveId, row] of known) {
-        if (!seenIds.has(driveId) && !row.trashed_at) {
+        if (seenIds.has(driveId)) continue;
+        if (scan.parkedFileIds.has(driveId) && !row.asset_id) {
+          await db.from('creative_drive_files').delete().eq('id', row.id);
+          sr.parkedFiles++;
+          continue;
+        }
+        if (!row.trashed_at) {
           await db.from('creative_drive_files').update({ trashed_at: now }).eq('id', row.id);
           sr.removedFiles++;
         }
