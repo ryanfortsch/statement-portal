@@ -388,17 +388,22 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
   const priceDollars = Number(formData.get('price_dollars') || 0);
   if (!visitDate || ids.length === 0) redirect('/fieldwork/packets?sent=0');
 
-  // Optional: hand the trip straight to ONE inspector instead of posting it to
-  // the roster. Validate BEFORE creating anything, so a bad pick can't quietly
-  // fall back to texting everyone.
-  const assignTo = String(formData.get('assign_to') || '');
-  let assignee: ContractorRow | null = null;
-  if (assignTo) {
-    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', assignTo).maybeSingle();
-    assignee = (c as ContractorRow | null) ?? null;
-    if (!assignee || !canClaim(assignee) || assignee.trade !== 'inspection') {
-      redirect('/fieldwork/packets?sent=0');
-    }
+  // Optional: OFFER the trip to specific inspectors instead of the whole
+  // roster. This changes who SEES and gets texted about it — the claim itself
+  // is untouched: they still tap Claim, first one wins. Assigning outright is
+  // a separate, deliberate act on the packet page.
+  const offeredTo = String(formData.get('offer_to') || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  let offerNames: string[] = [];
+  if (offeredTo.length) {
+    const { data: cs } = await fieldDb().from('contractors').select('*').in('id', offeredTo);
+    const eligible = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'inspection');
+    // Validate BEFORE creating anything: a stale pick must not silently widen
+    // the offer to the whole roster.
+    if (eligible.length !== offeredTo.length) redirect('/fieldwork/packets?sent=0');
+    offerNames = eligible.map((c) => c.full_name.split(' ')[0]);
   }
 
   const packetId = await createPacketFromProperties({
@@ -406,31 +411,24 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
     visitDate,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
     createdByEmail: email,
-    // Assigned work is never published: it must not sit on the open
-    // marketplace for someone else to claim out from under them.
-    publish: !assignee,
+    publish: true,
+    offeredTo,
   });
   if (packetId) {
-    if (assignee) {
-      // Same landing as assignPacket: awarded, codes programmed, one
-      // confirmation to that inspector, nobody else notified.
-      await fieldDb()
-        .from('inspection_packets')
-        .update({ status: 'claimed', awarded_contractor_id: assignee.id, claimed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('id', packetId);
-      await fieldDb()
-        .from('packet_events')
-        .insert({ packet_id: packetId, contractor_id: assignee.id, actor_email: email, event_type: 'assigned' });
-      await programPacketCodes(packetId).catch(() => {});
-      const { data: full } = await fieldDb().from('inspection_packets').select('*').eq('id', packetId).maybeSingle();
-      if (full) await sendClaimConfirmation(assignee, full as PacketRow, { assigned: true }).catch(() => {});
-      revalidatePath('/fieldwork/packets');
-      redirect(`/fieldwork/packets?sent=1&who=${encodeURIComponent(assignee.full_name.split(' ')[0])}`);
-    }
-    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      actor_email: email,
+      event_type: 'published',
+      payload: offeredTo.length ? { offered_to: offeredTo } : null,
+    });
+    // Texts only the offered inspectors when the offer is restricted.
     notifyContractorsOfPacket(packetId).catch(() => {});
     revalidatePath('/fieldwork/packets');
-    redirect('/fieldwork/packets?sent=1');
+    redirect(
+      offerNames.length
+        ? `/fieldwork/packets?sent=1&who=${encodeURIComponent(offerNames.join(' & '))}`
+        : '/fieldwork/packets?sent=1',
+    );
   }
   // Nothing got bundled — every picked day is now covered/occupied. Tell the
   // operator instead of silently doing nothing.

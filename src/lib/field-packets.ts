@@ -616,7 +616,9 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
 }> {
   const { data: pubData } = await fieldDb()
     .from('inspection_packets')
-    .select('id')
+    // offered_to_contractor_ids: an offer aimed at specific inspectors is
+    // invisible to everyone else. Empty/null = open to the whole trade.
+    .select('id, offered_to_contractor_ids')
     .eq('status', 'published')
     .eq('trade', contractor.trade) // only show work this contractor's trade does
     // Date floor: a visit day that already passed is not claimable work. The
@@ -634,8 +636,11 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
 
   // Browsing, not-yet-claimed packets: mask property identity (no addresses /
   // names / coords) until the inspector actually claims the job.
+  const offered = ((pubData ?? []) as { id: string; offered_to_contractor_ids: string[] | null }[]).filter(
+    (p) => !p.offered_to_contractor_ids?.length || p.offered_to_contractor_ids.includes(contractor.id),
+  );
   const availableRaw = (
-    await Promise.all(((pubData ?? []) as { id: string }[]).map((p) => loadPacketDetail(p.id, { revealIdentity: false })))
+    await Promise.all(offered.map((p) => loadPacketDetail(p.id, { revealIdentity: false })))
   ).filter(Boolean) as PacketDetail[];
   // Access codes are never loaded into the marketplace payload — the cards
   // don't render them, and the detail page reveals them gated on active status.
@@ -1424,6 +1429,9 @@ export async function createPacketFromProperties(args: {
   priceCentsOverride?: number;
   createdByEmail: string;
   publish: boolean;
+  /** Show + offer this only to these contractors (they still claim it
+   *  normally). Empty/undefined = the whole trade, as always. */
+  offeredTo?: string[];
 }): Promise<string | null> {
   const properties = await loadFieldProperties();
   const propById = new Map(properties.map((p) => [p.id, p]));
@@ -1504,6 +1512,7 @@ export async function createPacketFromProperties(args: {
       suggestion_key: null,
       created_by_email: args.createdByEmail,
       published_at: args.publish ? new Date().toISOString() : null,
+      offered_to_contractor_ids: args.offeredTo?.length ? args.offeredTo : null,
     })
     .select('id')
     .single();

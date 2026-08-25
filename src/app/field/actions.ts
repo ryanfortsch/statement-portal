@@ -387,12 +387,18 @@ export async function claimPacket(formData: FormData) {
   // this guards the gap until it runs and any morning-SMS link to a stale one.
   const { data: pkDate } = await fieldDb()
     .from('inspection_packets')
-    .select('visit_date')
+    .select('visit_date, offered_to_contractor_ids')
     .eq('id', packetId)
     .maybeSingle();
+  const pk = pkDate as { visit_date: string; offered_to_contractor_ids: string[] | null } | null;
   const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
-  if (pkDate && (pkDate as { visit_date: string }).visit_date < todayEt) {
+  if (pk && pk.visit_date < todayEt) {
     redirect(`/field/packet/${packetId}?expired=1`);
+  }
+  // An offer aimed at specific inspectors is theirs to claim. The board never
+  // shows it to anyone else, but the link is guessable, so re-check here.
+  if (pk?.offered_to_contractor_ids?.length && !pk.offered_to_contractor_ids.includes(contractor.id)) {
+    redirect('/field');
   }
 
   // Throttle a contractor whose reliability has genuinely cratered — but only

@@ -74,9 +74,12 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
   const [selProps, setSelProps] = useState<string[]>([]);
   const [priceStr, setPriceStr] = useState('');
   const [sending, setSending] = useState(false);
-  // Empty = publish to everyone (the roster gets the SMS). Pick a name and the
-  // packet goes straight onto that inspector's board instead — no blast.
-  const [assignTo, setAssignTo] = useState('');
+  // Empty = post to everyone of this trade. Tick names and the packet is shown
+  // and texted to only those inspectors — they still claim it themselves,
+  // first come, exactly like any other packet.
+  const [offerTo, setOfferTo] = useState<string[]>([]);
+  const toggleOffer = (id: string) =>
+    setOfferTo((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const rowById = new Map(rows.map((r) => [r.propertyId, r]));
 
@@ -227,7 +230,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
                 setSelProps([]);
                 setSelDay(null);
                 setPriceStr('');
-                setAssignTo('');
+                setOfferTo([]);
               }
             } finally {
               setSending(false);
@@ -249,7 +252,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
           <input type="hidden" name="visit_date" value={selDay} />
           <input type="hidden" name="property_ids" value={selProps.join(',')} />
           <input type="hidden" name="price_dollars" value={priceStr || String(suggestedDollars)} />
-          <input type="hidden" name="assign_to" value={assignTo} />
+          <input type="hidden" name="offer_to" value={offerTo.join(',')} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>
               {selectedRows.length} selected{area ? ` on ${area}` : ''} · {fmtDay(selDay)}
@@ -260,17 +263,44 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {assignable.length > 0 && (
-              <select
-                value={assignTo}
-                onChange={(e) => setAssignTo(e.target.value)}
-                aria-label="Send to"
-                style={{ font: 'inherit', fontSize: 13, color: 'var(--ink)', background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 8, padding: '9px 10px' }}
-              >
-                <option value="">Anyone — text all inspectors</option>
-                {assignable.map((c) => (
-                  <option key={c.id} value={c.id}>{`Only ${c.name}`}</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Who can see this">
+                <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>Show to</span>
+                {assignable.map((c) => {
+                  const on = offerTo.includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => toggleOffer(c.id)}
+                      aria-pressed={on}
+                      title={on ? `Only these inspectors will see it` : `Limit this packet to ${c.name}`}
+                      style={{
+                        font: 'inherit',
+                        fontSize: 12.5,
+                        cursor: 'pointer',
+                        borderRadius: 999,
+                        padding: '6px 11px',
+                        border: `1px solid ${on ? 'var(--tide-deep)' : 'var(--rule)'}`,
+                        background: on ? 'rgba(58,107,138,0.12)' : 'var(--paper-2, #fff)',
+                        color: on ? 'var(--tide-deep)' : 'var(--ink-3)',
+                        fontWeight: on ? 600 : 400,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {on ? '✓ ' : ''}{c.name.split(' ')[0]}
+                    </button>
+                  );
+                })}
+                {offerTo.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOfferTo([])}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11.5, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }}
+                  >
+                    everyone
+                  </button>
+                )}
+              </div>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--rule)', borderRadius: 8, padding: '5px 9px', background: 'var(--paper-2, #fff)' }}>
               <span style={{ color: 'var(--ink-4)', fontSize: 13 }}>$</span>
@@ -330,8 +360,8 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
             >
               {sending
                 ? 'Sending…'
-                : assignTo
-                  ? `Send to ${(assignable.find((c) => c.id === assignTo)?.name ?? '').split(' ')[0]} →`
+                : offerTo.length
+                  ? `Send to ${offerTo.length} inspector${offerTo.length === 1 ? '' : 's'} →`
                   : 'Bundle & send →'}
             </button>
           </div>

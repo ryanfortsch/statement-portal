@@ -136,6 +136,10 @@ export type PacketRow = {
   max_pairwise_miles: number | null;
   stop_count: number;
   posted_price_cents: number;
+  /** Offer restricted to these contractors: only they see it on their board,
+   *  get texted about it, and can claim it. NULL/empty = the whole trade.
+   *  Restricting visibility never pre-awards the work — they still claim it. */
+  offered_to_contractor_ids: string[] | null;
   awarded_contractor_id: string | null;
   claimed_at: string | null;
   claim_deadline: string | null;
