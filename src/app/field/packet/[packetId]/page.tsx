@@ -7,7 +7,7 @@ import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { formatTime12 } from '@/lib/checkout-schedule';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail } from '@/lib/field-types';
+import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , GUEST_ACCESS_LABEL } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
@@ -84,7 +84,7 @@ function fmtShortDate(d: string): string {
 
 /** Per-stop timing truth, driven by the bookings — not a fixed window. The day
  *  opens at the 11 AM checkout; the ONLY hard deadline is a guest checking in
- *  THAT day (4 PM); and a same-day checkout means the cleaner owns midday, so
+ *  THAT day (door code goes out at 3 PM); a same-day checkout means the
  *  the inspector goes after. Vacant homes are open from 11. */
 function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; first: string; rest: string; urgent: boolean; open: boolean } {
   // Two facts, no coaching: is the home open (and since when), and when's the
@@ -103,7 +103,7 @@ function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; fi
       : 'Open now';
   const rest = !s.next_checkin
     ? ' · no next check-in scheduled'
-    : ` · next check-in: ${s.next_checkin === visitDate ? 'today, 4 PM' : `${fmtShortDate(s.next_checkin)}, 4 PM`}`;
+    : ` · guests in ${s.next_checkin === visitDate ? `today from ${GUEST_ACCESS_LABEL}` : `${fmtShortDate(s.next_checkin)} from ${GUEST_ACCESS_LABEL}`}`;
   return { label: `${first}${rest}`, first, rest, urgent: s.next_checkin === visitDate, open };
 }
 
@@ -1137,7 +1137,7 @@ export default async function PacketPage({
                           <span style={{ color: 'var(--positive)' }}> · ✓ entered</span>
                         )}
                         {/* Timing stays visible while working; the one HARD deadline
-                            of the day (a guest arriving at this home at 4 PM) gets
+                            of the day (a guest can key in at this home from 3 PM) gets
                             its own line instead of hiding at the end of a chain. */}
                         {!terminal && (() => {
                           const t = stopTiming(s, packet.visit_date);
@@ -1159,7 +1159,7 @@ export default async function PacketPage({
                             <>
                               <span style={{ color: 'var(--ink-4)' }}>{s.status === 'in_progress' ? ' · ' : ''}{lead}</span>
                               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--signal)', marginTop: 4 }}>
-                                Guest checks in today, 4 PM
+                                Guests can arrive from {GUEST_ACCESS_LABEL} today — finish by then
                               </div>
                             </>
                           );
