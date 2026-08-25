@@ -6,7 +6,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { formatTime12 } from '@/lib/checkout-schedule';
-import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketReview, getContractorReliability, loadAttachableSlips, type ReliabilityTier , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
 import { StopAttachments, PacketInstructions } from './StopAttachments';
 import { BonusFields } from './BonusFields';
 import { PacketRouteMap } from '@/app/field/PacketRouteMap';
@@ -99,6 +99,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // live (incl. after a contractor claims it); locked once submitted/closed.
   const attachEditable = isAttachableStatus(packet.status);
   // Add a stop while the trip can still take one; exclude homes already on it.
+  // Awarded by the office vs claimed by the contractor: both are status
+  // 'claimed', and calling an assignment "CLAIMED" made it look like James
+  // Liddell grabbed a trip seconds after Dotti sent it to him.
+  const officeAssigned =
+    packet.status === 'claimed' &&
+    (await loadOfficeAssignedPacketIds([packet.id]).catch(() => new Set<string>())).has(packet.id);
   const canAddStop = ['draft', 'published', 'claimed', 'in_progress'].includes(packet.status);
   // Cape Ann Elite's own booked times for this visit day, so lining up a
   // packet shows where a cleaner is already committed. Keyed on the
@@ -236,7 +242,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{packet.status}</div>
+            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{officeAssigned ? 'assigned' : packet.status}</div>
             <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(effectiveBaseCents(packet))}</div>
             <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>
               {isPayoutFinal(packet) ? 'Final' : 'Estimated'}
@@ -324,7 +330,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   ) : packet.status === 'in_progress' ? (
                     'between stops'
                   ) : (
-                    'claimed · not started'
+                    officeAssigned ? 'assigned · not started' : 'claimed · not started'
                   )}
                 </span>
               </div>
