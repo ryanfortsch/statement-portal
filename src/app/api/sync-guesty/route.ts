@@ -3,6 +3,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
 import { reconcileStaleReservations } from '@/lib/reservation-reconcile';
+import { backfillReservationGaps } from '@/lib/reservation-gap-backfill';
+import {
+  RESERVATION_FIELDS,
+  mapReservationRow,
+  upsertGuestyReservations,
+  type GuestyReservation,
+} from '@/lib/guesty-reservations';
 import { backfillGuestyToBookings } from '@/lib/guesty-backfill';
 import { guestNameFromRawReview, normalizeGuestyReview } from '@/lib/guesty-review-normalize';
 
@@ -65,12 +72,6 @@ function channelFromGuesty(raw?: string): string {
   if (c === 'bookingcom' || c.startsWith('booking')) return 'Booking.com';
   if (c === 'manual' || c === 'direct') return 'Direct';
   return 'Direct';
-}
-
-function toNumber(n: unknown): number | null {
-  if (n === null || n === undefined || n === '') return null;
-  const v = typeof n === 'number' ? n : parseFloat(String(n));
-  return Number.isFinite(v) ? v : null;
 }
 
 function sleep(ms: number) {
@@ -482,34 +483,11 @@ async function linkReviewsToContacts(): Promise<void> {
 
 // ---- Reservations ----
 
-type GuestyReservation = {
-  _id: string;
-  listingId?: string;
-  guestId?: string;
-  guest?: { fullName?: string; firstName?: string; lastName?: string };
-  confirmationCode?: string;
-  checkIn?: string;
-  checkOut?: string;
-  nightsCount?: number;
-  status?: string;
-  source?: string;
-  integration?: { platform?: string };
-  channel?: string;
-  // The `money` block is requested in `fields`; Guesty returns the whole
-  // sub-document, so invoiceItems (the guest folio line items -- extra
-  // services / Resolution Center charges included) ride along here even
-  // though we historically only read hostPayout.
-  money?: { hostPayout?: number; invoiceItems?: unknown[] };
-};
-
 async function fetchAllReservations(token: string, sinceIso?: string): Promise<GuestyReservation[]> {
   const all: GuestyReservation[] = [];
   let skip = 0;
   const limit = 100;
-  // Guesty omits the `money` block by default; we need to request it explicitly
-  // to populate host_payout. Without this every row's host_payout comes back
-  // null and the Revenue dashboard reads zero across the board.
-  const fields = '_id listingId checkIn checkOut status money nightsCount guestsCount guest confirmationCode integration source channel guestId';
+  const fields = RESERVATION_FIELDS;
   // THE FLOOR MUST BE SERVER-SIDE. Probed live 2026-08-25: this endpoint
   // silently returns only reservations whose checkIn is today or later --
   // 122 rows unfiltered, vs 264 with a checkOut floor, and every one of the
@@ -566,58 +544,18 @@ async function fetchAllReservations(token: string, sinceIso?: string): Promise<G
 
 async function syncReservations(token: string, listingMap: Record<string, string>, sinceIso: string) {
   const reservations = await fetchAllReservations(token, sinceIso);
-  const rows: any[] = [];
+  const rows: ReturnType<typeof mapReservationRow>[] = [];
   let skippedNoProp = 0;
+
+  const syncedAt = new Date().toISOString();
 
   for (const r of reservations) {
     const propertyId = r.listingId ? listingMap[r.listingId] : undefined;
     if (!propertyId) { skippedNoProp++; continue; }
-
-    const checkIn = r.checkIn ? r.checkIn.slice(0, 10) : null;
-    const checkOut = r.checkOut ? r.checkOut.slice(0, 10) : null;
-    const rawChannel = r.integration?.platform || r.source || r.channel;
-    const guestName = r.guest?.fullName || [r.guest?.firstName, r.guest?.lastName].filter(Boolean).join(' ') || null;
-
-    rows.push({
-      guesty_reservation_id: r._id,
-      listing_id: r.listingId || null,
-      property_id: propertyId,
-      guest_id: r.guestId || null,
-      guest_name: guestName,
-      confirmation_code: r.confirmationCode || null,
-      check_in: checkIn,
-      check_out: checkOut,
-      nights: r.nightsCount ?? null,
-      channel: channelFromGuesty(rawChannel),
-      guesty_channel_id: rawChannel || null,
-      status: r.status || null,
-      host_payout: toNumber(r.money?.hostPayout),
-      // Store the raw folio line items so we can see the real shape and
-      // build automatic extra-revenue capture against it. null when Guesty
-      // doesn't return any (e.g. some channels) so the column stays clean.
-      folio_items: Array.isArray(r.money?.invoiceItems) && r.money.invoiceItems.length > 0
-        ? r.money.invoiceItems
-        : null,
-      synced_at: new Date().toISOString(),
-    });
+    rows.push(mapReservationRow(r, propertyId, syncedAt));
   }
 
-  if (rows.length > 0) {
-    const sb = getSupabase();
-    const { error } = await sb.from('guesty_reservations').upsert(rows, { onConflict: 'guesty_reservation_id' });
-    if (error) {
-      // Tolerate the folio_items column not existing yet (migration unrun):
-      // retry without it so the sync -- and its cron safety-net -- keeps
-      // working. Everything else still persists; folio capture turns on
-      // once supabase-schema-guesty-folio-items.sql is applied.
-      const missingFolioCol = error.code === 'PGRST204'
-        || /folio_items|column .*folio/i.test(error.message || '');
-      if (!missingFolioCol) throw new Error(`guesty_reservations upsert failed: ${error.message}`);
-      const stripped = rows.map(r => { const copy = { ...r }; delete copy.folio_items; return copy; });
-      const { error: retryErr } = await sb.from('guesty_reservations').upsert(stripped, { onConflict: 'guesty_reservation_id' });
-      if (retryErr) throw new Error(`guesty_reservations upsert failed: ${retryErr.message}`);
-    }
-  }
+  await upsertGuestyReservations(getSupabase(), rows);
   return { fetched: reservations.length, upserted: rows.length, skipped: skippedNoProp };
 }
 
@@ -751,20 +689,38 @@ export async function POST(request: NextRequest) {
     // window of 3 months back through 12 months forward — enough for any
     // current/future Revenue range we care about.
     let calendarResult: Record<string, unknown> = { skipped_reason: 'not_attempted' };
+    const calStart = new Date();
+    calStart.setMonth(calStart.getMonth() - 3);
+    calStart.setDate(1);
+    const calEnd = new Date();
+    calEnd.setMonth(calEnd.getMonth() + 12);
+    calEnd.setDate(28); // safe last-day-of-month proxy
+    const calWindow = {
+      startDate: calStart.toISOString().slice(0, 10),
+      endDate: calEnd.toISOString().slice(0, 10),
+    };
     try {
-      const calStart = new Date();
-      calStart.setMonth(calStart.getMonth() - 3);
-      calStart.setDate(1);
-      const calEnd = new Date();
-      calEnd.setMonth(calEnd.getMonth() + 12);
-      calEnd.setDate(28); // safe last-day-of-month proxy
-      const startDate = calStart.toISOString().slice(0, 10);
-      const endDate = calEnd.toISOString().slice(0, 10);
+      const { startDate, endDate } = calWindow;
       calendarResult = await syncCalendarDays(listingMap, startDate, endDate);
       await recordSyncSuccess('guesty-calendar', calendarResult);
     } catch (err) {
       calendarResult = { error: err instanceof Error ? err.message : String(err) };
       await recordSyncFailure('guesty-calendar', err);
+    }
+
+    // Reservation gap backfill. Runs LAST because it audits the two steps
+    // above against each other: every night the calendar mirror calls sold,
+    // matched to the reservation that should be behind it. What is left over
+    // is a stay this pull did not return. The 90-day floor #1334 gave the feed
+    // is a floor, not a guarantee, and nothing else in the sync would ever
+    // notice a stay it silently skipped. Records its own sync_status; never
+    // throws.
+    let reservationGapsResult: Record<string, unknown> = { skipped_reason: 'calendar_sync_failed' };
+    if (!('error' in calendarResult)) {
+      reservationGapsResult = (await backfillReservationGaps({
+        startDate: calWindow.startDate,
+        endDate: calWindow.endDate,
+      })) as unknown as Record<string, unknown>;
     }
 
     return NextResponse.json({
@@ -777,6 +733,7 @@ export async function POST(request: NextRequest) {
       reservations_reconcile: reconcileResult,
       bookings_backfill: backfillResult,
       calendar: calendarResult,
+      reservation_gaps: reservationGapsResult,
     });
   } catch (err) {
     console.error('sync-guesty error:', err);
