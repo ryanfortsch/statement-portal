@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
+import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { QueueSkeleton } from '@/components/QueueSkeleton';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
 import {
@@ -41,6 +42,10 @@ function Shell({ children }: { children: ReactNode }) {
     >
       <HelmMasthead />
       <MessagingTabs current="cleaners" />
+      {/* Streams in: the shell must still paint with no backend call. */}
+      <Suspense fallback={null}>
+        <AiStatusBanner />
+      </Suspense>
 
       {children}
 

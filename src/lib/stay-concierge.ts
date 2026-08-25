@@ -898,6 +898,21 @@ export async function saveContractorCuratedFacts(content: string) {
   });
 }
 
+/** Whether the drafting AI is reachable. `ok:false` means drafts are not
+ * being written right now - the outage that presents as an empty queue. */
+export type AiStatus = {
+  ok: boolean;
+  kind?: 'billing' | 'auth' | 'rate_limit' | 'overloaded' | 'error';
+  reason?: string;
+  since?: string;
+  last?: string;
+  count?: number;
+};
+
+export async function getAiStatus() {
+  return request<AiStatus>('/api/ai-status');
+}
+
 export async function getStats(hours: number) {
   return request<MessagingStats>(`/api/stats?hours=${hours}`);
 }
