@@ -2,301 +2,554 @@
 
 # Rising Tide Helm
 
-## What This Is
+## What this is
 
-**Helm** is the internal operations hub for Rising Tide STR, a vacation rental management company in Gloucester, MA. Ryan (ryan@risingtidestr.com) runs Rising Tide and manages 12 short-term rental properties for different owners. Helm is where Ryan and his team run the business: statements, owner CRM, revenue projections, and other ops tools live here as sibling modules under one shell.
+**Helm** is the internal operations hub for Rising Tide STR, a vacation rental management
+company in Gloucester, MA. Ryan (ryan@risingtidestr.com) runs Rising Tide and manages a fleet
+of short-term rentals for their owners. Helm is where the team runs the business: owner
+statements, turnovers, field contractors, guest and owner messaging, revenue, bookkeeping, the
+property registry, and the prospect funnel all live here as sibling modules under one shell.
 
-The repo was originally just the **Statement Portal**, which is now the first module under Helm at `/statements`. Future modules (CRM, Projections, etc.) live as siblings at their own route prefixes and share the same Supabase project, auth, integrations, and design language.
+The repo began as the **Statement Portal**, which is now one module at `/statements`. Everything
+else was built after. If you are reading this file to find out what exists, read the module map
+below rather than assuming the repo is still a statements app.
 
-### Statements module (the original product)
+Live at `helm.risingtidestr.com`. `statements.risingtidestr.com` 308-redirects to it (the OAuth
+callback is pinned to the helm host; see `next.config.ts`).
 
-Each month, Ryan uploads three data files per property. The Statements module ingests them, calculates revenue/fees/payouts, and renders a print-ready editorial statement that gets sent to property owners.
+Related docs:
+- `AGENTS.md` at the repo root. Read it first. Next.js 16 has breaking changes from what you may
+  remember; check `node_modules/next/dist/docs/` before writing framework code.
+- `SCHEMA.md`. The source-of-truth map for the database (80+ tables): which table is authoritative
+  for a stay, a property, a contact, money. **This file owns business rules; SCHEMA.md owns which
+  table holds what.** Do not duplicate schema listings here.
 
-Live at: `rising-tide-statements-*.vercel.app` (Vercel Hobby plan; domain rename to follow)
+## Tech stack
 
-## Tech Stack
+- **Framework**: Next.js 16.2.4 (App Router), React 19.2.4, TypeScript strict
+- **Auth**: Auth.js v5 (`next-auth` 5 beta) with Google SSO. Enforced in `src/proxy.ts`, which is
+  Next 16's middleware file name. It gates every page and every `/api` route except an explicit
+  public allowlist.
+- **Database**: Supabase (Postgres). Migrations in `supabase/migrations/` (208 files). 22 legacy
+  `supabase-schema-*.sql` files at the repo root predate that folder.
+- **Hosting**: Vercel, auto-deploy from `main`.
+- **UI**: Tailwind v4, shadcn/radix, recharts. The statement render page is the exception and uses
+  inline CSS only.
+- **AI**: Vercel AI SDK (`ai` v6).
+- **PDF**: `puppeteer-core` + `@sparticuz/chromium` driving the HTML render page. See below.
+- **Fonts**: Fraunces (serif), Inter (sans), JetBrains Mono (mono)
 
-- **Framework**: Next.js 16.2.4 (App Router), React 19, TypeScript
-- **Database**: Supabase (PostgreSQL) - tables below
-- **Hosting**: Vercel (Hobby plan, auto-deploys from `main`)
-- **PDF approach**: Server-rendered HTML page at `/statements/render?id=...&month=...` that the user prints to PDF via Cmd+P. NOT programmatic PDF generation (we tried pdf-lib and it looked bad).
-- **Styling**: All CSS is inline in the statement page component (no Tailwind on the statement). Dashboard uses Tailwind.
-- **Fonts**: Fraunces (serif), Inter (sans), JetBrains Mono (mono) via Google Fonts
+Note on the Vercel plan: several source comments and older docs call this a Hobby project. Do not
+rely on that. `vercel.json` registers 22 cron jobs (8 of them sub-daily) and 18 routes declare
+`maxDuration = 300`, none of which Hobby permits. Treat the plan as paid and confirm in the Vercel
+dashboard before writing a plan name anywhere.
 
-## Project Structure
+## Shape of the codebase
+
+Roughly 193k lines across 760 TypeScript files.
 
 ```
 src/
-  app/
-    page.tsx                           # Helm home (module cards: Statements, CRM, Projections)
-    statements/
-      page.tsx                         # Statements module dashboard (client) - property cards, upload CSV, view statements
-      render/page.tsx                  # Statement renderer (server) - the editorial HTML page (was /statement)
-      upload/page.tsx                  # Data upload page per property (was /upload)
-    api/
-      ingest/route.ts              # POST: parses Guesty PDF + platform CSV + bank CSV, writes to Supabase
-      ingest-guesty-csv/route.ts   # POST: ingests Guesty reservations CSV as a fallback when API is unavailable
-      sync-guesty/route.ts         # POST: pulls reviews + reservations + listing map from Guesty API
-      sync-invoices/route.ts       # POST: Gmail sync for Cape Ann Elite cleaning invoices
-    layout.tsx
-  lib/
-    supabase.ts           # Supabase client init
-  types/
-    pdf-parse.d.ts
-public/
-  rising-tide-logo.png    # Navy pennant logo (512x512 PNG)
+  app/          32 route groups + api/. 125 pages, 58 *actions.ts server-action files
+    api/        106 route handlers, 23 of them cron jobs under api/cron/
+  lib/          177 top-level modules (205 including subfolders). The domain logic lives here.
+  components/   90 shared components
+  proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
+  auth.ts       Auth.js config
+supabase/migrations/   208 migrations
+scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-## Supabase Schema
+Load-bearing `src/lib` modules by import count: `supabase-admin` (144), `properties` (67),
+`stay-concierge` (41), `field-db` (41), `use-soft-refresh` (33), `work-types` (30), `field-types`
+(30), `projections-types` (29), `cron-auth` (24), `field-packets` (22).
 
-Four main tables:
+## Module map
 
-### `statement_periods`
-One row per month. Created on first upload for that month.
-- `id` (uuid, PK), `month` (text, e.g. "2026-04"), `created_at`
+`src/lib/helm-modules.ts` is the single atlas of modules and nav. It is maintained and accurate.
+**Add a new module there or it will not appear in nav or search.** Summary:
 
-### `property_statements`
-One row per property per month. The "header" record with totals.
-- `id` (uuid, PK), `period_id` (FK to statement_periods)
-- `property_id` (text, e.g. "21_horton"), `property_name`, `owner_name`, `month`
-- `num_stays` (int), `nights_booked` (int)
-- `rental_revenue` (numeric) - sum of adjusted_revenue across reservations
-- `management_fee`, `cleaning_total`, `repairs_total`, `owner_payout` (all numeric)
+| Route | What it is |
+|---|---|
+| `/` | Live ops dashboard: Ask Helm, today's signals, For Me feed, 7-day occupancy calendar |
+| `/statements` | Monthly owner statements. Ingest, reconcile, close, send |
+| `/revenue` | Portfolio revenue snapshot: stays, ADR, occupancy, owner payout |
+| `/forecast` | The business plan as an interactive model |
+| `/books` | In-house bookkeeping for the three LLCs, quarterly P&Ls, 1099s |
+| `/cost-analysis` | Housekeeping cost trends per property |
+| `/turnovers` | Turnover pipeline and the six-stage cleaning lifecycle |
+| `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions |
+| `/inspections` | Property inspection runs |
+| `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger) |
+| `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
+| `/work` | Work slips per property plus team tasks. `/work/gear` tracks guest gear |
+| `/properties` | Property registry. The largest module: 23 pages, ~21k lines |
+| `/properties/contracts` | Owner agreements, renewal mechanics, notice deadlines |
+| `/properties/prospects` | Prospect funnel. Generates projection decks and partnership guides |
+| `/messaging` | Guest message drafts awaiting approval, plus `/messaging/send` |
+| `/owner-messaging` | Owner reply drafts (SMS + email) |
+| `/cleaner-messaging` | Bilingual cleaner drafts, Portuguese with English side-by-side |
+| `/contractor-messaging` | Contractor reply drafts |
+| `/guests` | Subscriber list, segments, campaigns. `/guests/agreements` for SCA rental agreements |
+| `/crm` | Contacts and touch timeline |
+| `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings |
+| `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps |
+| `/competitors` | Other Cape Ann managers, inventory tracking |
+| `/playbook` | SOPs and institutional knowledge |
+| `/onboarding` | Owner intake forms, token-gated, public |
+| `/today` | Full-expansion view of the home For Me feed. Same data |
+| `/search` | Long-form view behind the Cmd+K palette |
 
-### `reservations`
-One row per guest stay.
-- `id` (uuid, PK), `property_statement_id` (FK)
-- `guest_name`, `confirmation_code`, `check_in`, `check_out` (text dates YYYY-MM-DD), `nights`
-- `platform` (text: "Airbnb", "HomeAway", "Manual", "Booking.com")
-- `guesty_rental_income` (numeric) - raw from Guesty PDF
-- `stripe_fee` (numeric) - calculated, 0 for Airbnb
-- `adjusted_revenue` (numeric) - guesty_rental_income minus stripe_fee
-- `rental_income` (numeric) - alias used in some queries
-- `bank_deposit_amount` (numeric, nullable), `bank_match_status` (text)
+The four messaging surfaces share a client panel (`src/components/ProactiveRemindersPanel.tsx`)
+but keep separate server-action files by audience. That split is deliberate: Next server actions
+are per-route.
 
-### `cleaning_events`
-One row per cleaning charge.
-- `id`, `property_statement_id` (FK), `checkout_date`, `guest_name`
-- `invoice_no`, `invoice_amount`, `bank_charge_amount`, `bank_charge_date`
-- `amount` (numeric), `source` (text)
+## Auth and routing
 
-### `data_gaps`
-Tracks missing or unresolved data issues per property-month.
-- `id`, `property_statement_id`, `gap_type`, `description`, `severity`, `expected_data`, `resolved`, `upload_id`
+`src/proxy.ts` gates everything by default. A route is public only if it appears in
+`PUBLIC_PATH_PREFIXES`, `PUBLIC_API_PREFIXES`, or one of the deliverable regexes. Anonymous `/api`
+callers get a 401 JSON, not a sign-in redirect, so integrations can read the failure.
 
-## Revenue Calculation - CRITICAL BUSINESS LOGIC
+Two shared auth helpers exist. Use them; do not hand-roll a check:
+- `authorizeCron(request)` in `src/lib/cron-auth.ts`. Accepts Vercel Cron's bearer or a signed-in
+  Helm session. **Fails closed** when `CRON_SECRET` is unset. All 23 cron routes use it.
+- `authorizeStayConcierge(req)` in `src/lib/stay-concierge-auth.ts`. Header only, always
+  `x-stay-concierge-key`. **Never accept a secret in a query string.** URL logging was the leak
+  vector behind the 2026-08-20 rotation.
 
-### Source of truth hierarchy
-1. **Guesty Owner Statement PDF** = source of truth for reservations. Only stays on this PDF count.
-2. **Platform CSV** (exported from Guesty) = maps confirmation codes to channels.
-3. **Chase Bank CSV** = corroboration only, plus cleaning charges. NEVER derive revenue from bank deposits.
+Public surfaces that self-guard by token rather than session: `/onboarding/<token>`,
+`/agreement/<token>`, `/c/<token>` (cleaner schedule), `/field/*` (contractor session cookie),
+`/book/*`, and the puppeteer-rendered deliverables under `/projections/<id>/`,
+`/properties/<id>/`, `/inspections/<id>/render`, `/statements/render`.
 
-### Why not bank deposits?
-Stripe deposits include prepayments for future stays. A March bank deposit might include payment for a June booking. Revenue is recognized at checkout, not deposit.
+# Money: the canonical statement math
 
-### Channel-specific logic
-- **Airbnb**: Guesty rental income is correct as-is. Airbnb pays net of their fees.
-- **VRBO (HomeAway)** or **Manual/Direct**: Guest pays via Stripe. Guesty reports rental income WITHOUT Stripe fees. Must deduct: `(rental_income * 0.039) + $0.40` (two $0.20 transactions per reservation).
-- **Manual with $0 revenue**: Homeowner stay. Skip entirely, no fee.
-- **Booking.com**: Uses their own payout schedule. Rental income from Guesty is used as-is. Payouts land in the central "Bookingcom Deposits" Chase account (...5623), then transfer to the property's own checking as a plain "Online Transfer" -- nothing Booking.com-labeled ever hits the property's bank CSV. The operator uploads the 5623 activity CSV monthly from the Statements page ("Booking.com deposits" card, `/api/upload-booking-deposits`); rows accumulate in `booking_account_activity` (dedupe-hashed, re-uploads idempotent) and `/api/ingest` corroborates a Booking.com stay when a transfer to the property's `bank_last4` posts in the statement window (month start to 60 days past month end).
+**This chapter is load-bearing. Read it fully before touching anything that writes
+`owner_payout`.** Per standing instruction, revenue, fee, payout and Stripe-fee code is not to be
+rewritten without explicit approval plus a parity harness.
 
-### staycapeann.com bookings (intentionally not Guesty-routed)
-Rising Tide's own direct-booking site, **staycapeann.com**, is built so the payment does **not** route through Guesty -- Guesty would charge a per-booking fee on anything that flows through its portal. SCA bookings:
-- Take payment through the **property's own Stripe account** (each Helm property has its own Stripe acct, restricted keys in `STRIPE_KEYS_JSON`) via a custom Payment Link. Description reads like `"Stay at <name> - YYYY-MM-DD to YYYY-MM-DD"`, NOT the Guesty confirmation code.
-- Land in Guesty as a reservation **for calendar / channel-sync purposes only** -- channel comes through as `Direct` (normalized to `Manual` in our pipeline).
-- Show `TOTAL_PAID = 0` in Guesty's reservations CSV and API, since Guesty never sees the money.
-- Are matched to their real Stripe charge in `lib/stripe-sync.ts` via the **amount-based fallback** (expected gross = `guesty_rental_income + total_taxes`). The matcher runs per-property (each property's own Stripe key); the description-token matcher tries first, the amount fallback kicks in for the SCA-style descriptions. Ambiguity (multiple orphan charges with the same amount on one property) falls through to the existing missing-charge gap.
-- Volume here is expected to **grow** -- design choices in the ingest / Stripe sync should treat this as the standard path for Direct stays, not an edge case.
-- **Occupancy tax is per-property**: base 11.7% (5.7% state + 6% local), but CIF properties also owe the 3% Community Impact Fee (14.7% total) -- 79 Main from inception (its Guesty listing always charged it; only the SCA estimate fallback underquoted), per Dotti. Rates live in `src/lib/occupancy-tax.ts` (charge-date aware for any future mid-history rate change) with a quote-side twin in stay-cape-ann's `lib/occupancyTax.ts`; the listing's tax config in Guesty is what live SCA quotes actually charge, so all three must agree when a property's rate changes.
+## Source of truth
 
-### Legacy "Stay Collections" (Guesty Payments) charges -- a shrinking back-catalog
-Before SCA moved to RT's own per-property Stripe, some Direct bookings were paid through **Guesty Payments** (Guesty's Stripe Connect), branded "Stay Collections". These charges are different from current SCA:
-- The guest's total was often **split into multiple Stripe charges** (e.g. one $32,000 stay = two $16,000 charges), so a single-charge amount match misses them.
-- Each charge carries a **Guesty application fee** (~1% of the charge, the `application_fee_amount` field) on TOP of a higher ~4.4% Stripe processing rate. Effective fee is ~5.4% of gross, not the 3.9% + $0.40 estimate the ingest uses.
-- Net example (Hancock GY-fCdhbUYC, 3 South): $32,000 gross - $1,408.60 Stripe - $320 Guesty = **$30,271.40 net**, vs the 3.9% estimate's $30,751.60. Installments split on the estimate over-recognize revenue by the fee gap.
+1. **Guesty Owner Statement PDF** is the primary reservation source for `/api/ingest`. It is no
+   longer the only one. Reservations also enter a statement through cross-month installment
+   synthetic injection (`src/app/api/ingest/route.ts`) and through `/api/refresh-statement`, which
+   builds rows from `guesty_reservations` for bookings the PDF missed.
+2. **`guesty_reservations` table** carries the revenue-bearing fields: `total_paid`, `total_taxes`,
+   `channel_commission`, `owner_net_revenue_guesty`. Populated by `/api/sync-guesty` or the
+   `/api/ingest-guesty-csv` fallback. This table, not the platform CSV, drives the revenue
+   reconstruction.
+3. **Platform CSV** maps confirmation code to channel and guest name. Cached per month in Supabase
+   Storage, so it only needs uploading once per month for the whole portfolio.
+4. **Chase bank CSV** is corroboration plus cleaning charges. Revenue is never automatically
+   derived from bank deposits.
 
-**Identification:** the tell is `application_fee_amount != null` on the Stripe charge -- current RT-direct charges have none. Helm stores no field that distinguishes them.
+**Why not bank deposits?** Stripe deposits include prepayments for future stays. A March deposit
+may cover a June booking.
 
-**Handling (per PR):** `/api/installments/verify-source` now expands `balance_transaction` and sums ALL charges carrying the confirmation code, reporting the **actual net after real fees** (Stripe processing + Guesty application) so the installment editor guides the operator to split on the true net. It does NOT auto-change `calcStripeFee` in ingest (that would retroactively shift already-sent statements). For an installment legacy booking the operator still sets the split by hand, but the cross-check now shows the right number.
+**The one deliberate exception**: the operator-reviewed add-on queue. An unmatched non-Stripe
+deposit the operator explicitly attributes to a property-month becomes add-on revenue, and an
+attributed debit becomes a payout deduction (`bank_deposit_attributions`). Nothing enters a
+statement from a bank row without an operator decision.
 
-**Reachability caveat:** verify-source reads fees only if the property's `STRIPE_KEYS_JSON` restricted key can see the charge's account. If a legacy charge lives in a Guesty Connect account RT's key can't reach, the cross-check degrades to gross-only. Legacy is shrinking (SCA no longer routes through Guesty), so this is deliberately a light-touch guide, not a permanent multi-account subsystem.
+## Recognition
 
-### The formula
+Revenue is recognized **at checkout**, never at deposit.
+
+The exception is an operator-created cross-month installment (`reservation_installments`): a long
+stay can be opt-in split so each calendar month gets its nights-in-month share, with the Stripe
+fee pro-rated by revenue ratio. Cleaning, repairs, `num_stays` and `nights_booked` attach only to
+the `is_final_month` installment so nothing double-counts. See `src/lib/installments.ts`.
+
+## Channel logic
+
+- **Airbnb / Booking.com**: Guesty's rental income is correct as-is. `stripe_fee = 0`. Airbnb pays
+  net of its fees; Booking.com uses its own payout schedule.
+- **VRBO (HomeAway) / Manual / Direct**: Rising Tide's own Stripe processes the card, so revenue is
+  **rebuilt from the guest gross**, not netted down from Guesty's rental income:
+
+  ```
+  stripe_fee       = TOTAL_PAID * 0.039 + 0.40
+  adjusted_revenue = TOTAL_PAID - TOTAL_TAXES - effective_commission - stripe_fee
+  ```
+
+  `effective_commission` is post-kludge. See the legacy commission note below.
+
+  **Fallback only** when `TOTAL_PAID` is missing: `stripe_fee = rental_income * 0.039 + 0.40` and
+  `adjusted_revenue = rental_income - stripe_fee`. This path raises a data gap telling the operator
+  to run Sync Stripe. Do not treat the fallback as the primary rule; earlier versions of this
+  document did, and it was wrong.
+- **Manual with $0 revenue**: homeowner stay. Skipped, no fee.
+
+**Legacy commission kludge.** Before the accounting overhaul, a 4.4% gross-up was added to
+Guesty's CHANNEL COMMISSION column so its PDF would approximate the post-Stripe net. Historical
+rows still carry it. `stripLegacyCommissionKludge` in `src/app/api/ingest/route.ts` removes it:
+Manual real commission is 0 (anything above a 2% ratio is the kludge); VRBO real commission is 5%
+(anything above 7% is the kludge stacked on top); Airbnb and Booking.com pass through untouched.
+`src/lib/revenue-math.ts` holds the UI-side mirror of this, and its docblock explains why the
+canonical copy in `/api/ingest` must not import from it.
+
+## The canonical formula
+
+From `src/lib/statement-addons.ts`, which is the authority:
+
 ```
-adjusted_revenue = guesty_rental_income - stripe_fee (if VRBO or Manual/non-zero)
-management_fee = adjusted_revenue * fee_pct
-owner_payout = total_adjusted_revenue - total_management_fee - cleaning_total - repairs_total - reserve_holdback
+fee_base       = rental_revenue + add_ons_mgmt_base
+management_fee = fee_base * (management_fee_pct / 100)
+owner_payout   = rental_revenue + add_ons_revenue
+                 - management_fee
+                 - cleaning_total
+                 - repairs_total
+                 - attributed_debits
+                 - reserve_holdback
 ```
 
-`reserve_holdback` is the per-statement Owner Reserve withhold — a $0 default, operator opt-in per statement via the "Withhold Owner Reserve" checkbox on the statement card. Default $2,000 when enabled, editable. Rising Tide's policy: new owners give a $2,000 check on onboarding as a minimum account balance; for owners who haven't paid (or are delinquent), the operator ticks the box on their next statement to hold the $2,000 from that payout instead. Appears as an "Owner Reserve" line item on the editorial PDF between Cleaning and Owner Payout. Preserved across re-ingest via SELECT-before-delete in `/api/ingest`.
+`rental_revenue` is the sum of `adjusted_revenue` across the month's reservations.
+`add_ons_revenue`, `add_ons_mgmt_base` and `attributed_debits` all come from
+`bank_deposit_attributions` rows with `status='attributed'` for that `property_id` + `month`,
+loaded by **`loadAddOnTotals()`**. A statement with no attributions gets zeros and produces
+numbers identical to the pre-add-on formula.
 
-## Cleaning Logic
+`management_fee_pct` is a whole number (25 means 25%), snapshotted onto the statement at ingest.
 
-**Bank statement is source of truth for total cleaning cost.** In the statement month, on the property's Chase account:
-- **"CAPE ANN ELITE"** ACH charges = housekeeping (matched 1:1 to a checkout as a turnover)
-- **"NOREAST"** debit card charges = linen service (additive, not a turnover)
-- **"LAUNDRY PLUS"** debit card charges = laundry service (additive, not a turnover)
+`reserve_holdback` is the per-statement Owner Reserve withhold, $0 by default, opt-in per statement
+via the "Withhold Owner Reserve" checkbox. Policy: new owners give a $2,000 check on onboarding as
+a minimum account balance; for owners who have not paid, the operator holds $2,000 from the next
+payout instead. Preserved across re-ingest via SELECT-before-delete.
 
-All three roll into a single `cleaning_total` on the property statement — owner sees one "Cleaning" line. The turns count on the editorial statement (`(N turns)`) filters non-turnover vendors via `NON_TURNOVER_VENDORS` in `src/lib/bank-charges.ts` — extend that list if a new additive vendor is added.
+### The twelve sites that write `owner_payout`, in two classes
 
-**Vendor credits are refunds, never income.** A positive bank amount on any recognized vendor descriptor is auto-netted at ingest against that vendor's same-amount charge in the month: the charge row stays on file with `credit_amount`/`credit_reason` (same fields as the operator's Mark Duplicate control, renders as a strikethrough) and `cleaning_total` bills the owner only the net. A vendor credit with NO same-month exact-amount match (partial refund, prior-month refund, maintenance vendor) is never guessed at — it raises a critical `vendor_refund_unapplied` data gap on the property card and parks in the bank review queue (`source='vendor-refund'`).
+Know which class you are in before you touch one. Getting this wrong is how #1327 happened.
 
-Laundry rows attribute to the nearest Cape Ann Elite cleaning by bank_charge_date within 7 days for display grouping on the dashboard; outside that window they render as standalone "Laundry service" rows like linens.
+**Class 1, recomputers.** These derive `management_fee` from scratch, so they MUST fold
+`add_ons_mgmt_base` into the fee base and both other terms into the payout:
 
-Cape Ann Elite sends invoices via QuickBooks to allie@risingtidestr.com. The `/api/sync-invoices` route pulls these from Gmail. Invoices are for attribution (which checkout cost how much) but do NOT override the bank total. The matcher restricts to `source IN ('matched', 'bank')` so a Cape Ann Elite invoice cannot false-match a Laundry Plus or Nor'East row that happens to share an amount.
+| Site | How it gets the terms |
+|---|---|
+| `/api/refresh-statement` | `loadAddOnTotals()` |
+| `/api/fill-gap` | `loadAddOnTotals()` |
+| `/api/resolve-gap` | `loadAddOnTotals()` |
+| `/api/reservations/remove` | `loadAddOnTotals()` |
+| `src/lib/stripe-sync.ts` | `loadAddOnTotals()` |
+| `/api/bank-deposits/[id]` | inline, correct (it owns the attribution write, so it has the rows) |
+| `/api/ingest` | inline, **diverges**, see below |
 
-## Property Naming Convention
+**Class 2, payout adjusters.** These read the stored `management_fee` as given and never recompute
+it, so they do not need the fee base at all. They only move the payout by their own line item:
+`/api/property-statements/[id]/reserve`, `/api/receipts`, `/api/receipts/[id]`,
+`/api/cleaning-events/[id]`, `/api/reconcile-emails`. `receipts` says it out loud: receipts do not
+enter the fee base.
 
-Three forms exist for every property; use the right one for the right context.
+If you add a recompute site, use `loadAddOnTotals()`. If you change the formula, change it in
+`statement-addons.ts` first, then propagate.
 
-| Form | Where it lives | Use it for | Example |
-|------|----------------|------------|---------|
-| **Internal name** | `properties.name` / `Property.name` | Helm UI, internal comms, dashboards | `21 Horton` |
-| **Full address** | `properties.address` / `Property.address` | Statements, owner billing, mail, tax filings | `21 Horton Street` |
-| **External title** | `properties.title` (Helm DB only) | Airbnb, stay-cape-ann, anything owner / guest sees as the listing name | `Stay at Rocky Neck` |
+### Known divergence: `/api/ingest` does not use the helper
 
-Internal name is the street address WITHOUT the suffix (`St`, `Ave`, `Rd`, `Ln`). Always. When in doubt, internal name is what staff would say in a Slack message.
+`/api/ingest` has its own inline attribution read that selects `amount, apply_mgmt_fee` **without
+`direction`**, so on a full re-ingest an attributed **debit** is added as add-on revenue instead of
+subtracted, and `attributed_debits_total` is never written. This is a bug, not the intended
+formula. Do not copy it. Treat `statement-addons.ts` as canonical.
 
-## Properties
+## Stripe fees: actuals are the rule
 
-| ID | Internal Name | Full Address | External Title | Owner | Mgmt Fee | Bank Last4 |
-|----|---------------|--------------|----------------|-------|----------|------------|
-| 3_south_st | 3 South | 3 South Street, Rockport MA | Stay at Old Garden Beach | Bailey | 25% | 5622 |
-| 21_horton | 21 Horton | 21 Horton Street, Gloucester MA | Stay at Rocky Neck | Kittredge | 22% | 1323 |
-| 53_rocky_neck | 53 Rocky Neck | 53 Rocky Neck Avenue, Gloucester MA | Stay at The Neck | Prudenzi | 25% | 9910 |
-| 4_brier_neck | 4 Brier Neck | 4 Brier Neck Road, Gloucester MA | Stay at Good Harbor Beach | Armstrong | 20% | 7876 |
-| 30_woodward | 30 Woodward | 30 Woodward Avenue, Gloucester MA | Stay at Little River | McWethy | 25% | 8221 |
-| 20_hammond | 20 Hammond | 20 Hammond Street, Gloucester MA | Stay at East Gloucester | Ramsey | 25% | 9969 |
-| 20_enon | 20 Enon | 20 Enon Road, Beverly MA | Stay at Beverly Shops | Snyder | 25% | 1307 |
-| 73_rocky_neck | 73 Rocky Neck | 73 Rocky Neck Avenue, Gloucester MA | Stay at Smith Cove | Moynahan | 25% | 3227 |
-| 17_beach_rd | 17 Beach | 17 Beach Road, Gloucester MA | Stay at Good Harbor Beach | Nolan | 22% | 5621 |
-| 65_calderwood | 65 Calderwood | 65 Calderwood Lane, Fairfield CT | Stay at Black Rock Harbor | Liu | 25% | - |
-| 3_locust | 3 Locust | 3 Locust Lane, Gloucester MA | Stay at Niles Beach | Lucas | 25% | - |
-| 3246_ne_27th | 3246 NE 27th | 3246 NE 27th Avenue, Lighthouse Point FL | Stay At Lighthouse Point | Enriquez | 25% | - |
+**Standing directive.** The `0.039 + 0.40` estimate is a placeholder written at parse time.
+`stripe-sync` (auto-run on ingest, or the Sync Stripe button, or the nightly
+`/api/cron/sync-stripe`) replaces it with the real `balance_transaction.fee` on every reservation
+it can match. Never treat the estimate as final, and never revert a synced actual to the formula.
 
-3 Locust is now seeded in the Helm `properties` table (Lucas, 25%) and in `lib/properties.ts` PROPERTIES (no owner emails yet — backfill when Allie has them). 65 Calderwood and 3246 NE 27th remain Ryan's personal properties and are intentionally excluded from Helm.
+The matcher is a four-stage chain in `src/lib/stripe-sync.ts`, tried in order:
+1. confirmation-code token in the charge description (Guesty-routed only)
+2. amount fallback: expected gross is `total_paid` when > 0, else `guesty_rental_income + total_taxes`,
+   matched within $1 against exactly one orphan charge
+3. date-range fallback: the description's `YYYY-MM-DD to YYYY-MM-DD` equals the stay's dates. Sums
+   every orphan charge sharing the range, which is how split payments are caught
+4. guest-name fallback for one combined charge covering several stays, fee apportioned pro-rata
 
-## Guesty Listing Name Mapping
+Fully-refunded charges and bridge-minted add-on links (charges carrying `helm_request_key`
+metadata from `/api/payment-links`) are excluded from candidacy. Only a stay unmatched by all four
+raises a `stripe_missing_charge` gap.
 
-Guesty's platform CSV uses the External Title above. The `listing_match` field in `lib/properties.ts` is a lowercase substring of the internal name and gets matched against incoming Guesty listing names.
+**The estimate also survives, deliberately, on three protected classes stripe-sync will never
+rewrite**: statements already emailed to the owner (`close_tasks.email_sent_at` set), reservations
+carrying installment rows (already pro-rated), and rows marked `bank_match_status='paid_off_stripe'`
+(paid by check or wire). The email_sent_at gate is a safety invariant: a sync once moved a payout
+that had already gone out.
 
-The statement page uses a `listing_match` field (lowercase substring) to match CSV rows to properties.
+Per-property restricted Stripe keys resolve through `getStripeKeysMap()`, merging `STRIPE_KEYS_JSON`
+(legacy blob), `STRIPE_KEYS_JSON_EXTRA` (overlay), and `STRIPE_KEY_<PROPERTY_ID>` (one key per
+property, the standard for new ones). Adding a property never means reopening an existing var.
 
-## Statement render page (/statements/render)
+## Channel edge cases
 
-The statement render page (`src/app/statements/render/page.tsx`) is the main deliverable. Server-rendered HTML designed to look like a premium editorial document when printed to PDF.
+### staycapeann.com (SCA) direct bookings
 
-### Design system
-- Warm paper background (#faf7f1), dark ink (#1e2e34)
-- Signal color for accents (#c85a3a, a warm red-orange)
-- Fraunces for display type, Inter for body, JetBrains Mono for data
-- 816x1056px sheet (8.5x11" at 96dpi)
-- Grid-based layout: masthead, hero payout, two-column reservations/financials, insights bar, bottom section
-- SVG donut chart for channel mix visualization
+Rising Tide's own booking site is built so payment does **not** route through Guesty, which would
+charge a per-booking fee. SCA bookings take payment through the property's own Stripe account via a
+Payment Link, land in Guesty as `Direct` (normalized to Manual) for calendar sync only, and show
+`TOTAL_PAID = 0` in Guesty because Guesty never sees the money. They are matched to their real
+charge by the amount and date-range stages above. Treat this as the standard path for Direct stays.
 
-### URL parameters
-- `id` - property_statement UUID from Supabase
-- `month` - YYYY-MM format
-- `csv` - base64-encoded reviews CSV (optional, passed from dashboard via TextEncoder for UTF-8 safety)
+**Occupancy tax is per-property**: base 11.7% (5.7% state + 6% local); CIF properties also owe the
+3% Community Impact Fee for 14.7%. Rates live in `src/lib/occupancy-tax.ts`, keyed by property id,
+with a quote-side twin in stay-cape-ann's `lib/occupancyTax.ts` keyed by **Guesty listing id**. The
+Guesty listing's own tax config is what live quotes actually charge, so all three must agree when a
+rate changes, and the two lookups are keyed differently.
 
-### CSV data (reviews + upcoming bookings)
-The dashboard has a "Reviews CSV" upload button. This CSV (exported from Guesty) has columns: CHECK-IN, CHECK-OUT, CONFIRMATION CODE, LISTING, GUEST, PLATFORM, GUEST'S PUBLIC REVIEW.
+### Legacy "Stay Collections" (Guesty Payments) charges
 
-When the user clicks "View Statement" with a CSV loaded, it gets base64-encoded and passed as a query param. The statement page parses it to populate:
-- **Bottom left ("On the horizon")**: Future bookings for this property (check-in after the statement month)
-- **Bottom right (Guest Review)**: Best review snippet from a past guest. Falls back to "A note from Allie" if no reviews exist.
+A shrinking back-catalog. Before SCA moved to per-property Stripe, some Direct bookings were paid
+through Guesty Payments. These split one stay across multiple charges and carry a Guesty
+application fee (~1%) on top of a higher processing rate, so the effective fee is well above the
+3.9% estimate. **The tell is `application_fee_amount != null` on the Stripe charge**; current
+RT-direct charges have none. `/api/installments/verify-source` expands `balance_transaction` and
+sums all charges carrying the code, reporting actual net after real fees. It deliberately does not
+change `calcStripeFee`, which would retroactively shift already-sent statements.
 
-## Helm home (/)
+### Booking.com payouts
 
-Static landing page that lists Helm's modules (Statements active; CRM and Projections marked "Soon"). Clicking Statements goes to the Statements module dashboard.
+Payouts land in the central "Bookingcom Deposits" Chase account (...5623), then transfer to the
+property's own checking as a plain "Online Transfer". Nothing Booking.com-labeled ever hits the
+property's own bank CSV. The operator uploads the 5623 activity CSV monthly from the Statements
+page; rows accumulate in `booking_account_activity` (dedupe-hashed, re-uploads idempotent).
+Corroboration order: exact 1:1 deposit match within $5, then Booking.com-labeled text in the
+property's own CSV, then the central 5623 transfer within the statement window (month start to 60
+days past month end).
 
-## Statements dashboard (/statements)
+# Cleaning logic
 
-Client-side React page. Shows all properties for a selected month with expandable cards. Key features:
-- Month selector
-- "Sync Invoices" button (hits /api/sync-invoices)
-- "Reviews CSV" upload button (stores in React state, passed to statement render page)
-- Per-property "View Statement" button (opens /statements/render in new tab)
-- Per-property "Re-upload Data" link (goes to /statements/upload?property=...&month=...)
+**The bank statement is the source of truth for total cleaning cost.** On the property's Chase
+account, `classifyBankRow` in `src/lib/bank-charges.ts` matches on the uppercased Description
+column only (the Type column is deliberately unused so a match survives Chase relabeling the rail):
 
-## Statements upload (/statements/upload)
+- **Cape Ann Elite** ACH charges: housekeeping, matched 1:1 to a checkout as a turnover
+- **Nor'East** (`LINEN_VENDORS`): linen service, additive, not a turnover
+- **Laundry Plus** (`LAUNDRY_VENDORS`): laundry service, additive, not a turnover
+- **`MAINTENANCE_VENDORS`** is a fourth category and feeds `repairs_total`, not `cleaning_total`
 
-Three-file upload form: Guesty PDF, Platform CSV, Bank CSV. POSTs to /api/ingest.
+All three cleaning-family vendors roll into a single `cleaning_total`. The owner sees one Cleaning
+line with no turnover count.
 
-## Quo (OpenPhone) integration
+**Adding a new vendor**: a new vendor inside an existing category (say a second linen service) is a
+one-file change: add it to `LINEN_VENDORS` or `LAUNDRY_VENDORS` in `src/lib/bank-charges.ts`.
+Everything downstream keys on `classifyBankRow`'s `kind` and the stored `cleaning_events.source`,
+so ingest, fill-gap, cost analysis, the dashboard and the 1099 rollups pick it up automatically.
+(`NON_TURNOVER_VENDORS` in that file is dead code with no consumers. Editing it does nothing.)
 
-Quo is the rebranded OpenPhone, Rising Tide's phone/SMS service. Cross-cutting integration powering several Helm surfaces:
+**Vendor credits are refunds, never income.** A positive bank amount on a recognized
+**cleaning-family** descriptor is auto-netted at ingest against a same-month, same-category charge
+for the same amount to the cent, nearest bank date winning, one credit per charge. The charge stays
+on file with `credit_amount`/`credit_reason` and renders struck through; `cleaning_total` bills the
+net. A credit with no exact same-month match raises a critical `vendor_refund_unapplied` gap and
+parks in the bank review queue. Maintenance-vendor credits are never auto-netted by design
+(`repair_events` has no credit columns), so they always raise the gap.
 
-- **Operations turnover pipeline**: each `TurnoverRow` shows a "Cleaned" or "Awaiting cleaner" chip pulled from `cleaning_completions`, populated when a recognized cleaner phone number texts the team after a turnover.
-- **CRM contact timeline**: inbound + outbound texts and calls between known contacts and our Quo numbers land as `contact_touches` rows (channel `sms` or `phone`). The detail page shows a "via Quo" label on those rows. CRM list page has a "Sync Quo" button next to "Sync Replies" for manual backfill.
-- **Property pages**: `properties.owner_last_contacted_at` / `_via` is stamped automatically when an owner-linked contact is reached on Quo, so the Properties module's owner-contact log stays current without manual logging.
+Laundry rows attribute to the nearest Cape Ann Elite cleaning within 7 days for display grouping;
+outside that window they render standalone.
 
-Two persistence layers:
+Cape Ann Elite bills through QuickBooks addressed to Allie. `/api/sync-invoices` pulls those from
+Gmail. Invoices are for **attribution** (which checkout cost what) and never override the bank
+total. The matcher restricts to `source IN ('matched','bank')` so an invoice cannot false-match a
+linen or laundry row that happens to share an amount.
 
-1. **Live path**: `POST /api/webhooks/quo` verifies the `openphone-signature` HMAC-SHA256 header (Quo's docs format: `hmac;1;<timestamp>;<base64-digest>`, signed payload is `<timestamp>.<JSON.stringify(parsedBody)>`, secret is base64-decoded), persists every event into `quo_events` (raw audit + dedupe by `quo_event_id`), and dispatches to handlers per event type. Replays return 200 OK from the unique-violation path.
+**`/api/fill-gap` contains a second full copy of the cleaning classification pipeline and must be
+changed in lockstep with `/api/ingest`.** Note it does not implement vendor-credit netting.
 
-2. **Backfill**: `POST /api/sync-quo` iterates contact + cleaner phones, pulls the last 14 days of messages and calls per phone, and writes through the same persistence pipeline. Use this for cold start or when a webhook delivery is missed.
+# Properties
 
-Key tables (migration `20260507_quo_integration.sql`):
+## Naming convention
 
-- `quo_events`: raw event audit log, `quo_event_id` unique for idempotency
-- `cleaner_phones`: phone-to-property map. `property_ids = '{}'` means "this cleaner serves all properties" (parser falls back to body match for attribution); a single-property whitelist auto-attributes regardless of body
-- `cleaning_completions`: timestamped per `(property_id, checkout_date)`, latest wins. The turnover row joins on `(property_id, previousCheckout)` so a cleaning ping prepares the NEXT stay
-- `contact_touches.quo_message_id` / `.quo_call_id`: external-id columns mirroring the Gmail capture pattern from `20260506_contact_touches_inbound_capture.sql`
+Three forms exist for every property. Use the right one.
 
-Cleaner-phone seeding is manual: insert rows into `cleaner_phones` with the cleaner's E.164 (or any format, normalization is permissive) plus the properties they handle.
+| Form | Field | Use for | Example |
+|---|---|---|---|
+| **Internal name** | `properties.name` | Helm UI, internal comms | `21 Horton` |
+| **Full address** | `properties.address` | Statements, billing, tax filings | `21 Horton Street` |
+| **External title** | `properties.title` | Airbnb, SCA, anything a guest sees | `Stay at Rocky Neck` |
 
-## Smart lock battery (Seam) integration
+Internal name is the street address without the suffix (St, Ave, Rd, Ln). Always. When in doubt,
+the internal name is what staff would say in Slack.
 
-Schlage Encode locks connect through [Seam](https://seam.co), a universal lock API that reports per-device battery level and fires low-battery webhooks. The pipeline warns a team member to pack batteries before a turnover and drops a maintenance work slip on the property.
+## The fleet
 
-Two persistence layers, same shape as Quo:
+`src/lib/properties.ts` `PROPERTIES` is the code-side roster (15 entries). The live bookable fleet
+is larger and **Guesty is canonical for what is bookable**, not this list. Do not treat the table
+below as the fleet; treat it as what the statements pipeline is configured for.
 
-1. **Live path**: `POST /api/webhooks/seam` verifies the Svix signature (`svix-id` / `svix-timestamp` / `svix-signature`, secret `whsec_...`), records every event into `lock_events` (raw audit + dedupe by Seam `event_id`), and on a battery/connection event reads the device fresh and runs the shared ingest.
-2. **Backfill**: `POST /api/sync-seam` lists every Seam device through the same ingest. Use it for cold start, a missed webhook, or a daily cron poll. Its response lists each device id + battery + property mapping so you can finish seeding.
+| ID | Internal name | Owner | Mgmt fee | Bank last4 |
+|---|---|---|---|---|
+| `3_south_st` | 3 South | Bailey | 25% | 5622 |
+| `21_horton` | 21 Horton | Kittredge | 22% | 1323 |
+| `53_rocky_neck` | 53 Rocky Neck | Prudenzi | 25% | 9910 |
+| `53_rocky_neck_2` | 53 Rocky Neck, Downstairs | Prudenzi | 25% | 1228 |
+| `4_brier_neck` | 4 Brier Neck | Armstrong | 20% | 7876 |
+| `30_woodward` | 30 Woodward | McWethy | 25% | 8221 |
+| `20_hammond` | 20 Hammond | Ramsey | 25% | 9969 |
+| `20_enon` | 20 Enon | Snyder | 25% | 1307 |
+| `73_rocky_neck` | 73 Rocky Neck | Moynahan | 25% | 3227 |
+| `17_beach_rd` | 17 Beach | Nolan | 22% | 5621 |
+| `3_locust` | 3 Locust | Lucas | 25% | - |
+| `19_rackliffe` | 19 Rackliffe | Silverman | 25% | 0628 |
+| `84_thatcher` | 84 Thatcher | Lopes | 25% | - |
+| `225_washington` | 225 Washington | Babson | 25% | 1229 |
+| `3_windward` | 3 Windward | Moynahan | 18% | 1232 |
 
-Shared ingest (`src/lib/seam.ts` > `ingestDeviceBattery`): auto-registers the device in `lock_devices`, upserts latest-wins battery into `lock_battery_status`, and when a mapped lock is at or below 20% opens one high-priority maintenance slip ("Replace smart lock batteries", linked via `from_lock_device_id`). The slip's partial unique index is scoped to active statuses, so a fresh slip can open after the previous one is closed and a recurring low battery is never permanently suppressed. Slips are not auto-closed on recovery; whoever swaps the batteries closes the slip.
+`53_rocky_neck_2` is a sub-unit; sub-unit matching uses longest-match on the listing name.
+Multi-property owners (Prudenzi) get per-section ingest and one combined statement email.
 
-Key tables (migration `20260520_seam_lock_integration.sql`):
+**Guesty listing mapping**: Guesty's platform CSV uses the External Title. The `listing_match`
+field in `src/lib/properties.ts` is a lowercase substring matched against incoming Guesty listing
+names. Where a title collides across properties (Brier Neck / 17 Beach / 84 Thatcher all read
+"Good Harbor"-ish), match by Guesty listing id instead.
 
-- `lock_events`: raw event audit log, `seam_event_id` unique for idempotency
-- `lock_devices`: Seam device to property registry. The sync auto-registers every device with `property_id` null; map it by hand (same manual-seed pattern as `cleaner_phones`)
-- `lock_battery_status`: latest battery per device, latest-wins, read by the Operations turnover pipeline for the "bring batteries" chip
+# The statement render page
 
-Device-to-property mapping is manual: run `/api/sync-seam` once so devices register, then set `lock_devices.property_id` for each. The turnover chip + auto-slip only fire for mapped, active devices, so the feature stays dark until both the API key is set and at least one lock is mapped.
+`src/app/statements/render/page.tsx` is the deliverable. Server-rendered HTML designed to look
+like a premium editorial document.
 
-## Environment Variables (set in Vercel)
+- **URL parameters**: `id` (property_statements UUID) and `month` (YYYY-MM). **That is all.** There
+  is no `csv` parameter. Reviews and upcoming bookings are read server-side from Supabase.
+- **PDF**: `src/lib/pdf.ts` drives Puppeteer over this same URL. `/api/statement-pdf`,
+  `/api/archive-statement` and `/api/draft-email` all call it. Cmd+P still works for a human.
+  **Never build a statement PDF by drawing primitives.** `pdf-lib` is an unused leftover dependency.
+- **Reads with the service-role key**, not anon: it is a server component never bundled to the
+  browser, and the statements tables are RLS-locked.
+- `force-dynamic` on purpose: it reflects mutable review-queue state.
+- **Design system**: warm paper `#faf7f1`, dark ink `#1e2e34`, signal `#c85a3a`, 816x1056px sheet
+  (8.5x11" at 96dpi). Inline CSS only, no Tailwind on this page.
+- Property display details come from `public.properties` at render time, not hardcoded.
+- The two ADR figures are a **display-only guest-facing gross reconstruction**, deliberately walled
+  off from payout math. Do not wire them into anything that pays an owner.
+- Reviews are month-scoped and deduped by normalized text. If none qualify, the section is omitted.
+- The Issued/Payout date comes from `statement_periods.funds_sent_date`, falling back to the first
+  Monday of the following month.
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` (used by webhook + sync routes that write across tables)
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` (for Gmail invoice sync)
-- `QUO_API_KEY` (Quo dashboard, Settings, API; used by `/api/sync-quo` and any future REST calls)
-- `QUO_WEBHOOK_SECRET` (set when registering the webhook in Quo; base64 signing key)
-- `SEAM_API_KEY` (Seam dashboard, Developer, API Keys; used by `/api/sync-seam` and the webhook's fresh-device reads)
-- `SEAM_WEBHOOK_SECRET` (Svix signing secret shown when you create the webhook in Seam; starts `whsec_`)
+# Integrations
 
-Webhook setup in Quo: register `https://<helm-domain>/api/webhooks/quo` and subscribe to at minimum `message.received`, `message.delivered`, and `call.summary.completed`. `call.completed` works as a fallback when the AI summary isn't available.
+## Guesty
 
-Webhook setup in Seam: connect your Schlage account via a Seam Connect Webview first so the locks appear under `/devices/list`, then register `https://<helm-domain>/api/webhooks/seam` and subscribe to at minimum `device.low_battery` and `device.battery_status_changed` (`device.connected` is a useful catch-up).
+`/api/sync-guesty` pulls reviews, reservations, and the listing map. `/api/ingest-guesty-csv` is
+the fallback when the API is unavailable. Token caching is shared through the `guesty_auth` table.
 
-## Known Issues / Watch-outs
+Two clients exist: `src/lib/guesty.ts` (6 importers) and `src/lib/guesty-client.ts` (2). They share
+the token cache and differ in one way that matters: `guesty-client.ts` throws a typed
+`GuestyNotFound` on 404, `guesty.ts` throws a generic error.
 
-1. **NFS/iCloud mount issues**: The repo lives in an iCloud-synced folder. Git and node_modules sometimes get "Resource deadlock avoided" errors in a sandbox. Build and push must happen from the user's own terminal.
+Watch-outs: the reservations feed drops non-confirmed rows, so a reconciler catches cancels the
+feed silently omits. A missing "Business model" setting on a Guesty listing means no OWNER NET,
+which is the first thing to check when statement reservations vanish.
 
-2. ~~Legacy /api/statement route~~ deleted. All statement rendering goes through the HTML page at `/statements/render?id=...&month=...`.
+## Quo (OpenPhone)
 
-3. **Stripe fees: actuals are the rule, the 3.9% formula is only a placeholder** (Dotti's standing directive, 2026-08-01). Ingest writes the 3.9% + $0.40 estimate at parse time, then stripe-sync (auto-run on ingest, or the dashboard Sync Stripe button) replaces it with the real `balance_transaction.fee` on every reservation it can match to a charge - by confirmation code, by expected-gross amount, by the stay's exact date range in the payment-link description, or by the guest's name when one combined charge covers several of their stays (fee apportioned pro-rata by rental income). The estimate survives ONLY on reservations whose charge can't be found (flagged as a `stripe_missing_charge` gap on the card). Never treat the estimate as the intended final fee, and never revert a synced actual back to the formula.
+Rebranded OpenPhone. Cross-cutting: cleaning completion pings, CRM contact timeline, owner
+last-contacted stamping, and outbound SMS.
 
-4. **Bank matching for Stripe channels is approximate**: Stripe batches multiple reservations into single transfers. The code marks VRBO/Direct reservations as "stripe_covered" if any Stripe deposits exist, rather than matching exact amounts.
+- **Live path**: `POST /api/webhooks/quo` verifies the `openphone-signature` HMAC
+  (`hmac;1;<timestamp>;<base64-digest>`, signed payload `<timestamp>.<JSON.stringify(body)>`, secret
+  base64-decoded), persists into `quo_events` (unique on `quo_event_id`, so replays 200), and
+  dispatches per event type.
+- **Subscribe to** `message.received`, `message.delivered`, and `call.completed` as the minimum.
+  `call.completed` is what creates the call touch; `call.summary.completed`,
+  `call.transcript.completed` and `call.recording.completed` only enrich an existing touch and are
+  useless on their own.
+- **Quo also sends.** `sendMessage` backs the cleaner schedule digest, guest SMS, and proactive
+  reminders.
+- `/api/sync-quo` is a **parallel** implementation, not the same pipeline. It lacks unknown-number
+  capture, cleaner-issue work slips, owner stamping and cleaning-session mirroring, and it resolves
+  the cleaning checkout off `guesty_reservations` while the webhook uses `bookings`. The two can
+  disagree about which checkout a ping belongs to.
+- API traps: `maxResults` caps at 50 on every list endpoint, and `participants=` must be repeated
+  keys, not a bracketed array. Both return 400 otherwise.
+- `cleaner_phones.property_ids = '{}'` means "serves all properties" and falls back to body matching.
+- A 402 from Quo means the prepaid balance is exhausted. It is billing, not code.
 
-5. **Reviews CSV is client-side only**: CSV data is held in React state and passed via URL param. A more robust approach would store it in Supabase.
+## Seam (smart locks and devices)
 
-6. **btoa() and Unicode**: The CSV can contain invisible Unicode characters (e.g. around guest names). The dashboard uses TextEncoder to handle this safely when base64-encoding. Do NOT use plain btoa() on CSV data.
+**Seam is Helm's smart-device platform, not just a battery feed.** It does three things:
+1. battery telemetry into `lock_battery_status`, plus an auto work slip at or below 20%
+2. `lock.unlocked` / `lock.locked` dispatched into `cleaning_sessions` (cleaner entry via the
+   cleaner code), `inspection_sessions`, Field packet arrival verification, and the guest-in-
+   residence indicator
+3. access-code programming: time-boxed guest PINs, rotating contractor PINs, a fleet-wide
+   maintenance PIN
 
-## Style Preferences (from Ryan)
+**Subscribe to** `device.low_battery`, `device.battery_status_changed`, `device.connected`,
+`device.converted_to_managed`, **`lock.unlocked` and `lock.locked`**. Without the lock events the
+cleaning lifecycle, inspection detection, Field arrival verification and guest-presence all go dark
+while the battery pipeline keeps working, which makes the failure hard to spot.
 
-- No em dashes ever. Use regular dashes or rephrase.
-- Keep things direct and concise.
-- The statement design should feel editorial/premium, like a magazine layout. Not corporate or sterile.
-- When in doubt, let the design breathe. More whitespace is better than cramped.
+PIN digits are never stored. `lock_access_codes` holds the Seam `access_code_id`, a human name and
+a derived role. Seam writes are asynchronous: a POST returns an action attempt that must be polled;
+a 200 does not mean the physical lock applied the change.
+
+Device-to-property mapping is manual: run `/api/sync-seam` once so devices register, then set
+`lock_devices.property_id`.
+
+## stay-concierge
+
+The guest AI lives in a separate repo (`~/Developer/stay-concierge`, Python, port 8000 locally).
+It reaches Helm through the bridge routes listed in `src/lib/stay-concierge-auth.ts`, always with
+the `x-stay-concierge-key` header. `/api/kb-facts` is the only Helm-to-guest-AI knowledge pipe.
+
+# Environment variables
+
+Set in Vercel. `.env.local.example` documents a fraction of what the code reads (~65 vars).
+
+- **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
+- **Cron**: `CRON_SECRET`. All 23 cron routes fail closed without it.
+- **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
+- **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
+- **Gmail**: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (bare = Allie's
+  mailbox), plus `_DOTTI` / `_RYAN` / `_ALLIE` variants for identity-specific sends. These are
+  **not** the SSO credentials.
+- **Email out**: `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_AUDIENCE_ID`, `RESEND_WEBHOOK_SECRET`
+- **Quo**: `QUO_API_KEY`, `QUO_WEBHOOK_SECRET`, `QUO_FROM_NUMBER`
+- **Seam**: `SEAM_API_KEY`, `SEAM_WEBHOOK_SECRET`, `SEAM_CLEANER_CODE`, `SEAM_INSPECTION_CODE`,
+  `SEAM_MAINTENANCE_CODE`
+- **Bridge**: `STAY_CONCIERGE_KEY`, `STAY_CONCIERGE_URL`
+- **Other**: `GITHUB_TOKEN`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_KEY`,
+  `CHROME_EXECUTABLE_PATH` (local PDF), `VERCEL_PROTECTION_BYPASS`
+
+Locally, `.env.local` ships several secrets empty (service-role, `GITHUB_TOKEN`). Field pages and
+anything service-role will 500 or silently degrade in local dev. That is expected.
+
+# Testing
+
+There is **no test runner and no automated test suite**. What exists:
+
+- `scripts/*_parity.py`: read-only harnesses that prove a specific past change did not move any
+  owner payout. They need a service-role key and are one-shot audits, not regression guards.
+- `scripts/addon_recompute_parity.mjs`: pure arithmetic, no database. Proves the add-on recompute
+  sites agree with the canonical formula and that zero-attribution statements are unchanged.
+- `scripts/paged_select_check.mjs`: exercises `selectAllPaged` page boundaries via Node's native
+  TypeScript stripping.
+
+The gate before shipping is `npx tsc --noEmit`. Run it. Chain commits on it.
+
+# Known watch-outs
+
+1. **PostgREST caps a bare `.select()` at 1000 rows, silently.** This has caused two data-integrity
+   bugs. Use `selectAllPaged` from `src/lib/paged-select.ts` for any table that can grow, and
+   always pair `.range()` with an `.order()` or the offset windows are unstable.
+2. **`property_statements` has no `month` column.** The month is reachable only through
+   `period_id -> statement_periods.month`. Writing `prop.month` evaluates to `undefined` and matches
+   zero rows. This exact mistake already shipped a production bug.
+3. **`reservations` has no `rental_income` column.** The column is `guesty_rental_income`.
+   `rental_income` is the in-memory name inside `/api/ingest` before the write.
+4. **Deploy skew.** A tab on an old bundle cannot apply a new build's RSC payload. `VersionGuard`,
+   `AutoRefresh` and the `SubmitButton` watchdog hard-reload once on mismatch. The tell is a DB
+   write landing while the button spins forever.
+5. **Agent sessions run in git worktrees** under `.claude/worktrees/<branch>`, where `node_modules`
+   may need symlinking back to the parent checkout before `tsc` will run.
+6. **This is a high-concurrency multi-agent repo.** Branch off fresh `origin/main` and stage only
+   your own files.
+7. **`bookings` holds duplicate rows per stay by design** (one per source). Never key per-stay logic
+   on `bookings.id`; filter `duplicate_of is null` for canonical rows.
+8. The legacy `/api/statement` route was deleted long ago. All statement rendering goes through
+   `/statements/render`.
+
+# Style
+
+- **No em dashes, ever.** Use regular dashes or rephrase.
+- Direct and concise.
+- The statement design is editorial and premium, like a magazine layout. Not corporate.
+- Let the design breathe. More whitespace beats cramped.
