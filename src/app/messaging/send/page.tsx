@@ -5,6 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
+import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { isStayConciergeConfigured, listConversations, explainError } from '@/lib/stay-concierge';
 import { todayET } from '@/lib/checkout-schedule';
 import { RemindersSection } from '../RemindersSection';
@@ -25,6 +26,10 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
       <MessagingTabs current="guests" lens="send" />
+      {/* Streams in: the shell must still paint with no backend call. */}
+      <Suspense fallback={null}>
+        <AiStatusBanner />
+      </Suspense>
       {children}
       <div style={{ flex: 1 }} />
       <HelmFooter left="Stay Concierge · polish is optional, messages send as typed" />
