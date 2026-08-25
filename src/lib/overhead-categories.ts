@@ -42,6 +42,7 @@ export type OverheadCategory =
   | 'Professional'
   | 'Payroll'
   | 'Contractors'
+  | 'Card payment'
   | 'Travel'
   | 'Bank fees'
   | 'Other';
@@ -133,9 +134,23 @@ export function categorizeOverhead(args: {
   }
 
   // account === 'operating'
-  // Drop every internal transfer / card payoff / non-vendor movement.
   const t = (type || '').toUpperCase();
-  if (t === 'ACCT_XFER' || t === 'LOAN_PMT') return null;
+
+  // Card payoffs are kept, as a PROXY for card spend in months where we have
+  // no card-level export. They are not real vendor charges and they must
+  // never be added on top of card-account rows for the same month, so both
+  // readers run them through `dropSupersededCardProxy` first. See
+  // CARD_PROXY_CATEGORY below.
+  if (
+    t === 'LOAN_PMT' ||
+    descUpper.includes('PAYMENT TO CHASE CARD') ||
+    descUpper.includes('CHASE CREDIT CRD')
+  ) {
+    return CARD_PROXY_CATEGORY;
+  }
+
+  // Drop every internal transfer / non-vendor movement.
+  if (t === 'ACCT_XFER') return null;
   // A bounced deposit is a wash, not a cost: the credit that created it was
   // already dropped by the amount >= 0 rule above, so booking the reversal
   // as an expense invents money that never left. These rows read
@@ -153,10 +168,41 @@ export function categorizeOverhead(args: {
   return matchVendor(descUpper);
 }
 
+/**
+ * The operating account's Chase-card payoff rows, kept as a stand-in for
+ * card spend in months with no card-level export.
+ *
+ * Card payments are a CASH-FLOW proxy, not a P&L one: they lag the charges
+ * by roughly a month, they lump (August 2026 alone paid $43,665 to clear a
+ * carried balance), and they settle personal charges the categorizer drops
+ * from the card side. Treat a month sourced this way as an order of
+ * magnitude, not a ledger. Where a real card export exists, it wins.
+ */
+export const CARD_PROXY_CATEGORY = 'Card payment' as const;
+
+/**
+ * Remove card-payoff proxy rows for any month that already has real
+ * card-account detail, so the two can never be summed together.
+ *
+ * Both the Cost Analysis rollup and the Forecast's DB actuals call this
+ * before aggregating. Keeping the rule in one place is the point: the
+ * proxy is only ever a gap-filler.
+ */
+export function dropSupersededCardProxy<
+  T extends { month?: string | null; account?: string | null; category?: string | null },
+>(rows: T[]): T[] {
+  const monthsWithCardDetail = new Set(
+    rows.filter((r) => r.account === 'card' && r.month).map((r) => r.month as string),
+  );
+  return rows.filter(
+    (r) => !(r.category === CARD_PROXY_CATEGORY && r.month && monthsWithCardDetail.has(r.month)),
+  );
+}
+
 export const OVERHEAD_CATEGORIES: OverheadCategory[] = [
   'Software', 'Marketing', 'Listing platforms', 'Guest supplies',
   'Repairs & upkeep', 'Insurance', 'Health benefits', 'Rent & office',
-  'Professional', 'Payroll', 'Contractors', 'Travel', 'Bank fees', 'Other',
+  'Professional', 'Payroll', 'Contractors', 'Card payment', 'Travel', 'Bank fees', 'Other',
 ];
 
 /* --------------------------------------------------------------------- */

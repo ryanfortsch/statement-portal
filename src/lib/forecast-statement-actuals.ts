@@ -19,29 +19,30 @@
  * whole portfolio).
  */
 
-import { supabase, isConfigured } from './supabase';
+import { createClient } from '@supabase/supabase-js';
+import { selectAllPaged } from './paged-select';
+
+/**
+ * SERVICE ROLE, deliberately.
+ *
+ * This module used to import the shared anon client from './supabase'.
+ * `property_statements` and `statement_periods` both have RLS enabled with
+ * ZERO policies, so the anon key reads them as an empty set - no error, no
+ * log line, just nothing. The revenue overlay silently returned {} and the
+ * forecast fell back to the hardcoded bank figures forever. April 2026
+ * rendered its $7,869 bank sweep instead of its real $6,683 management fee,
+ * and May and June rendered $0 because the hardcoded fallback stops at
+ * April.
+ *
+ * Absence of rows is not absence of data. Anything reading the statements
+ * tables server-side needs the service-role key.
+ */
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const isConfigured = !!supabaseUrl && !!supabaseKey;
 
 export type StatementRevenueByMonth = Record<string, number>;
 
-/**
- * Build a period_id → month ("YYYY-MM") map from statement_periods.
- * property_statements carries `period_id`, NOT a denormalized `month`,
- * so every statement query has to resolve the month through here.
- */
-async function getPeriodMonthMap(): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  const { data, error } = await supabase
-    .from('statement_periods')
-    .select('id, month');
-  if (error) {
-    console.error('[statement-periods] query failed:', error.message);
-    return map;
-  }
-  for (const p of (data ?? []) as Array<{ id: string | null; month: string | null }>) {
-    if (p.id && p.month) map.set(p.id, p.month);
-  }
-  return map;
-}
 
 /**
  * Sum `management_fee` per month across all property_statements. Returns
@@ -59,15 +60,23 @@ async function getPeriodMonthMap(): Promise<Map<string, string>> {
 export async function getStatementRevenueByMonth(): Promise<StatementRevenueByMonth> {
   if (!isConfigured) return {};
   try {
-    const monthByPeriod = await getPeriodMonthMap();
+    const db = createClient(supabaseUrl, supabaseKey);
 
-    const { data, error } = await supabase
-      .from('property_statements')
-      .select('period_id, management_fee');
-    if (error) {
-      console.error('[forecast-statement-actuals] query failed:', error.message);
-      return {};
+    // period_id -> "YYYY-MM". property_statements carries `period_id`, NOT a
+    // denormalized `month`, so every statement query resolves through here.
+    const monthByPeriod = new Map<string, string>();
+    for (const p of await selectAllPaged<{ id: string | null; month: string | null }>(
+      (from, to) => db.from('statement_periods').select('id, month').order('id').range(from, to),
+      { label: 'statement_periods' },
+    )) {
+      if (p.id && p.month) monthByPeriod.set(p.id, p.month);
     }
+
+    const data = await selectAllPaged<{ period_id: string | null; management_fee: number | null }>(
+      (from, to) =>
+        db.from('property_statements').select('period_id, management_fee').order('id').range(from, to),
+      { label: 'property_statements' },
+    );
 
     // Only months strictly before the current calendar month count as
     // actuals — the in-progress month is still earning and must stay
@@ -76,7 +85,7 @@ export async function getStatementRevenueByMonth(): Promise<StatementRevenueByMo
     const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     const byMonth: StatementRevenueByMonth = {};
-    for (const row of (data ?? []) as Array<{ period_id: string | null; management_fee: number | null }>) {
+    for (const row of data) {
       const month = row.period_id ? monthByPeriod.get(row.period_id) : undefined;
       if (!month) continue;
       if (month >= currentMonthKey) continue;
