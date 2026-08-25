@@ -181,12 +181,16 @@ export function categorizeOverhead(args: {
 export const CARD_PROXY_CATEGORY = 'Card payment' as const;
 
 /**
- * Remove card-payoff proxy rows for any month that already has real
- * card-account detail, so the two can never be summed together.
+ * Ledger view (Cost Analysis): drop card-payoff proxy rows for any month
+ * that has real card-account detail, so the two are never summed.
  *
- * Both the Cost Analysis rollup and the Forecast's DB actuals call this
- * before aggregating. Keeping the rule in one place is the point: the
- * proxy is only ever a gap-filler.
+ * This is the lenient rule, and it is right for a ledger: a month with
+ * partial card detail still shows the charges it actually has, and a payoff
+ * on top of them would double-count.
+ *
+ * The Forecast needs a stricter rule, because it reports a month as one
+ * complete ACT figure rather than as a list of charges. It uses
+ * cardCompleteMonths() + resolveCardSpendSource() below.
  */
 export function dropSupersededCardProxy<
   T extends { month?: string | null; account?: string | null; category?: string | null },
@@ -197,6 +201,54 @@ export function dropSupersededCardProxy<
   return rows.filter(
     (r) => !(r.category === CARD_PROXY_CATEGORY && r.month && monthsWithCardDetail.has(r.month)),
   );
+}
+
+/**
+ * Months whose card export runs all the way to month end.
+ *
+ * A month holding only the first few days of card detail is NOT covered.
+ * June 2026 forced this: the card export stopped on 2026-06-06, so June
+ * held six days of charges. The lenient rule above read that as "this month
+ * has card detail", suppressed the payoff proxy, and reported six days of
+ * spend as a full month of ACT.
+ *
+ * @param cardMaxTxnDate latest `txn_date` on any account='card' row as
+ *                       YYYY-MM-DD, or null when there is no card data.
+ */
+export function cardCompleteMonths<
+  T extends { month?: string | null; account?: string | null },
+>(rows: T[], cardMaxTxnDate: string | null): Set<string> {
+  const out = new Set<string>();
+  if (!cardMaxTxnDate) return out;
+  for (const r of rows) {
+    if (r.account !== 'card' || !r.month) continue;
+    const [y, m] = r.month.split('-').map(Number);
+    if (!y || !m) continue;
+    // Day 0 of the NEXT month is the last calendar day of this one.
+    const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    if (cardMaxTxnDate >= monthEnd) out.add(r.month);
+  }
+  return out;
+}
+
+/**
+ * Forecast view: pick exactly ONE source of card spend per month.
+ *
+ * Months with complete card detail keep their card rows and lose the payoff
+ * proxy. Every other month loses its partial card rows and keeps the proxy:
+ * a whole-month payoff estimates a month's card spend better than a handful
+ * of days of charges does.
+ */
+export function resolveCardSpendSource<
+  T extends { month?: string | null; account?: string | null; category?: string | null },
+>(rows: T[], complete: Set<string>): T[] {
+  return rows.filter((r) => {
+    if (!r.month) return true;
+    const covered = complete.has(r.month);
+    if (r.category === CARD_PROXY_CATEGORY) return !covered;
+    if (r.account === 'card') return covered;
+    return true;
+  });
 }
 
 export const OVERHEAD_CATEGORIES: OverheadCategory[] = [

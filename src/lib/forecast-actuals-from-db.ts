@@ -14,9 +14,11 @@
  *
  *   card account  → exp_cc_ops (whole card is one lump from the bank's
  *                   perspective; matches the existing convention).
- *   'Card payment' → exp_cc_ops, but ONLY for months with no card-account
- *                   rows. dropSupersededCardProxy() removes the rest, so a
- *                   month never counts both the payoff and the charges.
+ *   'Card payment' → exp_cc_ops, but ONLY for months whose card export does
+ *                   not reach month end. resolveCardSpendSource() keeps one
+ *                   source per month, so a month never counts both the
+ *                   payoff and the charges, and never reports a few days of
+ *                   charges as a whole month.
  *   operating account:
  *     Rent & office     → exp_office
  *     Insurance         → exp_insurance
@@ -51,7 +53,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { ACTUALS_2026, type MonthlyActual } from '@/lib/forecast-actuals';
-import { CARD_PROXY_CATEGORY, dropSupersededCardProxy } from '@/lib/overhead-categories';
+import { CARD_PROXY_CATEGORY, cardCompleteMonths, resolveCardSpendSource } from '@/lib/overhead-categories';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey =
@@ -143,11 +145,6 @@ export async function getActualsFromDb(
       if (data.length < 1000) break;
     }
 
-    // A month with no card export falls back to the operating account's
-    // card-payoff rows. Where real card detail exists it wins and the proxy
-    // rows are dropped, so the two are never summed.
-    const usableRows = dropSupersededCardProxy(rows);
-
     // Most recent txn_date across the WHOLE table (any year) so the
     // staleness banner reflects most-recent-upload, honestly.
     let latestTxnDate: string | null = null;
@@ -163,7 +160,30 @@ export async function getActualsFromDb(
       /* leave null — non-fatal */
     }
 
+    // How far the CARD export runs, which is a different date from the one
+    // above: the operating upload usually runs later. A month only counts as
+    // card-covered when the card data reaches its last calendar day.
+    let cardMaxTxnDate: string | null = null;
+    try {
+      const { data: latestCard } = await supabase
+        .from('overhead_expenses')
+        .select('txn_date')
+        .eq('account', 'card')
+        .not('txn_date', 'is', null)
+        .order('txn_date', { ascending: false })
+        .limit(1);
+      cardMaxTxnDate = (latestCard?.[0]?.txn_date as string | undefined) ?? null;
+    } catch {
+      /* leave null — every month then falls back to the payoff proxy */
+    }
+
     if (rows.length === 0) return { ...empty, latestTxnDate };
+
+    // Exactly one source of card spend per month: complete card detail where
+    // it exists, the operating account's card payoff everywhere else. Never
+    // both, and never a partial month of charges passed off as a whole one.
+    const complete = cardCompleteMonths(rows, cardMaxTxnDate);
+    const usableRows = resolveCardSpendSource(rows, complete);
 
     // Aggregate per month into MonthlyActual.
     const byMonth = new Map<string, MonthlyActual>();
@@ -192,7 +212,8 @@ export async function getActualsFromDb(
           case 'Payroll':         ma.exp_contractors += amt; break;
           case 'Contractors':     ma.exp_contractors += amt; break;
           // Card payoff standing in for card spend. Only survives to here in
-          // months with no card export; dropSupersededCardProxy removed the rest.
+          // months whose card export does not reach month end; the rest were
+          // removed by resolveCardSpendSource.
           case CARD_PROXY_CATEGORY: ma.exp_cc_ops += amt; break;
           case 'Health benefits': /* out of scope for the mgmt-business forecast */ break;
           case 'Professional':
