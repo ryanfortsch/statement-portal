@@ -13,18 +13,24 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  *
  * Row 2 (lens) is the function within a job: Packets (the priced work board),
  * Shoots & Pay (creative's money surface), Roster (the people), Hiring (the
- * applicant pipeline). Packets only shows for trades that use the packet
- * machinery - creative work is paid per delivered asset, so its board is
- * Shoots & Pay instead. It rides in the primitive's secondRow slot.
+ * applicant pipeline), Trades (the outside vendors we dispatch). Packets only
+ * shows for trades that use the packet machinery - creative work is paid per
+ * delivered asset, so its board is Shoots & Pay instead. It rides in the
+ * primitive's secondRow slot.
+ *
+ * Trades is the one lens that isn't scoped by job type: a plumber is a
+ * plumber whichever row-1 tab you came from. It still carries ?trade= so
+ * leaving it returns you to the job type you were in.
  */
 
-type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring';
+type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring' | 'trades';
 
 const LENS_HREF: Record<FieldLens, string> = {
   packets: '/fieldwork/packets',
   shoots: '/fieldwork/shoots',
   contractors: '/fieldwork/roster',
   hiring: '/fieldwork/hiring',
+  trades: '/fieldwork/trades',
 };
 
 export function FieldTabs({
@@ -52,6 +58,7 @@ export function FieldTabs({
       TRADE_META[trade].hasShoots ? { id: 'shoots', label: 'Shoots & Pay' } : null,
       { id: 'contractors', label: 'Roster' },
       { id: 'hiring', label: 'Hiring' },
+      { id: 'trades', label: 'Trades' },
     ].filter(Boolean) as { id: FieldLens; label: string }[]
   ).map((l) => ({ ...l, href: `${LENS_HREF[l.id]}?trade=${trade}` }));
 
