@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { loadAddOnTotals } from '@/lib/statement-addons';
 
 /**
  * Resolve a data gap via an inline action -- no file upload, no re-ingest.
@@ -101,20 +102,48 @@ export async function POST(request: NextRequest) {
       //    reservation numbers. Cleaning + repairs stay as they were.
       const { data: stmt } = await supabase
         .from('property_statements')
-        .select('management_fee_pct, cleaning_total, repairs_total, reserve_holdback')
+        .select('period_id, property_id, management_fee_pct, cleaning_total, repairs_total, reserve_holdback')
         .eq('id', gap.property_statement_id)
         .single();
       if (!stmt) {
         return NextResponse.json({ error: 'property_statement not found' }, { status: 500 });
       }
+
+      // Attributed add-ons / debits stay in the equation (canonical formula,
+      // same as refresh-statement + the bank-deposits and reserve routes), so
+      // resolving a gap can't clobber reviewed add-on revenue. The month lives
+      // on statement_periods, not on the statement row.
+      const { data: period } = await supabase
+        .from('statement_periods')
+        .select('month')
+        .eq('id', stmt.period_id)
+        .maybeSingle();
+      const month = (period?.month as string) || '';
+      if (!month) {
+        // Never fall back to a month-less add-on read: it would return zeros
+        // and silently write a payout short by the add-on terms, which is the
+        // exact defect this branch exists to avoid.
+        return NextResponse.json(
+          { error: 'could not resolve the statement month; refusing to recompute the payout' },
+          { status: 500 },
+        );
+      }
+      const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(
+        supabase,
+        stmt.property_id,
+        month,
+      );
+
       const { data: allRes } = await supabase
         .from('reservations')
         .select('adjusted_revenue')
         .eq('property_statement_id', gap.property_statement_id);
       const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
-      const newMgmtFee = round2(newRentalRev * (stmt.management_fee_pct / 100));
+      const newMgmtFee = round2((newRentalRev + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
       const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
-      const newOwnerPayout = round2(newRentalRev - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - reserveHoldback);
+      const newOwnerPayout = round2(
+        newRentalRev + addOnsRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback,
+      );
       await supabase
         .from('property_statements')
         .update({ rental_revenue: newRentalRev, management_fee: newMgmtFee, owner_payout: newOwnerPayout })

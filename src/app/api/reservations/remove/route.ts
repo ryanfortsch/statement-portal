@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
+import { loadAddOnTotals } from '@/lib/statement-addons';
 
 /**
  * POST /api/reservations/remove
@@ -63,6 +64,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }, { status: 409 });
   }
 
+  // Everything the recompute needs that the delete does NOT change: the
+  // statement's own fields, its month, and the attributed add-on totals.
+  // Read them BEFORE deleting so a failure here refuses cleanly instead of
+  // stranding a statement whose reservation is gone but whose totals are stale.
+  const { data: stmt } = await supabase
+    .from('property_statements')
+    .select('period_id, property_id, management_fee_pct, cleaning_total, repairs_total, reserve_holdback')
+    .eq('id', psid)
+    .single();
+  if (!stmt) return NextResponse.json({ error: 'property_statement not found' }, { status: 404 });
+
+  const { data: period } = await supabase
+    .from('statement_periods')
+    .select('month')
+    .eq('id', stmt.period_id)
+    .maybeSingle();
+  const month = (period?.month as string) || '';
+  if (!month) {
+    return NextResponse.json(
+      { error: 'could not resolve the statement month; refusing to remove and recompute' },
+      { status: 500 },
+    );
+  }
+
+  // addOnsMgmtBase counts only attributions flagged apply_mgmt_fee, so it
+  // cannot be read off the stored add_ons_revenue column -- that is what the
+  // fee base was missing. Source of truth is bank_deposit_attributions.
+  const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(
+    supabase,
+    stmt.property_id,
+    month,
+  );
+
   // Delete the reservation, then its gaps (the cancelled_reservation gap +
   // the unmatched_bank gap for this guest/code).
   const { error: delErr } = await supabase.from('reservations').delete().eq('id', res.id);
@@ -74,16 +108,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .or(`expected_data.ilike.%${code}%,description.ilike.%${(res.guest_name || '').replace(/[%,]/g, '')}%`);
 
   // Recompute the statement from the remaining reservations.
-  const { data: stmt } = await supabase
-    .from('property_statements')
-    .select('period_id, management_fee_pct, cleaning_total, repairs_total, reserve_holdback, attributed_debits_total, add_ons_revenue')
-    .eq('id', psid)
-    .single();
-  const { data: period } = stmt
-    ? await supabase.from('statement_periods').select('month').eq('id', stmt.period_id).maybeSingle()
-    : { data: null };
-  const month = (period?.month as string) || '';
-
   const { data: remaining } = await supabase
     .from('reservations')
     .select('adjusted_revenue, nights, check_out')
@@ -92,13 +116,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const rentalRevenue = round2(rows.reduce((s, r) => s + (Number(r.adjusted_revenue) || 0), 0));
   const feePct = (Number(stmt?.management_fee_pct) || 0) / 100;
-  const managementFee = round2(rentalRevenue * feePct);
-  const addOns = Number(stmt?.add_ons_revenue) || 0;
+  const managementFee = round2((rentalRevenue + addOnsMgmtBase) * feePct);
   const cleaning = Number(stmt?.cleaning_total) || 0;
   const repairs = Number(stmt?.repairs_total) || 0;
   const reserve = Number(stmt?.reserve_holdback) || 0;
-  const attributedDebits = Number(stmt?.attributed_debits_total) || 0;
-  const ownerPayout = round2(rentalRevenue + addOns - managementFee - cleaning - repairs - reserve - attributedDebits);
+  const ownerPayout = round2(rentalRevenue + addOnsRevenue - managementFee - cleaning - repairs - reserve - attributedDebits);
   const numStays = rows.filter(r =>
     (Number(r.adjusted_revenue) || 0) > 0 && (r.check_out || '').slice(0, 7) === month,
   ).length;
