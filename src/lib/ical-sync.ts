@@ -13,6 +13,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { parseIcal, isBookingEvent, guessGuestNameFromIcal, isPlaceholderGuestName } from '@/lib/ical';
 import { CHANNEL_LABELS, type BookingChannel, type BookingSource } from '@/lib/channels-types';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
+import { selectAllPaged } from '@/lib/paged-select';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -240,6 +241,14 @@ export type DedupResult = {
   duplicates: number;
   changed: number;
   enriched: number;
+  /**
+   * Rows that came out of clustering as singletons but whose existing
+   * duplicate_of pointed at a row this run did not load. Clearing those would
+   * destroy a correct mark on the strength of an incomplete read, so they are
+   * left alone and counted here. A paged load makes this 0; any non-zero value
+   * means the load was short and is worth investigating.
+   */
+  skipped_unverifiable: number;
 };
 
 /**
@@ -509,29 +518,46 @@ function pickCanonical(cluster: DedupRow[], effectiveStatus: string): DedupRow {
  */
 export async function dedupeAllBookings(): Promise<DedupResult> {
   const sb = getServiceClient();
-  const { data, error } = await sb
-    .from('bookings')
-    .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests');
-  if (error) throw new Error(`dedupe load: ${error.message}`);
+
+  // Page through EVERY booking. A bare .select() is capped by PostgREST at
+  // 1000 rows, and this function is destructive on a short read: a row whose
+  // cluster twin fell outside the slice looks like a singleton, and the writer
+  // below then CLEARS its correct duplicate_of. Because the cap was also
+  // unordered, the surviving slice shifted between runs as those very updates
+  // rewrote tuples, so a different set of stays resurfaced each time.
+  // Order by id so the offset windows are stable while we read.
+  const rows = await selectAllPaged<DedupRow>(
+    (from, to) =>
+      sb
+        .from('bookings')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .order('id', { ascending: true })
+        .range(from, to),
+    { label: 'dedupe load' },
+  );
 
   // The Guesty per-listing feed (channel_listings.channel = 'guesty') is an
   // aggregate of every channel and has been seen to drop a still-confirmed
   // reservation. A cancellation that exists ONLY on the aggregate feed is not
   // trusted to hide a stay (a direct OTA feed or the Guesty API would still
   // show it); see clusterEffectiveStatus.
-  const { data: listingData, error: listingErr } = await sb
-    .from('channel_listings')
-    .select('id, channel');
-  if (listingErr) throw new Error(`dedupe load listings: ${listingErr.message}`);
+  //
+  // Paged for the same reason: a truncated listing set would leave aggregate
+  // rows unrecognised, which flips their cancellations from untrusted to
+  // trusted and can hide a live stay.
+  const listings = await selectAllPaged<{ id: string; channel: string }>(
+    (from, to) =>
+      sb.from('channel_listings').select('id, channel').order('id', { ascending: true }).range(from, to),
+    { label: 'dedupe load listings' },
+  );
   const aggregateListingIds = new Set(
-    (listingData ?? []).filter((l) => l.channel === 'guesty').map((l) => l.id as string),
+    listings.filter((l) => l.channel === 'guesty').map((l) => l.id),
   );
   const isFromAggregateFeed = (r: DedupRow): boolean =>
     r.source === 'ical_import' &&
     r.channel_listing_id != null &&
     aggregateListingIds.has(r.channel_listing_id);
 
-  const rows = (data ?? []) as DedupRow[];
   const byProperty = new Map<string, DedupRow[]>();
   for (const r of rows) {
     const list = byProperty.get(r.property_id);
@@ -636,12 +662,25 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
   }
 
   // Write only changed rows, batched by target value to minimize round trips.
+  const loadedIds = new Set(rows.map((r) => r.id));
   const toNull: string[] = [];
   const toCanonical = new Map<string, string[]>();
   let changed = 0;
+  let skippedUnverifiable = 0;
   for (const r of rows) {
     const want = desired.get(r.id) ?? null;
-    if ((r.duplicate_of ?? null) === want) continue;
+    const current = r.duplicate_of ?? null;
+    if (current === want) continue;
+    // Belt and braces on top of the paged load above. Clearing a mark is the
+    // only destructive thing this function does, and it is only sound when we
+    // actually saw the parent and it still did not cluster with this row.
+    // duplicate_of is `references bookings(id) on delete set null`, so a
+    // non-null value always has a live parent: if that parent is absent from
+    // the loaded set, this read was short and the mark must stand.
+    if (want === null && current !== null && !loadedIds.has(current)) {
+      skippedUnverifiable += 1;
+      continue;
+    }
     changed += 1;
     if (want === null) {
       toNull.push(r.id);
@@ -650,6 +689,11 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
       if (arr) arr.push(r.id);
       else toCanonical.set(want, [r.id]);
     }
+  }
+  if (skippedUnverifiable > 0) {
+    console.warn(
+      `[dedupe] ${skippedUnverifiable} row(s) kept their duplicate_of because the parent was not in the loaded set -- the bookings read looks short`,
+    );
   }
 
   if (toNull.length > 0) {
@@ -678,7 +722,13 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     enriched += 1;
   }
 
-  return { clusters: clusterCount, duplicates: dupCount, changed, enriched };
+  return {
+    clusters: clusterCount,
+    duplicates: dupCount,
+    changed,
+    enriched,
+    skipped_unverifiable: skippedUnverifiable,
+  };
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number | null {
