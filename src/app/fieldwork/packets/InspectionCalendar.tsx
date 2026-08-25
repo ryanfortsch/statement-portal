@@ -66,11 +66,17 @@ function fmtDay(d: string): string {
   }
 }
 
-export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 'days' | 'rows'>) {
+export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCalendarData, 'days' | 'rows'> & {
+  /** Inspectors this trade's work can be handed straight to (cleared to claim). */
+  assignable: { id: string; name: string }[];
+}) {
   const [selDay, setSelDay] = useState<string | null>(null);
   const [selProps, setSelProps] = useState<string[]>([]);
   const [priceStr, setPriceStr] = useState('');
   const [sending, setSending] = useState(false);
+  // Empty = publish to everyone (the roster gets the SMS). Pick a name and the
+  // packet goes straight onto that inspector's board instead — no blast.
+  const [assignTo, setAssignTo] = useState('');
 
   const rowById = new Map(rows.map((r) => [r.propertyId, r]));
 
@@ -221,6 +227,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
                 setSelProps([]);
                 setSelDay(null);
                 setPriceStr('');
+                setAssignTo('');
               }
             } finally {
               setSending(false);
@@ -242,6 +249,7 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
           <input type="hidden" name="visit_date" value={selDay} />
           <input type="hidden" name="property_ids" value={selProps.join(',')} />
           <input type="hidden" name="price_dollars" value={priceStr || String(suggestedDollars)} />
+          <input type="hidden" name="assign_to" value={assignTo} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>
               {selectedRows.length} selected{area ? ` on ${area}` : ''} · {fmtDay(selDay)}
@@ -251,6 +259,19 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {assignable.length > 0 && (
+              <select
+                value={assignTo}
+                onChange={(e) => setAssignTo(e.target.value)}
+                aria-label="Send to"
+                style={{ font: 'inherit', fontSize: 13, color: 'var(--ink)', background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 8, padding: '9px 10px' }}
+              >
+                <option value="">Anyone — text all inspectors</option>
+                {assignable.map((c) => (
+                  <option key={c.id} value={c.id}>{`Only ${c.name}`}</option>
+                ))}
+              </select>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--rule)', borderRadius: 8, padding: '5px 9px', background: 'var(--paper-2, #fff)' }}>
               <span style={{ color: 'var(--ink-4)', fontSize: 13 }}>$</span>
               <input
@@ -307,7 +328,11 @@ export function InspectionCalendar({ days, rows }: Pick<InspectionCalendarData, 
                 whiteSpace: 'nowrap',
               }}
             >
-              {sending ? 'Sending…' : 'Bundle & send →'}
+              {sending
+                ? 'Sending…'
+                : assignTo
+                  ? `Send to ${(assignable.find((c) => c.id === assignTo)?.name ?? '').split(' ')[0]} →`
+                  : 'Bundle & send →'}
             </button>
           </div>
         </form>
