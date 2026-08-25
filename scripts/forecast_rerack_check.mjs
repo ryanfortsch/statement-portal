@@ -22,7 +22,7 @@
  *
  * Run: node --experimental-strip-types scripts/forecast_rerack_check.mjs
  */
-import { categorizeOverhead } from '../src/lib/overhead-categories.ts';
+import { categorizeOverhead, dropSupersededCardProxy, CARD_PROXY_CATEGORY } from '../src/lib/overhead-categories.ts';
 import {
   calcYear,
   CC_OPERATING_BREAKDOWN,
@@ -94,14 +94,34 @@ const CASES = [
   ['ORIG CO NAME:GUSTO ORIG ID:9138864007 CO ENTRY DESCR:FEE', -68, 'MISC_DEBIT', 'Payroll'],
   ['Online ACH Payment 11231667481 To Landlordfor85EasternAve', -750, 'ACH_PAYMENT', 'Rent & office'],
   ['ORIG CO NAME:PHILLIPS INSURAN', -5263.92, 'ACH_DEBIT', 'Insurance'],
-  ['Payment to Chase card ending in 3878', -8000, 'LOAN_PMT', null],
+  ['Payment to Chase card ending in 3878', -8000, 'LOAN_PMT', 'Card payment'],
+  ['ORIG CO NAME:CHASE CREDIT CRD ... CO ENTRY DESCR:AUTOPAYBUS', -40, 'ACH_DEBIT', 'Card payment'],
+  ['Online Transfer to CHK ...1323 transaction#: 30250485778', -5000, 'ACCT_XFER', null],
 ];
 for (const [description, amount, type, want] of CASES) {
   const got = categorizeOverhead({ account: 'operating', description, amount, type });
   if (got !== want) fail(`categorizeOverhead -> ${String(got)}, expected ${String(want)}: "${description.slice(0, 50)}"`);
 }
 
+/* -- invariant 4: the card proxy never double-counts --------------------- */
+const PROXY_ROWS = [
+  // 2026-05 has real card detail, so its payoff proxy must be dropped.
+  { month: '2026-05', account: 'card', category: 'Software', amount: 2314 },
+  { month: '2026-05', account: 'operating', category: CARD_PROXY_CATEGORY, amount: 8000 },
+  // 2026-07 has no card export, so its payoff proxy must survive.
+  { month: '2026-07', account: 'operating', category: CARD_PROXY_CATEGORY, amount: 13997 },
+  { month: '2026-07', account: 'operating', category: 'Contractors', amount: 4890 },
+];
+const kept = dropSupersededCardProxy(PROXY_ROWS);
+if (kept.length !== 3) fail(`dropSupersededCardProxy kept ${kept.length} rows, expected 3`);
+if (kept.some((r) => r.month === '2026-05' && r.category === CARD_PROXY_CATEGORY)) {
+  fail('card-payment proxy survived a month that has real card detail (double count)');
+}
+if (!kept.some((r) => r.month === '2026-07' && r.category === CARD_PROXY_CATEGORY)) {
+  fail('card-payment proxy was dropped from a month with no card detail (gap)');
+}
+
 console.log(failures === 0
-  ? 'PASS — expense rows sum to exp_total across 2026/2027/2028, the contractor line reproduces the observed $8,288/mo bench, and the operating categorizer routes all 11 reference rows correctly.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, and the card-payment proxy fills gap months without double-counting real card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

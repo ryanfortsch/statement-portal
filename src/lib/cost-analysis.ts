@@ -28,6 +28,7 @@
  */
 
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
+import { dropSupersededCardProxy } from './overhead-categories';
 import { LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME } from '@/lib/bank-charges';
 import { canonicalVendor } from '@/lib/overhead-categories';
 
@@ -267,6 +268,12 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
   }
   if (rows.length === 0) return empty;
 
+  // Card-payoff proxy rows stand in for card spend only where no card export
+  // exists. Drop the ones a real card month supersedes, or the payoff and the
+  // charges it settles both land in the same monthly total.
+  const usableRows = dropSupersededCardProxy(rows);
+  if (usableRows.length === 0) return empty;
+
   const byMonthCategory: Record<string, Record<string, number>> = {};
   const byMonthTotal: Record<string, number> = {};
   const catTotals: Record<string, number> = {};
@@ -275,7 +282,7 @@ export async function getOverhead(): Promise<OverheadAnalysis> {
   // category -> vendor -> accumulator
   const vendorAcc: Record<string, Record<string, OverheadVendor>> = {};
 
-  for (const r of rows) {
+  for (const r of usableRows) {
     const m = r.month;
     const cat = r.category;
     const amt = Number(r.amount) || 0;
