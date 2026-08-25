@@ -375,7 +375,24 @@ function KitReturnCard({ active }: { active: boolean }) {
 const ACCESS_NOISE = new Set(['no', 'none', 'n/a', 'na', '-', '--', 'false', '0', 'n']);
 const ACCESS_CODE_LABELS = new Set(['Door code', 'Gate code', 'Garage code', 'Alarm code']);
 
-function AccessLines({ a, hasTripCode }: { a: AccessBundle; hasTripCode: boolean }) {
+/** The code this stop opens with: today's trip PIN where Seam programmed it
+ *  into that lock, else the home's own keypad code. Null when neither exists. */
+function stopCode(s: PacketStopDetail, coded: Set<string>, entryCode: string | null): string | null {
+  if (coded.has(s.property_id) && entryCode) return entryCode;
+  const raw = String(s.access?.smartLock ?? '').trim();
+  const own = raw.includes(':') ? raw.split(':').pop()!.trim() : raw;
+  return /^[0-9#*]{3,8}$/.test(own) ? own : null;
+}
+
+/** Anything to say about getting in BEYOND the door code — lockbox, gate,
+ *  garage, alarm, parking. The code has its own chip now. */
+function hasAccessExtras(a: AccessBundle): boolean {
+  return [a.method, a.lockboxLocation, a.gateCode, a.garageCode, a.alarm, a.parking].some(
+    (v) => v && String(v).trim() && !ACCESS_NOISE.has(String(v).trim().toLowerCase()),
+  );
+}
+
+function AccessLines({ a }: { a: AccessBundle }) {
   const rows: Array<[string, string | null]> = [
     ['Getting in', a.method],
     ['Door code', a.smartLock],
@@ -406,14 +423,6 @@ function AccessLines({ a, hasTripCode }: { a: AccessBundle; hasTripCode: boolean
       <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 7 }}>
         How to get in
       </div>
-      {/* This home isn't on a smart lock (17 Beach and friends): its code is
-          permanent and the rotating trip code above does nothing here. Say so,
-          or the inspector stands at the door punching the wrong number. */}
-      {hasTripCode && (
-        <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginBottom: 8, lineHeight: 1.45 }}>
-          Your trip code doesn&apos;t open this one — use the code below.
-        </div>
-      )}
       {/* Roomier rows: each value is a tap-to-copy chip, and 6px between
           38px+ chips made mis-taps easy with winter gloves at a keypad. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '12px 14px', fontSize: 13, alignItems: 'center' }}>
@@ -679,7 +688,7 @@ export default async function PacketPage({
             ? tripWindowLabel(packet.visit_date, packet.stops)
             : null;
           return w ? ` · ${w}` : '';
-        })()}{packet.complete_by && !(working && packet.entry_code) ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
+        })()}{packet.complete_by ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
         {packetHeadline(packet)}
@@ -733,28 +742,6 @@ export default async function PacketPage({
       {/* While the trip is live, keep this view current without a manual
           reload — arrivals stamped by the door show up within ~20s. */}
       {working && !preview && <AutoRefresh />}
-      {/* One slim line, sticky: the code rides along without billboarding over
-          the page (the old full-height card + shadow hovered over everything
-          while she scrolled). Tap-to-copy stays — it's the code she punches at
-          every keypad. */}
-      {/* Sticky top clears the iPhone notch: the layout uses viewportFit
-          cover, so without the safe-area max() the pinned pill wedges under
-          the status bar and content scrolling past reads as bleeding. */}
-      {working && packet.entry_code && (
-        <div style={{ border: '1px solid var(--tide-deep)', borderRadius: 999, background: 'var(--paper)', padding: '7px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 'max(8px, env(safe-area-inset-top))', zIndex: 20, boxShadow: '0 2px 8px rgba(11,37,69,0.08)' }}>
-          <span style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', flexShrink: 0 }}>
-            Entry code
-          </span>
-          <span style={{ fontSize: 18, letterSpacing: '0.14em', color: 'var(--tide-deep)' }}>
-            <CopyCode value={packet.entry_code} />
-          </span>
-          {packet.complete_by && (
-            <span style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, marginLeft: 'auto' }}>
-              done by {fmtVisitTime(packet.complete_by)}
-            </span>
-          )}
-        </div>
-      )}
 
 
       {/* One prioritized alert region. Only the hard account block is red; the
@@ -895,25 +882,24 @@ export default async function PacketPage({
                   </a>
                 ) : null;
               })()}
-              {codedProps.has(s.property_id) && (
-                <span style={{ ...chip, color: 'var(--positive)', cursor: 'default' }}>🔒 Trip code opens door</span>
+              {/* The number they punch, right on the stop. Whether it's today's
+                  rotating trip PIN (Seam wrote it into this lock) or the home's
+                  permanent keypad code is our bookkeeping, not theirs — one
+                  chip, one code, no scrolling back to a banner. */}
+              {stopCode(s, codedProps, packet.entry_code) && (
+                <CopyCode value={stopCode(s, codedProps, packet.entry_code)!} label="Code" pill />
               )}
-              {!codedProps.has(s.property_id) && s.access && (() => {
-                const raw = String(s.access.smartLock ?? '').trim();
-                const code = raw.includes(':') ? raw.split(':').pop()!.trim() : raw;
-                return /^[0-9#*]{3,8}$/.test(code) ? (
-                  <span style={{ ...chip, cursor: 'default' }}>🔑 <CopyCode value={code} mono /></span>
-                ) : null;
-              })()}
-              {!codedProps.has(s.property_id) && s.access && (
+              {/* Only when there's MORE than the code — a lockbox, gate, alarm.
+                  Repeating the code behind a disclosure was noise. */}
+              {s.access && hasAccessExtras(s.access) && (
                 <details className="rt-chip-details" style={{ display: 'inline-block', maxWidth: '100%' }}>
-                  <summary style={{ ...chip, listStyle: 'none' }}>🔑 How to get in</summary>
+                  <summary style={{ ...chip, listStyle: 'none' }}>How to get in</summary>
                   <div style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.55, border: '1px solid var(--rule)', background: 'var(--paper-2, #fff)', borderRadius: 10, padding: '10px 12px', marginTop: 6, maxWidth: 560 }}>
-                    <AccessLines a={s.access} hasTripCode={!!packet.entry_code} />
+                    <AccessLines a={s.access} />
                   </div>
                 </details>
               )}
-              {working && !codedProps.has(s.property_id) && !s.access && (
+              {working && !stopCode(s, codedProps, packet.entry_code) && !s.access && (
                 <a href={`tel:${OFFICE_TEL}`} style={signalPill}>Call for entry</a>
               )}
               {s.access?.arrival && (
