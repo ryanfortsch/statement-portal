@@ -205,6 +205,22 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'field',
   },
+  // Trades is the Field section's vendor directory (see FieldTabs). The
+  // description carries the trade vocabulary on purpose: Cmd+K for "plumber"
+  // or "exterminator" has to land here, and searchPages matches description
+  // text as well as title.
+  {
+    id: 'trades',
+    href: '/fieldwork/trades',
+    number: '03d',
+    title: 'Trades & Vendors',
+    description: 'Who we call when something breaks. The outside vendor directory: plumber, electrician, HVAC, appliance repair, handyman, locksmith, exterminator and pest control, landscaper, roofer, painter, chimney, septic, snow removal. Numbers, after-hours lines, rates, insurance.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'field',
+  },
   {
     id: 'work',
     href: '/work',
