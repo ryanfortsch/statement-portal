@@ -4,7 +4,7 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
-import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, type ContractorRow, type PacketRow } from '@/lib/field-types';
+import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, canClaim, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { isLiveStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -114,7 +114,7 @@ function plusDays(n: number): string {
 export default async function PacketsBoard({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; sent?: string; trade?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; sent?: string; trade?: string; who?: string }>;
 }) {
   if (!isFieldConfigured) {
     return (
@@ -136,14 +136,19 @@ export default async function PacketsBoard({
   const [calendar, allPackets, { data: cData }] = await Promise.all([
     loadInspectionCalendar(from, to),
     loadPackets(),
-    fieldDb().from('contractors').select('id, full_name, photo_url'),
+    fieldDb().from('contractors').select('*'),
   ]);
   // Scope the board to the active job type. Packets carry a trade; legacy rows
   // with none are inspection. Creative has no packets and never links here.
   const packets = allPackets.filter((p) => (p.trade ?? 'inspection') === trade);
-  const contractorInfo = new Map(
-    ((cData ?? []) as Pick<ContractorRow, 'id' | 'full_name' | 'photo_url'>[]).map((c) => [c.id, c]),
-  );
+  const allContractors = (cData ?? []) as ContractorRow[];
+  const contractorInfo = new Map(allContractors.map((c) => [c.id, c]));
+  // Who this packet could be handed straight to: same trade, cleared to claim.
+  // Feeds the bundle bar's "send to one inspector" picker.
+  const assignable = allContractors
+    .filter((c) => c.trade === trade && canClaim(c))
+    .map((c) => ({ id: c.id, name: c.full_name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const whoOf = (id: string | null): Who => {
     const c = id ? contractorInfo.get(id) : null;
     return c ? { name: c.full_name, photoUrl: c.photo_url } : null;
@@ -216,7 +221,9 @@ export default async function PacketsBoard({
 
         {sp.sent === '1' && (
           <div style={{ marginTop: 18, border: '1px solid var(--positive)', background: 'rgba(63,153,34,0.08)', color: 'var(--positive)', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
-            Packet sent — it&apos;s out to contractors below.
+            {sp.who
+              ? `Packet sent to ${sp.who} — it's on their board, and nobody else was texted.`
+              : "Packet sent — it's out to contractors below."}
           </div>
         )}
         {sp.sent === '0' && (
@@ -244,7 +251,7 @@ export default async function PacketsBoard({
 
         {trade === 'inspection' && (
         <div style={{ marginTop: 28 }}>
-          <InspectionCalendar days={calendar.days} rows={calendar.rows} />
+          <InspectionCalendar days={calendar.days} rows={calendar.rows} assignable={assignable} />
           {calendar.missingProps.length > 0 && (
             <div style={{ fontSize: 12, color: 'var(--signal)', marginTop: 8 }}>
               {/* Single string + named links, not JSX text fragments: SSR

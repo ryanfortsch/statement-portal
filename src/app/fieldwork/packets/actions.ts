@@ -387,14 +387,46 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
     .filter(Boolean);
   const priceDollars = Number(formData.get('price_dollars') || 0);
   if (!visitDate || ids.length === 0) redirect('/fieldwork/packets?sent=0');
+
+  // Optional: hand the trip straight to ONE inspector instead of posting it to
+  // the roster. Validate BEFORE creating anything, so a bad pick can't quietly
+  // fall back to texting everyone.
+  const assignTo = String(formData.get('assign_to') || '');
+  let assignee: ContractorRow | null = null;
+  if (assignTo) {
+    const { data: c } = await fieldDb().from('contractors').select('*').eq('id', assignTo).maybeSingle();
+    assignee = (c as ContractorRow | null) ?? null;
+    if (!assignee || !canClaim(assignee) || assignee.trade !== 'inspection') {
+      redirect('/fieldwork/packets?sent=0');
+    }
+  }
+
   const packetId = await createPacketFromProperties({
     propertyIds: ids,
     visitDate,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
     createdByEmail: email,
-    publish: true,
+    // Assigned work is never published: it must not sit on the open
+    // marketplace for someone else to claim out from under them.
+    publish: !assignee,
   });
   if (packetId) {
+    if (assignee) {
+      // Same landing as assignPacket: awarded, codes programmed, one
+      // confirmation to that inspector, nobody else notified.
+      await fieldDb()
+        .from('inspection_packets')
+        .update({ status: 'claimed', awarded_contractor_id: assignee.id, claimed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', packetId);
+      await fieldDb()
+        .from('packet_events')
+        .insert({ packet_id: packetId, contractor_id: assignee.id, actor_email: email, event_type: 'assigned' });
+      await programPacketCodes(packetId).catch(() => {});
+      const { data: full } = await fieldDb().from('inspection_packets').select('*').eq('id', packetId).maybeSingle();
+      if (full) await sendClaimConfirmation(assignee, full as PacketRow).catch(() => {});
+      revalidatePath('/fieldwork/packets');
+      redirect(`/fieldwork/packets?sent=1&who=${encodeURIComponent(assignee.full_name.split(' ')[0])}`);
+    }
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
     notifyContractorsOfPacket(packetId).catch(() => {});
     revalidatePath('/fieldwork/packets');
