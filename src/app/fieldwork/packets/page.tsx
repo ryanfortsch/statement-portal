@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
-import { loadInspectionCalendar, loadPackets } from '@/lib/field-packets';
+import { loadInspectionCalendar, loadPackets , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
 import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, canClaim, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { isLiveStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { FieldAvatar } from '@/components/FieldAvatar';
@@ -56,12 +56,14 @@ function packetAtRisk(p: PacketRow): boolean {
   return p.status === 'claimed' && packetAtRiskET(p.visit_date);
 }
 
-function statusChip(status: string): { label: string; bg: string; color: string } {
+function statusChip(status: string, officeAssigned = false): { label: string; bg: string; color: string } {
   switch (status) {
     case 'published':
       return { label: 'Open · unclaimed', bg: 'rgba(186,117,23,0.14)', color: '#7a5512' };
     case 'claimed':
-      return { label: 'Claimed', bg: 'rgba(58,107,138,0.16)', color: 'var(--tide-deep)' };
+      // Assigned by the office reads "Assigned" — saying "Claimed" for work the
+      // operator just handed out makes it look like the contractor acted.
+      return { label: officeAssigned ? 'Assigned' : 'Claimed', bg: 'rgba(58,107,138,0.16)', color: 'var(--tide-deep)' };
     case 'in_progress':
       return { label: 'In progress', bg: 'rgba(58,107,138,0.16)', color: 'var(--tide-deep)' };
     case 'submitted':
@@ -141,6 +143,11 @@ export default async function PacketsBoard({
   // Scope the board to the active job type. Packets carry a trade; legacy rows
   // with none are inspection. Creative has no packets and never links here.
   const packets = allPackets.filter((p) => (p.trade ?? 'inspection') === trade);
+  // Which of these the office handed out vs the contractor grabbed — the chip
+  // must not credit a contractor for a claim they never made.
+  const officeAssigned = await loadOfficeAssignedPacketIds(
+    packets.filter((p) => p.status === 'claimed').map((p) => p.id),
+  ).catch(() => new Set<string>());
   const allContractors = (cData ?? []) as ContractorRow[];
   const contractorInfo = new Map(allContractors.map((c) => [c.id, c]));
   // Who this packet could be handed straight to: same trade, cleared to claim.
@@ -300,6 +307,7 @@ export default async function PacketsBoard({
                   p={p}
                   who={whoOf(p.awarded_contractor_id)}
                   done={progress.get(p.id) ?? 0}
+                  assigned={officeAssigned.has(p.id)}
                 />
               ))}
             </div>
@@ -315,7 +323,7 @@ export default async function PacketsBoard({
             </summary>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {completed.slice(0, 25).map((p) => (
-                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim />
+                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim assigned={officeAssigned.has(p.id)} />
               ))}
             </div>
             {completed.length > 25 && (
@@ -331,7 +339,7 @@ export default async function PacketsBoard({
             </summary>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {cancelled.slice(0, 25).map((p) => (
-                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim />
+                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim assigned={officeAssigned.has(p.id)} />
               ))}
             </div>
             {cancelled.length > 25 && (
@@ -390,8 +398,8 @@ function DraftRow({ p }: { p: PacketRow }) {
   );
 }
 
-function LiveRow({ p, who, dim, done = 0 }: { p: PacketRow; who: Who; dim?: boolean; done?: number }) {
-  const c = statusChip(p.status);
+function LiveRow({ p, who, dim, done = 0, assigned = false }: { p: PacketRow; who: Who; dim?: boolean; done?: number; assigned?: boolean }) {
+  const c = statusChip(p.status, assigned);
   const atRisk = packetAtRisk(p);
   const overdue = pastCompleteByET(p);
   const tracking = isWorkingStatus(p.status);

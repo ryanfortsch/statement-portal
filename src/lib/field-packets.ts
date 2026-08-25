@@ -911,6 +911,30 @@ export async function neutralizeShadowBlocks(): Promise<{ neutralized: number }>
   return { neutralized };
 }
 
+/**
+ * Which packets were AWARDED BY THE OFFICE rather than claimed by the
+ * contractor. Both land on status 'claimed', so the board read "Claimed" for
+ * work the operator had just handed out — Dotti sent a trip to James Liddell
+ * and the badge made it look like he had grabbed it seconds later.
+ *
+ * The event trail is the source of truth: latest of `assigned` / `claimed`
+ * wins, so a release-and-self-claim correctly flips back to claimed.
+ */
+export async function loadOfficeAssignedPacketIds(packetIds: string[]): Promise<Set<string>> {
+  if (packetIds.length === 0) return new Set();
+  const { data } = await fieldDb()
+    .from('packet_events')
+    .select('packet_id, event_type, created_at')
+    .in('packet_id', packetIds)
+    .in('event_type', ['assigned', 'claimed'])
+    .order('created_at', { ascending: true });
+  const latest = new Map<string, string>();
+  for (const r of (data ?? []) as Array<{ packet_id: string; event_type: string }>) {
+    latest.set(r.packet_id, r.event_type);
+  }
+  return new Set([...latest.entries()].filter(([, t]) => t === 'assigned').map(([id]) => id));
+}
+
 export async function expireStalePackets(): Promise<{ expired: number }> {
   const today = todayStr();
   const { data } = await fieldDb()
