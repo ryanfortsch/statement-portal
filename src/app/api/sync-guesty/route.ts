@@ -505,31 +505,57 @@ async function fetchAllReservations(token: string, sinceIso?: string): Promise<G
   const all: GuestyReservation[] = [];
   let skip = 0;
   const limit = 100;
-  const sinceMs = sinceIso ? new Date(sinceIso).getTime() : null;
   // Guesty omits the `money` block by default; we need to request it explicitly
   // to populate host_payout. Without this every row's host_payout comes back
   // null and the Revenue dashboard reads zero across the board.
   const fields = '_id listingId checkIn checkOut status money nightsCount guestsCount guest confirmationCode integration source channel guestId';
-  // ignoreStatusFilter=true is passed below but is PROVEN a no-op on this
-  // list endpoint: the response is identical either way, and the feed also
-  // drops reservations once they leave `confirmed` (cancels AND
-  // checked-in/checked-out transitions vanish alike -- re-confirmed live
-  // 2026-08-05 when a cancelled stay froze here for six weeks). Rows the
-  // feed stops returning are healed by reconcileStaleReservations() after
-  // each pull, via the per-code confirmationCode filter -- the only
-  // detection verified to surface canceled rows. See memories
-  // guesty-sync-pagination-debt + project_guesty_cancelled_reservation_leak.
+  // THE FLOOR MUST BE SERVER-SIDE. Probed live 2026-08-25: this endpoint
+  // silently returns only reservations whose checkIn is today or later --
+  // 122 rows unfiltered, vs 264 with a checkOut floor, and every one of the
+  // 31 stays IN PROGRESS right now missing from the unfiltered set. So a
+  // stay that was booked and started between two syncs never landed at all
+  // (225 Washington's Andrea Richmond, Aug 22-29, booked the morning she
+  // arrived), and the "3 months back (completed)" this function claimed to
+  // pull never arrived either. A checkOut $gte filter returns in-progress
+  // and recently-finished stays alike. The old client-side floor could not
+  // do this: it only ever discarded rows, and its early `hitFloor` break
+  // truncated pagination on an ordering the feed never promised.
+  const floor = sinceIso ? sinceIso.slice(0, 10) : null;
+  const filters = floor
+    ? JSON.stringify([{ field: 'checkOut', operator: '$gte', value: floor }])
+    : null;
+  // ignoreStatusFilter=true is a PROVEN no-op on this endpoint (identical
+  // response either way), kept only to match the verified working query.
+  // Rows the feed drops once they leave `confirmed` are healed by
+  // reconcileStaleReservations() after each pull, via the per-code
+  // confirmationCode filter. See memory guesty-sync-pagination-debt.
+  let useFilters = !!filters;
   while (true) {
-    const page = await guestyGet('/v1/reservations', token, { limit, skip, fields, ignoreStatusFilter: 'true' });
+    const params: Record<string, string | number> = { limit, skip, fields, ignoreStatusFilter: 'true' };
+    if (useFilters && filters) params.filters = filters;
+    let page;
+    try {
+      page = await guestyGet('/v1/reservations', token, params);
+    } catch (err) {
+      // If Guesty ever rejects the filter shape, fall back to the unfiltered
+      // feed rather than syncing nothing — degraded (no in-progress stays)
+      // beats empty. Only retried once, on the first page.
+      if (useFilters && skip === 0) {
+        console.warn('[sync-guesty] checkOut filter rejected, falling back to unfiltered feed', err);
+        useFilters = false;
+        continue;
+      }
+      throw err;
+    }
     const batch: GuestyReservation[] = page.data || page.results || [];
     if (batch.length === 0) break;
-    let hitFloor = false;
     for (const r of batch) {
-      const ref = r.checkIn || r.checkOut;
-      if (sinceMs && ref && new Date(ref).getTime() < sinceMs) { hitFloor = true; continue; }
+      // Belt-and-braces: the server filter is the real floor, this just drops
+      // anything stray that slipped under it. NEVER breaks pagination.
+      const ref = r.checkOut || r.checkIn;
+      if (floor && ref && ref.slice(0, 10) < floor) continue;
       all.push(r);
     }
-    if (hitFloor) break;
     if (batch.length < limit) break;
     skip += limit;
     if (skip > 10000) break;
