@@ -855,6 +855,62 @@ export async function revalidatePublishedPackets(): Promise<{ checked: number; c
  * contractor's agreed work, surfaced as "at risk" on the board for a human to
  * release or cancel - never silently unwound by a cron.
  */
+/**
+ * Neutralise Guesty's SHADOW BLOCK rows.
+ *
+ * Guesty mirrors a reservation with its own `status='block'` booking row — 21
+ * Horton carried one spanning 2026-08-28 to 09-13, exactly Eva Madruga's
+ * confirmed direct stay. That is its bookkeeping, not an owner hold, and it
+ * made a full house read "owner / blocked" on the board. The cell logic now
+ * lets a guest outrank a block, but the rows themselves still pollute every
+ * other occupancy read, and Guesty keeps minting them — so sweep nightly.
+ *
+ * A block whose WHOLE span sits inside a real guest stay at the same property
+ * is a shadow. Partial overlaps are left alone: a hold that runs past a
+ * checkout is a real hold. Marked via `duplicate_of` (which every occupancy
+ * query already filters) rather than deleted, so it stays reversible.
+ */
+export async function neutralizeShadowBlocks(): Promise<{ neutralized: number }> {
+  const since = addDays(todayStr(), -90);
+  const [{ data: blkData }, { data: guestData }] = await Promise.all([
+    fieldDb()
+      .from('bookings')
+      .select('id, property_id, check_in, check_out')
+      .eq('status', 'block')
+      .is('duplicate_of', null)
+      .gte('check_out', since),
+    fieldDb()
+      .from('bookings')
+      .select('id, property_id, check_in, check_out, guest_name, created_at')
+      .in('status', TURNOVER_STATUSES)
+      .is('duplicate_of', null)
+      .gte('check_out', since),
+  ]);
+  const blocks = (blkData ?? []) as Array<{ id: string; property_id: string; check_in: string; check_out: string }>;
+  if (blocks.length === 0) return { neutralized: 0 };
+
+  const guestsByProp = new Map<string, Array<{ id: string; check_in: string; check_out: string; guest_name: string | null; created_at: string }>>();
+  for (const g of (guestData ?? []) as Array<{ id: string; property_id: string; check_in: string; check_out: string; guest_name: string | null; created_at: string }>) {
+    const arr = guestsByProp.get(g.property_id) ?? [];
+    arr.push(g);
+    guestsByProp.set(g.property_id, arr);
+  }
+
+  let neutralized = 0;
+  for (const b of blocks) {
+    if (!b.check_in || !b.check_out) continue;
+    const covering = (guestsByProp.get(b.property_id) ?? [])
+      .filter((g) => !!g.check_in && !!g.check_out && g.check_in <= b.check_in && b.check_out <= g.check_out)
+      // Point at the named row when Guesty left several for one stay.
+      .sort((x, y) => Number(!x.guest_name) - Number(!y.guest_name) || x.created_at.localeCompare(y.created_at));
+    const target = covering[0];
+    if (!target || target.id === b.id) continue;
+    const { error } = await fieldDb().from('bookings').update({ duplicate_of: target.id }).eq('id', b.id).eq('status', 'block');
+    if (!error) neutralized++;
+  }
+  return { neutralized };
+}
+
 export async function expireStalePackets(): Promise<{ expired: number }> {
   const today = todayStr();
   const { data } = await fieldDb()

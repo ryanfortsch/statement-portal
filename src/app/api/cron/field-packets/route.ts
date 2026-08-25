@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { expireStalePackets, revalidatePublishedPackets, resyncLivePacketBookings } from '@/lib/field-packets';
+import { expireStalePackets, revalidatePublishedPackets, resyncLivePacketBookings, neutralizeShadowBlocks } from '@/lib/field-packets';
 import { planMaintenanceRuns } from '@/lib/maintenance-runs';
 import { authorizeCron } from '@/lib/cron-auth';
 
@@ -29,6 +29,10 @@ export async function GET(request: NextRequest) {
     // claimed) back to draft. Runs before the 12:00 UTC field-morning cron,
     // so its claim-deadline re-text can never pick up a dead listing and
     // blast the roster about a day that already happened.
+    // Sweep Guesty's shadow block rows FIRST: a block row that duplicates a
+    // reservation makes a full house look owner-held, which would otherwise
+    // skew every occupancy read below it in this same run.
+    const shadowBlocks = await neutralizeShadowBlocks().catch(() => ({ neutralized: 0 }));
     const expired = await expireStalePackets();
     const revalidated = await revalidatePublishedPackets();
     // Heal stale packet->booking links: re-point live packets' stops to the
@@ -41,7 +45,7 @@ export async function GET(request: NextRequest) {
     const maintenanceRuns = await planMaintenanceRuns().catch((err) => ({
       error: err instanceof Error ? err.message : String(err),
     }));
-    return NextResponse.json({ ok: true, expired, revalidated, resynced, maintenanceRuns });
+    return NextResponse.json({ ok: true, shadowBlocks, expired, revalidated, resynced, maintenanceRuns });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     // Tolerate the pre-migration window so the cron doesn't 500 nightly until
