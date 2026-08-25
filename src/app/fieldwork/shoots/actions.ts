@@ -510,8 +510,12 @@ export async function syncDriveNow(formData: FormData): Promise<void> {
   try {
     const r = await syncCreativeDrive();
     if (r.ok || r.newFiles > 0) {
+      // Parked = raw footage sitting in a DRONE box: dropped from the delivery
+      // list, so say so rather than letting rows vanish without a word.
+      const parked = r.shoots.reduce((n, s) => n + s.parkedFiles, 0);
       const bits = [
         r.newFiles > 0 ? `${r.newFiles} new file${r.newFiles === 1 ? '' : 's'}` : 'no new files',
+        parked > 0 ? `${parked} raw file${parked === 1 ? '' : 's'} parked in the drone box` : null,
         r.assetsCreated > 0 ? `${r.assetsCreated} asset${r.assetsCreated === 1 ? '' : 's'} logged` : null,
         r.errors.length > 0 ? `${r.errors.length} folder issue${r.errors.length === 1 ? '' : 's'}` : null,
       ].filter(Boolean);

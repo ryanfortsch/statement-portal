@@ -175,6 +175,17 @@ export default async function ShootDetail({
                     Finals folder ↗
                   </a>
                 )}
+                {shoot.drive_drone_folder_id && (
+                  <a
+                    href={`https://drive.google.com/drive/folders/${shoot.drive_drone_folder_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--ink-4)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 400 }}
+                    title="Raw footage parked here is never counted as a deliverable"
+                  >
+                    drone box ↗
+                  </a>
+                )}
                 {shoot.drive_folder_id && (
                   <a
                     href={`https://drive.google.com/drive/folders/${shoot.drive_folder_id}`}
