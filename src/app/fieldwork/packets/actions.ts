@@ -164,7 +164,7 @@ export async function assignPacket(formData: FormData): Promise<void> {
   await programPacketCodes(packetId).catch(() => {});
 
   const { data: full } = await fieldDb().from('inspection_packets').select('*').eq('id', packetId).maybeSingle();
-  if (full) await sendClaimConfirmation(contractor, full as PacketRow).catch(() => {});
+  if (full) await sendClaimConfirmation(contractor, full as PacketRow, { assigned: true }).catch(() => {});
 
   revalidatePath(`/fieldwork/packets/${packetId}`);
   revalidatePath('/fieldwork/packets');
@@ -423,7 +423,7 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
         .insert({ packet_id: packetId, contractor_id: assignee.id, actor_email: email, event_type: 'assigned' });
       await programPacketCodes(packetId).catch(() => {});
       const { data: full } = await fieldDb().from('inspection_packets').select('*').eq('id', packetId).maybeSingle();
-      if (full) await sendClaimConfirmation(assignee, full as PacketRow).catch(() => {});
+      if (full) await sendClaimConfirmation(assignee, full as PacketRow, { assigned: true }).catch(() => {});
       revalidatePath('/fieldwork/packets');
       redirect(`/fieldwork/packets?sent=1&who=${encodeURIComponent(assignee.full_name.split(' ')[0])}`);
     }

@@ -6,7 +6,7 @@ import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { formatTime12 } from '@/lib/checkout-schedule';
-import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
@@ -614,6 +614,12 @@ export default async function PacketPage({
   const claimable = !isMine && packet.status === 'published' && !visitPassed && canClaim(contractor);
   // While actively working a claimed packet, show it as a job to finish, not an
   // open-ended errand: a progress bar + live per-stop status.
+  // Handed to him by the office rather than claimed off the board: say so, or
+  // the trip just appears and the receipt email reads like he grabbed it.
+  const officeAssigned =
+    isMine &&
+    packet.status === 'claimed' &&
+    (await loadOfficeAssignedPacketIds([packet.id]).catch(() => new Set<string>())).has(packet.id);
   const working = isMine && (isWorkingStatus(packet.status)) && packet.stops.length > 0;
   const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
   // Every route starts at the supply closet: home bins + flagged-low consumables
@@ -806,6 +812,13 @@ export default async function PacketPage({
       {sp.incomplete && (
         <Alert tone="warn">
           Finish every stop before submitting the packet.
+        </Alert>
+      )}
+      {officeAssigned && (
+        <Alert tone="office">
+          <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.55 }}>
+            The office booked this one for you — it&apos;s yours, nothing to claim. Everything below works the same.
+          </div>
         </Alert>
       )}
       {isMine && (isWorkingStatus(packet.status)) && packet.instructions && (
