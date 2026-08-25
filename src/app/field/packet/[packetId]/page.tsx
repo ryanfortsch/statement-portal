@@ -7,7 +7,7 @@ import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay, VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { formatTime12 } from '@/lib/checkout-schedule';
 import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , GUEST_ACCESS_LABEL, clockLabel, tripWindowLabel } from '@/lib/field-types';
+import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , clockLabel, tripWindowLabel } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
@@ -74,19 +74,12 @@ function fmtDate(d: string): string {
   }
 }
 
-function fmtShortDate(d: string): string {
-  try {
-    return new Date(`${d}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  } catch {
-    return d;
-  }
-}
 
 /** Per-stop timing truth, driven by the bookings — not a fixed window. The day
  *  opens at the 11 AM checkout; the ONLY hard deadline is a guest checking in
  *  THAT day (door code goes out at 3 PM); a same-day checkout means the
  *  the inspector goes after. Vacant homes are open from 11. */
-function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; first: string; rest: string; urgent: boolean; open: boolean } {
+function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; urgent: boolean; open: boolean } {
   // Two facts, no coaching: is the home open (and since when), and when's the
   // next check-in. Per Dotti, the per-stop line stays this simple (the old
   // DayPlan banner that coached sequencing was removed at her request).
@@ -95,19 +88,17 @@ function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; fi
   // on a PRIOR day is "Open now" — the inspector can start first thing, no
   // waiting on an 11 AM checkout (Dotti, 2026-08-24: Delaney didn't know the
   // empty-since-yesterday 20 Hammond was startable at 8 AM).
-  const open = s.window_basis !== 'checkout_day';
-  const first = !open
-    // Name the hour: this home's guest is leaving this morning, and not every
-    // home checks out at 11 (a few are 10). Walking up before then finds the
-    // guest still in the house.
-    ? `Checkout today · open after ${clockLabel((s.property.default_checkout_time ?? '11:00').slice(0, 5))}`
-    : s.prior_checkout && s.prior_checkout < visitDate
-      ? `Open now · empty since ${fmtShortDate(s.prior_checkout)}`
-      : 'Open now';
-  const rest = !s.next_checkin
-    ? ' · no next check-in scheduled'
-    : ` · guests in ${s.next_checkin === visitDate ? `today from ${GUEST_ACCESS_LABEL}` : `${fmtShortDate(s.next_checkin)} from ${GUEST_ACCESS_LABEL}`}`;
-  return { label: `${first}${rest}`, first, rest, urgent: s.next_checkin === visitDate, open };
+  // ONE fact per stop, in the home's own hours: when he can start, when he
+  // must be out, or both — never a chain of clauses about prior checkouts and
+  // future check-ins he can't act on.
+  const outBy = clockLabel((s.property.default_checkin_time ?? '15:00').slice(0, 5));
+  const inAfter = clockLabel((s.property.default_checkout_time ?? '11:00').slice(0, 5));
+  const urgent = s.next_checkin === visitDate;
+  const checkoutDay = s.window_basis === 'checkout_day';
+  if (urgent && checkoutDay) return { label: `${inAfter} – ${outBy}`, urgent: true, open: false };
+  if (urgent) return { label: `Finish by ${outBy}`, urgent: true, open: false };
+  if (checkoutDay) return { label: `Open after ${inAfter}`, urgent: false, open: false };
+  return { label: 'Open now', urgent: false, open: true };
 }
 
 /** An ISO instant as a wall clock pinned to Eastern (e.g. "10:08 AM"), so the
@@ -142,22 +133,12 @@ const CLEAN_LOOKBACK_DAYS = 4;
 /** Cleaner status for a turnover stop, distinct from the inspector's own
  *  progress. "Keyed in" is a confirmed door event; the finish time is usually a
  *  system estimate, so it's labeled as such. Null status = nobody's keyed in. */
-function CleanerStatus({ status, sameDay, checkoutDate }: { status: CleaningStatus | undefined; sameDay: boolean; checkoutDate: string | null }) {
-  // No record. Same-day: the cleaner may still be coming. Prior checkout: a
-  // turnover we have NO evidence happened — the important warning (this is the
-  // "36 Granite looked already-cleaned but wasn't" case).
-  if (!status) {
-    return (
-      <div style={{ fontSize: 13, marginTop: 4 }}>
-        <span aria-hidden>🧹</span>{' '}
-        <span style={{ color: sameDay ? 'var(--ink-4)' : 'var(--signal)', fontWeight: sameDay ? 400 : 600 }}>
-          {sameDay
-            ? 'No cleaning signal yet today'
-            : `No cleaning signal since the ${checkoutDate ? fmtShortDate(checkoutDate) : 'last'} checkout`}
-        </span>
-      </div>
-    );
-  }
+function CleanerStatus({ status, sameDay }: { status: CleaningStatus | undefined; sameDay: boolean }) {
+  // No record: say NOTHING. A missing ping is usually just a cleaner who
+  // doesn't text, not an uncleaned house, and "no cleaning signal since the
+  // Tue checkout" read as an accusation the inspector could do nothing with.
+  // He is standing in the room — he can see whether it's clean.
+  if (!status) return null;
   // A prior-checkout turnover that WAS serviced: just say when.
   if (!sameDay) {
     return (
@@ -795,18 +776,6 @@ export default async function PacketPage({
           )}
         </div>
       )}
-      {/* A trip PIN is only written into the locks Seam can reach. On a mixed
-          trip the pill reads as "the code for today" for every door, so name
-          the homes it does NOT open right under it. */}
-      {working && packet.entry_code && (() => {
-        const without = packet.stops.filter((s) => s.property_id && !codedProps.has(s.property_id));
-        if (without.length === 0) return null;
-        return (
-          <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: -16, marginBottom: 20, lineHeight: 1.45 }}>
-            Doesn&apos;t open {without.map((s) => s.property.name).join(', ')} — {without.length === 1 ? 'that one has' : 'those have'} their own code on the stop below.
-          </div>
-        );
-      })()}
 
 
       {/* One prioritized alert region. Only the hard account block is red; the
@@ -1151,27 +1120,10 @@ export default async function PacketPage({
                             its own line instead of hiding at the end of a chain. */}
                         {!terminal && (() => {
                           const t = stopTiming(s, packet.visit_date);
-                          // "Open now" leads in green: the one glanceable fact
-                          // that tells the inspector they can start right away.
-                          const lead = (
-                            <span style={t.open ? { color: 'var(--positive)', fontWeight: 600 } : { color: 'var(--ink-4)' }}>
-                              {t.first}
-                            </span>
-                          );
-                          if (!t.urgent) {
-                            return (
-                              <span style={{ color: 'var(--ink-4)' }}>
-                                {s.status === 'in_progress' ? ' · ' : ''}{lead}{t.rest}
-                              </span>
-                            );
-                          }
                           return (
-                            <>
-                              <span style={{ color: 'var(--ink-4)' }}>{s.status === 'in_progress' ? ' · ' : ''}{lead}</span>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--signal)', marginTop: 4 }}>
-                                Guests can arrive from {clockLabel((s.property.default_checkin_time ?? '15:00').slice(0, 5))} today — finish by then
-                              </div>
-                            </>
+                            <span style={{ color: t.urgent ? 'var(--signal)' : t.open ? 'var(--positive)' : 'var(--ink-4)', fontWeight: t.urgent || t.open ? 600 : 400 }}>
+                              {s.status === 'in_progress' ? ' · ' : ''}{t.label}
+                            </span>
                           );
                         })()}
                         {/* Cleaner status (🧹), distinct from the inspector's own
@@ -1183,7 +1135,7 @@ export default async function PacketPage({
                           if (!sameDay && !recent) return null;
                           const status = cleaning.get(`${s.property_id}|${checkoutDate}`);
                           if (!status && !locked.has(s.property_id)) return null;
-                          return <CleanerStatus status={status} sameDay={sameDay} checkoutDate={checkoutDate} />;
+                          return <CleanerStatus status={status} sameDay={sameDay} />;
                         })()}
                       </div>
                     ) : !s.workSlip ? (
@@ -1194,8 +1146,7 @@ export default async function PacketPage({
                             {/* The town is the drive-time signal a browser needs before
                                 claiming — even masked stops say where they are. */}
                             {cityShort(s.property.city) ? `${cityShort(s.property.city)} · ` : ''}
-                            <span style={t.open && !t.urgent ? { color: 'var(--positive)', fontWeight: 600 } : undefined}>{t.first}</span>
-                            {t.rest}
+                            <span style={t.open ? { color: 'var(--positive)', fontWeight: 600 } : undefined}>{t.label}</span>
                           </div>
                         );
                       })()
