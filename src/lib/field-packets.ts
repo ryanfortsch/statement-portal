@@ -2417,6 +2417,33 @@ export async function loadInspectionCalendar(
     ((blkData ?? []) as { property_id: string; date: string }[]).map((b) => `${b.property_id}:${b.date}`),
   );
 
+  // Guesty's own day-level mirror. The reservations FEED only returns
+  // `confirmed` rows — a guest who has checked in flips to `checked_in` and
+  // vanishes from it — so a stay booked and started between syncs can be
+  // absent from `bookings` entirely while the house is full (225 Washington,
+  // Andrea Richmond Aug 22-29, booked the morning she arrived). The mirror
+  // never lies about a day, so it's the occupancy backstop: a day Guesty
+  // calls booked can never render "open to inspect".
+  const { data: mirrorData } = await fieldDb()
+    .from('property_calendar_days')
+    .select('property_id, date, status')
+    .in('property_id', propIds)
+    .gte('date', fetchStart)
+    .lte('date', windowEnd);
+  const mirrorBooked = new Set<string>();
+  const mirrorUnavailable = new Set<string>();
+  const mirrorFirstBookedByProp = new Map<string, string>();
+  for (const r of (mirrorData ?? []) as { property_id: string; date: string; status: string }[]) {
+    const d = r.date.slice(0, 10);
+    if (r.status === 'booked') {
+      mirrorBooked.add(`${r.property_id}:${d}`);
+      const cur = mirrorFirstBookedByProp.get(r.property_id);
+      if (!cur || d < cur) mirrorFirstBookedByProp.set(r.property_id, d);
+    } else if (r.status === 'unavailable') {
+      mirrorUnavailable.add(`${r.property_id}:${d}`);
+    }
+  }
+
   const coveredBookings = await coveredBookingIds();
 
   // Completed inspections are the OTHER way a turnover gets prepped: a staff
@@ -2485,7 +2512,10 @@ export async function loadInspectionCalendar(
     // paints every day green "open to inspect" from the moment it's seeded
     // (225 Washington, first guest 2026-09-02). It joins the board for real
     // the moment that first guest checks out.
-    const everHosted = pb.some((b) => isGuestStay(b) && b.check_out <= today);
+    const firstMirrorBooked = mirrorFirstBookedByProp.get(p.id);
+    const everHosted =
+      pb.some((b) => isGuestStay(b) && b.check_in <= today) ||
+      (!!firstMirrorBooked && firstMirrorBooked <= today);
     if (!everHosted && !everInspected.has(p.id)) continue;
     const uncovered = pb.filter(
       (b) =>
@@ -2530,9 +2560,11 @@ export async function loadInspectionCalendar(
         pb.some((b) => isGuestStay(b) && b.check_in <= D && D < b.check_out) &&
         !(next && next.check_in === D);
       const blockOccupied = pb.some((b) => !isGuestStay(b) && b.check_in <= D && D < b.check_out);
-      const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied;
+      const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied || mirrorUnavailable.has(`${p.id}:${D}`);
       const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
-      const state: CalCellState = isBlocked ? 'blocked' : guestOccupied ? 'occupied' : 'open';
+      // A day Guesty calls booked is occupied even when no booking row spans it.
+      const state: CalCellState =
+        isBlocked ? 'blocked' : guestOccupied || mirrorBooked.has(`${p.id}:${D}`) ? 'occupied' : 'open';
       const nextCovered = !!next && isCoveredStay(coveredBookings, p.id, next.id, next.check_in);
       const nextPrepped = !!next && preppedFor(p.id, pb, next.check_in);
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered && !nextPrepped;
