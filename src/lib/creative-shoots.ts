@@ -194,14 +194,34 @@ export type ShootPaySummary = {
   fullySettled: boolean; // >=1 counting post, every base paid, every counting REEL posted + count locked + bonus resolved (carousels settle at base)
   baseDue: number; // delivered posts awaiting their base payment
   topupDue: number; // posted reels whose view bonus is ready to pay
+  /** Something is delivered, but the card's full package isn't in yet — so
+   *  NOTHING is owed. The delivery slug pays once, on the complete set. */
+  awaitingSet: boolean;
+  /** What the package is still missing (both 0 once the set is in). */
+  setShortReels: number;
+  setShortCarousels: number;
+  /** What the whole delivery slug is worth once the set lands. */
+  setBaseCents: number;
 };
 
 /**
  * Per-POST money rollup for a shoot — the single source of truth the board, the
  * shoot header, the roster ledger, and the contributor's portal all read from,
- * so no two surfaces can drift. The base is owed on DELIVERY (as soon as the
- * post is logged); a reel's view bonus only starts once we POST it — which can
- * be weeks later, or never.
+ * so no two surfaces can drift.
+ *
+ * THE PACKAGE GATE (Dotti, 2026-08-26). The delivery slug is ONE payment for
+ * the whole set, never a per-post drip. Nothing is owed until every reel slot
+ * on the card is filled AND the carousel is in; then the full base goes due at
+ * once ($300 = two reels + a carousel on the standard card). Posting is a
+ * separate clock: it starts a reel's view count, which resolves countDays
+ * later into the bonus. The Drive watcher already gates delivery this way
+ * (it refuses to materialize a partial package); this is the same rule for
+ * office-logged posts, which used to walk straight past it and read as owed.
+ *
+ * Once any base on the shoot has been paid, the office has already committed
+ * to this package, so the gate stays open for the rest — the same "money
+ * already moved" seam the Drive watcher uses, so a part-paid shoot can never
+ * un-owe what it owed yesterday.
  */
 export function shootPaySummary(
   assets: AssetRow[],
@@ -209,8 +229,22 @@ export function shootPaySummary(
   // Required (not optional) so a new surface can't silently drop the office's
   // paid-to-date correction and drift from the books.
   shoot: Pick<ShootRow, 'paid_adjustment_cents'>,
+  // Required for the same reason: the package gate needs the card's slot
+  // counts, and a surface that skipped it would start paying per post again.
+  card: Pick<RateCard, 'maxPerShoot' | 'maxCarouselsPerShoot' | 'baseCents' | 'carouselCents'>,
 ): ShootPaySummary {
   const byId = new Map(pay.assets.map((p) => [p.assetId, p]));
+  const countingOf = (kind: 'reel' | 'carousel') => pay.assets.filter((p) => p.counts && p.kind === kind).length;
+  const anyBasePaid = assets.some((a) => a.base_paid_at);
+  const setShortReels = Math.max(0, card.maxPerShoot - countingOf('reel'));
+  const setShortCarousels = Math.max(0, card.maxCarouselsPerShoot - countingOf('carousel'));
+  // Nothing delivered at all isn't a short set — those shoots read "no posts
+  // yet" and owe nothing either way. The gate is about a PARTIAL package.
+  const awaitingSet =
+    !anyBasePaid &&
+    countingOf('reel') + countingOf('carousel') > 0 &&
+    setShortReels + setShortCarousels > 0;
+  const setBaseCents = card.maxPerShoot * card.baseCents + card.maxCarouselsPerShoot * card.carouselCents;
   let paidCents = 0, owedCents = 0, owedBaseCents = 0, pendingCents = 0, baseDue = 0, topupDue = 0, counting = 0, settled = 0;
   for (const a of assets) {
     const ap = byId.get(a.id);
@@ -222,11 +256,14 @@ export function shootPaySummary(
     if (!ap || !ap.counts) continue; // excluded / disqualified / over-cap owe nothing
     counting++;
     let assetSettled = true;
-    // Base — owed the moment it's delivered (logged), whether or not it's posted.
+    // Base — owed on the COMPLETE set, not per post (the package gate above).
+    // A short package is unsettled but owes nothing yet.
     if (!a.base_paid_at) {
-      owedCents += ap.baseCents;
-      owedBaseCents += ap.baseCents;
-      baseDue++;
+      if (!awaitingSet) {
+        owedCents += ap.baseCents;
+        owedBaseCents += ap.baseCents;
+        baseDue++;
+      }
       assetSettled = false;
     }
     // View bonus — reels only, and only once the reel has been POSTED (its clock
@@ -258,7 +295,35 @@ export function shootPaySummary(
   // real payment still adds on top. Settlement state stays receipt-driven.
   const receiptsPaidCents = paidCents;
   paidCents += shoot.paid_adjustment_cents ?? 0;
-  return { paidCents, receiptsPaidCents, owedCents, owedBaseCents, pendingCents, baseDue, topupDue, fullySettled: counting > 0 && settled === counting };
+  return {
+    paidCents,
+    receiptsPaidCents,
+    owedCents,
+    owedBaseCents,
+    pendingCents,
+    baseDue,
+    topupDue,
+    fullySettled: counting > 0 && settled === counting,
+    awaitingSet,
+    setShortReels,
+    setShortCarousels,
+    setBaseCents,
+  };
+}
+
+/** What a partial package is still missing, in plain words ("waiting on 1 more
+ *  reel + the carousel"). Shared so the board, the shoot page and the
+ *  contributor's portal describe a short set in the same words. */
+export function setShortLabel(sum: Pick<ShootPaySummary, 'setShortReels' | 'setShortCarousels'>): string {
+  const bits = [
+    sum.setShortReels > 0 ? `${sum.setShortReels} more reel${sum.setShortReels === 1 ? '' : 's'}` : null,
+    sum.setShortCarousels > 0
+      ? sum.setShortCarousels === 1
+        ? 'the carousel'
+        : `${sum.setShortCarousels} carousels`
+      : null,
+  ].filter(Boolean);
+  return `waiting on ${bits.join(' + ')}`;
 }
 
 /**
@@ -290,7 +355,8 @@ export async function getContractorShootStats(): Promise<Map<string, ShootPaySta
   for (const s of shoots) {
     const assets = byShoot.get(s.id) ?? [];
     if (assets.length === 0) continue;
-    const sum = shootPaySummary(assets, computeShootPay(cardForShoot(s, cards), assets), s);
+    const card = cardForShoot(s, cards);
+    const sum = shootPaySummary(assets, computeShootPay(card, assets), s, card);
     const cur = map.get(s.contractor_id) ?? { approvedCount: 0, paidCount: 0, owedCents: 0, paidCents: 0, pendingCents: 0 };
     cur.paidCents += sum.paidCents;
     cur.owedCents += sum.owedCents;
@@ -337,7 +403,7 @@ export function creativeProfileStats(shoots: ShootSummary[], today: string = tod
   const upNext: ShootSummary[] = [];
 
   for (const sm of shoots) {
-    const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot);
+    const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot, sm.card);
     paidCents += sum.paidCents;
     owedCents += sum.owedCents;
     pendingCents += sum.pendingCents;

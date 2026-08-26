@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
-import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
+import { loadShootDetail, shootPaySummary, setShortLabel } from '@/lib/creative-shoots';
 import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
@@ -50,7 +50,7 @@ export default async function ShootDetail({
   const briefNote = sp.brief ?? null;
   const { shoot, pay, card } = detail;
   const payByAsset = new Map(pay.assets.map((p) => [p.assetId, p]));
-  const sum = shootPaySummary(detail.assets, pay, shoot);
+  const sum = shootPaySummary(detail.assets, pay, shoot, card);
   const active = shoot.status !== 'cancelled';
   const paidAdjusted = (shoot.paid_adjustment_cents ?? 0) !== 0;
 
@@ -62,7 +62,14 @@ export default async function ShootDetail({
   // posting happens on RT's schedule (weeks or months later), and settled
   // means every reel posted AND its count locked.
   const toPost = pay.assets.some((p) => p.counts && p.kind === 'reel' && p.stalled);
-  const statusTag = shoot.status === 'cancelled' ? 'Cancelled' : sum.fullySettled ? 'Settled' : sum.owedCents > 0 ? 'To pay' : sum.pendingCents > 0 || onClock || toPost ? 'In flight' : 'Awaiting delivery';
+  // A partial package outranks "In flight": the story is what's still missing.
+  const statusTag =
+    shoot.status === 'cancelled' ? 'Cancelled'
+      : sum.fullySettled ? 'Settled'
+        : sum.owedCents > 0 ? 'To pay'
+          : sum.awaitingSet ? 'Awaiting the set'
+            : sum.pendingCents > 0 || onClock || toPost ? 'In flight'
+              : 'Awaiting delivery';
 
   const reels = detail.assets.filter((a) => a.kind === 'reel');
   const carousels = detail.assets.filter((a) => a.kind === 'carousel');
@@ -295,12 +302,33 @@ export default async function ShootDetail({
           </div>
         )}
 
-        {/* Delivery base: $100/asset the moment it's handed over — one click for
+        {/* The delivery slug pays ONCE, on the complete set — so a short package
+            gets the reason, not a button that would jump the gate. */}
+        {active && sum.awaitingSet && (
+          <div
+            style={{
+              marginTop: 14,
+              border: '1px solid var(--rule)',
+              borderRadius: 10,
+              padding: '12px 16px',
+              background: 'var(--paper-2, #fff)',
+              fontSize: 13,
+              color: 'var(--ink-3)',
+              lineHeight: 1.55,
+            }}
+          >
+            <strong style={{ color: 'var(--ink)' }}>{dollars(sum.setBaseCents)} on the full set</strong> — {setShortLabel(sum)}.
+            The delivery base pays once, when the whole package is in. Posting a reel is a separate clock: it starts the view
+            bonus, read {card.countDays} days later.
+          </div>
+        )}
+
+        {/* Delivery base: the whole slug the moment the set is in — one click for
             everything delivered-but-unpaid. Bonuses come later, per posted reel. */}
         {active && sum.baseDue > 0 && (
           <form action={payAllDeliveredBases} style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
             <input type="hidden" name="shoot_id" value={shoot.id} />
-            <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{sum.baseDue} delivered {sum.baseDue === 1 ? 'asset' : 'assets'} — base owed on delivery.</span>
+            <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>Full set delivered — {sum.baseDue} {sum.baseDue === 1 ? 'post' : 'posts'} owed their base.</span>
             <input name="reference" placeholder="ref # (optional)" style={{ ...input, width: 130 }} />
             <PendingButton label={`Pay all bases · ${dollars(sum.owedBaseCents ?? 0)}`} busyLabel="Recording + receipt…" style={btnDark} />
           </form>
@@ -311,7 +339,7 @@ export default async function ShootDetail({
         <div style={{ marginTop: 26 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>Posts</div>
           {detail.assets.length === 0 && (
-            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No assets logged yet. Log each reel or carousel as Cooper delivers it — the base is owed on delivery, the reel bonus follows once we post it.</div>
+            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No assets logged yet. Log each reel or carousel as {detail.contractorName.split(' ')[0]} delivers it — the base pays once the full set is in, and each reel&apos;s bonus follows once we post it.</div>
           )}
           {[...reels, ...carousels].map((a) => {
             const ap = payByAsset.get(a.id);
@@ -367,8 +395,10 @@ export default async function ShootDetail({
 
                 {active && (
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
-                    {/* Pay base — owed on delivery, whether or not it's posted. */}
-                    {ap && ap.counts && !paidBase && (
+                    {/* Pay base — owed once the whole set is delivered, whether
+                        or not it's posted. Hidden while the package is short:
+                        the gate is a shoot-level fact, not a per-post one. */}
+                    {ap && ap.counts && !paidBase && !sum.awaitingSet && (
                       <form action={payAssetBase} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <input type="hidden" name="shoot_id" value={shoot.id} />
                         <input type="hidden" name="asset_id" value={a.id} />

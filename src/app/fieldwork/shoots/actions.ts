@@ -201,7 +201,7 @@ async function freezeCardIfNeeded(shoot: { id: string; card_snapshot: unknown },
 async function refreshShootSettlement(shootId: string): Promise<void> {
   const detail = await loadShootDetail(shootId);
   if (!detail || detail.shoot.status === 'cancelled') return;
-  const sum = shootPaySummary(detail.assets, detail.pay, detail.shoot);
+  const sum = shootPaySummary(detail.assets, detail.pay, detail.shoot, detail.card);
   const status = sum.fullySettled ? 'settled' : 'shot';
   if (detail.shoot.status !== status || !!detail.shoot.paid_at !== sum.fullySettled) {
     await fieldDb()
@@ -227,10 +227,18 @@ export async function payAssetBase(formData: FormData): Promise<void> {
   if (!detail) return;
   const asset = detail.assets.find((a) => a.id === assetId);
   const ap = detail.pay.assets.find((p) => p.assetId === assetId);
-  // Base is owed on DELIVERY (the asset is logged), not on posting — posting can
-  // come weeks later, or never. Only a counting, unpaid post can take a base.
+  // Base is owed on the COMPLETE set, not on posting — posting can come weeks
+  // later, or never. Only a counting, unpaid post can take a base.
   if (!asset || !ap || !ap.counts || asset.base_paid_at) {
     revalidatePath(`/fieldwork/shoots/${shootId}`); // refresh, never a dead click
+    return;
+  }
+  // The package gate, enforced on the write too: a stale page (or a fast
+  // double-click while the last file is still syncing) must never pay a base
+  // into a short set. The office's escape hatch for money that moved anyway is
+  // the audited paid-to-date adjustment, not this button.
+  if (shootPaySummary(detail.assets, detail.pay, detail.shoot, detail.card).awaitingSet) {
+    revalidatePath(`/fieldwork/shoots/${shootId}`);
     return;
   }
   // Belt-and-suspenders on the cap: never pay a reel base once maxPerShoot reels
@@ -281,9 +289,10 @@ export async function payAssetBase(formData: FormData): Promise<void> {
 }
 
 /**
- * Pay the base on EVERY delivered, counting, unpaid post at once — the
- * "$100 per asset on delivery" lump ($300 for two reels + a carousel). Per-post
- * records are still written; this is just the one-click convenience.
+ * Pay the base on EVERY counting, unpaid post at once — the delivery slug
+ * ($300 for two reels + a carousel), which goes due only once the whole set is
+ * in. Per-post records are still written; this is just the one-click way to
+ * send the slug.
  */
 export async function payAllDeliveredBases(formData: FormData): Promise<void> {
   const email = await staffEmail();
@@ -292,6 +301,11 @@ export async function payAllDeliveredBases(formData: FormData): Promise<void> {
   const reference = String(formData.get('reference') || '').trim() || null;
   const detail = await loadShootDetail(shootId);
   if (!detail) return;
+  // Same package gate as payAssetBase: nothing pays until the whole set is in.
+  if (shootPaySummary(detail.assets, detail.pay, detail.shoot, detail.card).awaitingSet) {
+    revalidatePath(`/fieldwork/shoots/${shootId}`);
+    return;
+  }
   await freezeCardIfNeeded(detail.shoot, detail.card);
   const { data: c } = await fieldDb().from('contractors').select('*').eq('id', detail.shoot.contractor_id).maybeSingle();
   const contractor = c as ContractorRow | null;
@@ -465,7 +479,7 @@ export async function setShootPaidAdjustment(formData: FormData): Promise<void> 
   const clearing = String(formData.get('clear') || '') === '1';
   const detail = await loadShootDetail(shootId);
   if (!detail || detail.shoot.status === 'cancelled') return;
-  const sum = shootPaySummary(detail.assets, detail.pay, detail.shoot);
+  const sum = shootPaySummary(detail.assets, detail.pay, detail.shoot, detail.card);
 
   let adjustment = 0;
   let note: string | null = null;

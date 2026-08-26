@@ -3,7 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
-import { loadShootBoard, loadCreativeContractors, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
+import { loadShootBoard, loadCreativeContractors, shootPaySummary, setShortLabel, type ShootSummary } from '@/lib/creative-shoots';
 import { loadDriveFilesByShoots, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured } from '@/lib/creative-drive';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { dollars } from '@/lib/field-types';
@@ -30,8 +30,14 @@ function fmtSettles(iso: string | null): string {
 
 /** One money line per shoot, from the per-post rollup: paid → to-pay → counting. */
 function payLine(s: ShootSummary): { text: string; tone: string; sub: string | null } {
-  const sum = shootPaySummary(s.assets, s.pay, s.shoot);
+  const sum = shootPaySummary(s.assets, s.pay, s.shoot, s.card);
   if (sum.fullySettled) return { text: `Paid ${dollars(sum.paidCents)}`, tone: 'var(--positive)', sub: null };
+  // The delivery slug pays once, on the COMPLETE set. A partial package owes
+  // nothing yet — show what it will be worth and what it's still waiting on,
+  // never a to-pay figure someone might send.
+  if (sum.awaitingSet) {
+    return { text: `${dollars(sum.setBaseCents)} on delivery`, tone: 'var(--ink-3)', sub: setShortLabel(sum) };
+  }
   if (sum.owedCents > 0) {
     const bits = [sum.baseDue ? `${sum.baseDue} base` : null, sum.topupDue ? `${sum.topupDue} bonus` : null].filter(Boolean).join(' + ');
     return { text: `${dollars(sum.owedCents)} to pay`, tone: 'var(--signal)', sub: bits ? `${bits} ready` : 'ready to pay' };
@@ -114,7 +120,7 @@ export default async function CreativeBoard({
     .at(-1);
   const driveNote = sp.drive ?? null;
 
-  const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay, s.shoot)]));
+  const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay, s.shoot, s.card)]));
   const attention = board.filter((s) => s.pay.needsAttention);
   const owed = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.owedCents > 0);
   const done = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.fullySettled);
