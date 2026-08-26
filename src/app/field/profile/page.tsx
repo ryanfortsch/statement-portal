@@ -346,7 +346,7 @@ function HistoryRow({ h }: { h: ContractorHistoryItem }) {
 /** One shoot in the contributor's history: deliverables + views on the left,
  *  where the money stands on the right — same rollup the office board reads. */
 function ShootRowLine({ sm }: { sm: ShootSummary }) {
-  const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot);
+  const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot, sm.card);
   const reels = sm.assets.filter((a) => a.kind === 'reel').length;
   const cars = sm.assets.filter((a) => a.kind === 'carousel').length;
   const viewsBits = sm.assets

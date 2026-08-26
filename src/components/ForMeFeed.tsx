@@ -724,7 +724,7 @@ async function loadCreativeQueue(): Promise<QueueCard | null> {
     let toApprove = 0;
     let owedCents = 0;
     for (const s of board) {
-      const sum = shootPaySummary(s.assets, s.pay, s.shoot);
+      const sum = shootPaySummary(s.assets, s.pay, s.shoot, s.card);
       owedCents += sum.owedCents;
       if (s.pay.needsAttention || sum.owedCents > 0) toApprove++;
     }

@@ -371,14 +371,18 @@ function fmtShootDate(d: string | null): string {
 }
 
 function contributorPay(s: ShootSummary): { text: string; sub: string; tone: string } {
-  // Per-post rollup: base is paid the day each post goes live, a reel's view
-  // bonus once its count locks. Contributor voice — never the office's "owed".
-  const sum = shootPaySummary(s.assets, s.pay, s.shoot);
+  // Per-post rollup: the delivery slug pays once the full set is in, then a
+  // reel's view bonus once its count locks. Contributor voice — never the
+  // office's "owed".
+  const sum = shootPaySummary(s.assets, s.pay, s.shoot, s.card);
   if (sum.fullySettled) return { text: `${dollars(sum.paidCents)} paid`, sub: 'sent', tone: 'var(--positive)' };
   if (sum.paidCents > 0) {
     const sub = sum.owedCents > 0 ? 'more on the way' : sum.pendingCents > 0 ? 'bonus climbing with views' : 'in progress';
     return { text: `${dollars(sum.paidCents)} paid`, sub, tone: 'var(--ink)' };
   }
+  // Part of the set is in. Show what the whole package pays and what's left,
+  // never a figure that reads like money already on its way.
+  if (sum.awaitingSet) return { text: dollars(sum.setBaseCents), sub: 'when the full set lands', tone: 'var(--ink-3)' };
   if (sum.owedCents > 0) return { text: dollars(sum.owedCents), sub: 'on the way', tone: 'var(--signal)' };
   if (sum.pendingCents > 0) return { text: dollars(sum.pendingCents), sub: 'bonus climbing with views', tone: 'var(--ink-3)' };
   return { text: 'In review', sub: 'pay follows each post', tone: 'var(--ink-4)' };

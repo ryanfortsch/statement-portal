@@ -151,7 +151,7 @@ async function loadContractorHistory(contractorId: string, shoots: ShootSummary[
   // its current best total; a finalized one its locked total.
   const shootItems: ContractorHistoryItem[] = shoots.map((sm) => {
     // Per-post rollup: the shoot's value is what's paid + still to pay + still counting.
-    const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot);
+    const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot, sm.card);
     return {
       id: sm.shoot.id,
       date: sm.shoot.shoot_date,
