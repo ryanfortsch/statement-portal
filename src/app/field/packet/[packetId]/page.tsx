@@ -691,7 +691,7 @@ export default async function PacketPage({
         })()}{packet.complete_by ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
       </div>
       <h1 className="font-serif" style={{ fontSize: 30, fontWeight: 300, margin: '6px 0 8px' }}>
-        {packetHeadline(packet)}
+        {packetHeadline(packet, { place: false })}
       </h1>
       {/* The big price sells the claim; once the packet is theirs the pay is a
           fact, not a pitch — one quiet mono line, bonus beside it. */}
