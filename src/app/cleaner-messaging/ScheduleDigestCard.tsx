@@ -22,6 +22,7 @@ import {
   approveAndSendDigest,
   sendDigestUpdate,
   refreshDigestDraft,
+  skipDigestAction,
   rescanMessagesAction,
   toggleRecipientAction,
   applyProposalAction,
@@ -334,6 +335,31 @@ export async function ScheduleDigestCard({
             <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '6px 0 12px' }}>
               This is composed from the live schedule right now, and left untouched the send recomposes it again at that moment. Edited text goes verbatim.
             </div>
+            <label style={{ display: 'block', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)', margin: '14px 0 6px' }}>
+              Special instructions (optional)
+            </label>
+            <textarea
+              name="note"
+              defaultValue={digest.operator_note ?? ''}
+              rows={2}
+              placeholder="e.g. Rosa, leve toalhas extras para 3 Locust / bring extra towels to 3 Locust"
+              style={{
+                width: '100%',
+                fontSize: 13,
+                lineHeight: 1.5,
+                padding: 10,
+                border: '1px solid var(--rule)',
+                borderRadius: 6,
+                background: 'transparent',
+                color: 'var(--ink)',
+                resize: 'vertical',
+              }}
+            />
+            <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '6px 0 12px' }}>
+              Sent after the schedule, in your words. Unlike editing the text above, a note here does not freeze the
+              schedule -- it still recomposes live at send time. It sticks through Refresh draft and Re-scan.
+            </div>
+
             {/* The live-schedule link is appended per recipient at send time
                 (each cleaner has their own token), so it never appears in the
                 editable body above -- which reads as though no link goes out
@@ -396,6 +422,13 @@ export async function ScheduleDigestCard({
                   style={{ fontSize: 12, padding: '8px 14px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--rule)', borderRadius: 5, cursor: 'pointer' }}
                 />
               </span>
+              <SubmitButton
+                label="Skip this day"
+                busyLabel="Skipping..."
+                spinnerTone="ink"
+                formAction={skipDigestAction}
+                style={{ fontSize: 12, padding: '8px 14px', background: 'transparent', color: 'var(--ink-4)', border: '1px solid var(--rule)', borderRadius: 5, cursor: 'pointer' }}
+              />
               <Link href="/turnovers/schedule" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
                 Full schedule &amp; adjustments →
               </Link>
