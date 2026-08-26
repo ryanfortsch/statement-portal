@@ -206,7 +206,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
         <Swatch bg="var(--signal)" label="picked" />
       </div>
       <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
-        Initials in a handled day are whoever has it — the inspector it&apos;s assigned to, or who walked it.
+        Initials in a handled day are whoever has it — the inspector it&apos;s assigned to, whoever walked it, or whoever ticked it done.
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
         <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
