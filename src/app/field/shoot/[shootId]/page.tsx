@@ -16,6 +16,27 @@ export const dynamic = 'force-dynamic';
  * thing), and what to deliver. Cookie-auth like the packet page, with the
  * same ?office=1 read-only staff preview.
  */
+
+/**
+ * The parking copy is written for GUESTS — a family arriving in two cars for a
+ * week. A creator is one person, one car, here for two hours, and lines like
+ * "Extra cars go on the street" made it obvious the brief was second-hand
+ * (Dotti, 2026-08-26). Drop the sentences that only exist for a carload of
+ * guests; keep every sentence that tells him where to put HIS car and whose
+ * spaces to leave alone.
+ *
+ * Subtractive on purpose: it removes whole sentences and never rewrites one,
+ * so the remaining words are still the office's own. If a note is nothing but
+ * guest logistics, the original stands rather than showing him nothing.
+ */
+const GUEST_ONLY = /\b(extra|additional|second|third|other)\s+(car|vehicle)s?\b|\bmore than one (car|vehicle)\b|\bguests?\s+(should|can|may|must|park|arrive)\b/i;
+function forOneCar(text: string | null): string | null {
+  if (!text) return null;
+  const sentences = text.match(/[^.!?]+[.!?]*/g) ?? [text];
+  const kept = sentences.filter((x) => x.trim() && !GUEST_ONLY.test(x)).map((x) => x.trim());
+  return kept.length ? kept.join(' ') : text;
+}
+
 export default async function ShootBriefPage({
   params,
   searchParams,
@@ -58,7 +79,7 @@ export default async function ShootBriefPage({
   // then Helm's own fields) is the fallback. Rendering both let a stale
   // guest-facing note sit under the corrected contractor copy and contradict
   // it on the same screen (3 South, 2026-08-26).
-  const parkingText = access?.arrival?.trim() || access?.parking?.trim() || null;
+  const parkingText = forOneCar(access?.arrival?.trim() || access?.parking?.trim() || null);
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -151,8 +172,11 @@ export default async function ShootBriefPage({
         {scaUrl && (
           <Section title="Know the home">
             <p style={sectionText}>
-              The listing guests see:{' '}
-              <a href={scaUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tide-deep)' }}>{scaUrl.replace('https://', '')}</a>
+              {/* A naked stays/<uuid> URL ran off the side of the phone and told
+                  him nothing. Label it and let the link carry the address. */}
+              <a href={scaUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tide-deep)', fontWeight: 600 }}>
+                See the listing guests see →
+              </a>
             </p>
           </Section>
         )}
