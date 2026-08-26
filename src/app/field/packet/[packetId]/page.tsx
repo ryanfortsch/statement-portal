@@ -380,8 +380,18 @@ const ACCESS_CODE_LABELS = new Set(['Door code', 'Gate code', 'Garage code', 'Al
 function stopCode(s: PacketStopDetail, coded: Set<string>, entryCode: string | null): string | null {
   if (coded.has(s.property_id) && entryCode) return entryCode;
   const raw = String(s.access?.smartLock ?? '').trim();
+  if (!raw) return null;
   const own = raw.includes(':') ? raw.split(':').pop()!.trim() : raw;
-  return /^[0-9#*]{3,8}$/.test(own) ? own : null;
+  if (/^[0-9#*]{3,8}$/.test(own)) return own;
+  // The field is often an operator note rather than a bare code — 36 Granite
+  // holds "Schlage: 8636 - Owner Code - Generate new codes". Pull the digits
+  // out so she gets a code to punch instead of our bookkeeping. Prefer a run
+  // labelled "code"; otherwise the first 4-8 digit run. 4 minimum so a lock
+  // model number or a house number can't pose as a PIN.
+  const labelled = raw.match(/code\D{0,12}(\d{4,8})/i);
+  if (labelled) return labelled[1];
+  const anyRun = raw.match(/\b(\d{4,8})\b/);
+  return anyRun ? anyRun[1] : null;
 }
 
 /** Anything to say about getting in BEYOND the door code — lockbox, gate,
@@ -395,7 +405,10 @@ function hasAccessExtras(a: AccessBundle): boolean {
 function AccessLines({ a }: { a: AccessBundle }) {
   const rows: Array<[string, string | null]> = [
     ['Getting in', a.method],
-    ['Door code', a.smartLock],
+    // No 'Door code' row: the code is the chip above, and this printed the raw
+    // field — for 36 Granite that meant "Schlage: 8636 - Owner Code - Generate
+    // new codes", handing her the OWNER's code plus our internal instructions
+    // when her own trip code was already on screen.
     ['Lockbox / key', a.lockboxLocation],
     ['Gate code', a.gateCode],
     ['Garage code', a.garageCode],
