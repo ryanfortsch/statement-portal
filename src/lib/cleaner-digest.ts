@@ -54,6 +54,7 @@ export type DigestRow = {
   built_at: string;
   sent_at: string | null;
   sent_by: string | null;
+  operator_note: string;
   sent_log: Array<{
     at: string;
     by: string;
@@ -172,6 +173,20 @@ export async function upsertDigestDraft(
     .eq('service_date', serviceDate)
     .maybeSingle();
 
+  // A skipped day is revived by an explicit draft request: "Skip this day"
+  // has to be undoable, and this function is only ever called for tomorrow
+  // or for a date the operator named, never speculatively.
+  if (existing && (existing as DigestRow).status === 'skipped') {
+    const { data } = await supabase
+      .from('cleaner_schedule_digests')
+      .update({ status: 'pending', body, stats, built_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', (existing as DigestRow).id)
+      .eq('status', 'skipped')
+      .select('*')
+      .single();
+    return { digest: (data ?? existing) as DigestRow, day };
+  }
+
   if (existing && (existing as DigestRow).status !== 'pending') {
     return { digest: existing as DigestRow, day };
   }
@@ -247,9 +262,13 @@ export async function getOpenDigest(supabase: SupabaseClient): Promise<DigestRow
   // Nothing waiting on approval: fall back to the soonest upcoming day so a
   // digest already sent stays reachable for "Send an update" when the
   // schedule moves after it went out.
+  //
+  // Skipped days are excluded, or "skip this day" would not actually clear
+  // the card -- the skipped row would just win this query instead.
   const { data } = await supabase
     .from('cleaner_schedule_digests')
     .select('*')
+    .neq('status', 'skipped')
     .gte('service_date', today)
     .order('service_date', { ascending: true })
     .limit(1)
@@ -290,6 +309,13 @@ export async function listScheduleRecipients(
  * the right day without carrying it. `serviceDate` is still accepted for
  * an explicit operator preview of some other day.
  */
+/** The operator's note rides AFTER the schedule and BEFORE the live link,
+ *  so the schedule can keep recomposing while the instruction survives. */
+export function withOperatorNote(body: string, note: string | null | undefined): string {
+  const n = (note ?? '').trim();
+  return n ? `${body}\n\n${n}` : body;
+}
+
 export function portalLink(token: string, serviceDate?: string): string {
   return `${digestBaseUrl()}/c/${token}${serviceDate ? `?d=${serviceDate}` : ''}`;
 }

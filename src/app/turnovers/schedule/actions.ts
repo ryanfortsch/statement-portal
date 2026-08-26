@@ -14,6 +14,7 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { insertAdjustment, normalizeTime } from '@/lib/checkout-schedule';
 import {
+  withOperatorNote,
   upsertDigestDraft,
   sendDigest,
   composeDigestBodyLive,
@@ -56,11 +57,19 @@ export async function approveAndSendDigest(formData: FormData): Promise<void> {
   // her words and goes verbatim.
   const serviceDate = String(formData.get('serviceDate') || '');
   const draftedBody = String(formData.get('draftedBody') || '');
+  const note = String(formData.get('note') || '').trim().slice(0, 600);
   let finalBody = body;
   if (body === draftedBody.trim() && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
     const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
     finalBody = await composeDigestBodyLive(supabase, day);
   }
+  // Persist the note first so a failed send never costs the typing, then
+  // append it after the (possibly recomposed) schedule.
+  await supabase
+    .from('cleaner_schedule_digests')
+    .update({ operator_note: note, updated_at: new Date().toISOString() })
+    .eq('id', digestId);
+  finalBody = withOperatorNote(finalBody, note);
 
   const res = await sendDigest(supabase, { digestId, body: finalBody, operatorEmail: email, kind: 'initial' });
   revalidatePath(CARD);
@@ -77,7 +86,15 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
 
   // An update exists to carry CHANGED truth: always compose fresh.
   const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-  const body = `${await composeDigestBodyLive(supabase, day)}\n\n(atualizacao / updated schedule)`;
+  const { data: noteRow } = await supabase
+    .from('cleaner_schedule_digests')
+    .select('operator_note')
+    .eq('id', digestId)
+    .maybeSingle();
+  const body = withOperatorNote(
+    `${await composeDigestBodyLive(supabase, day)}\n\n(atualizacao / updated schedule)`,
+    (noteRow as { operator_note?: string } | null)?.operator_note,
+  );
 
   const res = await sendDigest(supabase, { digestId, body, operatorEmail: email, kind: 'update' });
   revalidatePath(CARD);
@@ -86,10 +103,35 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
   redirect(backTarget(formData, `?sent=${res.sentCount}#schedule-digest`));
 }
 
+/** "Skip this day": nothing goes out and the card clears. Reversible with
+ *  "Draft tomorrow's digest", which revives a skipped row to pending. */
+export async function skipDigestAction(formData: FormData): Promise<void> {
+  await requireEmail();
+  const digestId = String(formData.get('digestId') || '');
+  if (digestId) {
+    await supabase
+      .from('cleaner_schedule_digests')
+      .update({ status: 'skipped', updated_at: new Date().toISOString() })
+      .eq('id', digestId)
+      .eq('status', 'pending');
+  }
+  revalidatePath(CARD);
+  revalidatePath(PAGE);
+  redirect(backTarget(formData, '?skipped=1#schedule-digest'));
+}
+
 export async function refreshDigestDraft(formData: FormData): Promise<void> {
   await requireEmail();
   const serviceDate = String(formData.get('serviceDate') || tomorrowET());
   if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) redirect(CARD_ANCHOR);
+  // Refreshing the schedule must not silently discard a note already typed.
+  const digestId = String(formData.get('digestId') || '');
+  if (digestId) {
+    await supabase
+      .from('cleaner_schedule_digests')
+      .update({ operator_note: String(formData.get('note') || '').trim().slice(0, 600), updated_at: new Date().toISOString() })
+      .eq('id', digestId);
+  }
   await upsertDigestDraft(supabase, serviceDate);
   revalidatePath(CARD);
   redirect(backTarget(formData, '#schedule-digest'));

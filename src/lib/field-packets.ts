@@ -2756,8 +2756,15 @@ export async function loadInspectionCalendar(
       // are its bookkeeping, not an owner hold. Painting those "owner /
       // blocked" mislabels a full house — invisible while the two greys were
       // near-identical, obvious once blocked became striped.
+      // A REAL ARRIVAL outranks a block for the same reason. An owner who books
+      // their own home lands as a confirmed reservation AND blocks the dates in
+      // Guesty (16 Waterman: Anne Blazek out Aug 29, David Gruber in Aug 29,
+      // the whole run marked unavailable by the owner). The block IS that stay,
+      // so letting it win painted the arrival day "owner / blocked" and left
+      // the turnover with no inspectable day at all. Owners get a prepped house
+      // like anyone else.
       const state: CalCellState =
-        guestOccupied ? 'occupied' : isBlocked ? 'blocked' : 'open';
+        guestOccupied ? 'occupied' : isBlocked && !arrivalDay ? 'blocked' : 'open';
       const nextCovered = !!next && isCoveredStay(coveredBookings, p.id, next.id, next.check_in);
       const nextPrepped = !!next && preppedFor(p.id, pb, next.check_in);
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered && !nextPrepped;
