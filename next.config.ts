@@ -7,24 +7,22 @@ import type { NextConfig } from "next";
 // itself adopts it and errors if the config disagrees. Locally all three are
 // absent and every skew feature stays inert.
 //
-// WHY THE HOMEGROWN SUBSYSTEM STILL EXISTS (verified 2026-08-25):
-// This was built on the premise that the project was on Vercel Hobby, where
-// Skew Protection is unavailable. That premise is now wrong in one direction
-// and right in the other. The team ("Rising Tide") is on the PRO plan, so
-// Skew Protection IS available. It has simply never been turned on: the
-// project carries no skewProtectionMaxAge, so the platform is not holding old
-// deployments and the homegrown machinery below is the only thing doing this
-// job. Do NOT delete it on the assumption that the platform has it covered.
+// SKEW PROTECTION IS NOW ON (enabled 2026-08-26).
+// This subsystem was originally built on the premise that the project was on
+// Vercel Hobby, where Skew Protection is unavailable. That was wrong: the team
+// ("Rising Tide") is on PRO. The feature was simply never switched on. It now
+// is, at skewProtectionMaxAge = 43200 (12 hours), so the platform routes a
+// stale tab back to its ORIGINAL deployment instead of letting it break.
 //
-// To retire most of it: enable Skew Protection in the Vercel project settings
-// (Settings > Advanced > Skew Protection), give it a max age comfortably
-// longer than a typical tab's idle life, and let a few deploys land. Once the
-// platform routes a stale tab to its original deployment, the proactive
-// pollers become belt-and-braces rather than the mechanism, and
-// VersionGuard's global 60s interval plus /api/version can go. Keep
-// `deploymentId` below either way: it is Next's own native check and is
-// independent of the platform feature. Keep the SubmitButton watchdog too,
-// since it also covers a lost response, not just skew.
+// Takes effect from the first deployment built after that setting landed.
+//
+// The homegrown machinery below is deliberately still running alongside it, as
+// belt-and-braces, until a week or so of deploys confirms the platform feature
+// is doing its job. THEN, and not before, VersionGuard's global 60s interval
+// and /api/version can be deleted (roughly 130 lines). Two things stay
+// regardless: `deploymentId` below, which is Next's own native check and is
+// independent of the platform feature, and the SubmitButton watchdog, which
+// also covers a genuinely lost response rather than only skew.
 const deploymentId =
   process.env.NEXT_DEPLOYMENT_ID ||
   process.env.VERCEL_DEPLOYMENT_ID ||

@@ -8,10 +8,11 @@
  * 2026-08-02, and again 2026-08-04 on the packet board's Mark paid). The
  * cure is a hard reload, which swaps the whole tab onto the new build.
  *
- * This is still the mechanism, not a backstop: the project is on Vercel Pro,
- * so platform Skew Protection is available, but it has never been enabled
- * (verified 2026-08-25, no skewProtectionMaxAge on the project). See the
- * comment in next.config.ts for what can be retired once it is turned on.
+ * As of 2026-08-26 this is belt-and-braces, not the sole mechanism: platform
+ * Skew Protection is enabled on the project (12h max age), so a stale tab is
+ * routed back to its original deployment rather than breaking. This code stays
+ * running alongside it for now. See next.config.ts for what gets retired once
+ * a week of deploys confirms the platform feature is working.
  *
  * Extracted from AutoRefresh (#1189) so it isn't tied to the live-tracker
  * poll: VersionGuard runs it globally on tab wake + a slow interval, and
