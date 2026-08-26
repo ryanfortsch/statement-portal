@@ -480,6 +480,29 @@ PIN digits are never stored. `lock_access_codes` holds the Seam `access_code_id`
 a derived role. Seam writes are asynchronous: a POST returns an action attempt that must be polled;
 a 200 does not mean the physical lock applied the change.
 
+**Four fleet-wide PINs.** Only the master inspection code is a secret; the rest are deliberate
+operator-known constants that ride in briefs and work orders. Each is env-overridable and each
+refuses to program itself if it would collide with another, because a shared PIN makes keypad
+unlock attribution ambiguous.
+
+| PIN | Default | Who | Module |
+|---|---|---|---|
+| Cleaner | 2222 | housekeeping | `cleaning-sessions.ts` |
+| Master / inspection | env only | Rising Tide | `inspection-sessions.ts` |
+| Maintenance | 3333 | vendors, handymen | `maintenance-code.ts` |
+| Creative | 5555 | photo + video contributors | `creative-code.ts` |
+
+The bottom two **converge**: `/api/cron/sync-seam` nightly, and the property page's **Sync Seam
+devices** button on demand. Both run the same `ensure*Code` pass, so a lock connected this morning
+does not have to wait for 2 AM.
+
+`ensureCreativeCode` stamps `lock_devices.creative_access_code_id` once Seam confirms the PIN on the
+device, mirroring `cleaner_access_code_id`. **That stamp, not "this home has a lock", is what the
+shoot brief reads before printing 5555** — an unstamped lock falls through to the home's own code,
+so a contributor is never sent to a door the PIN has not reached. `resolveEntry` in
+`creative-brief.ts` is the single place that picks: creative code, then the listing's own code, then
+the lockbox, then the office.
+
 Device-to-property mapping is manual: run `/api/sync-seam` once so devices register, then set
 `lock_devices.property_id`.
 
@@ -504,7 +527,7 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 - **Email out**: `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_AUDIENCE_ID`, `RESEND_WEBHOOK_SECRET`
 - **Quo**: `QUO_API_KEY`, `QUO_WEBHOOK_SECRET`, `QUO_FROM_NUMBER`
 - **Seam**: `SEAM_API_KEY`, `SEAM_WEBHOOK_SECRET`, `SEAM_CLEANER_CODE`, `SEAM_INSPECTION_CODE`,
-  `SEAM_MAINTENANCE_CODE`
+  `SEAM_MAINTENANCE_CODE`, `SEAM_CREATIVE_CODE`
 - **Bridge**: `STAY_CONCIERGE_KEY`, `STAY_CONCIERGE_URL`
 - **Other**: `GITHUB_TOKEN`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_KEY`,
   `CHROME_EXECUTABLE_PATH` (local PDF), `VERCEL_PROTECTION_BYPASS`

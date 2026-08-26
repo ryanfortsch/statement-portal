@@ -128,28 +128,37 @@ async function parkingNoteFor(propertyId: string): Promise<string | null> {
   return (data as { body: string } | null)?.body?.trim() || null;
 }
 
-/** True when this home has an ACTIVE Seam lock — i.e. the fleet creative PIN
- *  is (or will be, on the next sync) programmed onto it. A home on a physical
- *  lockbox comes back false, which is what routes it to its own code. */
-async function hasSeamLock(propertyId: string): Promise<boolean> {
+/**
+ * True when this home has an active lock that CARRIES the fleet creative PIN —
+ * `creative_access_code_id` is the stamp ensureCreativeCode writes only after
+ * Seam confirms the code on the device.
+ *
+ * Deliberately not "does this home have a lock". A lock that exists but hasn't
+ * converged yet (newly connected, or any lock in the window between shipping
+ * the code and the next Seam sync) would have the brief print 5555 at a door
+ * that doesn't take it. Unstamped falls through to the home's own code, which
+ * is the conservative answer: never print a code we can't prove is on the door.
+ */
+async function hasCreativeCode(propertyId: string): Promise<boolean> {
   const { data } = await fieldDb()
     .from('lock_devices')
     .select('device_id')
     .eq('property_id', propertyId)
     .eq('active', true)
+    .not('creative_access_code_id', 'is', null)
     .limit(1);
   return ((data ?? []) as unknown[]).length > 0;
 }
 
 /** Resolve the single way in. See the EntryPlan docblock for the order. */
 function resolveEntry(
-  seamLock: boolean,
+  creativeOnLock: boolean,
   a: PropertyAccess,
   revealCodes: boolean,
 ): EntryPlan {
   // The fleet creative PIN is an operator-known constant that rides in briefs
   // (same posture as the maintenance code), so it is NOT time-gated.
-  if (seamLock && creativeCodeEnabled()) {
+  if (creativeOnLock && creativeCodeEnabled()) {
     return { kind: 'creative', code: CREATIVE_CODE, detail: null, pending: false };
   }
   const own = a.smart_lock_code?.trim();
@@ -187,7 +196,10 @@ export function windowLine(
   if (!p || !day) return null;
   const opens = clock(p.default_checkout_time, '11:00');
   const closes = clock(p.default_checkin_time, '15:00');
-  const checkoutDay = day.priorCheckout === shootDate;
+  // GUEST checkouts only. priorCheckout counts calendar blocks too, and a block
+  // ending on the shoot date is not guests leaving — saying "once guests are
+  // out" about one puts a guest on the brief who was never there.
+  const checkoutDay = day.priorGuestCheckout === shootDate;
   const arrivalDay = day.nextCheckin === shootDate;
   if (checkoutDay && arrivalDay) return `${opens} to ${closes} — guests leave and arrive the same day.`;
   if (arrivalDay) return `Be out by ${closes} — guests arrive that afternoon.`;
@@ -213,6 +225,44 @@ function briefAccessBundle(p: PropertyLite, a: PropertyAccess, parking: string |
     garageCode: revealCodes ? a.garage_code : null,
     alarm: revealCodes ? a.alarm_system : null,
     parking,
+  };
+}
+
+/**
+ * OFFICE-SIDE readiness for one home: exactly what the brief will be able to
+ * tell a contributor sent there. Same resolvers as loadShootBrief, so the board
+ * can never promise something the brief won't show.
+ *
+ * The point is to catch it BEFORE anyone drives over — a home whose lock hasn't
+ * taken the creative code and has no code of its own leaves the contributor
+ * with "call the office" at the door, and the office has no idea.
+ */
+export type CreativeAccessReadiness = { entry: EntryPlan; parking: string | null };
+
+export async function shootAccessReadiness(propertyId: string): Promise<CreativeAccessReadiness | null> {
+  const { data } = await fieldDb()
+    .from('properties')
+    .select('id, parking, guesty_listing_id')
+    .eq('id', propertyId)
+    .maybeSingle();
+  const p = data as { parking: string | null; guesty_listing_id: string | null } | null;
+  if (!p) return null;
+
+  const [accessRow, note, creativeOnLock] = await Promise.all([
+    getPropertyAccess(propertyId),
+    parkingNoteFor(propertyId).catch(() => null),
+    hasCreativeCode(propertyId).catch(() => false),
+  ]);
+  let listingParking: string | null = null;
+  if (p.guesty_listing_id) {
+    listingParking = await getListingParkingAndHero(p.guesty_listing_id)
+      .then((r) => r.parking)
+      .catch(() => null);
+  }
+  return {
+    // revealCodes true: the office is allowed to see what it will send.
+    entry: resolveEntry(creativeOnLock, accessRow, true),
+    parking: accessRow.arrival_brief?.trim() || listingParking || p.parking?.trim() || note,
   };
 }
 
@@ -242,7 +292,7 @@ export async function loadShootBrief(shootId: string): Promise<ShootBrief | null
   let listingParking: string | null = null;
 
   if (property) {
-    const [accessRow, parkingFallback, clearMap, seamLock] = await Promise.all([
+    const [accessRow, parkingFallback, clearMap, creativeOnLock] = await Promise.all([
       getPropertyAccess(property.id),
       parkingNoteFor(property.id).catch(() => null),
       // The day-clear check matters right up to (and on) the shoot day;
@@ -250,10 +300,10 @@ export async function loadShootBrief(shootId: string): Promise<ShootBrief | null
       shoot.shoot_date >= todayET()
         ? dayClearReport([property.id], shoot.shoot_date).catch(() => new Map<string, DayClearInfo>())
         : Promise.resolve(new Map<string, DayClearInfo>()),
-      hasSeamLock(property.id).catch(() => false),
+      hasCreativeCode(property.id).catch(() => false),
     ]);
     dayStatus = clearMap.get(property.id) ?? null;
-    entry = resolveEntry(seamLock, accessRow, codesRevealed);
+    entry = resolveEntry(creativeOnLock, accessRow, codesRevealed);
 
     if (property.guesty_listing_id) {
       // Only link SCA when the home is actually in the live collection.
