@@ -2740,7 +2740,15 @@ export async function loadInspectionCalendar(
           mirrorBooked.has(`${p.id}:${D}`)) &&
         !arrivalDay;
       const blockOccupied = pb.some((b) => !isGuestStay(b) && b.check_in <= D && D < b.check_out);
-      const isBlocked = blocked.has(`${p.id}:${D}`) || blockOccupied || mirrorUnavailable.has(`${p.id}:${D}`);
+      // ...and a day Guesty itself calls BOOKED is never an owner hold, even
+      // when a block row covers it. Guesty shadows a direct reservation with a
+      // block spanning the same nights, and on the ARRIVAL day guestOccupied
+      // is deliberately false (that's the turnover window) — so without this
+      // the shadow block struck out the single most urgent inspection day
+      // there is (21 Horton, Aug 28: Baumberger out, Eva Madruga in).
+      const isBlocked =
+        !mirrorBooked.has(`${p.id}:${D}`) &&
+        (blocked.has(`${p.id}:${D}`) || blockOccupied || mirrorUnavailable.has(`${p.id}:${D}`));
       const checkIn = pb.some((b) => isGuestStay(b) && b.check_in === D);
       // A GUEST outranks a block. Guesty mirrors a reservation with its own
       // `block` row (21 Horton carries one spanning Eva Madruga's entire stay,
