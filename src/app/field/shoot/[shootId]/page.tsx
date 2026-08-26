@@ -2,8 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadShootBrief, dayStatusLine, fmtShortDate, type EntryPlan } from '@/lib/creative-brief';
-import { dollars } from '@/lib/field-types';
+import { loadShootBrief, dayStatusLine, type EntryPlan } from '@/lib/creative-brief';
 
 const OFFICE_TEL = '+19788652500';
 
@@ -133,10 +132,7 @@ export default async function ShootBriefPage({
 
         <Section title="What we need">
           <p style={sectionText}>
-            Up to {card.maxPerShoot} reel{card.maxPerShoot === 1 ? '' : 's'} ({card.minSeconds}s+) and {card.maxCarouselsPerShoot} carousel{card.maxCarouselsPerShoot === 1 ? '' : 's'} of photos.
-          </p>
-          <p style={sectionText}>
-            {dollars(card.baseCents)} per reel, {dollars(card.carouselCents)} for the carousel. View bonuses come after we post.
+            {card.maxPerShoot} reel{card.maxPerShoot === 1 ? '' : 's'} ({card.minSeconds}s+) and {card.maxCarouselsPerShoot} carousel{card.maxCarouselsPerShoot === 1 ? '' : 's'} of photos or moving images.
           </p>
           {shoot.notes && <p style={{ ...sectionText, whiteSpace: 'pre-wrap' }}>{shoot.notes}</p>}
         </Section>
@@ -183,12 +179,8 @@ export default async function ShootBriefPage({
 
         <Section title="Delivering">
           <p style={sectionText}>
-            Drop finals in your{shoot.drive_finals_folder_id ? ' dated Finals folder' : ' Drive folder'}. Pay goes due when the full set lands.
-            {shoot.drive_drone_folder_id ? ' Raw drone footage goes in the DRONE folder.' : ''}
+            Drop the full set in your{shoot.drive_finals_folder_id ? ' dated Finals folder' : ' Drive folder'}.
           </p>
-          {detail.pay.settlesOn && (
-            <p style={sectionText}>Current posts settle {fmtShortDate(detail.pay.settlesOn)}.</p>
-          )}
         </Section>
 
         <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)', paddingTop: 14, fontSize: 12, color: 'var(--ink-4)' }}>
@@ -212,15 +204,10 @@ function EntryLines({ entry }: { entry: EntryPlan }) {
   );
   if (entry.kind === 'creative' && entry.code) {
     return (
-      <>
-        <div style={{ fontSize: 14 }}>
-          <span style={{ fontWeight: 600, color: 'var(--ink-3)' }}>Door code: </span>
-          <span className="font-mono" style={{ fontSize: 17 }}>{entry.code}</span>
-        </div>
-        <p style={{ ...sectionText, color: 'var(--ink-4)', fontSize: 12.5, marginTop: 6 }}>
-          Your code. Same one at every home with a keypad. Punch it, then the lock button.
-        </p>
-      </>
+      <div style={{ fontSize: 14 }}>
+        <span style={{ fontWeight: 600, color: 'var(--ink-3)' }}>Door code: </span>
+        <span className="font-mono" style={{ fontSize: 17 }}>{entry.code}</span>
+      </div>
     );
   }
   if (entry.kind === 'listing') {
