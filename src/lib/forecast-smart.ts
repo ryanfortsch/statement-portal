@@ -28,11 +28,28 @@
 
 import { supabaseAdmin as supabase } from './supabase-admin';
 import {
-  HISTORICAL_AVG_RECENT,
+  calibratedBenchmark,
   GLOUCESTER_REVENUE_SEASONALITY,
   daysInMonth,
 } from './forecast-occupancy';
 import { isOperating, operatingFactor } from './forecast-operating-windows';
+
+/**
+ * Ceiling on the pacing scale-up.
+ *
+ * Part A takes what a property has on the books for a forward month and
+ * scales it by market-occupancy / property-occupancy. That ratio is
+ * unbounded as the booked figure approaches zero, so far-out months read
+ * absurdly: on 2026-08-26 the portfolio ratio was 2.0x for October, 7.6x
+ * for November and 29.2x for December.
+ *
+ * A cap is a blunt instrument, and the honest reason it is blunt is that
+ * Helm cannot yet measure its own booking curve: `bookings.first_seen_at`
+ * only starts 2026-05-20, and `guesty_reservations` carries no 2024-25
+ * history, so there is no way to say what share of an October is normally
+ * on the books in late August. Until there is, this bounds the damage.
+ */
+const MAX_PACING_MULTIPLIER = 2.5;
 
 // Reservation statuses we count as "real bookings" for forward pacing.
 const ACTIVE_STATUSES = new Set([
@@ -281,7 +298,7 @@ export function computeSmartForecast(
   forwardMonthList: string[],
   bookedByPropMonth: Map<string, Map<string, { nights: number; revenue: number }>>,
   properties: SmartProperty[],
-  historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT,
+  historicalAvgByMonthOfYear: number[] = calibratedBenchmark(),
 ): SmartForecast {
   // Active mgmt props only (exclude RT-owned).
   const mgmtProps = properties.filter((p) => !p.isRtOwned);
@@ -347,8 +364,13 @@ export function computeSmartForecast(
       if (days <= 0) continue;
       const propertyOcc = cell.nights / days;
       const marketOcc = (historicalAvgByMonthOfYear[m - 1] ?? 0) / 100;
-      // Floor at 1× — never project below what's already on the books.
-      const ratio = propertyOcc > 0 ? Math.max(1, marketOcc / propertyOcc) : 1;
+      // Floor at 1x: never project below what's already on the books.
+      // Cap at MAX_PACING_MULTIPLIER: a month with a handful of bookings
+      // produces an arbitrarily large ratio (December 2026 reads 29x off
+      // 1.2% booked), and Part A carries half the blend, so an uncapped
+      // ratio lets five stays drive a whole month's projection.
+      const raw = propertyOcc > 0 ? marketOcc / propertyOcc : 1;
+      const ratio = Math.min(MAX_PACING_MULTIPLIER, Math.max(1, raw));
       const a = cell.revenue * ratio;
       partA.set(ym, a);
       paceSum += a;
