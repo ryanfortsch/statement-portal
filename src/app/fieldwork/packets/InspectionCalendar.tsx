@@ -196,6 +196,9 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
         <Swatch bg={BLOCKED_BG} label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
       </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
+        Initials in a handled day are whoever has it — the inspector it&apos;s assigned to, or who walked it.
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
         <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
         A red left edge marks the day a guest checks in, the deadline to inspect by.
@@ -434,9 +437,9 @@ function CalendarRow({
               clickable
                 ? `${row.propertyName} is open ${fmtDay(d)} — click to inspect that day`
                 : c?.covered
-                  ? `${row.propertyName}'s next guest is already out to a contractor`
+                  ? `${row.propertyName}'s next guest is out to ${c.who ? c.who : 'a contractor'}`
                   : c?.inspected
-                    ? `${row.propertyName}'s next turnover is already handled — inspected or marked done`
+                    ? `${row.propertyName}'s next turnover is handled${c.who ? ` — inspected by ${c.who}` : ' — inspected or marked done'}`
                     : undefined
             }
             style={{
@@ -454,7 +457,9 @@ function CalendarRow({
               fontSize: 12,
             }}
           >
-            {isSel ? '✓' : ''}
+            {isSel ? '✓' : (c?.covered || c?.inspected) && c?.who ? (
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--tide-deep)' }}>{c.who}</span>
+            ) : ''}
           </button>
         );
       })}

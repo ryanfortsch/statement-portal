@@ -1220,7 +1220,24 @@ export type WorkDay = { date: string; items: WorkItem[] };
  * work board, the calendar, and the bundle guard. One rule, shared by all
  * three, so they can never disagree.
  */
-type StayCoverage = { ids: Set<string>; stays: Set<string> };
+type StayCoverage = {
+  ids: Set<string>;
+  stays: Set<string>;
+  /** booking id / stay key -> initials of the contractor it's awarded to.
+   *  Absent while a packet is published-but-unclaimed: it's out, but nobody
+   *  owns it yet, and inventing a name would be a lie. */
+  who: Map<string, string>;
+};
+
+/** "Delaney Jordan" -> "DJ". First + last only; a middle name or a suffix
+ *  would make the cell unreadable at this size. */
+export function initialsOf(name: string | null | undefined): string | null {
+  const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  const first = parts[0][0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] ?? '' : '';
+  return (first + last).toUpperCase() || null;
+}
 const stayKey = (propertyId: string, checkIn: string | null | undefined) => `${propertyId}:${checkIn ?? ''}`;
 /** True when this turnover is on a live packet — by booking id OR by stay
  *  (property + check-in). The stay match matters: Guesty imports routinely
@@ -1235,21 +1252,47 @@ const isCoveredStay = (cov: StayCoverage, propertyId: string, bookingId: string 
 async function coveredBookingIds(): Promise<StayCoverage> {
   const { data } = await fieldDb()
     .from('packet_stops')
-    .select('booking_id, property_id, next_checkin, inspection_packets!inner(status, visit_date)')
+    .select('booking_id, property_id, next_checkin, inspection_packets!inner(status, visit_date, awarded_contractor_id)')
     .in('inspection_packets.status', ['published', 'claimed', 'in_progress', 'submitted', 'approved']);
   const today = todayStr();
-  type Row = { booking_id: string | null; property_id: string; next_checkin: string | null; inspection_packets: { status: string; visit_date: string } };
+  type Row = {
+    booking_id: string | null;
+    property_id: string;
+    next_checkin: string | null;
+    inspection_packets: { status: string; visit_date: string; awarded_contractor_id: string | null };
+  };
   const live = ((data ?? []) as unknown as Row[]).filter(
     (r) =>
       r.inspection_packets.status === 'submitted' ||
       r.inspection_packets.status === 'approved' ||
       r.inspection_packets.visit_date >= today,
   );
+
+  const awardedIds = [...new Set(live.map((r) => r.inspection_packets.awarded_contractor_id).filter((v): v is string => !!v))];
+  const nameById = new Map<string, string>();
+  if (awardedIds.length) {
+    const { data: cData } = await fieldDb().from('contractors').select('id, full_name').in('id', awardedIds);
+    for (const c of (cData ?? []) as { id: string; full_name: string }[]) nameById.set(c.id, c.full_name);
+  }
+
+  const who = new Map<string, string>();
+  for (const r of live) {
+    const init = initialsOf(nameById.get(r.inspection_packets.awarded_contractor_id ?? ''));
+    if (!init) continue;
+    if (r.booking_id) who.set(r.booking_id, init);
+    if (r.next_checkin) who.set(stayKey(r.property_id, r.next_checkin), init);
+  }
+
   return {
     ids: new Set(live.map((r) => r.booking_id).filter((b): b is string => !!b)),
     stays: new Set(live.filter((r) => !!r.next_checkin).map((r) => stayKey(r.property_id, r.next_checkin))),
+    who,
   };
 }
+
+/** Initials of whoever owns this handled turnover, if anyone does yet. */
+const coveredBy = (cov: StayCoverage, propertyId: string, bookingId: string | null | undefined, checkIn: string | null | undefined): string | null =>
+  (bookingId ? cov.who.get(bookingId) : null) ?? (checkIn ? cov.who.get(stayKey(propertyId, checkIn)) ?? null : null);
 
 /**
  * The work-first board's primary data: upcoming inspections that need
@@ -2441,6 +2484,10 @@ export type CalCell = {
   /** Open, but the next guest is already out to a contractor in a live
    *  packet — so this day is handled, not actionable. */
   covered: boolean;
+  /** Initials of whoever handled it — the contractor a live packet is awarded
+   *  to, or the inspector who walked it. Null when it's out to the roster but
+   *  unclaimed, or an office mark-done with no person behind it. */
+  who: string | null;
   /** Open, but a COMPLETED inspection since the prior guest left already
    *  prepped the next arrival. Packets aren't the only way a home gets
    *  inspected — a staff walk through /inspections counts too, and without
@@ -2543,14 +2590,19 @@ export async function loadInspectionCalendar(
   // kept begging for a home someone had already inspected.
   const { data: iData } = await fieldDb()
     .from('inspections')
-    .select('property_id, completed_at')
+    .select('property_id, completed_at, inspector_name')
     .in('property_id', propIds)
     .not('completed_at', 'is', null);
   const inspectedDays = new Map<string, string[]>();
-  for (const r of (iData ?? []) as { property_id: string; completed_at: string }[]) {
+  // property|date -> who walked it, for the board's initials.
+  const inspectorByDay = new Map<string, string>();
+  for (const r of (iData ?? []) as { property_id: string; completed_at: string; inspector_name: string | null }[]) {
+    const day = etDate(r.completed_at);
     const arr = inspectedDays.get(r.property_id) ?? [];
-    arr.push(etDate(r.completed_at));
+    arr.push(day);
     inspectedDays.set(r.property_id, arr);
+    const init = initialsOf(r.inspector_name);
+    if (init) inspectorByDay.set(`${r.property_id}|${day}`, init);
   }
   // Ever inspected at all (not just inside the window): the tell for whether a
   // home is in the rotation yet.
@@ -2576,14 +2628,20 @@ export async function loadInspectionCalendar(
    *  walked out counts: an earlier walk prepped the PREVIOUS stay, not this
    *  one. With no prior checkout on record, fall back to a two-week look-back
    *  so a routine check still counts. */
-  const preppedFor = (propertyId: string, pb: BookingRaw[], checkIn: string): boolean => {
-    if (markedDone.has(`${propertyId}:${checkIn}`)) return true;
+  const preppedDay = (propertyId: string, pb: BookingRaw[], checkIn: string): string | null => {
     const days = inspectedDays.get(propertyId);
-    if (!days?.length) return false;
+    if (!days?.length) return null;
     const prior =
       pb.filter((b) => isGuestStay(b) && b.check_out <= checkIn).map((b) => b.check_out).sort().at(-1) ??
       addDays(checkIn, -14);
-    return days.some((d) => d >= prior && d <= checkIn);
+    return days.filter((d) => d >= prior && d <= checkIn).sort().at(-1) ?? null;
+  };
+  const preppedFor = (propertyId: string, pb: BookingRaw[], checkIn: string): boolean =>
+    markedDone.has(`${propertyId}:${checkIn}`) || preppedDay(propertyId, pb, checkIn) !== null;
+  /** Initials of whoever walked it, when an inspection is what handled it. */
+  const preppedBy = (propertyId: string, pb: BookingRaw[], checkIn: string): string | null => {
+    const day = preppedDay(propertyId, pb, checkIn);
+    return day ? inspectorByDay.get(`${propertyId}|${day}`) ?? null : null;
   };
 
   const byProp = new Map<string, BookingRaw[]>();
@@ -2674,7 +2732,14 @@ export async function loadInspectionCalendar(
       const inspectable = state === 'open' && D >= today && !!next && !nextCovered && !nextPrepped;
       const covered = state === 'open' && nextCovered;
       const inspected = state === 'open' && !nextCovered && nextPrepped;
-      return { date: D, state, checkIn, inspectable, covered, inspected };
+      const who = !next
+        ? null
+        : nextCovered
+          ? coveredBy(coveredBookings, p.id, next.id, next.check_in)
+          : nextPrepped
+            ? preppedBy(p.id, pb, next.check_in)
+            : null;
+      return { date: D, state, checkIn, inspectable, covered, inspected, who };
     });
     rows.push({
       propertyId: p.id,
