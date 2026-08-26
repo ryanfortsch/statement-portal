@@ -2590,20 +2590,36 @@ export async function loadInspectionCalendar(
   // kept begging for a home someone had already inspected.
   const { data: iData } = await fieldDb()
     .from('inspections')
-    .select('property_id, completed_at, inspector_name')
+    .select('property_id, completed_at, inspector_name, inspector_email')
     .in('property_id', propIds)
     .not('completed_at', 'is', null);
   const inspectedDays = new Map<string, string[]>();
   // property|date -> who walked it, for the board's initials.
   const inspectorByDay = new Map<string, string>();
-  for (const r of (iData ?? []) as { property_id: string; completed_at: string; inspector_name: string | null }[]) {
+  // Staff email -> real name, harvested from every inspection ever run. The
+  // office has no people table, and this is the one place an address is
+  // already paired with a name.
+  const nameByEmail = new Map<string, string>();
+  for (const r of (iData ?? []) as { property_id: string; completed_at: string; inspector_name: string | null; inspector_email: string | null }[]) {
     const day = etDate(r.completed_at);
     const arr = inspectedDays.get(r.property_id) ?? [];
     arr.push(day);
     inspectedDays.set(r.property_id, arr);
     const init = initialsOf(r.inspector_name);
     if (init) inspectorByDay.set(`${r.property_id}|${day}`, init);
+    if (r.inspector_email && r.inspector_name) nameByEmail.set(r.inspector_email.toLowerCase(), r.inspector_name);
   }
+  /** Initials for a staff address: their real name when we've seen it, else
+   *  the first letter of the mailbox. */
+  const staffInitials = (email: string | null): string | null => {
+    if (!email) return null;
+    const known = initialsOf(nameByEmail.get(email.toLowerCase()));
+    if (known) return known;
+    const local = email.split('@')[0] ?? '';
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return parts[0]?.[0]?.toUpperCase() ?? null;
+  };
   // Ever inspected at all (not just inside the window): the tell for whether a
   // home is in the rotation yet.
   const everInspected = new Set(inspectedDays.keys());
@@ -2614,12 +2630,15 @@ export async function loadInspectionCalendar(
   // uncovered here (79 Main's Aug 27 arrival, marked done 2026-08-24).
   const { data: tcData } = await fieldDb()
     .from('turnover_completions')
-    .select('property_id, check_in')
+    .select('property_id, check_in, completed_by_email')
     .in('property_id', propIds)
     .gte('check_in', fetchStart)
     .lte('check_in', fetchEnd);
-  const markedDone = new Set(
-    ((tcData ?? []) as { property_id: string; check_in: string }[]).map((r) => `${r.property_id}:${r.check_in.slice(0, 10)}`),
+  const markedDone = new Map(
+    ((tcData ?? []) as { property_id: string; check_in: string; completed_by_email: string | null }[]).map((r) => [
+      `${r.property_id}:${r.check_in.slice(0, 10)}`,
+      r.completed_by_email,
+    ]),
   );
 
   /** Is THIS arrival already handled outside the packet rail — either ticked
@@ -2641,7 +2660,11 @@ export async function loadInspectionCalendar(
   /** Initials of whoever walked it, when an inspection is what handled it. */
   const preppedBy = (propertyId: string, pb: BookingRaw[], checkIn: string): string | null => {
     const day = preppedDay(propertyId, pb, checkIn);
-    return day ? inspectorByDay.get(`${propertyId}|${day}`) ?? null : null;
+    const byInspection = day ? inspectorByDay.get(`${propertyId}|${day}`) ?? null : null;
+    if (byInspection) return byInspection;
+    // Ticking Done on the Turnovers rail is someone doing the work, not
+    // bookkeeping — show whoever was signed in when they ticked it.
+    return staffInitials(markedDone.get(`${propertyId}:${checkIn}`) ?? null);
   };
 
   const byProp = new Map<string, BookingRaw[]>();
