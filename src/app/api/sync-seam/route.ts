@@ -10,6 +10,7 @@ import {
 import { resolveCleanerCodeId } from '@/lib/cleaning-sessions';
 import { resolveInspectorCodeId } from '@/lib/inspection-sessions';
 import { ensureMaintenanceCode } from '@/lib/maintenance-code';
+import { ensureCreativeCode } from '@/lib/creative-code';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 
 // Backfill / cold-start / cron-poll route. The webhook is the live path;
@@ -61,6 +62,9 @@ export async function POST() {
       maintenance_code_present: 0,
       maintenance_code_created: 0,
       maintenance_code_failed: 0,
+      creative_code_present: 0,
+      creative_code_created: 0,
+      creative_code_failed: 0,
       devices: [] as DeviceSummary[],
       errors: [] as string[],
     };
@@ -93,11 +97,19 @@ export async function POST() {
         // reach, mapped or not - "all the locks we have access to". Runs
         // before the inventory resolve so a just-created code is registered
         // in the same pass. Thermostats and other non-lock devices skip.
+        // The creative PIN converges the same way, on the same pass, for the
+        // same reason: a contributor walking up to a shoot should never need a
+        // code minted for the day.
         if ((device.device_type ?? '').includes('lock')) {
           const outcome = await ensureMaintenanceCode(supabase, res.deviceId);
           if (outcome === 'present') summary.maintenance_code_present += 1;
           if (outcome === 'created') summary.maintenance_code_created += 1;
           if (outcome === 'failed') summary.maintenance_code_failed += 1;
+
+          const creative = await ensureCreativeCode(supabase, res.deviceId);
+          if (creative === 'present') summary.creative_code_present += 1;
+          if (creative === 'created') summary.creative_code_created += 1;
+          if (creative === 'failed') summary.creative_code_failed += 1;
         }
         if (res.propertyId) {
           await resolveCleanerCodeId(supabase, res.deviceId);

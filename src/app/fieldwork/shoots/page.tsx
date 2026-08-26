@@ -73,7 +73,7 @@ function payLine(s: ShootSummary): { text: string; tone: string; sub: string | n
 export default async function CreativeBoard({
   searchParams,
 }: {
-  searchParams: Promise<{ drive?: string }>;
+  searchParams: Promise<{ drive?: string; err?: string }>;
 }) {
   if (!isFieldConfigured) {
     return (
@@ -119,6 +119,7 @@ export default async function CreativeBoard({
     .sort()
     .at(-1);
   const driveNote = sp.drive ?? null;
+  const errNote = sp.err ?? null;
 
   const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay, s.shoot, s.card)]));
   const attention = board.filter((s) => s.pay.needsAttention);
@@ -182,10 +183,27 @@ export default async function CreativeBoard({
           </div>
         )}
 
+        {errNote && (
+          <div
+            style={{
+              marginTop: 14,
+              border: '1px solid var(--signal)',
+              borderRadius: 8,
+              padding: '10px 14px',
+              fontSize: 13,
+              lineHeight: 1.5,
+              color: 'var(--signal)',
+              background: 'rgba(200,90,58,0.06)',
+            }}
+          >
+            {errNote}
+          </div>
+        )}
+
         {/* Log a shoot — the office records what was shot; views come later. */}
-        <details style={{ marginTop: 18 }}>
+        <details style={{ marginTop: 18 }} open={!!errNote}>
           <summary style={{ ...quietSummary, fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }}>+ Log a shoot ▾</summary>
-          <form action={createShoot} style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 620, border: '1px solid var(--rule)', borderRadius: 10, padding: 16, background: 'var(--paper-2, #fff)' }}>
+          <form action={createShoot} autoComplete="off" style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 620, border: '1px solid var(--rule)', borderRadius: 10, padding: 16, background: 'var(--paper-2, #fff)' }}>
             <label style={fieldLabel}>
               Contributor
               <select name="contractor_id" required defaultValue="" style={input}>

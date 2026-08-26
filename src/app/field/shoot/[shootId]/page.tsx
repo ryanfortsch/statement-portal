@@ -2,8 +2,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
-import { loadShootBrief, dayStatusLine, fmtShortDate } from '@/lib/creative-brief';
+import { loadShootBrief, dayStatusLine, fmtShortDate, type EntryPlan } from '@/lib/creative-brief';
 import { dollars } from '@/lib/field-types';
+
+const OFFICE_TEL = '+19788652500';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,24 +38,21 @@ export default async function ShootBriefPage({
 
   const brief = await loadShootBrief(shootId);
   if (!brief) redirect('/field');
-  const { detail, property, access, codesRevealed, dayStatus, scaUrl, heroPhotoUrl, mapsUrl } = brief;
+  const { detail, property, access, entry, dayStatus, scaUrl, heroPhotoUrl, mapsUrl, window: workWindow } = brief;
   const { shoot, card } = detail;
 
   // The brief belongs to the shoot's contributor alone (or the office preview).
   if (!preview && contractor && shoot.contractor_id !== contractor.id) redirect('/field');
 
-  const dayLine = dayStatusLine(brief, shoot.shoot_date);
-  const accessRows: Array<[string, string]> = [];
+  const dayLine = dayStatusLine(brief);
+  // Extras BEYOND the way in — gate, garage, alarm. The door itself is the
+  // resolved EntryPlan, so it never appears twice.
+  const extraRows: Array<[string, string]> = [];
   if (access) {
-    if (access.smartLock) accessRows.push(['Door code', access.smartLock]);
-    if (access.lockboxLocation) accessRows.push(['Lockbox', access.lockboxLocation]);
-    if (access.gateCode) accessRows.push(['Gate', access.gateCode]);
-    if (access.garageCode) accessRows.push(['Garage', access.garageCode]);
-    if (access.alarm) accessRows.push(['Alarm', access.alarm]);
+    if (access.gateCode) extraRows.push(['Gate', access.gateCode]);
+    if (access.garageCode) extraRows.push(['Garage', access.garageCode]);
+    if (access.alarm) extraRows.push(['Alarm', access.alarm]);
   }
-  // "Entry details appear the day before" is only true when there IS a home
-  // to enter — a b-roll / town day skips the section entirely.
-  const showCodesLater = !!property && !codesRevealed && shoot.shoot_date >= new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -108,58 +107,59 @@ export default async function ShootBriefPage({
         <Section title="What we need">
           <p style={sectionText}>
             Up to {card.maxPerShoot} reel{card.maxPerShoot === 1 ? '' : 's'} ({card.minSeconds}s+) and {card.maxCarouselsPerShoot} carousel{card.maxCarouselsPerShoot === 1 ? '' : 's'} of photos.
-            {' '}{dollars(card.baseCents)} per reel and {dollars(card.carouselCents)} for the carousel, paid on delivery to your Finals folder — reel view bonuses follow after we post.
+          </p>
+          <p style={sectionText}>
+            {dollars(card.baseCents)} per reel, {dollars(card.carouselCents)} for the carousel. View bonuses come after we post.
           </p>
           {shoot.notes && <p style={{ ...sectionText, whiteSpace: 'pre-wrap' }}>{shoot.notes}</p>}
         </Section>
 
-        {scaUrl && (
-          <Section title="Know the home">
-            <p style={sectionText}>
-              The listing guests see — the angles, rooms, and views that sell this place. Worth a skim before you frame anything:
-              {' '}
-              <a href={scaUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tide-deep)' }}>{scaUrl.replace('https://', '')}</a>
-            </p>
+        {workWindow && (
+          <Section title="Your window">
+            <p style={sectionText}>{workWindow}</p>
           </Section>
         )}
 
         {(access?.arrival || access?.parking) && (
-          <Section title="Arrival & parking">
-            {access.arrival && <p style={sectionText}>{access.arrival}</p>}
+          <Section title="Where to park">
             {access.parking && <p style={sectionText}>{access.parking}</p>}
+            {access.arrival && <p style={sectionText}>{access.arrival}</p>}
           </Section>
         )}
 
-        {property && (
+        {property && entry && (
         <Section title="Getting in">
-          {accessRows.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {accessRows.map(([label, value]) => (
+          <EntryLines entry={entry} />
+          {extraRows.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+              {extraRows.map(([label, value]) => (
                 <div key={label} style={{ fontSize: 14 }}>
                   <span style={{ fontWeight: 600, color: 'var(--ink-3)' }}>{label}: </span>
                   <span className="font-mono">{value}</span>
                 </div>
               ))}
             </div>
-          ) : showCodesLater ? (
-            <p style={sectionText}>
-              Entry details appear here the day before the shoot. If anything is unclear, call the office: <a href="tel:+19788652500" style={{ color: 'var(--tide-deep)' }}>(978) 865-2500</a>.
-            </p>
-          ) : (
-            <p style={sectionText}>
-              Call the office for entry: <a href="tel:+19788652500" style={{ color: 'var(--tide-deep)' }}>(978) 865-2500</a>.
-            </p>
           )}
-          {access?.method && <p style={{ ...sectionText, color: 'var(--ink-4)', fontSize: 12.5, marginTop: 8 }}>Guests get in via: {access.method}</p>}
         </Section>
+        )}
+
+        {scaUrl && (
+          <Section title="Know the home">
+            <p style={sectionText}>
+              The listing guests see:{' '}
+              <a href={scaUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tide-deep)' }}>{scaUrl.replace('https://', '')}</a>
+            </p>
+          </Section>
         )}
 
         <Section title="Delivering">
           <p style={sectionText}>
-            Drop finals in your Drive folder{shoot.drive_finals_folder_id ? ' (the dated Finals folder inside it)' : ''} — the moment the full set lands, your delivery pay goes due on its own.
-            {shoot.drive_drone_folder_id ? ' Raw drone footage goes in the DRONE folder in there; parked, it never counts against the set.' : ''}
-            {detail.pay.settlesOn ? ` Current posts settle ${fmtShortDate(detail.pay.settlesOn)}.` : ''}
+            Drop finals in your{shoot.drive_finals_folder_id ? ' dated Finals folder' : ' Drive folder'}. Pay goes due when the full set lands.
+            {shoot.drive_drone_folder_id ? ' Raw drone footage goes in the DRONE folder.' : ''}
           </p>
+          {detail.pay.settlesOn && (
+            <p style={sectionText}>Current posts settle {fmtShortDate(detail.pay.settlesOn)}.</p>
+          )}
         </Section>
 
         <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)', paddingTop: 14, fontSize: 12, color: 'var(--ink-4)' }}>
@@ -168,6 +168,58 @@ export default async function ShootBriefPage({
       </div>
     </div>
   );
+}
+
+/**
+ * The one way in, spoken plainly. The creative PIN is the same at every home
+ * on Seam, so it says so — that is the whole point of a fleet code. A home
+ * without a Seam lock falls back to its own code or its lockbox, and those are
+ * property secrets, so before the reveal window they show as "the day before"
+ * rather than as digits.
+ */
+function EntryLines({ entry }: { entry: EntryPlan }) {
+  const office = (
+    <a href={`tel:${OFFICE_TEL}`} style={{ color: 'var(--tide-deep)' }}>(978) 865-2500</a>
+  );
+  if (entry.kind === 'creative' && entry.code) {
+    return (
+      <>
+        <div style={{ fontSize: 14 }}>
+          <span style={{ fontWeight: 600, color: 'var(--ink-3)' }}>Door code: </span>
+          <span className="font-mono" style={{ fontSize: 17 }}>{entry.code}</span>
+        </div>
+        <p style={{ ...sectionText, color: 'var(--ink-4)', fontSize: 12.5, marginTop: 6 }}>
+          Your code. Same one at every home with a keypad. Punch it, then the lock button.
+        </p>
+      </>
+    );
+  }
+  if (entry.kind === 'listing') {
+    return entry.code ? (
+      <>
+        <div style={{ fontSize: 14 }}>
+          <span style={{ fontWeight: 600, color: 'var(--ink-3)' }}>Door code: </span>
+          <span className="font-mono" style={{ fontSize: 17 }}>{entry.code}</span>
+        </div>
+        <p style={{ ...sectionText, color: 'var(--ink-4)', fontSize: 12.5, marginTop: 6 }}>
+          This home has no keypad on our system, so this is the listing&apos;s own code.
+        </p>
+      </>
+    ) : (
+      <p style={sectionText}>The code for this home shows here the day before. Stuck? Call {office}.</p>
+    );
+  }
+  if (entry.kind === 'lockbox') {
+    return entry.detail ? (
+      <div style={{ fontSize: 14 }}>
+        <span style={{ fontWeight: 600, color: 'var(--ink-3)' }}>Lockbox: </span>
+        <span>{entry.detail}</span>
+      </div>
+    ) : (
+      <p style={sectionText}>There&apos;s a lockbox here. Details show the day before. Stuck? Call {office}.</p>
+    );
+  }
+  return <p style={sectionText}>Call the office to get in: {office}.</p>;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

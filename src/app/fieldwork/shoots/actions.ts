@@ -16,6 +16,30 @@ async function staffEmail(): Promise<string> {
   return session.user.email;
 }
 
+/**
+ * Does the typed title name a DIFFERENT home than the one selected?
+ *
+ * The title is decorative; property_id drives everything real on the brief —
+ * address, map, hero photo, day-clear check, parking, door code. When they
+ * disagree, the brief confidently sends a contributor to the wrong house
+ * (2026-08-26: a shoot titled "79 Main" carried 3 South and rendered 3 South's
+ * address, photo, and driveway). Longest match wins so "53 Rocky Neck,
+ * Downstairs" beats "53 Rocky Neck". Titles that name no known home
+ * ("Bearskin Neck Shoot") match nothing and pass through untouched.
+ */
+function titlePropertyConflict(
+  title: string,
+  selectedId: string | null,
+  properties: Array<{ id: string; name: string }>,
+): { id: string; name: string } | null {
+  const t = title.toLowerCase();
+  const named = properties
+    .filter((p) => p.name && t.includes(p.name.toLowerCase()))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (!named || named.id === selectedId) return null;
+  return named;
+}
+
 /** Log a shoot. property_id optional — b-roll and town days have no home. */
 export async function createShoot(formData: FormData): Promise<void> {
   const email = await staffEmail();
@@ -24,6 +48,22 @@ export async function createShoot(formData: FormData): Promise<void> {
   const shootDate = String(formData.get('shoot_date') || '');
   if (!contractorId || !title || !shootDate) return;
   const propertyId = String(formData.get('property_id') || '').trim() || null;
+
+  // Refuse a title/property mismatch rather than publish a brief that points at
+  // the wrong house. The operator picks one and resubmits.
+  const { data: propRows } = await fieldDb().from('properties').select('id, name');
+  const conflict = titlePropertyConflict(title, propertyId, (propRows ?? []) as Array<{ id: string; name: string }>);
+  if (conflict) {
+    const picked = propertyId
+      ? ((propRows ?? []) as Array<{ id: string; name: string }>).find((p) => p.id === propertyId)?.name ?? propertyId
+      : 'None / b-roll';
+    redirect(
+      `/fieldwork/shoots?err=${encodeURIComponent(
+        `That title says ${conflict.name} but the property is set to ${picked}. The property drives the address, photo and door code on the brief - fix one and log it again.`,
+      )}`,
+    );
+  }
+
   const { data } = await fieldDb()
     .from('creative_shoots')
     .insert({
