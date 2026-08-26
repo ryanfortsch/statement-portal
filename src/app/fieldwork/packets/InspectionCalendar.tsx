@@ -12,6 +12,11 @@ import { bundleAndSend, bundleAsDraft } from './actions';
 // One hue per meaning: green = you can act, blue = someone already has,
 // grey = the home isn't available (flat for a guest, striped for an owner
 // block so the two greys can't blur together), orange = your current pick.
+// Which column is TODAY. Fifteen identical pale columns with nothing marking
+// the current one is a miscount waiting to happen — Dotti read a guest-
+// occupied 3 Locust as open because she was looking one column over.
+const TODAY_ET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+
 const OPEN_BG = 'rgba(63,153,34,0.22)';
 const HANDLED_BG = 'rgba(58,107,138,0.34)';
 const OCCUPIED_BG = 'rgba(30,46,52,0.10)';
@@ -152,6 +157,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
           {days.map((d) => {
             const h = dayHead(d);
             const isSel = d === selDay;
+            const isToday = d === TODAY_ET;
             return (
               <button
                 key={d}
@@ -163,13 +169,16 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
                   padding: '8px 2px',
                   borderBottom: '1px solid var(--rule)',
                   borderLeft: '1px solid var(--rule)',
-                  background: isSel ? 'rgba(200,90,58,0.08)' : 'transparent',
+                  background: isSel ? 'rgba(200,90,58,0.08)' : isToday ? 'rgba(11,37,69,0.06)' : 'transparent',
+                  borderTop: isToday ? '2px solid var(--tide-deep)' : '2px solid transparent',
                   cursor: 'pointer',
                   lineHeight: 1.2,
                 }}
               >
-                <div style={{ fontSize: 10, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h.wd}</div>
-                <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>{h.n}</div>
+                <div style={{ fontSize: 10, color: isToday ? 'var(--tide-deep)' : 'var(--ink-4)', fontWeight: isToday ? 700 : 400, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  {isToday ? 'TODAY' : h.wd}
+                </div>
+                <div style={{ fontSize: 13, color: isToday ? 'var(--tide-deep)' : 'var(--ink-3)', fontWeight: isToday ? 700 : 400 }}>{h.n}</div>
               </button>
             );
           })}
