@@ -53,6 +53,12 @@ export default async function ShootBriefPage({
     if (access.garageCode) extraRows.push(['Garage', access.garageCode]);
     if (access.alarm) extraRows.push(['Alarm', access.alarm]);
   }
+  // ONE parking statement, never two. `arrival` is the brief written for a
+  // contractor at this specific home and wins; `parking` (Guesty listing copy,
+  // then Helm's own fields) is the fallback. Rendering both let a stale
+  // guest-facing note sit under the corrected contractor copy and contradict
+  // it on the same screen (3 South, 2026-08-26).
+  const parkingText = access?.arrival?.trim() || access?.parking?.trim() || null;
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -120,10 +126,9 @@ export default async function ShootBriefPage({
           </Section>
         )}
 
-        {(access?.arrival || access?.parking) && (
+        {parkingText && (
           <Section title="Where to park">
-            {access.parking && <p style={sectionText}>{access.parking}</p>}
-            {access.arrival && <p style={sectionText}>{access.arrival}</p>}
+            <p style={sectionText}>{parkingText}</p>
           </Section>
         )}
 

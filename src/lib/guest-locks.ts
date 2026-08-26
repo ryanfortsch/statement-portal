@@ -427,14 +427,26 @@ export async function removeLockCode(
  * Pull every Seam device into lock_devices (auto-registers, property_id null).
  * Runs as the signed-in operator from the panel, so it needs no CRON_SECRET —
  * the same work the /api/cron/sync-seam route does, callable from a button.
+ *
+ * That includes converging the two fleet-wide PINs (maintenance, creative),
+ * exactly as the nightly route does. Without it this button and the cron
+ * disagreed: a lock connected this morning carried neither code until 2 AM,
+ * long after the shoot it was needed for. It is also the only way to make a
+ * newly shipped fleet code real today instead of tomorrow.
  */
 export async function syncSeamDevices(): Promise<{ ok: boolean; count: number; error?: string }> {
   if (!seamConfigured()) return { ok: false, count: 0, error: 'SEAM_API_KEY is not set in this environment.' };
   try {
     const sb = getServiceClient();
     const devices = await listDevices();
+    const { ensureMaintenanceCode } = await import('@/lib/maintenance-code');
+    const { ensureCreativeCode } = await import('@/lib/creative-code');
     for (const d of devices) {
       const res = await ingestDeviceBattery(sb, normalizeFromDevice(d));
+      if ((d.device_type ?? '').includes('lock')) {
+        await ensureMaintenanceCode(sb, res.deviceId);
+        await ensureCreativeCode(sb, res.deviceId);
+      }
       if (res.propertyId) {
         const { resolveCleanerCodeId } = await import('@/lib/cleaning-sessions');
         const { resolveInspectorCodeId } = await import('@/lib/inspection-sessions');

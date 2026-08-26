@@ -9,6 +9,7 @@ import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
 import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payAssetBase, payAllDeliveredBases, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder, resendShootBrief } from '../actions';
 import { dayClearReport, type DayClearInfo } from '@/lib/maintenance-runs';
+import { shootAccessReadiness, type CreativeAccessReadiness } from '@/lib/creative-brief';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -582,6 +583,21 @@ async function ShootDayCard({
       verdict = null;
     }
   }
+  // What the brief will actually be able to SAY: which way in, and whether
+  // there's parking on file. Checked here so a job never goes out to a home
+  // that can't explain itself at the door.
+  const ready: CreativeAccessReadiness | null = propertyId
+    ? await shootAccessReadiness(propertyId).catch(() => null)
+    : null;
+  const entryLabel = !ready
+    ? null
+    : ready.entry.kind === 'creative'
+      ? `Creative code ${ready.entry.code}`
+      : ready.entry.kind === 'listing'
+        ? `This home's own code`
+        : ready.entry.kind === 'lockbox'
+          ? 'Lockbox'
+          : 'No way in on file';
   return (
     <div style={{ marginTop: 14, border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
@@ -604,8 +620,17 @@ async function ShootDayCard({
       {verdict && (
         <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, color: verdict.clear ? 'var(--ink-3)' : 'var(--signal)' }}>
           {verdict.clear
-            ? `Clear — the home is empty ${fmtShort(shootDate)}${verdict.priorCheckout === shootDate ? ' after the ~11 AM checkout' : ''}${verdict.nextCheckin ? `; next guests ${fmtShort(verdict.nextCheckin)}` : ''}.`
+            ? `Clear — the home is empty ${fmtShort(shootDate)}${verdict.priorGuestCheckout === shootDate ? ' after the ~11 AM checkout' : ''}${verdict.nextCheckin ? `; next guests ${fmtShort(verdict.nextCheckin)}` : ''}.`
             : `Not clear — ${verdict.reason}. The 8 AM day-of check will tell ${contractorFirst} to hold and email you.`}
+        </div>
+      )}
+      {ready && (
+        <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12, alignItems: 'center' }}>
+          <ReadyChip ok={ready.entry.kind !== 'office'} label={entryLabel!} />
+          <ReadyChip ok={!!ready.parking} label={ready.parking ? 'Parking on file' : 'No parking on file'} />
+          {(ready.entry.kind === 'office' || !ready.parking) && (
+            <Link href={`/properties/${propertyId}`} style={{ color: 'var(--signal)' }}>Fix on the property →</Link>
+          )}
         </div>
       )}
       {!propertyId && (
@@ -617,6 +642,24 @@ async function ShootDayCard({
         </div>
       )}
     </div>
+  );
+}
+
+/** One access-readiness fact on the shoot-day card: quiet when the brief can
+ *  say it, signal when the office still has to fill it in. */
+function ReadyChip({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span
+      style={{
+        border: `1px solid ${ok ? 'var(--rule)' : 'var(--signal)'}`,
+        color: ok ? 'var(--ink-3)' : 'var(--signal)',
+        background: ok ? 'transparent' : 'rgba(200,90,58,0.06)',
+        borderRadius: 999,
+        padding: '3px 10px',
+      }}
+    >
+      {label}
+    </span>
   );
 }
 

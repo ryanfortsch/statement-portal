@@ -12,6 +12,11 @@
  *
  * Naming matters: `classifyCodeRole` maps /creativ/ to 'staff', so a shoot-day
  * keypad entry never lights the "guest in residence" indicator.
+ *
+ * Convergence STAMPS the device (lock_devices.creative_access_code_id) the way
+ * resolveCleanerCodeId stamps cleaner_access_code_id. That stamp — not "this
+ * home has a lock" — is what the shoot brief reads before it prints 5555, so a
+ * contributor is never sent to a door the PIN has not reached yet.
  */
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -43,6 +48,16 @@ export function creativeCodeEnabled(): boolean {
 
 export type EnsureOutcome = 'present' | 'created' | 'disabled' | 'failed';
 
+/** Record on the device row that the creative PIN is CONFIRMED on this lock.
+ *  Read by hasCreativeCode() in creative-brief, which is the gate on printing
+ *  the code. Same shape as lock_devices.cleaner_access_code_id. */
+async function stampDevice(sb: SupabaseClient, deviceId: string, accessCodeId: string): Promise<void> {
+  await sb
+    .from('lock_devices')
+    .update({ creative_access_code_id: accessCodeId, updated_at: new Date().toISOString() })
+    .eq('device_id', deviceId);
+}
+
 /**
  * Idempotently make sure this lock carries the creative PIN. Matches by PIN
  * digits across managed AND unmanaged codes (a hand-programmed 5555 in the
@@ -59,7 +74,25 @@ export async function ensureCreativeCode(sb: SupabaseClient, deviceId: string): 
       listAccessCodes(deviceId).catch(() => [] as SeamAccessCodeFull[]),
     ]);
     const existing = [...unmanaged, ...managed].find((c) => (c.code ?? '').trim() === CREATIVE_CODE);
-    if (existing) return 'present';
+    if (existing) {
+      // A 5555 hand-programmed in the Schlage app opens the door just as well.
+      // Register it under its own name and stamp the device, so the brief can
+      // show the code for this home too.
+      if (existing.access_code_id) {
+        await sb.from('lock_access_codes').upsert(
+          {
+            device_id: deviceId,
+            access_code_id: existing.access_code_id,
+            name: existing.name ?? CREATIVE_CODE_NAME,
+            role: classifyCodeRole(existing.name ?? CREATIVE_CODE_NAME),
+            resolved_at: new Date().toISOString(),
+          },
+          { onConflict: 'device_id,access_code_id' },
+        );
+        await stampDevice(sb, deviceId, existing.access_code_id);
+      }
+      return 'present';
+    }
 
     const ac = await createPermanentAccessCode({
       deviceId,
@@ -77,6 +110,7 @@ export async function ensureCreativeCode(sb: SupabaseClient, deviceId: string): 
         },
         { onConflict: 'device_id,access_code_id' },
       );
+      await stampDevice(sb, deviceId, ac.access_code_id);
     }
     return 'created';
   } catch {

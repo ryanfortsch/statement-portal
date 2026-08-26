@@ -404,8 +404,14 @@ export type DayClearInfo = {
   clear: boolean;
   /** Why not clear, in operator words. Null when clear. */
   reason: string | null;
-  /** Latest checkout on/before the day (guests leave ~11 AM). */
+  /** Latest checkout on/before the day (guests leave ~11 AM). Counts calendar
+   *  blocks too — it answers "since when has nothing been on this calendar". */
   priorCheckout: string | null;
+  /** Same, but GUEST stays only: the last time real guests actually left. Use
+   *  this wherever the wording says "once guests are out" — a block ending is
+   *  not a checkout, and saying so puts a guest on a brief who was never
+   *  there. Same reason guestNight and blockedNight are separate below. */
+  priorGuestCheckout: string | null;
   /** Earliest guest check-in on/after the day (guests arrive ~3 PM). */
   nextCheckin: string | null;
 };
@@ -459,6 +465,12 @@ export async function dayClearReport(
         .map((b) => b.check_out)
         .sort()
         .at(-1) ?? null;
+    const priorGuestCheckout =
+      guestStays
+        .filter((b) => b.check_out <= day)
+        .map((b) => b.check_out)
+        .sort()
+        .at(-1) ?? null;
     const nextCheckin =
       guestStays
         .filter((b) => b.check_in >= day)
@@ -471,7 +483,7 @@ export async function dayClearReport(
     else if (blockedNight) reason = 'the calendar is blocked that night';
     else if (mirrorClosed) reason = `the Guesty calendar shows the day as ${mirrorStatus}`;
 
-    out.set(pid, { clear: !reason, reason, priorCheckout, nextCheckin });
+    out.set(pid, { clear: !reason, reason, priorCheckout, priorGuestCheckout, nextCheckin });
   }
   return out;
 }
