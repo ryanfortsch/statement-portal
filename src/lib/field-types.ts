@@ -488,7 +488,16 @@ export function fmtVisitTime(t: string | null | undefined): string | null {
   return `${h}:${m[2]} ${h24 >= 12 ? 'PM' : 'AM'}`;
 }
 
-export function packetHeadline(p: PacketDetail): string {
+export function packetHeadline(
+  p: PacketDetail,
+  /** Include where it is. True for the marketplace card and the "new work near
+   *  you" text, where the town is the drive-time signal someone needs BEFORE
+   *  they can see the stops. False on the packet page itself, where the stops
+   *  and the route map are right underneath — naming the towns again is just
+   *  a longer headline. */
+  opts: { place?: boolean } = {},
+): string {
+  const place = opts.place !== false;
   // Property setup: one home, one big job. Name the home when the viewer may
   // see it (masked payloads carry no name, so fall back to the town).
   if (p.kind === 'setup') {
@@ -527,6 +536,7 @@ export function packetHeadline(p: PacketDetail): string {
     const c = cityShort(p.stops[0]?.property.city ?? null);
     return c ? `1 inspection in ${c}` : '1 inspection';
   }
+  if (!place) return `${p.stop_count} inspections`;
   const area = sharedArea(p);
   if (area) return `${p.stop_count} inspections on ${area}`;
   const towns = townsLabel(p.stops.map((s) => s.property.city));
