@@ -32,6 +32,7 @@ import {
   GLOUCESTER_REVENUE_SEASONALITY,
   daysInMonth,
 } from './forecast-occupancy';
+import { isOperating, operatingFactor } from './forecast-operating-windows';
 
 // Reservation statuses we count as "real bookings" for forward pacing.
 const ACTIVE_STATUSES = new Set([
@@ -55,34 +56,6 @@ function isActiveBooking(status: string | null): boolean {
     n.includes('checked') ||
     n.includes('reserved')
   );
-}
-
-/**
- * Properties that don't operate every month of the forecast horizon —
- * business facts the properties table doesn't capture.
- *   seasonMonths — months-of-year (1-12) the property is open.
- *   offlineFrom  — first YYYY-MM the property is permanently offline
- *                  (e.g. being decommissioned).
- * Keyed by properties.id. Edit here when a property's window changes.
- */
-type OperatingWindow = { seasonMonths?: number[]; offlineFrom?: string };
-
-const OPERATING_WINDOWS: Record<string, OperatingWindow> = {
-  // 4 Brier Neck is a summer-only rental — open June through September.
-  '4_brier_neck': { seasonMonths: [6, 7, 8, 9] },
-  // 73 Rocky Neck is being decommissioned; last operating month Aug 2026.
-  '73_rocky_neck': { offlineFrom: '2026-09' },
-};
-
-/** Whether a property is open for business in the given YYYY-MM. */
-function isOperating(propertyId: string, ym: string): boolean {
-  const w = OPERATING_WINDOWS[propertyId];
-  if (!w) return true;
-  if (w.offlineFrom && ym >= w.offlineFrom) return false;
-  if (w.seasonMonths && !w.seasonMonths.includes(parseInt(ym.slice(5, 7), 10))) {
-    return false;
-  }
-  return true;
 }
 
 function nightsBetween(startStr: string, endStr: string): number {
@@ -327,8 +300,12 @@ export function computeSmartForecast(
       // Only count properties active and operating in this month
       const monthStart = `${ym}-01`;
       if (p.activatedAt && p.activatedAt.slice(0, 10) > monthStart) continue;
-      if (!isOperating(p.id, ym)) continue;
-      activePropsThisMonth += 1;
+      const factor = operatingFactor(p.id, ym);
+      if (factor <= 0) continue;
+      // Fractional on the month a property goes offline partway through:
+      // its closed days are not bookable, so they must not inflate the
+      // denominator and drag portfolio pacing down.
+      activePropsThisMonth += factor;
       const cell = bookedByPropMonth.get(p.id)?.get(ym);
       if (cell) portfolioNightsBooked += cell.nights;
     }
@@ -451,6 +428,12 @@ export function computeSmartForecast(
           projectedGross *= factor;
         }
       }
+
+      // Offboarding month: a property that goes offline partway through only
+      // earns up to its last operating day. Applied outside the branch above
+      // so it holds whether the month is projected or read off the books.
+      const opFactor = operatingFactor(p.id, ym);
+      if (opFactor < 1) projectedGross *= opFactor;
 
       return {
         month: ym,
