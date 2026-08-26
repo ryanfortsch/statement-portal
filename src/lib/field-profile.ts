@@ -114,7 +114,12 @@ async function loadContractorReviews(contractorId: string): Promise<ContractorRe
     });
   }
   out.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
-  return out.slice(0, 20);
+  // Cap high enough to hold a full season. At 20 the header read "Guest
+  // reviews · 20" beside a headline score built from 44, and Delaney's only
+  // 4-star (20 Hammond, Jul 15) sat just past the cut — it looked suppressed
+  // when it was merely old. Everything that counts toward the score is
+  // reachable; only the first three are shown until you tap through.
+  return out.slice(0, 200);
 }
 
 /** The inspector's worked packets (claimed onward), newest first. */
