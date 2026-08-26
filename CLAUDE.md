@@ -42,8 +42,8 @@ Related docs:
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
 Practical consequences: the 22 crons and the 18 routes at `maxDuration = 300` are all fine, and
-platform Skew Protection is available. It is **not currently enabled** (no `skewProtectionMaxAge` on
-the project), which is why the homegrown skew subsystem below is still load-bearing.
+platform Skew Protection is available. It was switched **on** on 2026-08-26 at
+`skewProtectionMaxAge = 43200` (12 hours).
 
 ## Shape of the codebase
 
@@ -498,7 +498,7 @@ does not have to wait for 2 AM.
 
 `ensureCreativeCode` stamps `lock_devices.creative_access_code_id` once Seam confirms the PIN on the
 device, mirroring `cleaner_access_code_id`. **That stamp, not "this home has a lock", is what the
-shoot brief reads before printing 5555** — an unstamped lock falls through to the home's own code,
+shoot brief reads before printing 5555**. An unstamped lock falls through to the home's own code,
 so a contributor is never sent to a door the PIN has not reached. `resolveEntry` in
 `creative-brief.ts` is the single place that picks: creative code, then the listing's own code, then
 the lockbox, then the office.
@@ -558,12 +558,13 @@ The gate before shipping is `npx tsc --noEmit`. Run it. Chain commits on it.
    zero rows. This exact mistake already shipped a production bug.
 3. **`reservations` has no `rental_income` column.** The column is `guesty_rental_income`.
    `rental_income` is the in-memory name inside `/api/ingest` before the write.
-4. **Deploy skew.** A tab on an old bundle cannot apply a new build's RSC payload. `VersionGuard`,
-   `AutoRefresh` and the `SubmitButton` watchdog hard-reload once on mismatch. The tell is a DB
-   write landing while the button spins forever. This machinery is the MECHANISM, not a backstop:
-   platform Skew Protection is available on Pro but has never been enabled, so nothing else is
-   doing this job. Do not delete it on the assumption the platform has it covered. `next.config.ts`
-   carries the runbook for enabling Skew Protection and what can be retired afterwards.
+4. **Deploy skew.** A tab on an old bundle cannot apply a new build's RSC payload. The tell is a
+   DB write landing while the button spins forever. Platform Skew Protection has been on since
+   2026-08-26 (12h), so a stale tab is routed back to its original deployment instead of breaking.
+   `VersionGuard`, `AutoRefresh` and the `SubmitButton` watchdog still run alongside it as
+   belt-and-braces. Once a week of deploys confirms the platform feature, VersionGuard's global
+   60s poll and `/api/version` can be retired; `deploymentId` and the SubmitButton watchdog stay
+   regardless. See `next.config.ts`.
 5. **Agent sessions run in git worktrees** under `.claude/worktrees/<branch>`, where `node_modules`
    may need symlinking back to the parent checkout before `tsc` will run.
 6. **This is a high-concurrency multi-agent repo.** Branch off fresh `origin/main` and stage only
