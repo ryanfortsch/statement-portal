@@ -630,7 +630,12 @@ export async function sendCreativeCountsDue(): Promise<boolean> {
 
 /** Authenticated deep link to a contributor's shoot brief — same magic-link
  *  bounce as packetLink, so it works from a cookieless phone browser. */
-export function shootBriefLink(portalToken: string, shootId: string): string {
+export function shootBriefLink(portalToken: string, shootId: string, briefToken?: string | null): string {
+  // Short form when the shoot has its own token: one path, no query string.
+  // The long magic-link form (portal token + url-encoded ?next=) ran ~130
+  // characters, and phones wrapped and mis-linkified it — two briefs could
+  // open the same page. Falls back for any row minted before the column.
+  if (briefToken) return `${fieldBaseUrl()}/b/${briefToken}`;
   return `${fieldBaseUrl()}/field/${portalToken}?next=${encodeURIComponent(`/field/shoot/${shootId}`)}`;
 }
 
@@ -643,11 +648,11 @@ export function shootBriefLink(portalToken: string, shootId: string): string {
  */
 export async function sendShootBrief(
   contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'>,
-  shoot: { id: string; title: string; shoot_date: string },
+  shoot: { id: string; title: string; shoot_date: string; brief_token?: string | null },
   propertyName: string | null,
 ): Promise<{ emailed: boolean; texted: boolean }> {
   const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const link = shootBriefLink(contractor.portal_token, shoot.id);
+  const link = shootBriefLink(contractor.portal_token, shoot.id, shoot.brief_token);
   const first = contractor.full_name.split(' ')[0];
   const when = (() => {
     try {
@@ -711,11 +716,11 @@ export async function sendCreativeDayOfChecks(): Promise<{ go: number; hold: num
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
   const { data: sData } = await fieldDb()
     .from('creative_shoots')
-    .select('id, title, shoot_date, property_id, contractor_id')
+    .select('id, title, shoot_date, property_id, contractor_id, brief_token')
     .eq('shoot_date', today)
     .in('status', ['scheduled', 'shot'])
     .not('property_id', 'is', null);
-  const shoots = (sData ?? []) as Array<{ id: string; title: string; shoot_date: string; property_id: string; contractor_id: string }>;
+  const shoots = (sData ?? []) as Array<{ id: string; title: string; shoot_date: string; property_id: string; contractor_id: string; brief_token: string | null }>;
   if (shoots.length === 0) return out;
 
   const { dayClearReport } = await import('@/lib/maintenance-runs');
@@ -731,7 +736,7 @@ export async function sendCreativeDayOfChecks(): Promise<{ go: number; hold: num
       .maybeSingle();
     const cc = c as Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'> | null;
     if (!cc) continue;
-    const link = shootBriefLink(cc.portal_token, s.id);
+    const link = shootBriefLink(cc.portal_token, s.id, s.brief_token);
     const clear = verdict?.clear !== false; // missing verdict = don't cry wolf
 
     if (clear) {

@@ -8,6 +8,7 @@ import type { RateCard } from '@/lib/creative-rates';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { syncCreativeDrive } from '@/lib/creative-drive';
 import { sendPaidEmail, sendShootBrief } from '@/lib/field-notify';
+import { newPortalToken } from '@/lib/field-auth';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -99,6 +100,19 @@ async function notifyShootBrief(
   shootDate: string,
   propertyId: string | null,
 ): Promise<{ emailed: boolean; texted: boolean }> {
+  // The shoot's own short-link token (/b/<token>). Minted by the migration for
+  // every row; generated here for anything created before it landed, so a
+  // brief never falls back to the 130-character magic link.
+  let briefToken = await fieldDb()
+    .from('creative_shoots')
+    .select('brief_token')
+    .eq('id', shootId)
+    .maybeSingle()
+    .then((r) => (r.data as { brief_token: string | null } | null)?.brief_token ?? null);
+  if (!briefToken) {
+    briefToken = newPortalToken().slice(0, 16);
+    await fieldDb().from('creative_shoots').update({ brief_token: briefToken }).eq('id', shootId);
+  }
   const [{ data: c }, propertyName] = await Promise.all([
     fieldDb().from('contractors').select('full_name, email, phone, portal_token').eq('id', contractorId).maybeSingle(),
     propertyId
@@ -107,7 +121,7 @@ async function notifyShootBrief(
   ]);
   const contractor = c as Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'> | null;
   if (!contractor) return { emailed: false, texted: false };
-  return sendShootBrief(contractor, { id: shootId, title, shoot_date: shootDate }, propertyName);
+  return sendShootBrief(contractor, { id: shootId, title, shoot_date: shootDate, brief_token: briefToken }, propertyName);
 }
 
 /** Re-send the shoot brief (email + text) from the office shoot page. The
