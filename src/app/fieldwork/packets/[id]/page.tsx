@@ -22,6 +22,7 @@ import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus }
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { suggestFinalCents, isRushVisit } from '@/lib/field-pricing';
 import { FinalPayoutField } from './FinalPayoutField';
+import { loadTextWindow, fmtSpan } from '@/lib/field-text-window';
 import { RevealPay } from '../../roster/RevealPay';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
@@ -209,6 +210,11 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // posted_price_cents; suggestion swaps size-based on-site time for the real
   // door-to-door timestamps, drive + rush unchanged. Office-only.
   const finalizing = packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at);
+  // Second read on the day's length: when they were texting the office, first
+  // message to last. Independent of the door clock (which only sees mapped
+  // locks, and inflates when a stop is left open), and it covers the driving
+  // and supply runs between houses. Only loaded while there's a payout to set.
+  const textWindow = finalizing ? await loadTextWindow(packet.contractor?.phone ?? null, packet.visit_date) : null;
   const stopMinsActual = packet.stops.map((s) => stopMins(s));
   const minsTotal = stopMinsActual.reduce<number>((a, m) => a + (m ?? 0), 0);
   const stopsTimed = stopMinsActual.filter((m) => m != null).length;
@@ -481,6 +487,14 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       stopsTimed={stopsTimed}
                       stopsTotal={packet.stops.length}
                     />
+                    {textWindow && (
+                      <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                        Texting the office {textWindow.firstAt} – {textWindow.lastAt}
+                        <span style={{ color: 'var(--ink-4)' }}>
+                          {' '}· {fmtSpan(textWindow.spanMinutes)} across {textWindow.count} {textWindow.count === 1 ? 'message' : 'messages'}
+                        </span>
+                      </div>
+                    )}
                     <PendingButton label="Approve packet" busyLabel="Approving — sending reports…" style={btnDark} />
                     <details>
                       <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
@@ -518,6 +532,14 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                         stopsTotal={packet.stops.length}
                         currentFinalCents={packet.final_payout_cents}
                       />
+                      {textWindow && (
+                        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                          Texting the office {textWindow.firstAt} – {textWindow.lastAt}
+                          <span style={{ color: 'var(--ink-4)' }}>
+                            {' '}· {fmtSpan(textWindow.spanMinutes)} across {textWindow.count} {textWindow.count === 1 ? 'message' : 'messages'}
+                          </span>
+                        </div>
+                      )}
                       <PendingButton label="Set final pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                     </form>
                   </details>
