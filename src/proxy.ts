@@ -44,6 +44,9 @@ const PUBLIC_PATH_PREFIXES = [
   // SMS and every character counts; "/clean/" stays open for the
   // permanent redirect in next.config.ts.
   "/c/",
+  // Short shoot-brief links (/b/<token>): the same knowledge-of-token entry as
+  // /c/, kept out of SSO so a text opens straight to the brief.
+  "/b/",
   "/clean/",
 ];
 
