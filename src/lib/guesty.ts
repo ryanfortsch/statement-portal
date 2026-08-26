@@ -228,6 +228,30 @@ export async function getListingPhotos(listingId: string): Promise<GuestyPhoto[]
   }));
 }
 
+/** The lead photo + the listing's own guest-facing parking copy, from ONE
+ *  GET /v1/listings/{id}. Both live on the same object, so a caller that
+ *  wants both (the shoot brief) must not pay for two round trips.
+ *
+ *  `parkingInstructions` is the field Guesty surfaces to guests and uses as an
+ *  auto-message variable, which makes it the AUTHORITY on where to park -- not
+ *  whatever was hand-typed into Helm months ago. Blank when the listing has
+ *  none set. */
+export async function getListingParkingAndHero(
+  listingId: string,
+): Promise<{ parking: string | null; heroUrl: string | null }> {
+  const listing = await guestyGet<{ pictures?: RawListingPicture[]; parkingInstructions?: unknown }>(
+    `/v1/listings/${listingId}`,
+  );
+  const pics = Array.isArray(listing.pictures) ? listing.pictures : [];
+  const first = pics[0];
+  const parking =
+    typeof listing.parkingInstructions === 'string' ? listing.parkingInstructions.trim() : '';
+  return {
+    parking: parking || null,
+    heroUrl: first?.original || first?.thumbnail || first?.regular || first?.large || null,
+  };
+}
+
 /**
  * JSON write helper (POST/PATCH/PUT) sharing guestyGet's token cache +
  * 429 backoff. The GET-only guestyGet can't mutate.

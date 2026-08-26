@@ -440,7 +440,15 @@ export async function dayClearReport(
   for (const pid of propertyIds) {
     const propBookings = bookings.filter((b) => b.property_id === pid);
     const guestStays = propBookings.filter((b) => b.status !== 'block');
-    const occupiedNight = propBookings.some((b) => b.check_in <= day && day < b.check_out);
+    // A guest stay and a calendar BLOCK both close the night, but they are not
+    // the same fact and must never be reported as one: a block is an owner
+    // hold, a maintenance hold, or an unnamed Guesty block, and saying "a guest
+    // is in the house" about one sends the office chasing a guest who does not
+    // exist (3 South, 2026-08-26).
+    const guestNight = guestStays.some((b) => b.check_in <= day && day < b.check_out);
+    const blockedNight = propBookings.some(
+      (b) => b.status === 'block' && b.check_in <= day && day < b.check_out,
+    );
     const checkInToday = guestStays.some((b) => b.check_in === day);
     const mirrorStatus = mirror.get(pid);
     const mirrorClosed = mirrorStatus !== undefined && mirrorStatus !== 'available';
@@ -458,8 +466,9 @@ export async function dayClearReport(
         .sort()[0] ?? null;
 
     let reason: string | null = null;
-    if (occupiedNight) reason = 'a guest is in the house that night';
+    if (guestNight) reason = 'a guest is in the house that night';
     else if (checkInToday) reason = 'a guest checks in that day (~3 PM)';
+    else if (blockedNight) reason = 'the calendar is blocked that night';
     else if (mirrorClosed) reason = `the Guesty calendar shows the day as ${mirrorStatus}`;
 
     out.set(pid, { clear: !reason, reason, priorCheckout, nextCheckin });

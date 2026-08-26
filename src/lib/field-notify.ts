@@ -660,12 +660,15 @@ export async function sendShootBrief(
 
   // The entry-details / day-of-all-clear promise only holds when a home is
   // attached — a b-roll or town day has no calendar and no door.
+  // Homes on Seam carry the fleet creative PIN, so the brief shows the door
+  // code right away; only a home WITHOUT one holds its details back to the day
+  // before. Promising "unlocks the day before" for every home was wrong.
   const homeLine = propertyName
-    ? `<p style="font-size:12px;color:#7a8a90;margin:6px 0 0;">Entry details unlock on the brief the day before the shoot. We re-check the home's calendar that morning and text you the all-clear.</p>`
+    ? `<p style="font-size:12px;color:#7a8a90;margin:6px 0 0;">We re-check the home's calendar the morning of and text you the all-clear.</p>`
     : '';
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Your shoot brief — ${when}</h1>
-    <p>Hi ${esc(first)}, <strong>${esc(shoot.title)}</strong>${esc(at)} is on the books for ${when}. Your brief has the ${propertyName ? 'address and map, arrival and parking, how to get in, and the listing to study' : 'plan for the day and what to deliver'} before you frame anything.</p>
+    <p>Hi ${esc(first)}, <strong>${esc(shoot.title)}</strong>${esc(at)} is on for ${when}. Your brief has ${propertyName ? 'the address, where to park, your door code, and the hours you have' : 'the plan for the day and what to deliver'}.</p>
     ${btn(link, 'Open the shoot brief')}
     ${homeLine}
   `);
