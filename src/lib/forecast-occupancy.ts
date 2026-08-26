@@ -104,7 +104,53 @@ export const HISTORICAL_AVG_8YR: number[] = monthAverages([2018, 2019, 2020, 202
  */
 export const HISTORICAL_AVG_RECENT: number[] = monthAverages([2022, 2023, 2024, 2025]);
 
-/** 2026 actuals (Jan-Apr). Only complete months — May-Dec are unknown. */
+/**
+ * How far 2026 is actually running against HISTORICAL_AVG_RECENT.
+ *
+ * The benchmark is a four-year average, and Gloucester occupancy has fallen
+ * in every month of it year over year (October: 68.5 -> 64.8 -> 64.7 ->
+ * 60.8). Averaging 2022 in therefore sets the bar above where the market
+ * currently sits, and 2026 has come in below even that: January through
+ * April ran 21.7 / 32.8 / 46.4 / 45.5 against a benchmark of 28.4 / 46.1 /
+ * 48.1 / 54.1, which is 82% of it.
+ *
+ * The smart forecast scales sparsely-booked forward months UP to this
+ * benchmark, so an uncalibrated benchmark inflates every forward month.
+ * This factor is the observed ratio across whatever complete 2026 months
+ * exist, so it tightens on its own as the year fills in. Returns 1 when
+ * there is nothing to calibrate against, which keeps the old behaviour.
+ */
+export function marketCalibrationFactor(): number {
+  const pairs: Array<[number, number]> = [];
+  for (const [k, actual] of Object.entries(ACTUAL_2026_OCCUPANCY)) {
+    const idx = parseInt(k, 10) - 1;
+    const bench = HISTORICAL_AVG_RECENT[idx];
+    if (actual != null && actual > 0 && bench > 0) pairs.push([actual, bench]);
+  }
+  if (pairs.length === 0) return 1;
+  const ratio = pairs.reduce((s, [a, b]) => s + a / b, 0) / pairs.length;
+  // Guard against a wild reading from one thin month.
+  return Math.min(1, Math.max(0.5, ratio));
+}
+
+/**
+ * The occupancy benchmark the forward forecast should actually scale to:
+ * the historical shape, pulled down to where 2026 is really trading.
+ */
+export function calibratedBenchmark(): number[] {
+  const f = marketCalibrationFactor();
+  return HISTORICAL_AVG_RECENT.map((v) => v * f);
+}
+
+/**
+ * 2026 actuals (Jan-Apr). Only complete months; May-Dec are unknown.
+ *
+ * LOAD-BEARING: marketCalibrationFactor() reads this to work out how far
+ * 2026 is running below the historical benchmark, and the smart forecast
+ * scales every forward month to that calibrated benchmark. Fill months in
+ * as they close - each one tightens the forward projection. Leaving it
+ * stale means the forecast keeps calibrating on Q1.
+ */
 export const ACTUAL_2026_OCCUPANCY: Record<number, number | null> = {
   1: 21.70, 2: 32.79, 3: 46.39, 4: 45.50,
   5: null, 6: null, 7: null, 8: null,
