@@ -640,6 +640,9 @@ export async function POST(request: NextRequest) {
     };
     const syntheticInstallments: Installment[] = installmentsThisMonth.filter(i => !codes.includes(i.confirmation_code));
     const synthGuestyByCode = new Map<string, SynthGuesty>();
+    // Installments whose month falls OUTSIDE their own booking's stay span.
+    // Collected during injection below, reported as a gap at gap-build time.
+    const installmentSpanMismatches: { code: string; month: string; amount: number; checkIn: string; checkOut: string }[] = [];
     if (syntheticInstallments.length > 0) {
       const synthCodes = syntheticInstallments.map(i => i.confirmation_code);
       const { data: synthRows } = await supabase
@@ -1128,6 +1131,39 @@ export async function POST(request: NextRequest) {
     for (const installment of syntheticInstallments) {
       const synth = synthGuestyByCode.get(installment.confirmation_code);
       if (!synth || !synth.check_in || !synth.check_out) continue;
+
+      // ── Stay-span invariant ───────────────────────────────────────────
+      // An installment splits the NIGHTS of one stay, so every slice month
+      // must overlap [check_in, check_out). A slice outside that span is
+      // not a split at all -- it's money being carried into a month the
+      // booking never touched, which the operator has almost certainly
+      // already recognized some other way (the extras/add-on queue is the
+      // supported path for a late-arriving charge). Injecting it here
+      // would add rental revenue ON TOP of that attribution and overpay
+      // the owner.
+      //
+      // Do NOT try to detect the collision via the attribution rows: an
+      // add-on is attributed to whichever stay ANCHORS it in the month,
+      // which is a different confirmation_code than the installment's, so
+      // a code match would miss the very case this guard exists for. The
+      // span check is structural and needs no second read.
+      //
+      // Skipping is loud, never silent: a gap goes on the statement so the
+      // operator resolves the row rather than quietly losing revenue.
+      const monthStart = `${installment.month}-01`;
+      const [iy, im] = installment.month.split('-').map(Number);
+      const monthEndExclusive = new Date(Date.UTC(iy, im, 1)).toISOString().slice(0, 10);
+      const overlapsStay = monthStart < synth.check_out && monthEndExclusive > synth.check_in;
+      if (!overlapsStay) {
+        installmentSpanMismatches.push({
+          code: installment.confirmation_code,
+          month: installment.month,
+          amount: Number(installment.installment_revenue) || 0,
+          checkIn: synth.check_in,
+          checkOut: synth.check_out,
+        });
+        continue;
+      }
 
       const platformInfo = platformMap[installment.confirmation_code];
       const platform =
@@ -1619,6 +1655,15 @@ export async function POST(request: NextRequest) {
         description: `${c.vendor} sent money BACK: $${c.amount.toFixed(2)} credit on ${c.date} with no same-amount ${c.kind} charge this month to net it against. If it refunds a prior month's charge, apply a credit on that statement's row (Mark Duplicate); the credit is also parked in the bank review queue.`,
         severity: 'critical',
         expected_data: `Matching ${c.vendor} charge for $${c.amount.toFixed(2)}`,
+      });
+    }
+
+    for (const m of installmentSpanMismatches) {
+      gaps.push({
+        gap_type: 'installment_outside_stay_span',
+        description: `Installment slice ${m.code} / ${m.month} for $${m.amount.toFixed(2)} was NOT added to this statement: the booking stays ${m.checkIn} to ${m.checkOut} and never touches ${m.month}, so it isn't a cross-month split. If this money belongs here it is almost certainly already on the statement as an attributed add-on -- injecting it too would double-count it.`,
+        severity: 'warning',
+        expected_data: `Delete the reservation_installments row ${m.code}|${m.month}, or re-slice the split so every month falls inside ${m.checkIn} to ${m.checkOut}`,
       });
     }
 
