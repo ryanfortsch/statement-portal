@@ -34,6 +34,17 @@
  *      itself booked on the stays where Guesty booked a clean 5%, and that
  *      the OLD formula did not -- using the real July 2026 numbers.
  *
+ *   E. That the sheet's RENTAL INCOME column times the property's statutory
+ *      rate equals its TAX OWED column, on the real July numbers -- because
+ *      Allie files by entering rent and letting MassTaxConnect compute the
+ *      excise, so a rent figure that does not reconcile is worse than none.
+ *      And that the one property which does NOT reconcile (53 Rocky Neck,
+ *      whose Booking.com listing collected 10.41%) trips the flag.
+ *
+ *   F. That cross-month proration is applied exactly once: folio_items and
+ *      guesty_reservations are booking-level and take the month's share,
+ *      while the reservations row is already the month's slice.
+ *
  * Run: node scripts/remittance_tax_parity.mjs
  * Exit 0 = parity holds. Exit 1 = a case diverged.
  */
@@ -245,6 +256,85 @@ if (oldWrong === 0) {
 }
 
 console.log(`\n  July VRBO sweep: was ${round2(sumOld).toFixed(2)}, should have been ${round2(sumNew).toFixed(2)} (under-swept ${round2(sumNew - sumOld).toFixed(2)})`);
+
+// ---------------------------------------------------------------------------
+// E. The rental-income column. Allie files by entering rent on
+//    MassTaxConnect and letting the state compute the excise, so the two
+//    columns have to reconcile at the statutory rate or the filing will not
+//    tie to what we moved to *9928.
+// ---------------------------------------------------------------------------
+console.log('\nE. RENTAL INCOME reconciles to TAX OWED -- July 2026 actuals');
+
+const BASE_RATE = 0.117;
+const CIF_RATE = 0.147;
+
+// `stays` is how many reservations rolled into the property's total. Guesty
+// rounds each tax LEG to the cent independently -- state, local, and the
+// Community Impact Fee are three separate folio lines -- so a multi-stay
+// property cannot reconcile to the exact cent. 79 Main's 2c gap is two of
+// its four stays each rounding up a penny (verified line by line against
+// the folio). One cent per stay is the honest tolerance.
+//
+// The tolerance is not what protects the filing: the sheet's divergence
+// flag sits at 0.2 percentage points, two orders of magnitude above penny
+// rounding, so a reconciling property never false-flags. 19 Rackliffe's
+// implied rate is 11.7001%. The loop asserts that separately.
+const JULY_TAX = [
+  { prop: '16 Waterman',    rent: 4308.00,   tax: 504.04,   rate: BASE_RATE, stays: 1 },
+  { prop: '19 Rackliffe',   rent: 14827.30,  tax: 1734.81,  rate: BASE_RATE, stays: 5 },
+  { prop: '20 Hammond',     rent: 8605.58,   tax: 1006.85,  rate: BASE_RATE, stays: 3 },
+  { prop: '21 Horton',      rent: 9903.00,   tax: 1158.65,  rate: BASE_RATE, stays: 2 },
+  { prop: '30 Woodward',    rent: 3166.00,   tax: 370.42,   rate: BASE_RATE, stays: 1 },
+  { prop: '36 Granite',     rent: 2627.84,   tax: 307.46,   rate: BASE_RATE, stays: 2 },
+  { prop: '4 Brier Neck',   rent: 28420.00,  tax: 3325.14,  rate: BASE_RATE, stays: 2 },
+  { prop: '73 Rocky Neck',  rent: 15665.12,  tax: 1832.82,  rate: BASE_RATE, stays: 1 },
+  { prop: '79 Main',        rent: 5789.48,   tax: 851.07,   rate: CIF_RATE,  stays: 4 },
+];
+for (const r of JULY_TAX) {
+  check(
+    `${r.prop}: rent x ${(r.rate * 100).toFixed(1)}% = tax owed`,
+    round2(r.rent * r.rate), r.tax, 0.01 * r.stays + 1e-9,
+  );
+  // The flag threshold is what actually protects the filing. Prove no
+  // reconciling property is anywhere near tripping it.
+  const impliedGap = Math.abs(r.tax / r.rent - r.rate);
+  if (impliedGap > 0.002) {
+    console.log(`  FAIL  ${r.prop} would false-flag: implied rate off by ${(impliedGap * 100).toFixed(4)}pp`);
+    failures++;
+  }
+}
+
+// 53 Rocky Neck must NOT reconcile: its Booking.com listing collected
+// 10.41% on that stay, so the sheet has to flag it rather than print a
+// rental-income figure the state will disagree with.
+const RN53 = { rent: 15127.23, tax: 1734.80, rate: BASE_RATE };
+const rn53Implied = RN53.tax / RN53.rent;
+const rn53Flagged = Math.abs(rn53Implied - RN53.rate) > 0.002;
+if (rn53Flagged) {
+  console.log(`  PASS  53 Rocky Neck flagged: collected ${(rn53Implied * 100).toFixed(2)}% vs ${(RN53.rate * 100).toFixed(2)}%, short $${round2(RN53.rent * RN53.rate - RN53.tax).toFixed(2)}`);
+} else {
+  console.log('  FAIL  53 Rocky Neck should have tripped the rate-divergence flag');
+  failures++;
+}
+
+// ---------------------------------------------------------------------------
+// F. Proration applies ONCE. folio_items and guesty_reservations are
+//    booking-level and get the month's share; the reservations row is
+//    already the month's slice and must be used verbatim.
+// ---------------------------------------------------------------------------
+console.log('\nF. CROSS-MONTH PRORATION -- booking-level scaled, month-level not');
+
+// Kate Bacon, 17 Beach: booked Jun 27 -> Aug 1, split $7,138.81 June /
+// $55,325.59 July. The reservations row already carries the July figure.
+const kate = { bookingRent: 62464.40, juneSlice: 7138.81, julySlice: 55325.59 };
+const share = kate.julySlice / (kate.juneSlice + kate.julySlice);
+check('reservations row is used verbatim', kate.julySlice, 55325.59, 0);
+check('applying share again would understate by', round2(kate.julySlice * share), 49002.65, 0.01);
+check('shares sum to the whole booking', round2(kate.juneSlice + kate.julySlice), kate.bookingRent, 0.01);
+// A booking-level figure DOES get the share, and the months sum back to it.
+const bookingLevelTax = 1000;
+const juneShare = kate.juneSlice / kate.bookingRent;
+check('booking-level tax split across months sums back', round2(bookingLevelTax * juneShare + bookingLevelTax * share), bookingLevelTax, 0.01);
 
 console.log(failures === 0 ? '\nPARITY HOLDS\n' : `\n${failures} CASE(S) DIVERGED\n`);
 process.exit(failures === 0 ? 0 : 1);

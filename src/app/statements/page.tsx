@@ -242,6 +242,7 @@ function buildRemittanceList(args: {
   const { monthName, sheet } = args;
   const rows = sheet.rows;
   const dollars = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
   const totalTax = rows.reduce((s, r) => s + r.taxToRemit, 0);
   const totalVrbo = rows.reduce((s, r) => s + r.vrboCommissionSweep, 0);
   const totalBooking = rows.reduce((s, r) => s + r.bookingAutoDebit, 0);
@@ -252,26 +253,51 @@ function buildRemittanceList(args: {
   lines.push(`Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
   lines.push('');
 
+  const totalRent = rows.reduce((s, r) => s + r.taxableRent, 0);
+
   lines.push('1. TAX REMITTANCE (property account -> *9928)');
-  lines.push("   File on MassTaxConnect using each property's certificate.");
+  lines.push('   Enter RENTAL INCOME on MassTaxConnect under the certificate; the');
+  lines.push('   state computes the excise. TAX OWED is what we move to *9928, so');
+  lines.push("   the state's computed figure and this column should agree. A \">>\"");
+  lines.push('   line means the listing collected the wrong rate -- check it in Guesty.');
   lines.push('-'.repeat(76));
   if (rows.length === 0) {
     lines.push('  (no statements for this month)');
   } else {
+    lines.push(`  ${'PROPERTY'.padEnd(26)} ${'RENTAL INCOME'.padStart(14)} ${'TAX OWED'.padStart(12)}   CERTIFICATE`);
+    lines.push('  ' + '-'.repeat(74));
     // Every property prints, $0 included. A property missing from this
     // list is a property nobody filed for.
     rows.forEach(r => {
       const cert = r.taxCertId || 'NO CERT ON FILE';
+      const rent = r.taxableRent > 0 ? dollars(r.taxableRent) : '--';
       const amount = r.taxToRemit > 0 ? dollars(r.taxToRemit) : 'none owed';
-      lines.push(`  ${r.propertyShort.padEnd(24)} ${amount.padStart(11)}   Cert: ${cert}`);
+      lines.push(`  ${r.propertyShort.slice(0, 26).padEnd(26)} ${rent.padStart(14)} ${amount.padStart(12)}   ${cert}`);
       if (r.addOnTax > 0) {
-        lines.push(`  ${''.padEnd(24)} ${`incl. ${dollars(r.addOnTax)} add-on tax`.padStart(11)}`);
+        // The add-on leg called out so its rent can be traced: it comes from
+        // a payment link, not from a Guesty reservation.
+        lines.push(`  ${'incl. add-on fees'.padEnd(26)} ${dollars(r.addOnRent).padStart(14)} ${dollars(r.addOnTax).padStart(12)}`);
+      }
+      // The two columns are a check on each other. If tax / rent is not the
+      // property's statutory rate, a listing's tax config in Guesty is
+      // charging the wrong percentage and MassTaxConnect's computed excise
+      // will not agree with the number we moved. Say so on the line rather
+      // than let the accountant discover it in the filing.
+      if (r.taxableRent > 0 && r.expectedTaxRate > 0) {
+        const implied = r.taxToRemit / r.taxableRent;
+        if (Math.abs(implied - r.expectedTaxRate) > 0.002) {
+          const shouldBe = r.taxableRent * r.expectedTaxRate;
+          lines.push(
+            `  ${'>> collected'.padEnd(26)} ${pct(implied).padStart(14)} ${`vs ${pct(r.expectedTaxRate)}`.padStart(12)}` +
+            `   short ${dollars(shouldBe - r.taxToRemit)}`,
+          );
+        }
       }
     });
-    lines.push('-'.repeat(76));
-    lines.push(`  ${'TOTAL TAX TO *9928'.padEnd(24)} ${dollars(totalTax).padStart(11)}`);
+    lines.push('  ' + '-'.repeat(74));
+    lines.push(`  ${'TOTAL TO *9928'.padEnd(26)} ${dollars(totalRent).padStart(14)} ${dollars(totalTax).padStart(12)}`);
     if (totalAddOnTax > 0) {
-      lines.push(`  ${'of which add-on tax'.padEnd(24)} ${dollars(totalAddOnTax).padStart(11)}`);
+      lines.push(`  ${'of which add-on tax'.padEnd(26)} ${''.padStart(14)} ${dollars(totalAddOnTax).padStart(12)}`);
     }
     const noCert = rows.filter(r => r.taxToRemit > 0 && !r.taxCertId);
     if (noCert.length > 0) {
