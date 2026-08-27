@@ -7,6 +7,11 @@
  *                  - cleaning_total - repairs_total - attributedDebits
  *                  - reserve_holdback
  *
+ * `tax_amount` on an attributed row is occupancy tax held for the state.
+ * It is NOT in any term of that formula: `amount` is already net of it, so
+ * the owner's add-on revenue and the fee base are unchanged by its
+ * existence. It comes back as `addOnsTax` for the remittance sheet alone.
+ *
  * The bank-deposits PATCH route, receipts routes, and reserve route
  * already compute with these terms; this helper exists so the OTHER
  * recompute sites (stripe-sync, fill-gap, refresh-statement) can fold
@@ -21,6 +26,15 @@ export type AddOnTotals = {
   addOnsRevenue: number;
   addOnsMgmtBase: number;
   attributedDebits: number;
+  /**
+   * Occupancy tax collected inside attributed add-on charges, held for
+   * remittance (2026-08-27). Reported only -- it is deliberately absent
+   * from every term above, because it is the state's money, not revenue
+   * and not part of the management-fee base. The accountant's remittance
+   * sheet is its one consumer. Zero for every row written before the
+   * add-on tax gross-up shipped, so no historical payout moves.
+   */
+  addOnsTax: number;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -35,7 +49,7 @@ export async function loadAddOnTotals(
 ): Promise<AddOnTotals> {
   const { data, error } = await supabase
     .from('bank_deposit_attributions')
-    .select('amount, apply_mgmt_fee, direction')
+    .select('amount, apply_mgmt_fee, direction, tax_amount')
     .eq('property_id', propertyId)
     .eq('month', month)
     .eq('status', 'attributed');
@@ -43,12 +57,13 @@ export async function loadAddOnTotals(
   // correct there. Any other read failure must throw -- returning zeros
   // on a transient error would let a caller overwrite real add-on totals.
   if (error) {
-    if (missingTable(error)) return { addOnsRevenue: 0, addOnsMgmtBase: 0, attributedDebits: 0 };
+    if (missingTable(error)) return { addOnsRevenue: 0, addOnsMgmtBase: 0, attributedDebits: 0, addOnsTax: 0 };
     throw new Error(`bank_deposit_attributions read failed: ${error.message}`);
   }
   let addOnsRevenue = 0;
   let addOnsMgmtBase = 0;
   let attributedDebits = 0;
+  let addOnsTax = 0;
   for (const a of data || []) {
     const amt = Number(a.amount) || 0;
     if ((a.direction || 'deposit') === 'debit') {
@@ -56,11 +71,13 @@ export async function loadAddOnTotals(
     } else {
       addOnsRevenue += amt;
       if (a.apply_mgmt_fee) addOnsMgmtBase += amt;
+      addOnsTax += Number(a.tax_amount) || 0;
     }
   }
   return {
     addOnsRevenue: round2(addOnsRevenue),
     addOnsMgmtBase: round2(addOnsMgmtBase),
     attributedDebits: round2(attributedDebits),
+    addOnsTax: round2(addOnsTax),
   };
 }

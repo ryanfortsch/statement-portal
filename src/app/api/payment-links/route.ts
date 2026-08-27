@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
 import { getStripeKeysMap, perPropertyKeyVars, refusedSecretKeyVars } from '@/lib/stripe-sync';
+import { addOnIsTaxable, splitAddOnTax, formatTaxRate } from '@/lib/addon-tax';
 
 /**
  * Stay-concierge bridge: create a Stripe Payment Link for a guest add-on
@@ -15,13 +16,26 @@ import { getStripeKeysMap, perPropertyKeyVars, refusedSecretKeyVars } from '@/li
  * ?scopes=1) still ride the query string.
  *
  * POST /api/payment-links     (secret in the x-stay-concierge-key header)
- *   { property_id, label, amount_cents, guest_name?, request_key, save_card? }
+ *   { property_id, label, amount_cents, guest_name?, request_key, save_card?, taxable? }
  *   or { deactivate_link_id, property_id }         (turn one link off)
  *   or { deactivate_request_key }                  (turn off by request_key)
  *
  * save_card is set ONLY by the far-future booking-deposit mints: the link
  * saves the guest's card for the off-session balance charge (see the link
  * params below and /api/balance-charges). Ordinary add-on links never set it.
+ *
+ * OCCUPANCY TAX (2026-08-27, Dotti after the July close). `amount_cents` is
+ * the fee as QUOTED to the guest; the card is charged that fee PLUS MA room
+ * occupancy excise for the property (11.7%, or 14.7% where the Community
+ * Impact Fee applies). An add-on fee is rent, so the tax is owed on it, and
+ * before this the money was never collected and never reached the
+ * accountant's remittance sheet -- Ed Brooke's $250 late checkout on 73
+ * Rocky Neck is the case that surfaced it. The response carries
+ * base_cents / tax_cents / total_cents / tax_rate so the caller's SMS can
+ * state the real number the guest will be charged. Stay principal
+ * (save_card, ffdeposit:/ffbalcharge: keys) is NOT grossed up: the Stay
+ * Cape Ann quote behind it already includes tax. `taxable: false` opts a
+ * non-rent charge (damage, replacement cost) out.
  *
  * Naming contract with lib/stripe-sync.ts (the statements ingest):
  *   - Product name is "<label> - <guest name> - <external title>". The
@@ -285,6 +299,7 @@ export async function POST(req: Request) {
     deactivate_link_id?: string;
     deactivate_request_key?: string;
     save_card?: boolean;
+    taxable?: boolean;
   };
   try {
     body = await req.json();
@@ -371,14 +386,24 @@ export async function POST(req: Request) {
     );
   }
 
-  // Replay? Hand back the existing link.
+  // Replay? Hand back the existing link, with the split it was minted at --
+  // a retry must quote the guest the same total as the first attempt.
   const { data: existing } = await supabase
     .from('payment_link_requests')
-    .select('url, stripe_link_id')
+    .select('url, stripe_link_id, amount_cents, base_cents, tax_cents, tax_rate')
     .eq('request_key', requestKey)
     .maybeSingle();
   if (existing?.url) {
-    return NextResponse.json({ ok: true, url: existing.url, link_id: existing.stripe_link_id, deduped: true });
+    return NextResponse.json({
+      ok: true,
+      url: existing.url,
+      link_id: existing.stripe_link_id,
+      deduped: true,
+      base_cents: existing.base_cents ?? existing.amount_cents,
+      tax_cents: existing.tax_cents ?? 0,
+      total_cents: existing.amount_cents,
+      tax_rate: Number(existing.tax_rate ?? 0),
+    });
   }
 
   const keys = getStripeKeysMap();
@@ -407,13 +432,34 @@ export async function POST(req: Request) {
     productName = `Add-on: ${productName}`;
   }
 
-  const price = await stripePost(stripeKey, 'prices', {
-    'unit_amount': String(amountCents),
+  // Occupancy tax on top of the quoted fee. The name is left alone -- it is
+  // the statements-facing description that lib/stripe-sync.ts recovers from
+  // the checkout session, and the naming contract above governs it. The
+  // split goes in the product DESCRIPTION, which is what the guest reads
+  // under the name on the checkout page, so nobody is surprised by the
+  // total.
+  const taxable = addOnIsTaxable({ requestKey, saveCard, taxable: body.taxable });
+  const split = splitAddOnTax({
+    propertyId,
+    baseCents: amountCents,
+    chargeCreatedIso: new Date().toISOString().slice(0, 10),
+    taxable,
+  });
+  const priceParams: Record<string, string> = {
+    'unit_amount': String(split.totalCents),
     'currency': 'usd',
     'product_data[name]': productName.slice(0, 250),
     'product_data[metadata][helm_property_id]': propertyId,
     'product_data[metadata][helm_request_key]': requestKey,
-  });
+  };
+  if (split.taxCents > 0) {
+    const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
+    priceParams['product_data[description]'] =
+      `${dollars(split.baseCents)} + ${dollars(split.taxCents)} occupancy tax (${formatTaxRate(split.rate)})`;
+    priceParams['product_data[metadata][helm_base_cents]'] = String(split.baseCents);
+    priceParams['product_data[metadata][helm_tax_cents]'] = String(split.taxCents);
+  }
+  const price = await stripePost(stripeKey, 'prices', priceParams);
   if (!price.ok) {
     const permission = price.status === 401 || price.status === 403;
     return NextResponse.json(
@@ -444,6 +490,14 @@ export async function POST(req: Request) {
     'payment_intent_data[metadata][helm_request_key]': requestKey,
     'payment_intent_data[metadata][helm_property_id]': propertyId,
   };
+  if (split.taxCents > 0) {
+    // On the charge as well as the link: the extras-queue sync reads the
+    // split off payment_link_requests, but a charge that carries its own
+    // copy stays reconcilable straight from a Stripe export.
+    linkParams['metadata[helm_tax_cents]'] = String(split.taxCents);
+    linkParams['payment_intent_data[metadata][helm_tax_cents]'] = String(split.taxCents);
+    linkParams['payment_intent_data[metadata][helm_base_cents]'] = String(split.baseCents);
+  }
   if (saveCard) {
     linkParams['customer_creation'] = 'always';
     linkParams['payment_intent_data[setup_future_usage]'] = 'off_session';
@@ -468,7 +522,13 @@ export async function POST(req: Request) {
     property_id: propertyId,
     label,
     guest_name: guestName,
-    amount_cents: amountCents,
+    // amount_cents stays "what the card is charged", which is what the paid
+    // sweep and the balance-charge flow already read it as. base/tax carry
+    // the split.
+    amount_cents: split.totalCents,
+    base_cents: split.baseCents,
+    tax_cents: split.taxCents,
+    tax_rate: split.rate,
     stripe_link_id: linkId,
     url,
     save_card: saveCard,
@@ -476,13 +536,31 @@ export async function POST(req: Request) {
   if (insErr && insErr.code === '23505') {
     const { data: winner } = await supabase
       .from('payment_link_requests')
-      .select('url, stripe_link_id')
+      .select('url, stripe_link_id, amount_cents, base_cents, tax_cents, tax_rate')
       .eq('request_key', requestKey)
       .maybeSingle();
     if (winner?.url) {
-      return NextResponse.json({ ok: true, url: winner.url, link_id: winner.stripe_link_id, deduped: true });
+      return NextResponse.json({
+        ok: true,
+        url: winner.url,
+        link_id: winner.stripe_link_id,
+        deduped: true,
+        base_cents: winner.base_cents ?? winner.amount_cents,
+        tax_cents: winner.tax_cents ?? 0,
+        total_cents: winner.amount_cents,
+        tax_rate: Number(winner.tax_rate ?? 0),
+      });
     }
   }
 
-  return NextResponse.json({ ok: true, url, link_id: linkId, deduped: false });
+  return NextResponse.json({
+    ok: true,
+    url,
+    link_id: linkId,
+    deduped: false,
+    base_cents: split.baseCents,
+    tax_cents: split.taxCents,
+    total_cents: split.totalCents,
+    tax_rate: split.rate,
+  });
 }
