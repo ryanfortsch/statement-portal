@@ -79,7 +79,10 @@ export const PROPERTIES: Record<string, Property> = {
     owner_last: 'Prudenzi', owner_full: 'Simon Prudenzi, Smith Cove LLC', owner_greeting: 'Simon',
     owner_emails: ['prudenziwelding@yahoo.com'],
     fee_pct: 25, bank_last4: '1228', listing_match: '53 rocky neck (down',
-    tax_cert_id: null,
+    // Same MassTaxConnect cert as the main house upstairs (Allie
+    // 2026-08-27) -- one registration covering both units at 53 Rocky
+    // Neck Ave, so the accountant files two amounts under one number.
+    tax_cert_id: 'C0554181070',
   },
   '4_brier_neck': {
     id: '4_brier_neck', name: '4 Brier Neck', address: '4 Brier Neck Road', city: 'Gloucester, MA',
@@ -156,14 +159,15 @@ export const PROPERTIES: Record<string, Property> = {
   // near 17 Beach's), so nothing may ever match this property by title
   // substring. listing_match stays an internal-name needle and Guesty
   // flows key on guesty_listing_id 6a426ea57c49910013b37ea0. No Chase
-  // account or tax cert yet; backfill bank_last4 / tax_cert_id here and
-  // in the DB row when banking is set up.
+  // account yet; backfill bank_last4 here and in the DB row when banking
+  // is set up.
   '84_thatcher': {
     id: '84_thatcher', name: '84 Thatcher', address: '84 Thatcher Road', city: 'Gloucester, MA',
     owner_last: 'Lopes', owner_full: 'Julie Lopes', owner_greeting: 'Julie',
     owner_emails: ['julie@shirtsillustratedsalem.com'],
     fee_pct: 25, bank_last4: null, listing_match: '84 thatcher',
-    tax_cert_id: null,
+    // MassTaxConnect cert from Allie 2026-08-27.
+    tax_cert_id: 'C0510251070',
   },
   // Seeded 2026-08-20 from the Helm properties row. External title is
   // "Stay in Central Gloucester" (note "in", not "at" -- neighborhood
