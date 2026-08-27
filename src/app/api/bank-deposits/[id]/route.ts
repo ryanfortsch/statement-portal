@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { PROPERTIES } from '@/lib/properties';
 
 /**
  * Operator review actions on a pending bank_deposit_attributions row.
@@ -162,7 +161,19 @@ export async function PATCH(
   if (direction === 'deposit' && !reservationCode) {
     return NextResponse.json({ error: 'reservation_code required for deposits' }, { status: 400 });
   }
-  if (!PROPERTIES[existing.property_id]) {
+  // Roster check against the LIVE registry, not the code-side PROPERTIES
+  // map. That map carries 15 of the 19 active properties, so gating on it
+  // meant an add-on charge on 16 Waterman, 36 Granite, 79 Main or 4 Middle
+  // was refused outright with "unknown property_id" -- the same way those
+  // properties used to fall off the accountant's remittance sheet. Nothing
+  // downstream needs the map: recomputeStatementTotals reads the fee
+  // percentage off the statement's own snapshot.
+  const { data: registryRow } = await supabase
+    .from('properties')
+    .select('id')
+    .eq('id', existing.property_id)
+    .maybeSingle();
+  if (!registryRow) {
     return NextResponse.json({ error: `unknown property_id ${existing.property_id}` }, { status: 400 });
   }
   const { error: updErr } = await supabase

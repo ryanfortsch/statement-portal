@@ -2,6 +2,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { PROPERTIES } from '@/lib/properties';
+import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
 
 export type OwnerConfigRow = {
   name: string;
@@ -225,6 +226,17 @@ export async function loadGuestyRowsByCodes(codes: string[]): Promise<GuestyFina
     .select('confirmation_code, total_paid, total_taxes, channel_commission')
     .in('confirmation_code', codes);
   return (data || []) as GuestyFinanceRow[];
+}
+
+/**
+ * The accountant's remittance sheet for one month. Computed entirely
+ * server-side in lib/remittance.ts: it reads guesty_reservations.folio_items
+ * (a heavy per-booking JSON blob) to get tax and pre-tax guest totals that
+ * the scalar total_taxes / total_paid columns get wrong or leave NULL, and
+ * that blob has no business crossing to the browser.
+ */
+export async function loadRemittanceSheet(month: string): Promise<RemittanceSheet> {
+  return buildRemittanceSheet(supabaseAdmin, month);
 }
 
 export type BankReviewRow = Row & { id: string };

@@ -3,12 +3,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  loadOwnerConfig, loadTaxCerts, loadOwnerActionCounts as loadOwnerActionCountsAction,
+  loadOwnerConfig, loadTaxCerts, loadRemittanceSheet, loadOwnerActionCounts as loadOwnerActionCountsAction,
   loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap,
   loadCloseState as loadCloseStateAction, saveFundsSentDateAction, upsertCloseTask,
   loadGuestyRowsByCodes,
 } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
+import type { RemittanceSheet } from '@/lib/remittance';
 import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { Suspense } from 'react';
@@ -204,92 +205,140 @@ function defaultFundsSentDate(statementMonth: string): string {
  * Text-format the accountant's monthly remittance checklist. What the
  * accountant used to assemble by hand each close cycle:
  *
- *   1. TAX -> *9928:   per property, sum of taxes collected this month on
- *      Stay Cape Ann / VRBO / Booking reservations. Move these dollars
- *      out of the property account into the shared tax-holding account
- *      so MassTaxConnect can debit them when filings post.
+ *   1. TAX -> *9928:   per property, the occupancy tax collected this month
+ *      on Stay Cape Ann / VRBO / Booking stays, plus the tax collected
+ *      inside any add-on charge (a late checkout, an extra night) sold
+ *      through a payment link. Move these dollars out of the property
+ *      account into the shared tax-holding account so MassTaxConnect can
+ *      debit them when filings post.
  *
  *   2. VRBO COMMISSION -> *5130:   per property, 5% of each VRBO stay's
- *      pre-tax revenue. This reimburses the credit card (*3878) that
+ *      pre-tax guest total. This reimburses the credit card (*3878) that
  *      Rising Tide uses to pay VRBO the monthly commission lump sum.
  *
  *   3. BOOKING.COM AUTO-DEBIT (FYI only, no action):   Booking pulls
- *      their 15% directly from the property account the following month.
- *      We show the number so the accountant can reconcile it when the
- *      debit clears.
+ *      their commission directly from the property account the following
+ *      month. We show the number so the accountant can reconcile it when
+ *      the debit clears.
  *
  * Airbnb bookings are absent from this list: Airbnb handles both tax and
- * commission on their side and pays Rising Tide a net amount. Nothing for
+ * commission on its side and pays Rising Tide a net amount. Nothing for
  * the accountant to route.
+ *
+ * Two coverage rules, added 2026-08-27 after a July close where four
+ * newly onboarded properties were missing from the tax section entirely:
+ *   - EVERY property with a statement is printed, including the ones
+ *     owing $0, so absence from the sheet is never how a property gets
+ *     skipped. A property owing nothing says so on its own line.
+ *   - Taxable stays carrying no tax at all are listed in their own
+ *     section with the rent at stake, so a genuinely missing tax line
+ *     reads differently from the 32+ night exemption that legitimately
+ *     zeroes one out.
  */
 function buildRemittanceList(args: {
   monthName: string;
-  rows: Array<{
-    propertyName: string;
-    propertyShort: string;
-    taxCertId: string | null;
-    taxToRemit: number;
-    vrboCommissionSweep: number;
-    bookingAutoDebit: number;
-  }>;
+  sheet: RemittanceSheet;
 }): string {
-  const { monthName, rows } = args;
+  const { monthName, sheet } = args;
+  const rows = sheet.rows;
   const dollars = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
   const totalTax = rows.reduce((s, r) => s + r.taxToRemit, 0);
   const totalVrbo = rows.reduce((s, r) => s + r.vrboCommissionSweep, 0);
   const totalBooking = rows.reduce((s, r) => s + r.bookingAutoDebit, 0);
+  const totalAddOnTax = rows.reduce((s, r) => s + r.addOnTax, 0);
 
   const lines: string[] = [];
   lines.push(`${monthName} REMITTANCE INSTRUCTIONS`);
   lines.push(`Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
   lines.push('');
 
-  const taxRows = rows.filter(r => r.taxToRemit > 0);
   lines.push('1. TAX REMITTANCE (property account -> *9928)');
-  lines.push('   File on MassTaxConnect using each property\'s certificate.');
-  lines.push('-'.repeat(72));
-  if (taxRows.length === 0) {
-    lines.push('  (no tax collected this month)');
+  lines.push("   File on MassTaxConnect using each property's certificate.");
+  lines.push('-'.repeat(76));
+  if (rows.length === 0) {
+    lines.push('  (no statements for this month)');
   } else {
-    taxRows.forEach(r => {
-      // Show the cert ID inline for the accountant to file under. Properties
-      // without one fall back to a plain "no cert on file" so the line still
-      // formats cleanly.
-      const cert = r.taxCertId || 'no cert on file';
-      lines.push(`  ${r.propertyShort.padEnd(22)} ${dollars(r.taxToRemit).padStart(11)}   Cert: ${cert}`);
+    // Every property prints, $0 included. A property missing from this
+    // list is a property nobody filed for.
+    rows.forEach(r => {
+      const cert = r.taxCertId || 'NO CERT ON FILE';
+      const amount = r.taxToRemit > 0 ? dollars(r.taxToRemit) : 'none owed';
+      lines.push(`  ${r.propertyShort.padEnd(24)} ${amount.padStart(11)}   Cert: ${cert}`);
+      if (r.addOnTax > 0) {
+        lines.push(`  ${''.padEnd(24)} ${`incl. ${dollars(r.addOnTax)} add-on tax`.padStart(11)}`);
+      }
     });
-    lines.push('-'.repeat(72));
-    lines.push(`  ${'TOTAL TAX TO *9928'.padEnd(22)} ${dollars(totalTax).padStart(11)}`);
+    lines.push('-'.repeat(76));
+    lines.push(`  ${'TOTAL TAX TO *9928'.padEnd(24)} ${dollars(totalTax).padStart(11)}`);
+    if (totalAddOnTax > 0) {
+      lines.push(`  ${'of which add-on tax'.padEnd(24)} ${dollars(totalAddOnTax).padStart(11)}`);
+    }
+    const noCert = rows.filter(r => r.taxToRemit > 0 && !r.taxCertId);
+    if (noCert.length > 0) {
+      lines.push('');
+      lines.push('  ACTION: tax owed but no MassTaxConnect certificate on file for');
+      lines.push(`  ${noCert.map(r => r.propertyShort).join(', ')}.`);
+      lines.push('  Add it on the property page so it prints here next month.');
+    }
   }
   lines.push('');
 
-  const vrboRows = rows.filter(r => r.vrboCommissionSweep > 0);
   lines.push('2. VRBO COMMISSION SWEEP (property account -> *5130)');
-  lines.push('-'.repeat(72));
+  lines.push("   5% of each VRBO stay's pre-tax guest total.");
+  lines.push('-'.repeat(76));
+  const vrboRows = rows.filter(r => r.vrboCommissionSweep > 0);
   if (vrboRows.length === 0) {
     lines.push('  (no VRBO stays this month)');
   } else {
     vrboRows.forEach(r => {
-      lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.vrboCommissionSweep).padStart(12)}`);
+      const note = r.sweepEstimated ? '   (est. - no folio in Guesty)' : '';
+      lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.vrboCommissionSweep).padStart(12)}${note}`);
     });
-    lines.push('-'.repeat(72));
+    lines.push('-'.repeat(76));
     lines.push(`  ${'TOTAL VRBO TO *5130'.padEnd(28)} ${dollars(totalVrbo).padStart(12)}`);
   }
   lines.push('');
 
-  const bookingRows = rows.filter(r => r.bookingAutoDebit > 0);
   lines.push('3. BOOKING.COM AUTO-DEBIT (FYI -- no action required)');
-  lines.push('    Booking.com will pull their 15% directly from the property');
+  lines.push('    Booking.com will pull their commission directly from the property');
   lines.push('    account next month. Verify against these amounts when they post.');
-  lines.push('-'.repeat(72));
+  lines.push('-'.repeat(76));
+  const bookingRows = rows.filter(r => r.bookingAutoDebit > 0);
   if (bookingRows.length === 0) {
     lines.push('  (no Booking.com stays this month)');
   } else {
     bookingRows.forEach(r => {
       lines.push(`  ${r.propertyShort.padEnd(28)} ${dollars(r.bookingAutoDebit).padStart(12)}`);
     });
-    lines.push('-'.repeat(72));
+    lines.push('-'.repeat(76));
     lines.push(`  ${'TOTAL BOOKING DEBIT'.padEnd(28)} ${dollars(totalBooking).padStart(12)}`);
+  }
+
+  // Exceptions: a taxable stay Guesty shows no tax on. Long stays are
+  // genuinely exempt (MA exempts 32+ consecutive nights); anything else is
+  // a listing whose tax config needs fixing before the next filing.
+  const gapRows = rows.filter(r => r.taxGaps.length > 0);
+  if (gapRows.length > 0) {
+    lines.push('');
+    lines.push('4. TAXABLE STAYS WITH NO TAX IN GUESTY (check before filing)');
+    lines.push('-'.repeat(76));
+    gapRows.forEach(r => {
+      r.taxGaps.forEach(g => {
+        const why = g.reason === 'long_stay_exempt'
+          ? `${g.nights} nights - exempt (32+ nights)`
+          : 'no tax line on the listing';
+        lines.push(`  ${r.propertyShort.padEnd(20)} ${g.confirmationCode.padEnd(14)} ${dollars(g.rent).padStart(11)}  ${g.guestName}`);
+        lines.push(`  ${''.padEnd(20)} ${why}`);
+      });
+    });
+  }
+
+  if (sheet.missingProperties.length > 0) {
+    lines.push('');
+    lines.push('5. ACTIVE PROPERTIES WITH NO STATEMENT THIS MONTH');
+    lines.push('    Nothing to remit for these, but confirm that is right.');
+    lines.push('-'.repeat(76));
+    sheet.missingProperties.forEach(p => lines.push(`  ${p.name}`));
   }
 
   return lines.join('\n');
@@ -1993,7 +2042,7 @@ function DashboardContent() {
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
   // Booking.com deposit routing (sweep *5623 -> property accounts). Loaded
-  // lazily on button click, same pattern as remittanceRows.
+  // lazily on button click, same pattern as the remittance sheet.
   const [bookingRoutingOpen, setBookingRoutingOpen] = useState(false);
   const [loadingBookingRouting, setLoadingBookingRouting] = useState(false);
   const [bookingRoutingRows, setBookingRoutingRows] = useState<Array<{
@@ -2039,14 +2088,7 @@ function DashboardContent() {
     | string
     | null
   >(null);
-  const [remittanceRows, setRemittanceRows] = useState<Array<{
-    propertyName: string;
-    propertyShort: string;
-    taxCertId: string | null;
-    taxToRemit: number;
-    vrboCommissionSweep: number;
-    bookingAutoDebit: number;
-  }> | null>(null);
+  const [remittanceSheet, setRemittanceSheet] = useState<RemittanceSheet | null>(null);
   const [loadingRemittance, setLoadingRemittance] = useState(false);
   const [uploadingCsv, setUploadingCsv] = useState(false);
   const [csvResult, setCsvResult] = useState<
@@ -2301,69 +2343,17 @@ function DashboardContent() {
   }
 
   /**
-   * Build the per-property remittance rows for the current month. Pulls
-   * reservations + their matching guesty_reservations rows (for tax +
-   * commission), then per property computes:
-   *   - taxToRemit = sum of total_taxes across Stay Cape Ann / VRBO /
-   *     Booking reservations (Airbnb's tax is handled on their side)
-   *   - vrboCommissionSweep = 5% of each VRBO stay's pre-tax revenue
-   *   - bookingAutoDebit = Booking.com's channel_commission (FYI only)
-   * Runs lazily on Remittance button click so we don't fetch this on
-   * every dashboard load.
+   * Load the accountant's remittance sheet for the current month. The whole
+   * computation lives in lib/remittance.ts and runs server-side: it reads
+   * guesty_reservations.folio_items, which is the only trustworthy source
+   * for occupancy tax and for the pre-tax guest total a channel commissions
+   * on, and which is far too heavy to ship to the browser. Lazy on button
+   * click so the dashboard doesn't pay for it on every load.
    */
   async function loadRemittance() {
     setLoadingRemittance(true);
     try {
-      // Collect all reservation confirmation codes across this month's statements.
-      const allCodes: string[] = [];
-      props.forEach(p => (p.reservations || []).forEach(r => { if (r.confirmation_code) allCodes.push(r.confirmation_code); }));
-      const guestyRows = await loadGuestyRowsByCodes(allCodes);
-      const byCode = new Map<string, { total_paid: number | null; total_taxes: number | null; channel_commission: number | null }>();
-      (guestyRows || []).forEach(g => { if (g.confirmation_code) byCode.set(g.confirmation_code, g); });
-
-      // DB-backed tax cert lookup. The /properties/[id] page now lets the
-      // operator edit tax_cert_id in place, so the DB is authoritative;
-      // lib/properties.ts stays as a fallback for properties that haven't
-      // been touched in the UI yet. Fetched server-side (service role) --
-      // tax_cert_id is business/financial data, not anon-key readable.
-      const propIds = props.map(p => p.property_id);
-      const certMap = await loadTaxCerts(propIds);
-      const certByPid = new Map<string, string | null>(Object.entries(certMap));
-
-      const rows = props.map(p => {
-        let taxToRemit = 0;
-        let vrboCommissionSweep = 0;
-        let bookingAutoDebit = 0;
-        for (const r of p.reservations || []) {
-          const g = byCode.get(r.confirmation_code);
-          if (!g) continue;
-          const platform = (r.platform || '').toUpperCase();
-          const isVRBO = platform.includes('HOMEAWAY') || platform === 'VRBO';
-          const isBooking = platform.includes('BOOKING');
-          const isManual = platform === 'MANUAL';
-          if (isVRBO || isManual || isBooking) {
-            taxToRemit += Number(g.total_taxes || 0);
-          }
-          if (isVRBO) {
-            // Real 5% commission, regardless of whether the CSV has the
-            // legacy kludge baked in.
-            const base = Math.max((g.total_paid || 0) - (g.total_taxes || 0), 0);
-            vrboCommissionSweep += base * 0.05;
-          }
-          if (isBooking) {
-            bookingAutoDebit += Number(g.channel_commission || 0);
-          }
-        }
-        return {
-          propertyName: p.property_name,
-          propertyShort: PROPERTIES[p.property_id]?.name || p.property_name,
-          taxCertId: certByPid.get(p.property_id) ?? PROPERTIES[p.property_id]?.tax_cert_id ?? null,
-          taxToRemit: Math.round(taxToRemit * 100) / 100,
-          vrboCommissionSweep: Math.round(vrboCommissionSweep * 100) / 100,
-          bookingAutoDebit: Math.round(bookingAutoDebit * 100) / 100,
-        };
-      });
-      setRemittanceRows(rows);
+      setRemittanceSheet(await loadRemittanceSheet(selectedMonth));
     } finally {
       setLoadingRemittance(false);
     }
@@ -3210,7 +3200,7 @@ function DashboardContent() {
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
-                  onClick={() => { setRemittanceOpen(true); if (!remittanceRows) loadRemittance(); }}
+                  onClick={() => { setRemittanceOpen(true); if (!remittanceSheet) loadRemittance(); }}
                   style={{
                     border: '1px solid var(--ink)',
                     background: 'transparent', color: 'var(--ink)',
@@ -3761,14 +3751,14 @@ function DashboardContent() {
             {monthLabel(selectedMonth)} &middot; accountant transfers
           </h3>
           <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>
-            Tax gets moved from each property account to *9928. VRBO commissions get swept to *5130 to reimburse the *3878 credit card. Booking.com&apos;s auto-debit next month is shown for reconciliation only.
+            Tax gets moved from each property account to *9928. VRBO commissions get swept to *5130 to reimburse the *3878 credit card. Booking.com&apos;s auto-debit next month is shown for reconciliation only. Every property with a statement is listed, including the ones owing nothing.
           </p>
-          {loadingRemittance || !remittanceRows ? (
+          {loadingRemittance || !remittanceSheet ? (
             <div style={{ marginTop: 18, padding: 16, background: 'var(--paper-2)', fontSize: 12, color: 'var(--ink-4)' }}>Loading…</div>
           ) : (() => {
             const text = buildRemittanceList({
               monthName: monthLabel(selectedMonth).toUpperCase(),
-              rows: remittanceRows,
+              sheet: remittanceSheet,
             });
             return (
               <>
@@ -3805,7 +3795,7 @@ function DashboardContent() {
                     Print
                   </button>
                   <button
-                    onClick={() => { setRemittanceRows(null); loadRemittance(); }}
+                    onClick={() => { setRemittanceSheet(null); loadRemittance(); }}
                     disabled={loadingRemittance}
                     style={{
                       background: 'transparent', color: 'var(--ink)',

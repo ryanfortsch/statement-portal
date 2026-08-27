@@ -37,6 +37,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
+import { taxPortionOfNet } from '@/lib/addon-tax';
 import { loadAddOnTotals } from './statement-addons';
 import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
 
@@ -972,13 +973,23 @@ export async function syncPropertyStripe(opts: {
         orphanCodes.map(o => byCodeAgg.get(o.code)?.helmRequestKey).filter((k): k is string => !!k),
       )];
       const guestByRequestKey = new Map<string, string>();
+      // Occupancy tax minted onto the link (2026-08-27). An add-on fee is
+      // rent, so the guest is charged fee + tax; the tax is money held for
+      // the state and must never land in the owner's add-on revenue or in
+      // the management-fee base. It rides on its own `tax_amount` column so
+      // the remittance sheet can pick it up at month-close. Links minted
+      // before the gross-up have tax_cents 0, which is what keeps every
+      // historical statement's numbers identical.
+      const taxByRequestKey = new Map<string, number>();
       if (helmKeys.length > 0) {
         const { data: linkRows } = await supabase
           .from('payment_link_requests')
-          .select('request_key, guest_name')
+          .select('request_key, guest_name, tax_cents')
           .in('request_key', helmKeys);
         for (const lr of linkRows || []) {
           if ((lr.guest_name || '').trim()) guestByRequestKey.set(lr.request_key, String(lr.guest_name).trim());
+          const tc = Number(lr.tax_cents) || 0;
+          if (tc > 0) taxByRequestKey.set(lr.request_key, tc);
         }
       }
       const preselectText = (agg: Agg): string => {
@@ -1087,7 +1098,11 @@ export async function syncPropertyStripe(opts: {
         // how the guest paid, not additive add-on revenue.
         const futurePrincipal = /^(ffdeposit|ffbalcharge):/.test(agg.helmRequestKey || '');
         const targetPeriod = futurePrincipal ? futureStayPeriodFromKey(agg.helmRequestKey || '') : '';
-        const baseDesc = `${agg.fullDesc} ($${gross.toFixed(2)} gross, ${feeNote}${refundNote})`;
+        const taxCents = agg.helmRequestKey
+          ? taxPortionOfNet({ netCents, taxCents: taxByRequestKey.get(agg.helmRequestKey) || 0 })
+          : 0;
+        const taxNote = taxCents > 0 ? `, $${round2(taxCents / 100).toFixed(2)} occupancy tax held for remittance` : '';
+        const baseDesc = `${agg.fullDesc} ($${gross.toFixed(2)} gross, ${feeNote}${refundNote}${taxNote})`;
         const description = futurePrincipal
           ? `${FUTURE_STAY_PRINCIPAL_MARK} - do not apply to this statement${targetPeriod ? `; belongs to ${targetPeriod}` : ''}. ${baseDesc}`
           : baseDesc;
@@ -1095,7 +1110,11 @@ export async function syncPropertyStripe(opts: {
           property_id: propertyId,
           month,
           deposit_date: createdIso,
-          amount: round2(netCents / 100),
+          // `amount` stays what it has always been: the owner-facing add-on
+          // revenue. The tax is carved out of it, not added on top, so the
+          // canonical formula in lib/statement-addons.ts is untouched.
+          amount: round2((netCents - taxCents) / 100),
+          tax_amount: round2(taxCents / 100),
           description: description.slice(0, 300),
           source: 'stripe_charge',
           suggested_reservation_code: futurePrincipal
