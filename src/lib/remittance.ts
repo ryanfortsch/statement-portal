@@ -45,6 +45,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadInstallmentsForCodes, type Installment } from '@/lib/installments';
+import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
 
 /** VRBO's commission, always 5% of the guest's pre-tax booking total. The
  *  legacy 4.4% gross-up baked into some historical CHANNEL COMMISSION
@@ -60,6 +61,7 @@ export const BOOKING_COMMISSION_RATE = 0.15;
 const LONG_STAY_EXEMPT_NIGHTS = 32;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 export type TaxGap = {
   confirmationCode: string;
@@ -76,10 +78,33 @@ export type RemittanceRow = {
   propertyName: string;
   propertyShort: string;
   taxCertId: string | null;
+  /**
+   * Rent the tax was computed on: the pre-tax guest total of every stay
+   * that carried tax, plus the fee behind every taxed add-on. This is what
+   * gets typed into MassTaxConnect, which computes the excise from it --
+   * so taxableRent * the property's rate reconciles to taxToRemit.
+   *
+   * Stays that legitimately carried no tax (the 32+ night exemption) are
+   * excluded, or the state's computed figure would not tie. They are named
+   * in taxGaps instead.
+   */
+  taxableRent: number;
   /** Occupancy tax on the month's stays. */
   stayTax: number;
   /** Occupancy tax collected inside attributed add-on charges. */
   addOnTax: number;
+  /** The add-on leg of taxableRent: fees sold through payment links, which
+   *  come from Stripe rather than from a Guesty reservation. */
+  addOnRent: number;
+  /**
+   * The statutory rate this property should be collecting: 0.117 base Cape
+   * Ann, 0.147 where the Community Impact Fee applies. taxToRemit divided
+   * by taxableRent should equal it. When it does not, a listing's tax
+   * config in Guesty is charging the wrong rate and the state's computed
+   * excise will not match what we moved -- which is the whole reason the
+   * rental-income column earns its place on the sheet.
+   */
+  expectedTaxRate: number;
   /** stayTax + addOnTax: the wire to *9928. */
   taxToRemit: number;
   vrboCommissionSweep: number;
@@ -207,15 +232,18 @@ export async function buildRemittanceSheet(
   // or extra night sold through a payment link). Zero for every row minted
   // before the gross-up shipped, which is why July stays exactly as sent.
   const addOnTaxByProperty = new Map<string, number>();
+  const addOnRentByProperty = new Map<string, number>();
   const { data: attributions } = await supabase
     .from('bank_deposit_attributions')
-    .select('property_id, tax_amount, direction')
+    .select('property_id, tax_amount, tax_base, direction')
     .eq('month', month)
     .eq('status', 'attributed');
-  for (const a of (attributions || []) as Array<{ property_id: string; tax_amount: number | string | null; direction: string | null }>) {
+  for (const a of (attributions || []) as Array<{ property_id: string; tax_amount: number | string | null; tax_base: number | string | null; direction: string | null }>) {
     if ((a.direction || 'deposit') === 'debit') continue;
     const t = Number(a.tax_amount) || 0;
-    if (t !== 0) addOnTaxByProperty.set(a.property_id, (addOnTaxByProperty.get(a.property_id) || 0) + t);
+    if (t === 0) continue;
+    addOnTaxByProperty.set(a.property_id, (addOnTaxByProperty.get(a.property_id) || 0) + t);
+    addOnRentByProperty.set(a.property_id, (addOnRentByProperty.get(a.property_id) || 0) + (Number(a.tax_base) || 0));
   }
 
   const { data: propRows } = await supabase
@@ -233,6 +261,7 @@ export async function buildRemittanceSheet(
 
   const rows: RemittanceRow[] = stmts.map(stmt => {
     let stayTax = 0;
+    let stayRent = 0;
     let vrboCommissionSweep = 0;
     let bookingAutoDebit = 0;
     let sweepEstimated = false;
@@ -250,8 +279,26 @@ export async function buildRemittanceSheet(
       // Tax: the folio's TAX lines are authoritative. `total_taxes` is a
       // cache of the same number that Guesty leaves NULL on listings whose
       // tax config does not itemize, so it is the fallback, never the source.
-      const bookingTax = folio.hasFolio && folio.tax !== 0 ? folio.tax : Number(g?.total_taxes) || 0;
-      stayTax += bookingTax * share;
+      // `share` applies to BOOKING-level figures only. folio_items and
+      // guesty_reservations describe the whole booking, so a cross-month
+      // stay's month gets its slice of them. The reservations row is
+      // already the slice -- /api/ingest writes the installment's own
+      // revenue and nights onto it -- so anything read from there is used
+      // verbatim. Multiplying it by share again prorates twice, which is
+      // how Kate Bacon's $55,325.59 July rent first printed as $49,002.65.
+      const bookingTax = folio.hasFolio && folio.tax !== 0 ? folio.tax * share : (Number(g?.total_taxes) || 0) * share;
+      stayTax += bookingTax;
+
+      // Rent behind that tax. The folio's pre-tax total is the guest's whole
+      // taxable rent -- accommodation, cleaning, extra-person and channel
+      // markup, net of discounts -- which is exactly the figure
+      // MassTaxConnect wants. Without a folio, back into it: Guesty's rental
+      // income is already net of the channel's commission on VRBO.
+      if (bookingTax !== 0) {
+        stayRent += folio.hasFolio && folio.preTax > 0
+          ? folio.preTax * share
+          : (isVrbo(platform) && rent > 0 ? rent / (1 - VRBO_COMMISSION_RATE) : rent);
+      }
 
       if (bookingTax === 0 && rent > 0) {
         // The exemption is a property of the BOOKING, not of the month's
@@ -265,7 +312,7 @@ export async function buildRemittanceSheet(
           guestName: r.guest_name || 'Guest',
           platform: r.platform || '',
           nights: bookingNights,
-          rent: round2(rent * share),
+          rent: round2(rent),
           reason: bookingNights >= LONG_STAY_EXEMPT_NIGHTS ? 'long_stay_exempt' : 'no_tax_line',
         });
       }
@@ -274,14 +321,13 @@ export async function buildRemittanceSheet(
         // 5% of the guest's PRE-TAX booking total. Without a folio, back
         // into that total from the rental income Guesty already netted the
         // commission out of.
-        let base: number;
         if (folio.hasFolio && folio.preTax > 0) {
-          base = folio.preTax;
-        } else {
-          base = rent > 0 ? rent / (1 - VRBO_COMMISSION_RATE) : 0;
-          if (base > 0) sweepEstimated = true;
+          vrboCommissionSweep += folio.preTax * VRBO_COMMISSION_RATE * share;
+        } else if (rent > 0) {
+          // Month-sliced already; no second proration.
+          vrboCommissionSweep += (rent / (1 - VRBO_COMMISSION_RATE)) * VRBO_COMMISSION_RATE;
+          sweepEstimated = true;
         }
-        vrboCommissionSweep += base * VRBO_COMMISSION_RATE * share;
       }
 
       if (isBooking(platform)) {
@@ -296,12 +342,18 @@ export async function buildRemittanceSheet(
     }
 
     const addOnTax = round2(addOnTaxByProperty.get(stmt.property_id) || 0);
+    const addOnRent = round2(addOnRentByProperty.get(stmt.property_id) || 0);
     const reg = registryById.get(stmt.property_id);
     return {
       propertyId: stmt.property_id,
       propertyName: stmt.property_name,
       propertyShort: reg?.name || stmt.property_name,
       taxCertId: reg?.tax_cert_id ?? null,
+      taxableRent: round2(stayRent + addOnRent),
+      addOnRent,
+      // Mid-month is the right probe date for the CIF gate: a rate that
+      // starts mid-history applies to the month it starts in.
+      expectedTaxRate: round4(occupancyTaxMultiplier(stmt.property_id, `${month}-15`) - 1),
       stayTax: round2(stayTax),
       addOnTax,
       taxToRemit: round2(stayTax + addOnTax),

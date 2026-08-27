@@ -981,15 +981,24 @@ export async function syncPropertyStripe(opts: {
       // before the gross-up have tax_cents 0, which is what keeps every
       // historical statement's numbers identical.
       const taxByRequestKey = new Map<string, number>();
+      // The rent that tax was computed on, carried through so the
+      // remittance sheet can print a rental-income column beside the tax.
+      // MassTaxConnect is filed by entering rent and letting the state
+      // compute the excise, so the base has to be a real recorded number,
+      // not the tax divided back out by a rate.
+      const baseByRequestKey = new Map<string, number>();
       if (helmKeys.length > 0) {
         const { data: linkRows } = await supabase
           .from('payment_link_requests')
-          .select('request_key, guest_name, tax_cents')
+          .select('request_key, guest_name, tax_cents, base_cents')
           .in('request_key', helmKeys);
         for (const lr of linkRows || []) {
           if ((lr.guest_name || '').trim()) guestByRequestKey.set(lr.request_key, String(lr.guest_name).trim());
           const tc = Number(lr.tax_cents) || 0;
-          if (tc > 0) taxByRequestKey.set(lr.request_key, tc);
+          if (tc > 0) {
+            taxByRequestKey.set(lr.request_key, tc);
+            baseByRequestKey.set(lr.request_key, Number(lr.base_cents) || 0);
+          }
         }
       }
       const preselectText = (agg: Agg): string => {
@@ -1115,6 +1124,9 @@ export async function syncPropertyStripe(opts: {
           // canonical formula in lib/statement-addons.ts is untouched.
           amount: round2((netCents - taxCents) / 100),
           tax_amount: round2(taxCents / 100),
+          tax_base: taxCents > 0
+            ? round2((baseByRequestKey.get(agg.helmRequestKey || '') || 0) / 100)
+            : 0,
           description: description.slice(0, 300),
           source: 'stripe_charge',
           suggested_reservation_code: futurePrincipal
