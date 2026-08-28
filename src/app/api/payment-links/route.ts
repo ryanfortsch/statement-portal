@@ -454,8 +454,16 @@ export async function POST(req: Request) {
   };
   if (split.taxCents > 0) {
     const dollars = (c: number) => `$${(c / 100).toFixed(2)}`;
-    priceParams['product_data[description]'] =
-      `${dollars(split.baseCents)} + ${dollars(split.taxCents)} occupancy tax (${formatTaxRate(split.rate)})`;
+    // Stripe's POST /v1/prices product_data accepts name, metadata, tax_code,
+    // unit_label and statement_descriptor - there is NO description field, and
+    // sending one 400s the whole call ("Received unknown parameter:
+    // product_data[description]"). Because this branch only runs when tax is
+    // involved, every tax-inclusive add-on link has been failing to mint since
+    // the split was introduced, while untaxed ones kept working - which is why
+    // it went unnoticed. The breakdown belongs in the product NAME anyway: that
+    // is the line the guest actually reads on the checkout page.
+    const breakdown = `${dollars(split.baseCents)} + ${dollars(split.taxCents)} occupancy tax (${formatTaxRate(split.rate)})`;
+    priceParams['product_data[name]'] = `${productName} - ${breakdown}`.slice(0, 250);
     priceParams['product_data[metadata][helm_base_cents]'] = String(split.baseCents);
     priceParams['product_data[metadata][helm_tax_cents]'] = String(split.taxCents);
   }
