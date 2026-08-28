@@ -192,7 +192,10 @@ export type ShootPaySummary = {
   owedBaseCents: number; // just the delivered-unpaid base portion of owedCents
   pendingCents: number; // reel bonuses still counting (base paid, posted, views not locked)
   fullySettled: boolean; // >=1 counting post, every base paid, every counting REEL posted + count locked + bonus resolved (carousels settle at base)
-  baseDue: number; // delivered posts awaiting their base payment
+  /** How many counting posts still carry no base stamp. A GATE, not a bill:
+   *  the base is one payment for the package (owedBaseCents), and no surface
+   *  offers a post's own base as separately payable. */
+  baseDue: number;
   topupDue: number; // posted reels whose view bonus is ready to pay
   /** Something is delivered, but the card's full package isn't in yet — so
    *  NOTHING is owed. The delivery slug pays once, on the complete set. */
