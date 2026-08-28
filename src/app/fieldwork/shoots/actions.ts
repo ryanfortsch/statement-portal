@@ -267,95 +267,27 @@ async function refreshShootSettlement(shootId: string): Promise<void> {
 }
 
 /**
- * Pay a single POST's base — the reel base or the flat carousel rate — the day
- * it goes live. Idempotent (guarded on base_paid_at IS NULL). Freezes the
- * shoot's card on the first base paid, so later posts price against the same card.
+ * Pay the delivery base. THE ONLY base payment path, deliberately.
+ *
+ * The base is ONE amount for the whole package ($300 = two reels + a carousel
+ * on the standard card), owed once every piece is delivered and never per
+ * asset. Per-asset base rows are still written underneath, because that is
+ * where the receipts live and how the cap pins committed money, but no surface
+ * offers them as separately payable: a per-post base button existed until
+ * 2026-08-28 and twice put phantom $100 receipts on the books.
+ *
+ * Posting is a separate clock, and it belongs to the reel, not to this: it
+ * starts the view count that resolves countDays later into that reel's bonus.
  */
-export async function payAssetBase(formData: FormData): Promise<void> {
-  const email = await staffEmail();
-  const shootId = String(formData.get('shoot_id') || '');
-  const assetId = String(formData.get('asset_id') || '');
-  if (!shootId || !assetId) return;
-  const reference = String(formData.get('reference') || '').trim() || null;
-  const detail = await loadShootDetail(shootId);
-  if (!detail) return;
-  const asset = detail.assets.find((a) => a.id === assetId);
-  const ap = detail.pay.assets.find((p) => p.assetId === assetId);
-  // Base is owed on the COMPLETE set, not on posting — posting can come weeks
-  // later, or never. Only a counting, unpaid post can take a base.
-  if (!asset || !ap || !ap.counts || asset.base_paid_at) {
-    revalidatePath(`/fieldwork/shoots/${shootId}`); // refresh, never a dead click
-    return;
-  }
-  // The package gate, enforced on the write too: a stale page (or a fast
-  // double-click while the last file is still syncing) must never pay a base
-  // into a short set. The office's escape hatch for money that moved anyway is
-  // the audited paid-to-date adjustment, not this button.
-  if (shootPaySummary(detail.assets, detail.pay, detail.shoot, detail.card).awaitingSet) {
-    revalidatePath(`/fieldwork/shoots/${shootId}`);
-    return;
-  }
-  // Belt-and-suspenders on the cap: never pay a reel base once maxPerShoot reels
-  // already have their base paid AND still count (the ranking pins them, but
-  // guard the write too). A paid reel that was later un-counted ("Don't count
-  // this" on a wrong-version upload) holds no slot — counting it here while the
-  // pay math excluded it made this button a silent dead click.
-  if (asset.kind === 'reel') {
-    const countsById = new Map(detail.pay.assets.map((p) => [p.assetId, p.counts]));
-    const paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at && countsById.get(x.id)).length;
-    if (paidReels >= detail.card.maxPerShoot) {
-      revalidatePath(`/fieldwork/shoots/${shootId}`);
-      return;
-    }
-  }
-
-  await freezeCardIfNeeded(detail.shoot, detail.card);
-  const base = ap.baseCents;
-  const { data: c } = await fieldDb().from('contractors').select('*').eq('id', detail.shoot.contractor_id).maybeSingle();
-  const contractor = c as ContractorRow | null;
-
-  const { data: updated } = await fieldDb()
-    .from('creative_assets')
-    .update({
-      base_cents: base,
-      base_paid_at: new Date().toISOString(),
-      base_by_email: email,
-      base_method: contractor?.payment_method ?? null,
-      base_reference: reference,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', assetId)
-    .is('base_paid_at', null) // idempotent — no double-pay on a double click
-    .select('id')
-    .maybeSingle();
-
-  if (updated && contractor) {
-    const note =
-      asset.kind === 'reel'
-        ? 'This is your base for delivering the reel. Once we post it, a view bonus follows about two weeks after that.'
-        : 'This is the full pay for delivering your carousel.';
-    await sendPaidEmail(contractor, base, { method: contractor.payment_method, reference, creative: true, note }).catch(() => {});
-  }
-  await refreshShootSettlement(shootId);
-  revalidatePath(`/fieldwork/shoots/${shootId}`);
-  revalidatePath('/fieldwork/shoots');
-  revalidatePath('/fieldwork/roster');
-}
-
-/**
- * Pay the base on EVERY counting, unpaid post at once — the delivery slug
- * ($300 for two reels + a carousel), which goes due only once the whole set is
- * in. Per-post records are still written; this is just the one-click way to
- * send the slug.
- */
-export async function payAllDeliveredBases(formData: FormData): Promise<void> {
+export async function payDeliveryBase(formData: FormData): Promise<void> {
   const email = await staffEmail();
   const shootId = String(formData.get('shoot_id') || '');
   if (!shootId) return;
   const reference = String(formData.get('reference') || '').trim() || null;
   const detail = await loadShootDetail(shootId);
   if (!detail) return;
-  // Same package gate as payAssetBase: nothing pays until the whole set is in.
+  // The package gate on the write too, so a stale page can't pay into a
+  // short set: nothing pays until the whole package is in.
   if (shootPaySummary(detail.assets, detail.pay, detail.shoot, detail.card).awaitingSet) {
     revalidatePath(`/fieldwork/shoots/${shootId}`);
     return;
@@ -365,8 +297,8 @@ export async function payAllDeliveredBases(formData: FormData): Promise<void> {
   const contractor = c as ContractorRow | null;
   const now = new Date().toISOString();
   let paid = 0;
-  // Same cap semantics as payAssetBase: only paid reels that still COUNT hold
-  // a slot (a paid-then-un-counted wrong version doesn't block the real one).
+  // Cap semantics: only paid reels that still COUNT hold a slot (a
+  // paid-then-un-counted wrong version doesn't block the real one).
   const countsById = new Map(detail.pay.assets.map((p) => [p.assetId, p.counts]));
   let paidReels = detail.assets.filter((x) => x.kind === 'reel' && x.base_paid_at && countsById.get(x.id)).length;
   for (const a of detail.assets) {

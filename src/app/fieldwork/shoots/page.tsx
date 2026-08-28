@@ -39,7 +39,8 @@ function payLine(s: ShootSummary): { text: string; tone: string; sub: string | n
     return { text: `${dollars(sum.setBaseCents)} on delivery`, tone: 'var(--ink-3)', sub: setShortLabel(sum) };
   }
   if (sum.owedCents > 0) {
-    const bits = [sum.baseDue ? `${sum.baseDue} base` : null, sum.topupDue ? `${sum.topupDue} bonus` : null].filter(Boolean).join(' + ');
+    // "delivery base", singular: the set pays once, however many posts carry it.
+    const bits = [sum.baseDue ? 'delivery base' : null, sum.topupDue ? `${sum.topupDue} bonus` : null].filter(Boolean).join(' + ');
     return { text: `${dollars(sum.owedCents)} to pay`, tone: 'var(--signal)', sub: bits ? `${bits} ready` : 'ready to pay' };
   }
   if (sum.pendingCents > 0) {
