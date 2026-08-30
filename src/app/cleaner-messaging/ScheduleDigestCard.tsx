@@ -3,6 +3,7 @@ import { Section } from '@/components/Section';
 import { SubmitButton } from '@/components/SubmitButton';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
+  getScheduleSettings,
   getOpenDigest,
   listScheduleRecipients,
   portalLink,
@@ -23,6 +24,7 @@ import {
   sendDigestUpdate,
   refreshDigestDraft,
   skipDigestAction,
+  toggleAutosendAction,
   rescanMessagesAction,
   toggleRecipientAction,
   applyProposalAction,
@@ -223,8 +225,15 @@ export async function ScheduleDigestCard({
 }) {
   let digest: DigestRow | null = null;
   let recipients: ScheduleRecipient[] = [];
+  let settings: Awaited<ReturnType<typeof getScheduleSettings>> = {
+    autosend_enabled: false, send_hour_et: 18, last_autosend_at: null, last_autosend_date: null, updated_by: '',
+  };
   try {
-    [digest, recipients] = await Promise.all([getOpenDigest(supabase), listScheduleRecipients(supabase)]);
+    [digest, recipients, settings] = await Promise.all([
+      getOpenDigest(supabase),
+      listScheduleRecipients(supabase),
+      getScheduleSettings(supabase),
+    ]);
   } catch {
     return null; // pre-migration or DB hiccup: never block the messaging page
   }
@@ -304,6 +313,61 @@ export async function ScheduleDigestCard({
             <Proposals day={day} />
           </>
         )}
+
+        {/* Unattended-send switch. Sits with the recipients because both
+            answer the same question: who gets texted, and does it happen
+            without me. */}
+        <div
+          style={{
+            marginTop: 14,
+            padding: '10px 12px',
+            border: `1px solid ${settings.autosend_enabled ? 'var(--tide-deep)' : 'var(--rule)'}`,
+            borderRadius: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span style={{ fontSize: 12, color: 'var(--ink)', flex: 1, minWidth: 260, lineHeight: 1.5 }}>
+            {settings.autosend_enabled ? (
+              <>
+                <strong>Sending automatically</strong> every evening at{' '}
+                {formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)} ET, composed live at that moment.
+                A day you skip is never sent, and a day you send by hand is never sent twice.
+              </>
+            ) : (
+              <>
+                <strong>Automatic sending is off.</strong> Nothing reaches the cleaners unless you approve it here.
+              </>
+            )}
+            {settings.last_autosend_at && (
+              <span style={{ color: 'var(--ink-4)' }}>
+                {' '}Last automatic send{' '}
+                {new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }).format(new Date(settings.last_autosend_at))}
+                {settings.last_autosend_date ? ` (for ${settings.last_autosend_date})` : ''}.
+              </span>
+            )}
+          </span>
+          <form action={toggleAutosendAction}>
+            <input type="hidden" name="enabled" value={settings.autosend_enabled ? 'false' : 'true'} />
+            <input type="hidden" name="back" value="card" />
+            <SubmitButton
+              label={settings.autosend_enabled ? 'Turn off automatic sending' : 'Send automatically at 6 PM'}
+              busyLabel="Saving..."
+              spinnerTone="ink"
+              style={{
+                fontSize: 12,
+                padding: '7px 13px',
+                borderRadius: 5,
+                cursor: 'pointer',
+                background: 'transparent',
+                color: settings.autosend_enabled ? 'var(--signal)' : 'var(--ink)',
+                border: `1px solid ${settings.autosend_enabled ? 'var(--signal)' : 'var(--ink)'}`,
+              }}
+            />
+          </form>
+        </div>
 
         <Recipients recipients={recipients} serviceDate={digest.service_date} />
 
