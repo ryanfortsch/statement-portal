@@ -14,6 +14,7 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { insertAdjustment, normalizeTime } from '@/lib/checkout-schedule';
 import {
+  setAutosend,
   withOperatorNote,
   upsertDigestDraft,
   sendDigest,
@@ -105,6 +106,15 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
 
 /** "Skip this day": nothing goes out and the card clears. Reversible with
  *  "Draft tomorrow's digest", which revives a skipped row to pending. */
+/** Operator's kill switch for the unattended evening send. */
+export async function toggleAutosendAction(formData: FormData): Promise<void> {
+  const email = await requireEmail();
+  await setAutosend(supabase, String(formData.get('enabled') || '') === 'true', email);
+  revalidatePath(CARD);
+  revalidatePath(PAGE);
+  redirect(backTarget(formData, '#schedule-digest'));
+}
+
 export async function skipDigestAction(formData: FormData): Promise<void> {
   await requireEmail();
   const digestId = String(formData.get('digestId') || '');

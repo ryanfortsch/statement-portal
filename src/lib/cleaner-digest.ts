@@ -436,3 +436,151 @@ export async function sendDigest(
 export function tomorrowET(): string {
   return addDays(todayET(), 1);
 }
+
+// ─── automatic evening send ───────────────────────────────────────────
+
+export type ScheduleSettings = {
+  autosend_enabled: boolean;
+  send_hour_et: number;
+  last_autosend_at: string | null;
+  last_autosend_date: string | null;
+  updated_by: string;
+};
+
+const DEFAULT_SETTINGS: ScheduleSettings = {
+  autosend_enabled: false,
+  send_hour_et: 18,
+  last_autosend_at: null,
+  last_autosend_date: null,
+  updated_by: '',
+};
+
+/** Fails CLOSED: an unreadable settings row means no automatic texting. */
+export async function getScheduleSettings(supabase: SupabaseClient): Promise<ScheduleSettings> {
+  try {
+    const { data } = await supabase
+      .from('cleaner_schedule_settings')
+      .select('autosend_enabled, send_hour_et, last_autosend_at, last_autosend_date, updated_by')
+      .eq('id', true)
+      .maybeSingle();
+    return (data as ScheduleSettings | null) ?? DEFAULT_SETTINGS;
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+export async function setAutosend(
+  supabase: SupabaseClient,
+  enabled: boolean,
+  byEmail: string,
+): Promise<void> {
+  await supabase
+    .from('cleaner_schedule_settings')
+    .upsert(
+      { id: true, autosend_enabled: enabled, updated_at: new Date().toISOString(), updated_by: byEmail },
+      { onConflict: 'id' },
+    );
+}
+
+/** The current hour in Gloucester, 0-23. */
+function hourET(): number {
+  return Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).format(new Date()),
+  );
+}
+
+export type AutoSendResult = {
+  sent: boolean;
+  reason:
+    | 'sent'
+    | 'disabled'
+    | 'wrong_hour'
+    | 'skipped_by_operator'
+    | 'already_handled'
+    | 'no_recipients'
+    | 'send_failed';
+  serviceDate: string;
+  hourET: number;
+  sentCount?: number;
+  detail?: string;
+};
+
+/**
+ * Send tomorrow's digest unattended, if the operator has left autosend on
+ * and the local hour matches. Called by /api/cron/cleaner-digest-send.
+ *
+ * Deliberate refusals, in order:
+ *   - autosend off -> nothing, ever. The switch is the operator's.
+ *   - wrong local hour -> nothing. The cron fires at two UTC hours so one
+ *     of them lands on the right ET hour year-round; the other must no-op.
+ *   - the day was SKIPPED -> nothing, and the skip is NOT revived. This is
+ *     why the draft is read directly instead of calling upsertDigestDraft,
+ *     which revives a skipped row on purpose for the manual "draft it
+ *     anyway" button. Automation must never overturn a human's skip.
+ *   - already sent / sending -> nothing. The atomic pending->sending claim
+ *     inside sendDigest is what actually makes a double-send impossible,
+ *     including against a manual click landing at the same moment.
+ *
+ * The body is composed LIVE here, exactly as an unedited manual approval
+ * does, so a change logged at 5:59pm still reaches the cleaners.
+ */
+export async function autoSendTomorrowDigest(
+  supabase: SupabaseClient,
+  opts?: { force?: boolean },
+): Promise<AutoSendResult> {
+  const settings = await getScheduleSettings(supabase);
+  const hour = hourET();
+  const serviceDate = tomorrowET();
+  const base = { serviceDate, hourET: hour };
+
+  if (!settings.autosend_enabled) return { sent: false, reason: 'disabled', ...base };
+  if (!opts?.force && hour !== settings.send_hour_et) {
+    return { sent: false, reason: 'wrong_hour', ...base };
+  }
+
+  const { data: existing } = await supabase
+    .from('cleaner_schedule_digests')
+    .select('*')
+    .eq('service_date', serviceDate)
+    .maybeSingle();
+  const row = existing as DigestRow | null;
+
+  if (row && row.status === 'skipped') {
+    return { sent: false, reason: 'skipped_by_operator', ...base };
+  }
+  if (row && row.status !== 'pending') {
+    return { sent: false, reason: 'already_handled', ...base, detail: row.status };
+  }
+
+  // No draft yet (the afternoon cron failed, or this is the first run):
+  // build one now rather than skipping the night entirely.
+  const { digest, day } = row
+    ? { digest: row, day: (await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 }))[0] }
+    : await upsertDigestDraft(supabase, serviceDate);
+
+  const enabled = (await listScheduleRecipients(supabase)).filter((r) => r.enabled);
+  if (enabled.length === 0) return { sent: false, reason: 'no_recipients', ...base };
+
+  const body = withOperatorNote(await composeDigestBodyLive(supabase, day), digest.operator_note);
+  const res = await sendDigest(supabase, {
+    digestId: digest.id,
+    body,
+    operatorEmail: AUTOSEND_ACTOR,
+    kind: 'initial',
+  });
+  if (!res.ok) return { sent: false, reason: 'send_failed', ...base, detail: res.error };
+
+  await supabase
+    .from('cleaner_schedule_settings')
+    .update({ last_autosend_at: new Date().toISOString(), last_autosend_date: serviceDate })
+    .eq('id', true);
+  return { sent: true, reason: 'sent', ...base, sentCount: res.sentCount };
+}
+
+/** Stamped as sent_by so an unattended send is never mistaken for a human
+ *  one in the digest's own audit log. */
+export const AUTOSEND_ACTOR = 'autosend@helm.system';
