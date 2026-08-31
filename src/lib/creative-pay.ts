@@ -15,7 +15,7 @@
  * Callers must show the RANGE (and the settle date) while unsettled, never a
  * single number someone might act on.
  */
-import { payForViews, type RateCard, STANDARD_CARD } from './creative-rates';
+import { payForViews, isQualifyingDuration, qualifyingSeconds, type RateCard, STANDARD_CARD } from './creative-rates';
 
 export type ShootAsset = {
   id: string;
@@ -140,7 +140,9 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
     // matter what the raw views columns say. Clearing it resumes counting.
     const overridden = a.kind === 'reel' && a.topup_override_cents != null;
     const locked = !!a.views_locked_at || overridden;
-    const short = a.kind === 'reel' && a.duration_seconds != null && a.duration_seconds < card.minSeconds;
+    // Same gate the Drive watcher materializes on, tolerance included, so a
+    // logged reel can never be delivered-but-unpayable.
+    const short = a.kind === 'reel' && !isQualifyingDuration(card, a.duration_seconds);
     const disqualified = !a.qualifies || short;
     // Only a REEL runs a count clock. A carousel is flat-rate: posting it
     // starts nothing, so it can never read overdue or hold up settlesOn
@@ -173,7 +175,7 @@ export function computeShootPay(card: RateCard, assets: ShootAsset[], asOf: stri
       kind: a.kind,
       counts: !disqualified, // cap applied below
       excludedReason: disqualified
-        ? a.disqualified_reason || (short ? `Under ${card.minSeconds}s` : 'Not counted')
+        ? a.disqualified_reason || (short ? `Under ${qualifyingSeconds(card)}s` : 'Not counted')
         : null,
       currentCents,
       // The floor pay for THIS post: reel base or carousel flat. Paid on posting.
