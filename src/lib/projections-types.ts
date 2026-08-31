@@ -112,6 +112,15 @@ export type ProjectionRow = {
   // prospect became.
   property_id: string | null;
 
+  // Demotion: set when the prospect is marked Inactive — never signed, no
+  // longer a viable opportunity, but kept on file instead of deleted. An
+  // inactive prospect is hidden from the active funnel, the forecast
+  // model's prospect contribution, and the morning brief. Mutually
+  // exclusive with promotion (property_id wins; the demote action refuses
+  // promoted rows). Reactivating clears both fields.
+  inactive_at: string | null;
+  inactive_reason: string | null;
+
   // Contract signing (in-Helm flow at /contract/<onboarding_token>)
   contract_signed_at: string | null;
   contract_signed_name: string | null;

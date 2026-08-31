@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SyncGmailButton } from '@/components/projections/SyncGmailButton';
+import { InactiveQuickAction } from '@/components/projections/ProspectInactiveControls';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { GmailTouchType, ProjectionRow } from '@/lib/projections-types';
 import { computeProjection, fmtMoneyRange } from '@/lib/projections-model';
@@ -25,12 +26,15 @@ async function getProjections(): Promise<ProjectionRow[]> {
 export async function ProspectsPanel() {
   const projections = await getProjections();
 
-  // Split active prospects (still in the funnel) from promoted ones (already
-  // became managed properties). Promoted records stay accessible for
-  // revisiting the original deck / contract / walkthrough, but they live in a
-  // separate archive section so they don't clutter the active scan.
-  const active = projections.filter((p) => !p.property_id);
+  // Three-way split. Promoted (became managed properties) and Inactive
+  // (demoted: never signed, no longer viable) both leave the active scan
+  // but stay fully accessible — promoted for revisiting the original
+  // deck / contract / walkthrough, inactive because deleting a dead deal
+  // throws away the projection, the contract draft, and the history of
+  // why it died. property_id wins when both could apply.
+  const active = projections.filter((p) => !p.property_id && !p.inactive_at);
   const archived = projections.filter((p) => !!p.property_id);
+  const inactive = projections.filter((p) => !p.property_id && !!p.inactive_at);
 
   return (
     <>
@@ -63,7 +67,7 @@ export async function ProspectsPanel() {
       </section>
 
       {/* ACTIVE LIST */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: archived.length > 0 ? 48 : 80, flex: 1, width: '100%' }}>
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: archived.length + inactive.length > 0 ? 48 : 80, flex: 1, width: '100%' }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
             Active Prospects
@@ -79,7 +83,7 @@ export async function ProspectsPanel() {
             <p style={{ color: 'var(--ink-4)', fontSize: 12 }}>
               {projections.length === 0
                 ? <>Click &ldquo;New Prospect&rdquo; above to get started.</>
-                : <>Everything in the funnel has been promoted to a managed property.</>}
+                : <>Everything on file has been promoted or marked inactive.</>}
             </p>
           </div>
         ) : (
@@ -96,7 +100,7 @@ export async function ProspectsPanel() {
           active, but the row's status badge reads "Promoted" and the
           close-likelihood chip is hidden (irrelevant on a closed deal). */}
       {archived.length > 0 && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: inactive.length > 0 ? 48 : 80, width: '100%' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
             <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink-3)', margin: 0 }}>
               Promoted
@@ -116,6 +120,31 @@ export async function ProspectsPanel() {
           </div>
         </section>
       )}
+
+      {/* INACTIVE — demoted prospects: never signed, no longer a viable
+          opportunity, kept on file instead of deleted. Hidden entirely when
+          empty. Reactivate puts a row straight back in the active list. */}
+      {inactive.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
+            <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink-3)', margin: 0 }}>
+              Inactive
+            </h2>
+            <span className="eyebrow">
+              {inactive.length} inactive
+            </span>
+          </div>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 580 }}>
+            Deals that didn&rsquo;t happen, kept on file. Everything is still here — projection,
+            contract draft, intake — and Reactivate puts one back in the funnel if the owner returns.
+          </p>
+          <div style={{ borderTop: '1px solid var(--ink-3)' }}>
+            {inactive.map((p, i) => (
+              <ProjectionRowItem key={p.id} projection={p} number={String(i + 1).padStart(2, '0')} />
+            ))}
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -124,6 +153,7 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
   const computed = computeProjection(p);
   const range = fmtMoneyRange(computed.heroLow, computed.heroHigh);
   const promoted = !!p.property_id;
+  const isInactive = !promoted && !!p.inactive_at;
   const sent = p.status === 'sent';
   const touches = p.gmail_touches || {};
   const touchTypes: GmailTouchType[] = ['projection', 'guide', 'contract', 'onboarding'];
@@ -133,13 +163,16 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
     .sort((a, b) => b.at.localeCompare(a.at))[0];
 
   // Status badge text + color. Promoted wins over everything (it's the
-  // terminal state); otherwise the existing last-touch / marked-sent /
-  // draft ladder applies.
+  // terminal state); Inactive is the demoted parking state; otherwise the
+  // existing last-touch / marked-sent / draft ladder applies.
   let statusText: string;
   let statusColor: string;
   if (promoted) {
     statusText = 'Promoted';
     statusColor = 'var(--positive)';
+  } else if (isInactive) {
+    statusText = `Inactive · ${shortDate(p.inactive_at!)}`;
+    statusColor = 'var(--ink-4)';
   } else if (latestTouch) {
     statusText = `Last touch ${shortDate(latestTouch.at)}`;
     statusColor = 'var(--positive)';
@@ -162,9 +195,10 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
           alignItems: 'baseline',
           padding: '20px 0 18px',
           borderBottom: '1px solid var(--rule)',
-          // Promoted rows render a touch softer so the eye lands on
-          // active prospects first without the archive looking broken.
-          opacity: promoted ? 0.78 : 1,
+          // Promoted / inactive rows render a touch softer so the eye
+          // lands on active prospects first without the archives looking
+          // broken. Inactive goes softer still — it's the dead pile.
+          opacity: promoted ? 0.78 : isInactive ? 0.65 : 1,
         }}
       >
         <span className="font-mono rt-projections-row-num" style={{ fontSize: 11, color: 'var(--signal)', letterSpacing: '.08em' }}>
@@ -176,14 +210,19 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
               {p.property_address}
             </h3>
             {/* Close-likelihood is an active-funnel metric — hide on
-                promoted rows since the deal already closed. */}
-            {!promoted && <LikelihoodChip pct={p.close_likelihood_pct} />}
+                promoted rows (deal closed) and inactive rows (deal dead). */}
+            {!promoted && !isInactive && <LikelihoodChip pct={p.close_likelihood_pct} />}
           </div>
           <p style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)' }}>
             {p.prospect_name}
             {p.market ? ` · ${p.market}` : ''}
             {p.bedrooms ? ` · ${p.bedrooms} BR` : ''}
           </p>
+          {isInactive && p.inactive_reason && (
+            <p style={{ marginTop: 4, fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+              {p.inactive_reason}
+            </p>
+          )}
           {seen.length > 0 && (
             <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {seen.map((t) => (
@@ -198,6 +237,10 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
         <span
           className="rt-projections-row-status"
           style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: 6,
             fontSize: 10,
             letterSpacing: '.22em',
             textTransform: 'uppercase',
@@ -208,6 +251,11 @@ function ProjectionRowItem({ projection: p, number }: { projection: ProjectionRo
           }}
         >
           {statusText}
+          {/* One-click demote / reactivate without leaving the list.
+              Promoted rows get neither — property_id owns that state. */}
+          {!promoted && (
+            <InactiveQuickAction projectionId={p.id} mode={isInactive ? 'reactivate' : 'demote'} />
+          )}
         </span>
       </div>
     </Link>

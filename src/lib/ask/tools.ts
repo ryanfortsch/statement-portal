@@ -435,7 +435,7 @@ export function createAskTools() {
         const { data, error } = await supabase
           .from('projections')
           .select(
-            'id, property_address, property_city, prospect_name, market, bedrooms, mgmt_fee_pct, presentation_month, status, contract_signed_at, contract_signed_name, contract_countersigned_at, onboarding_submitted_at, property_id',
+            'id, property_address, property_city, prospect_name, market, bedrooms, mgmt_fee_pct, presentation_month, status, contract_signed_at, contract_signed_name, contract_countersigned_at, onboarding_submitted_at, property_id, inactive_at, inactive_reason',
           )
           .order('created_at', { ascending: false })
           .limit(50);

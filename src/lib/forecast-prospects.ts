@@ -107,6 +107,7 @@ export async function getProspectForecast(forecastYear: number): Promise<Prospec
     .from('projections')
     .select('*')
     .is('property_id', null) // not yet promoted to managed property
+    .is('inactive_at', null) // demoted (dead) deals contribute nothing
     .order('created_at', { ascending: false });
 
   if (error) {
