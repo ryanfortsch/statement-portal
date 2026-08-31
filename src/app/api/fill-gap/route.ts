@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { loadAddOnTotals } from '@/lib/statement-addons';
+import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
@@ -347,11 +348,21 @@ async function fillPlatformGap(args: {
   let stripeFeeTotal = 0;
   let matchedCount = 0;
 
+  // Rows whose code is split via reservation_installments carry a per-month
+  // slice as adjusted_revenue, not the whole stay. The CSV's full-value
+  // reconstruction below would blow a slice back up to the entire booking,
+  // so those rows keep their stored money untouched.
+  const installmentCoded = await loadInstallmentsForCodes(
+    supabase,
+    reservations.map(r => r.confirmation_code),
+  );
+
   for (const res of reservations) {
     const match = platformMap.get(res.confirmation_code);
-    if (!match) {
-      // No CSV row for this reservation; keep its current adjusted revenue
-      // in the running total so the statement math stays right.
+    if (!match || installmentCoded.has(res.confirmation_code)) {
+      // No CSV row for this reservation (or it's an installment slice);
+      // keep its current adjusted revenue in the running total so the
+      // statement math stays right.
       totalRevenue += res.adjusted_revenue || 0;
       stripeFeeTotal += res.stripe_fee || 0;
       continue;

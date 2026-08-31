@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { loadAddOnTotals } from '@/lib/statement-addons';
+import { loadInstallmentsForCodes } from '@/lib/installments';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 /**
@@ -115,15 +116,34 @@ export async function POST(request: NextRequest) {
       .lt('check_out', monthEndExclusive)
       .gt('total_paid', 0);
 
-    const missing = (candidates || []).filter(c =>
+    const candidatesMissing = (candidates || []).filter(c =>
       c.confirmation_code && !existingCodes.has(c.confirmation_code)
     );
+
+    // A code with reservation_installments rows is owned by the ingest
+    // installment fork / synthetic injection: its per-month slices are what
+    // get recognized, never the full-value guesty_reservations row. Without
+    // this filter, Refresh re-adds a fully-recognized long stay at full
+    // value in its checkout month (a stay checking out on the 1st has zero
+    // nights there, so no slice exists to catch it) and double-pays the
+    // owner.
+    const installmentCoded = await loadInstallmentsForCodes(
+      supabase,
+      candidatesMissing.map(c => c.confirmation_code as string),
+    );
+    const missing = candidatesMissing.filter(c => !installmentCoded.has(c.confirmation_code as string));
+    const skippedInstallmentCodes = candidatesMissing
+      .filter(c => installmentCoded.has(c.confirmation_code as string))
+      .map(c => c.confirmation_code as string);
 
     if (missing.length === 0) {
       return NextResponse.json({
         success: true,
         added: [],
-        message: 'No new bookings to add. The statement is up to date with guesty_reservations.',
+        skipped_installment_codes: skippedInstallmentCodes,
+        message: skippedInstallmentCodes.length > 0
+          ? `No new bookings to add. ${skippedInstallmentCodes.length} skipped because they are recognized via installment splits (${skippedInstallmentCodes.join(', ')}).`
+          : 'No new bookings to add. The statement is up to date with guesty_reservations.',
       });
     }
 
@@ -206,6 +226,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      skipped_installment_codes: skippedInstallmentCodes,
       added: newRows.map(r => ({
         guest: r.guest_name,
         confirmation_code: r.confirmation_code,
