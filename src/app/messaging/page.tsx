@@ -16,11 +16,14 @@ import {
   getStatsTimeseries,
   getFacts,
   getFactAudit,
+  listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
+import { supabase } from '@/lib/supabase';
 import { MessagingQueue } from './MessagingQueue';
 import { ConversationsBrowser } from './Conversations';
 import { PerformanceDropdown } from './PerformanceDropdown';
+import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -101,6 +104,43 @@ async function ConversationsSection() {
   );
 }
 
+// Helm's own property list (anon-readable id + name) for the target selector
+// on each proposed update. Independent of the stay-concierge service; a
+// failure here just yields an empty list (operator can still dismiss).
+async function loadProperties(): Promise<{ id: string; name: string }[]> {
+  try {
+    const { data, error } = await supabase.from('properties').select('id, name').order('name');
+    if (error || !data) return [];
+    return data as { id: string; name: string }[];
+  } catch {
+    return [];
+  }
+}
+
+// Mid boundary: the KB self-healing loop's review card. kb_gap_harvest mines
+// the operator's own manual Guesty replies for durable property facts the AI
+// drafts lacked (item locations, standing fees, quirks) and proposes them
+// here; applying routes through the same Quick Capture parse + apply as the
+// owner and cleaner cards.
+async function ProposedUpdatesSection() {
+  const [proposed, properties] = await Promise.all([
+    listProposedPropertyUpdates('guest'),
+    loadProperties(),
+  ]);
+  // Hide the card entirely when there is nothing to review AND no error -
+  // unlike the owner page, /messaging is a daily working surface and an
+  // empty educational card would be noise on it.
+  if (proposed.ok && proposed.data.updates.length === 0) return null;
+  return (
+    <ProposedPropertyUpdatesCard
+      initial={proposed.ok ? proposed.data.updates : []}
+      initialError={proposed.ok ? null : explainError(proposed.error)}
+      properties={properties}
+      source="guest"
+    />
+  );
+}
+
 // Below-the-fold boundary: the tabbed Performance section (score / last-24h
 // activity / learning + weekly fact audit). Slow calls; they stream in
 // independently after the queue and never block it.
@@ -146,6 +186,9 @@ export default function MessagingPage() {
       </Suspense>
       <Suspense fallback={null}>
         <ConversationsSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ProposedUpdatesSection />
       </Suspense>
       <Suspense fallback={null}>
         <AnalyticsSection />
