@@ -21,6 +21,12 @@ import {
 } from './revenue-date-range';
 import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
 import { loadInstallmentsForCodes, type Installment } from './installments';
+import {
+  allocateStayByNights,
+  loadReconciledStayValues,
+  type RevenueBasis,
+  type ReconciledStays,
+} from './revenue-nights-basis';
 
 const ALLOWED_STATUSES = new Set([
   'confirmed',
@@ -420,6 +426,14 @@ export type SnapshotOptions = {
    * non-month-aligned ranges (multiplier isn't computed at all).
    */
   applyPacing?: boolean;
+  /**
+   * Which month a dollar is recognized in. 'checkout' (the default, and the
+   * owner-statement methodology) puts a stay's whole value in its checkout
+   * month. 'nights' spreads it across the months its nights fall in.
+   * Display only: nothing here writes, and owner payouts always follow
+   * checkout.
+   */
+  basis?: RevenueBasis;
 };
 
 export async function computeRevenueSnapshot(
@@ -428,6 +442,7 @@ export async function computeRevenueSnapshot(
   options: SnapshotOptions = {},
 ): Promise<SnapshotsResponse> {
   const applyPacing = options.applyPacing !== false;
+  const basis: RevenueBasis = options.basis === 'nights' ? 'nights' : 'checkout';
   // 1. Properties (active only, with the fields we need for the math).
   const { data: propsData, error: propsErr } = await supabase
     .from('properties')
@@ -546,6 +561,23 @@ export async function computeRevenueSnapshot(
     supabase,
     reservations.map((r) => r.confirmation_code || ''),
   );
+
+  // Nights basis only: the reconciled dollar figure per stay, so a closed
+  // month keeps its Stripe actuals and operator corrections instead of
+  // reverting to Guesty gross. The checkout basis gets this from the monthly
+  // statement swap in applyStatementsAndPacing, which cannot work here
+  // because a monthly scalar does not say which nights its dollars belong to.
+  const reconciled: ReconciledStays =
+    basis === 'nights'
+      ? await loadReconciledStayValues(
+          supabase,
+          rangeStart,
+          periodEndExclusive,
+          new Set(reservations.map((r) => r.confirmation_code || '').filter(Boolean)),
+          new Set(installmentsByCode.keys()),
+          selectAllPaged,
+        )
+      : { byCode: new Map(), orphansByProperty: new Map(), degraded: false };
 
   // 3. Forward reservations: today through +30d, count turnovers per property.
   const today = new Date().toISOString().split('T')[0];
@@ -750,6 +782,36 @@ export async function computeRevenueSnapshot(
           }
           cursor = monthEndExclusive;
         }
+        // Nights basis only: a zero-payout Guesty row can still carry real
+        // statement money. This is the standard SCA-direct path, where the
+        // guest pays through the property's own Stripe and Guesty never sees
+        // the money (CLAUDE.md, "staycapeann.com direct bookings"). Sixteen
+        // such stays carry $31,466.88 of adjusted_revenue today. The gate
+        // above and the blocked-nights walk are deliberately untouched, so
+        // occupancy and pacing stay byte-identical across the two bases.
+        if (basis === 'nights') {
+          const zCode = r.confirmation_code || '';
+          const zValue = zCode ? reconciled.byCode.get(zCode) ?? 0 : 0;
+          if (zValue > 0) {
+            const zCh = normalizeChannel(r.channel);
+            const zCoMonth = checkOut.slice(0, 7);
+            for (const b of allocateStayByNights({
+              checkIn, checkOut, value: zValue, propStart, rangeStart, periodEndExclusive,
+            })) {
+              totalRevenue += b.revenue;
+              nightsSold += b.nights;
+              revenueByMonth.set(b.month, (revenueByMonth.get(b.month) ?? 0) + b.revenue);
+              nightsByMonth.set(b.month, (nightsByMonth.get(b.month) ?? 0) + b.nights);
+              addToMix(channelBucket(b.month), zCh, b.revenue, b.nights, b.month === zCoMonth ? 1 : 0);
+            }
+            if (checkOut > rangeStart && checkOut <= periodEndExclusive) {
+              staysCount += 1;
+              cleaningCost += cleaningPerStay;
+              staysByMonth.set(zCoMonth, (staysByMonth.get(zCoMonth) ?? 0) + 1);
+              cleaningByMonth.set(zCoMonth, (cleaningByMonth.get(zCoMonth) ?? 0) + cleaningPerStay);
+            }
+          }
+        }
         continue;
       }
 
@@ -818,6 +880,43 @@ export async function computeRevenueSnapshot(
         continue;
       }
 
+      // ── Nights fork ───────────────────────────────────────────────────
+      // Money follows the nights. The stay itself and its cleaning still
+      // anchor to the checkout month below, because a turnover happens once,
+      // at an instant: one cleaner, one visit, one ACH. Accrue what accrues,
+      // anchor what happens once.
+      if (basis === 'nights') {
+        // Same all-or-nothing activation guard as the checkout branch.
+        if (prop.activated_at && prop.activated_at.slice(0, 10) > checkOut) continue;
+        // Reconciled statement dollars where the stay has them, Guesty gross
+        // otherwise. Either way it is a REDISTRIBUTION of the value the
+        // checkout basis would have used, never a re-derivation.
+        const code = r.confirmation_code || '';
+        const value = (code && reconciled.byCode.get(code)) || fullPayout;
+        const ch = normalizeChannel(r.channel);
+        const coMonth = checkOut.slice(0, 7);
+        for (const b of allocateStayByNights({
+          checkIn, checkOut, value, propStart, rangeStart, periodEndExclusive,
+        })) {
+          totalRevenue += b.revenue;
+          nightsSold += b.nights;
+          revenueByMonth.set(b.month, (revenueByMonth.get(b.month) ?? 0) + b.revenue);
+          nightsByMonth.set(b.month, (nightsByMonth.get(b.month) ?? 0) + b.nights);
+          // The stay counts once, on its checkout month, exactly as the
+          // installment fork does with is_final_month.
+          addToMix(channelBucket(b.month), ch, b.revenue, b.nights, b.month === coMonth ? 1 : 0);
+        }
+        // Stays and cleaning keep checkout attribution, so they stay
+        // byte-identical across the two bases. Same gate as below.
+        if (checkOut > rangeStart && checkOut <= periodEndExclusive) {
+          staysCount += 1;
+          cleaningCost += cleaningPerStay;
+          staysByMonth.set(coMonth, (staysByMonth.get(coMonth) ?? 0) + 1);
+          cleaningByMonth.set(coMonth, (cleaningByMonth.get(coMonth) ?? 0) + cleaningPerStay);
+        }
+        continue;
+      }
+
       // Statement methodology: revenue is recognized at checkout. If the
       // checkout falls in the requested range, the full stay's value
       // counts; otherwise the stay belongs to a different month's revenue
@@ -837,6 +936,27 @@ export async function computeRevenueSnapshot(
       staysByMonth.set(coKey, (staysByMonth.get(coKey) ?? 0) + 1);
       cleaningByMonth.set(coKey, (cleaningByMonth.get(coKey) ?? 0) + cleaningPerStay);
       addToMix(channelBucket(coKey), normalizeChannel(r.channel), fullPayout, totalNights, 1);
+    }
+
+    // Statement stays with no accepted Guesty twin. The checkout basis picks
+    // these up inside the monthly rental_revenue swap; the nights basis has
+    // to place them itself. Revenue and nights only: their stay count and
+    // cleaning still arrive via the statement swap, and they must never
+    // touch calendarNightsByMonth or they would move occupancy.
+    if (basis === 'nights') {
+      for (const o of reconciled.orphansByProperty.get(prop.id) ?? []) {
+        const ch = normalizeChannel(o.platform);
+        for (const b of allocateStayByNights({
+          checkIn: o.checkIn, checkOut: o.checkOut, value: o.revenue,
+          propStart, rangeStart, periodEndExclusive,
+        })) {
+          totalRevenue += b.revenue;
+          nightsSold += b.nights;
+          revenueByMonth.set(b.month, (revenueByMonth.get(b.month) ?? 0) + b.revenue);
+          nightsByMonth.set(b.month, (nightsByMonth.get(b.month) ?? 0) + b.nights);
+          addToMix(channelBucket(b.month), ch, b.revenue, b.nights, 0);
+        }
+      }
     }
 
     // Stash the per-month buckets on the snapshot so the post-pass layer
@@ -913,6 +1033,7 @@ export async function computeRevenueSnapshot(
     properties,
     applyPacing,
     monthBucketsByProperty,
+    basis,
   );
 
   // 6. Portfolio totals.
@@ -1019,6 +1140,7 @@ async function applyStatementsAndPacing(
   properties: PropertyRow[],
   applyPacing: boolean,
   monthBucketsByProperty: Map<string, PropertyMonthBuckets>,
+  basis: RevenueBasis,
 ): Promise<{ snapshots: PropertySnapshot[]; pacing: PacingInfo | null }> {
   const segments = monthSegments(rangeStart, rangeEnd);
   if (segments.length === 0) return { snapshots: base, pacing: null };
@@ -1249,12 +1371,29 @@ async function applyStatementsAndPacing(
       if (seg.fullMonth && isClosed) {
         const stmt = stmtByMonthAndProperty.get(`${seg.monthKey}|${s.propertyId}`);
         if (stmt) {
-          revenueDelta += (Number(stmt.rental_revenue) || 0) - (buckets.revenueByMonth.get(seg.monthKey) ?? 0);
-          nightsDelta += (Number(stmt.nights_booked) || 0) - (buckets.nightsByMonth.get(seg.monthKey) ?? 0);
+          // Revenue and nights are swapped only under the CHECKOUT basis.
+          // rental_revenue and nights_booked are whole-stay, checkout-scoped
+          // scalars: substituting them here would delete the month's
+          // night-attributed value and silently revert every closed month to
+          // checkout numbers, which is the one thing the nights tab must not
+          // do. The nights basis already carries reconciled dollars, because
+          // it resolved them per stay in the base pass.
+          if (basis === 'checkout') {
+            revenueDelta += (Number(stmt.rental_revenue) || 0) - (buckets.revenueByMonth.get(seg.monthKey) ?? 0);
+            nightsDelta += (Number(stmt.nights_booked) || 0) - (buckets.nightsByMonth.get(seg.monthKey) ?? 0);
+          }
+          // Stays and cleaning are checkout-anchored in BOTH bases, so the
+          // statement's own figures are right either way.
           staysDelta += (Number(stmt.num_stays) || 0) - (buckets.staysByMonth.get(seg.monthKey) ?? 0);
           cleaningDelta += (Number(stmt.cleaning_total) || 0) - (buckets.cleaningByMonth.get(seg.monthKey) ?? 0);
           repairsTaxDelta += (Number(stmt.repairs_total) || 0) + (Number(stmt.tax_remittance) || 0);
           usedStatement = true;
+          if (basis === 'nights') {
+            // Keep the base pass's night-split mix. The statement mix is
+            // checkout-scoped like the scalars above.
+            if (monthMix) mergeMix(channelMix, monthMix);
+            continue;
+          }
           const stmtMix = stmt.id ? stmtMixByStatementId.get(stmt.id) : undefined;
           if (stmtMix) {
             mergeMix(channelMix, stmtMix);

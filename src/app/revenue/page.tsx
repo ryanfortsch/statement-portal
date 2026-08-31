@@ -5,6 +5,8 @@ import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { Stat } from '@/components/Stat';
 import { TimeRangePicker } from './TimeRangePicker';
 import { ViewToggle, type RevenueView } from './ViewToggle';
+import { BasisToggle } from './BasisToggle';
+import type { RevenueBasis } from '@/lib/revenue-nights-basis';
 import { AutoRefresh } from './AutoRefresh';
 import {
   computeDateRange,
@@ -74,7 +76,7 @@ const VALID_PRESETS: RangePreset[] = [
 ];
 
 type PageProps = {
-  searchParams: Promise<{ range?: string; view?: string }>;
+  searchParams: Promise<{ range?: string; view?: string; basis?: string }>;
 };
 
 export default async function RevenuePage({ searchParams }: PageProps) {
@@ -101,6 +103,11 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   // Pacing is a projection; default to plain booked Actuals so the page
   // opens on what's actually committed. The toggle opts into projection.
   const view: RevenueView = params?.view === 'pacing' ? 'pacing' : 'actuals';
+
+  // Which month a dollar is counted in. Checkout is the owner-statement rule
+  // and the default, expressed by the absence of the param so existing links
+  // keep today's numbers.
+  const basis: RevenueBasis = params?.basis === 'nights' ? 'nights' : 'checkout';
 
   const { rangeStart, rangeEnd } = computeDateRange(preset, customMonth);
   const rangeLabel = formatRangeLabel(rangeStart, rangeEnd);
@@ -138,9 +145,11 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
   const [{ lastSyncedAt, isStale }, current, priorFull, projectionBaselines] = await Promise.all([
     readSyncStatus(),
-    computeRevenueSnapshot(rangeStart, rangeEnd, { applyPacing: view === 'pacing' }),
+    computeRevenueSnapshot(rangeStart, rangeEnd, { applyPacing: view === 'pacing', basis }),
+    // The comparison period must use the SAME basis, or every "vs prior"
+    // chip silently compares accrual against checkout.
     prior
-      ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd)
+      ? computeRevenueSnapshot(prior.rangeStart, prior.rangeEnd, { basis })
       : Promise.resolve(null),
     loadProjectionBaselines(),
   ]);
@@ -196,10 +205,27 @@ export default async function RevenuePage({ searchParams }: PageProps) {
             >
               <div className="flex items-baseline" style={{ gap: 14, flexWrap: 'wrap' }}>
                 <TimeRangePicker value={rangeValue} />
+                <BasisToggle value={basis} />
                 {pacing && pacing.multiplier > 1 && <ViewToggle value={view} />}
               </div>
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
             </div>
+            {basis === 'nights' && (
+              <p
+                style={{
+                  marginTop: 12,
+                  fontSize: 12,
+                  color: 'var(--ink-3)',
+                  lineHeight: 1.5,
+                }}
+              >
+                Counting by nights stayed. A booking&rsquo;s money follows its nights, so a
+                stay with most of its nights in August stops landing entirely on September
+                just because it checked out there. Stays, cleaning and occupancy still count
+                at checkout. Owner statements recognize at checkout too, so these figures
+                will not tie to a statement.
+              </p>
+            )}
             {pacing && pacing.multiplier > 1 && (
               <p
                 style={{
@@ -213,8 +239,8 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 Gloucester historical for {formatPacingMonth(pacing.month)} is{' '}
                 {pacing.historicalAvgPct.toFixed(0)}%.
                 {view === 'pacing'
-                  ? ` Revenue projects booked × ${pacing.multiplier.toFixed(2)} on current/future full months in range.`
-                  : ' Revenue shows booked-so-far actuals only.'}
+                  ? ` Revenue projects booked × ${pacing.multiplier.toFixed(2)} on current/future full months in range.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
+                  : ` Revenue shows booked-so-far actuals only.${basis === 'nights' ? ' Split by night.' : ''}`}
               </p>
             )}
           </>
@@ -224,7 +250,9 @@ export default async function RevenuePage({ searchParams }: PageProps) {
       {/* PORTFOLIO SUMMARY */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-          <div className="eyebrow">Portfolio</div>
+          <div className="eyebrow">
+            {basis === 'nights' ? 'Portfolio · by nights stayed' : 'Portfolio'}
+          </div>
           {priorPortfolio && (
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
               vs prior {presetTitle.toLowerCase()}
@@ -286,6 +314,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
               priorPayout={priorPayoutById.get(s.propertyId) ?? null}
               showDelta={!isForwardLooking}
               vsProjection={vsProjectionByProperty.get(s.propertyId) ?? null}
+              basis={basis}
             />
           ))}
         </div>
@@ -600,10 +629,12 @@ function PropertyCard({
   priorPayout,
   showDelta,
   vsProjection,
+  basis,
 }: {
   snapshot: PropertySnapshot;
   priorPayout: number | null;
   showDelta: boolean;
+  basis: RevenueBasis;
   vsProjection: PropertyVsProjection | null;
 }) {
   const m = snapshot.metrics;
@@ -639,9 +670,13 @@ function PropertyCard({
                 color: SOURCE_COLOR[snapshot.source],
                 whiteSpace: 'nowrap',
               }}
-              title={SOURCE_TITLE[snapshot.source]}
+              title={
+                (basis === 'nights' ? SOURCE_TITLE_NIGHTS[snapshot.source] : undefined) ??
+                SOURCE_TITLE[snapshot.source]
+              }
             >
-              {SOURCE_LABEL[snapshot.source]}
+              {(basis === 'nights' ? SOURCE_LABEL_NIGHTS[snapshot.source] : undefined) ??
+                SOURCE_LABEL[snapshot.source]}
             </span>
           )}
         </div>
@@ -730,6 +765,17 @@ const SOURCE_COLOR: Record<PropertySnapshot['source'], string> = {
   pacing: 'var(--signal)',
   booked: 'var(--ink-3)',
   computed: 'var(--ink-3)',
+};
+
+// Under the nights basis the statement chip has to withdraw its claim: the
+// dollars are still the statement's, but they have been re-split across the
+// months the nights fall in, so the month total will not match the statement.
+const SOURCE_TITLE_NIGHTS: Partial<Record<PropertySnapshot['source'], string>> = {
+  statement: "Reconciled statement dollars, re-split by the nights they were earned on. Stays and cleaning are the statement's own. The month total will not match the statement.",
+};
+
+const SOURCE_LABEL_NIGHTS: Partial<Record<PropertySnapshot['source'], string>> = {
+  statement: 'Reconciled',
 };
 
 const SOURCE_TITLE: Record<PropertySnapshot['source'], string> = {
