@@ -28,8 +28,9 @@ type Props = {
   properties: { id: string; name: string }[];
   /** Who shared these facts; drives the card copy only. The owner page
    * omits it (default 'owner'); the cleaner page passes 'cleaner'; the
-   * contractor page passes 'contractor'. */
-  source?: 'owner' | 'cleaner' | 'contractor';
+   * contractor page passes 'contractor'; the guest-messaging page passes
+   * 'guest' (facts mined from the operator's own replies, not from guests). */
+  source?: 'owner' | 'cleaner' | 'contractor' | 'guest';
 };
 
 export function ProposedPropertyUpdatesCard({ initial, initialError, properties, source = 'owner' }: Props) {
@@ -44,7 +45,11 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties,
   return (
     <Section
       title="Proposed property updates"
-      eyebrow={`Facts ${source}s shared, ready to file to the property`}
+      eyebrow={
+        source === 'guest'
+          ? 'Facts from your own replies, ready to file to the property'
+          : `Facts ${source}s shared, ready to file to the property`
+      }
       paddingTop={36}
       right={right}
     >
@@ -70,14 +75,25 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties,
             lineHeight: 1.6,
           }}
         >
-          Nothing to review. When{' '}
-          {source === 'cleaner'
-            ? 'a cleaner texts'
-            : source === 'contractor'
-              ? 'a contractor texts'
-              : 'an owner texts or emails'}{' '}
-          a durable property fact (a wifi change, a code, a trash day), it shows
-          up here to file in one tap.
+          {source === 'guest' ? (
+            <>
+              Nothing to review. When one of your own Guesty replies contains a
+              durable property fact the AI draft was missing (where the
+              pack-n-play lives, a standing fee, a quirk), it shows up here to
+              file in one tap.
+            </>
+          ) : (
+            <>
+              Nothing to review. When{' '}
+              {source === 'cleaner'
+                ? 'a cleaner texts'
+                : source === 'contractor'
+                  ? 'a contractor texts'
+                  : 'an owner texts or emails'}{' '}
+              a durable property fact (a wifi change, a code, a trash day), it
+              shows up here to file in one tap.
+            </>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
@@ -105,7 +121,7 @@ function CandidateCard({
 }: {
   candidate: ProposedPropertyUpdate;
   properties: { id: string; name: string }[];
-  source: 'owner' | 'cleaner' | 'contractor';
+  source: 'owner' | 'cleaner' | 'contractor' | 'guest';
 }) {
   const softRefresh = useSoftRefresh();
   const known = properties.some((p) => p.id === candidate.property_id);
@@ -239,7 +255,9 @@ function CandidateCard({
               ? 'A cleaner'
               : source === 'contractor'
                 ? 'A contractor'
-                : 'An owner')}
+                : source === 'guest'
+                  ? 'Your own reply'
+                  : 'An owner')}
           {candidate.property_name ? ` · ${candidate.property_name}` : ''}
         </span>
       </div>

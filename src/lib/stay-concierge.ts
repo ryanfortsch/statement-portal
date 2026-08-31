@@ -639,9 +639,10 @@ export type ProposedPropertyUpdatesResponse = {
 };
 
 /** Without `audience`, only NON-cleaner (owner) candidates, which keeps the
- * existing owner card unchanged. With 'cleaner' or 'contractor', only the
- * candidates sourced from that audience. */
-export async function listProposedPropertyUpdates(audience?: 'cleaner' | 'contractor') {
+ * existing owner card unchanged. With 'cleaner', 'contractor', or 'guest',
+ * only the candidates sourced from that audience ('guest' = facts the
+ * kb_gap_harvest mined from the operator's own guest replies). */
+export async function listProposedPropertyUpdates(audience?: 'cleaner' | 'contractor' | 'guest') {
   const q = audience ? `?audience=${audience}` : '';
   return request<ProposedPropertyUpdatesResponse>(`/api/proposed-property-updates${q}`);
 }
