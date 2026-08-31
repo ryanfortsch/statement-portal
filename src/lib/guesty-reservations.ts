@@ -17,6 +17,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { guestyGet, sleep } from '@/lib/guesty-client';
 import { staysOverlap } from '@/lib/booked-runs';
+import { dedupeByReservationId } from '@/lib/guesty-reservation-dedupe';
 
 /**
  * Guesty omits the `money` block by default; it has to be requested by name or
@@ -121,12 +122,15 @@ export function mapReservationRow(
  * (migration unrun): retry without it so the sync -- and its cron safety-net --
  * keeps working. Everything else still persists; folio capture turns on once
  * supabase-schema-guesty-folio-items.sql is applied.
+ *
+ * Rows are deduped on the conflict target first; see dedupeByReservationId.
  */
 export async function upsertGuestyReservations(
   sb: SupabaseClient,
-  rows: ReservationRow[],
+  input: ReservationRow[],
 ): Promise<void> {
-  if (rows.length === 0) return;
+  if (input.length === 0) return;
+  const rows = dedupeByReservationId(input);
   const { error } = await sb
     .from('guesty_reservations')
     .upsert(rows, { onConflict: 'guesty_reservation_id' });
