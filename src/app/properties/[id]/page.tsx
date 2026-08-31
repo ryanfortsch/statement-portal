@@ -55,6 +55,7 @@ import { RoomsEditor } from './RoomsEditor';
 import { WalkthroughCapture } from './WalkthroughCapture';
 import { getPropertyRooms } from '@/lib/property-rooms';
 import { getOnboardingItemRows } from '@/lib/onboarding-items';
+import { hasOrderChecklistState } from '@/lib/order-checklist-db';
 import {
   ONBOARDING_STAGES,
   ONBOARDING_ITEMS,
@@ -469,7 +470,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices, propertyContracts] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchRows, launchCleanerMapped, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices, propertyContracts, orderChecklistTouched] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -504,6 +505,7 @@ export default async function PropertyDetailPage({
     getContractFacts(p.projection_id ?? null),
     getForwardDistinctPrices(p.id),
     getPropertyContracts(p.id),
+    hasOrderChecklistState(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -557,6 +559,7 @@ export default async function PropertyDetailPage({
     contractTermEnd: contractFacts.termEnd,
     stripeKeyConfigured: !!getStripeKeysMap()[p.id],
     forwardDistinctPrices,
+    orderChecklistTouched,
   };
   const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
   for (const item of ONBOARDING_ITEMS) {
