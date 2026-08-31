@@ -1015,6 +1015,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .from('projections')
       .select('id, prospect_name, property_address, property_city, status, sent_at, close_likelihood_pct, created_at')
       .or(`status.eq.draft,and(status.eq.sent,sent_at.gte.${prospectCutoffIso})`)
+      .is('inactive_at', null) // demoted prospects don't nag the brief
       .order('created_at', { ascending: false }),
     supabase.from('sync_status').select('source, last_synced_at, last_attempted_at, last_status, last_error, error_count'),
     loadUnreadEmailsFromCache().catch(() => [] as BriefEmail[]),

@@ -9,6 +9,7 @@ import { ContractRedlinesPanel } from '@/components/projections/ContractRedlines
 import { RedlinesDisclosure } from '@/components/projections/RedlinesDisclosure';
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
+import { InactivePanel } from '@/components/projections/ProspectInactiveControls';
 import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
 import { CopyLinkButton, CountersignButton } from '@/components/projections/SigningButtons';
 import {
@@ -465,6 +466,35 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
         </details>
       </section>
 
+      {/* ─── Funnel status ──────────────────────────────────────────────── */}
+      {/* Demote to Inactive: the soft alternative to Delete for a deal
+          that died unsigned. Hidden on promoted prospects — property_id
+          owns that terminal state. */}
+      {!promoted && (
+        <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 8, width: '100%' }}>
+          <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 24, marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="eyebrow">Funnel status</div>
+            <div style={{ flex: '1 1 320px', minWidth: 280 }}>
+              <div className="font-serif" style={{ fontSize: 16, color: 'var(--ink)', margin: '0 0 4px' }}>
+                {projection.inactive_at ? 'Inactive prospect' : 'Mark inactive'}
+              </div>
+              {!projection.inactive_at && (
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
+                  Demote a deal that didn&rsquo;t happen — never signed, no longer a viable
+                  opportunity. <strong>Nothing is deleted:</strong> the projection, contract draft,
+                  and intake stay on file in the Inactive section, and it can be reactivated any time.
+                </p>
+              )}
+              <InactivePanel
+                projectionId={id}
+                inactiveAt={projection.inactive_at}
+                inactiveReason={projection.inactive_reason}
+              />
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ─── Danger zone ────────────────────────────────────────────────── */}
       <section className="max-w-[860px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%' }}>
         <div
@@ -499,7 +529,8 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
               <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480 }}>
                 Permanently removes <strong>{projection.prospect_name}</strong> and everything tied to
                 this projection. Recovery is a Supabase support ticket. Use Reset contract instead
-                if you just want to restart the negotiation.
+                if you just want to restart the negotiation, or Mark inactive above if the deal is
+                dead but the record should stay on file.
               </p>
               <DeleteProspectButton
                 projectionId={id}

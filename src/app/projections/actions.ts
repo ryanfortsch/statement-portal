@@ -530,6 +530,60 @@ export async function setCloseLikelihood(id: string, pct: number | null): Promis
   revalidatePath(`/prospects/${id}`);
 }
 
+/**
+ * Demote a prospect to Inactive: never signed, no longer a viable
+ * opportunity, but not worth deleting. The whole record stays on file —
+ * projection inputs, deliverables, contract draft, onboarding intake —
+ * and drops out of Active Prospects, the forecast model's prospect
+ * contribution, and the morning brief. `reactivateProspect` undoes it.
+ *
+ * Refuses promoted prospects: once a prospect became a managed property,
+ * Promoted owns the record's terminal state.
+ */
+export async function markProspectInactive(id: string, reason?: string | null): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { data: row, error: lookupErr } = await supabase
+    .from('projections')
+    .select('property_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (lookupErr || !row) throw new Error(lookupErr?.message || 'Prospect not found');
+  if (row.property_id) throw new Error('Already promoted to a managed property');
+
+  const trimmed = (reason ?? '').trim();
+  const { error } = await supabase
+    .from('projections')
+    .update({
+      inactive_at: new Date().toISOString(),
+      inactive_reason: trimmed || null,
+    })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/properties');
+  revalidatePath('/properties/prospects');
+  revalidatePath(`/prospects/${id}`);
+}
+
+/** Put an Inactive prospect back in the active funnel. Clears the reason
+ *  too — a reactivated deal starts a fresh conversation. */
+export async function reactivateProspect(id: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { error } = await supabase
+    .from('projections')
+    .update({ inactive_at: null, inactive_reason: null })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath('/properties');
+  revalidatePath('/properties/prospects');
+  revalidatePath(`/prospects/${id}`);
+}
+
 // ─── Readiness checklist mutations ─────────────────────────────────────────
 // Each call does a read-merge-write on the single jsonb column. Critically,
 // these actions do NOT revalidatePath — the analyst is *on* the readiness
