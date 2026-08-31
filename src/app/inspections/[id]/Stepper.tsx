@@ -105,9 +105,15 @@ type Props = {
   /** Field-only: one-off tasks attached to this stop, shown as trailing cards
    *  after the last inspection item. Omitted by staff (deck is byte-identical). */
   trailingTasks?: TrailingTask[];
+  /** Field-only: the property's open work slips (not already on this trip),
+   *  verified on the review screen — each defaults to "still needs doing";
+   *  one tap flips it to "it's handled". Omitted by staff. */
+  verifySlips?: VerifySlip[];
   packetId?: string;
   onCompleteTask?: (input: { packetId: string; attachmentId: string; note: string; photoUrls: string[] }) => Promise<{ ok: true } | { ok: false; error: string }>;
 };
+
+export type VerifySlip = { id: string; title: string; location: string | null };
 
 export function Stepper({
   inspectionId,
@@ -121,6 +127,7 @@ export function Stepper({
   initialWorkSlips = [],
   exitHref = '/inspections',
   trailingTasks = [],
+  verifySlips = [],
   packetId,
   onCompleteTask,
 }: Props) {
@@ -164,6 +171,9 @@ export function Stepper({
   // OK; flipping it ON marks that supply as low, which becomes a restock
   // work slip on Complete Inspection. State holds the keys currently low.
   const [suppliesLow, setSuppliesLow] = useState<Set<string>>(() => new Set());
+  // Slip verification: ids tapped as "it's handled". Everything else in
+  // verifySlips is confirmed still-open on complete.
+  const [slipsHandled, setSlipsHandled] = useState<Set<string>>(() => new Set());
   function toggleSupply(key: string) {
     setSuppliesLow((prev) => {
       const next = new Set(prev);
@@ -402,7 +412,13 @@ export function Stepper({
     setError(null);
     setIsCompleting(true);
     try {
-      await completeInspection(inspectionId, { suppliesLow: Array.from(suppliesLow) });
+      await completeInspection(inspectionId, {
+        suppliesLow: Array.from(suppliesLow),
+        // Every listed slip gets a verdict: handled if tapped, otherwise the
+        // walk itself is the confirmation it's still outstanding.
+        slipsHandled: verifySlips.filter((w) => slipsHandled.has(w.id)).map((w) => w.id),
+        slipsStillOpen: verifySlips.filter((w) => !slipsHandled.has(w.id)).map((w) => w.id),
+      });
       router.push(`/inspections/${inspectionId}/summary`);
     } catch (e) {
       setIsCompleting(false);
@@ -504,6 +520,62 @@ export function Stepper({
           {/* SUPPLIES CHECK — defaults to all OK; flipped toggles become
               one Rising Tide restock work slip per supply on Complete. */}
           <SuppliesCheck low={suppliesLow} onToggle={toggleSupply} bedrooms={propertyBedrooms} />
+
+          {verifySlips.length > 0 && (
+            <div style={{ marginTop: 22 }}>
+              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
+                Still on the list
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-4)', marginBottom: 10, lineHeight: 1.5 }}>
+                These are open for this home. Tap any you saw are already handled.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {verifySlips.map((w) => {
+                  const done = slipsHandled.has(w.id);
+                  return (
+                    <button
+                      key={w.id}
+                      type="button"
+                      aria-pressed={done}
+                      onClick={() =>
+                        setSlipsHandled((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(w.id)) next.delete(w.id);
+                          else next.add(w.id);
+                          return next;
+                        })
+                      }
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        textAlign: 'left',
+                        font: 'inherit',
+                        fontSize: 14,
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        border: done ? '1px solid var(--positive)' : '1px solid var(--rule)',
+                        background: done ? 'rgba(63,153,34,0.08)' : 'var(--paper-2, #fff)',
+                        color: 'var(--ink)',
+                      }}
+                    >
+                      <span aria-hidden style={{ fontSize: 16, width: 20, flexShrink: 0, color: done ? 'var(--positive)' : 'var(--ink-4)' }}>
+                        {done ? '✓' : '○'}
+                      </span>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.65 : 1 }}>{w.title}</span>
+                        {w.location && <span style={{ color: 'var(--ink-4)' }}> · {w.location}</span>}
+                        <span style={{ display: 'block', fontSize: 11.5, color: done ? 'var(--positive)' : 'var(--ink-4)', marginTop: 2 }}>
+                          {done ? "It's handled — we'll take it off the list" : 'Still needs doing'}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Save integrity before the wrap: a failed autosave means a card
               LOOKS marked with no row behind it — surface it here with a retry

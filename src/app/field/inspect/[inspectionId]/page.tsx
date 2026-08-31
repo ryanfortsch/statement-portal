@@ -13,7 +13,7 @@ import type {
   WorkSlipCategory,
   WorkSlipPriority,
 } from '@/lib/inspections-types';
-import { Stepper, type TrailingTask } from '@/app/inspections/[id]/Stepper';
+import { Stepper, type TrailingTask , type VerifySlip } from '@/app/inspections/[id]/Stepper';
 import { completeAttachedSlipInFlow } from '@/app/field/actions';
 
 export const dynamic = 'force-dynamic';
@@ -192,6 +192,35 @@ export default async function FieldInspectPage({
       photoUrls: r.work_slips!.photo_urls ?? [],
     }));
 
+  // VERIFY LIST — every other open slip at this home, so the review screen can
+  // ask "is this still outstanding?" while someone is standing in it. Excludes
+  // what's already riding this trip: attachments on this stop (they're the
+  // trailing cards above, including ones just completed) and the stop's own
+  // backing slip. Synthetic packet-backing categories (setup/one-off jobs) are
+  // packets in their own right, not list items to verify.
+  const attachedSlipIds = new Set(
+    ((attachRows ?? []) as unknown as Array<{ work_slips: { id: string } | null }>)
+      .map((r) => r.work_slips?.id)
+      .filter((v): v is string => !!v),
+  );
+  const { data: stopSelf } = await fieldDb()
+    .from('packet_stops')
+    .select('work_slip_id')
+    .eq('id', stop.id)
+    .maybeSingle();
+  const stopOwnSlipId = (stopSelf as { work_slip_id: string | null } | null)?.work_slip_id ?? null;
+  const { data: openRows } = await supabase
+    .from('work_slips')
+    .select('id, title, location, status, category')
+    .eq('property_id', (property as { id: string }).id)
+    .in('status', ['open', 'in_progress', 'scheduled', 'blocked'])
+    .not('category', 'in', '(rising_tide,ad_hoc)')
+    .order('created_at', { ascending: false })
+    .limit(12);
+  const verifySlips: VerifySlip[] = ((openRows ?? []) as Array<{ id: string; title: string; location: string | null }>)
+    .filter((w) => !attachedSlipIds.has(w.id) && w.id !== stopOwnSlipId)
+    .map((w) => ({ id: w.id, title: w.title, location: w.location }));
+
   return (
     <Stepper
       inspectionId={inspectionId}
@@ -208,6 +237,7 @@ export default async function FieldInspectPage({
       })}
       exitHref={`/field/packet/${stop.packet_id}`}
       trailingTasks={trailingTasks}
+      verifySlips={verifySlips}
       packetId={stop.packet_id}
       onCompleteTask={completeAttachedSlipInFlow}
     />

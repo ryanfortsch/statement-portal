@@ -69,6 +69,11 @@ export type WorkSlipRow = {
    *  Summed onto the packet's expenses_cents by recomputePacketExpenses when
    *  the slip rides a live packet; otherwise the office slip page flags it. */
   expense_cents: number | null;
+  /** Latest confirmation from someone standing in the home (end-of-inspection
+   *  verification) that this slip is still outstanding. Name is denormalized
+   *  so the anon /work board never joins RLS-locked contractors. */
+  last_verified_open_at: string | null;
+  last_verified_open_by: string | null;
   /** Idempotency key when mined by AI from a guest message thread
    *  ("guestmsg:<conversation_id>:<guest_message_id>"). One slip per
    *  reported issue, ever -- dismissed stays dismissed. */

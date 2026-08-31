@@ -1204,6 +1204,11 @@ function WorkSlipRowItem({
             {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : 'Unclaimed')}
             {slip.location ? ` · ${slip.location}` : ''}
             {reporterName && <span style={{ color: 'var(--tide-deep)' }}> · flagged by {reporterName}</span>}
+            {slip.last_verified_open_at && (
+              <span style={{ color: 'var(--positive)' }}>
+                {' '}· ✓ still needed {new Date(slip.last_verified_open_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+            )}
           </div>
         </div>
         {commentCount > 0 && (
