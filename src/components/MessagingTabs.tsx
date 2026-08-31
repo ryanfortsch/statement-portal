@@ -23,7 +23,7 @@ import { MessagingTabCount } from './MessagingTabCount';
  */
 
 type MessagingAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
-type MessagingLens = 'inbox' | 'send';
+type MessagingLens = 'inbox' | 'send' | 'blurbs';
 
 const AUDIENCE_HOME: Record<MessagingAudience, string> = {
   guests: '/messaging',
@@ -44,6 +44,7 @@ export function MessagingTabs({
       ? [
           { id: 'inbox', label: 'Inbox', href: '/messaging' },
           { id: 'send', label: 'Send', href: '/messaging/send' },
+          { id: 'blurbs', label: 'Saved replies', href: '/messaging/blurbs' },
         ]
       : [{ id: 'inbox', label: 'Inbox', href: AUDIENCE_HOME[current] }];
 

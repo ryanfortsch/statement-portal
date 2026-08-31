@@ -1061,3 +1061,55 @@ export function explainError(error: StayConciergeError): string {
     typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
   return `Service error (${error.status}): ${detail}`;
 }
+
+// ── Saved-reply blurb library (/messaging/blurbs) ─────────────────────────
+// Operator-authored texts the responder quotes near-verbatim. Only
+// status='approved' blurbs ever reach a guest draft; 'draft' is review-only.
+
+export type SavedBlurb = {
+  id: string;
+  scope: string; // 'fleet' | 'area:<town>' | property slug
+  category: string;
+  title: string;
+  body: string;
+  status: 'draft' | 'approved' | 'retired';
+  source_note: string;
+  created_at: string;
+  updated_at: string;
+  updated_by: string;
+};
+
+export type BlurbsResponse = { blurbs: SavedBlurb[]; count: number; categories: string[] };
+
+export async function listBlurbs() {
+  return request<BlurbsResponse>('/api/blurbs');
+}
+
+export async function createBlurb(input: {
+  scope: string;
+  category: string;
+  title: string;
+  body: string;
+  source_note?: string;
+}) {
+  return request<{ ok: true; blurb: SavedBlurb }>('/api/blurbs', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function editBlurb(
+  id: string,
+  fields: Partial<Pick<SavedBlurb, 'title' | 'body' | 'category' | 'scope'>>,
+) {
+  return request<{ ok: true; id: string }>(`/api/blurbs/${id}`, {
+    method: 'POST',
+    body: fields,
+  });
+}
+
+export async function setBlurbStatus(id: string, action: 'approve' | 'unapprove' | 'retire') {
+  return request<{ ok: true; id: string; status: string }>(`/api/blurbs/${id}/${action}`, {
+    method: 'POST',
+  });
+}
