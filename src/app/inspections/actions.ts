@@ -144,7 +144,14 @@ export async function saveResult(args: {
  */
 export async function completeInspection(
   inspectionId: string,
-  opts: { suppliesLow?: string[] } = {},
+  opts: {
+    suppliesLow?: string[];
+    /** End-of-walk slip verification: ids the inspector confirmed are still
+     *  outstanding, and ids they say are already handled. Optional and
+     *  independent — an old client that omits both changes nothing. */
+    slipsStillOpen?: string[];
+    slipsHandled?: string[];
+  } = {},
 ) {
   const actor = await resolveInspectionActor();
   if (!actor) throw new Error('Not signed in');
@@ -158,6 +165,10 @@ export async function completeInspection(
   const suppliesLow = Array.from(
     new Set((opts.suppliesLow ?? []).map((k) => k.trim()).filter((k) => k.length > 0)),
   );
+  const cleanIds = (v?: string[]) => Array.from(new Set((v ?? []).map((x) => x.trim()).filter(Boolean)));
+  const slipsHandled = cleanIds(opts.slipsHandled);
+  // A slip can't be both; "handled" wins (the stronger, deliberate tap).
+  const slipsStillOpen = cleanIds(opts.slipsStillOpen).filter((id) => !slipsHandled.includes(id));
 
   const [{ data: results }, { data: insp }] = await Promise.all([
     supabase
@@ -166,7 +177,7 @@ export async function completeInspection(
       .eq('inspection_id', inspectionId),
     supabase
       .from('inspections')
-      .select('property_id, template_id, ordered_cards')
+      .select('property_id, template_id, ordered_cards, inspector_name')
       .eq('id', inspectionId)
       .maybeSingle(),
   ]);
@@ -280,6 +291,77 @@ export async function completeInspection(
     }));
     const { error: slipErr } = await supabase.from('work_slips').insert(rows);
     if (slipErr) console.warn('[completeInspection] restock slip insert failed', slipErr);
+  }
+
+  // SLIP VERIFICATION fanout — the inspector just walked every room, so their
+  // answer is the freshest read of each open slip. Same rules as the restock
+  // fanout: only after the inspection row is finalized, best-effort, and every
+  // write is guarded to THIS property so a tampered id can't touch another
+  // home's slips.
+  if ((slipsStillOpen.length > 0 || slipsHandled.length > 0) && insp) {
+    const propertyId = (insp as { property_id: string }).property_id;
+    const verifierName =
+      ((insp as { inspector_name?: string | null }).inspector_name || '').trim() || sessionEmail;
+    const nowIso = new Date().toISOString();
+
+    // "Still needs doing": stamp the confirmation, change nothing else.
+    if (slipsStillOpen.length > 0) {
+      const { error: vErr } = await supabase
+        .from('work_slips')
+        .update({ last_verified_open_at: nowIso, last_verified_open_by: verifierName, updated_at: nowIso })
+        .in('id', slipsStillOpen)
+        .eq('property_id', propertyId)
+        .neq('status', 'done');
+      if (vErr) console.warn('[completeInspection] verify-open stamp failed', vErr);
+    }
+
+    // "Already handled": for a contractor, ride the attached-slip rail — the
+    // slip joins this packet stop as a completed attachment, so the office's
+    // approve closes it and request-changes reopens it, exactly like a task
+    // done in the deck. Staff word is terminal, so staff close directly.
+    if (slipsHandled.length > 0) {
+      const { data: okRows } = await supabase
+        .from('work_slips')
+        .select('id')
+        .in('id', slipsHandled)
+        .eq('property_id', propertyId)
+        .neq('status', 'done');
+      const okIds = ((okRows ?? []) as { id: string }[]).map((r) => r.id);
+      if (okIds.length > 0) {
+        const note = `Verified handled during the inspection by ${verifierName}.`;
+        if (actor.kind === 'contractor') {
+          const { data: st } = await fieldDb()
+            .from('packet_stops')
+            .select('id')
+            .eq('inspection_id', inspectionId)
+            .maybeSingle();
+          const stopId = (st as { id: string } | null)?.id;
+          if (stopId) {
+            for (const slipId of okIds) {
+              await fieldDb()
+                .from('packet_stop_work_slips')
+                .upsert(
+                  { stop_id: stopId, work_slip_id: slipId, created_by_email: sessionEmail, completed_at: nowIso },
+                  { onConflict: 'stop_id,work_slip_id' },
+                );
+            }
+            const { error: hErr } = await supabase
+              .from('work_slips')
+              .update({ status: 'in_progress', resolution_notes: note, updated_at: nowIso })
+              .in('id', okIds)
+              .neq('status', 'done');
+            if (hErr) console.warn('[completeInspection] verify-handled mark failed', hErr);
+          }
+        } else {
+          const { error: hErr } = await supabase
+            .from('work_slips')
+            .update({ status: 'done', completed_at: nowIso, resolution_notes: note, updated_at: nowIso })
+            .in('id', okIds)
+            .neq('status', 'done');
+          if (hErr) console.warn('[completeInspection] verify-close failed', hErr);
+        }
+      }
+    }
   }
 
   // Staff: fan the finalized report to Allie + Ryan now. Contractor: HOLD it

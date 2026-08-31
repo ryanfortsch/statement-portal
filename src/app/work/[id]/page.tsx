@@ -168,7 +168,9 @@ export default async function WorkSlipDetailPage({
               sub={
                 slip.scheduled_date && !slip.completed_at
                   ? `due ${formatDate(slip.scheduled_date)}`
-                  : undefined
+                  : !slip.completed_at && slip.last_verified_open_at
+                    ? `still needed ${formatDate(slip.last_verified_open_at)} · ${slip.last_verified_open_by ?? 'inspector'}`
+                    : undefined
               }
             />
             <StatCell label="Assigned" last>
