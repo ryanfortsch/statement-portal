@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { refineCustomClause } from '@/app/projections/actions';
 import type { CustomClause } from '@/lib/projections-types';
 
 /**
@@ -11,20 +12,84 @@ import type { CustomClause } from '@/lib/projections-types';
  *
  * Renders as a stack of cards, each with a "Remove" button. An "Add clause"
  * button appends a new empty card.
+ *
+ * "Refine with AI" sends the card's current text through Claude
+ * (refineCustomClause → lib/clause-polish.ts) and drops the contract-language
+ * rewrite back into the same editable fields, with a one-step Undo. Nothing
+ * persists until the operator hits Save — the form is the review gate.
  */
-export function CustomClausesField({ initial }: { initial: CustomClause[] | null | undefined }) {
+export function CustomClausesField({
+  initial,
+  projectionId,
+}: {
+  initial: CustomClause[] | null | undefined;
+  /** Null on /prospects/new (no row yet); the AI refine still works,
+   *  just without deal context. */
+  projectionId?: string | null;
+}) {
   // Keep keys stable across re-renders so React doesn't re-mount inputs the
   // user is mid-typing in.
-  const [rows, setRows] = useState<{ key: number; title: string; body: string }[]>(() => {
-    const seed = (initial ?? []).map((c, i) => ({ key: i, title: c.title ?? '', body: c.body ?? '' }));
+  const [rows, setRows] = useState<
+    { key: number; title: string; body: string; prior: { title: string; body: string } | null }[]
+  >(() => {
+    const seed = (initial ?? []).map((c, i) => ({
+      key: i,
+      title: c.title ?? '',
+      body: c.body ?? '',
+      prior: null,
+    }));
     return seed.length ? seed : [];
   });
   const nextKey = useNextKey(rows);
+  const [busyKey, setBusyKey] = useState<number | null>(null);
+  const [refineError, setRefineError] = useState<{ key: number; message: string } | null>(null);
 
-  const add = () => setRows((rs) => [...rs, { key: nextKey(), title: '', body: '' }]);
+  const add = () => setRows((rs) => [...rs, { key: nextKey(), title: '', body: '', prior: null }]);
   const remove = (key: number) => setRows((rs) => rs.filter((r) => r.key !== key));
   const update = (key: number, patch: Partial<{ title: string; body: string }>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  const refine = async (key: number) => {
+    const row = rows.find((r) => r.key === key);
+    if (!row || busyKey != null) return;
+    setRefineError(null);
+    setBusyKey(key);
+    try {
+      const res = await refineCustomClause(projectionId ?? null, {
+        title: row.title,
+        body: row.body,
+      });
+      if (!res.ok) {
+        setRefineError({ key, message: res.error });
+        return;
+      }
+      setRows((rs) =>
+        rs.map((r) =>
+          r.key === key
+            ? {
+                ...r,
+                prior: { title: r.title, body: r.body },
+                title: res.clause.title,
+                body: res.clause.body,
+              }
+            : r,
+        ),
+      );
+    } catch (err) {
+      setRefineError({ key, message: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const undoRefine = (key: number) =>
+    setRows((rs) =>
+      rs.map((r) =>
+        r.key === key && r.prior
+          ? { ...r, title: r.prior.title, body: r.prior.body, prior: null }
+          : r,
+      ),
+    );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -48,24 +113,32 @@ export function CustomClausesField({ initial }: { initial: CustomClause[] | null
         >
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
             <span className="eyebrow">Clause {idx + 1}</span>
-            <button
-              type="button"
-              onClick={() => remove(r.key)}
-              style={{
-                background: 'transparent',
-                color: 'var(--negative)',
-                fontSize: 10,
-                fontWeight: 500,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                padding: '4px 8px',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Remove
-            </button>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+              {r.prior && busyKey !== r.key && (
+                <button type="button" onClick={() => undoRefine(r.key)} style={headerButtonStyle('var(--ink-4)')}>
+                  Undo
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => refine(r.key)}
+                disabled={busyKey != null || (!r.title.trim() && !r.body.trim())}
+                style={{
+                  ...headerButtonStyle('var(--ink)'),
+                  opacity: busyKey != null || (!r.title.trim() && !r.body.trim()) ? 0.4 : 1,
+                }}
+              >
+                {busyKey === r.key ? 'Refining…' : 'Refine with AI'}
+              </button>
+              <button type="button" onClick={() => remove(r.key)} style={headerButtonStyle('var(--negative)')}>
+                Remove
+              </button>
+            </div>
           </div>
+
+          {refineError?.key === r.key && (
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--negative)' }}>{refineError.message}</p>
+          )}
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span className="eyebrow">Title</span>
@@ -85,7 +158,7 @@ export function CustomClausesField({ initial }: { initial: CustomClause[] | null
               value={r.body}
               onChange={(e) => update(r.key, { body: e.target.value })}
               rows={4}
-              placeholder="Full clause text. Renders verbatim on the contract Rider page."
+              placeholder='Full clause text, or rough notes — "Refine with AI" rewrites them in contract language. Renders verbatim on the Rider page once saved.'
               style={{ ...inputStyle, resize: 'vertical', minHeight: 90, fontFamily: 'var(--font-inter), system-ui, sans-serif' }}
             />
           </label>
@@ -119,6 +192,18 @@ export function CustomClausesField({ initial }: { initial: CustomClause[] | null
 function useNextKey(rows: { key: number }[]) {
   return () => (rows.reduce((m, r) => Math.max(m, r.key), -1) + 1);
 }
+
+const headerButtonStyle = (color: string): React.CSSProperties => ({
+  background: 'transparent',
+  color,
+  fontSize: 10,
+  fontWeight: 500,
+  letterSpacing: '.18em',
+  textTransform: 'uppercase',
+  padding: '4px 8px',
+  border: 'none',
+  cursor: 'pointer',
+});
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--paper)',

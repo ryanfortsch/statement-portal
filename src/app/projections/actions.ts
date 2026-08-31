@@ -26,6 +26,7 @@ import {
   type ContractRedlineEdits,
 } from '@/lib/projection-redlines';
 import { applyContractOverrides, describeOverrideFailure } from '@/lib/contract-overrides';
+import { polishCustomClause } from '@/lib/clause-polish';
 import {
   sendOwnerSignedEmail,
   sendExecutedEmail,
@@ -1713,4 +1714,72 @@ export async function applyContractRedlines(
     appliedCount: newContractOverrides.length - failures.length,
     failures: failures.map((f) => ({ summary: describeOverrideFailure(f) })),
   };
+}
+
+// ─── Custom clause AI refine ────────────────────────────────────────────────
+
+/**
+ * Rewrite one custom Rider clause into contract language via Claude.
+ * Read-only — returns the polished text to the form; nothing persists
+ * until the operator reviews it and hits Save. Same human gate as the
+ * redline flow's propose/apply split, except here the "apply" is the
+ * form's own Save button.
+ *
+ * projectionId is null on /prospects/new (no row yet) — the polish still
+ * runs, just without the deal-context block.
+ */
+export async function refineCustomClause(
+  projectionId: string | null,
+  clause: CustomClause,
+): Promise<{ ok: true; clause: CustomClause } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const title = (clause.title ?? '').trim();
+  const body = (clause.body ?? '').trim();
+  if (!title && !body) return { ok: false, error: 'Type the clause (or rough notes) first.' };
+  if (title.length + body.length > 8000) {
+    return { ok: false, error: 'Clause is too long to refine; trim it under 8,000 characters.' };
+  }
+
+  // Deal context so the rewrite lands on the Agreement's defined terms
+  // ("Owner", "the Property") instead of personal names.
+  let ownerName: string | null = null;
+  let propertyAddress: string | null = null;
+  if (projectionId) {
+    const { data } = await supabase
+      .from('projections')
+      .select('prospect_name, prospect_full_legal, property_address, property_city')
+      .eq('id', projectionId)
+      .maybeSingle();
+    if (data) {
+      ownerName =
+        (data.prospect_full_legal as string | null) || (data.prospect_name as string | null);
+      propertyAddress =
+        [data.property_address, data.property_city].filter(Boolean).join(', ') || null;
+    }
+  }
+
+  try {
+    const polished = await polishCustomClause({
+      clause: { title, body },
+      ownerName,
+      propertyAddress,
+    });
+    // Same log-the-AI-output discipline as the redline flow: the before /
+    // after pair is recoverable from Vercel runtime logs if a rewrite
+    // ever needs auditing. Bounded by the 8K input cap.
+    console.log(
+      JSON.stringify({
+        event: 'custom_clause_refined',
+        projection_id: projectionId,
+        by: session.user.email,
+        input: { title, body },
+        output: polished,
+      }),
+    );
+    return { ok: true, clause: polished };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
