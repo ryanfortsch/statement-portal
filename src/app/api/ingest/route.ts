@@ -3,7 +3,7 @@ import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/l
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { getActivePropertyForStatements } from '@/lib/properties';
-import { loadInstallmentsForMonth, loadInstallmentsForCode, type Installment } from '@/lib/installments';
+import { loadInstallmentsForMonth, loadInstallmentsForCode, loadInstallmentsForCodes, type Installment } from '@/lib/installments';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadAddOnTotals } from '@/lib/statement-addons';
@@ -622,6 +622,19 @@ export async function POST(request: NextRequest) {
       allInstallmentsByCode.set(code, all);
       return all;
     }
+    //  3. RECOGNIZED-ELSEWHERE GUARD: a booking whose installment slices
+    //     ALL live in other months is already fully recognized there. The
+    //     canonical shape: a stay checking out on the 1st has zero nights
+    //     in its checkout month, so the split has no slice here -- but
+    //     Guesty lists the booking on THIS month's owner statement at
+    //     full value (recognition at checkout), and without a slice for
+    //     the month the PDF fork can't catch it. The row must be skipped
+    //     entirely or the owner is paid the whole stay twice.
+    //     Bulk-load every PDF code's slices in one query (also warms the
+    //     per-code cache for the fork's fee denominator).
+    const installmentsForPdfCodes = await loadInstallmentsForCodes(supabase, codes);
+    for (const [code, list] of installmentsForPdfCodes) allInstallmentsByCode.set(code, list);
+    const recognizedElsewhere: { code: string; guest: string; months: string[]; amount: number }[] = [];
     // For synthetic injection, we need guesty_reservations metadata
     // (guest, dates, channel, money fields) for installment codes that
     // AREN'T in the parsed PDF. Build a separate lookup keyed by code.
@@ -656,6 +669,21 @@ export async function POST(request: NextRequest) {
 
     const unresolvedNameCodes: string[] = [];
     for (const res of reservations) {
+      // Recognized-elsewhere guard (effect 3 above): slices exist for this
+      // code but none for this month -> the booking's revenue lives entirely
+      // on other statements. Skip before bank matching so it can't consume
+      // a deposit another row needs.
+      const slicesForCode = res.confirmation_code ? (allInstallmentsByCode.get(res.confirmation_code) || []) : [];
+      if (slicesForCode.length > 0 && !installmentByCode.has(res.confirmation_code)) {
+        recognizedElsewhere.push({
+          code: res.confirmation_code,
+          guest: res.guest_name,
+          months: slicesForCode.map(s => s.month),
+          amount: Math.round(slicesForCode.reduce((s, i) => s + (Number(i.installment_revenue) || 0), 0) * 100) / 100,
+        });
+        continue;
+      }
+
       const platformInfo = platformMap[res.confirmation_code];
       const guestyInfo = guestyLookupMap.get(res.confirmation_code);
       const rawName = (platformInfo?.guest?.trim() || guestyInfo?.guest_name?.trim() || '');
@@ -1658,6 +1686,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    for (const r of recognizedElsewhere) {
+      gaps.push({
+        gap_type: 'installment_recognized_elsewhere',
+        description: `${r.guest} (${r.code}) is on this month's Guesty statement at full value but was excluded here: the booking is split via installments and its slices (${r.months.join(', ')}, $${r.amount.toFixed(2)} total) recognize it fully in those months. Adding it here too would pay the owner twice. This is expected for a long stay checking out on the 1st.`,
+        severity: 'info',
+        expected_data: `No action needed unless the split is wrong -- edit the installments for ${r.code} if so`,
+      });
+    }
+
     for (const m of installmentSpanMismatches) {
       gaps.push({
         gap_type: 'installment_outside_stay_span',
@@ -1842,6 +1879,7 @@ export async function POST(request: NextRequest) {
       stripe_sync: stripeSync,
       platform_csv_source: platformCsvSource,
       parsed_reservations: processedReservations,
+      installments_recognized_elsewhere: recognizedElsewhere,
       debug: { pdf_text_preview: pdfDebug, bank_rows_in_month: bankRows.filter(r => isInMonth(r['Posting Date'] || '', month)).length },
     });
   } catch (err) {
