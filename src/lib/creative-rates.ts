@@ -162,6 +162,41 @@ export async function resetRateCard(contractorId: string): Promise<void> {
   if (error) throw new Error(`Could not reset rate card: ${error.message}`);
 }
 
+/**
+ * How far under a card's minimum a reel may run and still qualify.
+ *
+ * The minimum is an editorial floor — a reel needs enough length to earn its
+ * reach — not a stopwatch. 16 Waterman delivered a 29-second cut against a
+ * 30-second card and silently lost its whole package over that one second.
+ * Five seconds of slack, so a near-miss counts and a genuinely short clip
+ * still doesn't. (Dotti, 2026-08-31.)
+ *
+ * The slack is INTERNAL grading. Every contributor-facing surface still quotes
+ * card.minSeconds, because the brief is the target: publish the tolerance and
+ * it just becomes the new floor.
+ */
+export const DURATION_TOLERANCE_SECONDS = 5;
+
+/** The shortest a reel may actually run and still qualify against a card. */
+export function qualifyingSeconds(card: Pick<RateCard, 'minSeconds'>): number {
+  return Math.max(1, card.minSeconds - DURATION_TOLERANCE_SECONDS);
+}
+
+/**
+ * Does this reel's length clear the card's floor? THE one duration gate — the
+ * Drive watcher (what it materializes) and the pay math (what it counts) both
+ * call it, so a reel can never be delivered-but-unpayable.
+ *
+ * An unknown duration passes: Drive not reporting metadata is not evidence
+ * that the cut is short.
+ */
+export function isQualifyingDuration(
+  card: Pick<RateCard, 'minSeconds'>,
+  seconds: number | null | undefined,
+): boolean {
+  return seconds == null || seconds >= qualifyingSeconds(card);
+}
+
 /** "5,000+" style rung label. The top rung reads open-ended. */
 export function rungLabel(tier: RateTier, isTop: boolean): string {
   return `${tier.views.toLocaleString('en-US')}${isTop ? '+' : ''}`;

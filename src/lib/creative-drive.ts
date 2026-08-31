@@ -34,7 +34,7 @@
 import 'server-only';
 import { fieldDb } from './field-db';
 import { getGoogleAccessToken } from './marketing/auth';
-import { loadRateCards, type RateCard } from './creative-rates';
+import { loadRateCards, isQualifyingDuration, qualifyingSeconds, type RateCard } from './creative-rates';
 import { cardFromSnapshot } from './creative-pay';
 import type { ShootRow } from './creative-shoots';
 
@@ -216,8 +216,6 @@ export async function loadDriveFilesByShoots(shootIds: string[]): Promise<Map<st
   }
   return map;
 }
-
-const isQualifyingDuration = (card: RateCard, d: number | null) => d == null || d >= card.minSeconds;
 
 /** Filename without its extension, in the matching alphabet. */
 const bareName = (name: string) => norm(name.replace(/\.[A-Za-z0-9]{2,5}$/, ''));
@@ -786,7 +784,7 @@ export async function syncCreativeDrive(): Promise<DriveSyncReport> {
           let assetId: string | null = group.find((s) => s.assetId)?.assetId ?? null;
           if (!assetId) {
             if (!isQualifyingDuration(card, dur)) {
-              addNote(`a finals video is under ${card.minSeconds}s — recorded, not logged`);
+              addNote(`a finals video is under ${qualifyingSeconds(card)}s — recorded, not logged`);
               continue;
             }
             const primary =
