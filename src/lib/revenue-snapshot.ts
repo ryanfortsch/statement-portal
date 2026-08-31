@@ -12,6 +12,7 @@
  * (host_payout * 2 / 6) to that range's revenue.
  */
 import { supabaseAdmin as supabase } from './supabase-admin';
+import { selectAllPaged } from './paged-select';
 import {
   dayAfter,
   daysInMonth,
@@ -276,11 +277,32 @@ function dedupeReservations(rows: ReservationRow[]): ReservationRow[] {
       Number(r.owner_net_revenue_guesty ?? 0),
       Number(r.total_paid ?? 0),
     );
+  // Tie-break must be deterministic, not first-seen. The reservation read is
+  // paged now, so input order is a function of the OFFSET windows rather than
+  // of the heap, and a first-seen winner would make the result depend on
+  // where a page boundary happened to fall. Eight (property, check_in,
+  // check_out) groups currently tie; all of them tie at a payout signal of 0
+  // and carry identical consumed fields, so no money moves either way today.
+  // One of them (21 Horton, 2026-08-08 to 08-22) does carry two different
+  // confirmation codes, and a code is what a reconciled statement value is
+  // looked up by, so leaving this to chance would be a live hazard the
+  // moment anything keys off the code.
+  const better = (a: ReservationRow, b: ReservationRow): boolean => {
+    const sa = payoutSignal(a);
+    const sb = payoutSignal(b);
+    if (sa !== sb) return sa > sb;
+    // Equal money: prefer a row that has a confirmation code, then the
+    // lexicographically smaller one. Total order, no ties left.
+    const ca = a.confirmation_code ?? '';
+    const cb = b.confirmation_code ?? '';
+    if (!!ca !== !!cb) return !!ca;
+    return ca < cb;
+  };
   const byKey = new Map<string, ReservationRow>();
   for (const r of rows) {
     const key = `${r.property_id ?? ''}|${r.check_in ?? ''}|${r.check_out ?? ''}`;
     const cur = byKey.get(key);
-    if (!cur || payoutSignal(r) > payoutSignal(cur)) byKey.set(key, r);
+    if (!cur || better(r, cur)) byKey.set(key, r);
   }
   return Array.from(byKey.values());
 }
@@ -486,14 +508,28 @@ export async function computeRevenueSnapshot(
   //    overlap iff (check_in < periodEndExclusive) AND (check_out > periodStart).
   const periodEndExclusive = dayAfter(rangeEnd);
 
-  const { data: resData, error: resErr } = await supabase
-    .from('guesty_reservations')
-    .select('property_id, listing_id, confirmation_code, check_in, check_out, status, channel, host_payout, owner_net_revenue_guesty, total_paid')
-    .lt('check_in', periodEndExclusive)
-    .gt('check_out', rangeStart);
-
-  if (resErr) {
-    throw new Error(`Failed to load reservations: ${resErr.message}`);
+  // Paged, not a bare select. A full-year 2026 overlap already returns 745
+  // rows against PostgREST's silent 1000-row cap, and the page issues this
+  // query twice (current range + prior range) whose truncation points would
+  // not even agree. A short read here does not error, it just quietly drops
+  // reservations, which reads as "the revenue numbers are wrong".
+  // .order('id') is mandatory: range() is an OFFSET window, so an unstable
+  // sort lets pages overlap or skip rows.
+  let resData: ReservationRow[];
+  try {
+    resData = await selectAllPaged<ReservationRow>(
+      (from, to) =>
+        supabase
+          .from('guesty_reservations')
+          .select('property_id, listing_id, confirmation_code, check_in, check_out, status, channel, host_payout, owner_net_revenue_guesty, total_paid')
+          .lt('check_in', periodEndExclusive)
+          .gt('check_out', rangeStart)
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'revenue snapshot reservations' },
+    );
+  } catch (err) {
+    throw new Error(`Failed to load reservations: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const reservations = dedupeReservations(
@@ -549,11 +585,31 @@ export async function computeRevenueSnapshot(
   //     can seed blockedNightsByMonth with them alongside owner-stay
   //     reservations. Synced into property_calendar_blocks by
   //     /api/sync-guesty.
-  const { data: blockData } = await supabase
-    .from('property_calendar_blocks')
-    .select('property_id, date')
-    .gte('date', rangeStart)
-    .lte('date', rangeEnd);
+  // Paged for the same reason. One row per blocked DAY, so a seasonal
+  // closure is ~180 rows a year on its own: 16 Waterman going dark every
+  // November through April puts this on the same path as the reservation
+  // read. It feeds the occupancy and pacing denominators, so a short read
+  // would inflate both.
+  let blockData: Array<{ property_id: string | null; date: string | null }> = [];
+  try {
+    blockData = await selectAllPaged<{ property_id: string | null; date: string | null }>(
+      (from, to) =>
+        supabase
+          .from('property_calendar_blocks')
+          .select('property_id, date')
+          .gte('date', rangeStart)
+          .lte('date', rangeEnd)
+          // No surrogate id on this table; (property_id, date) is its
+          // natural key and both columns are NOT NULL, so this is a stable
+          // total order for the OFFSET window.
+          .order('property_id', { ascending: true })
+          .order('date', { ascending: true })
+          .range(from, to),
+      { label: 'revenue snapshot calendar blocks' },
+    );
+  } catch {
+    blockData = []; // non-fatal: blocks only refine the denominator
+  }
   const calendarBlocksByProperty = new Map<string, Map<string, number>>();
   for (const row of (blockData ?? []) as { property_id: string | null; date: string | null }[]) {
     if (!row.property_id || !row.date) continue;
