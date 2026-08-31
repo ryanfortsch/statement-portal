@@ -389,9 +389,11 @@ export function ProjectionForm({ action, initial, submitLabel = 'Save', lastSave
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, marginTop: -4, lineHeight: 1.55, maxWidth: 620 }}>
           Per-deal addenda that get rendered as a &ldquo;Rider&rdquo; page after Sale
           Protection in the contract. Add as many as the deal requires; leave
-          empty for the standard contract.
+          empty for the standard contract. Rough notes are fine —
+          &ldquo;Refine with AI&rdquo; rewrites a clause into contract language
+          for you to review before saving.
         </p>
-        <CustomClausesField initial={v.custom_clauses ?? null} />
+        <CustomClausesField initial={v.custom_clauses ?? null} projectionId={v.id ?? null} />
       </Section>
 
       
