@@ -17,6 +17,7 @@
  * Server-only: reads through the service-role client.
  */
 import 'server-only';
+import { getTeamMember } from './team';
 import { fieldDb } from '@/lib/field-db';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { getContractorShootStats } from '@/lib/creative-shoots';
@@ -142,7 +143,38 @@ type BookingRaw = {
   check_in: string;
   check_out: string;
   status: string | null;
+  guest_name?: string | null;
 };
+
+/**
+ * Back-to-back stays by the SAME guest are ONE stay, not a turnover apiece.
+ * 53 Rocky Neck Downstairs carries four consecutive one-night reservations by
+ * Simon Prudenzi (the owner) running Sep 4 -> 8; read separately they invented
+ * three turnovers between the man's own nights — three inspections, three
+ * deadlines, three chances to send someone into a house he never left.
+ *
+ * Merge when one stay ends exactly where the next begins and the named guest
+ * matches. An unnamed row never merges: a blank name is not evidence of the
+ * same person. The FIRST row's id survives, because the arrival is what
+ * coverage and deadlines key on.
+ */
+function coalesceStays(rows: BookingRaw[]): BookingRaw[] {
+  const sorted = rows
+    .slice()
+    .sort((a, b) => a.check_in.localeCompare(b.check_in) || a.check_out.localeCompare(b.check_out));
+  const out: BookingRaw[] = [];
+  for (const b of sorted) {
+    const prev = out[out.length - 1];
+    const name = (b.guest_name ?? '').trim().toLowerCase();
+    const prevName = (prev?.guest_name ?? '').trim().toLowerCase();
+    if (prev && name && name === prevName && prev.status === b.status && prev.check_out === b.check_in) {
+      out[out.length - 1] = { ...prev, check_out: b.check_out };
+      continue;
+    }
+    out.push(b);
+  }
+  return out;
+}
 
 /** A single inspectable opportunity: property P can be inspected on `day`
  *  ahead of the upcoming stay `nextCheckin`. */
@@ -171,7 +203,7 @@ async function deriveDayCandidates(
   const fetchEnd = addDays(windowEnd, 1);
   const { data: bData } = await fieldDb()
     .from('bookings')
-    .select('id, property_id, check_in, check_out, status')
+    .select('id, property_id, check_in, check_out, status, guest_name')
     .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', fetchEnd)
@@ -196,6 +228,7 @@ async function deriveDayCandidates(
     arr.push(b);
     byProp.set(b.property_id, arr);
   }
+  for (const [k, v] of byProp) byProp.set(k, coalesceStays(v));
 
   const today = todayStr();
   const out: DayCandidate[] = [];
@@ -1283,11 +1316,30 @@ async function coveredBookingIds(): Promise<StayCoverage> {
     if (r.next_checkin) who.set(stayKey(r.property_id, r.next_checkin), init);
   }
 
-  return {
-    ids: new Set(live.map((r) => r.booking_id).filter((b): b is string => !!b)),
-    stays: new Set(live.filter((r) => !!r.next_checkin).map((r) => stayKey(r.property_id, r.next_checkin))),
-    who,
-  };
+  const ids = new Set(live.map((r) => r.booking_id).filter((b): b is string => !!b));
+  const stays = new Set(live.filter((r) => !!r.next_checkin).map((r) => stayKey(r.property_id, r.next_checkin)));
+
+  // FOURTH source: a turnover staffed on the Turnovers pipeline. Assigning
+  // Ryan a walk there wrote an inspection_plan and nothing else — the Field
+  // grid never read it, so it kept offering a day the office had already
+  // staffed and kept suggesting it for bundling.
+  const { data: planData } = await fieldDb()
+    .from('inspection_plans')
+    .select('booking_id, assigned_to_email, bookings!inner(property_id, check_in)')
+    .not('booking_id', 'is', null);
+  type PlanRow = { booking_id: string; assigned_to_email: string | null; bookings: { property_id: string; check_in: string } };
+  for (const pl of (planData ?? []) as unknown as PlanRow[]) {
+    if (!pl.bookings || pl.bookings.check_in < today) continue;
+    ids.add(pl.booking_id);
+    stays.add(stayKey(pl.bookings.property_id, pl.bookings.check_in));
+    const init = initialsOf(getTeamMember(pl.assigned_to_email)?.name ?? null);
+    if (init) {
+      who.set(pl.booking_id, init);
+      who.set(stayKey(pl.bookings.property_id, pl.bookings.check_in), init);
+    }
+  }
+
+  return { ids, stays, who };
 }
 
 /** Initials of whoever owns this handled turnover, if anyone does yet. */
@@ -1418,7 +1470,7 @@ async function candidatesForDay(
   const propIds = new Set(properties.map((p) => p.id));
   const { data: bData } = await fieldDb()
     .from('bookings')
-    .select('id, property_id, check_in, check_out, status')
+    .select('id, property_id, check_in, check_out, status, guest_name')
     .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', addDays(day, 365))
@@ -1438,6 +1490,7 @@ async function candidatesForDay(
     arr.push(b);
     byProp.set(b.property_id, arr);
   }
+  for (const [k, v] of byProp) byProp.set(k, coalesceStays(v));
 
   const out = new Map<string, DayCandidate>();
   for (const p of properties) {
@@ -2245,7 +2298,7 @@ export async function suggestRecurringInspections(): Promise<number> {
   // upcoming turnover (the checkout-driven inspection will cover those).
   const { data: bData } = await fieldDb()
     .from('bookings')
-    .select('id, property_id, check_in, check_out, status')
+    .select('id, property_id, check_in, check_out, status, guest_name')
     .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .lte('check_in', horizonEnd)
@@ -2256,6 +2309,7 @@ export async function suggestRecurringInspections(): Promise<number> {
     arr.push(b);
     byProp.set(b.property_id, arr);
   }
+  for (const [k, v] of byProp) byProp.set(k, coalesceStays(v));
 
   const { data: blkData } = await fieldDb()
     .from('property_calendar_blocks')
@@ -2538,7 +2592,7 @@ export async function loadInspectionCalendar(
   const fetchEnd = addDays(windowEnd, 30);
   const { data: bData } = await fieldDb()
     .from('bookings')
-    .select('id, property_id, check_in, check_out, status')
+    .select('id, property_id, check_in, check_out, status, guest_name')
     .in('status', OCCUPANCY_STATUSES)
     .is('duplicate_of', null)
     .in('property_id', propIds)
@@ -2673,6 +2727,7 @@ export async function loadInspectionCalendar(
     a.push(b);
     byProp.set(b.property_id, a);
   }
+  for (const [k, v] of byProp) byProp.set(k, coalesceStays(v));
 
   const days = daysBetween(windowStart, windowEnd);
   const today = todayStr();
