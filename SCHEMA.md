@@ -118,6 +118,11 @@ math hands-off zone.
   (Welcome card, Info note, WiFi placard, Home guide overrides).
 - `property_launch_steps` + `sca_launches`: the Stay Cape Ann launch
   checklist (`memory/project_sca_launch.md`).
+- `property_order_checklist`: one jsonb blob per property with the
+  outfitting order checklist's have-counts (label-keyed, same shape as
+  `projections.readiness_state`). Catalog + quantity math live in
+  `src/lib/order-checklist.ts` (Fix Linens 2.5x rules). RLS-locked,
+  service role only, via `src/lib/order-checklist-db.ts`.
 - `property_inspection_cards` + `property_zones` + `property_zone_items`
   + `property_inspection_item_history`: the inspection scoring graph.
   Used by the Inspections module.

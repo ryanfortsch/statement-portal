@@ -143,6 +143,12 @@ export type OnboardingDeriveContext = {
    * 2+ = real rate variation is flowing.
    */
   forwardDistinctPrices: number;
+  /**
+   * A property_order_checklist row exists: someone has started counting
+   * against the outfitting order checklist at
+   * /properties/<id>/order-checklist.
+   */
+  orderChecklistTouched: boolean;
 };
 
 export type OnboardingItem = {
@@ -829,9 +835,11 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
   {
     key: 'inventory.linen_par',
     stage: 'inventory',
-    title: 'Linens at two sets per bed',
-    description: 'Two full linen sets per bed plus towel par on site.',
-    why: 'Bedding and towel counts were missing in nearly every KB. Two sets means a turnover never waits on laundry.',
+    title: 'Linens and towels at the Fix Linens par',
+    description: '2.5 sheet sets per bed (by bed size) and 2.5 large bath towels per max guest, ordered from Fix Linens.',
+    why: 'Allie\'s ordering rule (2026-08-31): bath towels drive the towel order because each Fix Linens package carries more face and hand towels than bath towels. The order checklist computes the exact counts from the beds on file.',
+    href: '/properties/{id}/order-checklist',
+    hrefLabel: 'Open order checklist',
   },
   {
     key: 'inventory.core_kitchen',
@@ -888,9 +896,12 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
   {
     key: 'inventory.readiness_carryover',
     stage: 'inventory',
-    title: 'Carry over the outfitting shortfall',
-    description: 'The have-versus-need list from the projection readiness checklist, re-listed on the property.',
-    why: 'Readiness state dies on the projection at promote. Whatever the home still needed goes invisible unless re-recorded.',
+    title: 'Run the outfitting order checklist',
+    description: 'Count what the home has against the computed order: Fix Linens quantities from real bed sizes, plus the full outfitting punch list.',
+    why: 'The walkthrough counts from the projection readiness checklist carry over automatically as the baseline; the gap at the bottom is the order. Auto-resolves once counting starts.',
+    href: '/properties/{id}/order-checklist',
+    hrefLabel: 'Open order checklist',
+    derive: (ctx) => ctx.orderChecklistTouched,
   },
 
   // ── Listing & channels ──────────────────────────────────────────────
