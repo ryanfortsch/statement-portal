@@ -13,6 +13,7 @@ import {
 } from '@/lib/launch-checklist';
 import { ensureLaunchStepsSeeded } from './actions';
 import { LaunchStepCard } from './LaunchStepCard';
+import { StripeAccountCheck } from './StripeAccountCheck';
 
 export const dynamic = 'force-dynamic';
 
@@ -267,6 +268,11 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                   fieldValue={launchFieldValue(step.action, p)}
                 />
               ))}
+              {/* Stripe account-identity check rides the Financial phase:
+                  it verifies the stripe_auto_payouts step's key reaches the
+                  RIGHT account (3 Windward's was minted from the wrong one
+                  and synced clean at 0 charges). Read-only diagnostic. */}
+              {phase.key === 'financial' && <StripeAccountCheck propertyId={p.id} />}
             </PhaseSection>
           );
         })}

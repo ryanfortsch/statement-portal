@@ -107,7 +107,7 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
     title: 'Stripe account set up with automatic payouts',
     required: true,
     description:
-      "In the property's own Stripe account: Settings > Payouts > payout schedule = Automatic. Add the restricted key to STRIPE_KEYS_JSON while you're in there.",
+      "In the property's own Stripe account: Settings > Payouts > payout schedule = Automatic. While you're in there, mint a restricted key and add it in Vercel as STRIPE_KEY_<PROPERTY_ID> (the per-property standard; the legacy STRIPE_KEYS_JSON blob is never reopened for new properties). Then use the account check below to confirm the key reaches the RIGHT account.",
     why: "Direct/SCA bookings charge into this account. Automatic payouts sweep funds to the property's bank account like the rest of the fleet; a manual schedule strands guest money in the Stripe balance.",
   },
   {
