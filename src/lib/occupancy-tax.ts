@@ -23,8 +23,24 @@ export const BASE_OCCUPANCY_TAX_RATE = 0.117;
 const CIF_RATE = 0.03;
 
 // property_id -> ISO date the 14.7% collection started.
+//
+// Every entry below is epoch because none of these listings has ever
+// charged the base rate: a sweep of `guesty_reservations.folio_items`
+// (2026-09-01) put every taxed Direct/VRBO folio on all four at exactly
+// 14.70%. The date gate stays for a property whose rate genuinely
+// changes mid-history; it is not the mechanism that opts a listing in.
+//
+// The three added on 2026-09-01 were found by Martha Mazzone's 3 Windward
+// stay: unmapped properties inverted a tax-inclusive Direct charge at
+// 1.117, which recognizes the guest's 3% Community Impact Fee as RENT and
+// pays it to the owner while Rising Tide still owes it to Gloucester.
+// Beware: Guesty codes the CIF folio line as `normalType` OCT on some
+// listings and TAX on others, so detect it by TITLE, not normalType.
 const CIF_EFFECTIVE_FROM: Record<string, string> = {
   '79_main': '1970-01-01',
+  '17_beach_rd': '1970-01-01',
+  '3_south_st': '1970-01-01',
+  '3_windward': '1970-01-01',
 };
 
 /** Tax-inclusive multiplier (e.g. 1.117 or 1.147) for a charge created on
