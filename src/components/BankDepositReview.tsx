@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { loadBankDepositReview } from '@/app/statements/actions';
+import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
 import { isFutureStayPrincipal } from '@/lib/extras-markers';
 
 /**
@@ -141,11 +142,9 @@ export function BankDepositReview({
     }
     setBusyId(dep.id); setError(null);
     try {
-      const res = await fetch(`/api/bank-deposits/${dep.id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'attribute', reservation_code: code || null, label }),
-      });
+      const { res, cancelled } = await jsonWithFreezeRetry(`/api/bank-deposits/${dep.id}`, 'PATCH',
+        { action: 'attribute', reservation_code: code || null, label });
+      if (cancelled) return;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       setItems(prev => (prev || []).filter(d => d.id !== dep.id));
@@ -163,11 +162,8 @@ export function BankDepositReview({
     // server fixes add_ons_revenue / attributed_debits_total + owner_payout.
     setBusyId(dep.id); setError(null);
     try {
-      const res = await fetch(`/api/bank-deposits/${dep.id}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'unattribute' }),
-      });
+      const { res, cancelled } = await jsonWithFreezeRetry(`/api/bank-deposits/${dep.id}`, 'PATCH', { action: 'unattribute' });
+      if (cancelled) return;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Undo failed');
       // Flip in place: clear attribution and move back to pending.

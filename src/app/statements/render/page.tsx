@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 // carry anon policies. Public access to this print page stays gated by
 // the statement UUID in the URL, same as the projections deliverables.
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { statementSumsToPayout, FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 
 // Display details for the statement header. Used to be a hardcoded
 // const matching only the legacy 10 properties — new prospect-promoted
@@ -255,6 +256,14 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
 
   const { data: prop } = await supabase.from('property_statements').select('*').eq('id', id).single();
   if (!prop) return <div style={{ padding: 40 }}>Not found</div>;
+
+  // Deliverable integrity tripwire (2026-09, statements audit): the printed
+  // lines must sum to the printed payout. Pure arithmetic over the stored
+  // columns; touches nothing. Months before the finality cutover are
+  // grandfathered. A failing sheet still renders (the operator needs to see
+  // it) but carries an unmissable banner that also lands in any PDF.
+  const integrity = statementSumsToPayout(prop);
+  const integrityBroken = month >= FINALITY_FROM_MONTH && !integrity.ok;
 
   // Pull the statement period so we can surface the operator-chosen
   // funds_sent_date as the Issued/Payout line, instead of a hard-coded
@@ -731,6 +740,18 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
         <DownloadPdfChip id={id} month={month} />
         <div className="canvas">
           <main className="sheet">
+            {integrityBroken && (
+              <div style={{
+                background: '#c85a3a', color: '#faf7f1', padding: '14px 18px',
+                fontFamily: 'Inter, sans-serif', fontSize: 12, fontWeight: 600,
+                letterSpacing: '.04em', lineHeight: 1.5, marginBottom: 18,
+              }}>
+                DO NOT SEND · This statement is internally inconsistent: its lines sum to
+                {' '}${integrity.expected.toFixed(2)} but the payout reads ${integrity.actual.toFixed(2)}
+                {' '}(off by ${integrity.delta.toFixed(2)}). Re-run Sync Stripe or re-ingest the month,
+                then reload this page.
+              </div>
+            )}
 
             {/* ── MASTHEAD ── */}
             <header className="masthead">

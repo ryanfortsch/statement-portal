@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
 
 /**
  * Per-cleaning-event credit control. Inline on each row of the Cleaning
@@ -34,14 +35,11 @@ export function CleaningEventCredit({
   async function submit(clear = false) {
     setBusy(true); setError(null);
     try {
-      const res = await fetch(`/api/cleaning-events/${eventId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          credit_amount: clear ? 0 : Number(credit),
-          credit_reason: clear ? null : reason,
-        }),
+      const { res, cancelled } = await jsonWithFreezeRetry(`/api/cleaning-events/${eventId}`, 'PATCH', {
+        credit_amount: clear ? 0 : Number(credit),
+        credit_reason: clear ? null : reason,
       });
+      if (cancelled) return;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       setOpen(false);

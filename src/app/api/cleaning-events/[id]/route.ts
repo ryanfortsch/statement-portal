@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * Operator-applied credit on a specific cleaning_event row.
@@ -64,6 +65,17 @@ export async function PATCH(
   // to zero. Read the column directly off the statement row instead of
   // joining attributions so the two recompute paths stay independent.
   const stmtId = event.property_statement_id as string;
+
+  // Sent-statement freeze: a credit changes cleaning_total and owner_payout.
+  try {
+    await assertStatementWritable(supabase, { statementId: stmtId }, {
+      force: body.force === true,
+      action: 'Apply cleaning credit',
+    });
+  } catch (e) {
+    if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+    throw e;
+  }
   const { data: stmt } = await supabase
     .from('property_statements')
     .select('id, rental_revenue, add_ons_revenue, management_fee, repairs_total, attributed_debits_total, reserve_holdback')

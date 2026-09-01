@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { PROPERTIES } from '@/lib/properties';
+import { assertStatementWritable, StatementFrozenError } from '@/lib/statement-finality';
 
 /**
  * Receipt-backed property expenses.
@@ -223,6 +224,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const formData = await request.formData();
     const propertyId = ((formData.get('property_id') as string) || '').trim();
     const month = ((formData.get('month') as string) || '').trim();
+    const force = (formData.get('force') as string) === 'true';
     const amount = round2(Number(formData.get('amount')));
     const vendorName = ((formData.get('vendor_name') as string) || '').trim().slice(0, 120) || null;
     const description = ((formData.get('description') as string) || '').trim().slice(0, 200) || null;
@@ -258,6 +260,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (warnings.length > 0) {
         return NextResponse.json({ ok: false, needs_confirm: true, warnings });
       }
+    }
+
+    // Sent-statement freeze. The existing review-step confirm doubles as the
+    // force (the operator has seen the sent warning); the override is still
+    // recorded on the statement as a post_send_write gap.
+    try {
+      await assertStatementWritable(supabase, { propertyId, month }, {
+        force: acknowledgeWarnings || force,
+        action: 'Add receipt to statement',
+        detail: `$${amount.toFixed(2)}${vendorName ? ` · ${vendorName}` : ''}`,
+      });
+    } catch (e) {
+      if (e instanceof StatementFrozenError) {
+        return NextResponse.json({ ok: false, needs_confirm: true, warnings: [e.message] });
+      }
+      throw e;
     }
 
     // Optional file upload to the PRIVATE bucket. Upload failure degrades to

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { auth } from '@/auth';
 
 /**
@@ -114,14 +115,38 @@ export async function PATCH(
   // (charge); attribute semantics differ between the two.
   const { data: existing, error: loadErr } = await supabase
     .from('bank_deposit_attributions')
-    .select('id, property_id, month, direction')
+    .select('id, property_id, month, direction, status')
     .eq('id', id)
     .maybeSingle();
   if (loadErr) return NextResponse.json({ error: loadErr.message }, { status: 500 });
   if (!existing) return NextResponse.json({ error: 'deposit not found' }, { status: 404 });
   const direction = (existing.direction || 'deposit') as 'deposit' | 'debit';
 
+  // Sent-statement freeze: attribute and unattribute both recompute the
+  // statement's payout. Dismiss of a pending row touches no totals.
+  if (action === 'attribute' || action === 'unattribute') {
+    try {
+      await assertStatementWritable(supabase, { propertyId: existing.property_id, month: existing.month }, {
+        force: body.force === true,
+        action: action === 'attribute'
+          ? (direction === 'debit' ? 'Attribute bank debit' : 'Attribute bank deposit')
+          : 'Un-attribute bank row',
+      });
+    } catch (e) {
+      if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+      throw e;
+    }
+  }
+
   if (action === 'dismiss') {
+    // An attributed row is inside the payout; dismissing it directly would
+    // leave the statement's stored totals stale. Undo first, then dismiss.
+    if (existing.status === 'attributed') {
+      return NextResponse.json(
+        { error: 'This row is attributed and part of the payout. Undo the attribution first, then dismiss.' },
+        { status: 400 },
+      );
+    }
     const { error } = await supabase
       .from('bank_deposit_attributions')
       .update({ status: 'dismissed', attributed_reservation_code: null, updated_at: new Date().toISOString() })

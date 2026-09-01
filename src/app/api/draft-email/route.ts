@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ALWAYS_CC, SEND_FROM, getActivePropertyForStatements } from '@/lib/properties';
 import { renderEmail, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
 import { loadStatementWorkNotes } from '@/lib/statement-work-notes';
+import { verifyStatementIntegrity, FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 
 // Puppeteer + Chromium cold start can take 3-5s; give the handler plenty of
@@ -338,6 +339,71 @@ export async function POST(request: NextRequest) {
     const stmtRow = members.find(m => m.property_id === propertyId) || null;
     const grouped = members.length >= 2;
 
+    // ── Sent-redraft gate ──────────────────────────────────────────────
+    // Creating a draft deliberately clears email_sent_at (see the stamp
+    // below: a redraft supersedes a scheduled send). That un-freezing must
+    // never happen silently: if any covered property is currently marked
+    // sent, require an explicit force and record the override on the
+    // statement. The response carries cleared_sent_property_ids so the
+    // dashboard unticks its checkbox instead of showing "sent" over an
+    // unfrozen statement.
+    const clearedSentIds: string[] = [];
+    if (periodId) {
+      const coveredForGate = members.length > 0
+        ? members.map(m => ({ property_id: m.property_id, statement_id: m.statement_id as string | null }))
+        : [{ property_id: propertyId, statement_id: null }];
+      const { data: sentTasks, error: sentErr } = await sbForStmt
+        .from('close_tasks')
+        .select('property_id, email_sent_at')
+        .eq('period_id', periodId)
+        .in('property_id', coveredForGate.map(c => c.property_id));
+      if (sentErr) {
+        return NextResponse.json({ error: `close_tasks read failed: ${sentErr.message}` }, { status: 500 });
+      }
+      const sent = (sentTasks || []).filter(t => t.email_sent_at);
+      if (sent.length > 0 && month >= FINALITY_FROM_MONTH) {
+        if (body.force !== true) {
+          return NextResponse.json({
+            error: `Already marked sent (${sent.map(t => t.property_id).join(', ')}). Redrafting clears the sent stamp and unfreezes the statement's numbers until the new draft is sent.`,
+            frozen: true,
+            reason: 'email_sent',
+            email_sent_at: sent[0].email_sent_at,
+            month,
+          }, { status: 409 });
+        }
+        for (const t of sent) {
+          const member = coveredForGate.find(c => c.property_id === t.property_id);
+          if (member?.statement_id) {
+            await sbForStmt.from('data_gaps').insert({
+              property_statement_id: member.statement_id,
+              gap_type: 'post_send_write',
+              severity: 'warning',
+              description: `Owner email redrafted after the statement was marked sent ${String(t.email_sent_at).slice(0, 10)}. The sent stamp was cleared; numbers are revisable until the new draft is sent.`,
+              expected_data: `forced ${new Date().toISOString()}`,
+              resolved: false,
+            });
+          }
+          clearedSentIds.push(t.property_id);
+        }
+      }
+    }
+
+    // ── Deliverable integrity ──────────────────────────────────────────
+    // A statement whose stored lines do not sum to its stored payout is
+    // internally inconsistent (some writer moved one column without the
+    // others). It must not become an attachment in an owner's inbox. No
+    // force for this one: the fix is recomputing the statement, not
+    // sending it anyway.
+    for (const m of members) {
+      const integrity = await verifyStatementIntegrity(sbForStmt, m.statement_id);
+      if (integrity.checked && !integrity.ok) {
+        return NextResponse.json({
+          error: `${m.name}: the statement's lines sum to $${integrity.expected.toFixed(2)} but its payout says $${integrity.actual.toFixed(2)} (off by $${integrity.delta.toFixed(2)}). Re-run Sync Stripe or re-ingest to reconcile it before drafting.`,
+          integrity_failure: true,
+        }, { status: 422 });
+      }
+    }
+
     // Recipients: union across the group -- the sub-unit row may carry no
     // email of its own (Prudenzi's downstairs), the main house's covers it.
     const recipientSet = new Set<string>(prop.owner_emails);
@@ -487,6 +553,7 @@ export async function POST(request: NextRequest) {
       attached_pdf_count: pdfAttachments.length,
       work_notes_included: !!workNotes,
       covered_property_ids: coveredIds,
+      cleared_sent_property_ids: clearedSentIds,
       warnings,
     });
   } catch (err) {

@@ -6,6 +6,7 @@ import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, loadInstallmentsForCodes, type Installment } from '@/lib/installments';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
@@ -381,6 +382,19 @@ export async function POST(request: NextRequest) {
 
     if (!month || !propertyId) {
       return NextResponse.json({ error: 'month and property_id are required' }, { status: 400 });
+    }
+
+    // Sent-statement freeze: re-ingest wholesale rebuilds the statement.
+    // A month the operator already marked sent (or finalized) needs an
+    // explicit force, which is recorded on the statement as a gap.
+    try {
+      await assertStatementWritable(supabase, { propertyId, month }, {
+        force: (formData.get('force') as string) === 'true',
+        action: 'Re-ingest statement',
+      });
+    } catch (e) {
+      if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+      throw e;
     }
 
     // Reject oversized uploads before any parse work happens. 413 (Payload

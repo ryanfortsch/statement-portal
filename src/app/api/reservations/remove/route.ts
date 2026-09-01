@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 import { loadAddOnTotals } from '@/lib/statement-addons';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * POST /api/reservations/remove
@@ -44,6 +45,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!psid) return NextResponse.json({ error: 'property_statement_id required' }, { status: 400 });
 
   const supabase = getSupabase();
+
+  // Sent-statement freeze: removing a reservation recomputes owner_payout.
+  try {
+    await assertStatementWritable(supabase, { statementId: psid }, {
+      force: body.force === true,
+      action: 'Remove cancelled reservation',
+      detail: `confirmation code ${String(body.confirmation_code || '')}`,
+    });
+  } catch (e) {
+    if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+    throw e;
+  }
 
   const { data: res, error: resErr } = await supabase
     .from('reservations')

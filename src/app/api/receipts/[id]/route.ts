@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * DELETE /api/receipts/:id -- VOID a receipt (soft delete).
@@ -53,6 +54,19 @@ export async function DELETE(
   if (!receipt) return NextResponse.json({ error: 'receipt not found' }, { status: 404 });
   if (receipt.status === 'void') {
     return NextResponse.json({ ok: true, already_void: true });
+  }
+
+  // Sent-statement freeze: voiding a receipt adds its amount back to the
+  // payout. Force rides the query string (DELETE bodies are unreliable).
+  try {
+    await assertStatementWritable(supabase, { propertyId: receipt.property_id, month: receipt.month }, {
+      force: request.nextUrl.searchParams.get('force') === 'true',
+      action: 'Void receipt',
+      detail: `receipt ${id} · $${(Number(receipt.amount) || 0).toFixed(2)}`,
+    });
+  } catch (e) {
+    if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+    throw e;
   }
 
   const amount = round2(Number(receipt.amount) || 0);
