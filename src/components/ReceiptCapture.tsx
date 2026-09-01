@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { deleteWithFreezeRetry } from '@/lib/freeze-confirm';
 
 /**
  * Receipt capture -- photograph (or drag in) a paper receipt, review the
@@ -71,7 +72,8 @@ export function ReceiptRowActions({ receiptId, onVoided }: { receiptId: string; 
   async function voidReceipt() {
     setBusy(true); setErr(null);
     try {
-      const res = await fetch(`/api/receipts/${receiptId}`, { method: 'DELETE' });
+      const { res, cancelled } = await deleteWithFreezeRetry(`/api/receipts/${receiptId}`);
+      if (cancelled) return;
       const data = await res.json().catch(() => null);
       if (!res.ok) { setErr(data?.error || 'Void failed'); return; }
       setConfirming(false);

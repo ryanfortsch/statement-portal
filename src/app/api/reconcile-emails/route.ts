@@ -93,7 +93,10 @@ async function searchOwnerStatements(accessToken: string, month: string): Promis
     `subject:"${monthName} Owner Statment"`,   // legacy RTC typo, intentional
     `subject:"${monthName} ${y} Owner Statement"`, // Helm portal format
   ];
-  const q = `(${subjectClauses.join(' OR ')}) after:${startDate} before:${endDate}`;
+  // in:sent is load-bearing: without it a Gmail DRAFT matches the subject
+  // search and the reconcile reports a statement as sent that never left
+  // the mailbox. Only actually-sent mail counts as a send.
+  const q = `in:sent (${subjectClauses.join(' OR ')}) after:${startDate} before:${endDate}`;
 
   const messages: GmailMessageMeta[] = [];
   let pageToken: string | undefined;

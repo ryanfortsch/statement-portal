@@ -276,6 +276,23 @@ export async function saveFundsSentDateAction(periodId: string, iso: string): Pr
   await supabaseAdmin.from('statement_periods').update({ funds_sent_date: iso }).eq('id', periodId);
 }
 
+/**
+ * Flip the period's status. 'final' freezes every statement in the month:
+ * all twelve payout writers check it via statement-finality and demand an
+ * explicit, recorded force. 'draft' reopens the month. The schema has had
+ * this state machine since day one; this is the first code to drive it.
+ */
+export async function setPeriodStatusAction(
+  periodId: string,
+  status: 'draft' | 'final',
+): Promise<{ ok: boolean; error: string | null }> {
+  const { error } = await supabaseAdmin
+    .from('statement_periods')
+    .update({ status })
+    .eq('id', periodId);
+  return { ok: !error, error: error?.message ?? null };
+}
+
 /** Upsert one property's close-task row (merged client-side, same as before). */
 export async function upsertCloseTask(merged: Row): Promise<void> {
   await supabaseAdmin.from('close_tasks').upsert(merged, { onConflict: 'period_id,property_id' });

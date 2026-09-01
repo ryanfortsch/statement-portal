@@ -43,6 +43,7 @@ import { taxPortionOfNet } from '@/lib/addon-tax';
 import { loadAddOnTotals } from './statement-addons';
 import { chargeWindow } from './stripe-window';
 import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
+import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 
 export type StripeSyncResult = {
   property_id: string;
@@ -334,20 +335,38 @@ export async function syncPropertyStripe(opts: {
     // are an operator decision on the NEXT month's statement, never an
     // automatic rewrite of a sent one. Sent-ness = close_tasks
     // email_sent_at for this period + property (stamped by /api/draft-
-    // email's send flow). Fails open if close_tasks is missing
-    // (pre-migration env) -- same as the table's other readers.
-    const { data: periodRow } = await supabase
+    // email's send flow).
+    //
+    // 2026-09 (finality phase 1): the gate also honors the period-level
+    // freeze (statement_periods.status = 'final', the Finalize Month
+    // button) so the nightly cron cannot keep moving payouts in a month
+    // the operator closed as a whole. And the gate now fails CLOSED for
+    // months >= FINALITY_FROM_MONTH: if the freeze state cannot be read,
+    // the sync skips this property rather than assuming it is writable.
+    const { data: periodRow, error: periodErr } = await supabase
       .from('statement_periods')
-      .select('id')
+      .select('id, status')
       .eq('month', month)
       .maybeSingle();
+    if (periodErr && month >= FINALITY_FROM_MONTH) {
+      result.error = `finality check failed (period read): ${periodErr.message}; skipping to avoid writing a possibly-frozen statement`;
+      return result;
+    }
+    if (periodRow?.status === 'final' && month >= FINALITY_FROM_MONTH) {
+      result.skipped_sent = true;
+      return result;
+    }
     if (periodRow?.id) {
-      const { data: closeTask } = await supabase
+      const { data: closeTask, error: taskErr } = await supabase
         .from('close_tasks')
         .select('email_sent_at')
         .eq('period_id', periodRow.id)
         .eq('property_id', propertyId)
         .maybeSingle();
+      if (taskErr && month >= FINALITY_FROM_MONTH) {
+        result.error = `finality check failed (close_tasks read): ${taskErr.message}; skipping to avoid writing a possibly-sent statement`;
+        return result;
+      }
       if (closeTask?.email_sent_at) {
         result.skipped_sent = true;
         return result;

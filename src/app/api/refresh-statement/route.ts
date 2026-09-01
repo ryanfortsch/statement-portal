@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * Refresh an existing property_statement by adding any guesty_reservations
@@ -69,11 +70,23 @@ function stripLegacyCommissionKludge(args: {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({} as { month?: string; property_id?: string }));
+    const body = await request.json().catch(() => ({} as { month?: string; property_id?: string; force?: boolean }));
     const month = body.month || '';
     const propertyId = body.property_id || '';
     if (!/^\d{4}-\d{2}$/.test(month) || !propertyId) {
       return NextResponse.json({ error: 'month (YYYY-MM) and property_id are required' }, { status: 400 });
+    }
+
+    // Sent-statement freeze: a refresh moves owner_payout, so a statement
+    // already marked sent needs an explicit force (recorded as a gap).
+    try {
+      await assertStatementWritable(supabase, { propertyId, month }, {
+        force: body.force === true,
+        action: 'Refresh statement (add missed bookings)',
+      });
+    } catch (e) {
+      if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+      throw e;
     }
 
     const { data: period } = await supabase.from('statement_periods').select('id').eq('month', month).single();

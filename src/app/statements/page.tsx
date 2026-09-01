@@ -5,13 +5,15 @@ import {
   loadOwnerConfig, loadTaxCerts, loadRemittanceSheet, loadOwnerActionCounts as loadOwnerActionCountsAction,
   loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap, loadMonthDataStatus,
   loadCloseState as loadCloseStateAction, saveFundsSentDateAction, upsertCloseTask,
-  loadGuestyRowsByCodes, loadStatementWorkNotesAction,
+  loadGuestyRowsByCodes, loadStatementWorkNotesAction, setPeriodStatusAction,
   type SyncHealthRow, type MonthDataStatus,
 } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import type { RemittanceSheet } from '@/lib/remittance';
 import { renderEmail, fmtFundsSentDate, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
+import { jsonWithFreezeRetry, formWithFreezeRetry } from '@/lib/freeze-confirm';
+import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -702,7 +704,8 @@ function FillGapModal(props: {
       fd.append('property_id', propertyId);
       fd.append('file_type', fileType);
       fd.append('file', file);
-      const res = await fetch('/api/fill-gap', { method: 'POST', body: fd });
+      const { res, cancelled } = await formWithFreezeRetry('/api/fill-gap', fd);
+      if (cancelled) { setErr('Not applied: the statement is marked sent. Override was declined.'); return; }
       const data = await res.json();
       if (!res.ok) { setErr(data.error || 'Upload failed'); return; }
       setResult(data);
@@ -1021,11 +1024,15 @@ function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSave
   async function persist(nextAmount: number) {
     setSaving(true); setErr(null);
     try {
-      const res = await fetch(`/api/property-statements/${prop.id}/reserve`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: nextAmount }),
-      });
+      const { res, cancelled } = await jsonWithFreezeRetry(`/api/property-statements/${prop.id}/reserve`, 'PATCH',
+        { amount: nextAmount });
+      if (cancelled) {
+        // Revert the optimistic checkbox/amount: the server kept the old value.
+        setEnabled(initial > 0);
+        setAmount(initial > 0 ? initial.toFixed(2) : '2000.00');
+        setErr('Not saved: statement is frozen');
+        return;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'save failed');
       // Trigger the parent to reload period data. That refreshes every
@@ -1444,11 +1451,9 @@ function PropertyCard({
                   e.stopPropagation();
                   setRefreshingStatement(true);
                   try {
-                    const res = await fetch('/api/refresh-statement', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ month, property_id: prop.property_id }),
-                    });
+                    const { res, cancelled } = await jsonWithFreezeRetry('/api/refresh-statement', 'POST',
+                      { month, property_id: prop.property_id });
+                    if (cancelled) return;
                     const data = await res.json();
                     if (!res.ok) {
                       alert(`Refresh failed: ${data.error || 'unknown error'}`);
@@ -1803,11 +1808,9 @@ function PropertyCard({
                               if (!confirm(`Mark as paid off-Stripe?\n\nThis will zero ${guest}'s Stripe fee and add that amount back to the owner payout. Use this only if the guest paid by check, wire, or ACH.`)) return;
                               setResolvingGapId(gap.id);
                               try {
-                                const res = await fetch('/api/resolve-gap', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ gap_id: gap.id, resolution: 'paid_off_stripe' }),
-                                });
+                                const { res, cancelled } = await jsonWithFreezeRetry('/api/resolve-gap', 'POST',
+                                  { gap_id: gap.id, resolution: 'paid_off_stripe' });
+                                if (cancelled) return;
                                 const data = await res.json();
                                 if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
                                 else onRefresh();
@@ -1840,11 +1843,9 @@ function PropertyCard({
                               if (!confirm(`Remove this cancelled reservation from the statement?\n\nHelm re-verifies it's cancelled in Guesty, then deletes it and recomputes the owner payout. It won't touch a booking Guesty still shows as confirmed.`)) return;
                               setResolvingGapId(gap.id);
                               try {
-                                const res = await fetch('/api/reservations/remove', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ confirmation_code: code, property_statement_id: prop.id }),
-                                });
+                                const { res, cancelled } = await jsonWithFreezeRetry('/api/reservations/remove', 'POST',
+                                  { confirmation_code: code, property_statement_id: prop.id });
+                                if (cancelled) return;
                                 const data = await res.json();
                                 if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
                                 else onRefresh();
@@ -2142,6 +2143,7 @@ function DashboardContent() {
     | null
   >(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
   // Booking.com deposit routing (sweep *5623 -> property accounts). Loaded
   // lazily on button click, same pattern as the remittance sheet.
@@ -2279,18 +2281,15 @@ function DashboardContent() {
     try {
       const tmpl = closeTasks[propertyId]?.email_template || 'monthly';
       const includeWorkSlips = closeTasks[propertyId]?.email_include_work_slips || false;
-      const res = await fetch('/api/draft-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          property_id: propertyId,
-          month: selectedMonth,
-          template: tmpl,
-          include_work_slips: includeWorkSlips,
-          funds_sent_date: fundsSentDate,
-          period_id: period.id,
-        }),
+      const { res, cancelled } = await jsonWithFreezeRetry('/api/draft-email', 'POST', {
+        property_id: propertyId,
+        month: selectedMonth,
+        template: tmpl,
+        include_work_slips: includeWorkSlips,
+        funds_sent_date: fundsSentDate,
+        period_id: period.id,
       });
+      if (cancelled) return;
       const data = await res.json();
       if (!data.success) {
         setDraftResult(data.error || 'Draft creation failed');
@@ -2302,24 +2301,31 @@ function DashboardContent() {
           attachedPdf: !!data.attached_pdf,
           warnings: Array.isArray(data.warnings) ? data.warnings : [],
         });
-        // Reflect the server-side stamp locally so the checkbox updates without a reload.
+        // Reflect the server-side stamp locally so the checkbox updates
+        // without a reload. A forced redraft of a sent statement clears the
+        // sent stamp server-side (cleared_sent_property_ids); mirror that
+        // here so the UI never shows "sent" over an unfrozen statement.
+        const clearedSent: string[] = Array.isArray(data.cleared_sent_property_ids) ? data.cleared_sent_property_ids : [];
         setCloseTasks(prev => {
+          const next = { ...prev };
           const existing = prev[propertyId];
-          return {
-            ...prev,
-            [propertyId]: {
-              period_id: period.id,
-              property_id: propertyId,
-              email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
-              email_include_work_slips: existing?.email_include_work_slips || false,
-              email_drafted_at: new Date().toISOString(),
-              email_sent_at: existing?.email_sent_at || null,
-              owner_transfer_done_at: existing?.owner_transfer_done_at || null,
-              mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
-              notes: existing?.notes || null,
-              statement_drive_url: existing?.statement_drive_url || null,
-            },
+          next[propertyId] = {
+            period_id: period.id,
+            property_id: propertyId,
+            email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
+            email_include_work_slips: existing?.email_include_work_slips || false,
+            email_drafted_at: new Date().toISOString(),
+            email_sent_at: clearedSent.includes(propertyId) ? null : (existing?.email_sent_at || null),
+            owner_transfer_done_at: existing?.owner_transfer_done_at || null,
+            mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
+            notes: existing?.notes || null,
+            statement_drive_url: existing?.statement_drive_url || null,
           };
+          for (const pid of clearedSent) {
+            if (pid === propertyId || !next[pid]) continue;
+            next[pid] = { ...next[pid], email_sent_at: null };
+          }
+          return next;
         });
         setPreviewPropertyId(null);
       }
@@ -2672,22 +2678,23 @@ function DashboardContent() {
       const p = candidates[i];
       const tmpl = closeTasks[p.property_id]?.email_template || 'monthly';
       try {
-        const res = await fetch('/api/draft-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            property_id: p.property_id,
-            month: selectedMonth,
-            template: tmpl,
-            include_work_slips: closeTasks[p.property_id]?.email_include_work_slips || false,
-            funds_sent_date: fundsSentDate,
-            period_id: period.id,
-            // Lets the route no-op a sibling already covered by a combined
-            // owner draft earlier in this same loop (multi-property owners
-            // get ONE email; both siblings sit in `candidates`).
-            bulk: true,
-          }),
+        const { res, cancelled } = await jsonWithFreezeRetry('/api/draft-email', 'POST', {
+          property_id: p.property_id,
+          month: selectedMonth,
+          template: tmpl,
+          include_work_slips: closeTasks[p.property_id]?.email_include_work_slips || false,
+          funds_sent_date: fundsSentDate,
+          period_id: period.id,
+          // Lets the route no-op a sibling already covered by a combined
+          // owner draft earlier in this same loop (multi-property owners
+          // get ONE email; both siblings sit in `candidates`).
+          bulk: true,
         });
+        if (cancelled) {
+          failed.push({ property: p.property_name, error: 'skipped: already marked sent (override declined)' });
+          setBulkDraftProgress({ done: i + 1, total: candidates.length });
+          continue;
+        }
         const data = await res.json();
         if (data.success) {
           if (!data.already_drafted) drafted++;
@@ -2698,6 +2705,7 @@ function DashboardContent() {
           const covered: string[] = Array.isArray(data.covered_property_ids) && data.covered_property_ids.length > 0
             ? data.covered_property_ids
             : [p.property_id];
+          const clearedSent: string[] = Array.isArray(data.cleared_sent_property_ids) ? data.cleared_sent_property_ids : [];
           setCloseTasks(prev => {
             const next = { ...prev };
             for (const pid of covered) {
@@ -2708,7 +2716,7 @@ function DashboardContent() {
                 email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
                 email_include_work_slips: existing?.email_include_work_slips || false,
                 email_drafted_at: new Date().toISOString(),
-                email_sent_at: existing?.email_sent_at || null,
+                email_sent_at: clearedSent.includes(pid) ? null : (existing?.email_sent_at || null),
                 owner_transfer_done_at: existing?.owner_transfer_done_at || null,
                 mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
                 notes: existing?.notes || null,
@@ -3983,6 +3991,57 @@ function DashboardContent() {
                 >
                   Booking.com
                 </button>
+                {/* The period status machine, finally driven: 'final' freezes
+                    every statement in the month behind the shared finality
+                    guard. Reopen flips it back to draft. Hidden for months
+                    before the finality cutover -- the guard grandfathers
+                    them, so a Finalize badge there would be a lie. */}
+                {selectedMonth < FINALITY_FROM_MONTH ? null : period.status === 'final' ? (
+                  <button
+                    disabled={finalizing}
+                    onClick={async () => {
+                      if (!confirm(`Reopen ${monthLong(selectedMonth)}? Statements become editable again (per-property sent stamps still apply).`)) return;
+                      setFinalizing(true);
+                      try {
+                        const r = await setPeriodStatusAction(period.id, 'draft');
+                        if (!r.ok) alert(`Reopen failed: ${r.error}`);
+                        else await loadPeriod(selectedMonth);
+                      } finally { setFinalizing(false); }
+                    }}
+                    style={{
+                      border: '1px solid var(--positive)',
+                      background: 'transparent', color: 'var(--positive)',
+                      fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                      padding: '8px 14px', cursor: finalizing ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {finalizing ? 'Working…' : '✓ Finalized · Reopen'}
+                  </button>
+                ) : (
+                  <button
+                    disabled={finalizing}
+                    title="Freeze every statement in this month. Any later change requires an explicit, recorded override."
+                    onClick={async () => {
+                      const unsent = props.filter(p => !closeTasks[p.property_id]?.email_sent_at).length;
+                      const warn = unsent > 0 ? `\n\nNote: ${unsent} statement${unsent === 1 ? ' is' : 's are'} not yet marked sent.` : '';
+                      if (!confirm(`Finalize ${monthLong(selectedMonth)}? Every statement in the month freezes; changes after this require an explicit override that is recorded on the statement.${warn}`)) return;
+                      setFinalizing(true);
+                      try {
+                        const r = await setPeriodStatusAction(period.id, 'final');
+                        if (!r.ok) alert(`Finalize failed: ${r.error}`);
+                        else await loadPeriod(selectedMonth);
+                      } finally { setFinalizing(false); }
+                    }}
+                    style={{
+                      border: '1px solid var(--ink)',
+                      background: 'var(--ink)', color: 'var(--paper)',
+                      fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                      padding: '8px 14px', cursor: finalizing ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {finalizing ? 'Working…' : 'Finalize Month'}
+                  </button>
+                )}
               </div>
             </div>
 

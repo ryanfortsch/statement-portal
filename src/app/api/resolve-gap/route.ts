@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadAddOnTotals } from '@/lib/statement-addons';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * Resolve a data gap via an inline action -- no file upload, no re-ingest.
@@ -30,7 +31,7 @@ function extractConfirmationCode(description: string): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({} as { gap_id?: string; resolution?: string }));
+    const body = await request.json().catch(() => ({} as { gap_id?: string; resolution?: string; force?: boolean }));
     const gapId: string = body.gap_id || '';
     const resolution: string = body.resolution || '';
 
@@ -44,6 +45,20 @@ export async function POST(request: NextRequest) {
       .single();
     if (gapErr || !gap) {
       return NextResponse.json({ error: 'gap not found' }, { status: 404 });
+    }
+
+    // Sent-statement freeze: resolutions below recompute the payout.
+    if (gap.property_statement_id) {
+      try {
+        await assertStatementWritable(supabase, { statementId: gap.property_statement_id }, {
+          force: body.force === true,
+          action: `Resolve gap (${resolution})`,
+          detail: `gap ${gapId} · ${String(gap.gap_type || '')}`,
+        });
+      } catch (e) {
+        if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+        throw e;
+      }
     }
 
     if (resolution === 'paid_off_stripe') {

@@ -9,6 +9,7 @@ import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { loadActiveProperties } from './actions';
+import { formWithFreezeRetry } from '@/lib/freeze-confirm';
 import { PROPERTIES } from '@/lib/properties';
 
 type PropertyOption = { id: string; name: string; owner: string; location: string };
@@ -603,7 +604,8 @@ function UploadPageInner() {
       if (platformCSV) formData.append('platform_csv', platformCSV);
       if (bankCSV) formData.append('bank_csv', bankCSV);
 
-      const res = await fetch('/api/ingest', { method: 'POST', body: formData });
+      const { res, cancelled } = await formWithFreezeRetry('/api/ingest', formData);
+      if (cancelled) { setError('Not ingested: the statement is marked sent. Untick "Statement sent" on the dashboard first, or confirm the override.'); return; }
       const data = await res.json();
 
       if (!res.ok) {

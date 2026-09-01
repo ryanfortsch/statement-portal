@@ -4,6 +4,7 @@ import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -576,6 +577,17 @@ export async function POST(request: NextRequest) {
     }
     if (!file) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
+    }
+
+    // Sent-statement freeze: both fill paths recompute owner_payout.
+    try {
+      await assertStatementWritable(supabase, { propertyId, month }, {
+        force: (formData.get('force') as string) === 'true',
+        action: `Fill gap (${fileType === 'bank_csv' ? 'bank CSV' : 'platform CSV'})`,
+      });
+    } catch (e) {
+      if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+      throw e;
     }
     if (fileType !== 'bank_csv' && fileType !== 'platform_csv') {
       return NextResponse.json(

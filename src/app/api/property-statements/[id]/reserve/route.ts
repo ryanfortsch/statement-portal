@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * PATCH /api/property-statements/[id]/reserve
@@ -49,6 +50,19 @@ export async function PATCH(
   const amount = round2(amountRaw);
 
   const supabase = getSupabase();
+
+  // Sent-statement freeze: the reserve holdback moves owner_payout.
+  try {
+    await assertStatementWritable(supabase, { statementId: id }, {
+      force: body.force === true,
+      action: 'Change Owner Reserve holdback',
+      detail: `new amount $${amount.toFixed(2)}`,
+    });
+  } catch (e) {
+    if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+    throw e;
+  }
+
   const { data: stmt, error: readErr } = await supabase
     .from('property_statements')
     .select('id, rental_revenue, add_ons_revenue, management_fee, cleaning_total, repairs_total, attributed_debits_total')
