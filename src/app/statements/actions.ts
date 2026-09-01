@@ -2,6 +2,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { PROPERTIES } from '@/lib/properties';
+import { getCachedPlatformCSV } from '@/lib/platform-csv-cache';
 import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
 import { loadStatementWorkNotes } from '@/lib/statement-work-notes';
 import type { PropertyWorkNotes } from '@/lib/email-templates';
@@ -100,19 +101,23 @@ export async function loadOwnerActionCounts(): Promise<Record<string, number>> {
 
 type Row = Record<string, unknown>;
 
-/** Pending bank-review rows for the month, counted per property_id. */
-export async function loadDepositReviewCounts(month: string): Promise<Record<string, number>> {
+/**
+ * Pending bank-review rows for the month, counted per property_id.
+ * `known:false` means the read failed -- the caller must render "unknown",
+ * never an all-clear zero. Absence of data is not a fact.
+ */
+export async function loadDepositReviewCounts(month: string): Promise<{ known: boolean; counts: Record<string, number> }> {
   const { data, error } = await supabaseAdmin
     .from('bank_deposit_attributions')
     .select('property_id')
     .eq('month', month)
     .eq('status', 'pending');
-  if (error) return {};
+  if (error) return { known: false, counts: {} };
   const counts: Record<string, number> = {};
   (data || []).forEach((r: { property_id: string }) => {
     counts[r.property_id] = (counts[r.property_id] || 0) + 1;
   });
-  return counts;
+  return { known: true, counts };
 }
 
 /**
@@ -185,12 +190,76 @@ export async function loadPeriodsList(): Promise<
   return { periods: (data || []) as Array<{ month: string; status: string }> };
 }
 
-/** Last-sync timestamps per source for the header chips. */
-export async function loadLastSyncMap(): Promise<Record<string, string>> {
-  const { data } = await supabaseAdmin.from('sync_status').select('source, last_synced_at');
-  const map: Record<string, string> = {};
-  (data || []).forEach((r: { source: string; last_synced_at: string }) => { map[r.source] = r.last_synced_at; });
+export type SyncHealthRow = {
+  last_synced_at: string | null;
+  last_attempted_at: string | null;
+  last_status: 'ok' | 'error' | null;
+  last_error: string | null;
+};
+
+/**
+ * Sync freshness AND health per source for the Sync menu. last_synced_at
+ * alone is a known-misleading signal: a cron that runs and fails keeps the
+ * timestamp looking recent while statement inputs quietly rot (the
+ * reservations feed once froze for six days behind a fresh-looking chip).
+ * last_status / last_error are what actually say whether the feed works.
+ */
+export async function loadLastSyncMap(): Promise<Record<string, SyncHealthRow>> {
+  const { data } = await supabaseAdmin
+    .from('sync_status')
+    .select('source, last_synced_at, last_attempted_at, last_status, last_error');
+  const map: Record<string, SyncHealthRow> = {};
+  (data || []).forEach((r: { source: string } & SyncHealthRow) => {
+    map[r.source] = {
+      last_synced_at: r.last_synced_at ?? null,
+      last_attempted_at: r.last_attempted_at ?? null,
+      last_status: r.last_status ?? null,
+      last_error: r.last_error ?? null,
+    };
+  });
   return map;
+}
+
+export type MonthDataStatus = {
+  platform_csv: { on_file: boolean; filename: string | null; uploaded_at: string | null };
+  booking_activity: { known: boolean; rows: number; latest: string | null };
+};
+
+/**
+ * Are the month's two must-do uploads actually on file? The per-statement
+ * source chips are ingest-time snapshots; this is the live answer for the
+ * close-review strip, so "Month is clear" can never assert itself while a
+ * required input was simply never uploaded.
+ */
+export async function loadMonthDataStatus(month: string): Promise<MonthDataStatus> {
+  const [y, m] = month.split('-').map(Number);
+  const monthStart = `${month}-01`;
+  const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
+
+  const [cached, activity] = await Promise.all([
+    getCachedPlatformCSV(supabaseAdmin, month).catch(() => null),
+    (async () => {
+      const { data, error, count } = await supabaseAdmin
+        .from('booking_account_activity')
+        .select('posting_date', { count: 'exact' })
+        .gte('posting_date', monthStart)
+        .lt('posting_date', monthEndExclusive)
+        .order('posting_date', { ascending: false })
+        .limit(1);
+      // known:false = the read failed; render "unknown", never "missing".
+      if (error) return { known: false, rows: 0, latest: null };
+      return { known: true, rows: count ?? 0, latest: (data?.[0]?.posting_date as string | undefined) ?? null };
+    })(),
+  ]);
+
+  return {
+    platform_csv: {
+      on_file: !!cached,
+      filename: cached?.original_filename ?? null,
+      uploaded_at: cached?.uploaded_at ?? null,
+    },
+    booking_activity: activity,
+  };
 }
 
 /** Close-checklist rows plus the period's funds-sent date. */

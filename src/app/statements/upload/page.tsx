@@ -26,22 +26,19 @@ function currentMonthString(): string {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-// Hardcoded fallback used only when the live `public.properties` fetch
-// fails (network blip, RLS misconfig). Keeps the dropdown usable on the
-// 10 legacy properties even when the DB is unreachable. The real list
-// is loaded on mount inside UploadPageInner so prospect-promoted
-// properties show up automatically.
-const FALLBACK_PROPERTIES: PropertyOption[] = [
-  { id: '3_south_st', name: '3 South', owner: 'Bailey', location: 'Rockport' },
-  { id: '21_horton', name: '21 Horton', owner: 'Kittredge', location: 'Gloucester' },
-  { id: '53_rocky_neck', name: '53 Rocky Neck', owner: 'Prudenzi', location: 'Gloucester' },
-  { id: '4_brier_neck', name: '4 Brier Neck', owner: 'Armstrong', location: 'Gloucester' },
-  { id: '30_woodward', name: '30 Woodward', owner: 'McWethy', location: 'Gloucester' },
-  { id: '20_hammond', name: '20 Hammond', owner: 'Ramsey', location: 'Gloucester' },
-  { id: '20_enon', name: '20 Enon', owner: 'Snyder', location: 'Beverly' },
-  { id: '73_rocky_neck', name: '73 Rocky Neck', owner: 'Moynahan', location: 'Gloucester' },
-  { id: '17_beach_rd', name: '17 Beach', owner: 'Nolan', location: 'Gloucester' },
-];
+// Fallback used only when the live `public.properties` fetch fails
+// (network blip, RLS misconfig). Derived from the configured PROPERTIES
+// map so it can never drift behind the fleet again -- a hand-rolled copy
+// here once silently omitted six newer properties, making them
+// un-ingestable whenever the live fetch failed. The real list is loaded
+// on mount inside UploadPageInner so prospect-promoted properties show
+// up automatically.
+const FALLBACK_PROPERTIES: PropertyOption[] = Object.values(PROPERTIES).map(p => ({
+  id: p.id,
+  name: p.name,
+  owner: p.owner_last,
+  location: p.city.replace(/,\s*MA$/, ''),
+}));
 
 type ParsedReservation = {
   guest_name: string;

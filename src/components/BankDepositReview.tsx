@@ -205,6 +205,15 @@ export function BankDepositReview({
   // Map a reservation code -> human guest name for the attributed history.
   const guestByCode = new Map<string, string>();
   reservations.forEach(r => { if (r.confirmation_code) guestByCode.set(r.confirmation_code, r.guest_name); });
+  // A failed load must never render as an empty (all-clear) queue: pending
+  // owner money could be sitting behind the error. Surface it instead.
+  if (error && items === null) {
+    return (
+      <div style={{ marginTop: 28, padding: '10px 12px', background: 'var(--paper-2)', borderLeft: '2px solid var(--negative, #b13b2a)', fontSize: 11, color: 'var(--ink-2)' }}>
+        Bank review queue failed to load ({error}). Pending deposits or debits may exist for this property -- reload before trusting an empty queue.
+      </div>
+    );
+  }
   if (deposits.length === 0 && debits.length === 0 && attributed.length === 0) return null;
 
   return (
