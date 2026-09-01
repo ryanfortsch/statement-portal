@@ -60,10 +60,16 @@ function scopeRank(scope: string): number {
 export function BlurbsLibrary({ initial, categories, properties }: Props) {
   const drafts = initial.filter((b) => b.status === 'draft').length;
   const live = initial.filter((b) => b.status === 'approved').length;
+  // Two tabs: the review pile (drafts) and what's live. Approving moves a
+  // blurb across, so the To-review tab burns down as she works through it.
+  // Default to review while anything is waiting; land on Live once done.
+  const [tab, setTab] = useState<'review' | 'live'>(drafts > 0 ? 'review' : 'live');
 
   const groups = useMemo(() => {
+    const want = tab === 'review' ? 'draft' : 'approved';
     const byScope = new Map<string, SavedBlurb[]>();
     for (const b of initial) {
+      if (b.status !== want) continue;
       const list = byScope.get(b.scope) ?? [];
       list.push(b);
       byScope.set(b.scope, list);
@@ -71,7 +77,19 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
     return [...byScope.entries()].sort(
       (a, b) => scopeRank(a[0]) - scopeRank(b[0]) || a[0].localeCompare(b[0]),
     );
-  }, [initial]);
+  }, [initial, tab]);
+
+  const tabBtn = (id: 'review' | 'live', label: string): React.CSSProperties => ({
+    padding: '8px 16px',
+    fontSize: 10,
+    letterSpacing: '.16em',
+    textTransform: 'uppercase',
+    fontWeight: 700,
+    cursor: 'pointer',
+    border: `1px solid ${tab === id ? 'var(--ink)' : 'var(--rule)'}`,
+    background: tab === id ? 'var(--ink)' : 'transparent',
+    color: tab === id ? 'var(--paper)' : 'var(--ink-3)',
+  });
 
   return (
     <Section
@@ -85,15 +103,25 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
       }
     >
       <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-        Drafts never reach a guest. Approve a blurb and the AI starts quoting it
-        near-verbatim in drafts for that scope; edit any time and the next draft
-        uses the new text. Retire what no longer applies.
+        Drafts never reach a guest. Approve a blurb and it moves to the Live tab,
+        where the AI quotes it near-verbatim in drafts for that scope; edit any
+        time and the next draft uses the new text. Retire what no longer applies.
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        <button type="button" onClick={() => setTab('review')} style={tabBtn('review', 'review')}>
+          To review{drafts > 0 ? ` (${drafts})` : ''}
+        </button>
+        <button type="button" onClick={() => setTab('live')} style={tabBtn('live', 'live')}>
+          Live{live > 0 ? ` (${live})` : ''}
+        </button>
       </div>
       <AddBlurbForm categories={categories} properties={properties} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28, marginTop: 24 }}>
         {groups.length === 0 && (
           <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>
-            No saved replies yet. Add the first one above.
+            {tab === 'review'
+              ? 'Nothing left to review. Everything you approved is on the Live tab.'
+              : 'Nothing live yet. Approve blurbs on the To review tab to turn them on.'}
           </div>
         )}
         {groups.map(([scope, blurbs]) => (
