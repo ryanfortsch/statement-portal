@@ -43,7 +43,7 @@ import { taxPortionOfNet } from '@/lib/addon-tax';
 import { loadAddOnTotals } from './statement-addons';
 import { chargeWindow } from './stripe-window';
 import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
-import { FINALITY_FROM_MONTH, getFreezeStatus } from '@/lib/statement-finality';
+import { FREEZE_FROM_MONTH, getFreezeStatus } from '@/lib/statement-finality';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 
 export type StripeSyncResult = {
@@ -418,18 +418,18 @@ export async function syncPropertyStripe(opts: {
     // freeze (statement_periods.status = 'final', the Finalize Month
     // button) so the nightly cron cannot keep moving payouts in a month
     // the operator closed as a whole. And the gate now fails CLOSED for
-    // months >= FINALITY_FROM_MONTH: if the freeze state cannot be read,
+    // months >= FREEZE_FROM_MONTH: if the freeze state cannot be read,
     // the sync skips this property rather than assuming it is writable.
     const { data: periodRow, error: periodErr } = await supabase
       .from('statement_periods')
       .select('id, status')
       .eq('month', month)
       .maybeSingle();
-    if (periodErr && month >= FINALITY_FROM_MONTH) {
+    if (periodErr && month >= FREEZE_FROM_MONTH) {
       result.error = `finality check failed (period read): ${periodErr.message}; skipping to avoid writing a possibly-frozen statement`;
       return result;
     }
-    if (periodRow?.status === 'final' && month >= FINALITY_FROM_MONTH) {
+    if (periodRow?.status === 'final' && month >= FREEZE_FROM_MONTH) {
       result.skipped_sent = true;
       return result;
     }
@@ -440,7 +440,7 @@ export async function syncPropertyStripe(opts: {
         .eq('period_id', periodRow.id)
         .eq('property_id', propertyId)
         .maybeSingle();
-      if (taskErr && month >= FINALITY_FROM_MONTH) {
+      if (taskErr && month >= FREEZE_FROM_MONTH) {
         result.error = `finality check failed (close_tasks read): ${taskErr.message}; skipping to avoid writing a possibly-sent statement`;
         return result;
       }

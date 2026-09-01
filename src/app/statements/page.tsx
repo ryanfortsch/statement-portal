@@ -18,7 +18,6 @@ import {
 import { OwnerRequestsPanel } from '@/components/OwnerRequestsPanel';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { jsonWithFreezeRetry, formWithFreezeRetry } from '@/lib/freeze-confirm';
-import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 import { revenueSignal } from '@/lib/guesty-revenue-signal';
 import { Suspense } from 'react';
 import Link from 'next/link';
@@ -4251,10 +4250,10 @@ function DashboardContent() {
                 </button>
                 {/* The period status machine, finally driven: 'final' freezes
                     every statement in the month behind the shared finality
-                    guard. Reopen flips it back to draft. Hidden for months
-                    before the finality cutover -- the guard grandfathers
-                    them, so a Finalize badge there would be a lie. */}
-                {selectedMonth < FINALITY_FROM_MONTH ? null : period.status === 'final' ? (
+                    guard. Reopen flips it back to draft. Shown on every
+                    month: the freeze no longer grandfathers older ones, so
+                    the badge tells the truth wherever it appears. */}
+                {period.status === 'final' ? (
                   <button
                     disabled={finalizing}
                     onClick={async () => {

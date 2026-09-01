@@ -17,10 +17,24 @@
  * (gap_type 'post_send_write') on the statement so the override is a matter
  * of record, not a silent drift.
  *
- * Scope: months from FINALITY_FROM_MONTH forward only. Older months were
- * closed under the old rules and are deliberately grandfathered -- the
- * operator's instruction is "August 2026 going forward", and retro-freezing
- * history would turn every legacy correction into a ceremony.
+ * Scope: the FREEZE has none. It applies to every month, because its two
+ * triggers are already explicit operator acts -- someone marked the
+ * statement sent, or closed the month -- and there is no month for which
+ * "the owner is holding this document" stops being true.
+ *
+ * It used to be gated to FINALITY_FROM_MONTH ('2026-08') forward, on the
+ * reasoning that retro-freezing history turns every legacy correction into
+ * a ceremony. That grandfather had teeth: on 2026-08-31 a re-ingest of
+ * JULY 2026 for 16 Waterman walked straight past this guard because
+ * '2026-07' < '2026-08', deleted a statement emailed four weeks earlier,
+ * and rebuilt it from a different month's PDF -- no 409, no audit row,
+ * nothing to see. The ceremony is one confirm click; the alternative is a
+ * sent statement quietly becoming a different document.
+ *
+ * FINALITY_FROM_MONTH survives for the INTEGRITY check only, where the
+ * cutover reasoning does still hold: statements built before it were
+ * produced under formula rules statementSumsToPayout does not model, so
+ * checking them would fail honest historical rows.
  *
  * Error posture: fail CLOSED. A guard that cannot read its inputs must not
  * silently allow the write (that is the exact fail-open convention this
@@ -29,7 +43,25 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+/**
+ * Integrity-check scope ONLY -- months before this were built under formula
+ * rules statementSumsToPayout does not model. NOT the freeze scope: the
+ * freeze covers every month. See the header note.
+ */
 export const FINALITY_FROM_MONTH = '2026-08';
+
+/**
+ * Freeze scope: EVERY month. The empty string sorts before any real
+ * `YYYY-MM`, so `month >= FREEZE_FROM_MONTH` is true for all of them.
+ *
+ * Kept as a named constant rather than deleting the comparisons at the four
+ * call sites, for two reasons: re-scoping the freeze stays a one-line
+ * change, and a reader can tell a freeze gate from an integrity gate by
+ * which constant it names. Do not substitute FINALITY_FROM_MONTH here --
+ * that is the integrity cutover and pointing the freeze at it is the exact
+ * bug that let a sent July 2026 statement be overwritten.
+ */
+export const FREEZE_FROM_MONTH = '';
 
 export type StatementRef = {
   /** property_statements.id -- preferred when the caller has it. */
@@ -72,7 +104,14 @@ const notFrozen = (partial: Partial<FreezeStatus>): FreezeStatus => ({
 
 /**
  * Resolve the freeze state for a statement. Throws on read errors (fail
- * closed); returns frozen:false for months before FINALITY_FROM_MONTH.
+ * closed).
+ *
+ * No month grandfather: EVERY month is in scope, because the two things
+ * that freeze a statement -- a sent stamp and a finalized period -- are
+ * explicit operator acts that mean the same thing in any month. The old
+ * `month < FINALITY_FROM_MONTH` early return lived here and is what let a
+ * sent July 2026 statement be silently rebuilt; see the file header. Do not
+ * reintroduce it: FINALITY_FROM_MONTH now scopes the INTEGRITY check alone.
  */
 export async function getFreezeStatus(
   supabase: SupabaseClient,
@@ -128,10 +167,11 @@ export async function getFreezeStatus(
 
   const base = notFrozen({ statementId, propertyId, month, periodId, periodStatus });
 
-  // Grandfather clause: months closed before the finality cutover keep the
-  // old rules. String compare works on YYYY-MM.
-  if (!month || month < FINALITY_FROM_MONTH) return base;
-
+  // No month cutoff. A statement the operator marked sent is frozen whatever
+  // month it belongs to -- see the header note on 16 Waterman / July 2026,
+  // which the old `month < FINALITY_FROM_MONTH` grandfather let through.
+  // A month we cannot resolve is not a licence to write: fall through to the
+  // period/close-task checks, which is the fail-closed direction.
   if (periodStatus === 'final') {
     return { ...base, frozen: true, reason: 'period_final' };
   }
