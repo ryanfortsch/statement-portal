@@ -38,6 +38,25 @@ export type Property = {
    * (Community Impact Fee removed) version where applicable.
    */
   tax_cert_id: string | null;
+  /**
+   * Rising Tide owns this home outright -- there is no outside owner, no
+   * owner statement is ever produced for it, and RT earns no management
+   * fee on it. Mirrors `public.properties.is_rising_tide_owned`, which is
+   * the source of truth; the DB-backed loaders below carry the real column
+   * through, and this const supplies it for the code-side fallback.
+   *
+   * Absent (the normal case) means a client-owned home we manage. Only set
+   * it to true, never to false, so adding a managed property stays a
+   * one-line change.
+   *
+   * An RT-owned home still belongs in PROPERTIES when it is part of the
+   * guest-facing ops fleet -- it needs listing matching, turnovers, cleaner
+   * routing, notes, channels and a /book page like any other home. It just
+   * never reaches the owner-statement surfaces. (Ryan's out-of-market homes,
+   * 65 Calderwood and 3246 NE 27th, are excluded from this map entirely
+   * because they are in neither pipeline. See the note below the map.)
+   */
+  is_rising_tide_owned?: boolean;
 };
 
 // Emails pulled from confirmed statement sends in the Apr 2026 audit.
@@ -138,12 +157,36 @@ export const PROPERTIES: Record<string, Property> = {
     // Booking stays that we file on the *9928 tax account.
     tax_cert_id: 'C0585051070',
   },
+  // RISING TIDE-OWNED, not a managed client home. Title is held by Goose of
+  // Astoria LLC (see LLC_ENTITIES in src/lib/books.ts, which also owns 3246
+  // NE 27th). There is no outside owner, no owner statement is ever produced,
+  // and RT earns no management fee. `property_statements` has never held a
+  // 3 Locust row and correctly never will.
+  //
+  // The entry stays here because 3 Locust IS in the guest-facing ops fleet:
+  // a live Guesty listing ("Stay at Niles Beach"), a /book page, channels,
+  // turnovers, cleaner-text routing, notes and invoice matching all resolve
+  // through this map. Deleting it would 404 /book/3_locust and drop the home
+  // out of every one of those surfaces. It is only the statement flows it
+  // must stay out of, and is_rising_tide_owned is what says so.
+  //
+  // The 2026-05-04 seed migration guessed the owner as "Lucas" ("Owner detail
+  // TBD: we have 'Lucas' only") and 20260521_3_locust_rt_owned.sql corrected
+  // the flag but not the owner fields, so "The Lucas Family" survived here and
+  // read to a later reader as a managed property awaiting statement onboarding.
+  // Confirmed RT-owned by Dotti 2026-09-01.
   '3_locust': {
     id: '3_locust', name: '3 Locust', address: '3 Locust Lane', city: 'Gloucester, MA',
-    owner_last: 'Lucas', owner_full: 'The Lucas Family', owner_greeting: 'Lucas',
+    owner_last: 'Rising Tide', owner_full: 'Goose of Astoria LLC', owner_greeting: '',
     owner_emails: [],
+    // fee_pct is NEVER billed on this home -- is_rising_tide_owned zeroes it
+    // wherever revenue is computed (see revenue-snapshot.ts and
+    // forecast-smart.ts). It is left at the seeded 25 rather than set to 0
+    // because fee values are payout math and off limits without a parity
+    // harness; the flag, not this number, is what callers must read.
     fee_pct: 25, bank_last4: null, listing_match: '3 locust',
     tax_cert_id: null,
+    is_rising_tide_owned: true,
   },
   // Seeded 2026-07-20 from the Helm properties row (external title
   // "Stay at Gloucester Harbor"). First statement month: July 2026.
@@ -237,7 +280,7 @@ export async function getActivePropertiesForStatements(): Promise<Property[]> {
   if (!isConfigured) return Object.values(PROPERTIES);
   const { data, error } = await supabase
     .from('properties')
-    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id, is_active')
+    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id, is_rising_tide_owned, is_active')
     .eq('is_active', true)
     .order('name');
   if (error || !data) return Object.values(PROPERTIES);
@@ -254,6 +297,7 @@ export async function getActivePropertiesForStatements(): Promise<Property[]> {
     bank_last4: string | null;
     listing_match: string | null;
     tax_cert_id: string | null;
+    is_rising_tide_owned: boolean | null;
   }>).map((r) => ({
     id: r.id,
     name: r.name,
@@ -267,6 +311,7 @@ export async function getActivePropertiesForStatements(): Promise<Property[]> {
     bank_last4: r.bank_last4,
     listing_match: (r.listing_match ?? '').toLowerCase(),
     tax_cert_id: r.tax_cert_id,
+    is_rising_tide_owned: !!r.is_rising_tide_owned,
   }));
 }
 
@@ -281,7 +326,7 @@ export async function getActivePropertyForStatements(id: string): Promise<Proper
   if (!isConfigured) return PROPERTIES[id] ?? null;
   const { data, error } = await supabase
     .from('properties')
-    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id')
+    .select('id, name, address, city, owner_last, owner_full, owner_greeting, owner_emails, management_fee_pct, bank_last4, listing_match, tax_cert_id, is_rising_tide_owned')
     .eq('id', id)
     .maybeSingle();
   if (error || !data) return PROPERTIES[id] ?? null;
@@ -291,6 +336,7 @@ export async function getActivePropertyForStatements(id: string): Promise<Proper
     owner_greeting: string | null; owner_emails: string[] | null;
     management_fee_pct: number | null; bank_last4: string | null;
     listing_match: string | null; tax_cert_id: string | null;
+    is_rising_tide_owned: boolean | null;
   };
   return {
     id: r.id,
@@ -305,6 +351,7 @@ export async function getActivePropertyForStatements(id: string): Promise<Proper
     bank_last4: r.bank_last4,
     listing_match: (r.listing_match ?? '').toLowerCase(),
     tax_cert_id: r.tax_cert_id,
+    is_rising_tide_owned: !!r.is_rising_tide_owned,
   };
 }
 
