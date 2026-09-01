@@ -5,6 +5,8 @@
  * route (server) so Gmail drafts and in-UI previews always match.
  */
 
+import type { WorkSlipOwnerActionType, WorkSlipPriority } from '@/lib/work-types';
+
 export type EmailTemplate = 'monthly' | 'touch_base' | 'year_end';
 
 export type RenderedEmail = {
@@ -13,24 +15,107 @@ export type RenderedEmail = {
 };
 
 /**
- * The opt-in "work notes" section: the month's work slips rewritten as
- * owner-friendly lines, grouped by where they stand. Lines arrive already
- * polished from lib/statement-work-notes.ts (server); this module only
- * lays them out, so the client preview and the Gmail draft compose the
- * exact same paragraphs from the same data.
+ * The opt-in owner-request section.
+ *
+ * Its job is the asks: maintenance and purchases that need the owner's
+ * approval, decisions we are waiting on, and anything we want flagged. The
+ * month's finished work is an optional footnote under them, never the lead.
+ *
+ * Every line is curated. loadOwnerRequestCandidates() (server, DB) hands us
+ * candidates carrying a generated paragraph; the operator ticks, un-ticks
+ * and rewrites; resolveOwnerRequests() below turns picks into the rendered
+ * lists. It lives here, not in the loader, because the preview modal
+ * (client) and /api/draft-email (server) both run it against the same
+ * stored picks -- which is what keeps the preview honest.
  */
-export type PropertyWorkNotes = {
-  propertyName: string;
-  /** Finished during the statement month. */
-  completed: string[];
-  /** In progress or on the calendar right now. */
-  inProgress: string[];
-  /** Waiting on the owner (approval, a decision, a date). */
-  awaitingOwner: string[];
+
+/** An ask needs an answer; a flag is for the owner's awareness only. */
+export type OwnerRequestKind = 'ask' | 'flag';
+
+export type OwnerRequestCandidate = {
+  slipId: string;
+  title: string;
+  location: string | null;
+  kind: OwnerRequestKind;
+  actionType: WorkSlipOwnerActionType | null;
+  priority: WorkSlipPriority;
+  /** The deterministic owner-facing paragraph. Operator may override it. */
+  defaultText: string;
+  /**
+   * Pre-ticked? True for slips already flagged owner_action_required --
+   * somebody decided the owner needs to weigh in, so the default is in.
+   * Everything else is a candidate the operator can pull in by hand.
+   */
+  suggested: boolean;
+  /** owner_last_contacted_at, when we have asked before. */
+  raisedOn: string | null;
 };
 
-export function workNotesHaveContent(n: PropertyWorkNotes): boolean {
-  return n.completed.length + n.inProgress.length + n.awaitingOwner.length > 0;
+/** One operator decision. `text` null/absent -> use the generated line. */
+export type OwnerRequestSelection = {
+  include: boolean;
+  text?: string | null;
+};
+
+/** Keyed by work_slip id. Stored on close_tasks.owner_request_items. */
+export type OwnerRequestSelections = Record<string, OwnerRequestSelection>;
+
+export type PropertyRequestCandidates = {
+  propertyId: string;
+  propertyName: string;
+  candidates: OwnerRequestCandidate[];
+  /** The optional recap, already polished. */
+  handled: string[];
+};
+
+/** What the email renders, per property. */
+export type ResolvedOwnerRequests = {
+  propertyName: string;
+  /** Needs an answer. */
+  requests: string[];
+  /** For awareness only. */
+  flags: string[];
+  /** Optional recap of what we handled this month. */
+  handled: string[];
+  /** Slip ids sent as asks -- stamped owner_status='sent' by the route. */
+  askedSlipIds: string[];
+};
+
+export function ownerRequestsHaveContent(r: ResolvedOwnerRequests): boolean {
+  return r.requests.length + r.flags.length + r.handled.length > 0;
+}
+
+/** Apply the operator's picks to one property's candidates. */
+export function resolveOwnerRequests(
+  loaded: PropertyRequestCandidates,
+  selections: OwnerRequestSelections | null | undefined,
+  opts: { includeHandled: boolean },
+): ResolvedOwnerRequests {
+  const sel = selections || {};
+  const requests: string[] = [];
+  const flags: string[] = [];
+  const askedSlipIds: string[] = [];
+
+  for (const c of loaded.candidates) {
+    const choice = sel[c.slipId];
+    const include = choice ? choice.include : c.suggested;
+    if (!include) continue;
+    const text = (choice?.text || '').trim() || c.defaultText;
+    if (c.kind === 'ask') {
+      requests.push(text);
+      askedSlipIds.push(c.slipId);
+    } else {
+      flags.push(text);
+    }
+  }
+
+  return {
+    propertyName: loaded.propertyName,
+    requests,
+    flags,
+    handled: opts.includeHandled ? loaded.handled : [],
+    askedSlipIds,
+  };
 }
 
 export type RenderArgs = {
@@ -50,10 +135,10 @@ export type RenderArgs = {
    */
   properties?: { name: string; payout?: number }[];
   /**
-   * Opt-in work-notes section, one entry per property covered by the
+   * Opt-in owner-request section, one entry per property covered by the
    * email. Absent or all-empty -> no section, body identical to before.
    */
-  workNotes?: PropertyWorkNotes[];
+  ownerRequests?: ResolvedOwnerRequests[];
 };
 
 /** "2026-05-04" -> "Monday 5/4" */
@@ -81,58 +166,70 @@ function group(intro: string, lines: string[]): string {
 }
 
 /**
- * Lay out the work-notes section as email paragraphs. Empty input -> ''.
- * The framing sentences do the "polish": the section reads as an update
- * from the manager, not a pasted task list. Groups render only when they
- * have items, and the first group present carries the "around the house"
- * lead so the section always opens like prose.
+ * Lay out the owner-request section as email paragraphs. Empty input -> ''.
+ *
+ * Order is the whole point: what we need from you, then what we want you to
+ * know, then (opt-in) what we handled. The framing sentences do the polish
+ * so it reads as a note from the manager, not a pasted task list, and the
+ * asks close with an invitation to reply so the owner knows the ball is in
+ * their court.
  */
-export function buildWorkNotesBlock(
-  workNotes: PropertyWorkNotes[],
+export function buildOwnerRequestsBlock(
+  entries: ResolvedOwnerRequests[],
   shortMonth: string,
   /**
-   * True when the email covers 2+ properties. Houses with no slips are
+   * True when the email covers 2+ properties. Houses with nothing to say are
    * dropped before we get here, so a combined owner email can arrive with a
-   * single entry -- and the unlabeled prose below ("Around the house...")
-   * would leave the owner guessing WHICH house. Prudenzi tolerated that
-   * (one building, two units); Moynahan's two homes are a mile apart.
+   * single entry -- and unlabeled prose would leave the owner guessing WHICH
+   * house. Prudenzi tolerated that (one building, two units); Moynahan's two
+   * homes are a mile apart.
    */
   labelHouses = false,
 ): string {
-  const withContent = workNotes.filter(workNotesHaveContent);
+  const withContent = entries.filter(ownerRequestsHaveContent);
   if (withContent.length === 0) return '';
+  const anyAsks = withContent.some(e => e.requests.length > 0);
+
+  const paras: string[] = [];
 
   if (withContent.length === 1 && !labelHouses) {
-    const n = withContent[0];
-    const paras: string[] = [];
-    if (n.completed.length > 0) {
-      paras.push(group(`Around the house, here's what our team took care of in ${shortMonth}:`, n.completed));
+    const e = withContent[0];
+    if (e.requests.length > 0) {
+      const one = e.requests.length === 1;
+      paras.push(group(
+        one
+          ? 'One thing at the house needs your go-ahead before we move on it:'
+          : `A few things at the house need your go-ahead before we move on them:`,
+        e.requests));
     }
-    if (n.inProgress.length > 0) {
-      const intro = paras.length > 0
-        ? 'Still in motion:'
-        : `Around the house, here's what's in motion right now:`;
-      paras.push(group(intro, n.inProgress));
+    if (e.flags.length > 0) {
+      paras.push(group(
+        paras.length > 0
+          ? 'Also worth flagging, nothing needed from you:'
+          : 'A couple of things worth flagging, nothing needed from you:',
+        e.flags));
     }
-    if (n.awaitingOwner.length > 0) {
-      const one = n.awaitingOwner.length === 1;
-      const intro = paras.length > 0
-        ? (one ? 'And one thing needs your input:' : 'And a few things need your input:')
-        : (one ? 'One thing at the house needs your input:' : 'A few things at the house need your input:');
-      paras.push(group(intro, n.awaitingOwner));
+    if (e.handled.length > 0) {
+      paras.push(group(
+        paras.length > 0
+          ? `And here's what we took care of in ${shortMonth}:`
+          : `Around the house, here's what we took care of in ${shortMonth}:`,
+        e.handled));
     }
-    return paras.join('\n\n');
+  } else {
+    // Grouped owner email: label every group with its house.
+    paras.push(withContent.length === 1
+      ? 'A few notes from the house this month:'
+      : 'A few notes from the houses this month:');
+    for (const e of withContent) {
+      if (e.requests.length > 0) paras.push(group(`At ${e.propertyName}, waiting on your go-ahead:`, e.requests));
+      if (e.flags.length > 0) paras.push(group(`At ${e.propertyName}, worth flagging:`, e.flags));
+      if (e.handled.length > 0) paras.push(group(`At ${e.propertyName}, taken care of in ${shortMonth}:`, e.handled));
+    }
   }
 
-  // Grouped owner email: label every group with its house. Singular lead
-  // when only one of the covered houses had anything to report.
-  const paras: string[] = [withContent.length === 1
-    ? 'A few notes from the house this month:'
-    : 'A few notes from the houses this month:'];
-  for (const n of withContent) {
-    if (n.completed.length > 0) paras.push(group(`At ${n.propertyName}, taken care of in ${shortMonth}:`, n.completed));
-    if (n.inProgress.length > 0) paras.push(group(`At ${n.propertyName}, still in motion:`, n.inProgress));
-    if (n.awaitingOwner.length > 0) paras.push(group(`At ${n.propertyName}, waiting on your input:`, n.awaitingOwner));
+  if (anyAsks) {
+    paras.push('Just reply here with a yes or a no on each and we\'ll take it from there.');
   }
   return paras.join('\n\n');
 }
@@ -179,9 +276,9 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
     statementLine = `Please see the attached ${shortMonth} statements, one per property. The funds will be sent to your bank accounts on ${fundsSent}. If you have any questions, please let us know.`;
   }
 
-  // Opt-in work-notes section, slotted between the statement paragraph and
-  // the closing so the payout stays the headline. '' when off or empty.
-  const notesBlock = args.workNotes ? buildWorkNotesBlock(args.workNotes, shortMonth, !!multi) : '';
+  // Opt-in owner-request section, slotted between the statement paragraph
+  // and the closing so the payout stays the headline. '' when off or empty.
+  const notesBlock = args.ownerRequests ? buildOwnerRequestsBlock(args.ownerRequests, shortMonth, !!multi) : '';
   const notesPart = notesBlock ? `${notesBlock}\n\n` : '';
 
   if (template === 'touch_base') {

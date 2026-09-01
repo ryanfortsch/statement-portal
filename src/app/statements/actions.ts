@@ -5,8 +5,10 @@ import { PROPERTIES } from '@/lib/properties';
 import { getCachedPlatformCSV } from '@/lib/platform-csv-cache';
 import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR } from '@/lib/guesty-revenue-signal';
 import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
-import { loadStatementWorkNotes } from '@/lib/statement-work-notes';
-import type { PropertyWorkNotes } from '@/lib/email-templates';
+import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
+import type { OwnerRequestSelections, PropertyRequestCandidates } from '@/lib/email-templates';
+import { auth } from '@/auth';
+import type { WorkSlipOwnerActionType } from '@/lib/work-types';
 
 export type OwnerConfigRow = {
   name: string;
@@ -344,16 +346,76 @@ export async function upsertCloseTask(merged: Row): Promise<void> {
 }
 
 /**
- * The polished work-notes groups for one property-month, for the email
- * preview modal. Same loader /api/draft-email uses, so what the preview
- * shows is what the Gmail draft says.
+ * Every slip the operator could put in front of this owner this month, with
+ * its generated paragraph. Same loader /api/draft-email uses, so what the
+ * preview curates is exactly what the Gmail draft says.
  */
-export async function loadStatementWorkNotesAction(
+export async function loadOwnerRequestCandidatesAction(
   propertyId: string,
   propertyName: string,
   month: string,
-): Promise<PropertyWorkNotes> {
-  return loadStatementWorkNotes({ propertyId, propertyName, month });
+): Promise<PropertyRequestCandidates> {
+  return loadOwnerRequestCandidates({ propertyId, propertyName, month });
+}
+
+/**
+ * Persist the per-item picks for one property-month. Written on every tick
+ * and every edit, because the draft route reads THESE -- never anything the
+ * browser hands it -- so an unsaved edit would silently not ship.
+ */
+export async function saveOwnerRequestSelectionsAction(
+  periodId: string,
+  propertyId: string,
+  selections: OwnerRequestSelections,
+): Promise<void> {
+  await supabaseAdmin
+    .from('close_tasks')
+    .upsert(
+      { period_id: periodId, property_id: propertyId, owner_request_items: selections },
+      { onConflict: 'period_id,property_id' },
+    );
+}
+
+/**
+ * Add a request that has no slip behind it yet.
+ *
+ * It files a real work_slip rather than a statement-only line: the ask then
+ * lives on the Work board, shows up in the owner-action rail, and its answer
+ * is recorded in the same place as every other ask. A statement-only note
+ * would be a second, invisible source of truth for the same conversation.
+ */
+export async function addOwnerRequestSlipAction(args: {
+  propertyId: string;
+  title: string;
+  notes: string;
+  actionType: WorkSlipOwnerActionType;
+  location?: string | null;
+}): Promise<{ ok: true; slipId: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  const title = args.title.trim();
+  if (!title) return { ok: false, error: 'Give the request a title' };
+
+  const { data, error } = await supabaseAdmin
+    .from('work_slips')
+    .insert({
+      property_id: args.propertyId,
+      title,
+      category: 'owner',
+      status: 'open',
+      priority: 'normal',
+      location: args.location?.trim() || null,
+      owner_action_required: true,
+      owner_action_type: args.actionType,
+      owner_action_notes: args.notes.trim() || null,
+      owner_status: 'not_sent',
+      created_by_email: session.user.email,
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) return { ok: false, error: error?.message || 'Could not create the request' };
+  return { ok: true, slipId: data.id as string };
 }
 
 export type GuestyFinanceRow = {

@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ALWAYS_CC, SEND_FROM, getActivePropertyForStatements } from '@/lib/properties';
-import { renderEmail, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
-import { loadStatementWorkNotes } from '@/lib/statement-work-notes';
+import {
+  renderEmail,
+  resolveOwnerRequests,
+  ownerRequestsHaveContent,
+  type EmailTemplate,
+  type OwnerRequestSelections,
+  type ResolvedOwnerRequests,
+} from '@/lib/email-templates';
+import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
 import { verifyStatementIntegrity, FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 
@@ -238,9 +245,12 @@ export async function POST(request: NextRequest) {
     // instead of drafting the same owner twice. Manual per-property
     // drafting (no flag) always creates a fresh draft.
     const bulk: boolean = body.bulk === true;
-    // Opt-in work-notes section. The dashboard always passes the flag
+    // Opt-in owner-request section. The dashboard always passes the flag
     // (from close_tasks.email_include_work_slips); a caller that omits it
     // falls back to the stored preference so the toggle is authoritative.
+    // Which items ride along is NEVER passed in -- the per-item picks are
+    // read from close_tasks below, so a draft can only ever contain what
+    // the operator curated in the preview.
     let includeWorkSlips: boolean = body.include_work_slips === true;
 
     if (!propertyId || !month) {
@@ -405,18 +415,46 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Work notes ride the same grouping as the PDFs: one entry per covered
-    // property, houses with nothing to report dropped. All-empty -> no
+    // Owner requests ride the same grouping as the PDFs: one entry per
+    // covered property, houses with nothing to say dropped. All-empty -> no
     // section, body identical to the flag being off.
-    let workNotes: PropertyWorkNotes[] | undefined;
+    //
+    // Each house's picks live on its OWN close_tasks row, which is what lets
+    // a combined owner (Prudenzi, Moynahan) carry a curated list per house
+    // inside one email.
+    let ownerRequests: ResolvedOwnerRequests[] | undefined;
+    let askedSlipIds: string[] = [];
     if (includeWorkSlips) {
       const covered = members.length > 0
         ? members.map(m => ({ property_id: m.property_id, name: m.name }))
         : [{ property_id: propertyId, name: prop.name }];
+
+      const picksByProperty = new Map<string, { selections: OwnerRequestSelections | null; includeHandled: boolean }>();
+      if (periodId) {
+        const { data: taskRows } = await sbForStmt
+          .from('close_tasks')
+          .select('property_id, owner_request_items, email_include_handled')
+          .eq('period_id', periodId)
+          .in('property_id', covered.map(c => c.property_id));
+        for (const row of (taskRows || []) as { property_id: string; owner_request_items: OwnerRequestSelections | null; email_include_handled: boolean | null }[]) {
+          picksByProperty.set(row.property_id, {
+            selections: row.owner_request_items ?? null,
+            includeHandled: row.email_include_handled === true,
+          });
+        }
+      }
+
       const loaded = await Promise.all(covered.map(c =>
-        loadStatementWorkNotes({ propertyId: c.property_id, propertyName: c.name, month })));
-      const withContent = loaded.filter(workNotesHaveContent);
-      if (withContent.length > 0) workNotes = withContent;
+        loadOwnerRequestCandidates({ propertyId: c.property_id, propertyName: c.name, month })));
+      const resolved = loaded.map(l => {
+        const picks = picksByProperty.get(l.propertyId);
+        return resolveOwnerRequests(l, picks?.selections, { includeHandled: picks?.includeHandled === true });
+      });
+      const withContent = resolved.filter(ownerRequestsHaveContent);
+      if (withContent.length > 0) {
+        ownerRequests = withContent;
+        askedSlipIds = withContent.flatMap(r => r.askedSlipIds);
+      }
     }
 
     const { subject, body: emailBody } = renderEmail({
@@ -427,7 +465,7 @@ export async function POST(request: NextRequest) {
       ownerPayout: stmtRow ? stmtRow.owner_payout || undefined : undefined,
       template,
       properties: grouped ? members.map(m => ({ name: m.name, payout: m.owner_payout || undefined })) : undefined,
-      workNotes,
+      ownerRequests,
     });
 
     // Render each statement PDF via headless Chromium so the draft lands in
@@ -550,6 +588,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Close the loop on the work board: a slip whose ask just went out to
+    // the owner is now "sent", with the contact stamped. Without this the
+    // daily brief keeps nagging about an item the owner is already sitting
+    // on, and next month's draft re-asks as if it were new instead of
+    // saying "we first raised this on <date>".
+    //
+    // Stamped at DRAFT time, matching /api/work/draft-owner-email. Helm
+    // never sends for you, so draft is the last moment we control; a draft
+    // that never goes out leaves a slip reading "sent" -- the answer chips
+    // on the slip page are how that gets corrected.
+    if (askedSlipIds.length > 0) {
+      const { error: stampErr } = await sbForStmt
+        .from('work_slips')
+        .update({ owner_status: 'sent', owner_last_contacted_at: new Date().toISOString() })
+        .in('id', askedSlipIds);
+      if (stampErr) {
+        warnings.push(`The email is drafted, but ${askedSlipIds.length} work slip${askedSlipIds.length === 1 ? '' : 's'} could not be marked as sent to the owner (${stampErr.message}). Mark them on the slip page so the brief stops nagging.`);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       draft_id: draft.id,
@@ -558,7 +616,8 @@ export async function POST(request: NextRequest) {
       recipients,
       attached_pdf: pdfAttachments.length > 0,
       attached_pdf_count: pdfAttachments.length,
-      work_notes_included: !!workNotes,
+      work_notes_included: !!ownerRequests,
+      owner_requests_sent: askedSlipIds.length,
       covered_property_ids: coveredIds,
       cleared_sent_property_ids: clearedSentIds,
       warnings,
