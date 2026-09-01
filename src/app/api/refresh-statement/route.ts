@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
+import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, hasPriceableGross } from '@/lib/guesty-revenue-signal';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectStay } from '@/lib/missing-direct-stays';
@@ -21,7 +22,14 @@ import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectS
  * nights_booked. Cleaning events aren't touched (they're driven by the
  * Chase bank CSV which is a separate flow).
  *
- * Homeowner stays (total_paid <= 0) and reservations already on the
+ * Candidates carry revenue in ANY of total_paid / host_payout /
+ * owner_net_revenue_guesty (a homeowner stay is zero in all three and drops
+ * out). Only a candidate with total_paid > 0 is INSERTED, because the
+ * Stripe-on-gross reconstruction has no other input it can price from; a
+ * candidate with revenue only in host_payout is reported in
+ * `missing_gross_codes` instead of being guessed at; the operator-facing
+ * flag for such a stay belongs to the missed-Direct detector, which tests
+ * the Guesty folio's accommodation fare rather than a scalar column. Reservations already on the
  * statement (matched by confirmation_code) are skipped.
  */
 
@@ -109,26 +117,55 @@ export async function POST(request: NextRequest) {
     }
 
     // Existing reservation codes -- we won't duplicate any of these.
-    const { data: existing } = await supabase
+    // FAIL CLOSED: this is the dedupe key for the whole route. A swallowed
+    // error empties the set, every candidate then looks missing, and the
+    // insert below re-adds the ENTIRE month on top of itself -- the owner
+    // paid twice. Refuse instead; nothing has been written yet.
+    const { data: existing, error: existingErr } = await supabase
       .from('reservations')
       .select('confirmation_code')
       .eq('property_statement_id', stmt.id);
+    if (existingErr) {
+      return NextResponse.json(
+        { error: `Could not read the statement's existing bookings (${existingErr.message}). Nothing was changed -- retrying is safe.` },
+        { status: 502 },
+      );
+    }
     const existingCodes = new Set(
       (existing || []).map(r => r.confirmation_code).filter((c): c is string => !!c),
     );
 
     // Candidate guesty_reservations: same property, checked out in month,
-    // paid (total_paid > 0). Owner stays (total_paid = 0) excluded.
+    // carrying revenue in ANY of total_paid / host_payout /
+    // owner_net_revenue_guesty. A homeowner stay earns nothing in all three
+    // and drops out here, which is the same rule /api/ingest applies
+    // (Manual + zero accrual revenue). The old `.gt('total_paid', 0)` also
+    // excluded NULL, which hid every staycapeann.com direct stay: SCA takes
+    // payment through the property's own Stripe, so Guesty records
+    // total_paid NULL and only host_payout carries the gross.
+    //
+    // CANDIDACY IS NOT PERMISSION TO INSERT -- see the insertable/noGross
+    // split below. Widening this filter alone would let the reconstruction
+    // price a stay it has no gross for.
     const monthStart = `${month}-01`;
     const [y, m] = month.split('-').map(Number);
     const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
-    const { data: candidates } = await supabase
+    const { data: candidates, error: candErr } = await supabase
       .from('guesty_reservations')
-      .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission')
+      .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, status, total_taxes, channel_commission, ${REVENUE_SIGNAL_COLUMNS}`)
       .eq('property_id', propertyId)
       .gte('check_out', monthStart)
       .lt('check_out', monthEndExclusive)
-      .gt('total_paid', 0);
+      .or(REVENUE_SIGNAL_OR);
+    // Fail closed: an unreadable candidate list is not an empty one, and
+    // reporting "nothing to add" off a failed read is how a missed booking
+    // becomes a sent statement.
+    if (candErr) {
+      return NextResponse.json(
+        { error: `Could not read bookings for ${month}: ${candErr.message}. Nothing was changed.` },
+        { status: 502 },
+      );
+    }
 
     const candidatesMissing = (candidates || []).filter(c =>
       c.confirmation_code && !existingCodes.has(c.confirmation_code)
@@ -149,6 +186,42 @@ export async function POST(request: NextRequest) {
     const skippedInstallmentCodes = candidatesMissing
       .filter(c => installmentCoded.has(c.confirmation_code as string))
       .map(c => c.confirmation_code as string);
+
+    // Split candidacy from insertability. The reconstruction below prices a
+    // stay off TOTAL_PAID and nothing else: at total_paid = 0 it computes
+    // stripe_fee = $0.40 and adjusted_revenue = -$0.40, so inserting a
+    // gross-less row would invent money. host_payout is a different basis
+    // (gross INCLUDING taxes) and owner_net_revenue_guesty is already net of
+    // the management fee -- neither can be fed to these formulas without
+    // changing what the owner is paid.
+    //
+    // The FLAG for such a stay is owned by the missed-Direct detector below
+    // (#1414), which asks the sharper question: does the Guesty folio carry
+    // real accommodation fare? That separates a paying guest from a
+    // homeowner block far better than any of the scalar revenue columns, so
+    // this route reports the codes it could not price and lets that detector
+    // raise the operator-facing gap. No second, blunter gap for the same stay.
+    //
+    // Dedupe by confirmation_code, preferring the priceable row. Live data
+    // carries one row per code today, but guesty_reservations accumulates a
+    // row per source in principle, and two rows for one stay would otherwise
+    // be inserted twice (double revenue) or land in both buckets at once.
+    const byCode = new Map<string, typeof missing[number]>();
+    for (const g of missing) {
+      const code = g.confirmation_code as string;
+      const held = byCode.get(code);
+      if (!held || (!hasPriceableGross(held) && hasPriceableGross(g))) byCode.set(code, g);
+    }
+    const deduped = Array.from(byCode.values());
+
+    const insertable = deduped.filter(hasPriceableGross);
+    // A cancelled booking legitimately has no collected gross, and the
+    // cancelled-reservation guard already owns that case.
+    const isCancelled = (g: { status?: string | null }) =>
+      /cancel|declined|expired/i.test(String(g.status || ''));
+    const noGrossCodes = deduped
+      .filter(g => !hasPriceableGross(g) && !isCancelled(g))
+      .map(g => g.confirmation_code as string);
 
     // Missed-Direct guard. The total_paid > 0 candidate filter above is
     // correct for skipping homeowner stays, but it also skips real Direct
@@ -174,7 +247,7 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    if (missing.length === 0) {
+    if (insertable.length === 0) {
       const flaggedMissingDirect = await runMissingDirectCheck();
       const baseMessage = skippedInstallmentCodes.length > 0
         ? `No new bookings to add. ${skippedInstallmentCodes.length} skipped because they are recognized via installment splits (${skippedInstallmentCodes.join(', ')}).`
@@ -183,14 +256,24 @@ export async function POST(request: NextRequest) {
         success: true,
         added: [],
         skipped_installment_codes: skippedInstallmentCodes,
+        missing_gross_codes: noGrossCodes,
         flagged_missing_direct: flaggedMissingDirect,
-        message: flaggedMissingDirect.length > 0
-          ? `${baseMessage} WARNING: ${flaggedMissingDirect.length} confirmed Direct stay${flaggedMissingDirect.length === 1 ? '' : 's'} with real folio revenue ${flaggedMissingDirect.length === 1 ? 'is' : 'are'} missing from this statement (${flaggedMissingDirect.map(f => f.confirmation_code).join(', ')}). A critical data gap was raised.`
-          : baseMessage,
+        message: [
+          baseMessage,
+          flaggedMissingDirect.length > 0
+            ? `WARNING: ${flaggedMissingDirect.length} confirmed Direct stay${flaggedMissingDirect.length === 1 ? '' : 's'} with real folio revenue ${flaggedMissingDirect.length === 1 ? 'is' : 'are'} missing from this statement (${flaggedMissingDirect.map(f => f.confirmation_code).join(', ')}). A critical data gap was raised.`
+            : '',
+          // Codes this route saw but could not price. Usually the same
+          // stays the detector just flagged; listed so the operator knows
+          // Refresh could not fix them by itself.
+          noGrossCodes.length > 0
+            ? `${noGrossCodes.length} booking${noGrossCodes.length === 1 ? '' : 's'} could not be priced here (no collected gross in Guesty): ${noGrossCodes.join(', ')}.`
+            : '',
+        ].filter(Boolean).join(' '),
       });
     }
 
-    const newRows = missing.map(g => {
+    const newRows = insertable.map(g => {
       const platform = normalizePlatform(g.channel || g.guesty_channel_id);
       const platformUpper = platform.toUpperCase();
       const isStripeChannel = platformUpper.includes('HOMEAWAY') || platformUpper === 'VRBO' || platformUpper === 'MANUAL';
@@ -233,11 +316,21 @@ export async function POST(request: NextRequest) {
     const { error: insertErr } = await supabase.from('reservations').insert(newRows);
     if (insertErr) throw insertErr;
 
-    // Recompute statement totals from the freshest reservations.
-    const { data: allRes } = await supabase
+    // Recompute statement totals from the freshest reservations. This read
+    // runs AFTER the insert, so a failure cannot be a clean refusal -- but
+    // it must not be silent either: an empty result here would zero
+    // rental_revenue, num_stays and nights_booked and rewrite the payout as
+    // if the property had no bookings at all.
+    const { data: allRes, error: allResErr } = await supabase
       .from('reservations')
       .select('adjusted_revenue, nights, check_out')
       .eq('property_statement_id', stmt.id);
+    if (allResErr) {
+      throw new Error(
+        `Bookings were added, but the statement totals could not be recomputed (${allResErr.message}). ` +
+        'The statement now understates revenue until you re-run Refresh or re-ingest the month.',
+      );
+    }
     const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
     // Attributed add-ons / debits stay in the equation (canonical formula,
     // same as the bank-deposits + reserve routes) so a refresh can't
@@ -272,6 +365,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       skipped_installment_codes: skippedInstallmentCodes,
+      missing_gross_codes: noGrossCodes,
       flagged_missing_direct: flaggedMissingDirect,
       added: newRows.map(r => ({
         guest: r.guest_name,

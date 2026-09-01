@@ -120,11 +120,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .eq('property_statement_id', psid)
     .or(`expected_data.ilike.%${code}%,description.ilike.%${(res.guest_name || '').replace(/[%,]/g, '')}%`);
 
-  // Recompute the statement from the remaining reservations.
-  const { data: remaining } = await supabase
+  // Recompute the statement from the remaining reservations. The delete
+  // above already happened, so this cannot be a clean refusal -- but a
+  // swallowed error here would read as "no reservations left" and rewrite
+  // rental_revenue, num_stays and nights_booked to zero on a statement that
+  // still has stays. Fail loudly and tell the operator what to do.
+  const { data: remaining, error: remainingErr } = await supabase
     .from('reservations')
     .select('adjusted_revenue, nights, check_out')
     .eq('property_statement_id', psid);
+  if (remainingErr) {
+    return NextResponse.json({
+      error: `The reservation was removed, but the statement totals could not be recomputed (${remainingErr.message}). `
+        + 'Re-run Refresh Statement (or re-ingest the month) before sending: the totals still include the removed stay.',
+    }, { status: 500 });
+  }
   const rows = remaining || [];
 
   const rentalRevenue = round2(rows.reduce((s, r) => s + (Number(r.adjusted_revenue) || 0), 0));

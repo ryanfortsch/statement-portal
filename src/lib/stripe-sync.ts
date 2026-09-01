@@ -43,7 +43,8 @@ import { taxPortionOfNet } from '@/lib/addon-tax';
 import { loadAddOnTotals } from './statement-addons';
 import { chargeWindow } from './stripe-window';
 import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
-import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
+import { FINALITY_FROM_MONTH, getFreezeStatus } from '@/lib/statement-finality';
+import { loadInstallmentsForCodes } from '@/lib/installments';
 
 export type StripeSyncResult = {
   property_id: string;
@@ -56,6 +57,16 @@ export type StripeSyncResult = {
   gross_reconstructions: { code: string; guest: string; stripe: number; guesty: number; prev_net: number; next_net: number; fee: number }[];
   collected_rebuilds: { code: string; guest: string; collected: number; folio: number; prev_net: number; next_net: number; fee: number }[];
   reservations_missing_charge: { code: string; guest: string; expected: number }[];
+  /**
+   * Report-only blind spots (2026-09 audit phase 2). None of these move a
+   * stored value; they exist so a silent skip stops reading as "verified".
+   */
+  /** Charge matched, but Stripe returned no balance_transaction fee: the stay is STILL on the 3.9% estimate. */
+  fee_unreadable?: { code: string; guest: string; gross: number; charges: number; reason: 'no_balance_transaction' | 'partial' }[];
+  /** Collected-net rebuild ran on a gross that Guesty says is short: the visible charges may be truncated. */
+  collected_rebuild_truncated?: { code: string; guest: string; collected: number; folio: number; guesty_total_paid: number }[];
+  /** This property has RT-Stripe stays but no configured Stripe key, so it was never synced at all. */
+  no_stripe_key?: boolean;
   /** True when the statement was already emailed to the owner; the sync wrote nothing. */
   skipped_sent?: boolean;
   error?: string;
@@ -186,6 +197,72 @@ function futureStayPeriodFromKey(requestKey: string): string {
   const dates = requestKey.match(/\d{4}-\d{2}-\d{2}/g);
   const last = dates && dates.length ? dates[dates.length - 1] : '';
   return last ? last.slice(0, 7) : '';
+}
+
+/**
+ * Report (as a data gap) a property that has RT-Stripe-channel stays this
+ * month but NO configured Stripe key.
+ *
+ * syncPropertyStripe only ever runs for properties that HAVE a key, so a
+ * keyless property is not "synced clean" -- it is never looked at. Its
+ * VRBO/Manual/Direct fees keep the 3.9% + $0.40 estimate indefinitely and
+ * nothing anywhere says so. Airbnb/Booking-only properties legitimately
+ * need no key, so the gap is raised only when RT-Stripe stays exist.
+ *
+ * Report-only: writes one data_gaps row, never a money column. Fails
+ * closed on a read error (throws) rather than reporting a false all-clear.
+ */
+export async function reportMissingStripeKey(
+  supabase: SupabaseClient,
+  opts: { propertyId: string; statementId: string; month: string },
+): Promise<{ raised: boolean; rtStays: number }> {
+  // A frozen statement is skipped by syncPropertyStripe, and that function's
+  // gap wipe is the only thing besides this helper that clears the row. So a
+  // gap written here after the statement is sent or the month is finalized
+  // could never be cleared again -- it would sit on the owner's closed month
+  // forever. The condition is a standing config fact; it will be reported on
+  // the next open month instead.
+  const freeze = await getFreezeStatus(supabase, { statementId: opts.statementId });
+  if (freeze.frozen) return { raised: false, rtStays: 0 };
+
+  const { data: rows, error } = await supabase
+    .from('reservations')
+    .select('platform, adjusted_revenue')
+    .eq('property_statement_id', opts.statementId);
+  if (error) throw new Error(`stripe key check: reservation read failed: ${error.message}`);
+  // Revenue-bearing RT-Stripe stays only. A Manual row with no revenue is
+  // a homeowner blocking their own house -- it has no Stripe charge to
+  // verify, so counting it would raise this gap on properties that need no
+  // key at all.
+  const rtStays = (rows || []).filter(r => {
+    const p = String(r.platform || '').toUpperCase();
+    const isRT = p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL' || p === 'DIRECT';
+    return isRT && (Number(r.adjusted_revenue) || 0) > 0;
+  }).length;
+
+  // Idempotent: clear any prior row so repeated syncs never stack. Ordered
+  // so a failure can never leave the statement with NO gap where it had one:
+  // when there is nothing to re-raise we only delete (correct -- the
+  // condition is resolved); when there is, the insert follows immediately
+  // and its failure is reported to the caller.
+  const { error: delErr } = await supabase
+    .from('data_gaps')
+    .delete()
+    .eq('property_statement_id', opts.statementId)
+    .eq('gap_type', 'stripe_key_missing');
+  if (delErr) throw new Error(`stripe key check: gap cleanup failed: ${delErr.message}`);
+  if (rtStays === 0) return { raised: false, rtStays: 0 };
+
+  const { error: insErr } = await supabase.from('data_gaps').insert({
+    property_statement_id: opts.statementId,
+    gap_type: 'stripe_key_missing',
+    severity: 'warning',
+    description: `${rtStays} VRBO/Direct stay${rtStays === 1 ? '' : 's'} on this statement are paid through Rising Tide's own Stripe, but this property has no Stripe key configured in Helm, so its fees were never verified and are still the 3.9% + $0.40 estimate.`,
+    expected_data: `Add STRIPE_KEY_${opts.propertyId.toUpperCase()} in Vercel with the property's restricted key, then run Sync Stripe.`,
+    resolved: false,
+  });
+  if (insErr) throw new Error(`stripe key check: gap insert failed: ${insErr.message}`);
+  return { raised: true, rtStays };
 }
 
 export function getStripeKeysMap(): Record<string, string> {
@@ -397,19 +474,19 @@ export async function syncPropertyStripe(opts: {
     // adjusted_revenue and the statement total. For any code with
     // installment rows we still match/report the charge, but leave the
     // fee + adjusted_revenue exactly as ingest wrote them.
-    const installmentCodes = new Set<string>();
-    {
-      const codes = reservations.map(r => r.confirmation_code).filter(Boolean);
-      if (codes.length > 0) {
-        const { data: instRows } = await supabase
-          .from('reservation_installments')
-          .select('confirmation_code')
-          .in('confirmation_code', codes);
-        for (const row of instRows || []) {
-          if (row.confirmation_code) installmentCodes.add(row.confirmation_code as string);
-        }
-      }
-    }
+    // Read through the shared loader, which FAILS CLOSED (2026-09 audit
+    // phase 2). This query used to discard its error: an unreadable split
+    // table produced an EMPTY code set, which reads as "nothing here is
+    // split" -- and the guard below then does the exact thing it exists to
+    // prevent, dumping a full-stay Payment Link fee onto one month's row.
+    // A throw here is caught by this function's outer catch and reported
+    // as this property's sync error, leaving every stored value untouched.
+    const installmentCodes = new Set<string>(
+      (await loadInstallmentsForCodes(
+        supabase,
+        reservations.map(r => r.confirmation_code).filter(Boolean) as string[],
+      )).keys(),
+    );
 
     // Cross-month known codes for this property -- used to distinguish
     // "real orphan charge" (no reservation anywhere) from "charge for a
@@ -473,7 +550,7 @@ export async function syncPropertyStripe(opts: {
     // fuzzyEligible: charge is Guesty-coded or created inside the legacy
     // 6-month window (chargeWindow().fuzzyCutoffUnix). Pre-cutoff
     // non-coded charges exist only for the date-range matcher.
-    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean; hasAppFee: boolean; helmRequestKey: string | null; fuzzyEligible: boolean };
+    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; feeChargeCount: number; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean; hasAppFee: boolean; helmRequestKey: string | null; fuzzyEligible: boolean };
     const { fuzzyCutoffUnix } = chargeWindow(month);
     const byCodeAgg = new Map<string, Agg>();
     const orphanCodes: { code: string; amount: number; displayLabel: string }[] = [];
@@ -497,14 +574,14 @@ export async function syncPropertyStripe(opts: {
       const label = desc || `(no description) …${charge.id.slice(-8)}`;
       const displayLabel = looksLikeCode ? firstToken : (label.length > 48 ? label.slice(0, 45) + '…' : label);
 
-      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode, hasAppFee: false, helmRequestKey: (charge.metadata?.helm_request_key || '').trim() || null, fuzzyEligible: false };
+      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, feeChargeCount: 0, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode, hasAppFee: false, helmRequestKey: (charge.metadata?.helm_request_key || '').trim() || null, fuzzyEligible: false };
       agg.fuzzyEligible = agg.fuzzyEligible || looksLikeCode || charge.created >= fuzzyCutoffUnix;
       agg.grossCents += charge.amount;
       agg.refundedCents += charge.amount_refunded;
       const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
         ? charge.balance_transaction.fee
         : null;
-      if (fee != null) { agg.feeCents += fee; agg.feeKnown = true; }
+      if (fee != null) { agg.feeCents += fee; agg.feeKnown = true; agg.feeChargeCount += 1; }
       // Legacy Guesty Payments charges carry an application fee on top of
       // Stripe's; the collected-net rebuild below skips those (its simple
       // gross/1.117 inversion would miss the ~1% Guesty cut).
@@ -536,6 +613,26 @@ export async function syncPropertyStripe(opts: {
     // never the current adjusted value, so re-syncs are idempotent.
     // Returns true when the row was handled here (written or already
     // agreeing within $1); the caller then skips the plain fee write.
+    // Report-only: a matched stay whose real fee Stripe would not hand over
+    // (restricted key without balance_transaction read, most often) keeps the
+    // 3.9% estimate. Silence there is indistinguishable from "already
+    // correct", which is how an estimate survives forever. Frozen classes
+    // (paid_off_stripe, installment slices) are excluded deliberately -- their
+    // fees are meant to stand, so flagging them would be pure noise.
+    const noteFeeUnreadable = (
+      row: { confirmation_code: string; guest_name: string | null; stripe_fee: number | null; bank_match_status: string | null },
+      gross: number,
+      charges: number,
+      reason: 'no_balance_transaction' | 'partial',
+    ) => {
+      if (row.stripe_fee == null) return;
+      if (row.bank_match_status === 'paid_off_stripe') return;
+      if (installmentCodes.has(row.confirmation_code)) return;
+      (result.fee_unreadable ||= []).push({
+        code: row.confirmation_code, guest: row.guest_name || 'Guest', gross, charges, reason,
+      });
+    };
+
     const applyCollectedNet = async (
       res: ReservationRow,
       agg: { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; hasAppFee: boolean; createdUnix: number },
@@ -583,6 +680,20 @@ export async function syncPropertyStripe(opts: {
         return true;
       }
       if (collectedPreTax < base * 0.5 || collectedPreTax > base * 1.5) return false; // implausible: likely wrong charge
+      // Evidence that what we can SEE is not all the money: Guesty recorded a
+      // larger TOTAL_PAID than the charges matched here. The rebuild below is
+      // deliberately left exactly as it was (changing it moves an owner
+      // payout and needs its own approval + parity harness); this only tells
+      // the operator the input may be truncated.
+      {
+        const guestyPaid = grossByCode.get(res.confirmation_code) ?? null;
+        if (collectedPreTax < base && guestyPaid != null && guestyPaid > collectedGross + 1) {
+          (result.collected_rebuild_truncated ||= []).push({
+            code: res.confirmation_code, guest: res.guest_name || 'Guest',
+            collected: collectedGross, folio: base, guesty_total_paid: guestyPaid,
+          });
+        }
+      }
       const nextNet = round2(collectedPreTax - actualFee);
       if (nextNet <= 0) return false;
       const prevNet = round2(res.adjusted_revenue || 0);
@@ -618,6 +729,8 @@ export async function syncPropertyStripe(opts: {
       const stripeGross = round2(agg.grossCents / 100);
       const refunded = round2(agg.refundedCents / 100);
       const actualFee = agg.feeKnown ? round2(agg.feeCents / 100) : null;
+      if (actualFee == null) noteFeeUnreadable(res, stripeGross, agg.chargeCount, 'no_balance_transaction');
+      else if (agg.feeChargeCount < agg.chargeCount) noteFeeUnreadable(res, stripeGross, agg.chargeCount, 'partial');
 
       const guestyGross = grossByCode.get(code);
       const mismatched = guestyGross != null && Math.abs(guestyGross - stripeGross) > 1;
@@ -764,6 +877,8 @@ export async function syncPropertyStripe(opts: {
       // match path does. Skip rows marked paid_off_stripe. A Direct stay
       // whose charge disagrees with the folio rebuilds from collected.
       const actualFee = agg.feeKnown ? round2(agg.feeCents / 100) : null;
+      if (actualFee == null) noteFeeUnreadable(r, orphan.amount, agg.chargeCount, 'no_balance_transaction');
+      else if (agg.feeChargeCount < agg.chargeCount) noteFeeUnreadable(r, orphan.amount, agg.chargeCount, 'partial');
       const rebuilt = await applyCollectedNet(r, agg);
       if (!rebuilt && actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
         const prev = round2(r.stripe_fee);
@@ -851,6 +966,7 @@ export async function syncPropertyStripe(opts: {
       }
 
       const actualFee = feeKnown ? round2(feeCents / 100) : null;
+      if (actualFee == null) noteFeeUnreadable(r, round2(grossCents / 100), hits.length, 'no_balance_transaction');
       const rebuilt = await applyCollectedNet(r, { grossCents, refundedCents, feeCents, feeKnown, hasAppFee, createdUnix });
       if (!rebuilt && actualFee != null && r.stripe_fee != null && r.bank_match_status !== 'paid_off_stripe' && !installmentCodes.has(r.confirmation_code)) {
         const prev = round2(r.stripe_fee);
@@ -1256,7 +1372,7 @@ export async function syncPropertyStripe(opts: {
       .from('data_gaps')
       .delete()
       .eq('property_statement_id', stmt.id)
-      .in('gap_type', ['stripe_refund_detected', 'stripe_gross_mismatch', 'stripe_gross_reconstructed', 'stripe_opening_discount', 'stripe_collected_rebuild', 'stripe_missing_charge', 'stripe_orphan_charge']);
+      .in('gap_type', ['stripe_refund_detected', 'stripe_gross_mismatch', 'stripe_gross_reconstructed', 'stripe_opening_discount', 'stripe_collected_rebuild', 'stripe_missing_charge', 'stripe_orphan_charge', 'stripe_fee_unreadable', 'stripe_collected_truncated', 'stripe_key_missing']);
 
     // Pull any reservation_notes for the codes we're about to flag, so
     // gap descriptions inherit the durable context that arrived
@@ -1271,6 +1387,8 @@ export async function syncPropertyStripe(opts: {
       ...result.gross_reconstructions.map(g => g.code),
       ...result.collected_rebuilds.map(c => c.code),
       ...result.reservations_missing_charge.map(mc => mc.code),
+      ...(result.fee_unreadable || []).map(f => f.code),
+      ...(result.collected_rebuild_truncated || []).map(c => c.code),
     ]);
     const notesByCode = new Map<string, { body: string; created_at: string }>();
     if (flaggedCodes.size > 0) {
@@ -1342,6 +1460,30 @@ export async function syncPropertyStripe(opts: {
         description: `No Stripe charge found for ${mc.guest} (${mc.code}) expected $${mc.expected.toFixed(2)}.${noteSuffix(mc.code)}`,
         severity: 'info',
         expected_data: `Check Stripe dashboard for this confirmation code`,
+      });
+    }
+    // A matched charge whose real fee Stripe would not return. The stay is
+    // still priced on the 3.9% + $0.40 estimate, against the standing
+    // "actuals are the rule" directive -- so it gets said out loud.
+    for (const f of result.fee_unreadable || []) {
+      newGaps.push({
+        gap_type: 'stripe_fee_unreadable',
+        description: f.reason === 'partial'
+          ? `${f.guest}'s stay was paid across ${f.charges} Stripe charges but only some returned a fee, so the fee recorded here is UNDERSTATED and the payout correspondingly overstated.${noteSuffix(f.code)}`
+          : `Matched ${f.guest}'s Stripe charge ($${f.gross.toFixed(2)}, ${f.charges} charge${f.charges === 1 ? '' : 's'}) but Stripe returned no fee at all, so this stay is still on the 3.9% + $0.40 estimate.${noteSuffix(f.code)}`,
+        severity: 'warning',
+        expected_data: `Give this property's restricted Stripe key read access to Balance transactions, then run Sync Stripe again.`,
+      });
+    }
+    // The collected-net rebuild ran on a gross Guesty says is short. The
+    // rebuild itself is unchanged (that would move a payout); this only
+    // reports that its input may have been truncated.
+    for (const c of result.collected_rebuild_truncated || []) {
+      newGaps.push({
+        gap_type: 'stripe_collected_truncated',
+        description: `${c.guest} (${c.code}): revenue was rebuilt from $${c.collected.toFixed(2)} of visible Stripe charges, but Guesty recorded $${c.guesty_total_paid.toFixed(2)} collected. If a payment is outside the charge window, this stay's revenue is understated.${noteSuffix(c.code)}`,
+        severity: 'warning',
+        expected_data: `Check Stripe for earlier charges on this booking (deposit at booking time), then re-run Sync Stripe.`,
       });
     }
     if (newGaps.length > 0) {

@@ -557,6 +557,12 @@ export async function computeRevenueSnapshot(
   // is allocated to its months per the operator-entered slices (matching the
   // Statements module) instead of checkout attribution -- one batched query,
   // empty map when the table doesn't exist yet.
+  //
+  // A read FAILURE (as opposed to a missing table) throws out of here by
+  // design (2026-09 audit phase 2): without the slices this snapshot would
+  // silently attribute a whole long stay to its checkout month and report a
+  // revenue shape that never happened. An erroring /revenue page is the
+  // honest outcome; a confidently wrong one is not.
   const installmentsByCode = await loadInstallmentsForCodes(
     supabase,
     reservations.map((r) => r.confirmation_code || ''),

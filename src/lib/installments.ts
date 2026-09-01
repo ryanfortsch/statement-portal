@@ -22,6 +22,23 @@
  *  - Penny exactness: SUM(installment_revenue) over a code must equal
  *    reservations.adjusted_revenue. Round to cents on the first N-1
  *    months; the final month absorbs the residue.
+ *
+ * ERROR POSTURE (2026-09, statements audit phase 2): these loaders FAIL
+ * CLOSED. Until now every one of them swallowed any read error and
+ * returned null/empty with a console.warn, which reads downstream as the
+ * hard fact "this booking is not split". That is the most expensive
+ * possible lie in this pipeline: with the slices invisible, /api/ingest's
+ * fork, synthetic injection and recognized-elsewhere guard all disengage,
+ * so a long stay whose earlier months were already paid gets recognized
+ * again at FULL value in its checkout month -- the owner is paid twice,
+ * silently, reopening the bug class #1406 closed.
+ *
+ * A missing TABLE is still tolerated (pre-migration environments legally
+ * have no splits, so empty is the truth there). Any OTHER failure throws,
+ * mirroring loadAddOnTotals in statement-addons.ts. Callers on a money
+ * path (ingest, refresh-statement, fill-gap, stripe-sync) let it
+ * propagate and fail the request visibly; display-only callers catch it
+ * and mark their output degraded rather than printing wrong numbers.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -42,14 +59,41 @@ export type Installment = {
 const COLS = 'id, confirmation_code, property_id, month, installment_revenue, installment_nights, is_final_month, note, created_at, updated_at';
 
 /**
- * Tolerate the table not existing yet (migration unrun). Returns null +
- * logs once so the ingest path doesn't fail before PR 1's SQL has been
- * applied in prod.
+ * Tolerate the table not existing yet (migration unrun): a pre-migration
+ * environment genuinely has no splits, so empty is the truth there.
  */
 function isMissingTableError(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false;
   if (err.code === 'PGRST205') return true;
-  return /does not exist|relation|Could not find the table/i.test(err.message || '');
+  // Narrow to THIS table. The old test matched any message containing
+  // "relation" or "does not exist", which swallowed unrelated failures --
+  // a missing COLUMN, for instance -- straight back into the empty result
+  // this module now exists to prevent.
+  const msg = err.message || '';
+  if (!/reservation_installments/i.test(msg)) return false;
+  return /relation .* does not exist|Could not find the table|does not exist/i.test(msg);
+}
+
+/**
+ * Thrown when the split table is readable-in-principle but the read
+ * failed. Callers must NOT treat this as "not split" -- see the error
+ * posture note at the top of this file.
+ */
+export class InstallmentReadError extends Error {
+  constructor(loader: string, message: string) {
+    super(
+      `${loader}: reservation_installments read failed (${message}). ` +
+      'Refusing to continue: an unreadable split table is indistinguishable from an unsplit booking, ' +
+      'and proceeding would risk recognizing an already-paid stay a second time.',
+    );
+    this.name = 'InstallmentReadError';
+  }
+}
+
+/** Missing table -> tolerated (caller gets the empty default). Anything else -> throw. */
+function assertReadable(loader: string, err: { code?: string; message?: string } | null): void {
+  if (!err || isMissingTableError(err)) return;
+  throw new InstallmentReadError(loader, err.message || 'unknown error');
 }
 
 /**
@@ -70,10 +114,7 @@ export async function loadInstallment(
     .eq('confirmation_code', confirmationCode)
     .eq('month', month)
     .maybeSingle();
-  if (error && !isMissingTableError(error)) {
-    console.warn('loadInstallment failed:', error.message);
-    return null;
-  }
+  assertReadable('loadInstallment', error);
   return (data as Installment | null) ?? null;
 }
 
@@ -92,10 +133,7 @@ export async function loadInstallmentsForCode(
     .select(COLS)
     .eq('confirmation_code', confirmationCode)
     .order('month', { ascending: true });
-  if (error && !isMissingTableError(error)) {
-    console.warn('loadInstallmentsForCode failed:', error.message);
-    return [];
-  }
+  assertReadable('loadInstallmentsForCode', error);
   return (data || []) as Installment[];
 }
 
@@ -117,10 +155,8 @@ export async function loadInstallmentsForCodes(
     .select(COLS)
     .in('confirmation_code', codes)
     .order('month', { ascending: true });
-  if (error) {
-    if (!isMissingTableError(error)) console.warn('loadInstallmentsForCodes failed:', error.message);
-    return out;
-  }
+  assertReadable('loadInstallmentsForCodes', error);
+  if (error) return out;   // tolerated missing table
   for (const row of (data || []) as Installment[]) {
     const list = out.get(row.confirmation_code);
     if (list) list.push(row);
@@ -148,10 +184,8 @@ export async function loadInstallmentsForMonth(
     .select(COLS)
     .eq('property_id', propertyId)
     .eq('month', month);
-  if (error) {
-    if (!isMissingTableError(error)) console.warn('loadInstallmentsForMonth failed:', error.message);
-    return [];
-  }
+  assertReadable('loadInstallmentsForMonth', error);
+  if (error) return [];   // tolerated missing table
   return (data || []) as Installment[];
 }
 
@@ -172,10 +206,8 @@ export async function loadInstallmentsByCodeForMonth(
     .select(COLS)
     .in('confirmation_code', confirmationCodes)
     .eq('month', month);
-  if (error) {
-    if (!isMissingTableError(error)) console.warn('loadInstallmentsByCodeForMonth failed:', error.message);
-    return out;
-  }
+  assertReadable('loadInstallmentsByCodeForMonth', error);
+  if (error) return out;   // tolerated missing table
   for (const row of (data || []) as Installment[]) {
     out.set(row.confirmation_code, row);
   }
