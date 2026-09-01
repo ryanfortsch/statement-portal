@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from 'react';
 type AccountCheckRow = {
   property_id: string;
   account_id: string | null;
+  account_id_from_error: boolean;
   display_name: string;
   account_error: string | null;
   charges_60d: number | null;
@@ -192,9 +193,15 @@ function ResultRow({ row, windowDays, prominent }: { row: AccountCheckRow; windo
         {row.account_id ? (
           <>
             <span style={mono}>{row.account_id}</span>
-            <span style={{ color: 'var(--ink)' }}>
-              {row.display_name || <em style={{ color: 'var(--ink-4)' }}>no dashboard name</em>}
-            </span>
+            {row.account_id_from_error ? (
+              <span style={{ color: 'var(--ink-4)' }}>
+                id via permission error; add Accounts Read to the key for the dashboard name
+              </span>
+            ) : (
+              <span style={{ color: 'var(--ink)' }}>
+                {row.display_name || <em style={{ color: 'var(--ink-4)' }}>no dashboard name</em>}
+              </span>
+            )}
           </>
         ) : (
           <span style={{ color: 'var(--signal, #c85a3a)' }}>
@@ -225,10 +232,19 @@ function ResultRow({ row, windowDays, prominent }: { row: AccountCheckRow; windo
             Zero charges but {row.direct_stays} Direct/VRBO stay{row.direct_stays === 1 ? '' : 's'} on the books.
           </span>{' '}
           This is the wrong-account signature: a valid key from someone else&apos;s Stripe reads
-          clean and sees nothing. Open the property&apos;s own Stripe dashboard and confirm its
-          account id matches <span style={mono}>{row.account_id}</span>. If it doesn&apos;t,
-          re-mint the restricted key from the right account and update{' '}
-          <span style={mono}>STRIPE_KEY_{row.property_id.toUpperCase()}</span> in Vercel.
+          clean and sees nothing.{' '}
+          {row.account_id ? (
+            <>
+              Open the property&apos;s own Stripe dashboard and confirm its account id matches{' '}
+              <span style={mono}>{row.account_id}</span>.
+            </>
+          ) : (
+            <>The key would not even name its account; identify it in the Stripe dashboard.</>
+          )}{' '}
+          If it&apos;s the wrong account, re-mint the restricted key from the right one and update{' '}
+          <span style={mono}>STRIPE_KEY_{row.property_id.toUpperCase()}</span> in Vercel. It can
+          also be innocent on a brand-new property whose bookings simply haven&apos;t been charged
+          yet; the dashboard comparison settles it either way.
         </div>
       )}
     </div>

@@ -20,7 +20,7 @@ import { selectAllPaged } from '@/lib/paged-select';
  *   - GET /v1/charges created in the last 60 days: a count (capped at 500)
  *   - confirmed Direct/VRBO stays on the books (check_in inside or after the
  *     same 60-day window), from guesty_reservations
- *   - suspect flag: account readable, ZERO charges, but Direct/VRBO stays
+ *   - suspect flag: charges readable, ZERO of them, but Direct/VRBO stays
  *     exist. That combination is the wrong-account signature.
  *
  * READ-ONLY on both sides: two Stripe list/read calls per key, one Supabase
@@ -65,10 +65,16 @@ async function stripeGetJson(
 
 type AccountCheckRow = {
   property_id: string;
-  /** acct_... id, or null when GET /v1/account was refused. */
+  /** acct_... id. Null only when Stripe named no account at all. */
   account_id: string | null;
+  /** True when account_id was recovered from the 403 error text rather than
+   *  the account object. The 2026-09-01 fleet run showed NO restricted key
+   *  carries Accounts Read, but Stripe's permission error names the account
+   *  anyway ("...on account 'acct_...'"), which is all the identity check
+   *  needs. Adding the scope upgrades the row with the dashboard name. */
+  account_id_from_error: boolean;
   /** Stripe dashboard display name (settings.dashboard.display_name,
-   *  falling back to business_profile.name). */
+   *  falling back to business_profile.name). Empty without Accounts Read. */
   display_name: string;
   account_error: string | null;
   /** Charges created in the last 60 days, or null when the list call failed. */
@@ -93,6 +99,7 @@ async function checkOneKey(
   const row: AccountCheckRow = {
     property_id: propertyId,
     account_id: null,
+    account_id_from_error: false,
     display_name: '',
     account_error: null,
     charges_60d: null,
@@ -111,6 +118,14 @@ async function checkOneKey(
     row.display_name = settings?.dashboard?.display_name || profile?.name || '';
   } else {
     row.account_error = `${acctErr.status ?? ''} ${acctErr.message ?? 'error'}`.trim();
+    // A key without Accounts Read still identifies itself: the 403 says
+    // "...for this endpoint on account 'acct_...'". Recover the id so the
+    // identity check works without editing 18 keys' scopes.
+    const m = /acct_[A-Za-z0-9]+/.exec(row.account_error);
+    if (m) {
+      row.account_id = m[0];
+      row.account_id_from_error = true;
+    }
   }
 
   // Count-only charge sweep: ids never leave the loop, amounts are not read.
@@ -132,7 +147,11 @@ async function checkOneKey(
     count += data.length;
     if (!res.has_more || data.length === 0) {
       row.charges_60d = count;
-      row.suspect = !!row.account_id && count === 0 && (directStays ?? 0) > 0;
+      // The wrong-account signature needs only a SUCCESSFUL charges read
+      // that saw nothing while stays exist. Gating on a readable /v1/account
+      // was wrong: the 2026-09-01 fleet run showed every key 403s that call,
+      // which would have disarmed the flag on exactly the row it exists for.
+      row.suspect = count === 0 && (directStays ?? 0) > 0;
       return row;
     }
     startingAfter = data[data.length - 1]?.id;
