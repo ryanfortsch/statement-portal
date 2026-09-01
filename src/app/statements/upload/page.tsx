@@ -84,6 +84,8 @@ type IngestResult = {
     data_gaps: number;
   };
   stripe_sync: StripeSyncSummary | null;
+  /** Set when the uploaded PDF's only section belonged to another property. */
+  wrong_property_pdf?: { heading: string; listing: string; property_id: string } | null;
   parsed_reservations: ParsedReservation[];
 };
 
@@ -716,6 +718,24 @@ function UploadPageInner() {
                 </span>
               </div>
             </div>
+
+            {/* The uploaded owner statement covered a different house, so no
+                revenue was taken from it. Loud and first: the rest of the
+                page reads like a normal successful ingest, and the numbers
+                below are real (cleaning, bank) even though revenue is $0. */}
+            {result.wrong_property_pdf && (
+              <div style={{
+                marginTop: 24, padding: '14px 16px',
+                background: 'var(--paper-2)', borderLeft: '3px solid var(--signal)',
+              }}>
+                <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 6 }}>Wrong statement PDF</div>
+                <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>
+                  The PDF you uploaded covers <strong>{result.wrong_property_pdf.listing}</strong>, not {result.property}.
+                  No reservations were taken from it, so revenue above is $0. Re-upload {result.property}&rsquo;s own
+                  statement, or resolve the flagged gap if this house genuinely had no bookings this month.
+                </div>
+              </div>
+            )}
 
             {/* Stripe sync callout. Only renders when the property has a
                 Stripe key configured (otherwise stripe_sync is null and the
