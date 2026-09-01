@@ -190,8 +190,14 @@ export const PROPERTIES: Record<string, Property> = {
   // No tax cert recorded yet; backfill here and in the DB row.
   '3_windward': {
     id: '3_windward', name: '3 Windward', address: '3 Windward Point', city: 'Gloucester, MA',
+    // Both Moynahan properties share one owners row, so 73 Rocky Neck and
+    // this one go out as ONE combined statement email (same treatment as
+    // Prudenzi's two units at 53 Rocky Neck). Laila Rocha is a signing
+    // party on the executed contract ("3 Windward Pt - Matt Moynahan,
+    // Laila Rocha - Executed 2026-07-13.pdf") and belongs on this
+    // property's own sends too, not just the combined one.
     owner_last: 'Moynahan', owner_full: 'Matt Moynahan', owner_greeting: 'Matt and Laila',
-    owner_emails: ['matthewmoynahan@yahoo.com'],
+    owner_emails: ['matthewmoynahan@yahoo.com', 'lailarocha@gmail.com'],
     fee_pct: 18, bank_last4: '1232', listing_match: '3 windward',
     tax_cert_id: null,
   },

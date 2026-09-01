@@ -2015,7 +2015,7 @@ function DashboardContent() {
   // properties not yet in the DB -- the DB is the source of truth, so an
   // owner-profile edit (name, email) on the property page shows up here
   // without a code change. Keyed by property_id.
-  const [ownerCfg, setOwnerCfg] = useState<Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[] }>>({});
+  const [ownerCfg, setOwnerCfg] = useState<Record<string, { name: string; owner_greeting: string; owner_full: string; owner_emails: string[]; owner_id: string | null }>>({});
   const loadOwnerCfg = useCallback(async () => {
     // Owner emails/names are PII -- fetched server-side (service role) rather
     // than read directly off the anon key from the browser. See
@@ -2035,10 +2035,14 @@ function DashboardContent() {
         owner_greeting: db.owner_greeting || stat?.owner_greeting || '',
         owner_full: db.owner_full || stat?.owner_full || '',
         owner_emails: db.owner_emails.length > 0 ? db.owner_emails : (stat?.owner_emails || []),
+        owner_id: db.owner_id,
       };
     }
     if (stat) {
-      return { name: stat.name, owner_greeting: stat.owner_greeting, owner_full: stat.owner_full, owner_emails: stat.owner_emails };
+      // Static-const fallback: no owner_id exists here, so a property that
+      // only resolves this way can never be shown as a combined owner. That
+      // is the honest answer -- the draft route keys on the DB column.
+      return { name: stat.name, owner_greeting: stat.owner_greeting, owner_full: stat.owner_full, owner_emails: stat.owner_emails, owner_id: null };
     }
     return null;
   }, [ownerCfg]);
@@ -2305,24 +2309,36 @@ function DashboardContent() {
         // without a reload. A forced redraft of a sent statement clears the
         // sent stamp server-side (cleared_sent_property_ids); mirror that
         // here so the UI never shows "sent" over an unfrozen statement.
+        //
+        // A combined owner draft (Prudenzi, Moynahan) covers several
+        // properties and the route stamps close_tasks for all of them, so
+        // stamp every covered id -- not just the one whose button was
+        // clicked. Missing the sibling left its "Drafted" box empty until
+        // reload, and clicking Draft on it produced a SECOND full combined
+        // draft with both PDFs. Same handling draftAll already does.
+        const covered: string[] = Array.isArray(data.covered_property_ids) && data.covered_property_ids.length > 0
+          ? data.covered_property_ids
+          : [propertyId];
         const clearedSent: string[] = Array.isArray(data.cleared_sent_property_ids) ? data.cleared_sent_property_ids : [];
         setCloseTasks(prev => {
           const next = { ...prev };
-          const existing = prev[propertyId];
-          next[propertyId] = {
-            period_id: period.id,
-            property_id: propertyId,
-            email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
-            email_include_work_slips: existing?.email_include_work_slips || false,
-            email_drafted_at: new Date().toISOString(),
-            email_sent_at: clearedSent.includes(propertyId) ? null : (existing?.email_sent_at || null),
-            owner_transfer_done_at: existing?.owner_transfer_done_at || null,
-            mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
-            notes: existing?.notes || null,
-            statement_drive_url: existing?.statement_drive_url || null,
-          };
+          for (const pid of covered) {
+            const existing = prev[pid];
+            next[pid] = {
+              period_id: period.id,
+              property_id: pid,
+              email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
+              email_include_work_slips: existing?.email_include_work_slips || false,
+              email_drafted_at: new Date().toISOString(),
+              email_sent_at: clearedSent.includes(pid) ? null : (existing?.email_sent_at || null),
+              owner_transfer_done_at: existing?.owner_transfer_done_at || null,
+              mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
+              notes: existing?.notes || null,
+              statement_drive_url: existing?.statement_drive_url || null,
+            };
+          }
           for (const pid of clearedSent) {
-            if (pid === propertyId || !next[pid]) continue;
+            if (covered.includes(pid) || !next[pid]) continue;
             next[pid] = { ...next[pid], email_sent_at: null };
           }
           return next;
@@ -2672,6 +2688,11 @@ function DashboardContent() {
     setBulkDraftResult(null);
 
     let drafted = 0;
+    // Siblings of a combined owner email (Prudenzi, Moynahan) no-op inside
+    // the loop rather than being filtered out before it, so without this
+    // they land in neither `drafted` nor `skipped` and the toast silently
+    // under-reports (15 ready, 14 drafted, 0 skipped).
+    let coveredByGroup = 0;
     const failed: { property: string; error: string }[] = [];
 
     for (let i = 0; i < candidates.length; i++) {
@@ -2697,7 +2718,8 @@ function DashboardContent() {
         }
         const data = await res.json();
         if (data.success) {
-          if (!data.already_drafted) drafted++;
+          if (data.already_drafted) coveredByGroup++;
+          else drafted++;
           // Reflect the server-side stamp locally so the property card's
           // "drafted" state updates without a reload, same as the
           // single-property createGmailDraft flow does. A combined owner
@@ -2737,7 +2759,7 @@ function DashboardContent() {
     setBulkDraftProgress(null);
     setBulkDraftResult({
       drafted,
-      skipped: props.length - candidates.length,
+      skipped: (props.length - candidates.length) + coveredByGroup,
       failed,
     });
   }
@@ -3178,7 +3200,7 @@ function DashboardContent() {
           >
             <strong>{bulkDraftResult.drafted}</strong> Gmail draft{bulkDraftResult.drafted === 1 ? '' : 's'} created
             {bulkDraftResult.skipped > 0 && (
-              <span style={{ color: 'var(--ink-4)' }}> &middot; {bulkDraftResult.skipped} skipped (already drafted or red)</span>
+              <span style={{ color: 'var(--ink-4)' }}> &middot; {bulkDraftResult.skipped} skipped (already drafted, red, or covered by a combined owner email)</span>
             )}
             {bulkDraftResult.failed.length > 0 && (
               <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
@@ -3374,6 +3396,26 @@ function DashboardContent() {
         const includeNotes = !!task?.email_include_work_slips;
         const notes = includeNotes ? previewWorkNotes[`${previewPropertyId}:${selectedMonth}`] : undefined;
         const notesEmpty = !!notes && !workNotesHaveContent(notes);
+        // Combined owner (Prudenzi, Moynahan): /api/draft-email will group
+        // every sibling sharing this owner_id that has a statement this
+        // period. `props` is exactly "has a statement this period", so
+        // filtering it mirrors the route. Sibling order matches the route's
+        // too: requested property first, then the rest by name.
+        const previewSiblings = props
+          .filter(p => {
+            if (p.property_id === previewPropertyId) return false;
+            const sc = resolveCfg(p.property_id);
+            return !!sc && !!sc.owner_id && sc.owner_id === cfg.owner_id;
+          })
+          .sort((a, b) => (resolveCfg(a.property_id)?.name || a.property_name)
+            .localeCompare(resolveCfg(b.property_id)?.name || b.property_name));
+        const previewGrouped = previewSiblings.length > 0;
+        // Recipient union across the group, same as the route: a sibling row
+        // carrying no email of its own is covered by the others.
+        const previewRecipients = Array.from(new Set([
+          ...cfg.owner_emails,
+          ...previewSiblings.flatMap(s => resolveCfg(s.property_id)?.owner_emails || []),
+        ]));
         const { subject, body } = renderEmail({
           greeting: cfg.owner_greeting,
           monthName: monthLabel(selectedMonth),
@@ -3381,37 +3423,35 @@ function DashboardContent() {
           fundsSentIso: fundsSentDate,
           ownerPayout: prop.owner_payout,
           template: tmpl,
+          // Work notes still only cover the previewed house -- the sibling's
+          // slips aren't loaded here. The banner below says so.
           workNotes: notes && !notesEmpty ? [notes] : undefined,
+          properties: previewGrouped
+            ? [{ name: cfg.name, payout: prop.owner_payout || undefined },
+               ...previewSiblings.map(s => ({
+                 name: resolveCfg(s.property_id)?.name || s.property_name,
+                 payout: s.owner_payout || undefined,
+               }))]
+            : undefined,
         });
         return (
           <PreviewModal onClose={() => setPreviewPropertyId(null)}>
             <div className="eyebrow" style={{ marginBottom: 6 }}>Email preview · {tmpl.replace('_', '-')}</div>
             <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>{cfg.owner_full}</h3>
             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
-              To: {cfg.owner_emails.length > 0 ? cfg.owner_emails.join(', ') : <em style={{ color: 'var(--signal)' }}>no email on file</em>}
+              To: {previewRecipients.length > 0 ? previewRecipients.join(', ') : <em style={{ color: 'var(--signal)' }}>no email on file</em>}
               <br />
               Cc: {ALWAYS_CC.join(', ')}
             </div>
             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>From: {SEND_FROM.name} &lt;{SEND_FROM.email}&gt;</div>
-            {(() => {
-              // Multi-property owners (Prudenzi, Moynahan) get ONE combined
-              // Gmail draft covering every sibling property. This preview
-              // renders the single-property body, so say so out loud rather
-              // than let the operator approve a body the draft won't match.
-              const siblings = props.filter(p => {
-                if (p.property_id === previewPropertyId) return false;
-                const sc = resolveCfg(p.property_id);
-                return !!sc && sc.owner_emails.some(e => cfg.owner_emails.includes(e));
-              });
-              if (siblings.length === 0) return null;
-              return (
-                <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--paper-2)', borderLeft: '2px solid var(--signal)', fontSize: 11, color: 'var(--ink-2)' }}>
-                  Combined owner: the actual Gmail draft will cover{' '}
-                  <strong>{[cfg.name, ...siblings.map(s => resolveCfg(s.property_id)?.name || s.property_name)].join(' + ')}</strong>{' '}
-                  in one email with an itemized payout line and all PDFs. This preview shows {cfg.name} only.
-                </div>
-              );
-            })()}
+            {previewGrouped && (
+              <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--paper-2)', borderLeft: '2px solid var(--signal)', fontSize: 11, color: 'var(--ink-2)' }}>
+                Combined owner: this draft covers{' '}
+                <strong>{[cfg.name, ...previewSiblings.map(s => resolveCfg(s.property_id)?.name || s.property_name)].join(' + ')}</strong>{' '}
+                in one email, with a PDF attached per property.
+                {includeNotes && ' Work notes below cover ' + cfg.name + ' only; the sent email includes each house’s own notes.'}
+              </div>
+            )}
 
             {/* Work-notes toggle, mirrored with the close-out row. The body
                 below re-renders live as the section loads in. */}
