@@ -3,6 +3,7 @@ import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectStay } from '@/lib/missing-direct-stays';
 
 /**
  * Refresh an existing property_statement by adding any guesty_reservations
@@ -149,14 +150,43 @@ export async function POST(request: NextRequest) {
       .filter(c => installmentCoded.has(c.confirmation_code as string))
       .map(c => c.confirmation_code as string);
 
+    // Missed-Direct guard. The total_paid > 0 candidate filter above is
+    // correct for skipping homeowner stays, but it also skips real Direct
+    // bookings, whose payment goes through the property's own Stripe and
+    // never registers in Guesty (Martha Mazzone, GY-ZUnEnMgw, $29k, Aug
+    // 2026). This detector raises a critical data gap for any confirmed
+    // Direct/Manual stay with real accommodation fare on its Guesty folio
+    // that is still absent from the statement. Flag-only -- adding the
+    // reservation stays an operator decision. Runs after any inserts so a
+    // just-added stay is not flagged, and never fails the refresh.
+    const runMissingDirectCheck = async (): Promise<MissingDirectStay[]> => {
+      try {
+        const flagged = await detectMissingDirectStays(supabase, {
+          propertyStatementId: stmt.id,
+          propertyId,
+          month,
+        });
+        await persistMissingDirectGaps(supabase, stmt.id, flagged, month);
+        return flagged;
+      } catch (err) {
+        console.warn('missing-direct check skipped:', err instanceof Error ? err.message : err);
+        return [];
+      }
+    };
+
     if (missing.length === 0) {
+      const flaggedMissingDirect = await runMissingDirectCheck();
+      const baseMessage = skippedInstallmentCodes.length > 0
+        ? `No new bookings to add. ${skippedInstallmentCodes.length} skipped because they are recognized via installment splits (${skippedInstallmentCodes.join(', ')}).`
+        : 'No new bookings to add. The statement is up to date with guesty_reservations.';
       return NextResponse.json({
         success: true,
         added: [],
         skipped_installment_codes: skippedInstallmentCodes,
-        message: skippedInstallmentCodes.length > 0
-          ? `No new bookings to add. ${skippedInstallmentCodes.length} skipped because they are recognized via installment splits (${skippedInstallmentCodes.join(', ')}).`
-          : 'No new bookings to add. The statement is up to date with guesty_reservations.',
+        flagged_missing_direct: flaggedMissingDirect,
+        message: flaggedMissingDirect.length > 0
+          ? `${baseMessage} WARNING: ${flaggedMissingDirect.length} confirmed Direct stay${flaggedMissingDirect.length === 1 ? '' : 's'} with real folio revenue ${flaggedMissingDirect.length === 1 ? 'is' : 'are'} missing from this statement (${flaggedMissingDirect.map(f => f.confirmation_code).join(', ')}). A critical data gap was raised.`
+          : baseMessage,
       });
     }
 
@@ -237,9 +267,12 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', stmt.id);
 
+    const flaggedMissingDirect = await runMissingDirectCheck();
+
     return NextResponse.json({
       success: true,
       skipped_installment_codes: skippedInstallmentCodes,
+      flagged_missing_direct: flaggedMissingDirect,
       added: newRows.map(r => ({
         guest: r.guest_name,
         confirmation_code: r.confirmation_code,
