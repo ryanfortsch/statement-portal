@@ -32,6 +32,7 @@ import { GuestCodesPanel } from './GuestCodesPanel';
 import { MarkSlipDoneButton } from './MarkSlipDoneButton';
 import { QuickCapture } from './QuickCapture';
 import { getPropertyDocuments } from '@/lib/property-documents';
+import { startContractRenewal } from '@/app/projections/actions';
 import {
   getPropertyContracts,
   contractAttention,
@@ -513,6 +514,7 @@ export default async function PropertyDetailPage({
   // is the canonical agreement; contractFacts (projection columns) remains
   // the fallback for a promoted prospect whose contract isn't registered yet.
   const contractTodayIso = new Date().toISOString().slice(0, 10);
+  const startRenewal = startContractRenewal.bind(null, p.id);
   const activeContract = propertyContracts.find((c) => c.status === 'active') ?? null;
   const pastContracts = propertyContracts.filter((c) => c.status !== 'active');
   const activeContractAttention = activeContract
@@ -1839,6 +1841,17 @@ export default async function PropertyDetailPage({
             >
               All contracts
             </Link>
+            {/* Renewal draft: rides the prospect contract pipeline (edit
+                terms, owner sign link, countersign) with the row pre-linked
+                to this property so it never touches the funnel. */}
+            <form action={startRenewal} style={{ margin: 0 }}>
+              <button
+                type="submit"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--tide-deep)', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 12px' }}
+              >
+                Draft renewal
+              </button>
+            </form>
           </div>
           {pastContracts.length > 0 && (
             <div style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
@@ -1910,9 +1923,28 @@ export default async function PropertyDetailPage({
               Drive Contracts folder and in the register.
             </p>
           )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
+            {/* No live agreement: drafting a renewal is the primary move.
+                Idempotent - re-clicking lands on the open draft. */}
+            <form action={startRenewal} style={{ margin: 0 }}>
+              <button type="submit" style={{ ...primaryActionStyle, border: 'none', cursor: 'pointer' }}>
+                Draft renewal contract
+              </button>
+            </form>
             {p.projection_id && (
-              <Link href={`/projections/${p.projection_id}/contract`} target="_blank" style={primaryActionStyle}>
+              <Link
+                href={`/prospects/${p.projection_id}`}
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                Contract workroom
+              </Link>
+            )}
+            {p.projection_id && (
+              <Link
+                href={`/projections/${p.projection_id}/contract`}
+                target="_blank"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
                 View contract ↗
               </Link>
             )}
