@@ -12,7 +12,7 @@ import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import type { RemittanceSheet } from '@/lib/remittance';
 import { renderEmail, fmtFundsSentDate, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
-import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
+import { jsonWithFreezeRetry, formWithFreezeRetry } from '@/lib/freeze-confirm';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -703,7 +703,8 @@ function FillGapModal(props: {
       fd.append('property_id', propertyId);
       fd.append('file_type', fileType);
       fd.append('file', file);
-      const res = await fetch('/api/fill-gap', { method: 'POST', body: fd });
+      const { res, cancelled } = await formWithFreezeRetry('/api/fill-gap', fd);
+      if (cancelled) { setErr('Not applied: the statement is marked sent. Override was declined.'); return; }
       const data = await res.json();
       if (!res.ok) { setErr(data.error || 'Upload failed'); return; }
       setResult(data);
