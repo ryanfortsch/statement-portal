@@ -44,6 +44,8 @@ type Props = {
   candidates: Record<string, PropertyRequestCandidates | undefined>;
   selections: Record<string, OwnerRequestSelections | null | undefined>;
   includeHandled: Record<string, boolean>;
+  /** The statement's Repairs & Maint. line per property, 0 when there is none. */
+  maintenanceCharge: Record<string, number>;
   loading: boolean;
   onSelectionsChange: (propertyId: string, next: OwnerRequestSelections) => void;
   onToggleHandled: (propertyId: string, next: boolean) => void;
@@ -52,6 +54,11 @@ type Props = {
 };
 
 function chipFor(c: OwnerRequestCandidate): string {
+  // A "repair:" id is a row off the statement's own Repairs & Maint. line,
+  // not a work slip -- worth saying, because those are the ones that tie to
+  // the dollar figure the owner is reading.
+  if (c.slipId.startsWith('repair:')) return 'Charge line';
+  if (c.kind === 'handled') return 'Done';
   if (c.kind === 'flag') return 'Flag';
   return c.actionType ? KIND_CHIP[c.actionType] : 'Needs an answer';
 }
@@ -61,6 +68,7 @@ export function OwnerRequestsPanel({
   candidates,
   selections,
   includeHandled,
+  maintenanceCharge,
   loading,
   onSelectionsChange,
   onToggleHandled,
@@ -78,6 +86,7 @@ export function OwnerRequestsPanel({
           loaded={candidates[h.propertyId]}
           selections={selections[h.propertyId] || {}}
           includeHandled={!!includeHandled[h.propertyId]}
+          maintenanceCharge={maintenanceCharge[h.propertyId] || 0}
           loading={loading}
           onSelectionsChange={onSelectionsChange}
           onToggleHandled={onToggleHandled}
@@ -89,7 +98,7 @@ export function OwnerRequestsPanel({
 }
 
 function HouseBlock({
-  house, showHeader, first, loaded, selections, includeHandled, loading,
+  house, showHeader, first, loaded, selections, includeHandled, maintenanceCharge, loading,
   onSelectionsChange, onToggleHandled, onReloadHouse,
 }: {
   house: { propertyId: string; name: string };
@@ -98,6 +107,7 @@ function HouseBlock({
   loaded: PropertyRequestCandidates | undefined;
   selections: OwnerRequestSelections;
   includeHandled: boolean;
+  maintenanceCharge: number;
   loading: boolean;
   onSelectionsChange: (propertyId: string, next: OwnerRequestSelections) => void;
   onToggleHandled: (propertyId: string, next: boolean) => void;
@@ -105,11 +115,18 @@ function HouseBlock({
 }) {
   const [adding, setAdding] = useState(false);
 
-  const list = loaded?.candidates ?? [];
-  const included = list.filter(c => {
+  const all = loaded?.candidates ?? [];
+  const list = all.filter(c => c.kind !== 'handled');
+  const handled = all.filter(c => c.kind === 'handled');
+  const isIn = (c: OwnerRequestCandidate) => {
     const s = selections[c.slipId];
     return s ? s.include : c.suggested;
-  });
+  };
+  const included = list.filter(isIn);
+  const handledIn = handled.filter(isIn);
+  const charge = maintenanceCharge > 0
+    ? '$' + Math.round(maintenanceCharge).toLocaleString('en-US')
+    : null;
 
   function setInclude(c: OwnerRequestCandidate, include: boolean) {
     const prev = selections[c.slipId];
@@ -181,7 +198,11 @@ function HouseBlock({
         />
       ))}
 
-      {loaded && loaded.handled.length > 0 && (
+      {/* Finished work: a separate conversation from the asks. With a
+          Repairs & Maint. charge on the statement, this list is what that
+          charge bought and the owner needs it itemized; without one it is a
+          courtesy recap that often stays off. */}
+      {loaded && handled.length > 0 && (
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dotted var(--rule)' }}>
           <label style={{
             display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer',
@@ -194,8 +215,36 @@ function HouseBlock({
               onChange={e => onToggleHandled(house.propertyId, e.target.checked)}
               style={{ accentColor: 'var(--tide)' }}
             />
-            Also recap the {loaded.handled.length} item{loaded.handled.length === 1 ? '' : 's'} we handled
+            {charge
+              ? `Itemize the ${charge} maintenance charge`
+              : `Also recap the ${handled.length} item${handled.length === 1 ? '' : 's'} we handled`}
+            {includeHandled && (
+              <span style={{ color: 'var(--ink-4)' }}>
+                &nbsp;&middot; {handledIn.length} of {handled.length}
+              </span>
+            )}
           </label>
+
+          {charge && !includeHandled && (
+            <div style={{
+              marginTop: 8, padding: '7px 9px', background: 'var(--paper)',
+              borderLeft: '2px solid var(--signal)', fontSize: 11, color: 'var(--ink-2)', lineHeight: 1.5,
+            }}>
+              The statement bills {charge} under Repairs &amp; Maint. with no itemization behind it.
+              Tick the box and the email says what it covers.
+            </div>
+          )}
+
+          {includeHandled && handled.map(c => (
+            <CandidateRow
+              key={c.slipId}
+              candidate={c}
+              include={isIn(c)}
+              override={selections[c.slipId]?.text ?? null}
+              onToggle={next => setInclude(c, next)}
+              onText={text => setText(c, text)}
+            />
+          ))}
         </div>
       )}
     </div>

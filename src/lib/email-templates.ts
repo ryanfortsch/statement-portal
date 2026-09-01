@@ -29,8 +29,15 @@ export type RenderedEmail = {
  * stored picks -- which is what keeps the preview honest.
  */
 
-/** An ask needs an answer; a flag is for the owner's awareness only. */
-export type OwnerRequestKind = 'ask' | 'flag';
+/**
+ * Three distinct jobs, deliberately not one list:
+ *   ask      needs an answer before we can move
+ *   flag     for the owner's awareness, nothing needed
+ *   handled  work already done -- and when the statement carries a Repairs
+ *            & Maint. charge, this is what that charge BOUGHT. An owner
+ *            looking at a $300 line with no itemization has to ask.
+ */
+export type OwnerRequestKind = 'ask' | 'flag' | 'handled';
 
 export type OwnerRequestCandidate = {
   slipId: string;
@@ -63,9 +70,8 @@ export type OwnerRequestSelections = Record<string, OwnerRequestSelection>;
 export type PropertyRequestCandidates = {
   propertyId: string;
   propertyName: string;
+  /** Asks, then flags, then the month's finished work. */
   candidates: OwnerRequestCandidate[];
-  /** The optional recap, already polished. */
-  handled: string[];
 };
 
 /** What the email renders, per property. */
@@ -75,8 +81,15 @@ export type ResolvedOwnerRequests = {
   requests: string[];
   /** For awareness only. */
   flags: string[];
-  /** Optional recap of what we handled this month. */
+  /** Opt-in: what we handled, and what the maintenance charge covers. */
   handled: string[];
+  /**
+   * The statement's Repairs & Maint. line for this property (repairs plus
+   * attributed debits), 0 when there is none. Non-zero turns the handled
+   * list from a courtesy recap into the itemization of a charge the owner
+   * is paying, which is the sentence they actually need.
+   */
+  maintenanceCharge: number;
   /** Slip ids sent as asks -- stamped owner_status='sent' by the route. */
   askedSlipIds: string[];
 };
@@ -89,14 +102,18 @@ export function ownerRequestsHaveContent(r: ResolvedOwnerRequests): boolean {
 export function resolveOwnerRequests(
   loaded: PropertyRequestCandidates,
   selections: OwnerRequestSelections | null | undefined,
-  opts: { includeHandled: boolean },
+  opts: { includeHandled: boolean; maintenanceCharge?: number },
 ): ResolvedOwnerRequests {
   const sel = selections || {};
   const requests: string[] = [];
   const flags: string[] = [];
+  const handled: string[] = [];
   const askedSlipIds: string[] = [];
 
   for (const c of loaded.candidates) {
+    // The finished-work list has its own master switch: it is a different
+    // conversation from the asks and often stays off.
+    if (c.kind === 'handled' && !opts.includeHandled) continue;
     const choice = sel[c.slipId];
     const include = choice ? choice.include : c.suggested;
     if (!include) continue;
@@ -104,8 +121,10 @@ export function resolveOwnerRequests(
     if (c.kind === 'ask') {
       requests.push(text);
       askedSlipIds.push(c.slipId);
-    } else {
+    } else if (c.kind === 'flag') {
       flags.push(text);
+    } else {
+      handled.push(text);
     }
   }
 
@@ -113,7 +132,8 @@ export function resolveOwnerRequests(
     propertyName: loaded.propertyName,
     requests,
     flags,
-    handled: opts.includeHandled ? loaded.handled : [],
+    handled,
+    maintenanceCharge: opts.maintenanceCharge ?? 0,
     askedSlipIds,
   };
 }
@@ -166,6 +186,21 @@ function group(intro: string, lines: string[]): string {
 }
 
 /**
+ * The finished-work list has two very different jobs depending on whether
+ * the statement bills for it. With a Repairs & Maint. charge on the page,
+ * this list IS the itemization of that charge and has to say so; without
+ * one, it is a courtesy recap of work absorbed on our side.
+ */
+function handledIntro(e: ResolvedOwnerRequests, shortMonth: string, preceded: boolean): string {
+  if (e.maintenanceCharge > 0) {
+    return `The ${fmtMoneyRound(e.maintenanceCharge)} maintenance charge on your statement covers:`;
+  }
+  return preceded
+    ? `And here's what we took care of in ${shortMonth}:`
+    : `Around the house, here's what we took care of in ${shortMonth}:`;
+}
+
+/**
  * Lay out the owner-request section as email paragraphs. Empty input -> ''.
  *
  * Order is the whole point: what we need from you, then what we want you to
@@ -191,6 +226,9 @@ export function buildOwnerRequestsBlock(
   const anyAsks = withContent.some(e => e.requests.length > 0);
 
   const paras: string[] = [];
+  // Rendered once, right after the asks: an itemized charge underneath it
+  // is not something the owner answers.
+  const REPLY_PROMPT = "Just reply here with a yes or a no on each and we'll take it from there.";
 
   if (withContent.length === 1 && !labelHouses) {
     const e = withContent[0];
@@ -209,12 +247,11 @@ export function buildOwnerRequestsBlock(
           : 'A couple of things worth flagging, nothing needed from you:',
         e.flags));
     }
+    // The reply prompt belongs with the asks, not after an itemization that
+    // needs no answer.
+    if (anyAsks) paras.push(REPLY_PROMPT);
     if (e.handled.length > 0) {
-      paras.push(group(
-        paras.length > 0
-          ? `And here's what we took care of in ${shortMonth}:`
-          : `Around the house, here's what we took care of in ${shortMonth}:`,
-        e.handled));
+      paras.push(group(handledIntro(e, shortMonth, paras.length > 1), e.handled));
     }
   } else {
     // Grouped owner email: label every group with its house.
@@ -224,13 +261,17 @@ export function buildOwnerRequestsBlock(
     for (const e of withContent) {
       if (e.requests.length > 0) paras.push(group(`At ${e.propertyName}, waiting on your go-ahead:`, e.requests));
       if (e.flags.length > 0) paras.push(group(`At ${e.propertyName}, worth flagging:`, e.flags));
-      if (e.handled.length > 0) paras.push(group(`At ${e.propertyName}, taken care of in ${shortMonth}:`, e.handled));
+      if (e.handled.length > 0) {
+        paras.push(group(
+          e.maintenanceCharge > 0
+            ? `At ${e.propertyName}, the ${fmtMoneyRound(e.maintenanceCharge)} maintenance charge on your statement covers:`
+            : `At ${e.propertyName}, taken care of in ${shortMonth}:`,
+          e.handled));
+      }
     }
+    if (anyAsks) paras.push(REPLY_PROMPT);
   }
 
-  if (anyAsks) {
-    paras.push('Just reply here with a yes or a no on each and we\'ll take it from there.');
-  }
   return paras.join('\n\n');
 }
 

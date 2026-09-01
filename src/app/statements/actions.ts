@@ -354,8 +354,9 @@ export async function loadOwnerRequestCandidatesAction(
   propertyId: string,
   propertyName: string,
   month: string,
+  propertyStatementId?: string | null,
 ): Promise<PropertyRequestCandidates> {
-  return loadOwnerRequestCandidates({ propertyId, propertyName, month });
+  return loadOwnerRequestCandidates({ propertyId, propertyName, month, propertyStatementId });
 }
 
 /**

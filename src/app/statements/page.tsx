@@ -108,6 +108,9 @@ type PropertyStatement = {
   management_fee: number;
   cleaning_total: number;
   repairs_total: number;
+  /** Operator-attributed bank debits; the statement bills these on the same
+   *  Repairs & Maint. line as repairs_total. */
+  attributed_debits_total?: number;
   tax_remittance: number;
   reserve_holdback?: number;
   owner_payout: number;
@@ -2197,11 +2200,33 @@ function DashboardContent() {
     return [{ propertyId: previewPropertyId, name: cfg.name }, ...siblings];
   }, [previewPropertyId, period, resolveCfg]);
 
-  const loadCandidatesFor = useCallback(async (propertyId: string, name: string, month: string) => {
+  /**
+   * The statement's Repairs & Maint. line per property: repairs plus
+   * attributed debits, exactly what the statement's own row sums. Non-zero
+   * turns the finished-work list into the itemization of a charge the owner
+   * is paying, so the email can name the number they are looking at.
+   */
+  const maintenanceChargeBy = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of period?.property_statements || []) {
+      map[p.property_id] = Number(p.repairs_total || 0) + Number(p.attributed_debits_total || 0);
+    }
+    return map;
+  }, [period]);
+
+  /** property_statements.id per property, so the loader can offer the
+   *  statement's own repair charges as itemization material. */
+  const statementIdBy = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of period?.property_statements || []) map[p.property_id] = p.id;
+    return map;
+  }, [period]);
+
+  const loadCandidatesFor = useCallback(async (propertyId: string, name: string, month: string, statementId?: string | null) => {
     const key = `${propertyId}:${month}`;
     setPreviewNotesLoading(true);
     try {
-      const loaded = await loadOwnerRequestCandidatesAction(propertyId, name, month);
+      const loaded = await loadOwnerRequestCandidatesAction(propertyId, name, month, statementId);
       setRequestCandidates(prev => ({ ...prev, [key]: loaded }));
     } catch {
       // Leave the key unset: the panel keeps saying "loading" rather than
@@ -2230,7 +2255,7 @@ function DashboardContent() {
       .catch(() => {})
       .finally(() => { if (!cancelled) setPreviewNotesLoading(false); });
     return () => { cancelled = true; };
-  }, [previewPropertyId, selectedMonth, closeTasks, previewHouses, requestCandidates]);
+  }, [previewPropertyId, selectedMonth, closeTasks, previewHouses, requestCandidates, statementIdBy]);
   const [draftingProperty, setDraftingProperty] = useState<string | null>(null);
   const [draftResult, setDraftResult] = useState<
     | { url: string; property: string; attachedPdf: boolean; warnings: string[] }
@@ -3566,6 +3591,7 @@ function DashboardContent() {
                 const houseTask = closeTasks[h.propertyId];
                 return resolveOwnerRequests(loaded, houseTask?.owner_request_items, {
                   includeHandled: !!houseTask?.email_include_handled,
+                  maintenanceCharge: maintenanceChargeBy[h.propertyId] || 0,
                 });
               })
               .filter(r => r !== null)
@@ -3653,12 +3679,14 @@ function DashboardContent() {
                   [h.propertyId, closeTasks[h.propertyId]?.owner_request_items]))}
                 includeHandled={Object.fromEntries(previewHouses.map(h =>
                   [h.propertyId, !!closeTasks[h.propertyId]?.email_include_handled]))}
+                maintenanceCharge={Object.fromEntries(previewHouses.map(h =>
+                  [h.propertyId, maintenanceChargeBy[h.propertyId] || 0]))}
                 loading={previewNotesLoading}
                 onSelectionsChange={saveOwnerRequestSelections}
                 onToggleHandled={(pid, next) => saveCloseTaskField(pid, { email_include_handled: next })}
                 onReloadHouse={(pid) => {
                   const name = previewHouses.find(h => h.propertyId === pid)?.name || pid;
-                  loadCandidatesFor(pid, name, selectedMonth);
+                  loadCandidatesFor(pid, name, selectedMonth, statementIdBy[pid] || null);
                 }}
               />
             )}

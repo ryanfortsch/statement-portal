@@ -298,7 +298,12 @@ export async function POST(request: NextRequest) {
     // Rocky Neck + Downstairs) gets ONE email covering every property of
     // theirs that has a statement this period, each PDF attached. Keyed
     // on properties.owner_id -- properties without one never group.
-    type GroupMember = { property_id: string; name: string; owner_emails: string[]; statement_id: string; owner_payout: number };
+    type GroupMember = {
+      property_id: string; name: string; owner_emails: string[]; statement_id: string;
+      owner_payout: number;
+      /** The statement's Repairs & Maint. line: repairs + attributed debits. */
+      maintenance_charge: number;
+    };
     const members: GroupMember[] = [];
     {
       const { data: ownRow } = await sbForStmt
@@ -326,7 +331,7 @@ export async function POST(request: NextRequest) {
 
       const { data: stmtRows } = await sbForStmt
         .from('property_statements')
-        .select('id, property_id, owner_payout')
+        .select('id, property_id, owner_payout, repairs_total, attributed_debits_total')
         .eq('period_id', periodId)
         .in('property_id', siblingRows.map(s => s.id));
       const stmtByProp = new Map((stmtRows || []).map(s => [s.property_id, s]));
@@ -341,6 +346,7 @@ export async function POST(request: NextRequest) {
             property_id: sib.id, name: sib.name,
             owner_emails: sib.owner_emails || [],
             statement_id: stmt.id, owner_payout: Number(stmt.owner_payout) || 0,
+            maintenance_charge: (Number(stmt.repairs_total) || 0) + (Number(stmt.attributed_debits_total) || 0),
           });
         }
       }
@@ -426,8 +432,8 @@ export async function POST(request: NextRequest) {
     let askedSlipIds: string[] = [];
     if (includeWorkSlips) {
       const covered = members.length > 0
-        ? members.map(m => ({ property_id: m.property_id, name: m.name }))
-        : [{ property_id: propertyId, name: prop.name }];
+        ? members.map(m => ({ property_id: m.property_id, name: m.name, maintenance_charge: m.maintenance_charge, statement_id: m.statement_id }))
+        : [{ property_id: propertyId, name: prop.name, maintenance_charge: 0, statement_id: null as string | null }];
 
       const picksByProperty = new Map<string, { selections: OwnerRequestSelections | null; includeHandled: boolean }>();
       if (periodId) {
@@ -445,10 +451,17 @@ export async function POST(request: NextRequest) {
       }
 
       const loaded = await Promise.all(covered.map(c =>
-        loadOwnerRequestCandidates({ propertyId: c.property_id, propertyName: c.name, month })));
+        loadOwnerRequestCandidates({
+          propertyId: c.property_id, propertyName: c.name, month,
+          propertyStatementId: c.statement_id,
+        })));
+      const chargeByProperty = new Map(covered.map(c => [c.property_id, c.maintenance_charge]));
       const resolved = loaded.map(l => {
         const picks = picksByProperty.get(l.propertyId);
-        return resolveOwnerRequests(l, picks?.selections, { includeHandled: picks?.includeHandled === true });
+        return resolveOwnerRequests(l, picks?.selections, {
+          includeHandled: picks?.includeHandled === true,
+          maintenanceCharge: chargeByProperty.get(l.propertyId) || 0,
+        });
       });
       const withContent = resolved.filter(ownerRequestsHaveContent);
       if (withContent.length > 0) {

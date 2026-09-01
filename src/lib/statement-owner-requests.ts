@@ -55,14 +55,19 @@ type SlipRow = {
   created_at: string;
 };
 
+type RepairRow = {
+  id: string;
+  vendor_name: string | null;
+  description: string | null;
+  bank_charge_amount: number | string | null;
+  bank_charge_date: string | null;
+};
+
 const SLIP_COLUMNS =
   'id, title, description, action_summary, location, category, status, priority, ' +
   'scheduled_date, completed_at, closed_at, owner_action_required, owner_action_type, ' +
   'owner_action_notes, owner_status, owner_last_contacted_at, resolution_notes, ' +
   'snoozed_until, created_at';
-
-/** Keep the recap scannable; the tail folds into one closing bullet. */
-const MAX_HANDLED = 8;
 
 /** Where a generated explanation stops being an explanation. */
 const MAX_EXPLANATION = 400;
@@ -165,6 +170,40 @@ function handledLine(slip: SlipRow): string {
   return title;
 }
 
+/** "$75", "$75.50" -- cents only when there are cents, because a charge
+ *  itemization has to tie to the number on the statement. */
+function fmtCharge(n: number): string {
+  return Number.isInteger(n) ? `$${n.toLocaleString('en-US')}`
+    : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** A raw bank descriptor is shouted and full of reference numbers; the
+ *  vendor name reads better than it does. */
+function looksLikeBankDescriptor(s: string): boolean {
+  return s === s.toUpperCase() || /\d{5,}/.test(s);
+}
+
+/** One line of the maintenance charge, ready for the operator to rewrite. */
+function repairCandidate(r: RepairRow): OwnerRequestCandidate {
+  const desc = r.description ? tidy(r.description) : '';
+  const vendor = r.vendor_name ? tidy(r.vendor_name) : '';
+  const lead = (desc && !looksLikeBankDescriptor(desc)) ? desc : (vendor || desc || 'Maintenance visit');
+  const amount = Number(r.bank_charge_amount) || 0;
+  return {
+    slipId: `repair:${r.id}`,
+    title: lead,
+    location: null,
+    kind: 'handled',
+    actionType: null,
+    priority: 'normal',
+    defaultText: amount > 0 ? `${lead} - ${fmtCharge(amount)}` : lead,
+    // Never pre-ticked: when the work was slipped, the slip line says it
+    // better, and listing both would bill the owner's attention twice.
+    suggested: false,
+    raisedOn: null,
+  };
+}
+
 /** True when this slip is a settled ask: the owner already answered. */
 function isAnswered(slip: SlipRow): boolean {
   return slip.owner_action_required
@@ -174,14 +213,6 @@ function isAnswered(slip: SlipRow): boolean {
 function byPriorityThenAge(a: SlipRow, b: SlipRow): number {
   const p = (PRIORITY_RANK[a.priority] ?? 1) - (PRIORITY_RANK[b.priority] ?? 1);
   return p !== 0 ? p : a.created_at.localeCompare(b.created_at);
-}
-
-/** Cap a group, folding the overflow into one closing line. */
-function cap(lines: string[], max: number, tail: (n: number) => string): string[] {
-  if (lines.length <= max) return lines;
-  const kept = lines.slice(0, max);
-  kept.push(tail(lines.length - max));
-  return kept;
 }
 
 /**
@@ -195,6 +226,13 @@ export async function loadOwnerRequestCandidates(args: {
   propertyName: string;
   /** "YYYY-MM" */
   month: string;
+  /**
+   * The property_statements row for this month, when the caller already
+   * has it. Passing it pulls the statement's own repair charges in as
+   * candidates so the itemization can be built from the rows the owner is
+   * actually being billed for, not only from what happened to get slipped.
+   */
+  propertyStatementId?: string | null;
 }): Promise<PropertyRequestCandidates> {
   const { propertyId, propertyName, month } = args;
   const start = `${month}-01`;
@@ -228,6 +266,18 @@ export async function loadOwnerRequestCandidates(args: {
       .in('status', ['open', 'in_progress', 'scheduled', 'blocked']),
   ]);
 
+  // The charge's own rows. Bank-sourced descriptions are raw descriptors
+  // ("ZELLE PAYMENT TO ..."), receipt-sourced ones are operator prose --
+  // either way these arrive un-ticked, as material to build the itemization
+  // from when the work was never slipped.
+  const repairRows = args.propertyStatementId
+    ? (await supabaseAdmin
+        .from('repair_events')
+        .select('id, vendor_name, description, bank_charge_amount, bank_charge_date')
+        .eq('property_statement_id', args.propertyStatementId)
+        .order('bank_charge_date')).data as RepairRow[] | null
+    : null;
+
   const named = (rows: unknown): SlipRow[] =>
     ((rows || []) as unknown as SlipRow[]).filter(s => tidy(s.title).length > 0);
 
@@ -250,8 +300,14 @@ export async function loadOwnerRequestCandidates(args: {
     kind,
     actionType: slip.owner_action_type,
     priority: slip.priority,
-    defaultText: buildRequestText(slip, kind, start),
-    suggested: kind === 'ask',
+    // Finished work reads as a line item ("Repaired the AC unit"), not as a
+    // request; when it is itemizing a charge, that is exactly the register
+    // the owner is reading in.
+    defaultText: kind === 'handled' ? handledLine(slip) : buildRequestText(slip, kind, start),
+    // Asks are pre-ticked because somebody already decided the owner needs
+    // to weigh in. Finished work is pre-ticked too but sits behind its own
+    // master switch, so nothing lands in an inbox unreviewed.
+    suggested: kind === 'ask' || kind === 'handled',
     raisedOn: slip.owner_last_contacted_at,
   });
 
@@ -261,8 +317,8 @@ export async function loadOwnerRequestCandidates(args: {
     candidates: [
       ...asks.map(s => toCandidate(s, 'ask')),
       ...rest.map(s => toCandidate(s, 'flag')),
+      ...done.map(s => toCandidate(s, 'handled')),
+      ...(repairRows || []).map(repairCandidate),
     ],
-    handled: cap(done.map(handledLine), MAX_HANDLED,
-      n => `Plus ${n} smaller item${n === 1 ? '' : 's'} handled along the way`),
   };
 }
