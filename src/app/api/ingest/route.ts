@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
+import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { getActivePropertyForStatements } from '@/lib/properties';
@@ -1891,6 +1891,29 @@ export async function POST(request: NextRequest) {
           gross_mismatches: [], gross_reconstructions: [], collected_rebuilds: [], reservations_missing_charge: [],
           error: err instanceof Error ? err.message : String(err),
         };
+      }
+    } else {
+      // No Stripe key for this property. Airbnb/Booking-only listings
+      // legitimately need none, but a property with VRBO/Direct stays is
+      // simply never synced -- its fees keep the 3.9% estimate and nothing
+      // said so. Filed HERE, at the end of ingest, because the wipe-and-
+      // rebuild earlier in this route would have deleted an earlier row.
+      try {
+        const { raised, rtStays } = await reportMissingStripeKey(supabase, {
+          propertyId, statementId: stmt.id, month,
+        });
+        if (raised) {
+          stripeSync = {
+            property_id: propertyId,
+            charges_found: 0, matched: 0,
+            unmatched_charges: [], fee_updates: [], refunds_detected: [],
+            gross_mismatches: [], gross_reconstructions: [], collected_rebuilds: [], reservations_missing_charge: [],
+            no_stripe_key: true,
+            error: `No Stripe key configured for this property; ${rtStays} VRBO/Direct stay${rtStays === 1 ? '' : 's'} are on the 3.9% fee estimate.`,
+          };
+        }
+      } catch (err) {
+        console.error('ingest: missing-key check failed', err);
       }
     }
 

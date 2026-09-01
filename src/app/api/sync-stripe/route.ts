@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
+import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
@@ -113,6 +113,33 @@ export async function POST(request: NextRequest) {
         },
       });
       results.push(result);
+    }
+
+    // Mirror-image pass: properties WITH a statement this month but NO
+    // configured Stripe key. The loop above is keyed on the keys map, so it
+    // cannot see them -- their VRBO/Direct fees sit on the 3.9% estimate
+    // forever and the toast still says "no discrepancies". Report only: the
+    // helper writes a data gap and nothing else.
+    for (const s of (stmts || []) as StmtRow[]) {
+      if (keys[s.property_id]) continue;
+      try {
+        const { raised, rtStays } = await reportMissingStripeKey(supabase, {
+          propertyId: s.property_id, statementId: s.id, month,
+        });
+        if (raised) {
+          results.push({
+            property_id: s.property_id,
+            charges_found: 0, matched: 0, unmatched_charges: [],
+            fee_updates: [], refunds_detected: [], gross_mismatches: [],
+            gross_reconstructions: [], collected_rebuilds: [],
+            reservations_missing_charge: [],
+            no_stripe_key: true,
+            error: `No Stripe key configured; ${rtStays} VRBO/Direct stay${rtStays === 1 ? '' : 's'} still on the fee estimate`,
+          });
+        }
+      } catch (err) {
+        console.error(`sync-stripe: missing-key check failed for ${s.property_id}`, err);
+      }
     }
 
     // Log last sync for the dashboard's relative-time badge AND surface any

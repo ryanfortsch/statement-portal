@@ -14,6 +14,7 @@ import { renderEmail, fmtFundsSentDate, workNotesHaveContent, type EmailTemplate
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { jsonWithFreezeRetry, formWithFreezeRetry } from '@/lib/freeze-confirm';
 import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
+import { revenueSignal } from '@/lib/guesty-revenue-signal';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -83,7 +84,13 @@ type DriftBooking = {
   confirmation_code: string;
   guest_name: string | null;
   check_out: string;
+  // Three columns because three writers populate them. An SCA direct stay
+  // carries only host_payout (Guesty never processed the payment). Display
+  // only -- revenueSignal() takes the max, which mixes bases and must never
+  // reach payout math.
   total_paid: number | null;
+  host_payout: number | null;
+  owner_net_revenue_guesty: number | null;
 };
 
 type PropertyStatement = {
@@ -113,6 +120,12 @@ type PropertyStatement = {
   repair_events?: RepairEvent[];
   data_gaps?: DataGap[];
   drift_bookings?: DriftBooking[];
+  /** false = the drift probe FAILED. Not "no drift" -- unknown drift. */
+  drift_known?: boolean;
+  /** false = the data_gaps read FAILED; the gap list below is not trustworthy. */
+  gaps_known?: boolean;
+  /** Revenue-bearing Guesty rows with no confirmation code: unmatchable. */
+  drift_unmatchable?: number;
 };
 
 type StatementPeriod = {
@@ -255,6 +268,13 @@ function buildRemittanceList(args: {
   const lines: string[] = [];
   lines.push(`${monthName} REMITTANCE INSTRUCTIONS`);
   lines.push(`Generated ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`);
+  if (sheet.installmentsDegraded) {
+    lines.push('');
+    lines.push('!! WARNING -- CROSS-MONTH SPLIT DATA UNAVAILABLE !!');
+    lines.push('   The installment table could not be read when this sheet was built.');
+    lines.push('   Any long stay split across months may be attributed to the wrong');
+    lines.push('   month here. Re-generate this sheet before filing.');
+  }
   lines.push('');
 
   const totalRent = rows.reduce((s, r) => s + r.taxableRent, 0);
@@ -1371,7 +1391,7 @@ function PropertyCard({
                   </span>
                 )}
                 {(prop.drift_bookings?.length || 0) > 0 && (
-                  <span title="Paid bookings have been added to Guesty since this statement was last ingested. Click the property to expand and refresh." style={{
+                  <span title="Revenue-bearing bookings have been added to Guesty since this statement was last ingested. Click the property to expand and refresh." style={{
                     fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
                     color: 'var(--paper)',
                     background: 'var(--tide)',
@@ -1438,10 +1458,10 @@ function PropertyCard({
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 500, color: 'var(--ink)' }}>
-                  {prop.drift_bookings!.length} new paid booking{prop.drift_bookings!.length === 1 ? '' : 's'} since this statement was generated
+                  {prop.drift_bookings!.length} new booking{prop.drift_bookings!.length === 1 ? '' : 's'} since this statement was generated
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>
-                  {prop.drift_bookings!.slice(0, 3).map(d => `${d.guest_name || 'Guest'} ($${(d.total_paid || 0).toFixed(0)})`).join(' · ')}
+                  {prop.drift_bookings!.slice(0, 3).map(d => `${d.guest_name || 'Guest'} ($${revenueSignal(d).toFixed(0)})`).join(' · ')}
                   {prop.drift_bookings!.length > 3 && ` +${prop.drift_bookings!.length - 3} more`}
                 </div>
               </div>
@@ -1458,6 +1478,19 @@ function PropertyCard({
                     if (!res.ok) {
                       alert(`Refresh failed: ${data.error || 'unknown error'}`);
                     } else {
+                      // A booking Guesty has no collected gross for cannot be
+                      // priced here; say so rather than let an unqualified
+                      // success imply the statement is now complete.
+                      const noGross: string[] = Array.isArray(data.missing_gross_codes) ? data.missing_gross_codes : [];
+                      const added = Array.isArray(data.added) ? data.added.length : 0;
+                      if (noGross.length > 0) {
+                        alert(
+                          `${added} booking${added === 1 ? '' : 's'} added.\n\n` +
+                          `${noGross.length} could NOT be added: Guesty has no collected gross for ${noGross.length === 1 ? 'it' : 'them'} ` +
+                          `(typically a Stay Cape Ann direct booking paid through the property's own Stripe). ` +
+                          `Flagged as a data gap on this statement -- run Sync Stripe, then Refresh again, or re-ingest the month.`,
+                        );
+                      }
                       onRefresh();
                     }
                   } catch (err) {
@@ -2109,6 +2142,9 @@ function DashboardContent() {
         reconstructed_gain: number;
         missing_charges: number;
         orphan_charges: number;
+        fee_unreadable: number;
+        truncated_rebuilds: number;
+        keyless: number;
         errors: string[];
       }
     | string
@@ -2527,6 +2563,7 @@ function DashboardContent() {
         fee_updates: unknown[]; refunds_detected: unknown[]; gross_mismatches: unknown[];
         gross_reconstructions?: { prev_net: number; next_net: number }[];
         reservations_missing_charge: unknown[]; unmatched_charges: unknown[]; error?: string;
+        fee_unreadable?: unknown[]; collected_rebuild_truncated?: unknown[]; no_stripe_key?: boolean;
       };
       const rs: Pr[] = data.results || [];
       const agg = {
@@ -2538,6 +2575,9 @@ function DashboardContent() {
         reconstructed_gain: rs.reduce((s, p) => s + (p.gross_reconstructions || []).reduce((t, g) => t + (g.next_net - g.prev_net), 0), 0),
         missing_charges: rs.reduce((s, p) => s + (p.reservations_missing_charge?.length || 0), 0),
         orphan_charges: rs.reduce((s, p) => s + (p.unmatched_charges?.length || 0), 0),
+        fee_unreadable: rs.reduce((s, p) => s + (p.fee_unreadable?.length || 0), 0),
+        truncated_rebuilds: rs.reduce((s, p) => s + (p.collected_rebuild_truncated?.length || 0), 0),
+        keyless: rs.filter(p => p.no_stripe_key).length,
         errors: rs.filter(p => p.error).map(p => p.error as string),
       };
       setStripeSyncResult(agg);
@@ -2663,6 +2703,9 @@ function DashboardContent() {
     if (pendingBankRows > 0) problems.push(`${pendingBankRows} bank row${pendingBankRows === 1 ? '' : 's'} awaiting review`);
     if (driftCount > 0) problems.push(`${driftCount} new paid booking${driftCount === 1 ? '' : 's'} not yet on a statement`);
     if (!depositReviewCounts.known) problems.push('bank review queue unreadable (count unknown)');
+    if (props.some(p => p.drift_known === false)) problems.push('new-booking check unreadable (drift count unknown)');
+    const unmatchableRows = props.reduce((s, p) => s + (p.drift_unmatchable || 0), 0);
+    if (unmatchableRows > 0) problems.push(`${unmatchableRows} revenue-bearing Guesty row${unmatchableRows === 1 ? '' : 's'} with no confirmation code`);
     if (problems.length > 0 && !confirm(
       `This month still has:\n\n  · ${problems.join('\n  · ')}\n\nDraft ${candidates.length} owner email${candidates.length === 1 ? '' : 's'} anyway?`,
     )) {
@@ -3129,7 +3172,7 @@ function DashboardContent() {
           <Toast tone="negative" onDismiss={() => setStripeSyncResult(null)}>Stripe sync failed: {stripeSyncResult}</Toast>
         ) : (
           <Toast
-            tone={stripeSyncResult.errors.length > 0 || stripeSyncResult.refunds > 0 ? 'tide' : 'positive'}
+            tone={stripeSyncResult.keyless > 0 ? 'negative' : (stripeSyncResult.errors.length > 0 || stripeSyncResult.refunds > 0 || stripeSyncResult.fee_unreadable > 0 || stripeSyncResult.truncated_rebuilds > 0) ? 'tide' : 'positive'}
             onDismiss={() => setStripeSyncResult(null)}
           >
             Stripe synced across <strong>{stripeSyncResult.properties}</strong> propert{stripeSyncResult.properties === 1 ? 'y' : 'ies'}
@@ -3139,7 +3182,10 @@ function DashboardContent() {
             {stripeSyncResult.gross_mismatches > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.gross_mismatches} gross mismatch{stripeSyncResult.gross_mismatches === 1 ? '' : 'es'}</span>}
             {stripeSyncResult.missing_charges > 0 && <span style={{ color: 'var(--ink-4)' }}> &middot; {stripeSyncResult.missing_charges} expected charge{stripeSyncResult.missing_charges === 1 ? '' : 's'} missing</span>}
             {stripeSyncResult.orphan_charges > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.orphan_charges} unmatched charge{stripeSyncResult.orphan_charges === 1 ? '' : 's'} found; one-off payment links land in the review queue on each property card</span>}
-            {stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.gross_reconstructions === 0 && stripeSyncResult.missing_charges === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
+            {stripeSyncResult.keyless > 0 && <span style={{ color: 'var(--negative)' }}> &middot; {stripeSyncResult.keyless} propert{stripeSyncResult.keyless === 1 ? 'y has' : 'ies have'} VRBO/Direct stays but NO Stripe key configured, so their fees were never verified</span>}
+            {stripeSyncResult.fee_unreadable > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.fee_unreadable} matched charge{stripeSyncResult.fee_unreadable === 1 ? '' : 's'} returned no fee from Stripe; those stays are still on the 3.9% estimate</span>}
+            {stripeSyncResult.truncated_rebuilds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.truncated_rebuilds} stay{stripeSyncResult.truncated_rebuilds === 1 ? '' : 's'} rebuilt from less money than Guesty recorded as collected; check for an earlier charge</span>}
+            {stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.gross_reconstructions === 0 && stripeSyncResult.missing_charges === 0 && stripeSyncResult.fee_unreadable === 0 && stripeSyncResult.truncated_rebuilds === 0 && stripeSyncResult.keyless === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
             {stripeSyncResult.errors.length > 0 && (
               <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
                 {stripeSyncResult.errors.length} account{stripeSyncResult.errors.length === 1 ? '' : 's'} errored: {stripeSyncResult.errors.slice(0, 2).join(' · ')}
@@ -3276,12 +3322,16 @@ function DashboardContent() {
         const driftCount = props.reduce((s, p) => s + (p.drift_bookings?.length || 0), 0);
         const unsentIds = props.filter(p => !closeTasks[p.property_id]?.email_sent_at).map(p => p.property_id);
         const failingSyncs = STATEMENT_SYNC_SOURCES.filter(s => lastSync[s]?.last_status === 'error');
+        const driftUnknown = props.some(p => p.drift_known === false);
+        const unmatchable = props.reduce((s, p) => s + (p.drift_unmatchable || 0), 0);
         // Input completeness: the two must-do monthly uploads. Unknown
         // (load failed / still loading) is never treated as OK or missing.
         const platformMissing = monthStatus ? !monthStatus.platform_csv.on_file : false;
         const bookingMissing = monthStatus?.booking_activity.known ? monthStatus.booking_activity.rows === 0 : false;
+        const gapsUnknown = props.some(p => p.gaps_known === false);
         const clear = depositCount === 0 && totalGaps === 0 && driftCount === 0 && unsentIds.length === 0
-          && depositReviewCounts.known && failingSyncs.length === 0 && !platformMissing && !bookingMissing;
+          && depositReviewCounts.known && !driftUnknown && !gapsUnknown && unmatchable === 0
+          && failingSyncs.length === 0 && !platformMissing && !bookingMissing;
         const warnChip = (text: string, title?: string) => (
           <span title={title} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 7 }}>
             <span style={{ fontSize: 12, color: 'var(--negative)', fontWeight: 600 }}>{text}</span>
@@ -3306,6 +3356,12 @@ function DashboardContent() {
                   {platformMissing && warnChip('Platform CSV not uploaded', 'No Guesty reservations CSV on file for this month. Upload it below.')}
                   {bookingMissing && warnChip('Booking.com 5623 CSV not uploaded', 'No Booking.com deposits-account activity on file for this month. Upload it below.')}
                   {!depositReviewCounts.known && warnChip('bank review counts unavailable', 'The pending-deposit count failed to load; the queue may not be empty.')}
+                  {props.some(p => p.gaps_known === false) && warnChip('gap list unavailable', 'The data-gaps read failed for at least one property, so a statement may be carrying flags this page cannot show.')}
+                  {driftUnknown && warnChip('new-booking check unavailable', 'The Guesty drift probe failed for at least one property, so bookings could be missing from a statement without showing here.')}
+                  {unmatchable > 0 && warnChip(
+                    `${unmatchable} Guesty row${unmatchable === 1 ? '' : 's'} with no confirmation code`,
+                    'These rows carry revenue but have no confirmation code, so nothing can match them to a stay or add them to a statement. Check them in Guesty.',
+                  )}
                   {depositCount > 0 && (
                     <ReviewSegment
                       count={depositCount}

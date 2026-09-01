@@ -120,6 +120,13 @@ export type RemittanceSheet = {
   rows: RemittanceRow[];
   /** Active registry properties with no statement in this month at all. */
   missingProperties: Array<{ id: string; name: string }>;
+  /**
+   * Set when the cross-month split table could not be read (2026-09 audit
+   * phase 2). The sheet still prints -- an accountant mid-filing needs
+   * SOMETHING -- but every long-stay figure on it may be attributed to the
+   * wrong month, so the printed sheet says so instead of looking clean.
+   */
+  installmentsDegraded?: boolean;
 };
 
 type FolioItem = { type?: string | null; amount?: number | string | null };
@@ -203,7 +210,7 @@ export async function buildRemittanceSheet(
     .eq('period_id', period.id)
     .order('property_name');
   const stmts = (statements || []) as Array<{ id: string; property_id: string; property_name: string }>;
-  if (stmts.length === 0) return { month, rows: [], missingProperties: [] };
+  if (stmts.length === 0) return { month, rows: [], missingProperties: [], installmentsDegraded: false };
 
   const { data: reservationRows } = await supabase
     .from('reservations')
@@ -226,7 +233,18 @@ export async function buildRemittanceSheet(
     }
   }
 
-  const installmentsByCode = await loadInstallmentsForCodes(supabase, codes);
+  // Fail-visible, not fail-closed: this sheet is a tax document the
+  // accountant may be part-way through filing, so a split-table read
+  // failure degrades it with a printed warning rather than denying it.
+  let installmentsDegraded = false;
+  let installmentsByCode: Map<string, Installment[]>;
+  try {
+    installmentsByCode = await loadInstallmentsForCodes(supabase, codes);
+  } catch (err) {
+    console.error('remittance: installment read failed, sheet degraded', err);
+    installmentsDegraded = true;
+    installmentsByCode = new Map<string, Installment[]>();
+  }
 
   // Occupancy tax sitting inside attributed add-on charges (a late checkout
   // or extra night sold through a payment link). Zero for every row minted
@@ -372,5 +390,5 @@ export async function buildRemittanceSheet(
     .map(p => ({ id: p.id, name: p.name || p.id }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return { month, rows, missingProperties };
+  return { month, rows, missingProperties, installmentsDegraded };
 }

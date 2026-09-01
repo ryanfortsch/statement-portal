@@ -3,6 +3,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { PROPERTIES } from '@/lib/properties';
 import { getCachedPlatformCSV } from '@/lib/platform-csv-cache';
+import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR } from '@/lib/guesty-revenue-signal';
 import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
 import { loadStatementWorkNotes } from '@/lib/statement-work-notes';
 import type { PropertyWorkNotes } from '@/lib/email-templates';
@@ -151,25 +152,60 @@ export async function loadPeriodData(month: string): Promise<
         supabaseAdmin.from('data_gaps').select('*').eq('property_statement_id', prop.id),
         supabaseAdmin
           .from('guesty_reservations')
-          .select('confirmation_code, guest_name, check_out, total_paid')
+          // Revenue candidacy is any of the three signal columns, not
+          // total_paid alone: an SCA direct stay has total_paid NULL
+          // (Guesty never saw the money) and PostgREST's .gt() drops NULL,
+          // so a total_paid filter hid every one of them from this banner.
+          .select(`confirmation_code, guest_name, check_out, ${REVENUE_SIGNAL_COLUMNS}`)
           .eq('property_id', prop.property_id)
           .gte('check_out', monthStart)
           .lt('check_out', monthEndExclusive)
-          .gt('total_paid', 0),
+          .or(REVENUE_SIGNAL_OR),
       ]);
+      // A failed reservations read would empty existingCodes and make every
+      // Guesty row look like drift, so both reads must have succeeded before
+      // any drift number is believable. Absence of data is not a fact:
+      // unknown drift renders as a warning, never as a confident zero.
+      const driftKnown = !guestyResResult.error && !resResult.error;
+      if (guestyResResult.error || resResult.error) {
+        console.error(
+          `drift probe unusable for ${prop.property_id}:`,
+          guestyResResult.error?.message || resResult.error?.message,
+        );
+      }
       const existingCodes = new Set(
         (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean),
       );
-      const driftBookings = (guestyResResult.data || []).filter(
+      const guestyRows = driftKnown ? (guestyResResult.data || []) : [];
+      const driftBookings = guestyRows.filter(
         (g: { confirmation_code: string | null }) => g.confirmation_code && !existingCodes.has(g.confirmation_code),
       );
+      // Revenue-bearing Guesty rows with NO confirmation code. Nothing can
+      // match or add these -- both the drift filter above and every
+      // code-keyed matcher skip them -- so without this count they are
+      // money that is simply invisible. Live check 2026-09-01 found ~$52k
+      // of them across 7 properties in August alone.
+      const driftUnmatchable = guestyRows.filter(
+        (g: { confirmation_code: string | null }) => !g.confirmation_code,
+      ).length;
+      // The gap list is the delivery channel for every warning the pipeline
+      // raises (missing Stripe key, unreadable fee, unpriceable booking,
+      // post-send override). A discarded error here would render an empty
+      // Data Gaps section on a statement that actually has critical flags --
+      // the fail-open failure mode this whole phase exists to retire.
+      if (gapResult.error) {
+        console.error(`data_gaps read failed for ${prop.property_id}:`, gapResult.error.message);
+      }
       return {
         ...prop,
         reservations: resResult.data || [],
         cleaning_events: cleanResult.data || [],
         repair_events: repairResult.data || [],
         data_gaps: gapResult.data || [],
+        gaps_known: !gapResult.error,
         drift_bookings: driftBookings,
+        drift_known: driftKnown,
+        drift_unmatchable: driftUnmatchable,
       };
     })
   );
