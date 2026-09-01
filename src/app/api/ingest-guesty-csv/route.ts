@@ -2,21 +2,46 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 
-// Property matching -- keep in sync with statements/render/page.tsx
-const LISTING_MATCH: Record<string, string> = {
-  '3_south_st':    '3 south',
-  '21_horton':     '21 horton',
-  '53_rocky_neck': '53 rocky neck',
-  '4_brier_neck':  '4 brier neck',
-  '30_woodward':   '30 woodward',
-  '20_hammond':    '20 hammond',
-  '20_enon':       '20 enon',
-  '73_rocky_neck': '73 rocky neck',
-  '17_beach_rd':   '17 beach',
-  '65_calderwood': '65 calderwood',
-  '3_locust':      '3 locust',
-  '3246_ne_27th':  '3246 ne 27th',
-};
+// Property matching.
+//
+// The listing needles come from `properties.listing_match` (active rows
+// only), read at request time -- the same source /api/ingest reads for
+// owner-PDF section routing. It used to be a hardcoded 12-entry const here,
+// which meant every row for a property added after it was written (3
+// Windward, 53 Rocky Neck (DOWN), 19 Rackliffe, 84 Thatcher, 225
+// Washington, 36 Granite, 79 Main, 16 Waterman) counted as `unmatched` and
+// was dropped BEFORE the money-column gap-fill below -- so a Direct/VRBO
+// stay whose Guesty API row carries TOTAL_PAID = 0 never got its real
+// gross. Reading the DB means a property added in Helm is matchable here
+// with no code change.
+//
+// LONGEST match wins, so a sub-unit needle ('53 rocky neck (down') beats
+// its parent's '53 rocky neck' prefix and can never be absorbed by it.
+// Same rule as sync-guesty's LISTING_MATCH and /api/ingest's PDF section
+// assignment. First-match-wins here would reintroduce the downstairs
+// misrouting the moment 53_rocky_neck_2 became reachable.
+async function loadListingMatches(sb: SupabaseClient): Promise<Record<string, string>> {
+  const { data, error } = await sb
+    .from('properties')
+    .select('id, listing_match')
+    .eq('is_active', true);
+  if (error) throw new Error(`listing_match load failed: ${error.message}`);
+  const out: Record<string, string> = {};
+  for (const row of data || []) {
+    if (row.id && row.listing_match) out[row.id] = String(row.listing_match).toLowerCase();
+  }
+  // Fail closed. An empty map would silently mark every row unmatched and
+  // still return success: 200, which is exactly the shape of failure this
+  // route just had.
+  if (Object.keys(out).length === 0) {
+    throw new Error('No active properties carry a listing_match -- refusing to drop every CSV row silently');
+  }
+  return out;
+}
+
+// Neighborhood nicknames, tried only when no listing_match needle hits.
+// Code-side because there is no DB column for them. Longest match wins here
+// too, for the same reason.
 const NICKNAME_HINTS: Record<string, string> = {
   '3_south_st':    'old garden beach',
   '21_horton':     'rocky neck',
@@ -32,11 +57,22 @@ const NICKNAME_HINTS: Record<string, string> = {
   '3246_ne_27th':  'lighthouse point',
 };
 
-function matchProperty(listing: string): string | null {
+/** Longest needle that the listing name contains, listing_match first. */
+function longestMatch(haystack: string, needles: Record<string, string>): string | null {
+  let best: string | null = null;
+  let bestLen = 0;
+  for (const [pid, needle] of Object.entries(needles)) {
+    if (needle && needle.length > bestLen && haystack.includes(needle)) {
+      best = pid;
+      bestLen = needle.length;
+    }
+  }
+  return best;
+}
+
+function matchProperty(listing: string, listingMatches: Record<string, string>): string | null {
   const h = listing.toLowerCase();
-  for (const [pid, needle] of Object.entries(LISTING_MATCH)) if (h.includes(needle)) return pid;
-  for (const [pid, hint] of Object.entries(NICKNAME_HINTS)) if (h.includes(hint)) return pid;
-  return null;
+  return longestMatch(h, listingMatches) ?? longestMatch(h, NICKNAME_HINTS);
 }
 
 function channelLabel(platform: string): string {
@@ -125,10 +161,17 @@ export async function POST(request: NextRequest) {
     const today = new Date(); today.setUTCHours(0, 0, 0, 0);
     const todayStr = today.toISOString().slice(0, 10);
 
+    // Needed before the parse loop now that the listing map is DB-backed.
+    const sb = getSupabase();
+    const listingMatches = await loadListingMatches(sb);
+
     const reservationRows: any[] = [];
     const reviewRows: any[] = [];
     let unmatched = 0;
     let parsed = 0;
+    // Distinct listing names nothing matched, so a still-missing property
+    // shows up by name instead of only as a count.
+    const unmatchedListings = new Set<string>();
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -145,8 +188,8 @@ export async function POST(request: NextRequest) {
       const reviewText = iReview >= 0 ? (f[iReview] || '').trim() : '';
 
       if (!checkIn || !checkOut || !listing) continue;
-      const propertyId = matchProperty(listing);
-      if (!propertyId) { unmatched++; continue; }
+      const propertyId = matchProperty(listing, listingMatches);
+      if (!propertyId) { unmatched++; unmatchedListings.add(listing); continue; }
       parsed++;
 
       const nights = nightsBetween(checkIn, checkOut);
@@ -195,8 +238,6 @@ export async function POST(request: NextRequest) {
         });
       }
     }
-
-    const sb = getSupabase();
 
     // Upsert reservations. When an API-sourced row already exists for a code,
     // skip the CSV row to preserve API metadata (channel ids, status, etc.) --
@@ -273,6 +314,7 @@ export async function POST(request: NextRequest) {
     await recordSyncSuccess('csv-fallback', {
       parsed,
       unmatched,
+      unmatched_examples: [...unmatchedListings].slice(0, 10),
       reservations: reservationsUpserted,
       reviews: reviewsUpserted,
     });
@@ -281,6 +323,7 @@ export async function POST(request: NextRequest) {
       success: true,
       parsed,
       unmatched_listings: unmatched,
+      unmatched_examples: [...unmatchedListings].slice(0, 10),
       reservations_upserted: reservationsUpserted,
       api_rows_backfilled: apiRowsBackfilled,
       reviews_upserted: reviewsUpserted,
