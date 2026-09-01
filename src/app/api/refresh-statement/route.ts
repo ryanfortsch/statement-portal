@@ -114,10 +114,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Existing reservation codes -- we won't duplicate any of these.
-    const { data: existing } = await supabase
+    // FAIL CLOSED: this is the dedupe key for the whole route. A swallowed
+    // error empties the set, every candidate then looks missing, and the
+    // insert below re-adds the ENTIRE month on top of itself -- the owner
+    // paid twice. Refuse instead; nothing has been written yet.
+    const { data: existing, error: existingErr } = await supabase
       .from('reservations')
       .select('confirmation_code')
       .eq('property_statement_id', stmt.id);
+    if (existingErr) {
+      return NextResponse.json(
+        { error: `Could not read the statement's existing bookings (${existingErr.message}). Nothing was changed -- retrying is safe.` },
+        { status: 502 },
+      );
+    }
     const existingCodes = new Set(
       (existing || []).map(r => r.confirmation_code).filter((c): c is string => !!c),
     );
@@ -209,7 +219,11 @@ export async function POST(request: NextRequest) {
         gap_type: 'refresh_missing_gross',
         severity: 'critical',
         description: `${noGrossCodes.length} booking${noGrossCodes.length === 1 ? '' : 's'} checked out in ${month} and ${noGrossCodes.length === 1 ? 'is' : 'are'} missing from this statement, but Guesty has no collected gross for ${noGrossCodes.length === 1 ? 'it' : 'them'} (TOTAL_PAID empty), so the revenue cannot be computed here. Typically a Stay Cape Ann direct booking paid through the property's own Stripe.`,
-        expected_data: `Run Sync Stripe, then Refresh again; or re-ingest the month with the Guesty PDF. Codes: ${noGrossCodes.join(', ')}`,
+        // Sync Stripe writes to `reservations`, not `guesty_reservations`,
+        // so it cannot make this row insertable here. Re-ingesting with the
+        // Guesty PDF is the remedy that works: ingest reads the accrual
+        // rental income off the PDF and prices the stay from that.
+        expected_data: `Re-ingest this month with the Guesty owner-statement PDF (Re-upload Data); that path prices the stay from the PDF's rental income. Codes: ${noGrossCodes.join(', ')}`,
         resolved: false,
       });
       if (gapErr) console.error('refresh-statement: refresh_missing_gross gap insert failed', gapErr.message);

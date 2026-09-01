@@ -221,9 +221,14 @@ export async function reportMissingStripeKey(
     .select('platform, adjusted_revenue')
     .eq('property_statement_id', opts.statementId);
   if (error) throw new Error(`stripe key check: reservation read failed: ${error.message}`);
+  // Revenue-bearing RT-Stripe stays only. A Manual row with no revenue is
+  // a homeowner blocking their own house -- it has no Stripe charge to
+  // verify, so counting it would raise this gap on properties that need no
+  // key at all.
   const rtStays = (rows || []).filter(r => {
     const p = String(r.platform || '').toUpperCase();
-    return p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL' || p === 'DIRECT';
+    const isRT = p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL' || p === 'DIRECT';
+    return isRT && (Number(r.adjusted_revenue) || 0) > 0;
   }).length;
 
   // Idempotent: clear any prior row first so repeated syncs never stack.
@@ -1450,7 +1455,9 @@ export async function syncPropertyStripe(opts: {
     for (const f of result.fee_unreadable || []) {
       newGaps.push({
         gap_type: 'stripe_fee_unreadable',
-        description: `Matched ${f.guest}'s Stripe charge ($${f.gross.toFixed(2)}, ${f.charges} charge${f.charges === 1 ? '' : 's'}) but Stripe returned no fee${f.reason === 'partial' ? ' on every charge' : ''}, so this stay is still on the 3.9% estimate.${noteSuffix(f.code)}`,
+        description: f.reason === 'partial'
+          ? `${f.guest}'s stay was paid across ${f.charges} Stripe charges but only some returned a fee, so the fee recorded here is UNDERSTATED and the payout correspondingly overstated.${noteSuffix(f.code)}`
+          : `Matched ${f.guest}'s Stripe charge ($${f.gross.toFixed(2)}, ${f.charges} charge${f.charges === 1 ? '' : 's'}) but Stripe returned no fee at all, so this stay is still on the 3.9% + $0.40 estimate.${noteSuffix(f.code)}`,
         severity: 'warning',
         expected_data: `Give this property's restricted Stripe key read access to Balance transactions, then run Sync Stripe again.`,
       });

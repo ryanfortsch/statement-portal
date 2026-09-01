@@ -65,7 +65,13 @@ const COLS = 'id, confirmation_code, property_id, month, installment_revenue, in
 function isMissingTableError(err: { code?: string; message?: string } | null): boolean {
   if (!err) return false;
   if (err.code === 'PGRST205') return true;
-  return /does not exist|relation|Could not find the table/i.test(err.message || '');
+  // Narrow to THIS table. The old test matched any message containing
+  // "relation" or "does not exist", which swallowed unrelated failures --
+  // a missing COLUMN, for instance -- straight back into the empty result
+  // this module now exists to prevent.
+  const msg = err.message || '';
+  if (!/reservation_installments/i.test(msg)) return false;
+  return /relation .* does not exist|Could not find the table|does not exist/i.test(msg);
 }
 
 /**

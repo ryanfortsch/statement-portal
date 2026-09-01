@@ -134,7 +134,12 @@ export async function POST(request: NextRequest) {
             gross_reconstructions: [], collected_rebuilds: [],
             reservations_missing_charge: [],
             no_stripe_key: true,
-            error: `No Stripe key configured; ${rtStays} VRBO/Direct stay${rtStays === 1 ? '' : 's'} still on the fee estimate`,
+            // Deliberately NOT `error`: a missing key is a standing
+            // configuration fact, not a sync failure. Setting error here
+            // would count into recordSyncResult's failed tally and light
+            // up the "stripe feed failing" chip every night forever, which
+            // is how a real outage gets lost in the noise. The signal
+            // reaches the operator as a data gap and the red toast below.
           });
         }
       } catch (err) {
@@ -145,11 +150,13 @@ export async function POST(request: NextRequest) {
     // Log last sync for the dashboard's relative-time badge AND surface any
     // per-property failure on the daily brief. A single-property bad-key now
     // lights up sync_status instead of being buried in results[].error.
-    const failed = results.filter((r) => r.error).length;
+    // Keyless properties carry no `error` (see above), so they cannot
+    // count as failures here either -- belt and braces.
+    const failed = results.filter((r) => r.error && !r.no_stripe_key).length;
     await recordSyncResult('stripe', {
       processed: results.length - failed,
       failed,
-      firstError: results.find((r) => r.error)?.error,
+      firstError: results.find((r) => r.error && !r.no_stripe_key)?.error,
       result: { month, properties: results.length },
     });
 

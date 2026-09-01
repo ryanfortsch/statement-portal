@@ -2704,6 +2704,7 @@ function DashboardContent() {
     if (driftCount > 0) problems.push(`${driftCount} new paid booking${driftCount === 1 ? '' : 's'} not yet on a statement`);
     if (!depositReviewCounts.known) problems.push('bank review queue unreadable (count unknown)');
     if (props.some(p => p.drift_known === false)) problems.push('new-booking check unreadable (drift count unknown)');
+    if (props.some(p => p.gaps_known === false)) problems.push('gap list unreadable (a statement may be carrying flags this page cannot show)');
     const unmatchableRows = props.reduce((s, p) => s + (p.drift_unmatchable || 0), 0);
     if (unmatchableRows > 0) problems.push(`${unmatchableRows} revenue-bearing Guesty row${unmatchableRows === 1 ? '' : 's'} with no confirmation code`);
     if (problems.length > 0 && !confirm(
@@ -3185,7 +3186,7 @@ function DashboardContent() {
             {stripeSyncResult.keyless > 0 && <span style={{ color: 'var(--negative)' }}> &middot; {stripeSyncResult.keyless} propert{stripeSyncResult.keyless === 1 ? 'y has' : 'ies have'} VRBO/Direct stays but NO Stripe key configured, so their fees were never verified</span>}
             {stripeSyncResult.fee_unreadable > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.fee_unreadable} matched charge{stripeSyncResult.fee_unreadable === 1 ? '' : 's'} returned no fee from Stripe; those stays are still on the 3.9% estimate</span>}
             {stripeSyncResult.truncated_rebuilds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.truncated_rebuilds} stay{stripeSyncResult.truncated_rebuilds === 1 ? '' : 's'} rebuilt from less money than Guesty recorded as collected; check for an earlier charge</span>}
-            {stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.gross_reconstructions === 0 && stripeSyncResult.missing_charges === 0 && stripeSyncResult.fee_unreadable === 0 && stripeSyncResult.truncated_rebuilds === 0 && stripeSyncResult.keyless === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
+            {stripeSyncResult.errors.length === 0 && stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.gross_reconstructions === 0 && stripeSyncResult.missing_charges === 0 && stripeSyncResult.fee_unreadable === 0 && stripeSyncResult.truncated_rebuilds === 0 && stripeSyncResult.keyless === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
             {stripeSyncResult.errors.length > 0 && (
               <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
                 {stripeSyncResult.errors.length} account{stripeSyncResult.errors.length === 1 ? '' : 's'} errored: {stripeSyncResult.errors.slice(0, 2).join(' · ')}
