@@ -396,7 +396,7 @@ below as the fleet; treat it as what the statements pipeline is configured for.
 | `20_enon` | 20 Enon | Snyder | 25% | 1307 |
 | `73_rocky_neck` | 73 Rocky Neck | Moynahan | 25% | 3227 |
 | `17_beach_rd` | 17 Beach | Nolan | 22% | 5621 |
-| `3_locust` | 3 Locust | Lucas | 25% | - |
+| `3_locust` | 3 Locust | Rising Tide (Goose of Astoria LLC) | none | - |
 | `19_rackliffe` | 19 Rackliffe | Silverman | 25% | 0628 |
 | `84_thatcher` | 84 Thatcher | Lopes | 25% | - |
 | `225_washington` | 225 Washington | Babson | 25% | 1229 |
@@ -404,6 +404,18 @@ below as the fleet; treat it as what the statements pipeline is configured for.
 
 `53_rocky_neck_2` is a sub-unit; sub-unit matching uses longest-match on the listing name.
 Multi-property owners (Prudenzi) get per-section ingest and one combined statement email.
+
+**`3_locust` is the one row in that table with no owner.** Rising Tide owns 3 Locust outright
+(title held by Goose of Astoria LLC, see `LLC_ENTITIES` in `src/lib/books.ts`), so no owner
+statement is ever produced for it and no management fee is earned; `property_statements` has never
+held a 3 Locust row and correctly never will. It stays in `PROPERTIES` because it IS in the
+guest-facing ops fleet -- live Guesty listing, `/book` page, channels, turnovers, cleaner-text
+routing, notes, invoice matching -- and `is_rising_tide_owned: true` on the entry is what marks it
+out of the statement flows. `properties.is_rising_tide_owned` in the DB is the source of truth and
+3 Locust is the only row carrying it. Do not read the `fee_pct: 25` still on that entry (and the
+`management_fee_pct = 25` still on its DB row) as a billed rate: both are stale seed values kept
+because fee numbers are payout math, and `is_rising_tide_owned` is what zeroes the fee in
+`revenue-snapshot.ts` and `forecast-smart.ts`.
 
 **Guesty listing mapping**: Guesty's platform CSV uses the External Title. The `listing_match`
 field in `src/lib/properties.ts` is a lowercase substring matched against incoming Guesty listing
