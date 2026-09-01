@@ -656,6 +656,7 @@ export async function POST(request: NextRequest) {
       guest_name: string | null;
       channel: string | null;
       guesty_channel_id: string | null;
+      status: string | null;
       total_paid: number | null;
       total_taxes: number | null;
       channel_commission: number | null;
@@ -666,7 +667,7 @@ export async function POST(request: NextRequest) {
     if (codes.length > 0) {
       const { data: guestyRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, guest_name, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, folio_items')
+        .select('confirmation_code, guest_name, channel, guesty_channel_id, status, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, folio_items')
         .in('confirmation_code', codes);
       (guestyRows || []).forEach(r => {
         if (r.confirmation_code) guestyLookupMap.set(r.confirmation_code, r);
@@ -1023,7 +1024,49 @@ export async function POST(request: NextRequest) {
       bank_match_status: string;
     }[] = [];
 
+    // Rows the PDF listed that do not check out in the statement month.
+    // Collected, never recognized; reported below.
+    const outOfMonthRows: { code: string; guest: string; checkOut: string; amount: number }[] = [];
+
     for (const res of reservations) {
+      // ── Statement-month gate ──────────────────────────────────────────
+      // Revenue is recognized at CHECKOUT (see CLAUDE.md "Recognition").
+      // Guesty's owner-statement PDF does not use that basis: it lists a
+      // booking in the month the guest PAID, so a stay checking out next
+      // month rides in on this month's PDF. The same hole passes an entire
+      // wrong-month PDF: an August export dropped into July's slot lists
+      // nothing but August stays and every one of them gets paid twice.
+      //
+      // The ONE sanctioned cross-month case is an operator-created
+      // installment split, which always carries reservation_installments
+      // slices -- the PDF fork and the synthetic injection below own those,
+      // so a sliced code is exempt here and handled on its own terms.
+      //
+      // Skip the row rather than recognize it, and make the skip loud: a
+      // silent drop is how the reverse bug (a stay that vanishes) starts.
+      //
+      // Exempt only a code with a slice for THIS month. `installmentByCode`
+      // is month-scoped and that scoping is the whole point: keying on
+      // `allInstallmentsByCode` (slices in ANY month) would exempt the exact
+      // opposite case, a stay whose slices all live in other months and is
+      // therefore already recognized there, and wave it through at full PDF
+      // value. Worth knowing while reading this: the recognized-elsewhere
+      // guard meant to catch that case sits in the guest-name loop above,
+      // not in this one, so it files its gap without ever skipping
+      // recognition. Month-scoping here closes the cross-month half of that
+      // hole instead of widening it.
+      const checkOutMonth = (res.check_out || '').slice(0, 7);
+      const hasSliceThisMonth = !!res.confirmation_code && installmentByCode.has(res.confirmation_code);
+      if (checkOutMonth && checkOutMonth !== month && !hasSliceThisMonth) {
+        outOfMonthRows.push({
+          code: res.confirmation_code,
+          guest: res.guest_name,
+          checkOut: res.check_out,
+          amount: res.rental_income,
+        });
+        continue;
+      }
+
       const platformInfo = platformMap[res.confirmation_code];
       const guestyInfo = guestyLookupMap.get(res.confirmation_code);
       // Platform waterfall: platform CSV -> guesty_reservations -> 'Unknown'
@@ -1978,6 +2021,43 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Bookings the PDF listed that check out in another month. Held out of
+    // the payout by the statement-month gate; named here so the operator
+    // sees what Guesty tried to bill this month and can confirm each one
+    // lands on its real month instead of falling through the cracks.
+    //
+    // Deliberately a GAP and not a refusal. An earlier draft returned 400
+    // when every parsed row was out of month, on the theory that this can
+    // only mean the wrong PDF. It can also mean an ordinary shoulder-season
+    // month whose single booking checks out on the 2nd of the next one, and
+    // refusing there blocks the whole property-month -- cleaning, repairs,
+    // add-ons and any synthetic installment slice included -- while telling
+    // the operator to re-download the file they already attached correctly.
+    // That is the same trade the foreignSingleSection guard above resolves
+    // the same way: ingest, recognize nothing, and say so loudly.
+    //
+    // Protecting an already-sent statement is not this guard's job either;
+    // that is the finality freeze, which now covers every month.
+    if (outOfMonthRows.length > 0) {
+      const allOutOfMonth = outOfMonthRows.length === reservations.length;
+      const pdfMonths = [...new Set(outOfMonthRows.map(r => r.checkOut.slice(0, 7)))].sort();
+      gaps.push({
+        gap_type: 'out_of_month_reservation',
+        description:
+          `${outOfMonthRows.length} booking${outOfMonthRows.length === 1 ? '' : 's'} on Guesty's ${month} PDF `
+          + `check${outOfMonthRows.length === 1 ? 's' : ''} out in another month and ${outOfMonthRows.length === 1 ? 'was' : 'were'} `
+          + `NOT counted here (revenue is recognized at checkout): `
+          + outOfMonthRows.map(r => `${r.guest || r.code} checks out ${r.checkOut} ($${r.amount})`).join('; ')
+          + (allOutOfMonth
+            ? `. NOTHING on this PDF checks out in ${month} -- it looks like ${pdfMonths.join(' / ')}'s owner `
+              + `statement was attached to ${month}. Check the file before trusting this statement; `
+              + `re-ingesting ${month} with the right PDF is safe.`
+            : `. Confirm ${outOfMonthRows.length === 1 ? 'it lands' : 'they land'} on the right month's statement.`),
+        severity: allOutOfMonth ? 'critical' : 'warning',
+        expected_data: outOfMonthRows.map(r => `${r.code}:${r.checkOut}`).join(', '),
+      });
+    }
+
     const unmatched = processedReservations.filter(r => r.bank_match_status === 'unmatched' && r.adjusted_revenue > 0);
     for (const r of unmatched) {
       // Check if the checkout is recent (within 7 days of now) -- likely just pending
@@ -2002,23 +2082,55 @@ export async function POST(request: NextRequest) {
     // Guesty (never per-reservation over the month) and raise a LOUD gap for
     // any that actually cancelled. Flag-only: the operator removes it with one
     // click. Wrapped so a Guesty outage/429 never breaks the ingest.
+    //
+    // A bank match does NOT clear a booking. The deposit scan searches every
+    // date on purpose, so an unrelated payout landing within $5 can claim a
+    // cancelled stay and lift it out of `unmatched` before this guard runs --
+    // which is exactly how a cancelled Sarah Strickland rode 20 Enon's August
+    // 2026 statement with bank_match_status 'matched' and zero gaps. So the
+    // suspect set is the UNION of two sources:
+    //   1. unmatched Airbnb/Booking rows -- the original bounded tell, still
+    //      the only source that spends a live API call it didn't have to, and
+    //   2. any row our own cache already calls cancelled, at ANY match status.
+    //      The cache under-reports cancels (it freezes at "confirmed" when it
+    //      synced before the cancel) but it never invents one, so a cached
+    //      cancel is free, trustworthy, and needs no call at all.
+    // Source 2 adds no Guesty traffic, which keeps the per-code live check
+    // inside the bound its docblock demands.
     try {
-      const cancelSuspects = unmatched.filter(r => {
-        const p = (r.platform || '').toUpperCase();
+      const isAlwaysPaysChannel = (platform: string) => {
+        const p = (platform || '').toUpperCase();
         return p === 'AIRBNB' || p.includes('BOOKING');
-      });
-      if (cancelSuspects.length > 0) {
-        const liveStatus = await checkLiveGuestyStatus(cancelSuspects.map(r => r.confirmation_code));
-        for (const r of cancelSuspects) {
-          if (isCancelledStatus(liveStatus.get(r.confirmation_code))) {
-            gaps.push({
-              gap_type: 'cancelled_reservation',
-              description: `${r.guest_name} CANCELLED in Guesty but is still on this statement at $${r.adjusted_revenue}. Remove it -- this booking never paid.`,
-              severity: 'critical',
-              // Carries the code so the Remove action can find the exact row.
-              expected_data: `reservation:${r.confirmation_code}`,
-            });
-          }
+      };
+      const cancelSuspects = new Map<string, (typeof processedReservations)[number]>();
+      for (const r of unmatched) {
+        if (isAlwaysPaysChannel(r.platform)) cancelSuspects.set(r.confirmation_code, r);
+      }
+      for (const r of processedReservations) {
+        if (r.adjusted_revenue <= 0) continue;
+        if (isCancelledStatus(guestyLookupMap.get(r.confirmation_code)?.status)) {
+          cancelSuspects.set(r.confirmation_code, r);
+        }
+      }
+      if (cancelSuspects.size > 0) {
+        const suspects = [...cancelSuspects.values()];
+        const liveStatus = await checkLiveGuestyStatus(suspects.map(r => r.confirmation_code));
+        for (const r of suspects) {
+          // Either signal is enough. Live is authoritative when it answers;
+          // when it doesn't (429 / network / no creds it returns nothing), a
+          // cached cancel must still raise the flag rather than fall silent.
+          const cached = guestyLookupMap.get(r.confirmation_code)?.status;
+          if (!isCancelledStatus(liveStatus.get(r.confirmation_code)) && !isCancelledStatus(cached)) continue;
+          const matchNote = r.bank_match_status === 'unmatched'
+            ? ''
+            : ` It carries a ${r.bank_match_status} bank match, which does NOT make it real -- check what that deposit actually belongs to.`;
+          gaps.push({
+            gap_type: 'cancelled_reservation',
+            description: `${r.guest_name} CANCELLED in Guesty but is still on this statement at $${r.adjusted_revenue}. Remove it -- this booking never paid.${matchNote}`,
+            severity: 'critical',
+            // Carries the code so the Remove action can find the exact row.
+            expected_data: `reservation:${r.confirmation_code}`,
+          });
         }
       }
     } catch (err) {

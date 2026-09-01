@@ -10,7 +10,8 @@ import {
   type ResolvedOwnerRequests,
 } from '@/lib/email-templates';
 import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
-import { verifyStatementIntegrity, FINALITY_FROM_MONTH } from '@/lib/statement-finality';
+import { verifyStatementIntegrity, FREEZE_FROM_MONTH } from '@/lib/statement-finality';
+import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 
 // Puppeteer + Chromium cold start can take 3-5s; give the handler plenty of
@@ -377,7 +378,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `close_tasks read failed: ${sentErr.message}` }, { status: 500 });
       }
       const sent = (sentTasks || []).filter(t => t.email_sent_at);
-      if (sent.length > 0 && month >= FINALITY_FROM_MONTH) {
+      if (sent.length > 0 && month >= FREEZE_FROM_MONTH) {
         if (body.force !== true) {
           return NextResponse.json({
             error: `Already marked sent (${sent.map(t => t.property_id).join(', ')}). Redrafting clears the sent stamp and unfreezes the statement's numbers until the new draft is sent.`,
@@ -407,6 +408,68 @@ export async function POST(request: NextRequest) {
           error: `${m.name}: the statement's lines sum to $${integrity.expected.toFixed(2)} but its payout says $${integrity.actual.toFixed(2)} (off by $${integrity.delta.toFixed(2)}). Re-run Sync Stripe or re-ingest to reconcile it before drafting.`,
           integrity_failure: true,
         }, { status: 422 });
+      }
+    }
+
+    // ── Pre-send cancel re-check ───────────────────────────────────────
+    // Integrity proves a statement ADDS UP. It cannot tell you one of its
+    // bookings has since cancelled. Cancels routinely land after ingest --
+    // 20 Enon's August 2026 statement was built Aug 31 and its Sep 1-3 stay
+    // was cancelled by the Sep 1 sync -- and nothing revisits a built
+    // statement when that happens. This is the last point before a number
+    // reaches an owner's inbox, so it is where the question gets asked.
+    //
+    // Bounded the way cancel-check.ts demands: one deliberate operator
+    // action, only the codes on these statements, only Airbnb/Booking (the
+    // channels that always pay, so a cancel there is what moves money), and
+    // hard-capped. The cache is consulted first and costs nothing; the live
+    // call is spent only on codes the cache has not already condemned.
+    //
+    // No force. The fix is removing the booking and recomputing, not
+    // mailing it anyway.
+    const CANCEL_RECHECK_CAP = 25;
+    const statementIds = members.map(m => m.statement_id).filter((s): s is string => !!s);
+    if (statementIds.length > 0) {
+      const { data: resRows, error: resErr } = await sbForStmt
+        .from('reservations')
+        .select('confirmation_code, guest_name, platform, adjusted_revenue')
+        .in('property_statement_id', statementIds);
+      // Fail closed: an unreadable reservation list is not a clean one.
+      if (resErr) {
+        return NextResponse.json({
+          error: `Could not re-check this statement's bookings for cancellations (${resErr.message}). Nothing was drafted -- retrying is safe.`,
+        }, { status: 502 });
+      }
+      const candidates = (resRows || []).filter(r => {
+        const p = (r.platform || '').toUpperCase();
+        return !!r.confirmation_code
+          && (Number(r.adjusted_revenue) || 0) > 0
+          && (p === 'AIRBNB' || p.includes('BOOKING'));
+      });
+      const probed = candidates.slice(0, CANCEL_RECHECK_CAP);
+      if (probed.length > 0) {
+        const live = await checkLiveGuestyStatus(probed.map(r => r.confirmation_code as string));
+        const cancelled = probed.filter(r => isCancelledStatus(live.get(r.confirmation_code as string)));
+        if (cancelled.length > 0) {
+          const names = cancelled
+            .map(r => `${r.guest_name} ($${Number(r.adjusted_revenue).toFixed(2)}, ${r.confirmation_code})`)
+            .join('; ');
+          return NextResponse.json({
+            error:
+              `${cancelled.length} booking${cancelled.length === 1 ? '' : 's'} on this statement `
+              + `${cancelled.length === 1 ? 'has' : 'have'} been CANCELLED in Guesty since it was built: ${names}. `
+              + `Remove ${cancelled.length === 1 ? 'it' : 'them'} from the statement and let the payout recompute before drafting.`,
+            cancelled_on_statement: true,
+            cancelled_codes: cancelled.map(r => r.confirmation_code),
+          }, { status: 422 });
+        }
+      }
+      // Never let a cap read as "all clear".
+      if (candidates.length > probed.length) {
+        console.warn(
+          `draft-email cancel re-check: ${candidates.length - probed.length} booking(s) beyond the `
+          + `${CANCEL_RECHECK_CAP} cap were not probed for ${prop.name} ${month}`,
+        );
       }
     }
 
