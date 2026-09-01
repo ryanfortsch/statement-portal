@@ -63,6 +63,14 @@ type RepairRow = {
   bank_charge_date: string | null;
 };
 
+type DebitRow = {
+  id: string;
+  amount: number | string | null;
+  label: string | null;
+  description: string | null;
+  deposit_date: string | null;
+};
+
 const SLIP_COLUMNS =
   'id, title, description, action_summary, location, category, status, priority, ' +
   'scheduled_date, completed_at, closed_at, owner_action_required, owner_action_type, ' +
@@ -204,6 +212,38 @@ function repairCandidate(r: RepairRow): OwnerRequestCandidate {
   };
 }
 
+/**
+ * One attributed bank debit, ready for the operator to rewrite.
+ *
+ * These are the other half of the Repairs & Maint. line: a charge that
+ * never classified as a known maintenance vendor, so it landed in the bank
+ * review queue and an operator deducted it from this owner's payout by
+ * hand. The label they typed at that moment IS the explanation, which is
+ * why it leads and the raw descriptor is only a fallback.
+ */
+function debitCandidate(d: DebitRow): OwnerRequestCandidate {
+  const label = d.label ? tidy(d.label) : '';
+  const desc = d.description ? tidy(d.description) : '';
+  const lead = label || (desc && !looksLikeBankDescriptor(desc) ? desc : 'Reimbursed charge');
+  const amount = Number(d.amount) || 0;
+  return {
+    slipId: `debit:${d.id}`,
+    title: lead,
+    location: null,
+    kind: 'handled',
+    actionType: null,
+    priority: 'normal',
+    defaultText: amount > 0 ? `${lead} - ${fmtCharge(amount)}` : lead,
+    // Pre-ticked, unlike a repair row. A repair row usually restates work
+    // that was already slipped, so ticking both would bill the owner's
+    // attention twice. An attributed debit has no slip behind it and
+    // nothing else on the statement says what the money was: leave it out
+    // and the itemization it belongs to is missing the charge.
+    suggested: true,
+    raisedOn: null,
+  };
+}
+
 /** True when this slip is a settled ask: the owner already answered. */
 function isAnswered(slip: SlipRow): boolean {
   return slip.owner_action_required
@@ -220,6 +260,12 @@ function byPriorityThenAge(a: SlipRow, b: SlipRow): number {
  * this month, each with its generated paragraph and a suggested in/out.
  * Asks (already flagged owner_action_required) come first and arrive
  * pre-ticked; everything else is available but out by default.
+ *
+ * The month's attributed bank debits ride along as finished-work
+ * candidates too. They are the part of the Repairs & Maint. line that has
+ * no slip and no repair_events row behind it, so without them an
+ * itemization can only ever explain part of the charge the owner is
+ * looking at.
  */
 export async function loadOwnerRequestCandidates(args: {
   propertyId: string;
@@ -247,7 +293,7 @@ export async function loadOwnerRequestCandidates(args: {
   // finished slips are filtered to the month window server-side. A slip
   // closed from the board may carry closed_at without completed_at; either
   // stamp inside the window counts.
-  const [{ data: doneRows }, { data: activeRows }] = await Promise.all([
+  const [{ data: doneRows }, { data: activeRows }, { data: debitRows }] = await Promise.all([
     supabaseAdmin
       .from('work_slips')
       .select(SLIP_COLUMNS)
@@ -264,6 +310,18 @@ export async function loadOwnerRequestCandidates(args: {
       .eq('property_id', propertyId)
       .neq('category', 'rising_tide')
       .in('status', ['open', 'in_progress', 'scheduled', 'blocked']),
+    // The attributed half of the Repairs & Maint. line. Keyed on
+    // property+month, not on the statement id, so these arrive even when
+    // the caller has no statement row in hand. `direction` is nullable and
+    // null means deposit, so eq('debit') correctly takes only the charges.
+    supabaseAdmin
+      .from('bank_deposit_attributions')
+      .select('id, amount, label, description, deposit_date')
+      .eq('property_id', propertyId)
+      .eq('month', month)
+      .eq('status', 'attributed')
+      .eq('direction', 'debit')
+      .order('deposit_date'),
   ]);
 
   // The charge's own rows. Bank-sourced descriptions are raw descriptors
@@ -319,6 +377,7 @@ export async function loadOwnerRequestCandidates(args: {
       ...rest.map(s => toCandidate(s, 'flag')),
       ...done.map(s => toCandidate(s, 'handled')),
       ...(repairRows || []).map(repairCandidate),
+      ...((debitRows || []) as unknown as DebitRow[]).map(debitCandidate),
     ],
   };
 }
