@@ -350,6 +350,16 @@ Gmail. Invoices are for **attribution** (which checkout cost what) and never ove
 total. The matcher restricts to `source IN ('matched','bank')` so an invoice cannot false-match a
 linen or laundry row that happens to share an amount.
 
+**Which property an invoice belongs to** is decided by `src/lib/invoice-property-match.ts`, shared
+by `/api/sync-invoices` and the `/forecast` cost grid. Needles come from the registry in three
+layers, later winning: a hardcoded fallback (the floor, so an unreachable DB degrades to the fleet
+we already knew), needles derived from each row's `name` and `address`, then explicit
+`properties.invoice_match` entries. Matching is **longest-match**, because a sub-unit needle
+contains its parent's and a first-hit scan bills the downstairs apartment to the main house. An
+ordinary new property needs no stamping; `invoice_match` is only for spellings the address does not
+yield (abbreviations, sub-units, suffix variants). Derived needles are restricted to strings
+starting with a house number, so a bare-word name like "Marina" never becomes a needle.
+
 **`/api/fill-gap` contains a second full copy of the cleaning classification pipeline and must be
 changed in lockstep with `/api/ingest`.** Note it does not implement vendor-credit netting.
 
