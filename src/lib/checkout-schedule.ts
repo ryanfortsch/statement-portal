@@ -215,6 +215,95 @@ function displayGuestName(name: string | null): string {
   return guestNameScore(name) === 2 ? (name ?? '').trim() : '';
 }
 
+
+// ─── ghost stays ──────────────────────────────────────────────────────
+
+/** How fresh the Guesty calendar mirror must be before it is allowed to
+ *  overrule a confirmed booking. The calendar sync runs several times a
+ *  day; well outside that window we can't tell "cancelled" from "not
+ *  synced lately", so the stay is kept. */
+const MIRROR_FRESH_HOURS = 36;
+
+/**
+ * Stays Guesty's own calendar says are not happening.
+ *
+ * A cancelled Guesty reservation does not come back through the feed
+ * marked cancelled -- it simply stops appearing, so `bookings` keeps the
+ * row at status 'confirmed' forever. On 2026-09-01 that put 53 Rocky Neck
+ * Downstairs on the cleaners' list for a guest (Had Deane, booked and
+ * cancelled on 08-31) who was never in the house, and the automatic 6pm
+ * send delivered it.
+ *
+ * The calendar mirror is the independent witness: it is synced from Guesty
+ * separately and, for that stay, reported both of its nights as
+ * `available`. A confirmed booking whose EVERY night is available in a
+ * freshly-synced mirror is not a real stay.
+ *
+ * Deliberately one-directional and hard to trigger: it can only ever DROP
+ * a stay, never invent one, and it refuses to judge unless the mirror
+ * covers every night, is fresh, and is unanimous. Missing rows, a stale
+ * sync, or any night that is booked/unavailable all keep the stay -- a
+ * missed cleaning is far worse than a redundant one.
+ */
+async function findGhostStays(
+  supabase: SupabaseClient,
+  stays: BookingLite[],
+): Promise<Set<string>> {
+  const ghosts = new Set<string>();
+  if (stays.length === 0) return ghosts;
+
+  const propertyIds = [...new Set(stays.map((s) => s.property_id))];
+  const allNights = stays.flatMap((s) => nightsOf(s.check_in, s.check_out));
+  if (allNights.length === 0) return ghosts;
+  const from = allNights.reduce((a, b) => (a < b ? a : b));
+  const to = allNights.reduce((a, b) => (a > b ? a : b));
+
+  const { data, error } = await supabase
+    .from('property_calendar_days')
+    .select('property_id, date, status, synced_at')
+    .in('property_id', propertyIds)
+    .gte('date', from)
+    .lte('date', to);
+  if (error || !data) return ghosts;
+
+  const freshCutoff = Date.now() - MIRROR_FRESH_HOURS * 3600_000;
+  const byKey = new Map<string, { status: string; fresh: boolean }>();
+  for (const r of data as Array<{ property_id: string; date: string; status: string; synced_at: string | null }>) {
+    const syncedMs = r.synced_at ? Date.parse(r.synced_at) : NaN;
+    byKey.set(`${r.property_id}|${r.date}`, {
+      status: (r.status || '').toLowerCase(),
+      fresh: Number.isFinite(syncedMs) && syncedMs >= freshCutoff,
+    });
+  }
+
+  for (const stay of stays) {
+    const nights = nightsOf(stay.check_in, stay.check_out);
+    if (nights.length === 0) continue;
+    let allAvailableAndFresh = true;
+    for (const night of nights) {
+      const cell = byKey.get(`${stay.property_id}|${night}`);
+      if (!cell || !cell.fresh || cell.status !== 'available') {
+        allAvailableAndFresh = false;
+        break;
+      }
+    }
+    if (allAvailableAndFresh) ghosts.add(`${stay.property_id}|${stay.check_in}`);
+  }
+  return ghosts;
+}
+
+/** The nights a stay occupies: check_in through the night before checkout. */
+function nightsOf(checkIn: string, checkOut: string): string[] {
+  const out: string[] = [];
+  let d = checkIn;
+  // Bounded so a corrupt pair can never spin.
+  for (let i = 0; i < 400 && d < checkOut; i++) {
+    out.push(d);
+    d = addDays(d, 1);
+  }
+  return out;
+}
+
 // ─── the brain ────────────────────────────────────────────────────────
 
 export async function buildCheckoutSchedule(
@@ -276,6 +365,13 @@ export async function buildCheckoutSchedule(
   }
 
   const checkoutStays = collapseStays((checkoutsRes.data ?? []) as BookingLite[]);
+
+  // Drop stays Guesty's own calendar says never happened (cancelled
+  // reservations leave `bookings` at 'confirmed' forever). See
+  // findGhostStays -- it can only remove, and only on unanimous fresh
+  // evidence.
+  const ghosts = await findGhostStays(supabase, [...checkoutStays.values()]);
+  for (const key of ghosts) checkoutStays.delete(key);
 
   // An extension can pull a stay INTO the window whose base check_out is
   // before it (so the base query missed it). Fetch those stays explicitly.
