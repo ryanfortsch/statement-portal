@@ -59,6 +59,19 @@ export async function POST(request: NextRequest) {
     const stmtByPropertyId = new Map<string, StmtRow>();
     ((stmts || []) as StmtRow[]).forEach(s => stmtByPropertyId.set(s.property_id, s));
 
+    // Rising Tide-owned homes (3 Locust today) have no outside owner, so no
+    // owner statement is ever produced for them and RT earns no management
+    // fee. /revenue and /forecast already exclude them from management-
+    // business revenue for the same reason -- see
+    // supabase/migrations/20260521_3_locust_rt_owned.sql. Their absence from
+    // property_statements is the correct steady state, not a missed ingest,
+    // so the no-statement branch below must not read it as one.
+    const { data: rtOwnedRows } = await supabase
+      .from('properties')
+      .select('id')
+      .eq('is_rising_tide_owned', true);
+    const rtOwned = new Set<string>(((rtOwnedRows || []) as { id: string }[]).map(r => r.id));
+
     const results: StripeSyncResult[] = [];
 
     // Per-property sync. We intentionally do these sequentially rather than in
@@ -74,9 +87,13 @@ export async function POST(request: NextRequest) {
         //   (b) the property had no real bookings -- common (homeowner
         //       blocked their own calendar, or just an empty month),
         //       silently skip
+        //   (c) the property is Rising Tide-owned -- no owner, so no
+        //       statement will ever exist. Silently skip, checked first so
+        //       a busy month at an RT home can't fall into (a).
         // "Real" here means total_paid > 0; null counts too because legacy
         // rows from before the money columns existed can't be distinguished
         // and we err on the side of telling the operator.
+        if (rtOwned.has(propertyId)) continue;
         const monthStart = `${month}-01`;
         const [y, m] = month.split('-').map(Number);
         const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
