@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
+import { SplitSendButton, SchedulePopover } from '@/components/ScheduleSend';
 import type { ConversationSummary } from '@/lib/stay-concierge';
 import { sendThreadMessage } from '../thread-actions';
 import { polishProactiveAction } from '../reminders-actions';
@@ -47,6 +48,8 @@ export function SendPanel({
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  const [queuedFor, setQueuedFor] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [stalled, setStalled] = useState(false);
   const [isPending, startTransition] = useTransition();
   // Polish state: `prePolish` holds the shorthand so Undo can put it back,
@@ -74,22 +77,46 @@ export function SendPanel({
   // the row rather than failing at send time.
   const canSend = !!picked?.module;
 
-  const doSend = () => {
+  const doSend = (sendAtIso?: string) => {
     if (!picked || !text.trim() || isPending || polishing || !canSend) return;
     setError(null);
     setSentTo(null);
+    setQueuedFor(null);
+    setScheduleOpen(false);
     startTransition(async () => {
       const res = await sendThreadMessage(
         picked.conversation_id,
         text,
         picked.module,
         picked.listing_id,
+        sendAtIso
+          ? {
+              sendAtUtc: sendAtIso,
+              guestFirst: picked.guest_first || '',
+              reservationId: picked.reservation_id || '',
+              checkIn: picked.check_in || '',
+              checkOut: picked.check_out || '',
+            }
+          : undefined,
       );
       if (!res.ok) {
         setError(res.error);
         return;
       }
-      setSentTo(picked.guest_full || picked.guest_first || 'the guest');
+      if (res.scheduled) {
+        const at = res.sendAt || sendAtIso || '';
+        setQueuedFor(
+          at
+            ? new Date(at).toLocaleString([], {
+                weekday: 'short',
+                hour: 'numeric',
+                minute: '2-digit',
+              })
+            : 'later',
+        );
+      } else {
+        setSentTo(picked.guest_full || picked.guest_first || 'the guest');
+      }
       setText('');
       setPrePolish(null);
       // Bring the thread preview and the queue counts back in step.
@@ -152,6 +179,8 @@ export function SendPanel({
               setText('');
               setError(null);
               setSentTo(null);
+              setQueuedFor(null);
+              setScheduleOpen(false);
               setPrePolish(null);
             }}
             className="eyebrow"
@@ -180,6 +209,8 @@ export function SendPanel({
           onPick={(c) => {
             setPicked(c);
             setSentTo(null);
+            setQueuedFor(null);
+            setScheduleOpen(false);
             setError(null);
           }}
         />
@@ -263,26 +294,15 @@ export function SendPanel({
           />
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', paddingTop: 10 }}>
-            <button
-              type="button"
-              onClick={doSend}
+            <SplitSendButton
+              label="Send now"
+              loadingLabel="Sending"
+              onApprove={() => doSend()}
+              onToggle={() => setScheduleOpen((o) => !o)}
               disabled={!canSend || !text.trim() || isPending || polishing}
-              style={{
-                padding: '11px 22px',
-                fontSize: 11,
-                letterSpacing: '0.16em',
-                textTransform: 'uppercase',
-                fontWeight: 600,
-                color: 'var(--paper)',
-                background: 'var(--ink)',
-                border: 'none',
-                cursor:
-                  !canSend || !text.trim() || isPending || polishing ? 'default' : 'pointer',
-                opacity: !canSend || !text.trim() || isPending || polishing ? 0.5 : 1,
-              }}
-            >
-              {isPending ? 'Sending' : 'Send now'}
-            </button>
+              loading={isPending}
+              open={scheduleOpen}
+            />
             <button
               type="button"
               onClick={doPolish}
@@ -336,6 +356,13 @@ export function SendPanel({
             )}
           </div>
 
+          {scheduleOpen && (
+            <SchedulePopover
+              onSchedule={(iso) => doSend(iso)}
+              disabled={!canSend || !text.trim() || isPending || polishing}
+            />
+          )}
+
           {error && (
             <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--signal)', fontWeight: 500 }} role="alert">
               {error}
@@ -344,6 +371,12 @@ export function SendPanel({
           {sentTo && !error && (
             <p style={{ margin: '10px 0 0', fontSize: 12, color: '#5b7b4e', fontWeight: 500 }} role="status">
               Sent to {sentTo}.
+            </p>
+          )}
+          {queuedFor && !error && (
+            <p style={{ margin: '10px 0 0', fontSize: 12, color: '#7a6a3a', fontWeight: 500 }} role="status">
+              Queued, sends {queuedFor}. It sits in the Inbox queue with Send now / Cancel until
+              then, and comes back for review if the guest writes first.
             </p>
           )}
         </div>

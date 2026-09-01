@@ -474,11 +474,42 @@ export async function sendConversationMessage(
   text: string,
   module: string,
   listingId?: string,
+  /** Send-later: UTC ISO fire time plus display context for the queued
+   * card's row. With sendAtUtc set, nothing reaches Guesty now - the
+   * concierge queues a scheduled card on the shared dispatcher rail
+   * (Send now / Cancel in the Inbox queue, guest-reply revert). */
+  schedule?: {
+    sendAtUtc: string;
+    guestFirst?: string;
+    reservationId?: string;
+    checkIn?: string;
+    checkOut?: string;
+  },
 ) {
-  return request<{ ok: true; conversation_id: string; resolved_pending: number }>(
-    `/api/conversations/${encodeURIComponent(conversationId)}/send`,
-    { method: 'POST', body: { text, module, listing_id: listingId || '' }, timeoutMs: 45_000 },
-  );
+  return request<{
+    ok: true;
+    conversation_id: string;
+    resolved_pending: number;
+    scheduled?: boolean;
+    send_at?: string;
+  }>(`/api/conversations/${encodeURIComponent(conversationId)}/send`, {
+    method: 'POST',
+    body: {
+      text,
+      module,
+      listing_id: listingId || '',
+      ...(schedule
+        ? {
+            send_at: schedule.sendAtUtc,
+            guest_first: schedule.guestFirst || '',
+            reservation_id: schedule.reservationId || '',
+            check_in: schedule.checkIn || '',
+            check_out: schedule.checkOut || '',
+          }
+        : {}),
+    },
+    timeoutMs: 45_000,
+  });
 }
 
 // ── Owner-messaging surface (mirrors the guest one) ──────────────────────
