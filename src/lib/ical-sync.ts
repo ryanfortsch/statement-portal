@@ -160,17 +160,33 @@ export async function syncListing(opts: {
     // to reappear on the next good sync (and this cron runs every 30 min). So
     // when the parse comes back empty but we still hold live bookings, skip
     // the diff/cancel pass entirely and surface a soft failure for review.
-    // Mirrors the competitors sync's zero-result guard. The only case this
-    // declines to act on is a feed that legitimately emptied to nothing, which
-    // is rare for an active listing and ages out by checkout date anyway; that
-    // is a safe trade against silently cancelling real upcoming stays.
-    const liveExisting = (existing ?? []).filter((r) => r.status !== 'cancelled');
+    // Mirrors the competitors sync's zero-result guard.
+    //
+    // "Live" means not cancelled AND not already checked out. Past stays roll
+    // off an OTA feed by design -- Airbnb drops a reservation the day after
+    // checkout -- so counting them leaves the guard permanently tripped on any
+    // listing whose forward calendar has legitimately emptied. 4 Brier Neck's
+    // Airbnb feed is the case in point: after the Armstrong offboarding blocked
+    // the calendar out, one completed Aug 8-12 stay held the guard open for 892
+    // consecutive runs from Aug 14, and every one of those runs skipped the
+    // cancel pass, so cancel detection on that listing was dead for 19 days.
+    // The date bound is what the old "ages out by checkout date anyway" comment
+    // claimed but never implemented.
+    //
+    // Letting a rolled-off past booking cancel is the established behaviour on
+    // every other listing (~780 such rows) and touches no payout math -- money
+    // reads guesty_reservations, never bookings. The stays this still declines
+    // to act on are the ones worth protecting: real upcoming reservations.
+    const cutoff = startedAt.toISOString().slice(0, 10);
+    const liveExisting = (existing ?? []).filter(
+      (r) => r.status !== 'cancelled' && String(r.check_out) >= cutoff,
+    );
     if (rows.length === 0 && liveExisting.length > 0) {
       result.bookings_added = 0;
       result.bookings_updated = 0;
       result.bookings_cancelled = 0;
       result.success = false;
-      result.error = `empty-feed guard: parsed 0 bookings but ${liveExisting.length} live booking(s) exist; skipped cancel pass (suspected transient or broken feed)`;
+      result.error = `empty-feed guard: parsed 0 bookings but ${liveExisting.length} upcoming booking(s) exist; skipped cancel pass (suspected transient or broken feed)`;
     } else {
       // Anything previously imported but missing this run is a cancellation /
       // disappearance. Mark cancelled rather than delete, to keep history.
