@@ -5,12 +5,20 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
  * the same owner, matched by shared email address.
  *
  * Why email, not owner_id: the canonical `owners` table + `properties.owner_id`
- * FK exist but nothing in the app reads them — they were a backfill experiment
- * and promote-from-prospect never populates owner_id. The owner identity that
+ * FK exist but are hand-maintained -- there is no application writer anywhere
+ * in the repo, and promote-from-prospect never populates owner_id, so most
+ * properties added after the original seed carry NULL. The owner identity that
  * IS load-bearing everywhere (statements, draft-owner-email, and the Owner
  * Messaging routing in stay-concierge) is the email address. So an owner's
  * portfolio is reliably "every property/prospect whose owner emails overlap
  * mine."
+ *
+ * One caveat, added 2026-09: `owner_id` is no longer unread. /api/draft-email
+ * groups combined owner statement emails on it (Prudenzi's two units, the two
+ * Moynahan houses), and the statements dashboard's "Combined owner" banner
+ * mirrors that key. It is the ONLY reader. Because nothing writes it, a new
+ * property belonging to an existing owner must have owner_id stamped by hand
+ * or its statement silently goes out as a separate email.
  *
  * This keeps a one-owner-many-properties owner (e.g. Simon Prudenzi adding the
  * bottom floor of 53 Rocky Neck as a second unit) unified with zero schema
