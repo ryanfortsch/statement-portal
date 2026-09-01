@@ -147,10 +147,12 @@ function header(msg: GmailMessageMeta, name: string): string {
 function propertyNameFromSubject(subject: string): string | null {
   const m = subject.match(/(?:Statement|Statment|Statemnt)\s*[,\-]\s*(.+?)\s*$/i);
   if (!m) return null;
-  // Drop "St" / "Rd" / "Ave" suffixes that some senders include and others don't.
-  return m[1]
-    .replace(/\s+(?:St|Rd|Ave|Avenue|Road|Street|Lane|Ln)\.?$/i, '')
-    .trim();
+  return m[1].trim();
+}
+
+/** Drop "St" / "Rd" / "Ave" suffixes that some senders include and others don't. */
+function stripStreetSuffix(name: string): string {
+  return name.replace(/\s+(?:St|Rd|Ave|Avenue|Road|Street|Lane|Ln)\.?$/i, '').trim();
 }
 
 /**
@@ -170,7 +172,7 @@ function dollarFromSnippet(snippet: string): number | null {
 }
 
 function matchPropertyId(nameFragment: string): string | null {
-  const lc = nameFragment.toLowerCase().trim();
+  const lc = stripStreetSuffix(nameFragment).toLowerCase().trim();
   if (!lc) return null;
   // Exact short-name match wins. Fall back to listing_match substring.
   for (const [id, p] of Object.entries(PROPERTIES)) {
@@ -180,6 +182,24 @@ function matchPropertyId(nameFragment: string): string | null {
     if (lc.includes(p.listing_match)) return id;
   }
   return null;
+}
+
+/**
+ * A combined owner email (Prudenzi, Moynahan) carries every property in one
+ * subject: "August 2026 Owner Statement, 73 Rocky Neck & 3 Windward". Return
+ * every property it names, so the sibling isn't reported as `helm_only`
+ * ("never sent") when it was in fact sent.
+ *
+ * Split on ' & ' ONLY -- never on ','. 53 Rocky Neck's sub-unit is literally
+ * named "53 Rocky Neck, Downstairs", so a comma split would shred it.
+ */
+function matchPropertyIds(nameFragment: string): string[] {
+  const ids: string[] = [];
+  for (const part of nameFragment.split(' & ')) {
+    const id = matchPropertyId(part);
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
 }
 
 export type ReconcileRow = {
@@ -246,24 +266,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         unparsed.push({ subject, sender, reason: 'no_property_in_subject' });
         continue;
       }
-      const propId = matchPropertyId(propName);
-      if (!propId) {
+      const propIds = matchPropertyIds(propName);
+      if (propIds.length === 0) {
         unparsed.push({ subject, sender, reason: `unknown_property: "${propName}"` });
         continue;
       }
 
-      const payout = dollarFromSnippet(msg.snippet || '');
+      // On a combined owner email the snippet's first dollar amount is the
+      // GROUP TOTAL, not any one property's payout. Comparing it against a
+      // single statement manufactures a false `email_payout_mismatch` gap
+      // whose delta is exactly the sibling's payout, so drop the amount and
+      // let the row land as `no_amount_in_email`.
+      const payout = propIds.length > 1 ? null : dollarFromSnippet(msg.snippet || '');
 
-      const existing = emailsByProperty.get(propId);
-      if (!existing || (dateIso && dateIso > existing.date_iso)) {
-        emailsByProperty.set(propId, {
-          message_id: msg.id,
-          thread_id: msg.threadId,
-          subject,
-          sender,
-          date_iso: dateIso,
-          payout,
-        });
+      for (const propId of propIds) {
+        const existing = emailsByProperty.get(propId);
+        if (!existing || (dateIso && dateIso > existing.date_iso)) {
+          emailsByProperty.set(propId, {
+            message_id: msg.id,
+            thread_id: msg.threadId,
+            subject,
+            sender,
+            date_iso: dateIso,
+            payout,
+          });
+        }
       }
     }
 

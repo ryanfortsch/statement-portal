@@ -8,6 +8,7 @@ import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { loadAddOnTotals } from '@/lib/statement-addons';
+import { detectMissingDirectStays, missingDirectGapRows } from '@/lib/missing-direct-stays';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -1817,6 +1818,27 @@ export async function POST(request: NextRequest) {
         severity: 'info',
         expected_data: reconciliationGaps.join('; '),
       });
+    }
+
+    // Missed-Direct guard: a confirmed Direct/Manual stay in
+    // guesty_reservations whose folio carries real accommodation fare but
+    // which never landed on this statement. Guesty's owner statement PDF
+    // omits stays with no owner revenue (Business model unset) and Refresh
+    // skips Direct stays Guesty shows as unpaid, so a five-figure booking
+    // can vanish with the statement still reading "0 gaps" -- Martha
+    // Mazzone (GY-ZUnEnMgw, $29k, Aug 2026) did exactly that. Flag-only:
+    // the operator decides; nothing is inserted and no payout math moves.
+    // Runs after section 10 so the statement's reservation rows are
+    // queryable; wrapped so a read failure never breaks the ingest.
+    try {
+      const missedDirect = await detectMissingDirectStays(supabase, {
+        propertyStatementId: stmt.id,
+        propertyId,
+        month,
+      });
+      gaps.push(...missingDirectGapRows(missedDirect, month));
+    } catch (err) {
+      console.warn('missing-direct check skipped:', err instanceof Error ? err.message : err);
     }
 
     if (gaps.length > 0) {

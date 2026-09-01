@@ -4,6 +4,7 @@ import { loadInstallmentsForCodes } from '@/lib/installments';
 import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, hasPriceableGross } from '@/lib/guesty-revenue-signal';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectStay } from '@/lib/missing-direct-stays';
 
 /**
  * Refresh an existing property_statement by adding any guesty_reservations
@@ -25,8 +26,10 @@ import { assertStatementWritable, StatementFrozenError, frozenResponseBody } fro
  * owner_net_revenue_guesty (a homeowner stay is zero in all three and drops
  * out). Only a candidate with total_paid > 0 is INSERTED, because the
  * Stripe-on-gross reconstruction has no other input it can price from; a
- * candidate with revenue only in host_payout files a 'refresh_missing_gross'
- * data gap instead of being guessed at. Reservations already on the
+ * candidate with revenue only in host_payout is reported in
+ * `missing_gross_codes` instead of being guessed at; the operator-facing
+ * flag for such a stay belongs to the missed-Direct detector, which tests
+ * the Guesty folio's accommodation fare rather than a scalar column. Reservations already on the
  * statement (matched by confirmation_code) are skipped.
  */
 
@@ -190,9 +193,15 @@ export async function POST(request: NextRequest) {
     // gross-less row would invent money. host_payout is a different basis
     // (gross INCLUDING taxes) and owner_net_revenue_guesty is already net of
     // the management fee -- neither can be fed to these formulas without
-    // changing what the owner is paid. Those rows are reported as a gap for
-    // the operator to resolve (sync Stripe, or re-ingest with the PDF),
-    // never guessed at.
+    // changing what the owner is paid.
+    //
+    // The FLAG for such a stay is owned by the missed-Direct detector below
+    // (#1414), which asks the sharper question: does the Guesty folio carry
+    // real accommodation fare? That separates a paying guest from a
+    // homeowner block far better than any of the scalar revenue columns, so
+    // this route reports the codes it could not price and lets that detector
+    // raise the operator-facing gap. No second, blunter gap for the same stay.
+    //
     // Dedupe by confirmation_code, preferring the priceable row. Live data
     // carries one row per code today, but guesty_reservations accumulates a
     // row per source in principle, and two rows for one stay would otherwise
@@ -206,70 +215,59 @@ export async function POST(request: NextRequest) {
     const deduped = Array.from(byCode.values());
 
     const insertable = deduped.filter(hasPriceableGross);
-    // A cancelled booking legitimately has no collected gross; flagging it
-    // as "revenue missing from this statement" would be a false alarm, and
-    // the cancelled-reservation guard elsewhere already owns that case.
+    // A cancelled booking legitimately has no collected gross, and the
+    // cancelled-reservation guard already owns that case.
     const isCancelled = (g: { status?: string | null }) =>
       /cancel|declined|expired/i.test(String(g.status || ''));
-    const noGross = deduped.filter(g => !hasPriceableGross(g) && !isCancelled(g));
-    const noGrossCodes = noGross.map(g => g.confirmation_code as string);
+    const noGrossCodes = deduped
+      .filter(g => !hasPriceableGross(g) && !isCancelled(g))
+      .map(g => g.confirmation_code as string);
 
-    // Record (or clear) the unpriceable-candidate gap before returning, so
-    // it exists even when there is nothing to insert. Delete-then-insert
-    // keeps repeated Refresh clicks idempotent instead of stacking rows.
-    // This gap_type is owned solely by this route, so the narrow delete
-    // cannot race /api/ingest's wholesale gap rebuild.
-    const { error: gapDelErr } = await supabase
-      .from('data_gaps')
-      .delete()
-      .eq('property_statement_id', stmt.id)
-      .eq('gap_type', 'refresh_missing_gross');
-    if (gapDelErr) {
-      return NextResponse.json(
-        { error: `data_gaps cleanup failed: ${gapDelErr.message}. Nothing was changed.` },
-        { status: 500 },
-      );
-    }
-    if (noGrossCodes.length > 0) {
-      const { error: gapErr } = await supabase.from('data_gaps').insert({
-        property_statement_id: stmt.id,
-        gap_type: 'refresh_missing_gross',
-        severity: 'critical',
-        description: `${noGrossCodes.length} booking${noGrossCodes.length === 1 ? '' : 's'} checked out in ${month} and ${noGrossCodes.length === 1 ? 'is' : 'are'} missing from this statement, but Guesty has no collected gross for ${noGrossCodes.length === 1 ? 'it' : 'them'} (TOTAL_PAID empty), so the revenue cannot be computed here. Typically a Stay Cape Ann direct booking paid through the property's own Stripe.`,
-        // Sync Stripe writes to `reservations`, not `guesty_reservations`,
-        // so it cannot make this row insertable here. Re-ingesting with the
-        // Guesty PDF is the remedy that works: ingest reads the accrual
-        // rental income off the PDF and prices the stay from that.
-        expected_data: `Re-ingest this month with the Guesty owner-statement PDF (Re-upload Data); that path prices the stay from the PDF's rental income. Codes: ${noGrossCodes.join(', ')}`,
-        resolved: false,
-      });
-      // The response text below tells the operator these were "flagged as a
-      // data gap". If the flag could not be written, saying so anyway would
-      // be the same false all-clear this phase exists to remove.
-      if (gapErr) {
-        return NextResponse.json({
-          error: `${noGrossCodes.length} booking${noGrossCodes.length === 1 ? '' : 's'} could not be priced AND the warning flag could not be saved (${gapErr.message}). `
-            + `Re-ingest this month with the Guesty PDF before sending. Codes: ${noGrossCodes.join(', ')}`,
-        }, { status: 500 });
+    // Missed-Direct guard. The total_paid > 0 candidate filter above is
+    // correct for skipping homeowner stays, but it also skips real Direct
+    // bookings, whose payment goes through the property's own Stripe and
+    // never registers in Guesty (Martha Mazzone, GY-ZUnEnMgw, $29k, Aug
+    // 2026). This detector raises a critical data gap for any confirmed
+    // Direct/Manual stay with real accommodation fare on its Guesty folio
+    // that is still absent from the statement. Flag-only -- adding the
+    // reservation stays an operator decision. Runs after any inserts so a
+    // just-added stay is not flagged, and never fails the refresh.
+    const runMissingDirectCheck = async (): Promise<MissingDirectStay[]> => {
+      try {
+        const flagged = await detectMissingDirectStays(supabase, {
+          propertyStatementId: stmt.id,
+          propertyId,
+          month,
+        });
+        await persistMissingDirectGaps(supabase, stmt.id, flagged, month);
+        return flagged;
+      } catch (err) {
+        console.warn('missing-direct check skipped:', err instanceof Error ? err.message : err);
+        return [];
       }
-    }
+    };
 
     if (insertable.length === 0) {
+      const flaggedMissingDirect = await runMissingDirectCheck();
+      const baseMessage = skippedInstallmentCodes.length > 0
+        ? `No new bookings to add. ${skippedInstallmentCodes.length} skipped because they are recognized via installment splits (${skippedInstallmentCodes.join(', ')}).`
+        : 'No new bookings to add. The statement is up to date with guesty_reservations.';
       return NextResponse.json({
         success: true,
         added: [],
         skipped_installment_codes: skippedInstallmentCodes,
         missing_gross_codes: noGrossCodes,
+        flagged_missing_direct: flaggedMissingDirect,
         message: [
-          'No new bookings could be added.',
-          skippedInstallmentCodes.length > 0
-            ? `${skippedInstallmentCodes.length} skipped because they are recognized via installment splits (${skippedInstallmentCodes.join(', ')}).`
+          baseMessage,
+          flaggedMissingDirect.length > 0
+            ? `WARNING: ${flaggedMissingDirect.length} confirmed Direct stay${flaggedMissingDirect.length === 1 ? '' : 's'} with real folio revenue ${flaggedMissingDirect.length === 1 ? 'is' : 'are'} missing from this statement (${flaggedMissingDirect.map(f => f.confirmation_code).join(', ')}). A critical data gap was raised.`
             : '',
+          // Codes this route saw but could not price. Usually the same
+          // stays the detector just flagged; listed so the operator knows
+          // Refresh could not fix them by itself.
           noGrossCodes.length > 0
-            ? `${noGrossCodes.length} booking${noGrossCodes.length === 1 ? ' has' : 's have'} no collected gross in Guesty and cannot be priced here -- flagged as a data gap on the statement (${noGrossCodes.join(', ')}).`
-            : '',
-          skippedInstallmentCodes.length === 0 && noGrossCodes.length === 0
-            ? 'The statement is up to date with guesty_reservations.'
+            ? `${noGrossCodes.length} booking${noGrossCodes.length === 1 ? '' : 's'} could not be priced here (no collected gross in Guesty): ${noGrossCodes.join(', ')}.`
             : '',
         ].filter(Boolean).join(' '),
       });
@@ -362,10 +360,13 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', stmt.id);
 
+    const flaggedMissingDirect = await runMissingDirectCheck();
+
     return NextResponse.json({
       success: true,
       skipped_installment_codes: skippedInstallmentCodes,
       missing_gross_codes: noGrossCodes,
+      flagged_missing_direct: flaggedMissingDirect,
       added: newRows.map(r => ({
         guest: r.guest_name,
         confirmation_code: r.confirmation_code,

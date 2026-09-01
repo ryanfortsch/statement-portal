@@ -13,6 +13,14 @@ export type OwnerConfigRow = {
   owner_greeting: string;
   owner_full: string;
   owner_emails: string[];
+  /**
+   * The key /api/draft-email groups combined owner emails on (Prudenzi,
+   * Moynahan). Selected so the dashboard's "Combined owner" banner can
+   * predict what the draft route will actually do instead of guessing from
+   * shared owner_emails, which is a different key and could disagree.
+   * null on any property whose row has no owner_id -- those never group.
+   */
+  owner_id: string | null;
 };
 
 /**
@@ -25,14 +33,15 @@ export type OwnerConfigRow = {
 export async function loadOwnerConfig(): Promise<Record<string, OwnerConfigRow>> {
   const { data } = await supabaseAdmin
     .from('properties')
-    .select('id, name, owner_greeting, owner_full, owner_emails');
+    .select('id, name, owner_greeting, owner_full, owner_emails, owner_id');
   const map: Record<string, OwnerConfigRow> = {};
-  (data || []).forEach((r: { id: string; name: string | null; owner_greeting: string | null; owner_full: string | null; owner_emails: string[] | null }) => {
+  (data || []).forEach((r: { id: string; name: string | null; owner_greeting: string | null; owner_full: string | null; owner_emails: string[] | null; owner_id: string | null }) => {
     map[r.id] = {
       name: r.name || '',
       owner_greeting: r.owner_greeting || '',
       owner_full: r.owner_full || '',
       owner_emails: Array.isArray(r.owner_emails) ? r.owner_emails : [],
+      owner_id: r.owner_id || null,
     };
   });
   return map;

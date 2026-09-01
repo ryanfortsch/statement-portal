@@ -87,11 +87,22 @@ function group(intro: string, lines: string[]): string {
  * have items, and the first group present carries the "around the house"
  * lead so the section always opens like prose.
  */
-export function buildWorkNotesBlock(workNotes: PropertyWorkNotes[], shortMonth: string): string {
+export function buildWorkNotesBlock(
+  workNotes: PropertyWorkNotes[],
+  shortMonth: string,
+  /**
+   * True when the email covers 2+ properties. Houses with no slips are
+   * dropped before we get here, so a combined owner email can arrive with a
+   * single entry -- and the unlabeled prose below ("Around the house...")
+   * would leave the owner guessing WHICH house. Prudenzi tolerated that
+   * (one building, two units); Moynahan's two homes are a mile apart.
+   */
+  labelHouses = false,
+): string {
   const withContent = workNotes.filter(workNotesHaveContent);
   if (withContent.length === 0) return '';
 
-  if (withContent.length === 1) {
+  if (withContent.length === 1 && !labelHouses) {
     const n = withContent[0];
     const paras: string[] = [];
     if (n.completed.length > 0) {
@@ -113,8 +124,11 @@ export function buildWorkNotesBlock(workNotes: PropertyWorkNotes[], shortMonth: 
     return paras.join('\n\n');
   }
 
-  // Grouped owner email: label every group with its house.
-  const paras: string[] = ['A few notes from the houses this month:'];
+  // Grouped owner email: label every group with its house. Singular lead
+  // when only one of the covered houses had anything to report.
+  const paras: string[] = [withContent.length === 1
+    ? 'A few notes from the house this month:'
+    : 'A few notes from the houses this month:'];
   for (const n of withContent) {
     if (n.completed.length > 0) paras.push(group(`At ${n.propertyName}, taken care of in ${shortMonth}:`, n.completed));
     if (n.inProgress.length > 0) paras.push(group(`At ${n.propertyName}, still in motion:`, n.inProgress));
@@ -167,7 +181,7 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
 
   // Opt-in work-notes section, slotted between the statement paragraph and
   // the closing so the payout stays the headline. '' when off or empty.
-  const notesBlock = args.workNotes ? buildWorkNotesBlock(args.workNotes, shortMonth) : '';
+  const notesBlock = args.workNotes ? buildWorkNotesBlock(args.workNotes, shortMonth, !!multi) : '';
   const notesPart = notesBlock ? `${notesBlock}\n\n` : '';
 
   if (template === 'touch_base') {
