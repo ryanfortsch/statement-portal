@@ -5,6 +5,7 @@ import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { splitFolio } from '@/lib/remittance';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -127,10 +128,16 @@ function stripLegacyCommissionKludge(args: {
   totalPaid: number;
   totalTaxes: number;
   commission: number;
+  folioPreTax?: number | null;
 }): { effective: number; hadKludge: boolean } {
-  const { platform, totalPaid, totalTaxes, commission } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
   if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
-  const base = Math.max(totalPaid - totalTaxes, 0);
+  // Booking-level base. total_paid is payment-level and Guesty logs only one
+  // leg of a 50/50 split, which doubles the ratio and reads a real 5% VRBO
+  // commission as the legacy kludge. See the canonical copy in /api/ingest.
+  const base = folioPreTax && folioPreTax > 0
+    ? folioPreTax
+    : Math.max(totalPaid - totalTaxes, 0);
   if (base <= 0) return { effective: commission, hadKludge: false };
   const ratio = commission / base;
   const p = platform.toUpperCase();
@@ -358,6 +365,30 @@ async function fillPlatformGap(args: {
     reservations.map(r => r.confirmation_code),
   );
 
+  // The platform CSV carries TOTAL_PAID, which since July 2026 can be one
+  // leg of a guest's 50/50 split. The booking's folio is whole, so read it
+  // alongside and let the recognition math below prefer it. Same rule as
+  // /api/ingest -- keep in lockstep.
+  const folioByCode = new Map<string, { preTax: number; gross: number }>();
+  {
+    const codes = reservations.map(r => r.confirmation_code).filter(Boolean);
+    if (codes.length > 0) {
+      const { data: folioRows } = await supabase
+        .from('guesty_reservations')
+        .select('confirmation_code, folio_items')
+        .in('confirmation_code', codes);
+      for (const row of folioRows || []) {
+        const f = splitFolio(row.folio_items);
+        if (f.hasFolio && row.confirmation_code) {
+          folioByCode.set(row.confirmation_code, {
+            preTax: f.preTax,
+            gross: round2(f.preTax + f.tax),
+          });
+        }
+      }
+    }
+  }
+
   for (const res of reservations) {
     const match = platformMap.get(res.confirmation_code);
     if (!match || installmentCoded.has(res.confirmation_code)) {
@@ -381,13 +412,18 @@ async function fillPlatformGap(args: {
     } else if (isStripeChannel) {
       // VRBO / Manual: reconstruct from guest gross (see /api/ingest for
       // the reasoning). Use CSV's TOTAL_PAID as the Stripe fee base.
-      const totalPaid = match.total_paid || 0;
+      const reportedPaid = match.total_paid || 0;
       const totalTaxes = match.total_taxes || 0;
       const rawCommission = match.channel_commission || 0;
+      const folio = folioByCode.get(res.confirmation_code) || null;
+      const totalPaid = folio && reportedPaid > 0 && reportedPaid < folio.gross - 1
+        ? folio.gross
+        : reportedPaid;
       if (totalPaid > 0) {
         const { effective } = stripLegacyCommissionKludge({
           platform: normalizedPlatform,
           totalPaid, totalTaxes, commission: rawCommission,
+          folioPreTax: folio ? folio.preTax : null,
         });
         stripeFee = calcStripeFee(totalPaid);
         adjustedRevenue = round2(totalPaid - totalTaxes - effective - stripeFee);

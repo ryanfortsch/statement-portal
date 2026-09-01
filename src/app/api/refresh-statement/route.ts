@@ -5,6 +5,7 @@ import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, hasPriceableGross } from '@/
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectStay } from '@/lib/missing-direct-stays';
+import { splitFolio } from '@/lib/remittance';
 
 /**
  * Refresh an existing property_statement by adding any guesty_reservations
@@ -61,12 +62,20 @@ function normalizePlatform(raw?: string | null): string {
   return s;
 }
 
+/** Twin of the canonical helper in /api/ingest -- keep in lockstep.
+ *  The base is the pre-tax FOLIO whenever we have one: channel_commission is
+ *  booking-level while total_paid is payment-level and Guesty logs only one
+ *  leg of a 50/50 split, which doubles the ratio and cuts a real 5% VRBO
+ *  commission as if it were the legacy kludge. */
 function stripLegacyCommissionKludge(args: {
   platform: string; totalPaid: number; totalTaxes: number; commission: number;
+  folioPreTax?: number | null;
 }): number {
-  const { platform, totalPaid, totalTaxes, commission } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
   if (!commission || commission <= 0) return 0;
-  const base = Math.max(totalPaid - totalTaxes, 0);
+  const base = folioPreTax && folioPreTax > 0
+    ? folioPreTax
+    : Math.max(totalPaid - totalTaxes, 0);
   if (base <= 0) return commission;
   const ratio = commission / base;
   const p = platform.toUpperCase();
@@ -152,7 +161,7 @@ export async function POST(request: NextRequest) {
     const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
     const { data: candidates, error: candErr } = await supabase
       .from('guesty_reservations')
-      .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, status, total_taxes, channel_commission, ${REVENUE_SIGNAL_COLUMNS}`)
+      .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, status, total_taxes, channel_commission, folio_items, ${REVENUE_SIGNAL_COLUMNS}`)
       .eq('property_id', propertyId)
       .gte('check_out', monthStart)
       .lt('check_out', monthEndExclusive)
@@ -277,9 +286,18 @@ export async function POST(request: NextRequest) {
       const platform = normalizePlatform(g.channel || g.guesty_channel_id);
       const platformUpper = platform.toUpperCase();
       const isStripeChannel = platformUpper.includes('HOMEAWAY') || platformUpper === 'VRBO' || platformUpper === 'MANUAL';
-      const totalPaid = Number(g.total_paid) || 0;
+      const reportedPaid = Number(g.total_paid) || 0;
       const totalTaxes = Number(g.total_taxes) || 0;
       const rawCommission = Number(g.channel_commission) || 0;
+      // Whole booking total from the folio; TOTAL_PAID can be one leg of a
+      // 50/50 split. Same rule as /api/ingest -- keep in lockstep. Applied
+      // to the Stripe channels only: on Airbnb/Booking.com total_paid is
+      // already the channel's net and carries different semantics.
+      const folio = splitFolio((g as { folio_items?: unknown }).folio_items);
+      const folioGross = folio.hasFolio ? round2(folio.preTax + folio.tax) : 0;
+      const totalPaid = isStripeChannel && folioGross > 0 && reportedPaid > 0 && reportedPaid < folioGross - 1
+        ? folioGross
+        : reportedPaid;
 
       let stripeFee = 0;
       let adjustedRevenue: number;
@@ -287,7 +305,10 @@ export async function POST(request: NextRequest) {
 
       if (isStripeChannel) {
         // VRBO / Manual: reconstruct net from gross
-        const effComm = stripLegacyCommissionKludge({ platform, totalPaid, totalTaxes, commission: rawCommission });
+        const effComm = stripLegacyCommissionKludge({
+          platform, totalPaid, totalTaxes, commission: rawCommission,
+          folioPreTax: folio.hasFolio ? folio.preTax : null,
+        });
         stripeFee = calcStripeFee(totalPaid);
         guestyRentalIncome = round2(totalPaid - totalTaxes - effComm);
         adjustedRevenue = round2(guestyRentalIncome - stripeFee);

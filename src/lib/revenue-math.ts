@@ -22,21 +22,31 @@
  * real commission is 0).
  *
  * Rules:
- *   - Manual / Direct: real commission = 0. Anything > 2% of (totalPaid -
- *     taxes) is the kludge -- return 0.
+ *   - Manual / Direct: real commission = 0. Anything > 2% of the pre-tax
+ *     booking total is the kludge -- return 0.
  *   - VRBO / HomeAway: real commission = 5%. > 7% means the 4.4% kludge
  *     is stacked on top -- restore the underlying 5%.
  *   - Airbnb / Booking.com: pass through unchanged; they handle commission
  *     themselves and were never kludged.
+ *
+ * `folioPreTax` is the base whenever the caller has it. commission is a
+ * BOOKING-level figure while totalPaid is PAYMENT-level, and Guesty logs
+ * only one leg of a 50/50 split -- that halves the denominator, doubles the
+ * ratio, and reads a real 5% VRBO commission as the kludge. Callers that
+ * cannot reach the folio (folio_items is server-only) keep the old
+ * (totalPaid - taxes) base and the old behavior.
  */
 export function effectiveCommission(
   platform: string,
   totalPaid: number,
   taxes: number,
   commission: number,
+  folioPreTax?: number | null,
 ): number {
   if (!commission || commission <= 0) return 0;
-  const base = Math.max(totalPaid - taxes, 0);
+  const base = folioPreTax && folioPreTax > 0
+    ? folioPreTax
+    : Math.max(totalPaid - taxes, 0);
   if (base <= 0) return commission;
   const ratio = commission / base;
   const p = platform.toUpperCase();
@@ -63,9 +73,10 @@ export function wasCommissionStripped(
   totalPaid: number,
   taxes: number,
   commission: number,
+  folioPreTax?: number | null,
 ): boolean {
   if (!commission || commission <= 0) return false;
-  const eff = effectiveCommission(platform, totalPaid, taxes, commission);
+  const eff = effectiveCommission(platform, totalPaid, taxes, commission, folioPreTax);
   // Use a 1-cent tolerance to avoid floating point noise.
   return Math.abs(eff - commission) > 0.01;
 }
