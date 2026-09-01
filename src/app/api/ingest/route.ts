@@ -9,6 +9,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { detectMissingDirectStays, missingDirectGapRows } from '@/lib/missing-direct-stays';
+import { splitFolio } from '@/lib/remittance';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -255,11 +256,26 @@ function calcStripeFee(processedAmount: number): number {
  * checked in before the fix landed) still carry the inflated value.
  *
  * For **Manual** rows: real commission is 0, so any commission > ~2% of
- * (TOTAL_PAID - TAXES) is legacy. Treat as 0.
+ * the pre-tax booking total is legacy. Treat as 0.
  *
- * For **VRBO** rows: real commission is 5%, so a value > ~7% of
- * (TOTAL_PAID - TAXES) has the 4.4% kludge stacked on top. Subtract 4.4%
- * to recover the real 5% component.
+ * For **VRBO** rows: real commission is 5%, so a value > ~7% of the pre-tax
+ * booking total has the 4.4% kludge stacked on top. Subtract 4.4% to recover
+ * the real 5% component.
+ *
+ * THE BASE MUST BE BOOKING-LEVEL. `channel_commission` is a booking-level
+ * figure. `total_paid` is a PAYMENT-level figure, and since July 2026 Guesty
+ * has logged only one leg of a guest's 50/50 split (the same defect
+ * lib/remittance.ts routes around). `total_taxes` stays booking-level
+ * throughout, so a halved TOTAL_PAID shrinks (TOTAL_PAID - TAXES) by more
+ * than half and roughly doubles the ratio: a genuine 5% VRBO commission
+ * reads as 11.3% and gets cut to 5% of the halved base. HA-XlpeL8K (Evan
+ * Friese, 4 Brier Neck, Aug 2026) lost $333.45 of real commission that way
+ * and had to be repaired by hand on 2026-09-01.
+ *
+ * So `folioPreTax` -- the sum of the booking's own non-TAX folio lines, which
+ * is always whole -- is the base whenever we have it. (TOTAL_PAID - TAXES)
+ * remains the fallback for rows Guesty gave us no folio for, which is the
+ * pre-folio historical shape and exactly the population the kludge lives in.
  *
  * Returns a safe effective_commission plus whether a legacy adjustment
  * was applied so we can flag it in the statement audit trail.
@@ -269,10 +285,13 @@ function stripLegacyCommissionKludge(args: {
   totalPaid: number;
   totalTaxes: number;
   commission: number;
+  folioPreTax?: number | null;
 }): { effective: number; hadKludge: boolean } {
-  const { platform, totalPaid, totalTaxes, commission } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
   if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
-  const base = Math.max(totalPaid - totalTaxes, 0);
+  const base = folioPreTax && folioPreTax > 0
+    ? folioPreTax
+    : Math.max(totalPaid - totalTaxes, 0);
   if (base <= 0) return { effective: commission, hadKludge: false };
   const ratio = commission / base;
   const p = platform.toUpperCase();
@@ -282,7 +301,7 @@ function stripLegacyCommissionKludge(args: {
     return { effective: commission, hadKludge: false };
   }
   if (p.includes('HOMEAWAY') || p === 'VRBO') {
-    // Real VRBO commission = 5% of (TOTAL_PAID - TAXES). Above 7% = kludge.
+    // Real VRBO commission = 5% of the pre-tax booking total. Above 7% = kludge.
     if (ratio > 0.07) {
       const cleaned = Math.round(base * 0.05 * 100) / 100;
       return { effective: cleaned, hadKludge: true };
@@ -639,12 +658,13 @@ export async function POST(request: NextRequest) {
       total_taxes: number | null;
       channel_commission: number | null;
       owner_net_revenue_guesty: number | null;
+      folio_items: unknown;
     };
     const guestyLookupMap = new Map<string, GuestyLookup>();
     if (codes.length > 0) {
       const { data: guestyRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, guest_name, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
+        .select('confirmation_code, guest_name, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, folio_items')
         .in('confirmation_code', codes);
       (guestyRows || []).forEach(r => {
         if (r.confirmation_code) guestyLookupMap.set(r.confirmation_code, r);
@@ -1022,18 +1042,55 @@ export async function POST(request: NextRequest) {
       } else if (isStripeChannel) {
         // Prefer the reconstructed formula using TOTAL_PAID from the
         // Guesty reservations CSV.
-        const totalPaid = guestyInfo?.total_paid ?? null;
+        const reportedPaid = guestyInfo?.total_paid ?? null;
         const totalTaxes = guestyInfo?.total_taxes ?? 0;
         const rawCommission = guestyInfo?.channel_commission ?? 0;
+        // The booking's own line items. Whole even when TOTAL_PAID records
+        // only one leg of a 50/50 split, which is why both the kludge
+        // detector and the gross basis prefer it. See lib/remittance.ts.
+        const folio = splitFolio(guestyInfo?.folio_items);
+        const folioGross = folio.hasFolio
+          ? Math.round((folio.preTax + folio.tax) * 100) / 100
+          : 0;
+        // Guesty has logged only one leg of a guest's 50/50 installment
+        // payment since July 2026. When the folio says the guest owes
+        // materially more than TOTAL_PAID records, recognize on the folio:
+        // the money is real, Guesty's payment record is short. This is the
+        // same conclusion lib/stripe-sync.ts's gross reconstruction reaches
+        // from the actual Stripe charges -- doing it here means the
+        // statement is right on the first pass rather than after a sync,
+        // and it is right even on the rows stripe-sync may not touch
+        // (paid_off_stripe, installment splits, no matched charge).
+        const partialPaid =
+          folioGross > 0 && reportedPaid != null && reportedPaid > 0 && reportedPaid < folioGross - 1;
+        const totalPaid = partialPaid ? folioGross : reportedPaid;
         if (totalPaid && totalPaid > 0) {
           const { effective: effCommission, hadKludge } = stripLegacyCommissionKludge({
             platform,
             totalPaid,
             totalTaxes,
             commission: rawCommission,
+            folioPreTax: folio.hasFolio ? folio.preTax : null,
           });
           stripeFee = calcStripeFee(totalPaid);
           adjustedRevenue = Math.round((totalPaid - totalTaxes - effCommission - stripeFee) * 100) / 100;
+          if (partialPaid) {
+            reconciliationGaps.push(
+              `${res.confirmation_code}: Guesty recorded TOTAL_PAID $${(reportedPaid as number).toFixed(2)} against a folio of $${folioGross.toFixed(2)} -- only part of the guest's payment is logged. Revenue recognized on the folio`,
+            );
+          }
+          // A strip that fires is never silent. The drift check below is
+          // suppressed when hadKludge is true (the drift IS the stripped
+          // amount, by design), which is how a false positive stayed
+          // invisible on HA-XlpeL8K until it was caught by hand. Say what
+          // was stripped and on what base so the operator can judge it.
+          if (hadKludge && effCommission !== rawCommission) {
+            const stripBase = folio.hasFolio ? folio.preTax : Math.max(totalPaid - totalTaxes, 0);
+            const pct = stripBase > 0 ? ((rawCommission / stripBase) * 100).toFixed(1) : '?';
+            reconciliationGaps.push(
+              `${res.confirmation_code}: legacy commission strip applied -- Guesty's $${rawCommission.toFixed(2)} is ${pct}% of the $${stripBase.toFixed(2)} pre-tax ${folio.hasFolio ? 'folio' : 'basis'}, billed as $${effCommission.toFixed(2)}`,
+            );
+          }
           // Reconciliation: compare our reconstructed net to Guesty's implied
           // rental income (gross - taxes - raw commission). If they differ by
           // more than $2 it usually means the kludge detection got it wrong
@@ -1860,10 +1917,14 @@ export async function POST(request: NextRequest) {
     //    have TOTAL_PAID in guesty_reservations, so Stripe fee fell back
     //    to the old approximation on Guesty's net. Usually fixes itself
     //    after a fresh Upload Reservations CSV run.
-    //  - revenue_reconciliation: our reconstructed pre-Stripe net for a
-    //    VRBO/Manual stay diverges from Guesty's implied net by >$2.
-    //    Worth a manual look -- sometimes a booking had a discount,
-    //    refund, or unusual commission that our formula didn't model.
+    //  - revenue_reconciliation: three things a VRBO/Manual stay can want
+    //    to say. (a) TOTAL_PAID came in short of the booking's folio, so
+    //    revenue was recognized on the folio instead. (b) The legacy 4.4%
+    //    commission strip fired -- always announced, never silent, because
+    //    a false positive there is otherwise invisible. (c) Our
+    //    reconstructed pre-Stripe net diverges from Guesty's implied net by
+    //    >$2 -- sometimes a discount, refund, or unusual commission that
+    //    our formula didn't model.
     if (missingGrossCodes.length > 0) {
       gaps.push({
         gap_type: 'missing_guest_gross',
@@ -1875,7 +1936,7 @@ export async function POST(request: NextRequest) {
     if (reconciliationGaps.length > 0) {
       gaps.push({
         gap_type: 'revenue_reconciliation',
-        description: `Revenue reconstruction drifts from Guesty's implied net on ${reconciliationGaps.length} stay${reconciliationGaps.length === 1 ? '' : 's'}. Probably a discount, refund, or non-standard commission.`,
+        description: `Revenue reconstruction has something to declare on ${reconciliationGaps.length} stay${reconciliationGaps.length === 1 ? '' : 's'}: a partial TOTAL_PAID recognized on the folio instead, a legacy commission strip that fired, or a net that drifts from Guesty's implied net (usually a discount, refund, or non-standard commission). Each line says which.`,
         severity: 'info',
         expected_data: reconciliationGaps.join('; '),
       });
