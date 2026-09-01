@@ -5,6 +5,7 @@ import { PROPERTIES } from '@/lib/properties';
 import { getCachedPlatformCSV } from '@/lib/platform-csv-cache';
 import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR } from '@/lib/guesty-revenue-signal';
 import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
+import { isInternalSweepSource } from '@/lib/internal-transfers';
 import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
 import type { OwnerRequestSelections, PropertyRequestCandidates } from '@/lib/email-templates';
 import { auth } from '@/auth';
@@ -117,16 +118,30 @@ type Row = Record<string, unknown>;
  * Pending bank-review rows for the month, counted per property_id.
  * `known:false` means the read failed -- the caller must render "unknown",
  * never an all-clear zero. Absence of data is not a fact.
+ *
+ * Recognized internal sweeps (tax to *9928, the VRBO-commission and
+ * management-fee settlements to *5130) are excluded: they are Rising Tide
+ * moving its own money and need no operator decision, so counting them
+ * would keep every property permanently "not clear". They stay pending and
+ * stay visible in the review panel's own informational block -- this only
+ * changes what counts as OUTSTANDING. `/api/nav-counts` runs the same
+ * exclusion and the two must move together or the nav badge and this strip
+ * disagree.
+ *
+ * Filtered in JS rather than with a PostgREST `not.in`, which evaluates to
+ * NULL on a null source and would silently drop that row from a count whose
+ * whole job is to say whether work remains.
  */
 export async function loadDepositReviewCounts(month: string): Promise<{ known: boolean; counts: Record<string, number> }> {
   const { data, error } = await supabaseAdmin
     .from('bank_deposit_attributions')
-    .select('property_id')
+    .select('property_id, source')
     .eq('month', month)
     .eq('status', 'pending');
   if (error) return { known: false, counts: {} };
   const counts: Record<string, number> = {};
-  (data || []).forEach((r: { property_id: string }) => {
+  (data || []).forEach((r: { property_id: string; source: string | null }) => {
+    if (isInternalSweepSource(r.source)) return;
     counts[r.property_id] = (counts[r.property_id] || 0) + 1;
   });
   return { known: true, counts };

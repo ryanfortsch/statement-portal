@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { loadBankDepositReview } from '@/app/statements/actions';
 import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
 import { isFutureStayPrincipal } from '@/lib/extras-markers';
+import { isInternalSweepSource, SWEEP_SOURCE } from '@/lib/internal-transfers';
 
 /**
  * Per-property review queue for unattributed bank deposits found during
@@ -49,6 +50,24 @@ function fmtMoney(n: number): string {
  * the description the operator typed into the link. Best-effort -- the
  * label field stays editable either way.
  */
+/** Short eyebrow per recognized internal sweep, so the row says what it is
+ *  instead of the generic "charge". */
+const SWEEP_EYEBROW: Record<string, string> = {
+  [SWEEP_SOURCE['tax-sweep']]: 'tax → *9928',
+  [SWEEP_SOURCE['commission-sweep']]: 'vrbo commission → *5130',
+  [SWEEP_SOURCE['mgmt-fee-sweep']]: 'mgmt fee → *5130',
+};
+
+/** One line explaining why each sweep is not an owner expense. */
+const SWEEP_WHY: Record<string, string> = {
+  [SWEEP_SOURCE['tax-sweep']]:
+    'Occupancy tax moved to the account MassTaxConnect pays the state from. The tax was never owner revenue, so it is not an owner expense.',
+  [SWEEP_SOURCE['commission-sweep']]:
+    'VRBO deposits its 5% commission into this account as part of the rental revenue, then bills it to the Rising Tide card. This sweep reimburses the card. The commission is already deducted from the revenue on this statement.',
+  [SWEEP_SOURCE['mgmt-fee-sweep']]:
+    'The monthly settlement of the management fee this statement already charges on its own line.',
+};
+
 function inferStripeLabel(description: string | null): string {
   const d = (description || '').toLowerCase();
   if (/early\s*check/.test(d)) return 'Early check-in';
@@ -76,6 +95,7 @@ export function BankDepositReview({
   // for deposits-pending / debits-pending / already-attributed.
   const [expanded, setExpanded] = useState(false);
   const [debitsExpanded, setDebitsExpanded] = useState(false);
+  const [sweepsExpanded, setSweepsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -196,7 +216,13 @@ export function BankDepositReview({
 
   const pending = (items || []).filter(i => i.status === 'pending');
   const deposits = pending.filter(i => i.direction === 'deposit');
-  const debits = pending.filter(i => i.direction === 'debit');
+  // Recognized internal sweeps split out of the actionable queue. They are
+  // Rising Tide moving its own money between its own Chase accounts, so
+  // there is no operator decision to make -- but they stay listed, and the
+  // block below keeps a way to reclassify one, because the *5130 matcher
+  // decides by amount and a wrong call must be recoverable.
+  const debits = pending.filter(i => i.direction === 'debit' && !isInternalSweepSource(i.source));
+  const sweeps = pending.filter(i => i.direction === 'debit' && isInternalSweepSource(i.source));
   const attributed = (items || []).filter(i => i.status === 'attributed');
   // Map a reservation code -> human guest name for the attributed history.
   const guestByCode = new Map<string, string>();
@@ -210,7 +236,7 @@ export function BankDepositReview({
       </div>
     );
   }
-  if (deposits.length === 0 && debits.length === 0 && attributed.length === 0) return null;
+  if (deposits.length === 0 && debits.length === 0 && sweeps.length === 0 && attributed.length === 0) return null;
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -379,7 +405,7 @@ export function BankDepositReview({
                   }}>
                     <div className="flex items-baseline flex-wrap" style={{ gap: 10, fontSize: 12, color: 'var(--ink-2)' }}>
                       <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtDate(dep.deposit_date)}</span>
-                      <span style={{ textTransform: 'uppercase', fontSize: 9, letterSpacing: '.14em', color: 'var(--ink-4)' }}>charge</span>
+                      <span style={{ textTransform: 'uppercase', fontSize: 9, letterSpacing: '.14em', color: 'var(--ink-4)' }}>{SWEEP_EYEBROW[dep.source] || 'charge'}</span>
                       <span className="font-serif tabular-nums" style={{ fontSize: 14, color: 'var(--ink)' }}>−{fmtMoney(Number(dep.amount))}</span>
                       <span style={{ color: 'var(--ink-4)', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }} title={dep.description || ''}>
                         {(dep.description || '').slice(0, 60)}
@@ -401,6 +427,80 @@ export function BankDepositReview({
                       <button type="button" onClick={() => dismiss(dep)} disabled={busy}
                         style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)', padding: '5px 10px', cursor: busy ? 'wait' : 'pointer' }}>
                         Not an expense
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+
+      {sweeps.length > 0 && (
+        <div style={{ marginTop: debits.length > 0 || deposits.length > 0 ? 18 : 0 }}>
+          <button
+            type="button"
+            onClick={() => setSweepsExpanded(e => !e)}
+            className="flex items-baseline justify-between w-full"
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px 0',
+              textAlign: 'left', borderBottom: sweepsExpanded ? '1px solid var(--rule-soft)' : 'none',
+              marginBottom: sweepsExpanded ? 10 : 0,
+            }}
+            aria-expanded={sweepsExpanded}
+          >
+            <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
+              Internal transfers &middot; {sweeps.length} &middot; no action needed
+            </span>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+              {sweepsExpanded ? 'Hide −' : 'Show +'}
+            </span>
+          </button>
+          {sweepsExpanded && (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.5, maxWidth: 720 }}>
+                Rising Tide moving its own money out of this property&rsquo;s account: occupancy tax to
+                *9928, and the VRBO commission and management fee to *5130. None is an owner expense,
+                so none needs a decision. The tax wire is recognized by its destination alone -- *9928
+                is the tax account, and tax was never owner revenue. The two *5130 rows are recognized
+                only when the amount matches, to the cent, what Helm computed for the prior
+                month&rsquo;s remittance sheet, because reimbursements land in that account too. If one
+                of these is actually a reimbursement, name it and add it as an expense.
+              </div>
+              {sweeps.map(dep => {
+                const busy = busyId === dep.id;
+                const d = draftFor(dep);
+                return (
+                  <div key={dep.id} style={{
+                    padding: '10px 14px', marginBottom: 8, background: 'var(--paper-2)',
+                    borderLeft: '3px solid var(--rule)', display: 'flex', flexDirection: 'column', gap: 6,
+                  }}>
+                    <div className="flex items-baseline flex-wrap" style={{ gap: 10, fontSize: 12, color: 'var(--ink-2)' }}>
+                      <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtDate(dep.deposit_date)}</span>
+                      <span style={{ textTransform: 'uppercase', fontSize: 9, letterSpacing: '.14em', color: 'var(--ink-4)' }}>
+                        {SWEEP_EYEBROW[dep.source] || 'internal transfer'}
+                      </span>
+                      <span className="font-serif tabular-nums" style={{ fontSize: 14, color: 'var(--ink)' }}>−{fmtMoney(Number(dep.amount))}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5, maxWidth: 660 }}>
+                      {SWEEP_WHY[dep.source] || 'Money moved between Rising Tide accounts.'}
+                    </div>
+                    {/* Escape hatch. The *5130 leg is decided by an amount
+                        match, so a wrong call has to be recoverable: name it
+                        and it becomes an ordinary attributed expense. */}
+                    <div className="flex items-center flex-wrap" style={{ gap: 8 }}>
+                      <input
+                        type="text"
+                        value={d.label === 'Add-on' ? '' : d.label}
+                        onChange={(e) => setDraft(dep.id, { label: e.target.value })}
+                        disabled={busy}
+                        placeholder="Actually an expense? Name it"
+                        style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12, width: 220 }}
+                      />
+                      <button type="button" onClick={() => attribute(dep)} disabled={busy}
+                        style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)', background: 'transparent', border: '1px solid var(--rule)', padding: '5px 10px', cursor: busy ? 'wait' : 'pointer' }}>
+                        {busy ? 'Saving…' : '− Add as expense'}
                       </button>
                     </div>
                   </div>

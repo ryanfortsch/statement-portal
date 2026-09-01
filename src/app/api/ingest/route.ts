@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
-import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
+import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
+import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
+import { buildRemittanceSheet } from '@/lib/remittance';
 import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, loadInstallmentsForCodes, type Installment } from '@/lib/installments';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
@@ -1595,13 +1597,103 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Internal sweeps: Rising Tide's own money leaving the property account.
+    //
+    // Occupancy tax goes to *9928 (the account MassTaxConnect pays from) and
+    // the VRBO-commission and management-fee settlements go to *5130 (RT
+    // operating). None is an owner expense -- the tax was never owner
+    // revenue, and the commission and fee are already deducted on the
+    // statement -- but all three look exactly like an unattributed charge,
+    // so the operator has been dismissing them by hand every close.
+    //
+    // The sweep pays the PRIOR month's sheet: Massachusetts files room
+    // occupancy 30 days after period end, and the operator moves tax and
+    // commission together that day. Reading against the landing month ties
+    // nothing; reading against M-1 ties to the cent.
+    //
+    // Ordering is safe. This route only ever rewrites THIS month's period,
+    // so the M-1 rows read below are stable for the whole request and
+    // cannot race the delete-and-replace further up.
+    const debitDedupeKey = (isoDate: string, amount: number, desc: string) =>
+      `${propertyId}|${monthOnly}|${isoDate}|${Math.round(amount * 100) / 100}|debit|${(desc || '').slice(0, 60)}`;
+    const sweepVerdicts = new Map<string, SweepVerdict>();
+    let taxSweepDrift: { moved: number; expected: number; month: string } | null = null;
+    if (unmatchedDebits.length > 0) {
+      const transferCandidates: TransferCandidate[] = [];
+      for (const d of unmatchedDebits) {
+        const t = parseInternalTransfer((d.description || '').toUpperCase());
+        if (!t?.outbound) continue;
+        const isoDate = depToISO(d.date);
+        if (!isoDate) continue;
+        transferCandidates.push({
+          key: debitDedupeKey(isoDate, d.amount, d.description),
+          last4: t.last4,
+          amount: Math.round(d.amount * 100) / 100,
+          date: isoDate,
+        });
+      }
+      if (transferCandidates.length > 0) {
+        const prevMonth = remittanceMonthFor(monthOnly);
+        let expected: SweepExpectations | null = null;
+        try {
+          const [sheet, prevStmt] = await Promise.all([
+            buildRemittanceSheet(supabase, prevMonth, { propertyId }),
+            supabase
+              .from('property_statements')
+              .select('management_fee, statement_periods!inner(month)')
+              .eq('property_id', propertyId)
+              .eq('statement_periods.month', prevMonth)
+              .maybeSingle(),
+          ]);
+          // Fail-visible: a PostgREST failure lands on .error, not as a
+          // throw, so without this the management-fee leg would quietly
+          // switch itself off and every month-start transfer would sit in
+          // the queue with no clue why.
+          if (prevStmt.error) {
+            console.warn(`internal sweep: ${prevMonth} management fee unreadable for ${propertyId}: ${prevStmt.error.message}`);
+          }
+          const row = sheet.rows.find(r => r.propertyId === propertyId);
+          if (row) {
+            const fee = (prevStmt.data as { management_fee: number | string | null } | null)?.management_fee;
+            expected = {
+              taxToRemit: row.taxToRemit,
+              vrboCommissionSweep: row.vrboCommissionSweep,
+              managementFee: fee === null || fee === undefined ? null : Number(fee) || 0,
+              sweepEstimated: row.sweepEstimated,
+            };
+          }
+        } catch (err) {
+          // A missing or unreadable prior sheet means "cannot evaluate",
+          // which parks every *5130 row for the operator exactly as today.
+          // It must never read as "not a sweep, therefore an expense".
+          console.warn('internal sweep: prior-month sheet unavailable', err);
+        }
+        const verdicts = classifyInternalTransfers(transferCandidates, expected, {
+          tax: TAX_REMITTANCE_ACCOUNT,
+          operating: RT_OPERATING_ACCOUNT,
+        });
+        for (const v of verdicts) sweepVerdicts.set(v.key, v);
+        const taxLeg = verdicts.filter(v => v.kind === 'tax-sweep');
+        if (taxLeg.length > 0 && taxLeg[0].evaluated && !taxLeg[0].reconciles) {
+          const movedKeys = new Set(taxLeg.map(v => v.key));
+          taxSweepDrift = {
+            moved: Math.round(transferCandidates
+              .filter(c => movedKeys.has(c.key))
+              .reduce((sum, c) => sum + c.amount, 0) * 100) / 100,
+            expected: taxLeg[0].expected ?? 0,
+            month: prevMonth,
+          };
+        }
+      }
+    }
+
     // Same idea for the unmatched-debit side. We share the same table with
     // direction='debit' so the UI can render both queues from one source,
     // and so a future "what's pending across this month" view can JOIN once.
     if (unmatchedDebits.length > 0) {
       const debitReviewRows = unmatchedDebits.map(d => {
         const isoDate = depToISO(d.date);
-        const safeDesc = (d.description || '').slice(0, 60);
+        const dedupe_key = debitDedupeKey(isoDate, d.amount, d.description);
         return {
           property_id: propertyId,
           month: monthOnly,
@@ -1609,11 +1701,14 @@ export async function POST(request: NextRequest) {
           deposit_date: isoDate,
           amount: Math.round(d.amount * 100) / 100,
           description: d.description || null,
-          source: 'other',
+          // A recognized internal sweep is filed out of the operator's way
+          // by its source; it still lands as status='pending', which every
+          // payout recompute site ignores, so nothing here moves money.
+          source: sweepVerdicts.get(dedupe_key)?.source ?? 'other',
           suggested_reservation_code: null,
           // Direction baked into the key so a deposit and a debit of the
           // same date / amount / description don't collide.
-          dedupe_key: `${propertyId}|${monthOnly}|${isoDate}|${Math.round(d.amount * 100) / 100}|debit|${safeDesc}`,
+          dedupe_key,
         };
       }).filter(r => r.deposit_date);
       if (debitReviewRows.length > 0) {
@@ -1835,6 +1930,24 @@ export async function POST(request: NextRequest) {
         description: `${c.vendor} sent money BACK: $${c.amount.toFixed(2)} credit on ${c.date} with no same-amount ${c.kind} charge this month to net it against. If it refunds a prior month's charge, apply a credit on that statement's row (Mark Duplicate); the credit is also parked in the bank review queue.`,
         severity: 'critical',
         expected_data: `Matching ${c.vendor} charge for $${c.amount.toFixed(2)}`,
+      });
+    }
+
+    // The tax sweep is provably occupancy tax -- it went to the tax-only
+    // account -- so when Helm cannot reproduce the amount, the missing
+    // piece is Helm's, not the wire's. A sweep larger than the computed
+    // tax means reservations for that month never made it in. 16 Waterman
+    // moved $504.04 against a computed $0, which at the 11.7% Cape Ann rate
+    // implies a ~$4,308 VRBO stay that was never ingested. Raised as a
+    // warning rather than parked in the review queue, because the money
+    // itself needs no operator decision -- the missing stay does.
+    if (taxSweepDrift) {
+      const { moved, expected: due, month: taxMonth } = taxSweepDrift;
+      gaps.push({
+        gap_type: 'tax_sweep_unreconciled',
+        description: `Occupancy tax swept to *${TAX_REMITTANCE_ACCOUNT} was $${moved.toFixed(2)}, but the ${taxMonth} remittance sheet computes $${due.toFixed(2)} for this property (difference $${Math.abs(moved - due).toFixed(2)}). The wire is real money that left the account, so the gap is almost always a stay Helm never ingested for ${taxMonth} -- check that month's reservations before filing.`,
+        severity: 'warning',
+        expected_data: `${taxMonth} reservations reconciling to $${moved.toFixed(2)} of occupancy tax`,
       });
     }
 
