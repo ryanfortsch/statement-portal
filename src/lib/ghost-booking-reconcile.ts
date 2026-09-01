@@ -1,0 +1,212 @@
+/**
+ * Cancel `bookings` rows for reservations that are not real stays.
+ *
+ * Phase 3 of the cancelled-reservation leak. Phase 2
+ * (reservation-reconcile) probes the live Guesty API per confirmation code
+ * and flips a row when the API says `canceled`. That is necessary but not
+ * sufficient: Guesty also retires a reservation as **`closed`**, and a
+ * closed reservation may or may not have happened. Proven empirically on
+ * 2026-09-01 across all 14 closed reservations on this account: 12 had
+ * every night `booked` in the calendar (real stays), 2 had every night
+ * `available` (never happened). Treating `closed` as cancelled would have
+ * cancelled twelve live bookings.
+ *
+ * So `closed` is not the signal. Agreement between two independent
+ * sources is:
+ *
+ *   1. The CALENDAR mirror, synced from Guesty separately, reports every
+ *      night of the stay as `available` -- Guesty is selling those dates,
+ *      so nobody is in the house.
+ *   2. The RESERVATION record, already probed against the live API by
+ *      phase 2, is in some non-live state (canceled / closed / declined /
+ *      expired).
+ *
+ * Either alone is not enough. Calendar-only would have cancelled the two
+ * 3 Locust 2027 pre-release placeholders, which are deliberate rows whose
+ * dates Guesty has not opened yet. Reservation-status-only cancels real
+ * stays, as above.
+ *
+ * Live case that motivated it: Had Deane, 53 Rocky Neck Downstairs,
+ * 08-30 -> 09-01. Booked and cancelled on 08-31; the row stayed
+ * `confirmed`, and on 09-01 the automatic evening digest sent the cleaners
+ * to an empty house. `bookings` is read by the turnover rail, Field
+ * packets and revenue as well, which is why this fixes the record rather
+ * than only the cleaner schedule's reading of it.
+ *
+ * Mark, don't delete: the row is flipped to `cancelled` with cancelled_at
+ * stamped, exactly as ical-sync and phase 2 do, so a cancelled
+ * non-aggregate row remains a trusted cancel for dedupeAllBookings.
+ */
+
+import { supabaseAdmin } from './supabase-admin';
+
+/** Mirror rows older than this cannot overrule a confirmed booking: we
+ *  could not tell "cancelled" from "not synced lately". */
+const MIRROR_FRESH_HOURS = 36;
+
+/** Reservation states that mean the stay is not live. `confirmed` is the
+ *  only live one; an absent record is NOT evidence (direct/SCA bookings
+ *  legitimately have none). */
+const NON_LIVE_STATUSES = new Set(['canceled', 'cancelled', 'closed', 'declined', 'expired']);
+
+/**
+ * Refuse to act on more than this in one run. If the calendar mirror ever
+ * syncs empty or wrong, unanimity becomes trivially true fleet-wide and
+ * this pass would cancel the whole book of business. Same instinct as
+ * ical-sync's empty-feed guard: a suspiciously large cancel is a bug
+ * signal, not a mandate.
+ */
+const MAX_CANCELS_PER_RUN = 5;
+
+/** Only look at stays that are current or recent. An old row being wrong
+ *  hurts nobody today, and the mirror does not retain distant history. */
+const LOOKBACK_DAYS = 14;
+
+export type GhostBookingResult = {
+  examined: number;
+  cancelled: number;
+  /** Calendar says empty but the reservation record does not corroborate:
+   *  deliberately left alone, reported so it is never a silent skip. */
+  uncorroborated: number;
+  /** True when the cap tripped and NOTHING was cancelled. */
+  refusedTooMany: boolean;
+  details: Array<{ propertyId: string; checkIn: string; checkOut: string; guest: string; guestyStatus: string }>;
+  errors: string[];
+};
+
+type CandidateRow = {
+  id: string;
+  property_id: string;
+  check_in: string;
+  check_out: string;
+  guest_name: string | null;
+  external_confirmation_code: string | null;
+};
+
+function addDays(date: string, n: number): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function nightsOf(checkIn: string, checkOut: string): string[] {
+  const out: string[] = [];
+  let d = checkIn;
+  for (let i = 0; i < 400 && d < checkOut; i++) {
+    out.push(d);
+    d = addDays(d, 1);
+  }
+  return out;
+}
+
+export async function cancelGhostBookings(
+  opts?: { dryRun?: boolean },
+): Promise<GhostBookingResult> {
+  const result: GhostBookingResult = {
+    examined: 0,
+    cancelled: 0,
+    uncorroborated: 0,
+    refusedTooMany: false,
+    details: [],
+    errors: [],
+  };
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const from = addDays(today, -LOOKBACK_DAYS);
+
+  const { data: candRows, error: candErr } = await supabaseAdmin
+    .from('bookings')
+    .select('id, property_id, check_in, check_out, guest_name, external_confirmation_code')
+    .eq('status', 'confirmed')
+    .is('duplicate_of', null)
+    .gte('check_out', from);
+  if (candErr) {
+    result.errors.push(`bookings: ${candErr.message}`);
+    return result;
+  }
+  const candidates = (candRows ?? []) as CandidateRow[];
+  result.examined = candidates.length;
+  if (candidates.length === 0) return result;
+
+  // ── signal 1: the calendar mirror ──────────────────────────────────
+  const allNights = candidates.flatMap((c) => nightsOf(c.check_in, c.check_out));
+  if (allNights.length === 0) return result;
+  const { data: calRows, error: calErr } = await supabaseAdmin
+    .from('property_calendar_days')
+    .select('property_id, date, status, synced_at')
+    .in('property_id', [...new Set(candidates.map((c) => c.property_id))])
+    .gte('date', allNights.reduce((a, b) => (a < b ? a : b)))
+    .lte('date', allNights.reduce((a, b) => (a > b ? a : b)));
+  if (calErr) {
+    result.errors.push(`calendar: ${calErr.message}`);
+    return result;
+  }
+  const freshCutoff = Date.now() - MIRROR_FRESH_HOURS * 3600_000;
+  const cal = new Map<string, { status: string; fresh: boolean }>();
+  for (const r of (calRows ?? []) as Array<{ property_id: string; date: string; status: string; synced_at: string | null }>) {
+    const ms = r.synced_at ? Date.parse(r.synced_at) : NaN;
+    cal.set(`${r.property_id}|${r.date}`, {
+      status: (r.status || '').toLowerCase(),
+      fresh: Number.isFinite(ms) && ms >= freshCutoff,
+    });
+  }
+
+  const calendarSaysEmpty = candidates.filter((c) => {
+    const nights = nightsOf(c.check_in, c.check_out);
+    if (nights.length === 0) return false;
+    return nights.every((n) => {
+      const cell = cal.get(`${c.property_id}|${n}`);
+      return !!cell && cell.fresh && cell.status === 'available';
+    });
+  });
+  if (calendarSaysEmpty.length === 0) return result;
+
+  // ── signal 2: the reservation record, already API-probed ───────────
+  const codes = calendarSaysEmpty.map((c) => c.external_confirmation_code).filter((c): c is string => !!c);
+  const resStatus = new Map<string, string>();
+  if (codes.length > 0) {
+    const { data: resRows } = await supabaseAdmin
+      .from('guesty_reservations')
+      .select('confirmation_code, status')
+      .in('confirmation_code', codes);
+    for (const r of (resRows ?? []) as Array<{ confirmation_code: string; status: string | null }>) {
+      resStatus.set(r.confirmation_code, (r.status || '').toLowerCase());
+    }
+  }
+
+  const confirmed: Array<CandidateRow & { guestyStatus: string }> = [];
+  for (const c of calendarSaysEmpty) {
+    const st = c.external_confirmation_code ? resStatus.get(c.external_confirmation_code) : undefined;
+    if (st && NON_LIVE_STATUSES.has(st)) confirmed.push({ ...c, guestyStatus: st });
+    else result.uncorroborated += 1;
+  }
+  if (confirmed.length === 0) return result;
+
+  if (confirmed.length > MAX_CANCELS_PER_RUN) {
+    // Do nothing at all. A run this large means the mirror is wrong, not
+    // that the business evaporated.
+    result.refusedTooMany = true;
+    result.errors.push(
+      `refused: ${confirmed.length} candidates exceeds the ${MAX_CANCELS_PER_RUN}-per-run cap; calendar mirror is suspect`,
+    );
+    return result;
+  }
+
+  for (const c of confirmed) {
+    result.details.push({
+      propertyId: c.property_id,
+      checkIn: c.check_in,
+      checkOut: c.check_out,
+      guest: c.guest_name || '(no name)',
+      guestyStatus: c.guestyStatus,
+    });
+    if (opts?.dryRun) continue;
+    const { error } = await supabaseAdmin
+      .from('bookings')
+      .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+      .eq('id', c.id)
+      .eq('status', 'confirmed');
+    if (error) result.errors.push(`cancel ${c.property_id} ${c.check_in}: ${error.message}`);
+    else result.cancelled += 1;
+  }
+  return result;
+}

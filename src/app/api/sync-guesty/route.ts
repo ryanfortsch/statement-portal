@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
 import { reconcileStaleReservations } from '@/lib/reservation-reconcile';
+import { cancelGhostBookings } from '@/lib/ghost-booking-reconcile';
 import { backfillReservationGaps } from '@/lib/reservation-gap-backfill';
 import {
   RESERVATION_FIELDS,
@@ -666,6 +667,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Phase 3: cancel bookings that BOTH the calendar mirror and the
+    // (already API-probed) reservation record say are not real stays.
+    // Runs after phase 2 so it reads the freshest reservation statuses,
+    // and after the calendar sync above so the mirror is current.
+    let ghostResult: Record<string, unknown> = { skipped_reason: 'reservations_sync_failed' };
+    if (!('error' in reservationsResult)) {
+      try {
+        ghostResult = { ...(await cancelGhostBookings()) };
+        await recordSyncSuccess('guesty-ghost-bookings', ghostResult);
+      } catch (err) {
+        ghostResult = { error: err instanceof Error ? err.message : String(err) };
+        await recordSyncFailure('guesty-ghost-bookings', err);
+      }
+    }
+
     // Carry the pull the rest of the way into `bookings`. syncReservations
     // only fills the guesty_reservations CACHE; the copy into the Helm-native
     // bookings table is a separate step that ran on its own cron 15 minutes
@@ -731,6 +747,7 @@ export async function POST(request: NextRequest) {
       reviews_to_slips: reviewsToSlipsResult,
       reservations: reservationsResult,
       reservations_reconcile: reconcileResult,
+      ghost_bookings: ghostResult,
       bookings_backfill: backfillResult,
       calendar: calendarResult,
       reservation_gaps: reservationGapsResult,

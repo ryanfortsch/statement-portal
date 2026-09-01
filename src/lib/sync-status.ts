@@ -28,6 +28,7 @@ export const SYNC_SOURCES = [
   'guesty-reviews',
   'guesty-reservations',
   'guesty-cancel-reconcile',
+  'guesty-ghost-bookings',
   'guesty-bookings-backfill',
   'guesty-reservation-gaps',
   'guesty-calendar',
