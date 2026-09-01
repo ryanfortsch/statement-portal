@@ -43,7 +43,7 @@ import { taxPortionOfNet } from '@/lib/addon-tax';
 import { loadAddOnTotals } from './statement-addons';
 import { chargeWindow } from './stripe-window';
 import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
-import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
+import { FINALITY_FROM_MONTH, getFreezeStatus } from '@/lib/statement-finality';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 
 export type StripeSyncResult = {
@@ -216,6 +216,15 @@ export async function reportMissingStripeKey(
   supabase: SupabaseClient,
   opts: { propertyId: string; statementId: string; month: string },
 ): Promise<{ raised: boolean; rtStays: number }> {
+  // A frozen statement is skipped by syncPropertyStripe, and that function's
+  // gap wipe is the only thing besides this helper that clears the row. So a
+  // gap written here after the statement is sent or the month is finalized
+  // could never be cleared again -- it would sit on the owner's closed month
+  // forever. The condition is a standing config fact; it will be reported on
+  // the next open month instead.
+  const freeze = await getFreezeStatus(supabase, { statementId: opts.statementId });
+  if (freeze.frozen) return { raised: false, rtStays: 0 };
+
   const { data: rows, error } = await supabase
     .from('reservations')
     .select('platform, adjusted_revenue')
@@ -231,7 +240,11 @@ export async function reportMissingStripeKey(
     return isRT && (Number(r.adjusted_revenue) || 0) > 0;
   }).length;
 
-  // Idempotent: clear any prior row first so repeated syncs never stack.
+  // Idempotent: clear any prior row so repeated syncs never stack. Ordered
+  // so a failure can never leave the statement with NO gap where it had one:
+  // when there is nothing to re-raise we only delete (correct -- the
+  // condition is resolved); when there is, the insert follows immediately
+  // and its failure is reported to the caller.
   const { error: delErr } = await supabase
     .from('data_gaps')
     .delete()

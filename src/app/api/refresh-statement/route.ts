@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
     const { data: candidates, error: candErr } = await supabase
       .from('guesty_reservations')
-      .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_taxes, channel_commission, ${REVENUE_SIGNAL_COLUMNS}`)
+      .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, status, total_taxes, channel_commission, ${REVENUE_SIGNAL_COLUMNS}`)
       .eq('property_id', propertyId)
       .gte('check_out', monthStart)
       .lt('check_out', monthEndExclusive)
@@ -193,8 +193,25 @@ export async function POST(request: NextRequest) {
     // changing what the owner is paid. Those rows are reported as a gap for
     // the operator to resolve (sync Stripe, or re-ingest with the PDF),
     // never guessed at.
-    const insertable = missing.filter(hasPriceableGross);
-    const noGross = missing.filter(g => !hasPriceableGross(g));
+    // Dedupe by confirmation_code, preferring the priceable row. Live data
+    // carries one row per code today, but guesty_reservations accumulates a
+    // row per source in principle, and two rows for one stay would otherwise
+    // be inserted twice (double revenue) or land in both buckets at once.
+    const byCode = new Map<string, typeof missing[number]>();
+    for (const g of missing) {
+      const code = g.confirmation_code as string;
+      const held = byCode.get(code);
+      if (!held || (!hasPriceableGross(held) && hasPriceableGross(g))) byCode.set(code, g);
+    }
+    const deduped = Array.from(byCode.values());
+
+    const insertable = deduped.filter(hasPriceableGross);
+    // A cancelled booking legitimately has no collected gross; flagging it
+    // as "revenue missing from this statement" would be a false alarm, and
+    // the cancelled-reservation guard elsewhere already owns that case.
+    const isCancelled = (g: { status?: string | null }) =>
+      /cancel|declined|expired/i.test(String(g.status || ''));
+    const noGross = deduped.filter(g => !hasPriceableGross(g) && !isCancelled(g));
     const noGrossCodes = noGross.map(g => g.confirmation_code as string);
 
     // Record (or clear) the unpriceable-candidate gap before returning, so
@@ -226,7 +243,15 @@ export async function POST(request: NextRequest) {
         expected_data: `Re-ingest this month with the Guesty owner-statement PDF (Re-upload Data); that path prices the stay from the PDF's rental income. Codes: ${noGrossCodes.join(', ')}`,
         resolved: false,
       });
-      if (gapErr) console.error('refresh-statement: refresh_missing_gross gap insert failed', gapErr.message);
+      // The response text below tells the operator these were "flagged as a
+      // data gap". If the flag could not be written, saying so anyway would
+      // be the same false all-clear this phase exists to remove.
+      if (gapErr) {
+        return NextResponse.json({
+          error: `${noGrossCodes.length} booking${noGrossCodes.length === 1 ? '' : 's'} could not be priced AND the warning flag could not be saved (${gapErr.message}). `
+            + `Re-ingest this month with the Guesty PDF before sending. Codes: ${noGrossCodes.join(', ')}`,
+        }, { status: 500 });
+      }
     }
 
     if (insertable.length === 0) {

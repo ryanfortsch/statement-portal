@@ -1913,7 +1913,17 @@ export async function POST(request: NextRequest) {
           };
         }
       } catch (err) {
+        // The check itself failed, so we do NOT know whether this property
+        // needs a key. Report it on the response rather than let silence
+        // read as "checked, nothing to flag".
         console.error('ingest: missing-key check failed', err);
+        stripeSync = {
+          property_id: propertyId,
+          charges_found: 0, matched: 0,
+          unmatched_charges: [], fee_updates: [], refunds_detected: [],
+          gross_mismatches: [], gross_reconstructions: [], collected_rebuilds: [], reservations_missing_charge: [],
+          error: `Could not check whether this property needs a Stripe key: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
     }
 

@@ -2705,8 +2705,9 @@ function DashboardContent() {
     if (!depositReviewCounts.known) problems.push('bank review queue unreadable (count unknown)');
     if (props.some(p => p.drift_known === false)) problems.push('new-booking check unreadable (drift count unknown)');
     if (props.some(p => p.gaps_known === false)) problems.push('gap list unreadable (a statement may be carrying flags this page cannot show)');
-    const unmatchableRows = props.reduce((s, p) => s + (p.drift_unmatchable || 0), 0);
-    if (unmatchableRows > 0) problems.push(`${unmatchableRows} revenue-bearing Guesty row${unmatchableRows === 1 ? '' : 's'} with no confirmation code`);
+    // Not a blocker: see the close-review strip. The operator cannot clear
+    // these from Helm, so blocking every draft on them would train them to
+    // click through the confirm without reading it.
     if (problems.length > 0 && !confirm(
       `This month still has:\n\n  · ${problems.join('\n  · ')}\n\nDraft ${candidates.length} owner email${candidates.length === 1 ? '' : 's'} anyway?`,
     )) {
@@ -3173,7 +3174,7 @@ function DashboardContent() {
           <Toast tone="negative" onDismiss={() => setStripeSyncResult(null)}>Stripe sync failed: {stripeSyncResult}</Toast>
         ) : (
           <Toast
-            tone={stripeSyncResult.keyless > 0 ? 'negative' : (stripeSyncResult.errors.length > 0 || stripeSyncResult.refunds > 0 || stripeSyncResult.fee_unreadable > 0 || stripeSyncResult.truncated_rebuilds > 0) ? 'tide' : 'positive'}
+            tone={(stripeSyncResult.keyless > 0 || stripeSyncResult.errors.length > 0) ? 'negative' : (stripeSyncResult.refunds > 0 || stripeSyncResult.fee_unreadable > 0 || stripeSyncResult.truncated_rebuilds > 0) ? 'tide' : 'positive'}
             onDismiss={() => setStripeSyncResult(null)}
           >
             Stripe synced across <strong>{stripeSyncResult.properties}</strong> propert{stripeSyncResult.properties === 1 ? 'y' : 'ies'}
@@ -3330,8 +3331,13 @@ function DashboardContent() {
         const platformMissing = monthStatus ? !monthStatus.platform_csv.on_file : false;
         const bookingMissing = monthStatus?.booking_activity.known ? monthStatus.booking_activity.rows === 0 : false;
         const gapsUnknown = props.some(p => p.gaps_known === false);
+        // `unmatchable` is deliberately NOT a term here. Those rows live in
+        // Guesty with no confirmation code; nothing the operator does in
+        // Helm can drive the count to zero, so gating the all-clear on it
+        // would make "Month is clear" unreachable forever -- the alarm
+        // fatigue this audit is trying to cure. It shows as a chip instead.
         const clear = depositCount === 0 && totalGaps === 0 && driftCount === 0 && unsentIds.length === 0
-          && depositReviewCounts.known && !driftUnknown && !gapsUnknown && unmatchable === 0
+          && depositReviewCounts.known && !driftUnknown && !gapsUnknown
           && failingSyncs.length === 0 && !platformMissing && !bookingMissing;
         const warnChip = (text: string, title?: string) => (
           <span title={title} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 7 }}>
@@ -3345,9 +3351,15 @@ function DashboardContent() {
                 Close review
               </span>
               {clear ? (
-                <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
-                  Month is clear &middot; inputs on file, every queue empty, every statement sent.
-                </span>
+                <>
+                  <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
+                    Month is clear &middot; inputs on file, every queue empty, every statement sent.
+                  </span>
+                  {unmatchable > 0 && warnChip(
+                    `${unmatchable} Guesty row${unmatchable === 1 ? '' : 's'} with no confirmation code`,
+                    'These rows carry revenue but have no confirmation code, so nothing in Helm can match them to a stay. Check them in Guesty; they do not block the close.',
+                  )}
+                </>
               ) : (
                 <>
                   {failingSyncs.length > 0 && warnChip(
