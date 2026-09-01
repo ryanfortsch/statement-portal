@@ -387,11 +387,13 @@ export async function POST(request: NextRequest) {
     // Sent-statement freeze: re-ingest wholesale rebuilds the statement.
     // A month the operator already marked sent (or finalized) needs an
     // explicit force, which is recorded on the statement as a gap.
+    let finalityForced = false;
     try {
-      await assertStatementWritable(supabase, { propertyId, month }, {
+      const gate = await assertStatementWritable(supabase, { propertyId, month }, {
         force: (formData.get('force') as string) === 'true',
         action: 'Re-ingest statement',
       });
+      finalityForced = gate.forced;
     } catch (e) {
       if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
       throw e;
@@ -1378,6 +1380,23 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (stmtErr) throw stmtErr;
+
+    // The wipe above (step 8) deleted the old statement's data_gaps,
+    // including the post_send_write audit row assertStatementWritable just
+    // filed. A forced re-ingest of a sent/finalized month is the single
+    // most destructive gated action; re-file the override on the NEW
+    // statement so it stays a matter of record.
+    if (finalityForced) {
+      const { error: auditErr } = await supabase.from('data_gaps').insert({
+        property_statement_id: stmt.id,
+        gap_type: 'post_send_write',
+        severity: 'warning',
+        description: `Statement re-ingested (wipe and rebuild) after being marked sent or finalized. The owner's copy may no longer match Helm.`,
+        expected_data: `forced ${new Date().toISOString()}`,
+        resolved: false,
+      });
+      if (auditErr) console.error('ingest: post_send_write audit re-file failed', auditErr.message);
+    }
 
     // 10. Insert reservations
     if (processedReservations.length > 0) {

@@ -171,6 +171,11 @@ export async function assertStatementWritable(
   if (!opts.force) throw new StatementFrozenError(opts.action, freeze);
 
   // Forced override: make it a matter of record on the statement itself.
+  // When no statement row exists yet (period_final freeze on a property's
+  // first ingest into the month), there is nowhere to hang the gap --
+  // data_gaps requires a property_statement_id. /api/ingest re-files the
+  // override on the statement it creates (its wipe would destroy this row
+  // anyway); other callers without a statement row have nothing to move.
   if (freeze.statementId) {
     const sentNote = freeze.reason === 'period_final'
       ? `month finalized`

@@ -13,6 +13,7 @@ import type { RemittanceSheet } from '@/lib/remittance';
 import { renderEmail, fmtFundsSentDate, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { jsonWithFreezeRetry, formWithFreezeRetry } from '@/lib/freeze-confirm';
+import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -1025,7 +1026,13 @@ function ReserveHoldbackRow({ prop, onSaved }: { prop: PropertyStatement; onSave
     try {
       const { res, cancelled } = await jsonWithFreezeRetry(`/api/property-statements/${prop.id}/reserve`, 'PATCH',
         { amount: nextAmount });
-      if (cancelled) { setErr('Not saved: statement is frozen'); return; }
+      if (cancelled) {
+        // Revert the optimistic checkbox/amount: the server kept the old value.
+        setEnabled(initial > 0);
+        setAmount(initial > 0 ? initial.toFixed(2) : '2000.00');
+        setErr('Not saved: statement is frozen');
+        return;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'save failed');
       // Trigger the parent to reload period data. That refreshes every
@@ -2698,6 +2705,7 @@ function DashboardContent() {
           const covered: string[] = Array.isArray(data.covered_property_ids) && data.covered_property_ids.length > 0
             ? data.covered_property_ids
             : [p.property_id];
+          const clearedSent: string[] = Array.isArray(data.cleared_sent_property_ids) ? data.cleared_sent_property_ids : [];
           setCloseTasks(prev => {
             const next = { ...prev };
             for (const pid of covered) {
@@ -2708,7 +2716,7 @@ function DashboardContent() {
                 email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
                 email_include_work_slips: existing?.email_include_work_slips || false,
                 email_drafted_at: new Date().toISOString(),
-                email_sent_at: existing?.email_sent_at || null,
+                email_sent_at: clearedSent.includes(pid) ? null : (existing?.email_sent_at || null),
                 owner_transfer_done_at: existing?.owner_transfer_done_at || null,
                 mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
                 notes: existing?.notes || null,
@@ -3985,8 +3993,10 @@ function DashboardContent() {
                 </button>
                 {/* The period status machine, finally driven: 'final' freezes
                     every statement in the month behind the shared finality
-                    guard. Reopen flips it back to draft. */}
-                {period.status === 'final' ? (
+                    guard. Reopen flips it back to draft. Hidden for months
+                    before the finality cutover -- the guard grandfathers
+                    them, so a Finalize badge there would be a lie. */}
+                {selectedMonth < FINALITY_FROM_MONTH ? null : period.status === 'final' ? (
                   <button
                     disabled={finalizing}
                     onClick={async () => {

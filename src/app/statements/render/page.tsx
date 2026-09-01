@@ -263,7 +263,6 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // grandfathered. A failing sheet still renders (the operator needs to see
   // it) but carries an unmissable banner that also lands in any PDF.
   const integrity = statementSumsToPayout(prop);
-  const integrityBroken = month >= FINALITY_FROM_MONTH && !integrity.ok;
 
   // Pull the statement period so we can surface the operator-chosen
   // funds_sent_date as the Issued/Payout line, instead of a hard-coded
@@ -271,9 +270,14 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // the dashboard is scheduling against.
   const { data: period } = await supabase
     .from('statement_periods')
-    .select('funds_sent_date')
+    .select('funds_sent_date, month')
     .eq('id', prop.period_id)
     .single();
+
+  // Banner cutoff keys to the statement's real period month; the ?month=
+  // URL param is display-only and must not be able to suppress the check.
+  const periodMonth = (period?.month as string | undefined) || month;
+  const integrityBroken = periodMonth >= FINALITY_FROM_MONTH && !integrity.ok;
 
   const { data: reservations } = await supabase.from('reservations').select('*').eq('property_statement_id', id).order('check_out');
 

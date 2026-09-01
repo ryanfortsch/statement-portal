@@ -371,20 +371,10 @@ export async function POST(request: NextRequest) {
             month,
           }, { status: 409 });
         }
-        for (const t of sent) {
-          const member = coveredForGate.find(c => c.property_id === t.property_id);
-          if (member?.statement_id) {
-            await sbForStmt.from('data_gaps').insert({
-              property_statement_id: member.statement_id,
-              gap_type: 'post_send_write',
-              severity: 'warning',
-              description: `Owner email redrafted after the statement was marked sent ${String(t.email_sent_at).slice(0, 10)}. The sent stamp was cleared; numbers are revisable until the new draft is sent.`,
-              expected_data: `forced ${new Date().toISOString()}`,
-              resolved: false,
-            });
-          }
-          clearedSentIds.push(t.property_id);
-        }
+        // Record the property ids now; the audit gaps are written AFTER
+        // the Gmail draft actually exists (a gap asserting "the sent stamp
+        // was cleared" must not outlive a draft attempt that 502s).
+        for (const t of sent) clearedSentIds.push(t.property_id);
       }
     }
 
@@ -502,6 +492,23 @@ export async function POST(request: NextRequest) {
     // a mailbox URL by draft ID works in the browser: opens the drafts folder
     // and focuses the one we just made.
     const draftUrl = `https://mail.google.com/mail/u/0/#drafts/${draft.id}`;
+
+    // The draft exists; now make the forced sent-clear a matter of record.
+    // An insert failure cannot undo the redraft, so it lands in `warnings`
+    // where the operator sees it instead of vanishing into a log.
+    for (const pid of clearedSentIds) {
+      const member = members.find(m => m.property_id === pid);
+      if (!member?.statement_id) continue;
+      const { error: gapErr } = await sbForStmt.from('data_gaps').insert({
+        property_statement_id: member.statement_id,
+        gap_type: 'post_send_write',
+        severity: 'warning',
+        description: `Owner email redrafted after the statement was marked sent. The sent stamp was cleared; numbers are revisable until the new draft is sent.`,
+        expected_data: `forced ${new Date().toISOString()}`,
+        resolved: false,
+      });
+      if (gapErr) warnings.push(`Audit flag for the ${member.name} sent-stamp clear could not be written (${gapErr.message}); note it manually.`);
+    }
 
     // Stamp close_tasks for EVERY property covered by this draft (a
     // combined owner email drafts all of them at once). Failure here

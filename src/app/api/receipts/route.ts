@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { PROPERTIES } from '@/lib/properties';
-import { assertStatementWritable, StatementFrozenError } from '@/lib/statement-finality';
+import { assertStatementWritable, getFreezeStatus, StatementFrozenError } from '@/lib/statement-finality';
 
 /**
  * Receipt-backed property expenses.
@@ -124,7 +124,7 @@ function recomputePayout(stmt: StatementRow, newRepairsTotal: number): number {
 }
 
 type Warning = {
-  kind: 'possible_double_deduction' | 'statement_already_sent';
+  kind: 'possible_double_deduction' | 'statement_already_sent' | 'statement_frozen';
   message: string;
   owner_payout_before?: number;
   owner_payout_after?: number;
@@ -255,27 +255,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Guards run BEFORE any write. The operator confirms past them from the
     // review step; a guard never hard-blocks.
+    // Freeze status FIRST, so a frozen statement is always in the first
+    // needs_confirm list the operator sees -- their confirm is then
+    // informed consent and legitimately doubles as the force. Without
+    // this ordering, a period_final freeze plus an unrelated warning let
+    // acknowledge_warnings force past a freeze the operator never saw.
+    const freeze = await getFreezeStatus(supabase, { propertyId, month });
+
     if (!acknowledgeWarnings) {
       const warnings = await collectWarnings(supabase, propertyId, month, amount, stmt, periodId);
+      if (freeze.frozen && !warnings.some(w => w.kind === 'statement_already_sent')) {
+        warnings.push({
+          kind: 'statement_frozen',
+          message: freeze.reason === 'period_final'
+            ? `${month} is finalized. Adding this receipt changes a frozen payout; the override is recorded on the statement.`
+            : `This statement was marked sent${freeze.emailSentAt ? ` on ${freeze.emailSentAt.slice(0, 10)}` : ''}. Adding this receipt changes a payout the owner has in writing; the override is recorded on the statement.`,
+        });
+      }
       if (warnings.length > 0) {
         return NextResponse.json({ ok: false, needs_confirm: true, warnings });
       }
     }
 
-    // Sent-statement freeze. The existing review-step confirm doubles as the
-    // force (the operator has seen the sent warning); the override is still
-    // recorded on the statement as a post_send_write gap.
-    try {
-      await assertStatementWritable(supabase, { propertyId, month }, {
-        force: acknowledgeWarnings || force,
-        action: 'Add receipt to statement',
-        detail: `$${amount.toFixed(2)}${vendorName ? ` · ${vendorName}` : ''}`,
-      });
-    } catch (e) {
-      if (e instanceof StatementFrozenError) {
-        return NextResponse.json({ ok: false, needs_confirm: true, warnings: [e.message] });
+    // The confirm above showed the frozen warning, so acknowledged (or an
+    // explicit force) is informed consent; this records the audit gap.
+    if (freeze.frozen) {
+      try {
+        await assertStatementWritable(supabase, { propertyId, month }, {
+          force: acknowledgeWarnings || force,
+          action: 'Add receipt to statement',
+          detail: `$${amount.toFixed(2)}${vendorName ? ` · ${vendorName}` : ''}`,
+        });
+      } catch (e) {
+        if (e instanceof StatementFrozenError) {
+          return NextResponse.json({ ok: false, needs_confirm: true, warnings: [{ kind: 'statement_frozen', message: e.message }] });
+        }
+        throw e;
       }
-      throw e;
     }
 
     // Optional file upload to the PRIVATE bucket. Upload failure degrades to
