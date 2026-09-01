@@ -46,6 +46,8 @@ const INVOICE_PROPERTY_MAP: Record<string, string> = {
   '20 enon': '20_enon',
   '17 beach': '17_beach_rd',
   '17 beach rd': '17_beach_rd',
+  '3 windward': '3_windward',
+  '225 washington': '225_washington',
 };
 
 function matchProperty(text: string): string | null {

@@ -61,6 +61,11 @@ const INVOICE_PROPERTY_MAP: Record<string, string> = {
   '84 thatcher road': '84_thatcher',
   '3 locust': '3_locust',
   '3 locust ln': '3_locust',
+  '3 windward': '3_windward',
+  '3 windward pt': '3_windward',
+  '3 windward point': '3_windward',
+  '225 washington': '225_washington',
+  '225 washington st': '225_washington',
 };
 
 function matchProperty(text: string): string | null {
