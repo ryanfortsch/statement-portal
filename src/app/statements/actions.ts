@@ -3,6 +3,8 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { PROPERTIES } from '@/lib/properties';
 import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
+import { loadStatementWorkNotes } from '@/lib/statement-work-notes';
+import type { PropertyWorkNotes } from '@/lib/email-templates';
 
 export type OwnerConfigRow = {
   name: string;
@@ -208,6 +210,19 @@ export async function saveFundsSentDateAction(periodId: string, iso: string): Pr
 /** Upsert one property's close-task row (merged client-side, same as before). */
 export async function upsertCloseTask(merged: Row): Promise<void> {
   await supabaseAdmin.from('close_tasks').upsert(merged, { onConflict: 'period_id,property_id' });
+}
+
+/**
+ * The polished work-notes groups for one property-month, for the email
+ * preview modal. Same loader /api/draft-email uses, so what the preview
+ * shows is what the Gmail draft says.
+ */
+export async function loadStatementWorkNotesAction(
+  propertyId: string,
+  propertyName: string,
+  month: string,
+): Promise<PropertyWorkNotes> {
+  return loadStatementWorkNotes({ propertyId, propertyName, month });
 }
 
 export type GuestyFinanceRow = {

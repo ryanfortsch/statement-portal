@@ -6,11 +6,11 @@ import {
   loadOwnerConfig, loadTaxCerts, loadRemittanceSheet, loadOwnerActionCounts as loadOwnerActionCountsAction,
   loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap,
   loadCloseState as loadCloseStateAction, saveFundsSentDateAction, upsertCloseTask,
-  loadGuestyRowsByCodes,
+  loadGuestyRowsByCodes, loadStatementWorkNotesAction,
 } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import type { RemittanceSheet } from '@/lib/remittance';
-import { renderEmail, fmtFundsSentDate, type EmailTemplate } from '@/lib/email-templates';
+import { renderEmail, fmtFundsSentDate, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { Suspense } from 'react';
 import Link from 'next/link';
@@ -125,6 +125,8 @@ type CloseTask = {
   period_id: string;
   property_id: string;
   email_template: 'monthly' | 'touch_base' | 'year_end';
+  // Fold the month's work slips into the email as a polished section.
+  email_include_work_slips: boolean;
   email_drafted_at: string | null;
   email_sent_at: string | null;
   owner_transfer_done_at: string | null;
@@ -2059,6 +2061,25 @@ function DashboardContent() {
   const [fundsSentDate, setFundsSentDate] = useState<string>('');
   const [closeTasks, setCloseTasks] = useState<Record<string, CloseTask>>({});
   const [previewPropertyId, setPreviewPropertyId] = useState<string | null>(null);
+  // Work-notes groups for the email preview, keyed "propertyId:month".
+  // Fetched lazily when the preview opens with the toggle on, via the same
+  // loader /api/draft-email uses, so the preview body matches the draft.
+  const [previewWorkNotes, setPreviewWorkNotes] = useState<Record<string, PropertyWorkNotes>>({});
+  const [previewNotesLoading, setPreviewNotesLoading] = useState(false);
+  useEffect(() => {
+    if (!previewPropertyId || !selectedMonth) return;
+    if (!closeTasks[previewPropertyId]?.email_include_work_slips) return;
+    const key = `${previewPropertyId}:${selectedMonth}`;
+    if (previewWorkNotes[key]) return;
+    const cfg = resolveCfg(previewPropertyId);
+    let cancelled = false;
+    setPreviewNotesLoading(true);
+    loadStatementWorkNotesAction(previewPropertyId, cfg?.name || previewPropertyId, selectedMonth)
+      .then(notes => { if (!cancelled) setPreviewWorkNotes(prev => ({ ...prev, [key]: notes })); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setPreviewNotesLoading(false); });
+    return () => { cancelled = true; };
+  }, [previewPropertyId, selectedMonth, closeTasks, previewWorkNotes, resolveCfg]);
   const [draftingProperty, setDraftingProperty] = useState<string | null>(null);
   const [draftResult, setDraftResult] = useState<
     | { url: string; property: string; attachedPdf: boolean; warnings: string[] }
@@ -2212,6 +2233,7 @@ function DashboardContent() {
     setDraftResult(null);
     try {
       const tmpl = closeTasks[propertyId]?.email_template || 'monthly';
+      const includeWorkSlips = closeTasks[propertyId]?.email_include_work_slips || false;
       const res = await fetch('/api/draft-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2219,6 +2241,7 @@ function DashboardContent() {
           property_id: propertyId,
           month: selectedMonth,
           template: tmpl,
+          include_work_slips: includeWorkSlips,
           funds_sent_date: fundsSentDate,
           period_id: period.id,
         }),
@@ -2243,6 +2266,7 @@ function DashboardContent() {
               period_id: period.id,
               property_id: propertyId,
               email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
+              email_include_work_slips: existing?.email_include_work_slips || false,
               email_drafted_at: new Date().toISOString(),
               email_sent_at: existing?.email_sent_at || null,
               owner_transfer_done_at: existing?.owner_transfer_done_at || null,
@@ -2268,6 +2292,7 @@ function DashboardContent() {
       period_id: period.id,
       property_id: propertyId,
       email_template: existing?.email_template || 'monthly',
+      email_include_work_slips: existing?.email_include_work_slips || false,
       email_drafted_at: existing?.email_drafted_at || null,
       email_sent_at: existing?.email_sent_at || null,
       owner_transfer_done_at: existing?.owner_transfer_done_at || null,
@@ -2590,6 +2615,7 @@ function DashboardContent() {
             property_id: p.property_id,
             month: selectedMonth,
             template: tmpl,
+            include_work_slips: closeTasks[p.property_id]?.email_include_work_slips || false,
             funds_sent_date: fundsSentDate,
             period_id: period.id,
             // Lets the route no-op a sibling already covered by a combined
@@ -2616,6 +2642,7 @@ function DashboardContent() {
                 period_id: period.id,
                 property_id: pid,
                 email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
+                email_include_work_slips: existing?.email_include_work_slips || false,
                 email_drafted_at: new Date().toISOString(),
                 email_sent_at: existing?.email_sent_at || null,
                 owner_transfer_done_at: existing?.owner_transfer_done_at || null,
@@ -3271,7 +3298,7 @@ function DashboardContent() {
                 return (
                   <div key={p.id} className="rt-closeout-row" style={{
                     display: 'grid',
-                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto auto',
+                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto auto auto',
                     gap: 16,
                     alignItems: 'center',
                     padding: '10px 0',
@@ -3314,6 +3341,14 @@ function DashboardContent() {
                       <option value="touch_base">Touch-base</option>
                       <option value="year_end">Year-end</option>
                     </select>
+                    {/* Opt-in: fold the month's work slips into the email
+                        as a polished section. Persists like the template
+                        picker, so Draft All honors it too. */}
+                    <CheckTask
+                      label="Work notes"
+                      done={!!task?.email_include_work_slips}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_include_work_slips: next })}
+                    />
                     <button
                       onClick={() => setPreviewPropertyId(p.property_id)}
                       style={{
@@ -3386,6 +3421,9 @@ function DashboardContent() {
         if (!prop || !cfg) return null;
         const task = closeTasks[previewPropertyId];
         const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
+        const includeNotes = !!task?.email_include_work_slips;
+        const notes = includeNotes ? previewWorkNotes[`${previewPropertyId}:${selectedMonth}`] : undefined;
+        const notesEmpty = !!notes && !workNotesHaveContent(notes);
         const { subject, body } = renderEmail({
           greeting: cfg.owner_greeting,
           monthName: monthLabel(selectedMonth),
@@ -3393,6 +3431,7 @@ function DashboardContent() {
           fundsSentIso: fundsSentDate,
           ownerPayout: prop.owner_payout,
           template: tmpl,
+          workNotes: notes && !notesEmpty ? [notes] : undefined,
         });
         return (
           <PreviewModal onClose={() => setPreviewPropertyId(null)}>
@@ -3404,6 +3443,26 @@ function DashboardContent() {
               Cc: {ALWAYS_CC.join(', ')}
             </div>
             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>From: {SEND_FROM.name} &lt;{SEND_FROM.email}&gt;</div>
+
+            {/* Work-notes toggle, mirrored with the close-out row. The body
+                below re-renders live as the section loads in. */}
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <CheckTask
+                label="Include work notes"
+                done={includeNotes}
+                onToggle={(next) => saveCloseTaskField(previewPropertyId, { email_include_work_slips: next })}
+              />
+              {includeNotes && !notes && previewNotesLoading && (
+                <span style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                  Loading work slips&hellip;
+                </span>
+              )}
+              {includeNotes && notesEmpty && (
+                <span style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                  No work slips to report this month; section left out
+                </span>
+              )}
+            </div>
 
             <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--ink)' }}>
               <div className="eyebrow" style={{ marginBottom: 6 }}>Subject</div>

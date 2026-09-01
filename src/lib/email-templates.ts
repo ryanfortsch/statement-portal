@@ -12,6 +12,27 @@ export type RenderedEmail = {
   body: string;
 };
 
+/**
+ * The opt-in "work notes" section: the month's work slips rewritten as
+ * owner-friendly lines, grouped by where they stand. Lines arrive already
+ * polished from lib/statement-work-notes.ts (server); this module only
+ * lays them out, so the client preview and the Gmail draft compose the
+ * exact same paragraphs from the same data.
+ */
+export type PropertyWorkNotes = {
+  propertyName: string;
+  /** Finished during the statement month. */
+  completed: string[];
+  /** In progress or on the calendar right now. */
+  inProgress: string[];
+  /** Waiting on the owner (approval, a decision, a date). */
+  awaitingOwner: string[];
+};
+
+export function workNotesHaveContent(n: PropertyWorkNotes): boolean {
+  return n.completed.length + n.inProgress.length + n.awaitingOwner.length > 0;
+}
+
 export type RenderArgs = {
   greeting: string;        // "Claudia and Vicente"
   monthName: string;       // "April 2026"
@@ -28,6 +49,11 @@ export type RenderArgs = {
    * one-property render, byte-identical to before this field existed.
    */
   properties?: { name: string; payout?: number }[];
+  /**
+   * Opt-in work-notes section, one entry per property covered by the
+   * email. Absent or all-empty -> no section, body identical to before.
+   */
+  workNotes?: PropertyWorkNotes[];
 };
 
 /** "2026-05-04" -> "Monday 5/4" */
@@ -45,6 +71,56 @@ export function fmtFundsSentDate(iso: string): string {
  *  reads cleaner as "Your June payout is $14,164." than "...$14,164.19". */
 function fmtMoneyRound(n: number): string {
   return '$' + Math.round(n).toLocaleString('en-US');
+}
+
+/** One group: the intro line with its bullets right under it, single-
+ *  newline separated so the plain text stays tight. The draft route's
+ *  HTML pass detects the "• " run and upgrades it to a real list. */
+function group(intro: string, lines: string[]): string {
+  return `${intro}\n${lines.map(l => `• ${l}`).join('\n')}`;
+}
+
+/**
+ * Lay out the work-notes section as email paragraphs. Empty input -> ''.
+ * The framing sentences do the "polish": the section reads as an update
+ * from the manager, not a pasted task list. Groups render only when they
+ * have items, and the first group present carries the "around the house"
+ * lead so the section always opens like prose.
+ */
+export function buildWorkNotesBlock(workNotes: PropertyWorkNotes[], shortMonth: string): string {
+  const withContent = workNotes.filter(workNotesHaveContent);
+  if (withContent.length === 0) return '';
+
+  if (withContent.length === 1) {
+    const n = withContent[0];
+    const paras: string[] = [];
+    if (n.completed.length > 0) {
+      paras.push(group(`Around the house, here's what our team took care of in ${shortMonth}:`, n.completed));
+    }
+    if (n.inProgress.length > 0) {
+      const intro = paras.length > 0
+        ? 'Still in motion:'
+        : `Around the house, here's what's in motion right now:`;
+      paras.push(group(intro, n.inProgress));
+    }
+    if (n.awaitingOwner.length > 0) {
+      const one = n.awaitingOwner.length === 1;
+      const intro = paras.length > 0
+        ? (one ? 'And one thing needs your input:' : 'And a few things need your input:')
+        : (one ? 'One thing at the house needs your input:' : 'A few things at the house need your input:');
+      paras.push(group(intro, n.awaitingOwner));
+    }
+    return paras.join('\n\n');
+  }
+
+  // Grouped owner email: label every group with its house.
+  const paras: string[] = ['A few notes from the houses this month:'];
+  for (const n of withContent) {
+    if (n.completed.length > 0) paras.push(group(`At ${n.propertyName}, taken care of in ${shortMonth}:`, n.completed));
+    if (n.inProgress.length > 0) paras.push(group(`At ${n.propertyName}, still in motion:`, n.inProgress));
+    if (n.awaitingOwner.length > 0) paras.push(group(`At ${n.propertyName}, waiting on your input:`, n.awaitingOwner));
+  }
+  return paras.join('\n\n');
 }
 
 export function renderEmail(args: RenderArgs): RenderedEmail {
@@ -89,24 +165,29 @@ export function renderEmail(args: RenderArgs): RenderedEmail {
     statementLine = `Please see the attached ${shortMonth} statements, one per property. The funds will be sent to your bank accounts on ${fundsSent}. If you have any questions, please let us know.`;
   }
 
+  // Opt-in work-notes section, slotted between the statement paragraph and
+  // the closing so the payout stays the headline. '' when off or empty.
+  const notesBlock = args.workNotes ? buildWorkNotesBlock(args.workNotes, shortMonth) : '';
+  const notesPart = notesBlock ? `${notesBlock}\n\n` : '';
+
   if (template === 'touch_base') {
     const touchBase = `I was hoping to touch base next week in regard to your guests and your thoughts on the next few months. If there's a time that works, just let me know.`;
     return {
       subject,
-      body: `${greetingLine}\n\n${payoutLine}${statementLine}\n\n${touchBase}\n\nThanks so much,\nAllie & Ryan`,
+      body: `${greetingLine}\n\n${payoutLine}${statementLine}\n\n${notesPart}${touchBase}\n\nThanks so much,\nAllie & Ryan`,
     };
   }
 
   if (template === 'year_end') {
     return {
       subject,
-      body: `${greetingLine}\n\n[Year-end recap template — YTD payout, review count + average, channel mix, and 2026 projection go here. Ryan/Allie fills the narrative each December.]\n\nWe've also attached your ${shortMonth} statement. Funds will be sent on ${fundsSent}.\n\nHappy New Year!\nAllie & Ryan`,
+      body: `${greetingLine}\n\n[Year-end recap template — YTD payout, review count + average, channel mix, and 2026 projection go here. Ryan/Allie fills the narrative each December.]\n\nWe've also attached your ${shortMonth} statement. Funds will be sent on ${fundsSent}.\n\n${notesPart}Happy New Year!\nAllie & Ryan`,
     };
   }
 
   // Default: monthly
   return {
     subject,
-    body: `${greetingLine}\n\n${payoutLine}${statementLine}\n\nThanks!\nAllie & Ryan`,
+    body: `${greetingLine}\n\n${payoutLine}${statementLine}\n\n${notesPart}Thanks!\nAllie & Ryan`,
   };
 }

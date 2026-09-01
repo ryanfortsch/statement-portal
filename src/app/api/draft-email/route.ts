@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ALWAYS_CC, SEND_FROM, getActivePropertyForStatements } from '@/lib/properties';
-import { renderEmail, type EmailTemplate } from '@/lib/email-templates';
+import { renderEmail, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
+import { loadStatementWorkNotes } from '@/lib/statement-work-notes';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 
 // Puppeteer + Chromium cold start can take 3-5s; give the handler plenty of
@@ -117,7 +118,34 @@ function plainToHtml(body: string): string {
   const paragraphs = body.split(/\n\n+/).map(p => p.replace(/^\n+|\n+$/g, ''));
   const htmlParas = paragraphs
     .filter(p => p.length > 0)
-    .map(p => `<p style="margin:0 0 1em 0;">${boldMoney(escape(p).replace(/\n/g, '<br>'))}</p>`);
+    .map(p => {
+      // "• " lines inside a paragraph (the work-notes groups: an intro
+      // line with its bullets right under it) become a real list in the
+      // HTML part, so the section reads as typeset rather than pasted.
+      // The plain-text alternative keeps the literal bullets.
+      const lines = p.split('\n');
+      if (!lines.some(l => l.startsWith('• '))) {
+        return `<p style="margin:0 0 1em 0;">${boldMoney(escape(p).replace(/\n/g, '<br>'))}</p>`;
+      }
+      const runs: { bullet: boolean; lines: string[] }[] = [];
+      for (const line of lines) {
+        const bullet = line.startsWith('• ');
+        const prev = runs[runs.length - 1];
+        if (prev && prev.bullet === bullet) prev.lines.push(line);
+        else runs.push({ bullet, lines: [line] });
+      }
+      return runs.map((run, i) => {
+        // Tight spacing inside the group, full paragraph gap after it.
+        const gap = i === runs.length - 1 ? '1em' : '.35em';
+        if (run.bullet) {
+          const items = run.lines
+            .map(l => `<li style="margin:0 0 4px 0;">${boldMoney(escape(l.slice(2)))}</li>`)
+            .join('');
+          return `<ul style="margin:0 0 ${gap} 0;padding-left:22px;">${items}</ul>`;
+        }
+        return `<p style="margin:0 0 ${gap} 0;">${boldMoney(escape(run.lines.join('\n')).replace(/\n/g, '<br>'))}</p>`;
+      }).join('');
+    });
   return `<!DOCTYPE html><html><body>${htmlParas.join('')}</body></html>`;
 }
 
@@ -209,6 +237,10 @@ export async function POST(request: NextRequest) {
     // instead of drafting the same owner twice. Manual per-property
     // drafting (no flag) always creates a fresh draft.
     const bulk: boolean = body.bulk === true;
+    // Opt-in work-notes section. The dashboard always passes the flag
+    // (from close_tasks.email_include_work_slips); a caller that omits it
+    // falls back to the stored preference so the toggle is authoritative.
+    let includeWorkSlips: boolean = body.include_work_slips === true;
 
     if (!propertyId || !month) {
       return NextResponse.json({ error: 'property_id and month are required' }, { status: 400 });
@@ -224,6 +256,16 @@ export async function POST(request: NextRequest) {
     }
 
     const sbForStmt = getSupabase();
+
+    if (body.include_work_slips === undefined && periodId) {
+      const { data: storedTask } = await sbForStmt
+        .from('close_tasks')
+        .select('email_include_work_slips')
+        .eq('period_id', periodId)
+        .eq('property_id', propertyId)
+        .maybeSingle();
+      includeWorkSlips = storedTask?.email_include_work_slips === true;
+    }
 
     if (bulk && periodId) {
       const { data: existingTask } = await sbForStmt
@@ -307,6 +349,20 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Work notes ride the same grouping as the PDFs: one entry per covered
+    // property, houses with nothing to report dropped. All-empty -> no
+    // section, body identical to the flag being off.
+    let workNotes: PropertyWorkNotes[] | undefined;
+    if (includeWorkSlips) {
+      const covered = members.length > 0
+        ? members.map(m => ({ property_id: m.property_id, name: m.name }))
+        : [{ property_id: propertyId, name: prop.name }];
+      const loaded = await Promise.all(covered.map(c =>
+        loadStatementWorkNotes({ propertyId: c.property_id, propertyName: c.name, month })));
+      const withContent = loaded.filter(workNotesHaveContent);
+      if (withContent.length > 0) workNotes = withContent;
+    }
+
     const { subject, body: emailBody } = renderEmail({
       greeting: prop.owner_greeting,
       monthName: monthLabel(month),
@@ -315,6 +371,7 @@ export async function POST(request: NextRequest) {
       ownerPayout: stmtRow ? stmtRow.owner_payout || undefined : undefined,
       template,
       properties: grouped ? members.map(m => ({ name: m.name, payout: m.owner_payout || undefined })) : undefined,
+      workNotes,
     });
 
     // Render each statement PDF via headless Chromium so the draft lands in
@@ -400,6 +457,7 @@ export async function POST(request: NextRequest) {
             period_id: periodId,
             property_id: pid,
             email_template: template,
+            email_include_work_slips: includeWorkSlips,
             email_drafted_at: nowIso,
             // A deliberate redraft supersedes any scheduled send: clear the
             // sent stamp so the statement is revisable again (and the
@@ -427,6 +485,7 @@ export async function POST(request: NextRequest) {
       recipients,
       attached_pdf: pdfAttachments.length > 0,
       attached_pdf_count: pdfAttachments.length,
+      work_notes_included: !!workNotes,
       covered_property_ids: coveredIds,
       warnings,
     });
