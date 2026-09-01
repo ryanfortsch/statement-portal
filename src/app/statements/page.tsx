@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
 import {
   loadOwnerConfig, loadTaxCerts, loadRemittanceSheet, loadOwnerActionCounts as loadOwnerActionCountsAction,
-  loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap,
+  loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap, loadMonthDataStatus,
   loadCloseState as loadCloseStateAction, saveFundsSentDateAction, upsertCloseTask,
   loadGuestyRowsByCodes, loadStatementWorkNotesAction,
+  type SyncHealthRow, type MonthDataStatus,
 } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import type { RemittanceSheet } from '@/lib/remittance';
@@ -486,6 +486,46 @@ function relativeTime(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
   return `${days}d ago`;
+}
+
+/**
+ * The sync_status sources that feed statement inputs. A failure on any of
+ * these means the numbers on this page may be stale even though every
+ * freshness chip looks recent -- last_synced_at alone once hid a six-day
+ * reservations-feed freeze.
+ */
+const STATEMENT_SYNC_SOURCES = [
+  'guesty-reservations', 'guesty-listings', 'guesty-reviews',
+  'guesty-cancel-reconcile', 'gmail-invoices', 'stripe',
+] as const;
+
+/**
+ * Health-aware meta line for a sync source: "failing · 2h ago" in alert
+ * red when the last attempt errored, the familiar "last 2h ago" otherwise.
+ */
+function syncMeta(row?: SyncHealthRow): { text: string; alert: boolean; detail?: string } {
+  if (!row || (!row.last_synced_at && !row.last_status)) return { text: 'never', alert: false };
+  if (row.last_status === 'error') {
+    const when = row.last_attempted_at || row.last_synced_at;
+    return {
+      text: `failing${when ? ' · ' + relativeTime(when) : ''}`,
+      alert: true,
+      detail: row.last_error || undefined,
+    };
+  }
+  return { text: row.last_synced_at ? `last ${relativeTime(row.last_synced_at)}` : 'never', alert: false };
+}
+
+/** Worst health across several sources (for the grouped "Sync Bookings" row). */
+function worstSyncMeta(rows: Array<SyncHealthRow | undefined>): { text: string; alert: boolean; detail?: string } {
+  const failing = rows.filter((r): r is SyncHealthRow => !!r && r.last_status === 'error');
+  if (failing.length > 0) return syncMeta(failing[0]);
+  const freshest = rows
+    .map(r => r?.last_synced_at)
+    .filter((t): t is string => !!t)
+    .sort()
+    .reverse()[0];
+  return freshest ? { text: `last ${relativeTime(freshest)}`, alert: false } : { text: 'never', alert: false };
 }
 
 /* ─── Icons (inline SVGs) ─── */
@@ -1140,13 +1180,14 @@ function ReviewSegment({ count, label, sub, onOpen }: {
 }
 
 function EditorialButton({
-  onClick, disabled, busy, label, meta, icon,
+  onClick, disabled, busy, label, meta, metaAlert, icon,
 }: {
   onClick?: () => void;
   disabled?: boolean;
   busy?: boolean;
   label: string;
   meta?: string;
+  metaAlert?: boolean;
   icon?: React.ReactNode;
 }) {
   return (
@@ -1177,7 +1218,7 @@ function EditorialButton({
       ) : icon}
       {label}
       {meta && (
-        <span style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>
+        <span style={{ color: metaAlert ? 'var(--negative)' : 'var(--ink-4)', fontWeight: metaAlert ? 600 : 400, letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>
           &middot; {meta}
         </span>
       )}
@@ -1187,16 +1228,19 @@ function EditorialButton({
 
 /* ─── Sync menu item (used inside the Sync ▾ dropdown) ─── */
 function SyncMenuItem({
-  label, meta, primary, onClick,
+  label, meta, metaAlert, metaDetail, primary, onClick,
 }: {
   label: string;
   meta?: string;
+  metaAlert?: boolean;
+  metaDetail?: string;
   primary?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
+      title={metaDetail}
       style={{
         display: 'block', width: '100%',
         textAlign: 'left',
@@ -1216,13 +1260,21 @@ function SyncMenuItem({
         <span>{label}</span>
         {meta && (
           <span style={{
-            color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0,
+            color: metaAlert ? 'var(--negative)' : 'var(--ink-4)', fontWeight: metaAlert ? 600 : 400, letterSpacing: 0,
             textTransform: 'none', fontSize: 10,
           }}>
             {meta}
           </span>
         )}
       </div>
+      {metaAlert && metaDetail && (
+        <div style={{
+          color: 'var(--negative)', fontWeight: 400, letterSpacing: 0, textTransform: 'none',
+          fontSize: 10, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 250,
+        }}>
+          {metaDetail}
+        </div>
+      )}
     </button>
   );
 }
@@ -1947,7 +1999,6 @@ function PropertyCard({
 
 /* ─── Main Dashboard ─── */
 function DashboardContent() {
-  const searchParams = useSearchParams();
   const [period, setPeriod] = useState<StatementPeriod | null>(null);
   const [periods, setPeriods] = useState<{ month: string; status: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1990,16 +2041,12 @@ function DashboardContent() {
     }
     return null;
   }, [ownerCfg]);
-  // Auth is now handled by Google SSO via middleware. By the time this
-  // component renders, the user is signed in. Default authenticated=true
-  // so the legacy access-code login screen (further down) never shows;
-  // setAuthenticated still exists as a no-op for the legacy code paths.
-  // Cleanup pass to remove the dead login JSX can come in a follow-up.
-  const [authenticated, setAuthenticated] = useState(true);
-  const [inputCode, setInputCode] = useState('');
-  const [authError, setAuthError] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ total: number; matched: number; inserted: number; skipped: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<
+    | { total: number; matched: number; inserted: number; skipped: number }
+    | string
+    | null
+  >(null);
   const [syncingGuesty, setSyncingGuesty] = useState(false);
   const [guestySyncResult, setGuestySyncResult] = useState<
     | {
@@ -2010,7 +2057,7 @@ function DashboardContent() {
     | string
     | null
   >(null);
-  const [lastSync, setLastSync] = useState<Record<string, string>>({});
+  const [lastSync, setLastSync] = useState<Record<string, SyncHealthRow>>({});
   const [syncingStripe, setSyncingStripe] = useState(false);
   // Incremented on every period (re)load; threads into BankDepositReview
   // so the pending queue refetches after syncs land new rows.
@@ -2020,14 +2067,22 @@ function DashboardContent() {
   // (source='vendor-refund') all live in bank_deposit_attributions, so one
   // property_id-only query covers the whole queue. The per-card
   // BankDepositReview still owns the row-level fetch.
-  const [depositReviewCounts, setDepositReviewCounts] = useState<Record<string, number>>({});
+  const [depositReviewCounts, setDepositReviewCounts] = useState<{ known: boolean; counts: Record<string, number> }>({ known: true, counts: {} });
+  // Live on-file status for the month's two must-do uploads (Platform CSV,
+  // Booking.com 5623 activity). Feeds the close-review strip and the two
+  // upload cards, so "Month is clear" can't assert itself over a missing file.
+  const [monthStatus, setMonthStatus] = useState<MonthDataStatus | null>(null);
   useEffect(() => {
     if (!selectedMonth) return;
     let cancelled = false;
     (async () => {
-      const counts = await loadDepositReviewCounts(selectedMonth);
+      const [review, status] = await Promise.all([
+        loadDepositReviewCounts(selectedMonth),
+        loadMonthDataStatus(selectedMonth).catch(() => null),
+      ]);
       if (cancelled) return;
-      setDepositReviewCounts(counts);
+      setDepositReviewCounts(review);
+      setMonthStatus(status);
     })();
     return () => { cancelled = true; };
   }, [selectedMonth, reviewRefresh]);
@@ -2144,22 +2199,6 @@ function DashboardContent() {
     | null
   >(null);
 
-  const expectedToken = process.env.NEXT_PUBLIC_PORTAL_TOKEN;
-  const urlToken = searchParams.get('key');
-
-  useEffect(() => {
-    const cookie = document.cookie.split('; ').find(c => c.startsWith('rt_auth='));
-    if (cookie && cookie.split('=')[1] === '1') {
-      setAuthenticated(true);
-      return;
-    }
-    if (urlToken && urlToken === expectedToken) {
-      setAuthenticated(true);
-      document.cookie = 'rt_auth=1; path=/; max-age=86400; SameSite=Lax';
-    }
-    if (!expectedToken) setAuthenticated(true);
-  }, [urlToken, expectedToken]);
-
   // Pulls every active work slip flagged owner_action_required, attaches
   // the Helm property name via the foreign-key join, and rolls up to a
   // {legacy_property_id: count} map. The map is keyed by the legacy
@@ -2186,6 +2225,12 @@ function DashboardContent() {
     // Bump the review-queue token so each BankDepositReview refetches --
     // a Sync Stripe / ingest run may have queued new one-off charges.
     setReviewRefresh(n => n + 1);
+    // Drop month-scoped caches so the Remittance / Booking.com / Reconcile
+    // modals never show a previous month's (or a pre-refresh) sheet. They
+    // lazy-reload on next open.
+    setRemittanceSheet(null);
+    setBookingRoutingRows(null);
+    setReconcileResult(null);
     try {
       // Period row + statements + per-property enrichment (reservations,
       // cleaning, repairs, gaps, drift probe) all happen server-side now --
@@ -2348,7 +2393,6 @@ function DashboardContent() {
   }
 
   useEffect(() => {
-    if (!authenticated) { setLoading(false); return; }
     (async () => {
       setLoading(true);
       try {
@@ -2366,7 +2410,8 @@ function DashboardContent() {
         setLoading(false);
       }
     })();
-  }, [authenticated, loadLastSync, loadOwnerCfg]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadLastSync, loadOwnerCfg]);
 
   async function syncInvoices() {
     if (!selectedMonth) return;
@@ -2384,10 +2429,12 @@ function DashboardContent() {
         await loadPeriod(selectedMonth);
         await loadLastSync();
       } else {
-        setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
+        // A dead Gmail token during close must never read as "no invoices
+        // this month" -- surface the failure loudly.
+        setSyncResult(data.error || 'Invoice sync failed (Gmail token?)');
       }
-    } catch {
-      setSyncResult({ total: 0, matched: 0, inserted: 0, skipped: 0 });
+    } catch (err) {
+      setSyncResult(err instanceof Error ? err.message : 'Invoice sync failed');
     } finally {
       setSyncing(false);
     }
@@ -2528,8 +2575,9 @@ function DashboardContent() {
    * Run all three syncs sequentially (Invoices, Bookings, Stripe). The
    * individual sync functions own their own toast results; this just
    * orchestrates them in order so the operator can hit one button at
-   * the start of a close instead of three. Stops on first hard failure
-   * since later syncs may depend on earlier data being fresh.
+   * the start of a close instead of three. Each leg surfaces its own
+   * failure toast; the chain runs to completion because the three legs
+   * are independent (Gmail, Guesty, Stripe).
    */
   async function syncAll() {
     setSyncingAll(true);
@@ -2596,6 +2644,22 @@ function DashboardContent() {
     );
     if (candidates.length === 0) {
       setBulkDraftResult('All eligible statements are already drafted.');
+      return;
+    }
+    // Pre-flight: numbers that are still moving should not get drafted into
+    // owner emails without the operator saying so. Count the live problems
+    // and make skipping them an explicit choice, not a default.
+    const openGaps = props.reduce((s, p) => s + (p.data_gaps?.filter(g => !g.resolved).length || 0), 0);
+    const pendingBankRows = Object.values(depositReviewCounts.counts).reduce((s, n) => s + n, 0);
+    const driftCount = props.reduce((s, p) => s + (p.drift_bookings?.length || 0), 0);
+    const problems: string[] = [];
+    if (openGaps > 0) problems.push(`${openGaps} open data gap${openGaps === 1 ? '' : 's'}`);
+    if (pendingBankRows > 0) problems.push(`${pendingBankRows} bank row${pendingBankRows === 1 ? '' : 's'} awaiting review`);
+    if (driftCount > 0) problems.push(`${driftCount} new paid booking${driftCount === 1 ? '' : 's'} not yet on a statement`);
+    if (!depositReviewCounts.known) problems.push('bank review queue unreadable (count unknown)');
+    if (problems.length > 0 && !confirm(
+      `This month still has:\n\n  · ${problems.join('\n  · ')}\n\nDraft ${candidates.length} owner email${candidates.length === 1 ? '' : 's'} anyway?`,
+    )) {
       return;
     }
     setBulkDraftProgress({ done: 0, total: candidates.length });
@@ -2668,72 +2732,6 @@ function DashboardContent() {
       skipped: props.length - candidates.length,
       failed,
     });
-  }
-
-  /* ─── Login Screen (editorial) ─── */
-  if (!authenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--paper)' }}>
-        <div style={{ width: '100%', maxWidth: 380, padding: '0 24px' }}>
-          <div style={{ textAlign: 'center', marginBottom: 36 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/rising-tide-logo.png" alt="Rising Tide" style={{ width: 56, height: 56, margin: '0 auto 20px' }} />
-            <h1 className="font-serif" style={{ fontSize: 32, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--ink)' }}>
-              Rising <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>Tide</em>
-            </h1>
-            <div className="eyebrow" style={{ marginTop: 8 }}>Helm &middot; Statements</div>
-          </div>
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            if (inputCode === expectedToken) {
-              setAuthenticated(true);
-              setAuthError(false);
-              document.cookie = 'rt_auth=1; path=/; max-age=86400; SameSite=Lax';
-            } else {
-              setAuthError(true);
-            }
-          }}>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Access Code</div>
-            <input
-              type="password"
-              value={inputCode}
-              onChange={(e) => { setInputCode(e.target.value); setAuthError(false); }}
-              style={{
-                width: '100%',
-                padding: '12px 14px',
-                background: 'transparent',
-                border: 'none',
-                borderBottom: `1px solid ${authError ? 'var(--negative)' : 'var(--ink)'}`,
-                color: 'var(--ink)',
-                fontSize: 18,
-                fontFamily: 'var(--font-mono-dash)',
-                letterSpacing: '0.12em',
-                textAlign: 'center',
-                outline: 'none',
-              }}
-              autoFocus
-            />
-            {authError && (
-              <p style={{ color: 'var(--negative)', fontSize: 11, textAlign: 'center', marginTop: 8, letterSpacing: '.08em', textTransform: 'uppercase' }}>
-                Invalid access code
-              </p>
-            )}
-            <button type="submit" style={{
-              width: '100%', marginTop: 20,
-              background: 'var(--ink)', color: 'var(--paper)',
-              fontSize: 11, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase',
-              padding: '14px 0',
-              border: 'none', cursor: 'pointer',
-            }}>
-              Continue
-            </button>
-          </form>
-          <p style={{ textAlign: 'center', color: 'var(--ink-4)', fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', marginTop: 32 }}>
-            Rising Tide &middot; Cape Ann MA
-          </p>
-        </div>
-      </div>
-    );
   }
 
   /* ─── Empty / Error States (editorial) ─── */
@@ -2868,29 +2866,35 @@ function DashboardContent() {
           <div className="rt-masthead-actions flex items-center justify-between gap-3" style={{ padding: '10px 0' }}>
             <div className="flex items-center gap-2">
               <div style={{ position: 'relative' }}>
-                <EditorialButton
-                  onClick={() => setSyncMenuOpen(o => !o)}
-                  disabled={syncingAll}
-                  busy={syncing || syncingGuesty || syncingStripe || syncingAll}
-                  label={
-                    syncingAll ? 'Syncing all…'
-                    : syncing ? 'Syncing invoices…'
-                    : syncingGuesty ? 'Syncing bookings…'
-                    : syncingStripe ? 'Syncing Stripe…'
-                    : 'Sync ▾'
-                  }
-                  meta={
-                    lastSync['gmail-invoices'] || lastSync['guesty-reviews'] || lastSync['stripe']
-                      ? `last ${relativeTime(
-                          [lastSync['gmail-invoices'], lastSync['guesty-reviews'], lastSync['stripe']]
-                            .filter(Boolean)
-                            .sort()
-                            .reverse()[0],
-                        )}`
-                      : undefined
-                  }
-                  icon={<IconSync className="w-3 h-3" />}
-                />
+                {(() => {
+                  const failing = STATEMENT_SYNC_SOURCES.filter(s => lastSync[s]?.last_status === 'error');
+                  const freshest = [lastSync['gmail-invoices'], lastSync['guesty-reviews'], lastSync['stripe']]
+                    .map(r => r?.last_synced_at)
+                    .filter((t): t is string => !!t)
+                    .sort()
+                    .reverse()[0];
+                  return (
+                    <EditorialButton
+                      onClick={() => setSyncMenuOpen(o => !o)}
+                      disabled={syncingAll}
+                      busy={syncing || syncingGuesty || syncingStripe || syncingAll}
+                      label={
+                        syncingAll ? 'Syncing all…'
+                        : syncing ? 'Syncing invoices…'
+                        : syncingGuesty ? 'Syncing bookings…'
+                        : syncingStripe ? 'Syncing Stripe…'
+                        : 'Sync ▾'
+                      }
+                      meta={
+                        failing.length > 0
+                          ? `${failing.length} feed${failing.length === 1 ? '' : 's'} failing`
+                          : freshest ? `last ${relativeTime(freshest)}` : undefined
+                      }
+                      metaAlert={failing.length > 0}
+                      icon={<IconSync className="w-3 h-3" />}
+                    />
+                  );
+                })()}
                 {syncMenuOpen && (
                   <>
                     {/* Click-outside backdrop */}
@@ -2917,25 +2921,39 @@ function DashboardContent() {
                         onClick={() => syncAll()}
                       />
                       <div style={{ borderTop: '1px solid var(--rule)' }} />
-                      <SyncMenuItem
-                        label="Sync Invoices"
-                        meta={lastSync['gmail-invoices'] ? `last ${relativeTime(lastSync['gmail-invoices'])}` : 'never'}
-                        onClick={() => { setSyncMenuOpen(false); syncInvoices(); }}
-                      />
-                      <SyncMenuItem
-                        label="Sync Bookings"
-                        meta={lastSync['guesty-reviews'] ? `last ${relativeTime(lastSync['guesty-reviews'])}` : 'never'}
-                        onClick={() => { setSyncMenuOpen(false); syncGuesty(); }}
-                      />
-                      <SyncMenuItem
-                        label="Sync Stripe"
-                        meta={lastSync['stripe'] ? `last ${relativeTime(lastSync['stripe'])}` : 'never'}
-                        onClick={() => { setSyncMenuOpen(false); syncStripe(); }}
-                      />
+                      {(() => {
+                        const inv = syncMeta(lastSync['gmail-invoices']);
+                        // The revenue-bearing feed is guesty-reservations; the
+                        // reviews/listings stamps ride along. Show the worst.
+                        const bk = worstSyncMeta([
+                          lastSync['guesty-reservations'], lastSync['guesty-reviews'],
+                          lastSync['guesty-listings'], lastSync['guesty-cancel-reconcile'],
+                        ]);
+                        const st = syncMeta(lastSync['stripe']);
+                        return (
+                          <>
+                            <SyncMenuItem
+                              label="Sync Invoices"
+                              meta={inv.text} metaAlert={inv.alert} metaDetail={inv.detail}
+                              onClick={() => { setSyncMenuOpen(false); syncInvoices(); }}
+                            />
+                            <SyncMenuItem
+                              label="Sync Bookings"
+                              meta={bk.text} metaAlert={bk.alert} metaDetail={bk.detail}
+                              onClick={() => { setSyncMenuOpen(false); syncGuesty(); }}
+                            />
+                            <SyncMenuItem
+                              label="Sync Stripe"
+                              meta={st.text} metaAlert={st.alert} metaDetail={st.detail}
+                              onClick={() => { setSyncMenuOpen(false); syncStripe(); }}
+                            />
+                          </>
+                        );
+                      })()}
                       <div style={{ borderTop: '1px solid var(--rule)' }} />
                       <label
-                        title={lastSync['csv-fallback']
-                          ? `Reservations CSV uploaded ${relativeTime(lastSync['csv-fallback'])}`
+                        title={lastSync['csv-fallback']?.last_synced_at
+                          ? `Reservations CSV uploaded ${relativeTime(lastSync['csv-fallback'].last_synced_at)}`
                           : 'Guesty reservations CSV fallback. Use only when the Guesty API sync is down.'}
                         style={{
                           display: 'block',
@@ -2957,9 +2975,9 @@ function DashboardContent() {
                             fallback
                           </span>
                         </div>
-                        {lastSync['csv-fallback'] && !uploadingCsv && (
+                        {lastSync['csv-fallback']?.last_synced_at && !uploadingCsv && (
                           <div style={{ color: 'var(--ink-4)', fontWeight: 400, letterSpacing: 0, textTransform: 'none', fontSize: 10, marginTop: 2 }}>
-                            last {relativeTime(lastSync['csv-fallback'])}
+                            last {relativeTime(lastSync['csv-fallback'].last_synced_at)}
                           </div>
                         )}
                         <input
@@ -3061,19 +3079,118 @@ function DashboardContent() {
         </div>
       </section>
 
-      {/* ─── RESERVATIONS CSV UPLOAD ─── one upload, cached for every property
-           in the selected month. Caches the file to platform-csvs Storage
-           (so every property's /statements/upload page sees "ON FILE") and
-           refreshes the per-stay guesty_reservations cache. Does NOT modify
-           property_statements -- /api/ingest stays the only statement path. */}
-      <PlatformCSVUploadCard defaultMonth={selectedMonth || undefined} />
-
-      {/* ─── BOOKING.COM DEPOSITS UPLOAD ─── the central Chase ...5623 account
-           where Booking.com pays every property before the money transfers to
-           the property's own checking. One upload a month; /api/ingest reads
-           the transfers to corroborate Booking.com stays (their payouts never
-           show Booking.com-labeled in a property's own bank CSV). */}
-      <BookingDepositsUploadCard defaultMonth={selectedMonth || undefined} />
+      {/* ─── Sync toasts ─── */}
+      {syncResult && (
+        typeof syncResult === 'string' ? (
+          <Toast tone="negative" onDismiss={() => setSyncResult(null)}>
+            Invoice sync failed: {syncResult}. Cleaning attribution did NOT run for this month.
+          </Toast>
+        ) : (
+          <Toast tone="positive" onDismiss={() => setSyncResult(null)}>
+            Matched <strong>{syncResult.matched}</strong> of <strong>{syncResult.total}</strong> cleaning invoices to bank charges (<strong>{syncResult.inserted}</strong> new, <strong>{syncResult.skipped}</strong> skipped). The dashboard has refreshed automatically.
+          </Toast>
+        )
+      )}
+      {guestySyncResult && (
+        typeof guestySyncResult === 'string' ? (
+          <Toast tone="negative" onDismiss={() => setGuestySyncResult(null)}>
+            Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload Reservations CSV</strong> instead.
+          </Toast>
+        ) : (
+          <Toast tone="tide" onDismiss={() => setGuestySyncResult(null)}>
+            <strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews and <strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings synced from Guesty
+            {guestySyncResult.reviews?.error && <span style={{ color: 'var(--signal)' }}> (reviews failed: {guestySyncResult.reviews.error})</span>}
+            {guestySyncResult.reservations?.error && <span style={{ color: 'var(--signal)' }}> (reservations failed: {guestySyncResult.reservations.error})</span>}
+            {'. '}These feed guest ratings and <em>On the horizon</em>. Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
+          </Toast>
+        )
+      )}
+      {csvResult && (
+        typeof csvResult === 'string' ? (
+          <Toast tone="negative" onDismiss={() => setCsvResult(null)}>CSV upload failed: {csvResult}</Toast>
+        ) : (
+          <Toast tone="positive" onDismiss={() => setCsvResult(null)}>
+            <strong>{csvResult.reservations}</strong> reservations and <strong>{csvResult.reviews}</strong> reviews saved from your Guesty CSV
+            {csvResult.unmatched > 0 && <span style={{ color: 'var(--signal)' }}> ({csvResult.unmatched} rows didn&apos;t match a property)</span>}
+            {'. '}Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
+          </Toast>
+        )
+      )}
+      {stripeSyncResult && (
+        typeof stripeSyncResult === 'string' ? (
+          <Toast tone="negative" onDismiss={() => setStripeSyncResult(null)}>Stripe sync failed: {stripeSyncResult}</Toast>
+        ) : (
+          <Toast
+            tone={stripeSyncResult.errors.length > 0 || stripeSyncResult.refunds > 0 ? 'tide' : 'positive'}
+            onDismiss={() => setStripeSyncResult(null)}
+          >
+            Stripe synced across <strong>{stripeSyncResult.properties}</strong> propert{stripeSyncResult.properties === 1 ? 'y' : 'ies'}
+            {stripeSyncResult.fee_updates > 0 && <>: <strong>{stripeSyncResult.fee_updates}</strong> fee{stripeSyncResult.fee_updates === 1 ? '' : 's'} corrected to the real Stripe number</>}
+            {stripeSyncResult.refunds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.refunds} refund{stripeSyncResult.refunds === 1 ? '' : 's'} flagged</span>}
+            {stripeSyncResult.gross_reconstructions > 0 && <span style={{ color: 'var(--positive, #2e6b4f)' }}> &middot; {stripeSyncResult.gross_reconstructions} stay{stripeSyncResult.gross_reconstructions === 1 ? '' : 's'} rebuilt from Stripe actuals (+{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(stripeSyncResult.reconstructed_gain)} net recovered; Guesty TOTAL_PAID under-reported an installment plan)</span>}
+            {stripeSyncResult.gross_mismatches > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.gross_mismatches} gross mismatch{stripeSyncResult.gross_mismatches === 1 ? '' : 'es'}</span>}
+            {stripeSyncResult.missing_charges > 0 && <span style={{ color: 'var(--ink-4)' }}> &middot; {stripeSyncResult.missing_charges} expected charge{stripeSyncResult.missing_charges === 1 ? '' : 's'} missing</span>}
+            {stripeSyncResult.orphan_charges > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.orphan_charges} unmatched charge{stripeSyncResult.orphan_charges === 1 ? '' : 's'} found; one-off payment links land in the review queue on each property card</span>}
+            {stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.gross_reconstructions === 0 && stripeSyncResult.missing_charges === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
+            {stripeSyncResult.errors.length > 0 && (
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                {stripeSyncResult.errors.length} account{stripeSyncResult.errors.length === 1 ? '' : 's'} errored: {stripeSyncResult.errors.slice(0, 2).join(' · ')}
+              </span>
+            )}
+          </Toast>
+        )
+      )}
+      {draftResult && (
+        typeof draftResult === 'string' ? (
+          <Toast tone="negative" onDismiss={() => setDraftResult(null)}>Gmail draft failed: {draftResult}</Toast>
+        ) : (
+          <Toast tone={draftResult.warnings.length > 0 ? 'tide' : 'positive'} onDismiss={() => setDraftResult(null)}>
+            Gmail draft created for <strong>{draftResult.property}</strong>
+            {draftResult.attachedPdf
+              ? <> with the statement PDF attached. </>
+              : <> (no PDF attached, see warnings). </>}
+            <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
+              Open in Gmail →
+            </a>
+            {draftResult.warnings.length > 0 && (
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                {draftResult.warnings.join(' · ')}
+              </span>
+            )}
+          </Toast>
+        )
+      )}
+      {bulkDraftResult && (
+        typeof bulkDraftResult === 'string' ? (
+          <Toast tone="tide" onDismiss={() => setBulkDraftResult(null)}>{bulkDraftResult}</Toast>
+        ) : (
+          <Toast
+            tone={bulkDraftResult.failed.length > 0 ? 'tide' : 'positive'}
+            onDismiss={() => setBulkDraftResult(null)}
+          >
+            <strong>{bulkDraftResult.drafted}</strong> Gmail draft{bulkDraftResult.drafted === 1 ? '' : 's'} created
+            {bulkDraftResult.skipped > 0 && (
+              <span style={{ color: 'var(--ink-4)' }}> &middot; {bulkDraftResult.skipped} skipped (already drafted or red)</span>
+            )}
+            {bulkDraftResult.failed.length > 0 && (
+              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
+                {bulkDraftResult.failed.length} failed: {bulkDraftResult.failed.slice(0, 3).map(f => `${f.property} (${f.error})`).join(' · ')}
+                {bulkDraftResult.failed.length > 3 && ` +${bulkDraftResult.failed.length - 3} more`}
+              </span>
+            )}
+            {bulkDraftResult.drafted > 0 && (
+              <a
+                href="https://mail.google.com/mail/u/0/#drafts"
+                target="_blank"
+                rel="noopener"
+                style={{ display: 'inline-block', marginLeft: 8, color: 'var(--tide-deep)', textDecoration: 'underline' }}
+              >
+                Open Gmail drafts →
+              </a>
+            )}
+          </Toast>
+        )
+      )}
 
       {/* ─── INSIGHTS STRIP (replaces KPI cards) ─── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 28, paddingBottom: 20 }}>
@@ -3144,11 +3261,24 @@ function DashboardContent() {
            expands the affected property cards and scrolls to the first,
            so review starts from one line instead of a hunt. */}
       {props.length > 0 && (() => {
-        const depositIds = props.filter(p => (depositReviewCounts[p.property_id] || 0) > 0).map(p => p.property_id);
-        const depositCount = depositIds.reduce((s, id) => s + (depositReviewCounts[id] || 0), 0);
+        const depositIds = props.filter(p => (depositReviewCounts.counts[p.property_id] || 0) > 0).map(p => p.property_id);
+        const depositCount = depositIds.reduce((s, id) => s + (depositReviewCounts.counts[id] || 0), 0);
         const gapIds = props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).map(p => p.property_id);
+        const driftIds = props.filter(p => (p.drift_bookings?.length || 0) > 0).map(p => p.property_id);
+        const driftCount = props.reduce((s, p) => s + (p.drift_bookings?.length || 0), 0);
         const unsentIds = props.filter(p => !closeTasks[p.property_id]?.email_sent_at).map(p => p.property_id);
-        const clear = depositCount === 0 && totalGaps === 0 && unsentIds.length === 0;
+        const failingSyncs = STATEMENT_SYNC_SOURCES.filter(s => lastSync[s]?.last_status === 'error');
+        // Input completeness: the two must-do monthly uploads. Unknown
+        // (load failed / still loading) is never treated as OK or missing.
+        const platformMissing = monthStatus ? !monthStatus.platform_csv.on_file : false;
+        const bookingMissing = monthStatus?.booking_activity.known ? monthStatus.booking_activity.rows === 0 : false;
+        const clear = depositCount === 0 && totalGaps === 0 && driftCount === 0 && unsentIds.length === 0
+          && depositReviewCounts.known && failingSyncs.length === 0 && !platformMissing && !bookingMissing;
+        const warnChip = (text: string, title?: string) => (
+          <span title={title} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 7 }}>
+            <span style={{ fontSize: 12, color: 'var(--negative)', fontWeight: 600 }}>{text}</span>
+          </span>
+        );
         return (
           <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 20 }}>
             <div className="rule-top rule-bottom flex items-baseline flex-wrap" style={{ padding: '12px 0', gap: 26 }}>
@@ -3157,10 +3287,17 @@ function DashboardContent() {
               </span>
               {clear ? (
                 <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
-                  Month is clear &middot; every queue empty, every statement sent.
+                  Month is clear &middot; inputs on file, every queue empty, every statement sent.
                 </span>
               ) : (
                 <>
+                  {failingSyncs.length > 0 && warnChip(
+                    `${failingSyncs.length} sync feed${failingSyncs.length === 1 ? '' : 's'} failing (${failingSyncs.join(', ')})`,
+                    'Statement inputs may be stale. Open the Sync menu for details.',
+                  )}
+                  {platformMissing && warnChip('Platform CSV not uploaded', 'No Guesty reservations CSV on file for this month. Upload it below.')}
+                  {bookingMissing && warnChip('Booking.com 5623 CSV not uploaded', 'No Booking.com deposits-account activity on file for this month. Upload it below.')}
+                  {!depositReviewCounts.known && warnChip('bank review counts unavailable', 'The pending-deposit count failed to load; the queue may not be empty.')}
                   {depositCount > 0 && (
                     <ReviewSegment
                       count={depositCount}
@@ -3177,6 +3314,14 @@ function DashboardContent() {
                       onOpen={() => focusCards(gapIds)}
                     />
                   )}
+                  {driftCount > 0 && (
+                    <ReviewSegment
+                      count={driftCount}
+                      label={`new paid booking${driftCount === 1 ? '' : 's'} not on a statement`}
+                      sub={`${driftIds.length} propert${driftIds.length === 1 ? 'y' : 'ies'}`}
+                      onOpen={() => focusCards(driftIds)}
+                    />
+                  )}
                   {unsentIds.length > 0 && (
                     <ReviewSegment
                       count={unsentIds.length}
@@ -3191,228 +3336,25 @@ function DashboardContent() {
         );
       })()}
 
+      {/* ─── MONTHLY INPUTS ─── the two once-a-month uploads, compact.
+           Each card collapses to a one-line status row when its file is on
+           file for the month and expands automatically when it isn't. */}
+      <PlatformCSVUploadCard
+        defaultMonth={selectedMonth || undefined}
+        status={monthStatus?.platform_csv ?? null}
+        onUploaded={() => { setReviewRefresh(n => n + 1); }}
+      />
+      <BookingDepositsUploadCard
+        defaultMonth={selectedMonth || undefined}
+        status={monthStatus?.booking_activity ?? null}
+        onUploaded={() => { setReviewRefresh(n => n + 1); }}
+      />
+
       {/* ─── CLOSE-OUT NOTES ─── per-month freeform notepad the operator
            drops context into throughout the month (cancellations, refunds,
            weird charges, follow-ups) so it's all in one place at close-out.
            Stored in period_notes (supabase-schema-period-notes.sql). */}
       {selectedMonth && <PeriodNotesCard month={selectedMonth} refreshKey={periodNotesRefreshKey} />}
-
-      {/* ─── CLOSE-OUT PANEL ─── */}
-      {props.length > 0 && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32 }}>
-          <div className="rule-top" style={{ paddingTop: 20 }}>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'auto 1fr auto',
-              gap: 14,
-              alignItems: 'baseline',
-              paddingBottom: 14,
-            }}>
-              <span className="font-mono" style={{ fontSize: 10, color: 'var(--signal)', letterSpacing: '.08em' }}>06</span>
-              <h2 className="font-serif" style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', margin: 0 }}>
-                Close out <em style={{ color: 'var(--tide-deep)' }}>{monthLong(selectedMonth)}</em>
-              </h2>
-              <span style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '.14em' }}>
-                Execution
-              </span>
-            </div>
-
-            {/* Top strip: funds sent date + totals + actions */}
-            <div className="rt-closeout-top" style={{
-              display: 'grid',
-              gridTemplateColumns: 'auto 1fr auto auto',
-              gap: 20,
-              alignItems: 'center',
-              padding: '10px 0',
-              borderBottom: '1px dotted var(--rule)',
-              marginBottom: 12,
-            }}>
-              <div>
-                <div className="eyebrow" style={{ marginBottom: 4 }}>Funds sent</div>
-                <input
-                  type="date"
-                  value={fundsSentDate}
-                  onChange={(e) => saveFundsSentDate(e.target.value)}
-                  className="font-serif tabular-nums"
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    borderBottom: '1px solid var(--ink)',
-                    padding: '4px 0',
-                    fontSize: 15, fontWeight: 500, color: 'var(--ink)',
-                    outline: 'none',
-                  }}
-                />
-              </div>
-              <div />
-              <div style={{ textAlign: 'right' }}>
-                <div className="eyebrow" style={{ marginBottom: 4 }}>Total to Rising Tide</div>
-                <div className="font-serif tabular-nums" style={{ fontSize: 20, fontWeight: 500, color: 'var(--signal)' }}>
-                  {fmtCompact(totalMgmt)}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => { setRemittanceOpen(true); if (!remittanceSheet) loadRemittance(); }}
-                  style={{
-                    border: '1px solid var(--ink)',
-                    background: 'transparent', color: 'var(--ink)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                    padding: '8px 14px', cursor: 'pointer',
-                  }}
-                >
-                  Remittance
-                </button>
-                <button
-                  onClick={() => setTransferListOpen(true)}
-                  style={{
-                    border: '1px solid var(--ink)',
-                    background: 'transparent', color: 'var(--ink)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                    padding: '8px 14px', cursor: 'pointer',
-                  }}
-                >
-                  Transfer List
-                </button>
-                <button
-                  onClick={() => { setBookingRoutingOpen(true); if (!bookingRoutingRows) loadBookingRouting(); }}
-                  style={{
-                    border: '1px solid var(--ink)',
-                    background: 'transparent', color: 'var(--ink)',
-                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
-                    padding: '8px 14px', cursor: 'pointer',
-                  }}
-                >
-                  Booking.com
-                </button>
-              </div>
-            </div>
-
-            {/* Per-property rows */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {props.map((p) => {
-                const cfg = resolveCfg(p.property_id);
-                const task = closeTasks[p.property_id];
-                const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
-                const emailsMissing = !cfg || cfg.owner_emails.length === 0;
-                return (
-                  <div key={p.id} className="rt-closeout-row" style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto auto auto',
-                    gap: 16,
-                    alignItems: 'center',
-                    padding: '10px 0',
-                    borderBottom: '1px dotted var(--rule)',
-                    fontSize: 12,
-                  }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{p.property_name}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 2 }}>
-                        {cfg?.owner_greeting || p.owner_name}
-                        {emailsMissing && (
-                          <span style={{ color: 'var(--signal)', marginLeft: 6, letterSpacing: '.08em', textTransform: 'uppercase', fontSize: 9 }}>
-                            &middot; no email
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div className="tabular-nums font-serif" style={{ fontSize: 14, color: 'var(--ink)' }}>{fmtCompact(p.owner_payout)}</div>
-                      <div style={{ fontSize: 10, color: 'var(--signal)' }}>+ {fmtCompact(p.management_fee)} mgmt</div>
-                    </div>
-                    <select
-                      value={tmpl}
-                      onChange={(e) => saveCloseTaskField(p.property_id, { email_template: e.target.value as EmailTemplate })}
-                      style={{
-                        background: 'transparent',
-                        border: '1px solid var(--rule)',
-                        fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
-                        color: 'var(--ink-3)',
-                        padding: '5px 20px 5px 8px',
-                        appearance: 'none',
-                        cursor: 'pointer',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
-                        backgroundRepeat: 'no-repeat',
-                        backgroundPosition: 'right 4px center',
-                        backgroundSize: '12px',
-                      }}
-                    >
-                      <option value="monthly">Monthly</option>
-                      <option value="touch_base">Touch-base</option>
-                      <option value="year_end">Year-end</option>
-                    </select>
-                    {/* Opt-in: fold the month's work slips into the email
-                        as a polished section. Persists like the template
-                        picker, so Draft All honors it too. */}
-                    <CheckTask
-                      label="Work notes"
-                      done={!!task?.email_include_work_slips}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_include_work_slips: next })}
-                    />
-                    <button
-                      onClick={() => setPreviewPropertyId(p.property_id)}
-                      style={{
-                        border: '1px solid var(--rule)',
-                        background: 'transparent', color: 'var(--ink-3)',
-                        fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
-                        padding: '5px 12px', cursor: 'pointer',
-                      }}
-                    >
-                      Preview
-                    </button>
-                    <CheckTask
-                      label="Drafted"
-                      done={!!task?.email_drafted_at}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_drafted_at: next ? new Date().toISOString() : null })}
-                    />
-                    {/* Statement sent -- the moment of finality. Stamped
-                        manually after the operator hits send in Gmail
-                        (Helm only creates the draft, never sends). This is
-                        the document becoming a matter of record; the
-                        workflow status strip's "sent" count reads off it.
-                        Ticking it also fires the Drive archive — the
-                        statement PDF lands in Helm Records / Statements /
-                        and a Drive link surfaces below the checkbox. */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
-                      <CheckTask
-                        label="Statement sent"
-                        done={!!task?.email_sent_at}
-                        onToggle={(next) => markStatementSent(p, next)}
-                      />
-                      {task?.statement_drive_url && (
-                        <a
-                          href={task.statement_drive_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            fontSize: 9,
-                            color: 'var(--ink-4)',
-                            textDecoration: 'none',
-                            letterSpacing: '.1em',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          ↗ Drive
-                        </a>
-                      )}
-                    </div>
-                    <CheckTask
-                      label="Owner paid"
-                      done={!!task?.owner_transfer_done_at}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { owner_transfer_done_at: next ? new Date().toISOString() : null })}
-                    />
-                    <CheckTask
-                      label="Mgmt swept"
-                      done={!!task?.mgmt_sweep_done_at}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { mgmt_sweep_done_at: next ? new Date().toISOString() : null })}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Email preview modal */}
       {previewPropertyId && (() => {
@@ -3443,6 +3385,25 @@ function DashboardContent() {
               Cc: {ALWAYS_CC.join(', ')}
             </div>
             <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>From: {SEND_FROM.name} &lt;{SEND_FROM.email}&gt;</div>
+            {(() => {
+              // Multi-property owners (Prudenzi, Moynahan) get ONE combined
+              // Gmail draft covering every sibling property. This preview
+              // renders the single-property body, so say so out loud rather
+              // than let the operator approve a body the draft won't match.
+              const siblings = props.filter(p => {
+                if (p.property_id === previewPropertyId) return false;
+                const sc = resolveCfg(p.property_id);
+                return !!sc && sc.owner_emails.some(e => cfg.owner_emails.includes(e));
+              });
+              if (siblings.length === 0) return null;
+              return (
+                <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--paper-2)', borderLeft: '2px solid var(--signal)', fontSize: 11, color: 'var(--ink-2)' }}>
+                  Combined owner: the actual Gmail draft will cover{' '}
+                  <strong>{[cfg.name, ...siblings.map(s => resolveCfg(s.property_id)?.name || s.property_name)].join(' + ')}</strong>{' '}
+                  in one email with an itemized payout line and all PDFs. This preview shows {cfg.name} only.
+                </div>
+              );
+            })()}
 
             {/* Work-notes toggle, mirrored with the close-out row. The body
                 below re-renders live as the section loads in. */}
@@ -3898,113 +3859,6 @@ function DashboardContent() {
         </PreviewModal>
       )}
 
-      {/* ─── Sync toasts ─── */}
-      {syncResult && (
-        <Toast tone="positive" onDismiss={() => setSyncResult(null)}>
-          Matched <strong>{syncResult.matched}</strong> of <strong>{syncResult.total}</strong> cleaning invoices to bank charges (<strong>{syncResult.inserted}</strong> new, <strong>{syncResult.skipped}</strong> skipped). The dashboard has refreshed automatically.
-        </Toast>
-      )}
-      {guestySyncResult && (
-        typeof guestySyncResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setGuestySyncResult(null)}>
-            Guesty sync failed: {guestySyncResult}. If urgent, click <strong>Upload Reservations CSV</strong> instead.
-          </Toast>
-        ) : (
-          <Toast tone="tide" onDismiss={() => setGuestySyncResult(null)}>
-            <strong>{guestySyncResult.reviews?.upserted ?? 0}</strong> reviews and <strong>{guestySyncResult.reservations?.upserted ?? 0}</strong> bookings synced from Guesty
-            {guestySyncResult.reviews?.error && <span style={{ color: 'var(--signal)' }}> (reviews failed: {guestySyncResult.reviews.error})</span>}
-            {guestySyncResult.reservations?.error && <span style={{ color: 'var(--signal)' }}> (reservations failed: {guestySyncResult.reservations.error})</span>}
-            {'. '}These feed guest ratings and <em>On the horizon</em>. Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
-          </Toast>
-        )
-      )}
-      {csvResult && (
-        typeof csvResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setCsvResult(null)}>CSV upload failed: {csvResult}</Toast>
-        ) : (
-          <Toast tone="positive" onDismiss={() => setCsvResult(null)}>
-            <strong>{csvResult.reservations}</strong> reservations and <strong>{csvResult.reviews}</strong> reviews saved from your Guesty CSV
-            {csvResult.unmatched > 0 && <span style={{ color: 'var(--signal)' }}> ({csvResult.unmatched} rows didn&apos;t match a property)</span>}
-            {'. '}Open any statement (or regenerate a Gmail draft) to see them &mdash; no dashboard refresh needed.
-          </Toast>
-        )
-      )}
-      {stripeSyncResult && (
-        typeof stripeSyncResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setStripeSyncResult(null)}>Stripe sync failed: {stripeSyncResult}</Toast>
-        ) : (
-          <Toast
-            tone={stripeSyncResult.errors.length > 0 || stripeSyncResult.refunds > 0 ? 'tide' : 'positive'}
-            onDismiss={() => setStripeSyncResult(null)}
-          >
-            Stripe synced across <strong>{stripeSyncResult.properties}</strong> propert{stripeSyncResult.properties === 1 ? 'y' : 'ies'}
-            {stripeSyncResult.fee_updates > 0 && <>: <strong>{stripeSyncResult.fee_updates}</strong> fee{stripeSyncResult.fee_updates === 1 ? '' : 's'} corrected to the real Stripe number</>}
-            {stripeSyncResult.refunds > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.refunds} refund{stripeSyncResult.refunds === 1 ? '' : 's'} flagged</span>}
-            {stripeSyncResult.gross_reconstructions > 0 && <span style={{ color: 'var(--positive, #2e6b4f)' }}> &middot; {stripeSyncResult.gross_reconstructions} stay{stripeSyncResult.gross_reconstructions === 1 ? '' : 's'} rebuilt from Stripe actuals (+{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(stripeSyncResult.reconstructed_gain)} net recovered; Guesty TOTAL_PAID under-reported an installment plan)</span>}
-            {stripeSyncResult.gross_mismatches > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.gross_mismatches} gross mismatch{stripeSyncResult.gross_mismatches === 1 ? '' : 'es'}</span>}
-            {stripeSyncResult.missing_charges > 0 && <span style={{ color: 'var(--ink-4)' }}> &middot; {stripeSyncResult.missing_charges} expected charge{stripeSyncResult.missing_charges === 1 ? '' : 's'} missing</span>}
-            {stripeSyncResult.orphan_charges > 0 && <span style={{ color: 'var(--signal)' }}> &middot; {stripeSyncResult.orphan_charges} unmatched charge{stripeSyncResult.orphan_charges === 1 ? '' : 's'} found; one-off payment links land in the review queue on each property card</span>}
-            {stripeSyncResult.fee_updates === 0 && stripeSyncResult.refunds === 0 && stripeSyncResult.gross_mismatches === 0 && stripeSyncResult.gross_reconstructions === 0 && stripeSyncResult.missing_charges === 0 && <>: no discrepancies. All estimates match Stripe within $1.</>}
-            {stripeSyncResult.errors.length > 0 && (
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
-                {stripeSyncResult.errors.length} account{stripeSyncResult.errors.length === 1 ? '' : 's'} errored: {stripeSyncResult.errors.slice(0, 2).join(' · ')}
-              </span>
-            )}
-          </Toast>
-        )
-      )}
-      {draftResult && (
-        typeof draftResult === 'string' ? (
-          <Toast tone="negative" onDismiss={() => setDraftResult(null)}>Gmail draft failed: {draftResult}</Toast>
-        ) : (
-          <Toast tone={draftResult.warnings.length > 0 ? 'tide' : 'positive'} onDismiss={() => setDraftResult(null)}>
-            Gmail draft created for <strong>{draftResult.property}</strong>
-            {draftResult.attachedPdf
-              ? <> with the statement PDF attached. </>
-              : <> (no PDF attached, see warnings). </>}
-            <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
-              Open in Gmail →
-            </a>
-            {draftResult.warnings.length > 0 && (
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
-                {draftResult.warnings.join(' · ')}
-              </span>
-            )}
-          </Toast>
-        )
-      )}
-      {bulkDraftResult && (
-        typeof bulkDraftResult === 'string' ? (
-          <Toast tone="tide" onDismiss={() => setBulkDraftResult(null)}>{bulkDraftResult}</Toast>
-        ) : (
-          <Toast
-            tone={bulkDraftResult.failed.length > 0 ? 'tide' : 'positive'}
-            onDismiss={() => setBulkDraftResult(null)}
-          >
-            <strong>{bulkDraftResult.drafted}</strong> Gmail draft{bulkDraftResult.drafted === 1 ? '' : 's'} created
-            {bulkDraftResult.skipped > 0 && (
-              <span style={{ color: 'var(--ink-4)' }}> &middot; {bulkDraftResult.skipped} skipped (already drafted or red)</span>
-            )}
-            {bulkDraftResult.failed.length > 0 && (
-              <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
-                {bulkDraftResult.failed.length} failed: {bulkDraftResult.failed.slice(0, 3).map(f => `${f.property} (${f.error})`).join(' · ')}
-                {bulkDraftResult.failed.length > 3 && ` +${bulkDraftResult.failed.length - 3} more`}
-              </span>
-            )}
-            {bulkDraftResult.drafted > 0 && (
-              <a
-                href="https://mail.google.com/mail/u/0/#drafts"
-                target="_blank"
-                rel="noopener"
-                style={{ display: 'inline-block', marginLeft: 8, color: 'var(--tide-deep)', textDecoration: 'underline' }}
-              >
-                Open Gmail drafts →
-              </a>
-            )}
-          </Toast>
-        )
-      )}
-
       {/* ─── Property list ─── */}
       <main className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 40 }}>
         {props.length === 0 ? (
@@ -4040,6 +3894,223 @@ function DashboardContent() {
           </div>
         )}
       </main>
+
+      {/* ─── CLOSE-OUT PANEL ─── */}
+      {props.length > 0 && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32 }}>
+          <div className="rule-top" style={{ paddingTop: 20 }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr auto',
+              gap: 14,
+              alignItems: 'baseline',
+              paddingBottom: 14,
+            }}>
+              <span className="font-mono" style={{ fontSize: 10, color: 'var(--signal)', letterSpacing: '.08em' }}>●</span>
+              <h2 className="font-serif" style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', margin: 0 }}>
+                Close out <em style={{ color: 'var(--tide-deep)' }}>{monthLong(selectedMonth)}</em>
+              </h2>
+              <span style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '.14em' }}>
+                Execution
+              </span>
+            </div>
+
+            {/* Top strip: funds sent date + totals + actions */}
+            <div className="rt-closeout-top" style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr auto auto',
+              gap: 20,
+              alignItems: 'center',
+              padding: '10px 0',
+              borderBottom: '1px dotted var(--rule)',
+              marginBottom: 12,
+            }}>
+              <div>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Funds sent</div>
+                <input
+                  type="date"
+                  value={fundsSentDate}
+                  onChange={(e) => saveFundsSentDate(e.target.value)}
+                  className="font-serif tabular-nums"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    borderBottom: '1px solid var(--ink)',
+                    padding: '4px 0',
+                    fontSize: 15, fontWeight: 500, color: 'var(--ink)',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+              <div />
+              <div style={{ textAlign: 'right' }}>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>Total to Rising Tide</div>
+                <div className="font-serif tabular-nums" style={{ fontSize: 20, fontWeight: 500, color: 'var(--signal)' }}>
+                  {fmtCompact(totalMgmt)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => { setRemittanceOpen(true); if (!remittanceSheet) loadRemittance(); }}
+                  style={{
+                    border: '1px solid var(--ink)',
+                    background: 'transparent', color: 'var(--ink)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                    padding: '8px 14px', cursor: 'pointer',
+                  }}
+                >
+                  Remittance
+                </button>
+                <button
+                  onClick={() => setTransferListOpen(true)}
+                  style={{
+                    border: '1px solid var(--ink)',
+                    background: 'transparent', color: 'var(--ink)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                    padding: '8px 14px', cursor: 'pointer',
+                  }}
+                >
+                  Transfer List
+                </button>
+                <button
+                  onClick={() => { setBookingRoutingOpen(true); if (!bookingRoutingRows) loadBookingRouting(); }}
+                  style={{
+                    border: '1px solid var(--ink)',
+                    background: 'transparent', color: 'var(--ink)',
+                    fontSize: 11, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+                    padding: '8px 14px', cursor: 'pointer',
+                  }}
+                >
+                  Booking.com
+                </button>
+              </div>
+            </div>
+
+            {/* Per-property rows */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {props.map((p) => {
+                const cfg = resolveCfg(p.property_id);
+                const task = closeTasks[p.property_id];
+                const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
+                const emailsMissing = !cfg || cfg.owner_emails.length === 0;
+                return (
+                  <div key={p.id} className="rt-closeout-row" style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto auto auto',
+                    gap: 16,
+                    alignItems: 'center',
+                    padding: '10px 0',
+                    borderBottom: '1px dotted var(--rule)',
+                    fontSize: 12,
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{p.property_name}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 2 }}>
+                        {cfg?.owner_greeting || p.owner_name}
+                        {emailsMissing && (
+                          <span style={{ color: 'var(--signal)', marginLeft: 6, letterSpacing: '.08em', textTransform: 'uppercase', fontSize: 9 }}>
+                            &middot; no email
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div className="tabular-nums font-serif" style={{ fontSize: 14, color: 'var(--ink)' }}>{fmtCompact(p.owner_payout)}</div>
+                      <div style={{ fontSize: 10, color: 'var(--signal)' }}>+ {fmtCompact(p.management_fee)} mgmt</div>
+                    </div>
+                    <select
+                      value={tmpl}
+                      onChange={(e) => saveCloseTaskField(p.property_id, { email_template: e.target.value as EmailTemplate })}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid var(--rule)',
+                        fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
+                        color: 'var(--ink-3)',
+                        padding: '5px 20px 5px 8px',
+                        appearance: 'none',
+                        cursor: 'pointer',
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 4px center',
+                        backgroundSize: '12px',
+                      }}
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="touch_base">Touch-base</option>
+                      <option value="year_end">Year-end</option>
+                    </select>
+                    {/* Opt-in: fold the month's work slips into the email
+                        as a polished section. Persists like the template
+                        picker, so Draft All honors it too. */}
+                    <CheckTask
+                      label="Work notes"
+                      done={!!task?.email_include_work_slips}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_include_work_slips: next })}
+                    />
+                    <button
+                      onClick={() => setPreviewPropertyId(p.property_id)}
+                      style={{
+                        border: '1px solid var(--rule)',
+                        background: 'transparent', color: 'var(--ink-3)',
+                        fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
+                        padding: '5px 12px', cursor: 'pointer',
+                      }}
+                    >
+                      Preview
+                    </button>
+                    <CheckTask
+                      label="Drafted"
+                      done={!!task?.email_drafted_at}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_drafted_at: next ? new Date().toISOString() : null })}
+                    />
+                    {/* Statement sent -- the moment of finality. Stamped
+                        manually after the operator hits send in Gmail
+                        (Helm only creates the draft, never sends). This is
+                        the document becoming a matter of record; the
+                        workflow status strip's "sent" count reads off it.
+                        Ticking it also fires the Drive archive — the
+                        statement PDF lands in Helm Records / Statements /
+                        and a Drive link surfaces below the checkbox. */}
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
+                      <CheckTask
+                        label="Statement sent"
+                        done={!!task?.email_sent_at}
+                        onToggle={(next) => markStatementSent(p, next)}
+                      />
+                      {task?.statement_drive_url && (
+                        <a
+                          href={task.statement_drive_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            fontSize: 9,
+                            color: 'var(--ink-4)',
+                            textDecoration: 'none',
+                            letterSpacing: '.1em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          ↗ Drive
+                        </a>
+                      )}
+                    </div>
+                    <CheckTask
+                      label="Owner paid"
+                      done={!!task?.owner_transfer_done_at}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { owner_transfer_done_at: next ? new Date().toISOString() : null })}
+                    />
+                    <CheckTask
+                      label="Mgmt swept"
+                      done={!!task?.mgmt_sweep_done_at}
+                      onToggle={(next) => saveCloseTaskField(p.property_id, { mgmt_sweep_done_at: next ? new Date().toISOString() : null })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ─── Footer ─── */}
       <footer style={{ borderTop: '1px solid var(--ink)', marginTop: 24 }}>
