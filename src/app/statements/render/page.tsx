@@ -1,4 +1,3 @@
-import React from 'react';
 import { DownloadPdfChip } from '@/components/DownloadPdfChip';
 import { PROPERTIES, getActivePropertyForStatements } from '@/lib/properties';
 
@@ -295,7 +294,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     .eq('month', month)
     .eq('status', 'attributed')
     // Deposits only: an attributed DEBIT tagged to a reservation belongs in
-    // the deduction totals, not as a "+" add-on line under the guest.
+    // the deduction totals, never folded into the guest's Rental Rev.
     .eq('direction', 'deposit');
   const addOnsByCode = new Map<string, { label: string; amount: number }[]>();
   if (!addOnErr || (addOnErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(addOnErr.message || ''))) {
@@ -832,41 +831,41 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <thead><tr><th>Guest</th><th>Stay</th><th>Channel</th><th className="num">Rental Rev</th></tr></thead>
                   <tbody>
                     {displayRows.map((r, i) => {
+                      // An add-on attributed to a stay ON this statement folds
+                      // into that stay's Rental Rev rather than hanging below it
+                      // as a separate "+" line: the owner reads one number per
+                      // guest, and a second figure under the same name reads as
+                      // a correction. Amount only, no math change -- the column
+                      // still sums to the Financials Rental Revenue line, which
+                      // has always included add_ons_revenue.
                       const rowCodes = [r.confirmation_code, ...r.extraCodes].filter(Boolean) as string[];
-                      const addOns = rowCodes.flatMap(c => addOnsByCode.get(c) || []);
+                      const addOnTotal = rowCodes
+                        .flatMap(c => addOnsByCode.get(c) || [])
+                        .reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+                      const rowRev = Number(r.adjusted_revenue || r.rental_income || 0) + addOnTotal;
                       return (
-                        <React.Fragment key={i}>
-                          <tr>
-                            <td>
-                              <div className="guest">{titleCase(r.guest_name)}</div>
-                              {r.note && (
-                                <div className="guest-note">
-                                  {r.note}
-                                  {r.noteAmounts && r.noteAmounts.length > 0 && (
-                                    <div className="guest-note-amounts">
-                                      {r.noteAmounts.map((n: number, idx: number) => (
-                                        <span key={idx} className={n < 0 ? 'amt-out' : 'amt-in'}>
-                                          {n < 0 ? '−$' : '+$'}{Math.abs(n).toFixed(2)}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                            <td><div className="stay-dates">{shortDate(r.check_in)} &rarr; {shortDate(r.check_out)}</div></td>
-                            <td><span className="channel" data-ch={chLabel(r.platform)}><span className="dot" />{chLabel(r.platform)}</span></td>
-                            <td className="num">${fmt(r.adjusted_revenue || r.rental_income)}</td>
-                          </tr>
-                          {addOns.map((a, j) => (
-                            <tr key={`${i}-addon-${j}`} className="addon-row">
-                              <td><div className="addon-label">+ {a.label}</div></td>
-                              <td></td>
-                              <td></td>
-                              <td className="num addon-amt">+${fmt(a.amount)}</td>
-                            </tr>
-                          ))}
-                        </React.Fragment>
+                        <tr key={i}>
+                          <td>
+                            <div className="guest">{titleCase(r.guest_name)}</div>
+                            {r.note && (
+                              <div className="guest-note">
+                                {r.note}
+                                {r.noteAmounts && r.noteAmounts.length > 0 && (
+                                  <div className="guest-note-amounts">
+                                    {r.noteAmounts.map((n: number, idx: number) => (
+                                      <span key={idx} className={n < 0 ? 'amt-out' : 'amt-in'}>
+                                        {n < 0 ? '−$' : '+$'}{Math.abs(n).toFixed(2)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td><div className="stay-dates">{shortDate(r.check_in)} &rarr; {shortDate(r.check_out)}</div></td>
+                          <td><span className="channel" data-ch={chLabel(r.platform)}><span className="dot" />{chLabel(r.platform)}</span></td>
+                          <td className="num">${fmt(rowRev)}</td>
+                        </tr>
                       );
                     })}
                     {carriedAddOns.map((a, j) => (
