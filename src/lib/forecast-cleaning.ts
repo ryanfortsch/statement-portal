@@ -7,10 +7,14 @@
  * Gmail, parses property + amount + date out of each, and aggregates a
  * property x month grid plus per-property and portfolio totals.
  *
- * This is ADDITIVE reporting only — it never feeds the forecast model. The
- * Gmail parsing pieces (INVOICE_PROPERTY_MAP, matchProperty, parseInvoiceRef,
- * parseAmount, parsePropertyFromSnippet, the OAuth token refresh) are copied
- * from `src/app/api/sync-invoices/route.ts` so this lib stands alone.
+ * This is ADDITIVE reporting only — it never feeds the forecast model.
+ *
+ * Property attribution comes from `src/lib/invoice-property-match.ts`, shared
+ * with /api/sync-invoices. It used to be a copy of that route's map, which
+ * had gone stale by eight properties and matched FIRST-hit rather than
+ * longest, so a sub-unit invoice could bill to its parent. The remaining
+ * Gmail pieces (parseInvoiceRef, parseAmount, the OAuth token refresh) are
+ * still local so this lib does not import from an API route.
  *
  * Everything is wrapped so it can never throw: missing Gmail credentials or
  * a failed request logs via console.error and returns an empty-but-shaped
@@ -20,6 +24,12 @@
 
 import { unstable_cache } from 'next/cache';
 
+import {
+  loadInvoiceNeedles,
+  parseInvoiceProperty,
+  type InvoiceNeedles,
+} from '@/lib/invoice-property-match';
+
 // ---------------------------------------------------------------- Gmail env
 
 const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
@@ -27,36 +37,8 @@ const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
 
 // --------------------------------------------------------- Invoice parsers
-// Copied from src/app/api/sync-invoices/route.ts — kept local on purpose so
-// this lib does not import from an API route.
-
-/** Invoice-greeting text → property_id slug. */
-const INVOICE_PROPERTY_MAP: Record<string, string> = {
-  '21 horton': '21_horton',
-  '21 horton st': '21_horton',
-  '3 south': '3_south_st',
-  '3 south st': '3_south_st',
-  '53 rocky neck': '53_rocky_neck',
-  '53r rocky neck': '53_rocky_neck',
-  '73 rocky neck': '73_rocky_neck',
-  '73r rocky neck': '73_rocky_neck',
-  '4 brier neck': '4_brier_neck',
-  '30 woodward': '30_woodward',
-  '20 hammond': '20_hammond',
-  '20 enon': '20_enon',
-  '17 beach': '17_beach_rd',
-  '17 beach rd': '17_beach_rd',
-  '3 windward': '3_windward',
-  '225 washington': '225_washington',
-};
-
-function matchProperty(text: string): string | null {
-  const lower = text.toLowerCase();
-  for (const [key, propId] of Object.entries(INVOICE_PROPERTY_MAP)) {
-    if (lower.includes(key)) return propId;
-  }
-  return null;
-}
+// Kept local on purpose so this lib does not import from an API route.
+// Property attribution is the exception: it lives in a shared lib now.
 
 /** Parse invoice number + date from subject: "Invoice 4.19.26CM318". */
 function parseInvoiceRef(
@@ -78,17 +60,6 @@ function parseAmount(snippet: string): number | null {
   const match = snippet.match(/Total\s+\$?([\d,]+\.?\d*)/);
   if (!match) return null;
   return parseFloat(match[1].replace(/,/g, ''));
-}
-
-/** Parse property from snippet: "Dear Allie O'Brien:21 Horton St,". */
-function parsePropertyFromSnippet(snippet: string): string | null {
-  const match = snippet.match(/Dear\s+[^:]+:([^,]+)/i);
-  if (match) {
-    const matched = matchProperty(match[1].trim());
-    if (matched) return matched;
-  }
-  // Property is sometimes elsewhere in the snippet — try the whole thing.
-  return matchProperty(snippet);
 }
 
 // ------------------------------------------------------------------- Types
@@ -194,7 +165,8 @@ async function listAllMessageIds(accessToken: string): Promise<string[]> {
 /** Fetch one message's Subject header + snippet, parsed into an invoice. */
 async function fetchInvoice(
   accessToken: string,
-  id: string
+  id: string,
+  needles: InvoiceNeedles
 ): Promise<ParsedInvoice | null> {
   const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=Subject`;
   const res = await fetch(url, {
@@ -215,7 +187,7 @@ async function fetchInvoice(
   return {
     invoice_no: ref.invoice_no,
     invoice_date: ref.invoice_date,
-    property_id: parsePropertyFromSnippet(snippet),
+    property_id: parseInvoiceProperty(snippet, needles),
     amount: parseAmount(snippet),
   };
 }
@@ -223,14 +195,15 @@ async function fetchInvoice(
 /** Fetch message bodies in chunks of ~25 so ~400 resolve in seconds. */
 async function fetchInvoicesBatched(
   accessToken: string,
-  ids: string[]
+  ids: string[],
+  needles: InvoiceNeedles
 ): Promise<ParsedInvoice[]> {
   const CHUNK = 25;
   const out: ParsedInvoice[] = [];
   for (let i = 0; i < ids.length; i += CHUNK) {
     const chunk = ids.slice(i, i + CHUNK);
     const settled = await Promise.all(
-      chunk.map((id) => fetchInvoice(accessToken, id))
+      chunk.map((id) => fetchInvoice(accessToken, id, needles))
     );
     for (const inv of settled) {
       if (inv) out.push(inv);
@@ -323,7 +296,9 @@ function aggregate(invoices: ParsedInvoice[]): CleaningCosts {
  * Uncached Gmail pull. Returns an empty-but-shaped result on any failure —
  * never throws.
  */
-async function pullCleaningCosts(): Promise<CleaningCosts> {
+async function pullCleaningCosts(
+  needles: InvoiceNeedles
+): Promise<CleaningCosts> {
   if (!GMAIL_REFRESH_TOKEN || !GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET) {
     console.error(
       '[forecast-cleaning] Gmail credentials not configured — returning empty result.'
@@ -334,7 +309,7 @@ async function pullCleaningCosts(): Promise<CleaningCosts> {
     const accessToken = await getAccessToken();
     const ids = await listAllMessageIds(accessToken);
     if (ids.length === 0) return aggregate([]);
-    const invoices = await fetchInvoicesBatched(accessToken, ids);
+    const invoices = await fetchInvoicesBatched(accessToken, ids, needles);
     return aggregate(invoices);
   } catch (err) {
     console.error('[forecast-cleaning] Gmail pull failed:', err);
@@ -343,13 +318,23 @@ async function pullCleaningCosts(): Promise<CleaningCosts> {
 }
 
 /**
- * Cached entry point for the Forecast page. The Gmail pull is wrapped in
- * unstable_cache with a 6-hour revalidation so the section isn't re-pulled
- * on every render. The forecast page is force-dynamic, but unstable_cache
- * still applies per-key with its own TTL.
+ * The Gmail pull, cached for 6 hours so the section isn't re-pulled on every
+ * render. The forecast page is force-dynamic, but unstable_cache still
+ * applies per-key with its own TTL.
+ *
+ * The needle map is an ARGUMENT rather than a read inside the cached body,
+ * for two reasons: the cached body stays pure Gmail I/O, and unstable_cache
+ * folds arguments into the key, so editing a property's invoice_match
+ * re-pulls instead of serving a stale attribution for up to six hours.
+ * loadInvoiceNeedles returns a key-sorted map so that key is byte-stable.
  */
-export const getCleaningCosts: () => Promise<CleaningCosts> = unstable_cache(
+const pullCleaningCostsCached = unstable_cache(
   pullCleaningCosts,
-  ['forecast-cleaning-costs-v2'],
+  ['forecast-cleaning-costs-v3'],
   { revalidate: 60 * 60 * 6 } // 6 hours
 );
+
+/** Cached entry point for the Forecast page. */
+export async function getCleaningCosts(): Promise<CleaningCosts> {
+  return pullCleaningCostsCached(await loadInvoiceNeedles());
+}

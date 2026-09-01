@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncSuccess, recordSyncFailure } from '@/lib/sync-status';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import {
+  loadInvoiceNeedles,
+  parseInvoiceProperty,
+  type InvoiceNeedles,
+} from '@/lib/invoice-property-match';
 
 // Service role: this route UPDATEs cleaning_events when an invoice matches
 // an existing bank-sourced row. The anon key's RLS silently no-ops UPDATE
@@ -12,77 +17,6 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
-
-// Property name mapping from invoice greeting (Cape Ann Elite addresses
-// each invoice "Dear Allie O'Brien: <address>") to property_id. Match is
-// lowercase substring -- add common abbreviations / no-suffix forms so a
-// stray "St" / "Rd" / "Ln" doesn't break attribution.
-//
-// Keep this in sync as properties onboard. Without an entry, the invoice
-// silently parses with property_id=null and the route skips it -- the
-// statement then shows $0 cleaning even when bank charges and Gmail
-// invoices both exist.
-const INVOICE_PROPERTY_MAP: Record<string, string> = {
-  '21 horton': '21_horton',
-  '21 horton st': '21_horton',
-  '3 south': '3_south_st',
-  '3 south st': '3_south_st',
-  '53 rocky neck': '53_rocky_neck',
-  // Downstairs apartment -- its own property since 2026-07. These needles
-  // are superstrings of the parent's, and matchProperty picks the LONGEST
-  // hit, so a downstairs invoice can never fall through to the main house.
-  // Cover the spellings Cape Ann Elite might use in the greeting.
-  '53 rocky neck (down': '53_rocky_neck_2',
-  '53 rocky neck down': '53_rocky_neck_2',
-  '53 rocky neck downstairs': '53_rocky_neck_2',
-  '53r rocky neck down': '53_rocky_neck_2',
-  '53r rocky neck': '53_rocky_neck',
-  '73 rocky neck': '73_rocky_neck',
-  '73r rocky neck': '73_rocky_neck',
-  '4 brier neck': '4_brier_neck',
-  '30 woodward': '30_woodward',
-  '20 hammond': '20_hammond',
-  '20 enon': '20_enon',
-  '17 beach': '17_beach_rd',
-  '17 beach rd': '17_beach_rd',
-  '36 granite': '36_granite',
-  '36 granite st': '36_granite',
-  '16 waterman': '16_waterman',
-  '16 waterman st': '16_waterman',
-  '19 rackliffe': '19_rackliffe',
-  '19 rackliffe st': '19_rackliffe',
-  '79 main': '79_main',
-  '79 main st': '79_main',
-  '4 middle': '4_middle',
-  '4 middle rd': '4_middle',
-  '4 middle road': '4_middle',
-  '84 thatcher': '84_thatcher',
-  '84 thatcher rd': '84_thatcher',
-  '84 thatcher road': '84_thatcher',
-  '3 locust': '3_locust',
-  '3 locust ln': '3_locust',
-  '3 windward': '3_windward',
-  '3 windward pt': '3_windward',
-  '3 windward point': '3_windward',
-  '225 washington': '225_washington',
-  '225 washington st': '225_washington',
-};
-
-function matchProperty(text: string): string | null {
-  const lower = text.toLowerCase();
-  // Longest matching key wins, not insertion order: sub-unit keys
-  // ("53 rocky neck down") contain their parent's key, and a first-hit
-  // scan would silently attribute downstairs invoices to the main house.
-  let best: string | null = null;
-  let bestLen = 0;
-  for (const [key, propId] of Object.entries(INVOICE_PROPERTY_MAP)) {
-    if (key.length > bestLen && lower.includes(key)) {
-      best = propId;
-      bestLen = key.length;
-    }
-  }
-  return best;
-}
 
 // Parse invoice number from subject: "Invoice 4.19.26CM318"
 function parseInvoiceRef(subject: string): { invoice_no: string; invoice_date: string } | null {
@@ -102,16 +36,6 @@ function parseAmount(snippet: string): number | null {
   const match = snippet.match(/Total\s+\$?([\d,]+\.?\d*)/);
   if (!match) return null;
   return parseFloat(match[1].replace(/,/g, ''));
-}
-
-// Parse property from snippet: "Dear Allie O'Brien:21 Horton St,"
-function parsePropertyFromSnippet(snippet: string): string | null {
-  const match = snippet.match(/Dear\s+[^:]+:([^,]+)/i);
-  if (match) {
-    return matchProperty(match[1].trim());
-  }
-  // Also try matching the snippet itself (sometimes property is elsewhere)
-  return matchProperty(snippet);
 }
 
 type ParsedInvoice = {
@@ -146,7 +70,10 @@ async function getAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-async function fetchInvoicesFromGmail(month: string): Promise<ParsedInvoice[]> {
+async function fetchInvoicesFromGmail(
+  month: string,
+  needles: InvoiceNeedles
+): Promise<ParsedInvoice[]> {
   const [yearStr, monthStr] = month.split('-');
   const year = parseInt(yearStr);
   const mo = parseInt(monthStr);
@@ -198,7 +125,7 @@ async function fetchInvoicesFromGmail(month: string): Promise<ParsedInvoice[]> {
       invoices.push({
         invoice_no: invoiceRef.invoice_no,
         invoice_date: invoiceRef.invoice_date,
-        property_id: parsePropertyFromSnippet(snippet),
+        property_id: parseInvoiceProperty(snippet, needles),
         amount: parseAmount(snippet),
       });
     }
@@ -325,7 +252,7 @@ export async function POST(request: NextRequest) {
       invoices = providedInvoices;
     } else if (GMAIL_REFRESH_TOKEN && GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET) {
       // Mode 2: Fetch from Gmail API
-      invoices = await fetchInvoicesFromGmail(month);
+      invoices = await fetchInvoicesFromGmail(month, await loadInvoiceNeedles());
     } else {
       return NextResponse.json({
         error: 'No invoices provided and Gmail API not configured. Either pass invoices array in body or set GMAIL_REFRESH_TOKEN, GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET env vars.',
