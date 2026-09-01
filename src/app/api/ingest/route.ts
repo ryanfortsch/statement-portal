@@ -44,6 +44,20 @@ type ParsedPdf = {
   sections: { heading: string; property_id: string | null }[];
   /** True when 2+ sections were found and filtering was applied. */
   multiSection: boolean;
+  /**
+   * Set when the PDF's ONE section resolves to a DIFFERENT property than the
+   * one being ingested -- i.e. this statement describes someone else's house.
+   * Zero reservations are returned; the caller raises a critical gap.
+   *
+   * Deliberately not the same treatment as the 2+ section mismatch, which
+   * hard-400s. With 2+ sections and none matching, the PDF definitively
+   * belongs to another owner. With exactly one section it is ambiguous: it
+   * is either the wrong PDF, or the right owner's PDF in a month where this
+   * property had no bookings and Guesty emitted only the sibling's section.
+   * The second case still needs its ingest to run for cleaning, repairs and
+   * bank data, so we book no revenue and let the operator resolve the gap.
+   */
+  foreignSingleSection: { heading: string; listing: string; property_id: string } | null;
 };
 
 function parseGuestyPDF(
@@ -89,7 +103,31 @@ function parseGuestyPDF(
     ? sections.filter(s => s.property_id === sectionFilter!.targetPropertyId)
     : [];
 
+  // A lone section that resolves to a different property means every
+  // reservation in this PDF belongs to that other house. Before this check
+  // the single-section path fell through to "parse the whole text", so
+  // uploading 73 Rocky Neck's statement with 3 Windward selected booked 73's
+  // revenue against 3 Windward at 3 Windward's management fee, silently.
+  // An UNMATCHED heading (property_id null) is left alone -- it just means no
+  // listing_match needle recognised the listing name, which is not evidence
+  // the PDF is for the wrong property.
+  const foreignSingleSection = (
+    sectionFilter
+    && sections.length === 1
+    && sections[0].property_id
+    && sections[0].property_id !== sectionFilter.targetPropertyId
+  )
+    // `listing` is the heading without its glued-on "<N> reservations" tail
+    // ("73 Rocky Neck2 reservations" -> "73 Rocky Neck"), for display.
+    ? {
+        heading: sections[0].heading,
+        listing: sections[0].heading.replace(/\d+\s*reservations?$/i, '').trim(),
+        property_id: sections[0].property_id as string,
+      }
+    : null;
+
   const inTargetSection = (index: number): boolean => {
+    if (foreignSingleSection) return false;
     if (!multiSection) return true;
     return targetRanges.some(r => index >= r.start && index < r.end);
   };
@@ -143,6 +181,7 @@ function parseGuestyPDF(
     reservations,
     sections: sections.map(s => ({ heading: s.heading, property_id: s.property_id })),
     multiSection,
+    foreignSingleSection,
   };
 }
 
@@ -449,6 +488,9 @@ export async function POST(request: NextRequest) {
     }
 
     let reservations: GuestyReservation[] = [];
+    // Set when the uploaded PDF's only section belongs to another property.
+    // Carried to step 12, which turns it into a critical gap.
+    let foreignPdfSection: { heading: string; listing: string; property_id: string } | null = null;
     let pdfDebug = '';
 
     if (guestyPDFFile) {
@@ -480,6 +522,7 @@ export async function POST(request: NextRequest) {
           error: `This owner statement PDF has ${parsed.sections.length} property sections (${headings}) and none belong to ${propConfig.name}. Check that the right PDF was uploaded for this property.`,
         }, { status: 400 });
       }
+      foreignPdfSection = parsed.foreignSingleSection;
       reservations = parsed.reservations.map(r => ({ ...r, guest_name: '' }));
     }
 
@@ -1704,9 +1747,27 @@ export async function POST(request: NextRequest) {
 
     // 12. Data gap flags
     const gaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
-    if (!hasGuesty) gaps.push({ gap_type: 'missing_guesty', description: 'No Guesty owner statement provided', severity: 'critical', expected_data: `Guesty owner statement for ${propConfig.name} - ${month}` });
+    // `foreignPdfSection` also lands here as !hasGuesty (it books zero
+    // reservations, which is what drives confidence to red -- and red keeps
+    // it out of Draft All). Skip the vague "none provided" gap in that case;
+    // the specific wrong-property gap below says the useful thing.
+    if (!hasGuesty && !foreignPdfSection) gaps.push({ gap_type: 'missing_guesty', description: 'No Guesty owner statement provided', severity: 'critical', expected_data: `Guesty owner statement for ${propConfig.name} - ${month}` });
     if (!hasPlatform) gaps.push({ gap_type: 'no_platform_match', description: 'No platform CSV -- cannot determine booking channels', severity: 'warning', expected_data: `Platform CSV from Guesty for ${month}` });
     if (!hasBank) gaps.push({ gap_type: 'missing_bank_csv', description: 'No bank statement for deposit/cleaning verification', severity: 'warning', expected_data: `Chase bank CSV for ...${propConfig.bank_last4}` });
+
+    // The uploaded owner statement describes a different property, so no
+    // revenue was taken from it. Either the wrong PDF was picked, or it is
+    // the right owner's PDF in a month where this house had no bookings.
+    // Both need a human; booking the other house's revenue here would have
+    // applied THIS property's management fee to it.
+    if (foreignPdfSection) {
+      gaps.push({
+        gap_type: 'guesty_pdf_wrong_property',
+        description: `The uploaded owner statement's only section is "${foreignPdfSection.listing}", which belongs to ${foreignPdfSection.property_id}, not ${propConfig.name}. No reservations were taken from it. If ${propConfig.name} genuinely had no bookings this month, resolve this gap; otherwise re-upload the correct PDF.`,
+        severity: 'critical',
+        expected_data: `Guesty owner statement covering ${propConfig.name} - ${month}`,
+      });
+    }
 
     // Vendors never pay us -- a vendor credit is always a refund. When one
     // can't be netted automatically (no same-month exact-amount charge), it
@@ -1965,6 +2026,10 @@ export async function POST(request: NextRequest) {
         data_gaps: gaps.length + (stripeSync?.refunds_detected.length || 0) + (stripeSync?.gross_mismatches.length || 0) + (stripeSync?.reservations_missing_charge.length || 0),
       },
       stripe_sync: stripeSync,
+      // Non-null when the uploaded PDF described a different property and no
+      // revenue was taken from it. Surfaced here as well as in data_gaps so
+      // the operator sees it on the upload screen, not just on the dashboard.
+      wrong_property_pdf: foreignPdfSection,
       platform_csv_source: platformCsvSource,
       parsed_reservations: processedReservations,
       installments_recognized_elsewhere: recognizedElsewhere,
