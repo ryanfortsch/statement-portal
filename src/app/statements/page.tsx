@@ -2243,7 +2243,8 @@ function DashboardContent() {
     if (missing.length === 0) return;
     let cancelled = false;
     setPreviewNotesLoading(true);
-    Promise.all(missing.map(h => loadOwnerRequestCandidatesAction(h.propertyId, h.name, selectedMonth)))
+    Promise.all(missing.map(h =>
+      loadOwnerRequestCandidatesAction(h.propertyId, h.name, selectedMonth, statementIdBy[h.propertyId] || null)))
       .then(results => {
         if (cancelled) return;
         setRequestCandidates(prev => {
