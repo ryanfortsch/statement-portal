@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fieldDb } from '@/lib/field-db';
+import { isInternalSweepSource } from '@/lib/internal-transfers';
 
 /**
  * Lightweight count endpoint for the nav tab pills (NavTabCount), mirroring
@@ -19,7 +20,10 @@ import { fieldDb } from '@/lib/field-db';
  *   statement period -- unattributed deposits, unattributed debits, and
  *   parked vendor refunds all live in bank_deposit_attributions with
  *   status='pending' (same single-table query the dashboard's month review
- *   strip runs).
+ *   strip runs), minus the recognized internal sweeps, which are Rising
+ *   Tide's own money movements and are not an operator ask. This mirrors
+ *   loadDepositReviewCounts in src/app/statements/actions.ts; change the
+ *   two together or the badge and the strip disagree.
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,12 +40,21 @@ export async function GET() {
     if (!packetsRes.error) fieldPackets = packetsRes.count ?? 0;
     const latestMonth = (periodRes.data as { month: string } | null)?.month;
     if (latestMonth) {
+      // Recognized internal sweeps (tax to *9928, the VRBO-commission and
+      // management-fee settlements to *5130) are Rising Tide moving its own
+      // money and need no operator decision, so they must not sit in the
+      // badge forever. Excluded in JS to match loadDepositReviewCounts
+      // exactly -- the two counts drive the same "what's outstanding"
+      // question and have to agree.
       const reviewRes = await db
         .from('bank_deposit_attributions')
-        .select('id', { count: 'exact', head: true })
+        .select('source')
         .eq('month', latestMonth)
         .eq('status', 'pending');
-      if (!reviewRes.error) statementsReview = reviewRes.count ?? 0;
+      if (!reviewRes.error) {
+        statementsReview = ((reviewRes.data || []) as Array<{ source: string | null }>)
+          .filter(r => !isInternalSweepSource(r.source)).length;
+      }
     }
   } catch {
     // fieldDb throws when the service-role key is unset (local dev ships

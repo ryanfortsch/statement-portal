@@ -62,6 +62,67 @@ export const MAINTENANCE_VENDORS: CleaningVendor[] = [
   { name: 'SP Properties', matches: ['SP PROPERTIES'] },
 ];
 
+/* -------------------------------------------------------------------------
+ * Internal account transfers.
+ *
+ * Deliberately NOT a `BankRowClass` kind and NOT reachable from
+ * classifyBankRow. Every existing caller treats a truthy class as
+ * "billable vendor activity": /api/ingest's vendor-credit branch is
+ * `if (cls && amount > 0 && isInMonth(...))` -- truthiness, not a per-kind
+ * test -- so a fifth kind would capture the inbound `Online Transfer from
+ * CHK ...5130` credits as vendor refunds, drop them into a netting pool
+ * that has no bucket for them, and raise a critical vendor_refund_unapplied
+ * gap for each. There are ten such rows live ($12,274.86). Hence a separate
+ * pure helper that callers opt into.
+ *
+ * Money moving between Rising Tide's own Chase accounts is not a vendor
+ * paying us and not us paying a vendor. Two destinations matter:
+ *
+ *   *9928  the centralized tax account. Occupancy tax collected on VRBO,
+ *          Booking.com and direct stays is swept here out of each property
+ *          account, and MassTaxConnect pays the state from it. That money
+ *          was never owner revenue -- adjusted_revenue is computed net of
+ *          TOTAL_TAXES -- so a sweep to *9928 must never be billed to an
+ *          owner.
+ *   *5130  Rising Tide operating. Ambiguous by design: the VRBO commission
+ *          sweep, the monthly management-fee settlement AND genuine expense
+ *          reimbursements all move here. Recognizing the account is
+ *          therefore only the first half of the decision; see
+ *          src/lib/internal-transfers.ts for the amount test that separates
+ *          a sweep from a reimbursement.
+ *
+ * Observed descriptor shape, uniform across all 90 live transfer rows:
+ *   "Online Transfer to CHK ...5130 transaction#: 30571000226 08/27"
+ *   "Online Transfer from CHK ...5130 transaction#: 29717013440"
+ * The trailing " MM/DD" is present on outbound rows and absent on inbound
+ * ones, so it is not part of the match.
+ */
+
+/** The centralized MassTaxConnect funding account. */
+export const TAX_REMITTANCE_ACCOUNT = '9928';
+/** Rising Tide's main operating account. */
+export const RT_OPERATING_ACCOUNT = '5130';
+
+export type InternalTransfer = {
+  /** Last four of the OTHER account -- the destination on an outbound row,
+   *  the origin on an inbound one. */
+  last4: string;
+  /** True when money left this property's account. */
+  outbound: boolean;
+};
+
+/**
+ * Recognize a Chase internal account transfer from its description.
+ * Anchored on the full "ONLINE TRANSFER TO|FROM CHK ...NNNN" phrase rather
+ * than a bare "5130" substring, which would also fire on a transaction id
+ * that happens to contain those digits.
+ */
+export function parseInternalTransfer(descUpper: string): InternalTransfer | null {
+  const m = /ONLINE TRANSFER (TO|FROM) (?:CHK|SAV)\s*\.*\s*(\d{4})/.exec(descUpper);
+  if (!m) return null;
+  return { last4: m[2], outbound: m[1] === 'TO' };
+}
+
 function firstMatch(descUpper: string, vendors: CleaningVendor[]): string | null {
   for (const v of vendors) {
     if (v.matches.some(m => descUpper.includes(m))) return v.name;

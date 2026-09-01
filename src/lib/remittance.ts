@@ -195,20 +195,31 @@ type GuestyRow = {
  * Build the whole sheet for one month. Server-only: reads folio_items,
  * which is a large JSON blob per reservation and has no business crossing
  * to the browser.
+ *
+ * `opts.propertyId` narrows the sheet to a single property. Every heavy
+ * read downstream keys off the statement rows, so scoping them scopes the
+ * whole build -- which is what lets /api/ingest ask "what did this one
+ * property owe last month" without paying for the other fourteen. A scoped
+ * sheet carries no `missingProperties`, since the coverage guarantee is a
+ * property of the FULL sheet and an empty list on a scoped one would read
+ * as "nothing missing".
  */
 export async function buildRemittanceSheet(
   supabase: SupabaseClient,
   month: string,
+  opts?: { propertyId?: string },
 ): Promise<RemittanceSheet> {
+  const scopedTo = opts?.propertyId;
   const { data: period } = await supabase
     .from('statement_periods').select('id').eq('month', month).maybeSingle();
   if (!period?.id) return { month, rows: [], missingProperties: [] };
 
-  const { data: statements } = await supabase
+  let stmtQuery = supabase
     .from('property_statements')
     .select('id, property_id, property_name')
-    .eq('period_id', period.id)
-    .order('property_name');
+    .eq('period_id', period.id);
+  if (scopedTo) stmtQuery = stmtQuery.eq('property_id', scopedTo);
+  const { data: statements } = await stmtQuery.order('property_name');
   const stmts = (statements || []) as Array<{ id: string; property_id: string; property_name: string }>;
   if (stmts.length === 0) return { month, rows: [], missingProperties: [], installmentsDegraded: false };
 
@@ -383,9 +394,11 @@ export async function buildRemittanceSheet(
   });
 
   // Coverage guarantee: an active property with no statement this month is
-  // named on the sheet rather than being silently absent from it.
+  // named on the sheet rather than being silently absent from it. Skipped
+  // on a scoped sheet, which is answering a question about one property
+  // and has no view of the fleet.
   const covered = new Set(stmts.map(s => s.property_id));
-  const missingProperties = registry
+  const missingProperties = scopedTo ? [] : registry
     .filter(p => p.is_active !== false && !covered.has(p.id) && p.id !== 'hq')
     .map(p => ({ id: p.id, name: p.name || p.id }))
     .sort((a, b) => a.name.localeCompare(b.name));
