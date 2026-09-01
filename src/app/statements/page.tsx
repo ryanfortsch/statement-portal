@@ -75,6 +75,20 @@ type RepairEvent = {
   receipt_id?: string | null;
 };
 
+/**
+ * An operator-attributed bank debit: a charge that never classified as a
+ * known maintenance vendor, so it landed in the bank review queue and was
+ * deducted from the payout by hand. It has no repair_events row, and the
+ * statement bills it on the same Repairs & Maint. line as one.
+ */
+type AttributedDebit = {
+  id: string;
+  deposit_date: string | null;
+  amount: number;
+  label: string | null;
+  description: string | null;
+};
+
 type DataGap = {
   id: string;
   gap_type: string;
@@ -108,6 +122,9 @@ type PropertyStatement = {
   management_fee: number;
   cleaning_total: number;
   repairs_total: number;
+  /** Attributed add-on revenue; the statement bills this on the same Gross
+   *  Revenue line as rental_revenue. */
+  add_ons_revenue?: number;
   /** Operator-attributed bank debits; the statement bills these on the same
    *  Repairs & Maint. line as repairs_total. */
   attributed_debits_total?: number;
@@ -126,6 +143,7 @@ type PropertyStatement = {
   reservations?: Reservation[];
   cleaning_events?: CleaningEvent[];
   repair_events?: RepairEvent[];
+  attributed_debits?: AttributedDebit[];
   data_gaps?: DataGap[];
   drift_bookings?: DriftBooking[];
   /** false = the drift probe FAILED. Not "no drift" -- unknown drift. */
@@ -1361,6 +1379,16 @@ function PropertyCard({
   const cleaning = [...(prop.cleaning_events || [])].sort((a, b) =>
     (a.bank_charge_date || a.checkout_date || '').localeCompare(b.bank_charge_date || b.checkout_date || ''));
   const repairs = prop.repair_events || [];
+  const attributedDebits = prop.attributed_debits || [];
+  // What the owner's Repairs & Maint. line actually says, and what the
+  // Financials column has to subtract to reach the payout: vendor-classified
+  // repairs plus the debits an operator attributed by hand. Showing
+  // repairs_total alone left the column short by the attributed half, so it
+  // visibly did not add up to the payout underneath it.
+  const repairsCombined = Number(prop.repairs_total || 0) + Number(prop.attributed_debits_total || 0);
+  // Same story on the way in: an attributed deposit is add-on revenue billed
+  // on the Gross Revenue line.
+  const grossRevenue = Number(prop.rental_revenue || 0) + Number(prop.add_ons_revenue || 0);
   const bankMatched = reservations.filter(r => r.bank_match_status === 'matched').length;
   const pctMatched = reservations.length > 0 ? Math.round((bankMatched / reservations.length) * 100) : 0;
 
@@ -1562,10 +1590,10 @@ function PropertyCard({
               <SectionHead num="01" title="Financials" meta={`Net ${fmt(prop.owner_payout)}`} />
               <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12, color: 'var(--ink-2)' }}>
                 <tbody>
-                  <FinRow label="Gross Revenue" value={fmt(prop.rental_revenue)} />
+                  <FinRow label="Gross Revenue" value={fmt(grossRevenue)} />
                   <FinRow label={`Mgmt Fee (${prop.management_fee_pct}%)`} value={`−${fmt(prop.management_fee)}`} negative />
                   <FinRow label="Cleaning" value={`−${fmt(prop.cleaning_total)}`} negative />
-                  {prop.repairs_total > 0 && <FinRow label="Repairs" value={`−${fmt(prop.repairs_total)}`} negative />}
+                  {repairsCombined > 0 && <FinRow label="Repairs" value={`−${fmt(repairsCombined)}`} negative />}
                   <ReserveHoldbackRow prop={prop} onSaved={onRefresh} />
                   <tr>
                     <td style={{ padding: '10px 0 0', borderTop: '1.5px solid var(--ink)', borderBottom: '2.5px double var(--ink)', fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
@@ -1742,10 +1770,13 @@ function PropertyCard({
             </div>
           )}
 
-          {/* Repairs & Maintenance */}
-          {repairs.length > 0 && (
+          {/* Repairs & Maintenance: vendor-classified repairs, then the
+              debits an operator attributed by hand. Both bill to the same
+              owner-facing line, so both are listed under it and the section
+              total is the line itself. */}
+          {(repairs.length > 0 || attributedDebits.length > 0) && (
             <div style={{ marginTop: 28 }}>
-              <SectionHead num="05" title="Repairs & Maintenance" meta={`${fmt(prop.repairs_total)} total`} />
+              <SectionHead num="05" title="Repairs & Maintenance" meta={`${fmt(repairsCombined)} total`} />
               <div>
                 {repairs.map((re) => (
                   <div key={re.id} className="flex items-center justify-between" style={{ padding: '10px 0', borderBottom: '1px dotted var(--rule)', fontSize: 12 }}>
@@ -1777,6 +1808,35 @@ function PropertyCard({
                     </div>
                   </div>
                 ))}
+                {attributedDebits.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between" style={{ padding: '10px 0', borderBottom: '1px dotted var(--rule)', fontSize: 12 }}>
+                    <div className="flex items-center gap-4" style={{ minWidth: 0 }}>
+                      <span className="tabular-nums" style={{ color: 'var(--ink-4)', width: 50, fontSize: 11 }}>
+                        {d.deposit_date ? fmtDate(d.deposit_date) : '—'}
+                      </span>
+                      <span style={{
+                        fontFamily: 'var(--font-fraunces)',
+                        fontWeight: 500,
+                        color: 'var(--ink)',
+                      }}>
+                        {d.label || 'Attributed charge'}
+                      </span>
+                      {/* The raw bank descriptor: on an internal page it is
+                          how you find the row again in the Chase CSV. */}
+                      {d.description && (
+                        <span style={{ fontSize: 11, color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {d.description}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--tide)' }}>
+                        Attributed
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="font-serif tabular-nums" style={{ fontWeight: 500, color: 'var(--ink)' }}>{fmt(Number(d.amount) || 0)}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1785,7 +1845,7 @@ function PropertyCard({
               photo in) and bill it to this month's Repairs & Maintenance.
               Rides under section 05 when repairs exist; stands alone as a
               slim affordance when the month has none yet. */}
-          <div style={{ marginTop: repairs.length > 0 ? 12 : 28 }}>
+          <div style={{ marginTop: repairs.length > 0 || attributedDebits.length > 0 ? 12 : 28 }}>
             {addingReceipt ? (
               <ReceiptCapture
                 propertyId={prop.property_id}
