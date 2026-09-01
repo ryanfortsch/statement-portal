@@ -279,11 +279,21 @@ export async function POST(request: NextRequest) {
     const { error: insertErr } = await supabase.from('reservations').insert(newRows);
     if (insertErr) throw insertErr;
 
-    // Recompute statement totals from the freshest reservations.
-    const { data: allRes } = await supabase
+    // Recompute statement totals from the freshest reservations. This read
+    // runs AFTER the insert, so a failure cannot be a clean refusal -- but
+    // it must not be silent either: an empty result here would zero
+    // rental_revenue, num_stays and nights_booked and rewrite the payout as
+    // if the property had no bookings at all.
+    const { data: allRes, error: allResErr } = await supabase
       .from('reservations')
       .select('adjusted_revenue, nights, check_out')
       .eq('property_statement_id', stmt.id);
+    if (allResErr) {
+      throw new Error(
+        `Bookings were added, but the statement totals could not be recomputed (${allResErr.message}). ` +
+        'The statement now understates revenue until you re-run Refresh or re-ingest the month.',
+      );
+    }
     const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
     // Attributed add-ons / debits stay in the equation (canonical formula,
     // same as the bank-deposits + reserve routes) so a refresh can't
