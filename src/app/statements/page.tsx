@@ -1,16 +1,21 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   loadOwnerConfig, loadTaxCerts, loadRemittanceSheet, loadOwnerActionCounts as loadOwnerActionCountsAction,
   loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap, loadMonthDataStatus,
   loadCloseState as loadCloseStateAction, saveFundsSentDateAction, upsertCloseTask,
-  loadGuestyRowsByCodes, loadStatementWorkNotesAction, setPeriodStatusAction,
+  loadGuestyRowsByCodes, loadOwnerRequestCandidatesAction, saveOwnerRequestSelectionsAction,
+  setPeriodStatusAction,
   type SyncHealthRow, type MonthDataStatus,
 } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import type { RemittanceSheet } from '@/lib/remittance';
-import { renderEmail, fmtFundsSentDate, workNotesHaveContent, type EmailTemplate, type PropertyWorkNotes } from '@/lib/email-templates';
+import {
+  renderEmail, fmtFundsSentDate, resolveOwnerRequests, ownerRequestsHaveContent,
+  type EmailTemplate, type OwnerRequestSelections, type PropertyRequestCandidates,
+} from '@/lib/email-templates';
+import { OwnerRequestsPanel } from '@/components/OwnerRequestsPanel';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { jsonWithFreezeRetry, formWithFreezeRetry } from '@/lib/freeze-confirm';
 import { FINALITY_FROM_MONTH } from '@/lib/statement-finality';
@@ -103,6 +108,9 @@ type PropertyStatement = {
   management_fee: number;
   cleaning_total: number;
   repairs_total: number;
+  /** Operator-attributed bank debits; the statement bills these on the same
+   *  Repairs & Maint. line as repairs_total. */
+  attributed_debits_total?: number;
   tax_remittance: number;
   reserve_holdback?: number;
   owner_payout: number;
@@ -140,8 +148,14 @@ type CloseTask = {
   period_id: string;
   property_id: string;
   email_template: 'monthly' | 'touch_base' | 'year_end';
-  // Fold the month's work slips into the email as a polished section.
+  // Fold the owner-request section into the email. The name predates the
+  // reframe from "here's what we did" to "here's what we need from you";
+  // the column still means "include the section".
   email_include_work_slips: boolean;
+  // Per-item picks and operator wording, keyed by work_slip id.
+  owner_request_items: OwnerRequestSelections | null;
+  // Opt-in sub-section: recap what we handled, under the asks.
+  email_include_handled: boolean;
   email_drafted_at: string | null;
   email_sent_at: string | null;
   owner_transfer_done_at: string | null;
@@ -2158,25 +2172,90 @@ function DashboardContent() {
   const [fundsSentDate, setFundsSentDate] = useState<string>('');
   const [closeTasks, setCloseTasks] = useState<Record<string, CloseTask>>({});
   const [previewPropertyId, setPreviewPropertyId] = useState<string | null>(null);
-  // Work-notes groups for the email preview, keyed "propertyId:month".
-  // Fetched lazily when the preview opens with the toggle on, via the same
-  // loader /api/draft-email uses, so the preview body matches the draft.
-  const [previewWorkNotes, setPreviewWorkNotes] = useState<Record<string, PropertyWorkNotes>>({});
+  // Owner-request candidates for the email preview, keyed "propertyId:month".
+  // Fetched lazily when the preview opens with the section on, via the same
+  // loader /api/draft-email uses, so what the operator curates here is
+  // literally what the draft composes.
+  const [requestCandidates, setRequestCandidates] = useState<Record<string, PropertyRequestCandidates>>({});
   const [previewNotesLoading, setPreviewNotesLoading] = useState(false);
+
+  // Every house this preview's email will cover: the previewed property plus
+  // any sibling sharing its owner_id (Prudenzi, Moynahan get ONE email). The
+  // curation panel needs all of them -- an operator who could only pick
+  // items for one house would be signing off on a list they never saw.
+  const previewHouses = useMemo(() => {
+    if (!previewPropertyId) return [] as { propertyId: string; name: string }[];
+    const cfg = resolveCfg(previewPropertyId);
+    if (!cfg) return [];
+    // Same source the render path uses: "has a statement this period" is
+    // exactly what the draft route groups on.
+    const siblings = (period?.property_statements || [])
+      .filter(p => {
+        if (p.property_id === previewPropertyId) return false;
+        const sc = resolveCfg(p.property_id);
+        return !!sc && !!sc.owner_id && sc.owner_id === cfg.owner_id;
+      })
+      .map(p => ({ propertyId: p.property_id, name: resolveCfg(p.property_id)?.name || p.property_name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [{ propertyId: previewPropertyId, name: cfg.name }, ...siblings];
+  }, [previewPropertyId, period, resolveCfg]);
+
+  /**
+   * The statement's Repairs & Maint. line per property: repairs plus
+   * attributed debits, exactly what the statement's own row sums. Non-zero
+   * turns the finished-work list into the itemization of a charge the owner
+   * is paying, so the email can name the number they are looking at.
+   */
+  const maintenanceChargeBy = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of period?.property_statements || []) {
+      map[p.property_id] = Number(p.repairs_total || 0) + Number(p.attributed_debits_total || 0);
+    }
+    return map;
+  }, [period]);
+
+  /** property_statements.id per property, so the loader can offer the
+   *  statement's own repair charges as itemization material. */
+  const statementIdBy = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of period?.property_statements || []) map[p.property_id] = p.id;
+    return map;
+  }, [period]);
+
+  const loadCandidatesFor = useCallback(async (propertyId: string, name: string, month: string, statementId?: string | null) => {
+    const key = `${propertyId}:${month}`;
+    setPreviewNotesLoading(true);
+    try {
+      const loaded = await loadOwnerRequestCandidatesAction(propertyId, name, month, statementId);
+      setRequestCandidates(prev => ({ ...prev, [key]: loaded }));
+    } catch {
+      // Leave the key unset: the panel keeps saying "loading" rather than
+      // showing an empty list, which would read as "nothing to ask about".
+    } finally {
+      setPreviewNotesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!previewPropertyId || !selectedMonth) return;
     if (!closeTasks[previewPropertyId]?.email_include_work_slips) return;
-    const key = `${previewPropertyId}:${selectedMonth}`;
-    if (previewWorkNotes[key]) return;
-    const cfg = resolveCfg(previewPropertyId);
+    const missing = previewHouses.filter(h => !requestCandidates[`${h.propertyId}:${selectedMonth}`]);
+    if (missing.length === 0) return;
     let cancelled = false;
     setPreviewNotesLoading(true);
-    loadStatementWorkNotesAction(previewPropertyId, cfg?.name || previewPropertyId, selectedMonth)
-      .then(notes => { if (!cancelled) setPreviewWorkNotes(prev => ({ ...prev, [key]: notes })); })
+    Promise.all(missing.map(h => loadOwnerRequestCandidatesAction(h.propertyId, h.name, selectedMonth)))
+      .then(results => {
+        if (cancelled) return;
+        setRequestCandidates(prev => {
+          const next = { ...prev };
+          results.forEach(r => { next[`${r.propertyId}:${selectedMonth}`] = r; });
+          return next;
+        });
+      })
       .catch(() => {})
       .finally(() => { if (!cancelled) setPreviewNotesLoading(false); });
     return () => { cancelled = true; };
-  }, [previewPropertyId, selectedMonth, closeTasks, previewWorkNotes, resolveCfg]);
+  }, [previewPropertyId, selectedMonth, closeTasks, previewHouses, requestCandidates, statementIdBy]);
   const [draftingProperty, setDraftingProperty] = useState<string | null>(null);
   const [draftResult, setDraftResult] = useState<
     | { url: string; property: string; attachedPdf: boolean; warnings: string[] }
@@ -2366,6 +2445,8 @@ function DashboardContent() {
               property_id: pid,
               email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
               email_include_work_slips: existing?.email_include_work_slips || false,
+              owner_request_items: existing?.owner_request_items || null,
+              email_include_handled: existing?.email_include_handled || false,
               email_drafted_at: new Date().toISOString(),
               email_sent_at: clearedSent.includes(pid) ? null : (existing?.email_sent_at || null),
               owner_transfer_done_at: existing?.owner_transfer_done_at || null,
@@ -2389,6 +2470,36 @@ function DashboardContent() {
     }
   }
 
+  /**
+   * Persist one house's per-item picks. Written on every tick and every
+   * wording edit: /api/draft-email reads the STORED picks, never anything
+   * the browser hands it, so an unsaved edit would silently not ship.
+   */
+  async function saveOwnerRequestSelections(propertyId: string, selections: OwnerRequestSelections) {
+    if (!period) return;
+    setCloseTasks(prev => {
+      const existing = prev[propertyId];
+      return {
+        ...prev,
+        [propertyId]: {
+          period_id: period.id,
+          property_id: propertyId,
+          email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
+          email_include_work_slips: existing?.email_include_work_slips || false,
+          email_include_handled: existing?.email_include_handled || false,
+          email_drafted_at: existing?.email_drafted_at || null,
+          email_sent_at: existing?.email_sent_at || null,
+          owner_transfer_done_at: existing?.owner_transfer_done_at || null,
+          mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
+          notes: existing?.notes || null,
+          statement_drive_url: existing?.statement_drive_url || null,
+          owner_request_items: selections,
+        },
+      };
+    });
+    await saveOwnerRequestSelectionsAction(period.id, propertyId, selections);
+  }
+
   async function saveCloseTaskField(propertyId: string, patch: Partial<CloseTask>) {
     if (!period) return;
     const existing = closeTasks[propertyId];
@@ -2397,6 +2508,8 @@ function DashboardContent() {
       property_id: propertyId,
       email_template: existing?.email_template || 'monthly',
       email_include_work_slips: existing?.email_include_work_slips || false,
+      owner_request_items: existing?.owner_request_items || null,
+      email_include_handled: existing?.email_include_handled || false,
       email_drafted_at: existing?.email_drafted_at || null,
       email_sent_at: existing?.email_sent_at || null,
       owner_transfer_done_at: existing?.owner_transfer_done_at || null,
@@ -2783,6 +2896,8 @@ function DashboardContent() {
                 property_id: pid,
                 email_template: (existing?.email_template || 'monthly') as CloseTask['email_template'],
                 email_include_work_slips: existing?.email_include_work_slips || false,
+                owner_request_items: existing?.owner_request_items || null,
+                email_include_handled: existing?.email_include_handled || false,
                 email_drafted_at: new Date().toISOString(),
                 email_sent_at: clearedSent.includes(pid) ? null : (existing?.email_sent_at || null),
                 owner_transfer_done_at: existing?.owner_transfer_done_at || null,
@@ -3464,8 +3579,27 @@ function DashboardContent() {
         const task = closeTasks[previewPropertyId];
         const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
         const includeNotes = !!task?.email_include_work_slips;
-        const notes = includeNotes ? previewWorkNotes[`${previewPropertyId}:${selectedMonth}`] : undefined;
-        const notesEmpty = !!notes && !workNotesHaveContent(notes);
+        // Resolve each covered house's curated list exactly the way
+        // /api/draft-email will: same candidates, same stored picks, same
+        // resolver. The body below is therefore the email, not an
+        // approximation of it.
+        const resolvedRequests = includeNotes
+          ? previewHouses
+              .map(h => {
+                const loaded = requestCandidates[`${h.propertyId}:${selectedMonth}`];
+                if (!loaded) return null;
+                const houseTask = closeTasks[h.propertyId];
+                return resolveOwnerRequests(loaded, houseTask?.owner_request_items, {
+                  includeHandled: !!houseTask?.email_include_handled,
+                  maintenanceCharge: maintenanceChargeBy[h.propertyId] || 0,
+                });
+              })
+              .filter(r => r !== null)
+              .filter(ownerRequestsHaveContent)
+          : [];
+        const notesEmpty = includeNotes
+          && previewHouses.every(h => !!requestCandidates[`${h.propertyId}:${selectedMonth}`])
+          && resolvedRequests.length === 0;
         // Combined owner (Prudenzi, Moynahan): /api/draft-email will group
         // every sibling sharing this owner_id that has a statement this
         // period. `props` is exactly "has a statement this period", so
@@ -3493,9 +3627,7 @@ function DashboardContent() {
           fundsSentIso: fundsSentDate,
           ownerPayout: prop.owner_payout,
           template: tmpl,
-          // Work notes still only cover the previewed house -- the sibling's
-          // slips aren't loaded here. The banner below says so.
-          workNotes: notes && !notesEmpty ? [notes] : undefined,
+          ownerRequests: resolvedRequests.length > 0 ? resolvedRequests : undefined,
           properties: previewGrouped
             ? [{ name: cfg.name, payout: prop.owner_payout || undefined },
                ...previewSiblings.map(s => ({
@@ -3519,29 +3651,45 @@ function DashboardContent() {
                 Combined owner: this draft covers{' '}
                 <strong>{[cfg.name, ...previewSiblings.map(s => resolveCfg(s.property_id)?.name || s.property_name)].join(' + ')}</strong>{' '}
                 in one email, with a PDF attached per property.
-                {includeNotes && ' Work notes below cover ' + cfg.name + ' only; the sent email includes each house’s own notes.'}
+                {includeNotes && ' Requests are curated per house below.'}
               </div>
             )}
 
-            {/* Work-notes toggle, mirrored with the close-out row. The body
-                below re-renders live as the section loads in. */}
+            {/* The owner-request section: master switch, then the curation
+                panel. The body below re-renders live off the same picks the
+                draft route will read. */}
             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <CheckTask
-                label="Include work notes"
+                label="Include owner requests"
                 done={includeNotes}
                 onToggle={(next) => saveCloseTaskField(previewPropertyId, { email_include_work_slips: next })}
               />
-              {includeNotes && !notes && previewNotesLoading && (
-                <span style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
-                  Loading work slips&hellip;
-                </span>
-              )}
               {includeNotes && notesEmpty && (
                 <span style={{ fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.08em', textTransform: 'uppercase' }}>
-                  No work slips to report this month; section left out
+                  Nothing included; section left out
                 </span>
               )}
             </div>
+            {includeNotes && (
+              <OwnerRequestsPanel
+                houses={previewHouses}
+                candidates={Object.fromEntries(previewHouses.map(h =>
+                  [h.propertyId, requestCandidates[`${h.propertyId}:${selectedMonth}`]]))}
+                selections={Object.fromEntries(previewHouses.map(h =>
+                  [h.propertyId, closeTasks[h.propertyId]?.owner_request_items]))}
+                includeHandled={Object.fromEntries(previewHouses.map(h =>
+                  [h.propertyId, !!closeTasks[h.propertyId]?.email_include_handled]))}
+                maintenanceCharge={Object.fromEntries(previewHouses.map(h =>
+                  [h.propertyId, maintenanceChargeBy[h.propertyId] || 0]))}
+                loading={previewNotesLoading}
+                onSelectionsChange={saveOwnerRequestSelections}
+                onToggleHandled={(pid, next) => saveCloseTaskField(pid, { email_include_handled: next })}
+                onReloadHouse={(pid) => {
+                  const name = previewHouses.find(h => h.propertyId === pid)?.name || pid;
+                  loadCandidatesFor(pid, name, selectedMonth, statementIdBy[pid] || null);
+                }}
+              />
+            )}
 
             <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--ink)' }}>
               <div className="eyebrow" style={{ marginBottom: 6 }}>Subject</div>
@@ -4208,11 +4356,16 @@ function DashboardContent() {
                       <option value="touch_base">Touch-base</option>
                       <option value="year_end">Year-end</option>
                     </select>
-                    {/* Opt-in: fold the month's work slips into the email
-                        as a polished section. Persists like the template
-                        picker, so Draft All honors it too. */}
+                    {/* Opt-in: fold the curated owner-request section into
+                        the email. Persists like the template picker, so
+                        Draft All honors it too. Curate the items in
+                        Preview. */}
                     <CheckTask
-                      label="Work notes"
+                      label={
+                        (ownerActionCounts[p.property_id] ?? 0) > 0
+                          ? `Owner requests (${ownerActionCounts[p.property_id]})`
+                          : 'Owner requests'
+                      }
                       done={!!task?.email_include_work_slips}
                       onToggle={(next) => saveCloseTaskField(p.property_id, { email_include_work_slips: next })}
                     />
