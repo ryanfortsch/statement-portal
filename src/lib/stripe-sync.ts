@@ -14,9 +14,11 @@
  * Stripe numbers, not estimates.
  *
  * Behavior summary:
- *   1. Pulls the property's successful Stripe charges in a 6-months-back
- *      / 2-months-forward window around the statement month (STR booking
- *      lead times often span months).
+ *   1. Pulls the property's successful Stripe charges in an 18-months-back
+ *      / 2-months-forward window around the statement month. Charges older
+ *      than 6 months back participate ONLY in the decisive matchers
+ *      (confirmation-code aggregation, exact date-range) -- see
+ *      chargeWindow() for why.
  *   2. Aggregates charges by confirmation code (reservations frequently
  *      have an initial + final-balance charge sharing one descriptor).
  *   3. For each reservation in the statement, replaces stripe_fee with
@@ -39,6 +41,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
 import { taxPortionOfNet } from '@/lib/addon-tax';
 import { loadAddOnTotals } from './statement-addons';
+import { chargeWindow } from './stripe-window';
 import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
 
 export type StripeSyncResult = {
@@ -261,12 +264,7 @@ async function stripeGet<T>(key: string, path: string, params: Record<string, st
 }
 
 async function listChargesAroundMonth(key: string, month: string): Promise<StripeCharge[]> {
-  const [y, m] = month.split('-').map(Number);
-  // 6 months before the start of the statement month, through 2 months
-  // after the end of it. Covers normal STR booking lead times where
-  // guests pay months ahead of check-in.
-  const start = Math.floor(Date.UTC(y, m - 1 - 6, 1) / 1000);
-  const end = Math.floor(Date.UTC(y, m + 2, 1) / 1000);
+  const { startUnix: start, endUnix: end } = chargeWindow(month);
   const charges: StripeCharge[] = [];
   let startingAfter: string | undefined;
   // Safety cap at 50 pages (5000 charges).
@@ -453,7 +451,11 @@ export async function syncPropertyStripe(opts: {
     // reservation preselect can resolve the guest from payment_link_requests
     // instead of parsing the description. Pre-metadata links (minted before
     // 2026-08-20) have null here and keep the description-parsing paths.
-    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean; hasAppFee: boolean; helmRequestKey: string | null };
+    // fuzzyEligible: charge is Guesty-coded or created inside the legacy
+    // 6-month window (chargeWindow().fuzzyCutoffUnix). Pre-cutoff
+    // non-coded charges exist only for the date-range matcher.
+    type Agg = { grossCents: number; refundedCents: number; feeCents: number; feeKnown: boolean; chargeCount: number; displayLabel: string; fullDesc: string; createdUnix: number; isGuestyCoded: boolean; hasAppFee: boolean; helmRequestKey: string | null; fuzzyEligible: boolean };
+    const { fuzzyCutoffUnix } = chargeWindow(month);
     const byCodeAgg = new Map<string, Agg>();
     const orphanCodes: { code: string; amount: number; displayLabel: string }[] = [];
 
@@ -476,7 +478,8 @@ export async function syncPropertyStripe(opts: {
       const label = desc || `(no description) …${charge.id.slice(-8)}`;
       const displayLabel = looksLikeCode ? firstToken : (label.length > 48 ? label.slice(0, 45) + '…' : label);
 
-      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode, hasAppFee: false, helmRequestKey: (charge.metadata?.helm_request_key || '').trim() || null };
+      const agg = byCodeAgg.get(code) || { grossCents: 0, refundedCents: 0, feeCents: 0, feeKnown: false, chargeCount: 0, displayLabel, fullDesc: label, createdUnix: charge.created, isGuestyCoded: looksLikeCode, hasAppFee: false, helmRequestKey: (charge.metadata?.helm_request_key || '').trim() || null, fuzzyEligible: false };
+      agg.fuzzyEligible = agg.fuzzyEligible || looksLikeCode || charge.created >= fuzzyCutoffUnix;
       agg.grossCents += charge.amount;
       agg.refundedCents += charge.amount_refunded;
       const fee = (charge.balance_transaction && typeof charge.balance_transaction !== 'string')
@@ -644,7 +647,12 @@ export async function syncPropertyStripe(opts: {
         }
       }
 
-      if (mismatched && !reconstructedRow) {
+      // A row frozen paid_off_stripe is an operator statement that the
+      // money is settled by hand (Barry Allen 2026-08-31: net corrected
+      // from verified Stripe actuals after Guesty logged half). Flagging
+      // its Stripe-vs-Guesty spread every sync would nag about the very
+      // discrepancy the operator already resolved.
+      if (mismatched && !reconstructedRow && res.bank_match_status !== 'paid_off_stripe') {
         result.gross_mismatches.push({ code, guest: res.guest_name || 'Guest', stripe: stripeGross, guesty: guestyGross as number });
       }
 
@@ -714,7 +722,11 @@ export async function syncPropertyStripe(opts: {
       // an early check-in fee that happens to equal a stay's expected gross
       // must queue as an add-on, not get consumed as the stay's payment.
       const isHelmAddOn = (code: string) => !!byCodeAgg.get(code)?.helmRequestKey;
-      const candidates = orphanCodes.filter(o => Math.abs(o.amount - expectedGross) <= 1 && !isFullyRefunded(o.code) && !isHelmAddOn(o.code));
+      // Pre-cutoff non-coded charges (see chargeWindow) never enter the
+      // amount pool: they can neither match nor create ambiguity, keeping
+      // this fallback identical to the 6-month-window behavior.
+      const isFuzzyEligible = (code: string) => !!byCodeAgg.get(code)?.fuzzyEligible;
+      const candidates = orphanCodes.filter(o => Math.abs(o.amount - expectedGross) <= 1 && isFuzzyEligible(o.code) && !isFullyRefunded(o.code) && !isHelmAddOn(o.code));
       if (candidates.length !== 1) continue;
       const orphan = candidates[0];
       const agg = byCodeAgg.get(orphan.code);
@@ -879,6 +891,7 @@ export async function syncPropertyStripe(opts: {
         const hits = orphanCodes.filter(o => {
           const agg = byCodeAgg.get(o.code);
           if (!agg || agg.isGuestyCoded) return false;
+          if (!agg.fuzzyEligible) return false; // pre-cutoff: decisive matchers only (see chargeWindow)
           if (agg.grossCents > 0 && agg.refundedCents >= agg.grossCents) return false; // fully refunded: not the payment
           return agg.fullDesc.toLowerCase().includes(nameKey);
         });
@@ -943,7 +956,12 @@ export async function syncPropertyStripe(opts: {
       }
     }
 
-    result.unmatched_charges = orphanCodes.map(o => `${o.displayLabel} ($${o.amount.toFixed(2)})`);
+    // Pre-cutoff leftovers stay silent: they were invisible under the
+    // 6-month window, and an unmatched 14-month-old charge is history,
+    // not an operator action item.
+    result.unmatched_charges = orphanCodes
+      .filter(o => byCodeAgg.get(o.code)?.fuzzyEligible)
+      .map(o => `${o.displayLabel} ($${o.amount.toFixed(2)})`);
 
     // One-off Payment Link charges (early check-in, extra night, pet fee
     // charged outside Guesty) used to evaporate here: listed once in
