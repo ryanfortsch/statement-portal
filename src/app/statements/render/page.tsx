@@ -274,23 +274,32 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // existing yet (migration unrun): degrades to no add-ons.
   const { data: addOnRows, error: addOnErr } = await supabase
     .from('bank_deposit_attributions')
-    .select('attributed_reservation_code, amount, label')
+    .select('attributed_reservation_code, amount, label, direction')
     .eq('property_id', prop.property_id)
     // NB: month must come from the URL param -- property_statements has no
     // month column, so prop.month is undefined and matches zero rows (the
     // bug that kept attributed add-ons from ever rendering on statements).
     .eq('month', month)
-    .eq('status', 'attributed')
-    // Deposits only: an attributed DEBIT tagged to a reservation belongs in
-    // the deduction totals, not as a "+" add-on line under the guest.
-    .eq('direction', 'deposit');
+    .eq('status', 'attributed');
   const addOnsByCode = new Map<string, { label: string; amount: number }[]>();
+  // An attributed DEBIT is a deduction, never a "+" add-on line under the
+  // guest. Debits used to be summed silently into Repairs & Maint., which
+  // printed a $3,000 guest refund as if it were repair work. They now carry
+  // their own labelled line in the Financials table; deposits still hang off
+  // the reservation they were attributed to.
+  const debitsByLabel = new Map<string, number>();
   if (!addOnErr || (addOnErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(addOnErr.message || ''))) {
     for (const a of addOnRows || []) {
+      const amount = Number(a.amount) || 0;
+      if ((a.direction || 'deposit') === 'debit') {
+        const label = a.label || 'Adjustment';
+        debitsByLabel.set(label, Math.round(((debitsByLabel.get(label) || 0) + amount) * 100) / 100);
+        continue;
+      }
       const code = a.attributed_reservation_code;
       if (!code) continue;
       const list = addOnsByCode.get(code) || [];
-      list.push({ label: a.label || 'Add-on', amount: Number(a.amount) || 0 });
+      list.push({ label: a.label || 'Add-on', amount });
       addOnsByCode.set(code, list);
     }
   }
@@ -866,12 +875,31 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <tr><td><span className="cat">Mgmt Fee<small>({d.fee_pct}%)</small></span></td><td className="amt neg">&minus;${fmt(prop.management_fee)}</td></tr>
                   <tr><td><span className="cat">Cleaning</span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
                   {(() => {
-                    // Repairs & Maint = vendor-classified repairs +
-                    // operator-attributed bank-debit reimbursements (e.g.
-                    // a trash-can transfer from the property account to RT).
-                    const repairsCombined = Number(prop.repairs_total || 0) + Number(prop.attributed_debits_total || 0);
+                    // Repairs & Maint is vendor-classified repair work only.
+                    // Operator-attributed bank debits (a guest refund, a
+                    // reimbursement transfer) print on their own labelled
+                    // lines below, so nothing unrelated hides in this figure.
+                    const repairs = Number(prop.repairs_total || 0);
+                    const debitTotal = Number(prop.attributed_debits_total || 0);
+                    // Labels come from the attribution rows. Any remainder --
+                    // an unreadable table, an unlabelled row -- still prints,
+                    // so the column always reconciles to Owner Payout.
+                    const labelled = [...debitsByLabel.entries()].filter(([, amt]) => amt > 0);
+                    const labelledSum = Math.round(labelled.reduce((s, [, amt]) => s + amt, 0) * 100) / 100;
+                    const remainder = Math.round((debitTotal - labelledSum) * 100) / 100;
+                    const debitLines: [string, number][] =
+                      labelled.length > 3 || labelledSum > debitTotal + 0.005
+                        ? (debitTotal > 0 ? [['Adjustments', debitTotal]] : [])
+                        : remainder > 0.005
+                          ? [...labelled, ['Adjustments', remainder]]
+                          : labelled;
                     return (
-                      <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairsCombined > 0 ? 'amt neg' : 'amt'} style={repairsCombined > 0 ? {} : { color: 'var(--ink-4)' }}>{repairsCombined > 0 ? `\u2212$${fmt(repairsCombined)}` : '\u2014'}</td></tr>
+                      <>
+                        <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairs > 0 ? 'amt neg' : 'amt'} style={repairs > 0 ? {} : { color: 'var(--ink-4)' }}>{repairs > 0 ? `\u2212$${fmt(repairs)}` : '\u2014'}</td></tr>
+                        {debitLines.map(([label, amt], i) => (
+                          <tr key={`debit-${i}`}><td><span className="cat">{label}</span></td><td className="amt neg">&minus;${fmt(amt)}</td></tr>
+                        ))}
+                      </>
                     );
                   })()}
                   {Number(prop.reserve_holdback || 0) > 0 && (
