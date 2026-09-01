@@ -693,13 +693,36 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // computeGuestFacingADR block comment near the top of this file.
   const adr = computeGuestFacingADR(rows, nightsBooked);
 
-  // Channel mix (uses enriched platform values from rows)
+  // Channel mix (uses enriched platform values from rows).
+  //
+  // Add-ons ride with the stay they were attributed to. Every other place the
+  // owner reads revenue on this page already includes them -- the Reservations
+  // column folds a stay's add-on into that guest's Rental Rev, and the
+  // Financials Rental Revenue line has always been rental_revenue +
+  // add_ons_revenue -- so a donut built on adjusted_revenue alone printed a
+  // smaller total two inches below the number it was supposed to be summarising
+  // ($2.7k under a $2,863.63 line on 225 Washington's August 2026 statement).
+  // An add-on with no stay on this statement -- one carried from a month that
+  // already paid out, or an attribution with no confirmation code -- has no
+  // channel to ride with and gets its own slice.
   const chRev: Record<string, number> = {};
   rows.forEach(r => { const c = chLabel(r.platform); chRev[c] = (chRev[c] || 0) + (r.adjusted_revenue || r.rental_income || 0); });
+  const channelByCode = new Map<string, string>();
+  for (const r of rows) { if (r.confirmation_code) channelByCode.set(r.confirmation_code, chLabel(r.platform)); }
+  let placedAddOns = 0;
+  for (const [code, list] of addOnsByCode.entries()) {
+    const ch = channelByCode.get(code);
+    if (!ch) continue;
+    const amt = list.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+    chRev[ch] = (chRev[ch] || 0) + amt;
+    placedAddOns += amt;
+  }
+  const unplacedAddOns = Number(prop.add_ons_revenue || 0) - placedAddOns;
+  if (Math.abs(unplacedAddOns) >= 0.005) chRev['Add-ons'] = (chRev['Add-ons'] || 0) + unplacedAddOns;
   const totRev = Object.values(chRev).reduce((a, b) => a + b, 0);
   const mix = Object.entries(chRev).map(([c, v]) => ({ ch: c, pct: totRev > 0 ? (v / totRev) * 100 : 0 })).sort((a, b) => b.pct - a.pct);
 
-  const chColors: Record<string, string> = { Airbnb: '#ff5a5f', VRBO: '#245abc', 'Booking.com': '#003580', 'Stay Cape Ann': '#4a6b3a' };
+  const chColors: Record<string, string> = { Airbnb: '#ff5a5f', VRBO: '#245abc', 'Booking.com': '#003580', 'Stay Cape Ann': '#4a6b3a', 'Add-ons': '#a8988a' };
 
   // Donut arcs
   let offset = 25;
@@ -912,7 +935,12 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                       <circle key={i} cx="21" cy="21" r="15.915" fill="none" stroke={chColors[a.ch] || '#888'} strokeWidth="7"
                         strokeDasharray={a.da} strokeDashoffset={String(a.off)} transform="rotate(-90 21 21)" />
                     ))}
-                    <text x="21" y="20" textAnchor="middle" fontFamily="Fraunces" fontSize="6" fontWeight="500" fill="#1e2e34">${totRev >= 1000 ? (totRev / 1000).toFixed(1) + 'k' : Math.round(totRev)}</text>
+                    {/* Whole dollars, not a "2.9k" abbreviation. One decimal
+                        of thousands rounds $2,863.63 to a figure that reads as
+                        a different number from the Rental Revenue line two
+                        inches away, which is the whole thing this glyph is
+                        summarising. */}
+                    <text x="21" y="20" textAnchor="middle" fontFamily="Fraunces" fontSize="6" fontWeight="500" fill="#1e2e34">${Math.round(totRev).toLocaleString('en-US')}</text>
                     <text x="21" y="25" textAnchor="middle" fontFamily="Inter" fontSize="2" fill="#506068" letterSpacing="0.2">GROSS</text>
                   </svg>
                   <div className="donut-legend">
