@@ -236,6 +236,162 @@ export async function createProjection(formData: FormData) {
   redirect(`/prospects/${data.id}`);
 }
 
+/**
+ * Draft a RENEWAL contract for an existing managed property, riding the
+ * prospect contract pipeline end to end: this creates a projections row
+ * prefilled from the property + its latest register row, links it via
+ * properties.projection_id, and lands the operator on /prospects/[id]
+ * where the existing form edits terms/overrides and the Contract stage
+ * carries the owner's /contract/<token> sign link.
+ *
+ * The row is born with property_id set, which does three jobs at once:
+ * it files under "Promoted" instead of the active prospect funnel, it
+ * makes promoteToProperty a no-op (no duplicate property can ever be
+ * created), and it tells countersignContract to close the loop by
+ * writing the property_contracts register row on execution.
+ *
+ * Idempotent: if the property already points at an un-executed renewal
+ * draft, this redirects there instead of drafting a second one.
+ */
+export async function startContractRenewal(propertyId: string): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const { data: prop, error: propErr } = await supabase
+    .from('properties')
+    .select('*')
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (propErr || !prop) throw new Error(propErr?.message || 'Property not found');
+  const property = prop as {
+    id: string;
+    name: string | null;
+    address: string | null;
+    city: string | null;
+    owner_full: string | null;
+    owner_last: string | null;
+    owner_emails: string[] | null;
+    owner_phone: string | null;
+    owners: Owner[] | null;
+    management_fee_pct: number | string | null;
+    bedrooms: number | null;
+    projection_id: string | null;
+  };
+
+  // Open renewal draft already on file? Land there, don't draft a second.
+  if (property.projection_id) {
+    const { data: linked } = await supabase
+      .from('projections')
+      .select('id, property_id, contract_countersigned_at')
+      .eq('id', property.projection_id)
+      .maybeSingle();
+    const l = linked as { id: string; property_id: string | null; contract_countersigned_at: string | null } | null;
+    if (l && l.property_id === propertyId && !l.contract_countersigned_at) {
+      redirect(`/prospects/${l.id}`);
+    }
+  }
+
+  // Latest register row (active or expired) seeds the party name and the
+  // negotiated numbers, so the draft opens looking like the deal they know.
+  const { data: registerRows } = await supabase
+    .from('property_contracts')
+    .select('id, owner_party, fee_pct, min_availability, sale_notice_days, sale_reputation_fee')
+    .eq('property_id', propertyId)
+    .order('term_end', { ascending: false })
+    .limit(1);
+  const lastContract = (registerRows?.[0] ?? null) as {
+    id: string;
+    owner_party: string | null;
+    fee_pct: number | string | null;
+    min_availability: string | null;
+    sale_notice_days: number | null;
+    sale_reputation_fee: number | string | null;
+  } | null;
+
+  const ownerParty = lastContract?.owner_party?.trim() || property.owner_full?.trim() || property.owner_last?.trim() || 'Owner';
+  // Owner cards: property.owners when populated, else one best-effort card
+  // from the last contract's party so the form never opens empty (the
+  // operator tweaks names before sending anyway).
+  let owners: Owner[] | null = Array.isArray(property.owners) && property.owners.length > 0 ? property.owners : null;
+  if (!owners) {
+    const words = ownerParty.replace(/\(.*\)/, '').trim().split(/\s+/);
+    owners = [
+      {
+        first_name: words[0] ?? '',
+        last_name: words.slice(1).join(' '),
+        email: property.owner_emails?.[0] ?? null,
+        phone: property.owner_phone ?? null,
+        full_legal: ownerParty,
+      },
+    ];
+  }
+
+  const city = property.city?.trim() || 'Gloucester';
+  const feePctRaw = Number(property.management_fee_pct ?? lastContract?.fee_pct ?? 25);
+  const availabilityDays = (() => {
+    const m = lastContract?.min_availability?.match(/(\d{2,3})/);
+    return m ? Number(m[1]) : 270;
+  })();
+  const today = new Date().toISOString().slice(0, 10);
+  const localPart = session.user.email.split('@')[0];
+
+  const payload = {
+    owners,
+    ...deriveLegacyFromOwners(owners),
+    // The register's party string wins over card-derived scalars: it is
+    // the name as written on the last signed agreement.
+    prospect_name: ownerParty,
+    prospect_full_legal: ownerParty,
+    prospect_email: property.owner_emails?.[0] ?? null,
+    prospect_phone: property.owner_phone ?? null,
+    property_address: property.address || property.name || propertyId,
+    property_city: `${city}, MA`,
+    property_type: 'House',
+    market: ['Rockport', 'Gloucester', 'Beverly'].includes(city) ? city : 'Gloucester',
+    bedrooms: Math.min(6, Math.max(1, property.bedrooms ?? 3)),
+    home_value: 0,
+    presentation_month: new Date().getMonth() + 1,
+    mgmt_fee_pct: feePctRaw > 1 ? feePctRaw / 100 : feePctRaw,
+    term_start: today,
+    term_end: `${new Date().getFullYear() + 1}-12-31`,
+    initial_deposit: 2000,
+    min_account_balance: 2000,
+    min_availability_days: availabilityDays,
+    sale_notification_days: lastContract?.sale_notice_days ?? 185,
+    reputation_fee: lastContract?.sale_reputation_fee != null ? Number(lastContract.sale_reputation_fee) : 5000,
+    status: 'draft',
+    onboarding_token: newOnboardingToken(),
+    created_by_email: session.user.email,
+    created_by_name:
+      session.user.name?.trim() ||
+      (localPart ? localPart.charAt(0).toUpperCase() + localPart.slice(1) : 'User'),
+    // Pre-linking marks this row as a renewal: out of the active funnel,
+    // promote short-circuits, countersign auto-registers.
+    property_id: propertyId,
+    import_source: {
+      kind: 'renewal',
+      property_id: propertyId,
+      from_contract_id: lastContract?.id ?? null,
+      drafted_at: new Date().toISOString(),
+    },
+  };
+
+  const { data: created, error: insertErr } = await supabase
+    .from('projections')
+    .insert(payload)
+    .select('id')
+    .single();
+  if (insertErr || !created) throw new Error(insertErr?.message || 'Failed to draft renewal');
+
+  // The property's Agreement section and the register's unregistered-signed
+  // detector both read contract state through properties.projection_id -
+  // point it at the renewal so the current paper trail is the live one.
+  await supabase.from('properties').update({ projection_id: created.id }).eq('id', propertyId);
+
+  revalidatePath(`/properties/${propertyId}`);
+  redirect(`/prospects/${created.id}`);
+}
+
 export async function updateProjection(id: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
@@ -1071,6 +1227,10 @@ export async function countersignContract(formData: FormData): Promise<void> {
     .maybeSingle();
   if (fullProjection) {
     const projectionRow = fullProjection as ProjectionRow;
+    // Hoisted out of the archive block so the renewal close-out below can
+    // stamp the register row with the executed PDF's location.
+    let executedDriveUrl: string | null = null;
+    let executedDocTitle: string | null = null;
     const origin = await getRequestOrigin();
     if (origin) {
       let pdf: Buffer | null = null;
@@ -1109,6 +1269,8 @@ export async function countersignContract(formData: FormData): Promise<void> {
           .trim();
         const archive = await archiveContractToDrive({ pdf, filename: archiveName, year });
         if (archive.ok && archive.url) {
+          executedDriveUrl = archive.url;
+          executedDocTitle = archiveName;
           await supabase
             .from('projections')
             .update({ contract_drive_url: archive.url })
@@ -1116,6 +1278,58 @@ export async function countersignContract(formData: FormData): Promise<void> {
         } else {
           console.warn('[countersignContract] Drive archive skipped:', archive.reason);
         }
+      }
+    }
+
+    // 3. Renewal close-out. A projection born with property_id set is a
+    //    renewal drafted from the property page, not a prospect: promote
+    //    never runs for it, so the contracts register is written HERE -
+    //    the property's current active row flips to 'superseded' and the
+    //    freshly-executed terms become the live record. Prospect
+    //    countersigns (property_id null until promote) skip this block.
+    //    Best-effort: a register failure is logged, never blocks the
+    //    countersign; the weekly sweep's radar catches stragglers.
+    if (projectionRow.property_id && projectionRow.term_end) {
+      try {
+        const hasEdits =
+          ((projectionRow.contract_overrides as unknown[] | null)?.length ?? 0) > 0 ||
+          ((projectionRow.custom_clauses as unknown[] | null)?.length ?? 0) > 0;
+        const feeFraction = Number(projectionRow.mgmt_fee_pct ?? 0.25);
+        const driveFileId = executedDriveUrl?.match(/\/file\/d\/([^/?#]+)/)?.[1] ?? null;
+        await supabase
+          .from('property_contracts')
+          .update({ status: 'superseded', updated_at: new Date().toISOString() })
+          .eq('property_id', projectionRow.property_id)
+          .eq('status', 'active');
+        const { error: registerErr } = await supabase.from('property_contracts').insert({
+          property_id: projectionRow.property_id,
+          owner_party: projectionRow.prospect_full_legal || projectionRow.prospect_name,
+          executed_on: new Date().toISOString().slice(0, 10),
+          term_start: projectionRow.term_start,
+          term_end: projectionRow.term_end,
+          // The base template auto-renews with 120-day notice; overrides can
+          // reword that clause, so flag edited contracts for a read-through.
+          renewal_type: 'auto_renew',
+          notice_days_initial: 120,
+          notice_days_renewal: 120,
+          fee_pct: Math.round(feeFraction * 10000) / 100,
+          min_availability: projectionRow.min_availability_days != null ? `${projectionRow.min_availability_days} days during the term` : null,
+          sale_notice_days: projectionRow.sale_notification_days,
+          sale_reputation_fee: projectionRow.reputation_fee,
+          signed_via: 'helm',
+          status: 'active',
+          drive_file_id: driveFileId,
+          drive_url: executedDriveUrl,
+          doc_title: executedDocTitle,
+          notes: hasEdits
+            ? 'Registered automatically at countersign (Helm renewal flow). Clause overrides are on file - verify renewal/notice mechanics against the contract page.'
+            : 'Registered automatically at countersign (Helm renewal flow).',
+        });
+        if (registerErr) {
+          console.error('[countersignContract] register write failed:', registerErr.message);
+        }
+      } catch (err) {
+        console.error('[countersignContract] renewal close-out failed:', err);
       }
     }
   }
