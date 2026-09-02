@@ -104,6 +104,25 @@ const CASES = [
   ['ORIG CO NAME:CHASE CREDIT CRD ... CO ENTRY DESCR:AUTOPAYBUS', -40, 'ACH_DEBIT', 'Card payment'],
   ['Online Transfer to CHK ...1323 transaction#: 30250485778', -5000, 'ACCT_XFER', null],
 ];
+
+/* -- a netted channel commission is never overhead ------------------------ */
+// VRBO bills the card and the same fee is already deducted from rental
+// revenue before a statement sees it. Counting it as an expense charges the
+// same fee twice. Furnished Finder is the opposite: a flat subscription
+// nothing nets back, so it stays a real listing-platform cost.
+const CARD_CASES = [
+  ['Vrbo', -3554.30, 'Pass-through'],
+  ['VRBO *HOMEAWAY', -710.15, 'Pass-through'],
+  ['EXPEDIA GROUP', -120.00, 'Pass-through'],
+  ['FURNISHED FINDER', -199.00, 'Listing platforms'],
+  ['SP FIX LINENS', -4031.30, 'Guest supplies'],
+  ['GUESTY', -1200.00, 'Software'],
+];
+for (const [description, amount, want] of CARD_CASES) {
+  const got = categorizeOverhead({ account: 'card', description, amount, chaseCategory: 'Professional Services' });
+  if (got !== want) fail(`card "${description}" -> ${String(got)}, expected ${want}`);
+}
+
 for (const [description, amount, type, want] of CASES) {
   const got = categorizeOverhead({ account: 'operating', description, amount, type });
   if (got !== want) fail(`categorizeOverhead -> ${String(got)}, expected ${String(want)}: "${description.slice(0, 50)}"`);
@@ -152,6 +171,6 @@ if (!has('2026-07', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-07 lo
 if (!has('2026-07', (r) => r.category === 'Contractors')) fail('resolveCardSpendSource dropped a non-card row');
 
 console.log(failures === 0
-  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

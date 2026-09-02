@@ -14,6 +14,10 @@
  *
  *   card account  → exp_cc_ops (whole card is one lump from the bank's
  *                   perspective; matches the existing convention).
+ *   'Pass-through'  → dropped. VRBO and the other channel commissions bill
+ *                   the card and are already netted out of rental revenue
+ *                   before a statement sees them; counting them here charges
+ *                   the same fee twice.
  *   'Card payment' → exp_cc_ops, but ONLY for months whose card export does
  *                   not reach month end. resolveCardSpendSource() keeps one
  *                   source per month, so a month never counts both the
@@ -197,7 +201,14 @@ export async function getActualsFromDb(
 
       const ma = byMonth.get(r.month) ?? blank(r.month);
 
-      if (acct === 'card') {
+      // A channel commission already netted out of rental revenue is not
+      // overhead. VRBO and its peers bill the card and the same fee is
+      // deducted before a statement ever sees the revenue, so counting it
+      // here charges Rising Tide twice. It stays visible in Cost Analysis,
+      // where watching the cash move in and back out is the point.
+      if (cat === 'Pass-through') {
+        // deliberately counted nowhere
+      } else if (acct === 'card') {
         ma.exp_cc_ops += amt;
       } else {
         switch (cat) {
