@@ -1,79 +1,12 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
 
-// Property matching.
-//
-// The listing needles come from `properties.listing_match` (active rows
-// only), read at request time -- the same source /api/ingest reads for
-// owner-PDF section routing. It used to be a hardcoded 12-entry const here,
-// which meant every row for a property added after it was written (3
-// Windward, 53 Rocky Neck (DOWN), 19 Rackliffe, 84 Thatcher, 225
-// Washington, 36 Granite, 79 Main, 16 Waterman) counted as `unmatched` and
-// was dropped BEFORE the money-column gap-fill below -- so a Direct/VRBO
-// stay whose Guesty API row carries TOTAL_PAID = 0 never got its real
-// gross. Reading the DB means a property added in Helm is matchable here
-// with no code change.
-//
-// LONGEST match wins, so a sub-unit needle ('53 rocky neck (down') beats
-// its parent's '53 rocky neck' prefix and can never be absorbed by it.
-// Same rule as sync-guesty's LISTING_MATCH and /api/ingest's PDF section
-// assignment. First-match-wins here would reintroduce the downstairs
-// misrouting the moment 53_rocky_neck_2 became reachable.
-async function loadListingMatches(sb: SupabaseClient): Promise<Record<string, string>> {
-  const { data, error } = await sb
-    .from('properties')
-    .select('id, listing_match')
-    .eq('is_active', true);
-  if (error) throw new Error(`listing_match load failed: ${error.message}`);
-  const out: Record<string, string> = {};
-  for (const row of data || []) {
-    if (row.id && row.listing_match) out[row.id] = String(row.listing_match).toLowerCase();
-  }
-  // Fail closed. An empty map would silently mark every row unmatched and
-  // still return success: 200, which is exactly the shape of failure this
-  // route just had.
-  if (Object.keys(out).length === 0) {
-    throw new Error('No active properties carry a listing_match -- refusing to drop every CSV row silently');
-  }
-  return out;
-}
-
-// Neighborhood nicknames, tried only when no listing_match needle hits.
-// Code-side because there is no DB column for them. Longest match wins here
-// too, for the same reason.
-const NICKNAME_HINTS: Record<string, string> = {
-  '3_south_st':    'old garden beach',
-  '21_horton':     'rocky neck',
-  '53_rocky_neck': 'the neck',
-  '4_brier_neck':  'brier neck',
-  '30_woodward':   'little river',
-  '20_hammond':    'east gloucester',
-  '20_enon':       'beverly shops',
-  '73_rocky_neck': 'smith cove',
-  '17_beach_rd':   'niles beach',
-  '65_calderwood': 'black rock harbor',
-  '3_locust':      'niles beach',
-  '3246_ne_27th':  'lighthouse point',
-};
-
-/** Longest needle that the listing name contains, listing_match first. */
-function longestMatch(haystack: string, needles: Record<string, string>): string | null {
-  let best: string | null = null;
-  let bestLen = 0;
-  for (const [pid, needle] of Object.entries(needles)) {
-    if (needle && needle.length > bestLen && haystack.includes(needle)) {
-      best = pid;
-      bestLen = needle.length;
-    }
-  }
-  return best;
-}
-
-function matchProperty(listing: string, listingMatches: Record<string, string>): string | null {
-  const h = listing.toLowerCase();
-  return longestMatch(h, listingMatches) ?? longestMatch(h, NICKNAME_HINTS);
-}
+// Property matching lives in @/lib/listing-match, shared with /api/ingest and
+// /api/fill-gap. It used to live here alone, which is how those two routes
+// came to stamp the statement's own property onto every row of a fleet-wide
+// CSV instead of reading its LISTING column.
 
 function channelLabel(platform: string): string {
   const p = platform.toLowerCase();

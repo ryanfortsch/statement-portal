@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
@@ -586,8 +587,23 @@ export async function POST(request: NextRequest) {
     }
     if (platformText) {
       const platformRows = parseCSV(platformText);
+      // The platform CSV is FLEET-WIDE and full-history: it holds every
+      // property's stays, not this statement's. Resolve each row to its own
+      // property from the LISTING column and skip anything that will not
+      // resolve.
+      //
+      // This loop used to stamp `propertyId` -- the property being ingested --
+      // onto every row in the file, keyed on a portfolio-global
+      // `csv:<confirmation_code>`. Last writer won, so whichever property was
+      // ingested last captured the whole fleet's unprotected codes. On
+      // 2026-09-01 that was 3 Windward, which collected 31 stays belonging to
+      // nine other properties, including ten overlapping guests on 2026-04-11
+      // at a house that did not exist in Helm until 2026-07-15.
+      const csvListingMatches = await loadListingMatches(supabase);
+      let csvRowsSkippedUnmatched = 0;
       for (const row of platformRows) {
         const code = (row['CONFIRMATION CODE'] || row['Confirmation Code'] || row['confirmation_code'] || '').trim();
+        const listing = (row['LISTING'] || row['Listing'] || row['listing'] || '').trim();
         const platform = (row['PLATFORM'] || row['Platform'] || row['platform'] || '').trim();
         const guest = (row['GUEST'] || row['Guest'] || row['guest'] || '').trim();
         const checkInRaw = (row['CHECK-IN'] || row['Check-In'] || row['check_in'] || '').trim();
@@ -607,9 +623,18 @@ export async function POST(request: NextRequest) {
         const normalizedChannel = normalizePlatform(platform);
         const cleanedGuest = guest && !looksLikeConfirmationCode(guest) ? titleCase(guest) : null;
 
+        // Whose stay is this? The CSV says, and only the CSV says.
+        const rowPropertyId = matchProperty(listing, csvListingMatches);
+        if (!rowPropertyId) {
+          // Not ours to claim. Falling back to `propertyId` here is precisely
+          // the defect described above.
+          csvRowsSkippedUnmatched += 1;
+          continue;
+        }
+
         guestyReservationUpserts.push({
           guesty_reservation_id: `csv:${code}`,
-          property_id: propertyId,
+          property_id: rowPropertyId,
           confirmation_code: code,
           guest_name: cleanedGuest,
           check_in: checkIn,
@@ -621,6 +646,12 @@ export async function POST(request: NextRequest) {
           source: 'csv-fallback',
           synced_at: new Date().toISOString(),
         });
+      }
+
+      if (csvRowsSkippedUnmatched > 0) {
+        console.warn(
+          `[ingest] platform CSV: ${csvRowsSkippedUnmatched} row(s) had a LISTING that matched no active property; skipped rather than attributed to ${propertyId}`,
+        );
       }
 
       // Persist guesty_reservations upserts (don't stomp on rows that came
