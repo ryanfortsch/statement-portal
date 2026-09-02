@@ -26,6 +26,23 @@
  * REPORTED, never priced. See /api/refresh-statement.
  */
 
+/**
+ * STATUS IS PART OF THE QUESTION. Verified against live August 2026 data on
+ * 2026-09-01, the month held: 112 CONFIRMED rows (every one carrying a
+ * confirmation code, but only 15 with total_paid > 0 -- exactly how the old
+ * total_paid filter went blind to 97 real bookings), 57 INQUIRIES (quote
+ * requests that never became bookings: no confirmation code, yet all 57
+ * carry a host_payout because Guesty quoted a price), 13 cancelled, and 6
+ * closed/expired/declined.
+ *
+ * So a revenue signal alone does NOT mean "this is a booking". Every probe
+ * must pair it with status = 'confirmed' -- which is what the missed-Direct
+ * detector already does (src/lib/missing-direct-stays.ts). Without that, a
+ * drift banner counts quote requests as missing money and cries wolf on
+ * every property, every month.
+ */
+export const CONFIRMED_STATUS = 'confirmed';
+
 /** Columns any drift or candidate probe must select to answer the question. */
 export const REVENUE_SIGNAL_COLUMNS = 'total_paid, host_payout, owner_net_revenue_guesty';
 
