@@ -8,9 +8,16 @@ import { isConfigured } from '@/lib/supabase';
 import {
   forwardMonths,
   getBookedByPropertyByMonth,
+  getClosedMonthStays,
   computeSmartForecast,
   type SmartForecast,
 } from '@/lib/forecast-smart';
+import {
+  computeRealizedCalibration,
+  calibratedBenchmarkFrom,
+  closedMonthsOf,
+} from '@/lib/forecast-calibration';
+import { HISTORICAL_AVG_RECENT } from '@/lib/forecast-occupancy';
 import {
   ACTUALS_WINDOW,
   ACTUALS_2026,
@@ -217,7 +224,24 @@ async function getSmartForecast(endYear: number): Promise<SmartForecast | null> 
     const months = forwardMonths(today, endYear);
     if (months.length === 0) return null;
     const { bookedByPropMonth, properties } = await getBookedByPropertyByMonth(months);
-    return computeSmartForecast(months, bookedByPropMonth, properties);
+
+    // Scale forward months toward Rising Tide's OWN capture rate, measured on
+    // this year's closed months, rather than toward raw Gloucester market
+    // occupancy. RT runs near the market in season and well under it in the
+    // shoulders, so the raw benchmark overstates the shoulders and any single
+    // flat haircut understates the peak. Falls back to the raw market curve
+    // when there is not enough closed history to measure.
+    const closed = closedMonthsOf(today.getFullYear(), today);
+    const calibration = computeRealizedCalibration(
+      await getClosedMonthStays(closed),
+      closed,
+      HISTORICAL_AVG_RECENT,
+    );
+    const benchmark = calibration.byMonth.size > 0
+      ? calibratedBenchmarkFrom(calibration, HISTORICAL_AVG_RECENT)
+      : undefined;
+
+    return computeSmartForecast(months, bookedByPropMonth, properties, benchmark);
   } catch (err) {
     console.error('[forecast] smart forecast failed:', err);
     return null;
