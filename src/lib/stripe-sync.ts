@@ -558,6 +558,16 @@ export async function syncPropertyStripe(opts: {
       if (folioTax > 0) taxesByCode.set(g.confirmation_code, folioTax);
     });
 
+    // The same folios kept whole, for applyCollectedNet's inversion. Unlike
+    // taxesByCode this is populated even when the scalar was present, because
+    // the inversion wants THIS stay's own rate rather than a cache of it.
+    const folioByCode = new Map<string, { tax: number; preTax: number }>();
+    (gRes || []).forEach(g => {
+      if (!g.confirmation_code) return;
+      const f = splitFolio(g.folio_items);
+      if (f.hasFolio) folioByCode.set(g.confirmation_code, { tax: f.tax, preTax: f.preTax });
+    });
+
     // Aggregate Stripe charges. For Guesty-routed bookings the description
     // starts with the confirmation code (HM..., HA-, GY-, BC-) and multiple
     // captures of the same reservation aggregate cleanly under that code.
@@ -679,7 +689,28 @@ export async function syncPropertyStripe(opts: {
       // paid, so the owner's rent share on a $275 flat link is $275/1.117.
       // The tax still gets remitted either way; this decides who bears it.
       const chargeIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
-      const collectedPreTax = round2(collectedGross / occupancyTaxMultiplier(propertyId, chargeIso));
+      // Invert at THIS STAY'S rate, taken from its own folio, and fall back to
+      // the property-level map only when the booking has no folio to speak
+      // for itself.
+      //
+      // A property-level rate cannot express a per-stay exception, and 17
+      // Beach had one: every Direct/VRBO folio there billed the 3% Community
+      // Impact Fee, except Brian Guest Spillover GY-EcKUjyqJ, whose CIF line
+      // was hand-zeroed (metadata.override) so the guest genuinely paid 11.7%.
+      // Inverting his $1,172.85 at the property's 1.147 recognized $1,022.54
+      // of rent against a folio that plainly says $1,050.00, and took $15.93
+      // off the owner. The folio is the per-booking truth; the map is a
+      // fleet-level approximation of it.
+      //
+      // This also survives a rate CHANGE cleanly. When a listing's tax config
+      // is corrected, bookings confirmed beforehand keep their locked folio
+      // lines at the old rate, and each one now inverts at the rate written on
+      // it rather than at whatever the property is charging today.
+      const stayFolio = folioByCode.get(res.confirmation_code);
+      const stayMultiplier = stayFolio && stayFolio.preTax > 0 && stayFolio.tax > 0
+        ? (stayFolio.preTax + stayFolio.tax) / stayFolio.preTax
+        : occupancyTaxMultiplier(propertyId, chargeIso);
+      const collectedPreTax = round2(collectedGross / stayMultiplier);
       const actualFee = round2(agg.feeCents / 100);
       if (Math.abs(collectedPreTax - base) <= 1) {
         // Folio and charge agree at the property's true tax rate. Still
