@@ -347,7 +347,10 @@ export async function POST(request: NextRequest) {
             property_id: sib.id, name: sib.name,
             owner_emails: sib.owner_emails || [],
             statement_id: stmt.id, owner_payout: Number(stmt.owner_payout) || 0,
-            maintenance_charge: (Number(stmt.repairs_total) || 0) + (Number(stmt.attributed_debits_total) || 0),
+            // repairs_total ONLY. This number is presented to the owner as a
+            // charge that "covers" the finished work listed beneath it, so an
+            // attributed debit (a guest refund) must not inflate it.
+            maintenance_charge: Number(stmt.repairs_total) || 0,
           });
         }
       }

@@ -286,19 +286,25 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // existing yet (migration unrun): degrades to no add-ons.
   const { data: addOnRows, error: addOnErr } = await supabase
     .from('bank_deposit_attributions')
-    .select('attributed_reservation_code, amount, label')
+    .select('attributed_reservation_code, amount, label, direction')
     .eq('property_id', prop.property_id)
     // NB: month must come from the URL param -- property_statements has no
     // month column, so prop.month is undefined and matches zero rows (the
     // bug that kept attributed add-ons from ever rendering on statements).
     .eq('month', month)
-    .eq('status', 'attributed')
-    // Deposits only: an attributed DEBIT tagged to a reservation belongs in
-    // the deduction totals, never folded into the guest's Rental Rev.
-    .eq('direction', 'deposit');
+    .eq('status', 'attributed');
   const addOnsByCode = new Map<string, { label: string; amount: number }[]>();
+  // Attributed debits are pulled alongside the deposits so the Financials
+  // column can itemise them. They are still never folded into a guest's
+  // Rental Rev -- a refund is not revenue -- and they no longer ride the
+  // Repairs line either. See debitLines at the Financials table below.
+  const debitLines: { label: string; amount: number }[] = [];
   if (!addOnErr || (addOnErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(addOnErr.message || ''))) {
     for (const a of addOnRows || []) {
+      if (a.direction === 'debit') {
+        debitLines.push({ label: a.label || 'Adjustment', amount: Number(a.amount) || 0 });
+        continue;
+      }
       const code = a.attributed_reservation_code;
       if (!code) continue;
       const list = addOnsByCode.get(code) || [];
@@ -863,14 +869,33 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                   <tr><td><span className="cat">Mgmt Fee<small>({d.fee_pct}%)</small></span></td><td className="amt neg">&minus;${fmt(prop.management_fee)}</td></tr>
                   <tr><td><span className="cat">Cleaning</span></td><td className="amt neg">&minus;${fmt(prop.cleaning_total)}</td></tr>
                   {(() => {
-                    // Repairs & Maint = vendor-classified repairs +
-                    // operator-attributed bank-debit reimbursements (e.g.
-                    // a trash-can transfer from the property account to RT).
-                    const repairsCombined = Number(prop.repairs_total || 0) + Number(prop.attributed_debits_total || 0);
+                    // Repairs & Maint is vendor-classified repair work on the
+                    // home, and nothing else. Operator-attributed bank debits
+                    // (a guest refund, a trash-can transfer to RT) used to be
+                    // added in here so the column would foot to the payout,
+                    // which printed 4 Brier Neck's $3,000.00 August guest
+                    // refund to the owner as maintenance on her own house.
+                    // They now carry their own line directly below, so the
+                    // column still foots and every figure says what it is.
+                    const repairs = Number(prop.repairs_total || 0);
                     return (
-                      <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairsCombined > 0 ? 'amt neg' : 'amt'} style={repairsCombined > 0 ? {} : { color: 'var(--ink-4)' }}>{repairsCombined > 0 ? `\u2212$${fmt(repairsCombined)}` : '\u2014'}</td></tr>
+                      <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairs > 0 ? 'amt neg' : 'amt'} style={repairs > 0 ? {} : { color: 'var(--ink-4)' }}>{repairs > 0 ? `\u2212$${fmt(repairs)}` : '\u2014'}</td></tr>
                     );
                   })()}
+                  {Number(prop.attributed_debits_total || 0) > 0 && (
+                    <>
+                      {/* The stored scalar drives the amount so the column
+                          foots even if the itemisation query degraded; the
+                          rows below are best-effort detail. */}
+                      <tr><td><span className="cat">Refunds &amp; Adjustments</span></td><td className="amt neg">&minus;${fmt(Number(prop.attributed_debits_total))}</td></tr>
+                      {debitLines.map((dl, j) => (
+                        <tr key={`debit-${j}`} className="addon-row">
+                          <td><div className="addon-label">{dl.label}</div></td>
+                          <td className="addon-amt">&minus;${fmt(dl.amount)}</td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
                   {Number(prop.reserve_holdback || 0) > 0 && (
                     <tr><td><span className="cat">Owner Reserve</span></td><td className="amt neg">&minus;${fmt(Number(prop.reserve_holdback))}</td></tr>
                   )}
@@ -1118,6 +1143,11 @@ html, body { margin:0; padding:0; background:#e4ddcb; font-family:var(--sans); c
 .fin-table .cat::before { content:''; width:6px; height:6px; border:1px solid var(--ink-3); border-radius:50%; flex-shrink:0; transform:translateY(-1px); }
 .fin-table tr.total .cat::before { background:var(--ink); border-color:var(--ink); width:7px; height:7px; }
 .fin-table small { color:var(--ink-4); font-size:10px; margin-left:4px; }
+/* Itemisation under Refunds & Adjustments. A bare .addon-row td ties with
+   .fin-table td on specificity and loses on source order, so the dotted
+   rule would still print and the detail would read as its own line item. */
+.fin-table .addon-row td { border-bottom:none; padding:1px 0 3px; }
+.fin-table .addon-row td.addon-amt { text-align:right; }
 
 /* DONUT */
 .donut { display:flex; align-items:center; gap:12px; margin-top:10px; }
