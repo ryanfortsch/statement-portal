@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
@@ -289,8 +290,17 @@ async function fillPlatformGap(args: {
   const platformMap = new Map<string, CsvMatch>();
   const guestyResUpserts: Record<string, string | number | null>[] = [];
 
+  // Same fleet-wide CSV, same defect as /api/ingest carried: stamping the
+  // property being filled onto every row in a file that holds the whole
+  // fleet's stays. It never fired in production, but only because this route
+  // 404s without an existing statement and never resets created_at. Fixed
+  // here in lockstep, as this file's own header requires.
+  const csvListingMatches = await loadListingMatches(supabase);
+  let csvRowsSkippedUnmatched = 0;
+
   for (const row of rows) {
     const code = (row['CONFIRMATION CODE'] || row['Confirmation Code'] || row['confirmation_code'] || '').trim();
+    const listing = (row['LISTING'] || row['Listing'] || row['listing'] || '').trim();
     const platform = (row['PLATFORM'] || row['Platform'] || row['platform'] || '').trim();
     const guest = (row['GUEST'] || row['Guest'] || row['guest'] || '').trim();
     const checkInRaw = (row['CHECK-IN'] || row['Check-In'] || row['check_in'] || '').trim();
@@ -321,9 +331,15 @@ async function fillPlatformGap(args: {
     const normalizedChannel = normalizePlatform(platform);
     const cleanedGuest = guest && !looksLikeConfirmationCode(guest) ? titleCase(guest) : null;
 
+    const rowPropertyId = matchProperty(listing, csvListingMatches);
+    if (!rowPropertyId) {
+      csvRowsSkippedUnmatched += 1;
+      continue;
+    }
+
     guestyResUpserts.push({
       guesty_reservation_id: `csv:${code}`,
-      property_id: propertyId,
+      property_id: rowPropertyId,
       confirmation_code: code,
       guest_name: cleanedGuest,
       check_in: checkIn,
@@ -476,6 +492,11 @@ async function fillPlatformGap(args: {
   //    guesty_reservation_id, and our CSV rows use a "csv:<code>" id so
   //    they never collide with API-sourced "<guesty_id>" rows for the
   //    same confirmation code.
+  if (csvRowsSkippedUnmatched > 0) {
+    console.warn(
+      `[fill-gap] platform CSV: ${csvRowsSkippedUnmatched} row(s) had a LISTING that matched no active property; skipped rather than attributed to ${propertyId}`,
+    );
+  }
   if (guestyResUpserts.length > 0) {
     await supabase
       .from('guesty_reservations')
