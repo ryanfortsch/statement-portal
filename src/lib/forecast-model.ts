@@ -178,10 +178,13 @@ export const OFFICE_START_MONTH = 3;
  *
  *   Jun 2026  $1,272     Jul 2026  $3,420     Aug 2026  $3,804
  *
- * July and August run well above this constant. Anthropic is the driver,
- * $420 in April to $1,823 in August, nearly half the line. Whether that
- * holds depends on the responder prompt-cost work, so the constant stays at
- * the 2026 YTD figure until a full quarter says otherwise.
+ * July and August ran above this constant on Anthropic API credits alone:
+ * $1,081 and $1,589 of prepaid reloads for the guest-messaging responder,
+ * against under $300 in any earlier month. The operator ruled those two
+ * months a one-off on 2026-09-02, so the constant is NOT raised. The steady
+ * stack without API usage (Guesty about $1,200 and drifting up per listing,
+ * PriceLabs $220, Claude seats $234, everything else about $550) comes to
+ * roughly $2,200, which this figure already covers.
  */
 export const SOFTWARE_MONTHLY = 2300;
 
