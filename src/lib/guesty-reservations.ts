@@ -24,7 +24,7 @@ import { dedupeByReservationId } from '@/lib/guesty-reservation-dedupe';
  * every row's host_payout comes back null and the Revenue dashboard reads zero.
  */
 export const RESERVATION_FIELDS =
-  '_id listingId checkIn checkOut status money nightsCount guestsCount guest confirmationCode integration source channel guestId';
+  '_id listingId checkIn checkOut status money nightsCount guestsCount guest confirmationCode integration source channel guestId createdAt confirmedAt';
 
 export type GuestyReservation = {
   _id: string;
@@ -44,6 +44,10 @@ export type GuestyReservation = {
   // services / Resolution Center charges included) ride along here even
   // though we historically only read hostPayout.
   money?: { hostPayout?: number; invoiceItems?: unknown[] };
+  /** When the reservation was created in Guesty. */
+  createdAt?: string;
+  /** When it became confirmed. Absent on some channels; createdAt is the fallback. */
+  confirmedAt?: string;
 };
 
 export type ReservationRow = {
@@ -61,6 +65,21 @@ export type ReservationRow = {
   status: string | null;
   host_payout: number | null;
   folio_items: unknown[] | null;
+  /**
+   * When the guest actually booked, per Guesty. NOT when Helm saw the row.
+   *
+   * Helm has no honest booking timestamp today, which is what blocks a
+   * lead-time booking curve. `bookings.first_seen_at` looks like one and is
+   * not: it equals `created_at` on every row of both sources (704/704 iCal,
+   * 445/445 guesty_legacy), so it records when a row was inserted. For the
+   * legacy rows it also equals `last_seen_at`, meaning they were written once
+   * by a backfill and never re-observed, and July 2026's nights are ~100%
+   * legacy. A curve built on that field measures when the sync ran.
+   *
+   * This column is the fix, and it only works forward: every day it is not
+   * captured is a day of history that cannot be recovered.
+   */
+  booked_at: string | null;
   synced_at: string;
 };
 
@@ -113,15 +132,18 @@ export function mapReservationRow(
       Array.isArray(r.money?.invoiceItems) && r.money.invoiceItems.length > 0
         ? r.money.invoiceItems
         : null,
+    // confirmedAt is the truer "the guest committed" moment; createdAt is the
+    // fallback because some channels never send it.
+    booked_at: r.confirmedAt || r.createdAt || null,
     synced_at: syncedAt,
   };
 }
 
 /**
- * Upsert reservation rows, tolerating the folio_items column not existing yet
+ * Upsert reservation rows, tolerating an optional column not existing yet
  * (migration unrun): retry without it so the sync -- and its cron safety-net --
- * keeps working. Everything else still persists; folio capture turns on once
- * supabase-schema-guesty-folio-items.sql is applied.
+ * keeps working. Everything else still persists; each capture turns on once its
+ * migration is applied.
  *
  * Rows are deduped on the conflict target first; see dedupeByReservationId.
  */
@@ -136,13 +158,15 @@ export async function upsertGuestyReservations(
     .upsert(rows, { onConflict: 'guesty_reservation_id' });
   if (!error) return;
 
-  const missingFolioCol =
-    error.code === 'PGRST204' || /folio_items|column .*folio/i.test(error.message || '');
-  if (!missingFolioCol) throw new Error(`guesty_reservations upsert failed: ${error.message}`);
+  const missingOptionalCol =
+    error.code === 'PGRST204' ||
+    /folio_items|booked_at|column .*(folio|booked)/i.test(error.message || '');
+  if (!missingOptionalCol) throw new Error(`guesty_reservations upsert failed: ${error.message}`);
 
   const stripped = rows.map((r) => {
     const copy: Partial<ReservationRow> = { ...r };
     delete copy.folio_items;
+    delete copy.booked_at;
     return copy;
   });
   const { error: retryErr } = await sb
