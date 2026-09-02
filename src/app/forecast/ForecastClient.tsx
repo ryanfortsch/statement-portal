@@ -855,7 +855,7 @@ const sections2026: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo' },
-      { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,586 in July and $3,804 in August, driven by Anthropic. The subscription cuts an earlier version assumed never showed up in the card data.' },
+      { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,420 in July and $3,804 in August, driven by Anthropic. The subscription cuts an earlier version assumed never showed up in the card data.' },
       { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
       { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
     ],
@@ -899,7 +899,7 @@ const sections2027: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo, full year' },
-      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran above $3,500.' },
+      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
       { label: 'Bank fees', value: '$100/mo' },
       { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo all year (Aug 2026 hire continues = $60K full year).' },
@@ -941,7 +941,7 @@ const sections2028: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$800/mo (rent + dumpster), full year' },
-      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran above $3,500.' },
+      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
       { label: 'Bank fees', value: '$100/mo' },
       { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo per hire all year. Second hire active throughout if portfolio is already over 20 props (very likely with rollovers).' },
@@ -1459,7 +1459,7 @@ function ForecastTable({
         />
         <DataRow
           label="Software"
-          info="Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,586 Jul, $3,804 Aug 2026). Projected months carry a flat $2,300/mo, the 2026 year-to-date average. The subscription cuts an earlier version of this model assumed never showed up in the card data; Anthropic has been the fastest-growing line."
+          info="Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,420 Jul, $3,804 Aug 2026). Projected months carry a flat $2,300/mo, the 2026 year-to-date average. The subscription cuts an earlier version of this model assumed never showed up in the card data; Anthropic has been the fastest-growing line."
           values={monthly.map((r) => r.exp_software)}
           fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
         />
