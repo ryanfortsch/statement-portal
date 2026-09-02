@@ -29,37 +29,28 @@ import {
   resolveCardSpendSource,
   CARD_PROXY_CATEGORY,
 } from '../src/lib/overhead-categories.ts';
-import {
-  calcYear,
-  CC_OPERATING_BREAKDOWN,
-  CC_BASELINE_MONTHLY,
-  CC_MARKETING_MONTHLY,
-  isMarketingActive,
-} from '../src/lib/forecast-model.ts';
+import { calcYear, CC_OPERATING_BREAKDOWN, CC_SUPPLY_SEASON } from '../src/lib/forecast-model.ts';
 
 let failures = 0;
 const fail = (msg) => { failures++; console.log(`FAIL  ${msg}`); };
 
-/* -- invariant 1: the breakdown must sum to the baseline it splits ------ */
-const bdSum = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
-if (bdSum !== CC_BASELINE_MONTHLY) {
-  fail(`CC_OPERATING_BREAKDOWN sums to ${bdSum}, CC_BASELINE_MONTHLY is ${CC_BASELINE_MONTHLY}`);
-}
-const mktgEntry = CC_OPERATING_BREAKDOWN.find((c) => c.label === 'Marketing & advertising');
-if (!mktgEntry || mktgEntry.monthly !== CC_MARKETING_MONTHLY) {
-  fail(`CC_MARKETING_MONTHLY (${CC_MARKETING_MONTHLY}) != breakdown marketing entry (${mktgEntry?.monthly})`);
+/* -- invariant 1: the seasonal curve is a curve ---------------------------- */
+{
+  const sum = CC_SUPPLY_SEASON.reduce((a, b) => a + b, 0);
+  if (Math.abs(sum - 1) > 1e-9) fail(`CC_SUPPLY_SEASON sums to ${sum}, must be 1`);
+  if (CC_SUPPLY_SEASON.length !== 12) fail('CC_SUPPLY_SEASON must have twelve entries');
+  if (CC_SUPPLY_SEASON.some((v) => v <= 0)) fail('every month must carry some supply spend');
+  // Peak leads the revenue peak: supplies are bought before the guests arrive.
+  const peak = CC_SUPPLY_SEASON.indexOf(Math.max(...CC_SUPPLY_SEASON));
+  if (peak !== 5 && peak !== 6) fail(`supply peak lands in month ${peak + 1}, expected June or July`);
 }
 
 /* -- invariant 1b: rendered rows sum to exp_total, every month ---------- */
 for (const [year, rolled] of [[2026, 0], [2027, 3], [2028, 6]]) {
   const r = calcYear(3, year, undefined, undefined, undefined, undefined, rolled);
   for (const m of r.monthly) {
-    const mktg = isMarketingActive(year, m.month);
-    const denom = mktg ? CC_BASELINE_MONTHLY : CC_BASELINE_MONTHLY - CC_MARKETING_MONTHLY;
-    const split = CC_OPERATING_BREAKDOWN.reduce(
-      (a, c) => a + (c.label === 'Marketing & advertising' && !mktg ? 0 : (m.exp_cc_ops * c.monthly) / denom),
-      0,
-    );
+    const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
+    const split = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + (m.exp_cc_ops * c.monthly) / denom, 0);
     const rendered =
       split + m.exp_office + m.exp_software + m.exp_bank + m.exp_contractors +
       m.exp_hire + m.exp_debt + m.exp_insurance + m.exp_accounting +
@@ -71,12 +62,20 @@ for (const [year, rolled] of [[2026, 0], [2027, 3], [2028, 6]]) {
 }
 
 /* -- invariant 2: contractors reproduce the calibration window ---------- */
-const y26 = calcYear(3, 2026);
+// numNew = 0: the bench was measured against the REAL fleet, so the slider's
+// hypothetical additions must not be in the denominator.
+const y26 = calcYear(0, 2026);
 const OBSERVED = 8288; // $15,248 over 56 days, 2026-07-01 .. 2026-08-25
-for (const mo of [7, 8]) {
-  const got = y26.monthly[mo - 1].exp_contractors;
-  if (Math.abs(got - OBSERVED) > 60) {
-    fail(`2026-${String(mo).padStart(2, '0')} contractors ${got.toFixed(0)} is off the observed ${OBSERVED}/mo bench run rate`);
+// Asserted as the pair's mean, not per month: the calibration window spans a
+// fleet that went 15 properties in July to 17 in August, so the two months
+// legitimately differ while their average is what was measured.
+{
+  const pair = (y26.monthly[6].exp_contractors + y26.monthly[7].exp_contractors) / 2;
+  if (Math.abs(pair - OBSERVED) > 120) {
+    fail(`Jul/Aug contractor mean ${pair.toFixed(0)} is off the observed ${OBSERVED}/mo bench run rate`);
+  }
+  if (y26.monthly[7].exp_contractors <= y26.monthly[6].exp_contractors) {
+    fail('August should carry more contractor cost than July: two more properties');
   }
 }
 // Nothing before the bench existed.

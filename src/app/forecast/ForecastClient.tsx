@@ -8,9 +8,6 @@ import {
   fmtNum,
   MONTH_LABELS,
   CC_OPERATING_BREAKDOWN,
-  CC_BASELINE_MONTHLY,
-  CC_MARKETING_MONTHLY,
-  isMarketingActive,
   type ForecastYear,
   type MonthRow,
   type YearResult,
@@ -1438,18 +1435,12 @@ function ForecastTable({
 
         <SubsectionRow label="Recurring monthly" />
         {CC_OPERATING_BREAKDOWN.map((cat) => {
-          const isMarketing = cat.label === 'Marketing & advertising';
-          // The categories are a proportional split of exp_cc_ops. Once
-          // marketing is cut the split runs over the four remaining
-          // categories (reduced denominator) and marketing shows $0.
-          const catValue = (r: MonthRow) => {
-            const mktgActive = isMarketingActive(yearKey, r.month);
-            if (isMarketing && !mktgActive) return 0;
-            const denom = mktgActive
-              ? CC_BASELINE_MONTHLY
-              : CC_BASELINE_MONTHLY - CC_MARKETING_MONTHLY;
-            return (r.exp_cc_ops * cat.monthly) / denom;
-          };
+          // The categories are a proportional split of exp_cc_ops. The
+          // weights only hold their ratio to one another, so the split
+          // rescales itself to whatever the month's card figure is; the
+          // marketing step-down is already inside that figure.
+          const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
+          const catValue = (r: MonthRow) => (r.exp_cc_ops * cat.monthly) / denom;
           return (
             <DataRow
               key={cat.label}

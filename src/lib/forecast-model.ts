@@ -36,19 +36,45 @@ export type ManagedProperty = {
 /** Years the model can render. */
 export type ForecastYear = 2026 | 2027 | 2028;
 
-/** 9 properties currently under management as of Jan 2026. */
+/**
+ * The properties actually under management in 2026, with each one's annual
+ * management fee.
+ *
+ * RERACKED 2026-09-02 from `property_statements`. The previous list held nine
+ * entries under names that appear nowhere in Helm ("Beverly", "The Neck",
+ * "Smith Cove", "Rockport AVH") while seventeen properties were filing
+ * statements. That gap was not cosmetic: `activeCount` is derived from this
+ * list and feeds both ccOperatingCost and contractorCost, so every
+ * per-property cost was being multiplied by a fleet 47% too small.
+ *
+ * Fees are each property's 2026 statement fee annualized over the CA curve
+ * share of the months it actually filed. A property first appearing in April
+ * gets start: 1, because the Statements module itself only went live that
+ * month and those six were plainly already operating; later first-appearances
+ * are real mid-year onboardings and keep theirs.
+ *
+ * Two carry a single month of history (3 Windward, 225 Washington) and their
+ * annualized figures are correspondingly soft.
+ */
 export const CURRENT_2026: ManagedProperty[] = [
-  { name: 'Brier Neck', fee: 21359, type: 'CA', start: 1 },
-  { name: 'Beverly', fee: 20500, type: 'LS', start: 1 },
-  { name: 'The Neck', fee: 23000, type: 'CA', start: 1 },
-  { name: 'Woodward', fee: 22405, type: 'CA', start: 1 },
-  { name: 'Rocky Neck', fee: 27500, type: 'CA', start: 1 },
-  { name: 'Hammond', fee: 18750, type: 'CA', start: 1 },
-  { name: 'Smith Cove', fee: 24375, type: 'CA', start: 1 },
-  { name: 'Beach Road', fee: 44000, type: 'CA', start: 2 },
-  { name: 'Rockport AVH', fee: 32500, type: 'CA', start: 1 },
+  { name: '17 Beach', fee: 46519, type: 'CA', start: 1 },
+  { name: '21 Horton', fee: 29881, type: 'CA', start: 1 },
+  { name: '73 Rocky Neck', fee: 28458, type: 'CA', start: 1 },
+  { name: '3 South', fee: 23180, type: 'CA', start: 1 },
+  { name: '20 Hammond', fee: 17196, type: 'CA', start: 1 },
+  { name: '20 Enon', fee: 10556, type: 'LS', start: 1 },
+  { name: '53 Rocky Neck', fee: 29702, type: 'CA', start: 5 },
+  { name: '30 Woodward', fee: 26307, type: 'CA', start: 5 },
+  { name: '19 Rackliffe', fee: 27484, type: 'CA', start: 6 },
+  { name: '79 Main', fee: 17640, type: 'CA', start: 6 },
+  { name: '16 Waterman', fee: 17302, type: 'CA', start: 6 },
+  { name: '36 Granite', fee: 14194, type: 'CA', start: 6 },
+  { name: '4 Brier Neck', fee: 31728, type: 'CA', start: 7 },
+  { name: '84 Thatcher', fee: 26455, type: 'CA', start: 7 },
+  { name: '53 Rocky Neck, Downstairs', fee: 9238, type: 'CA', start: 7 },
+  { name: '3 Windward', fee: 33805, type: 'CA', start: 8 },
+  { name: '225 Washington', fee: 3580, type: 'CA', start: 8 },
 ];
-
 /**
  * Pre-signed list — DEPRECATED in favor of live Helm Prospects pipeline.
  *
@@ -198,84 +224,115 @@ export const ACCOUNTING_MONTH = 4;
 export const BANK_FEES_MONTHLY = 10;
 
 /**
- * Operating CC pass-through, the corporate cards with software carved out
- * to its own line. RERACKED Aug 2026 against `overhead_expenses` card rows
- * for the trailing 12 months Jun 2025 - May 2026 (the last full month of
- * card-level detail): total card $7,843/mo, less software $1,798/mo, gives
- * $6,045/mo, itemized in CC_OPERATING_BREAKDOWN below.
+ * Corporate-card spend, split into what scales with the fleet and what does not.
  *
- * Note the pairing with SOFTWARE_MONTHLY: $6,045 + $2,300 projects $8,345
- * of card spend a month against $7,843 actual on the same window. The gap
- * is deliberate, the card baseline is a stable trailing-12 figure while
- * software is set to its rising 2026 run rate rather than its T12 average.
+ * RERACKED 2026-09-02 against the full Chase ...3878 statement (1,012 rows,
+ * January to September). The old model was a flat CC_BASELINE_MONTHLY of
+ * $6,045 with a CC_ELASTICITY coefficient, and it could not work: real card
+ * spend ran $3,858 in March and $19,239 in August. No flat number and no
+ * single elasticity describes a line that swings five-fold, because most of it
+ * is consumables bought per property per turnover and the rest is
+ * subscriptions that never move.
  *
- * A second card (...6250) opened July 2026 and is additive, not a
- * replacement, both cards were paid in July and August. Its spend is not
- * yet in the card-detail table, so it is NOT in this baseline. See the
- * card-payment note in forecast-actuals.ts.
+ * VARIABLE: guest supplies and small repairs. Amazon, Fix Linens, Target,
+ * hardware. Per live property per month in 2026:
  *
- * Scales with the portfolio at 0.5x elasticity, doubling property count
- * adds +50%, not +100%.
+ *     Feb $236   Apr $872   May $858   Jun $1,492   Jul $1,009   Aug $729
+ *
+ * Least-squares against the Cape Ann curve pulled one month earlier and damped
+ * to 60% amplitude gives $8,360 per property per year at R2 0.593. The
+ * one-month lead is not a fitting trick: a house is stocked the month BEFORE
+ * its guests arrive. The damping is, and it is there because six data points
+ * from a year in which the fleet went from six properties to seventeen cannot
+ * carry the full amplitude of a curve fitted to something else.
+ *
+ * Two shapes fit better on paper and were rejected. The revenue curve at a
+ * one-month lead reaches R2 0.701 but puts September above August, an artifact
+ * of Gloucester's own September/October inversion. The raw occupancy curve is
+ * physically tidier and fits worse, at R2 0.157.
  */
-export const CC_BASELINE_MONTHLY = 6045;
-export const CC_BASELINE_PROP_COUNT = 9;
+export const CC_SUPPLY_ANNUAL_PER_PROP = 8360;
+
+/** Cape Ann turnovers, pulled one month earlier and damped to 60%. */
+const CC_SUPPLY_RAW = SEASON.CA.map((_, i) => 0.6 * SEASON.CA[(i + 1) % 12] + 0.4 / 12);
+export const CC_SUPPLY_SEASON: number[] = normalize(CC_SUPPLY_RAW);
+
+/** GEICO auto. $518.35 to $518.81 every month of 2026, unchanged since Mar 2025. */
+export const CC_VEHICLE_INSURANCE_MONTHLY = 519;
+/** AT&T. Five charges April onward, nothing before. */
+export const CC_TELECOM_MONTHLY = 114;
 /**
- * How card spend scales with the portfolio. Was 0.5 (half-elastic).
- *
- * RERACKED Aug 2026 to 0.75, bottom-up from the breakdown: guest supplies,
- * listing platforms and repairs are 72% of the baseline and are fully
- * per-property; marketing, vehicle insurance and travel are the fixed 28%.
- * Bank-measured elasticity across the 2025-2026 fleet growth reads 0.85 to
- * 1.52, so 0.75 stays conservative.
+ * Flights, car rental, fuel, meals. Averaged over the whole card record rather
+ * than 2026 alone: November 2025 was $3,600 by itself and a 2026-only mean
+ * understates the line three-fold.
  */
-export const CC_ELASTICITY = 0.75;
+export const CC_TRAVEL_MONTHLY = 175;
+/** The residual Other bucket once the identifiable lines are pulled out. */
+export const CC_ADMIN_MONTHLY = 110;
+/**
+ * Furnished Finder, once a year. VRBO is deliberately NOT here: it is a
+ * channel commission already netted out of rental revenue, categorised
+ * 'Pass-through', and counted in no expense total.
+ */
+export const CC_LISTING_ANNUAL = 199;
+export const CC_LISTING_MONTH = 8;
 
 /**
- * Marketing & advertising portion of the operating-CC baseline (the
- * Facebook/Meta ad spend). Cut to $0 effective June 2026 — from then on
- * the CC baseline drops to CC_BASELINE_MONTHLY − CC_MARKETING_MONTHLY.
+ * Marketing, and the cut that really did happen.
  *
- * Must stay equal to the 'Marketing & advertising' entry in
- * CC_OPERATING_BREAKDOWN: the render layer uses this value both to zero
- * that row and to shrink the denominator of the proportional split, so a
- * mismatch makes the itemized rows stop summing to exp_cc_ops.
- *
- * UNVERIFIED: card detail ends 2026-06-06, so no month of the claimed cut
- * is observable. Through May 2026 the line ran $680/mo, above its own
- * trailing average. Re-upload the card export to settle it.
+ * $173 / $526 / $1,111 / $757 / $832 for January to May, then $333, $33, $164
+ * for June, July and August. The model originally claimed this cut and #1382
+ * removed it as unverifiable, because card detail stopped on 2026-06-06. The
+ * statement now covers those months and the cut is plainly there. It is a step
+ * down to roughly $175, not the drop to zero the first version assumed.
  */
-export const CC_MARKETING_MONTHLY = 427;
+export const CC_MARKETING_MONTHLY = 680;
+export const CC_MARKETING_POST_CUT_MONTHLY = 175;
+export const CC_MARKETING_CUT_MONTH = 6;
 
-/**
- * Whether Meta ad spend is still running.
- *
- * RERACKED Aug 2026: this used to return false from June 2026, booking a
- * $427/mo saving. No month of that cut is observable. Card detail stops
- * 2026-06-06, and through May 2026 the line ran $680/mo, ABOVE its own
- * trailing average rather than below it. Over the same window total
- * card-funded spend went from $6,522/mo to $21,888/mo. Claiming a category
- * cut while the total triples is a reclassification, not a saving, so the
- * line now runs until the card export proves otherwise.
- */
-export function isMarketingActive(_year: number, _month: number): boolean {
-  return true;
+export function marketingCost(year: number, month: number): number {
+  if (year > 2026 || (year === 2026 && month >= CC_MARKETING_CUT_MONTH)) {
+    return CC_MARKETING_POST_CUT_MONTHLY;
+  }
+  return CC_MARKETING_MONTHLY;
 }
 
+/** The part of the card that arrives whether a guest does or not. */
+export const CC_FIXED_MONTHLY =
+  CC_VEHICLE_INSURANCE_MONTHLY + CC_TELECOM_MONTHLY + CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY;
+
+/**
+ * Card spend for one month: consumables that scale with the fleet and the
+ * season, plus the fixed floor.
+ *
+ * The old signature is unchanged. `month` was already accepted and ignored;
+ * it now indexes the seasonal curve. Elasticity is structural rather than a
+ * tuned coefficient: the variable term is fully elastic by construction and
+ * the fixed term is not elastic at all, so the blended figure falls out of the
+ * mix instead of being asserted. Same shape as contractorCost, which already
+ * rides a curve and scales with the fleet.
+ */
 export function ccOperatingCost(
   activePropCount: number,
   year: number,
   month: number,
 ): number {
-  let base = CC_BASELINE_MONTHLY;
-  if (!isMarketingActive(year, month)) base -= CC_MARKETING_MONTHLY;
-  if (activePropCount <= CC_BASELINE_PROP_COUNT) return base;
-  const propIncrease = (activePropCount - CC_BASELINE_PROP_COUNT) / CC_BASELINE_PROP_COUNT;
-  return base * (1 + propIncrease * CC_ELASTICITY);
+  const variable =
+    CC_SUPPLY_ANNUAL_PER_PROP * (CC_SUPPLY_SEASON[month - 1] ?? 0) * activePropCount;
+  const fixed =
+    CC_FIXED_MONTHLY +
+    marketingCost(year, month) +
+    (month === CC_LISTING_MONTH ? CC_LISTING_ANNUAL : 0);
+  return variable + fixed;
 }
 
 /**
- * The operating-CC baseline itemized into categories — trailing-12-month
- * monthly averages from the ...3878 card. Sums to CC_BASELINE_MONTHLY.
+ * Itemisation for the Recurring Monthly rows on /forecast.
+ *
+ * These are a PROPORTIONAL SPLIT of the month's card figure, so the weights
+ * only have to hold their ratio to one another; the split rescales itself to
+ * whatever ccOperatingCost returns. Values are a representative mid-season
+ * month at the current fleet.
  */
 export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
   label: string;
@@ -284,33 +341,33 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
 }> = [
   {
     label: 'Guest supplies & inventory',
-    monthly: 3373,
-    info: 'Amazon, Fix Linens, amenities and consumables, $40,470 over the trailing 12 months, the largest slice of card spend by far. Sharply seasonal: $5,086 in April 2026, $6,865 in May, and $5,362 in the first six days of June alone.',
-  },
-  {
-    label: 'Listing platforms',
-    monthly: 699,
-    info: 'VRBO and Furnished Finder host/listing fees, $8,391 trailing 12 months. Billed in annual lumps, so 2026 year-to-date reads much lighter ($142/mo) than the trailing average.',
-  },
-  {
-    label: 'Marketing & advertising',
-    monthly: 427,
-    info: 'Facebook/Meta ads, $5,123 trailing 12 months. The model still cuts this to $0 from June 2026, but that cut is UNVERIFIED: card detail stops 2026-06-06, and through May the line was running $680/mo in 2026, above the trailing average rather than below it.',
-  },
-  {
-    label: 'Vehicle & other insurance',
-    monthly: 784,
-    info: 'GEICO auto and other policies charged to the card, $9,410 trailing 12 months. Separate from the Phillips commercial premium, which is an annual ACH out of the operating account and has its own line below.',
+    monthly: 6700,
+    info: 'Amazon, Fix Linens, Target, HomeGoods. The dominant card line and the seasonal one: $236 per property in February against $1,492 in June. Bought the month before the guests arrive, which is why it leads the turnover curve.',
   },
   {
     label: 'Repairs & upkeep',
-    monthly: 218,
-    info: 'Hardware stores and small contractor charges on the card, $2,612 trailing 12 months.',
+    monthly: 1660,
+    info: 'Hardware stores, plumbing, propane and small contractor charges on the card. Rides the same per-property seasonal curve as supplies.',
+  },
+  {
+    label: 'Vehicle & other insurance',
+    monthly: 519,
+    info: 'GEICO auto, $519 every month of 2026 and unchanged since March 2025. Separate from the Phillips commercial premium, which is an annual ACH out of the operating account.',
   },
   {
     label: 'Travel & other',
-    monthly: 544,
-    info: 'Flights, car rental, fuel, meals and miscellaneous office spend, $6,535 trailing 12 months.',
+    monthly: 285,
+    info: 'Flights, car rental, fuel, meals and miscellaneous admin. Averaged across the whole card record rather than 2026 alone, because one month (November 2025, $3,600) carries most of a year.',
+  },
+  {
+    label: 'Marketing & advertising',
+    monthly: 175,
+    info: 'Facebook and Meta, plus occasional print. Ran $680/mo through May, then stepped down to roughly $175 from June. The cut is real and measured, not assumed.',
+  },
+  {
+    label: 'Telecom',
+    monthly: 114,
+    info: 'AT&T. Five charges from April onward, nothing before it.',
   },
 ];
 
@@ -328,12 +385,15 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
  * out the flat creative and misc lines below and field labor is $6,738/mo
  * at a July share of 20% of the Cape Ann year, so $33,700 annualized.
  *
- * PROP_COUNT is 10 because that is the model's OWN active count in July
- * 2026 (9 CURRENT_2026 entries plus the first slider add), which is what
- * `activeCount` passes in. It is deliberately not the 15 properties that
- * actually filed statements that month. CURRENT_2026 is a stale roster,
- * and calibrating the divisor to the real fleet while the numerator comes
- * from the model's own count would scale this line down by a third.
+ * PROP_COUNT is 16, the mean live fleet across the calibration window: 15
+ * properties in July 2026 and 17 in August.
+ *
+ * It was 10 until 2026-09-02, and deliberately so: CURRENT_2026 was a stale
+ * nine-entry roster, so `activeCount` reported 10 and the divisor had to match
+ * the count the model actually passed in rather than the fleet on the ground.
+ * That roster is now real, so the divisor is real too. The annual figure is
+ * unchanged, because the two corrections cancel: the window averaged 16
+ * properties, which is exactly what the old pairing was standing in for.
  *
  * The work is per-turnover: payments cluster on Monday and Thursday (62.3%
  * of dollars, 59.0% of payments), track checkout volume, and grew by
@@ -342,7 +402,7 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
  * card baseline's 0.5x.
  */
 export const CONTRACTOR_FIELD_ANNUAL = 33700;
-export const CONTRACTOR_FIELD_PROP_COUNT = 10;
+export const CONTRACTOR_FIELD_PROP_COUNT = 16;
 /** First month field labor appears (2026 only, it starts mid-year). */
 export const CONTRACTOR_FIELD_START_MONTH_2026 = 7;
 
