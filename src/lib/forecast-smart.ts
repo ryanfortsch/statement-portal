@@ -31,8 +31,9 @@
  */
 
 import { supabaseAdmin as supabase } from './supabase-admin';
+import { selectAllPaged } from './paged-select';
 import {
-  calibratedBenchmark,
+  HISTORICAL_AVG_RECENT,
   GLOUCESTER_REVENUE_SEASONALITY,
   daysInMonth,
 } from './forecast-occupancy';
@@ -194,6 +195,68 @@ export function forwardMonths(today: Date, endYear: number): string[] {
  *
  * A stay that straddles two months is pro-rated by nights into each.
  */
+/**
+ * Load the closed-month stays that the benchmark calibration is measured on.
+ *
+ * Deliberately a separate read from the forward-booking load: that one starts
+ * at the current month, and calibration needs the months BEHIND it. Managed
+ * properties only, revenue-bearing and non-cancelled, because an owner block
+ * occupies a night without telling us anything about demand.
+ */
+export async function getClosedMonthStays(
+  closedMonths: string[],
+): Promise<Array<{ property_id: string | null; check_in: string | null; check_out: string | null }>> {
+  if (closedMonths.length === 0) return [];
+  const first = closedMonths[0];
+  const last = closedMonths[closedMonths.length - 1];
+  const [fy, fm] = first.split('-').map((n) => parseInt(n, 10));
+  const [ly, lm] = last.split('-').map((n) => parseInt(n, 10));
+  const windowStart = ymd(new Date(fy, fm - 1, 1));
+  const windowEndExclusive = ymd(new Date(ly, lm, 1));
+
+  const { data: propsData } = await supabase
+    .from('properties')
+    .select('id, is_rising_tide_owned')
+    .eq('is_active', true);
+  const managed = new Set(
+    (propsData ?? [])
+      .filter((p: { is_rising_tide_owned: boolean | null }) => !p.is_rising_tide_owned)
+      .map((p: { id: string }) => p.id),
+  );
+  if (managed.size === 0) return [];
+
+  const rows = await selectAllPaged<{
+    property_id: string | null;
+    check_in: string | null;
+    check_out: string | null;
+    status: string | null;
+    host_payout: number | null;
+    owner_net_revenue_guesty: number | null;
+    total_paid: number | null;
+  }>(
+    (from, to) =>
+      supabase
+        .from('guesty_reservations')
+        .select('property_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
+        .lt('check_in', windowEndExclusive)
+        .gt('check_out', windowStart)
+        .order('id', { ascending: true })
+        .range(from, to),
+    { label: 'calibration stays' },
+  );
+
+  return rows
+    .filter((r) => r.property_id && managed.has(r.property_id))
+    .filter((r) => isActiveBooking(r.status))
+    .filter(
+      (r) =>
+        Number(r.host_payout ?? 0) > 0 ||
+        Number(r.owner_net_revenue_guesty ?? 0) > 0 ||
+        Number(r.total_paid ?? 0) > 0,
+    )
+    .map((r) => ({ property_id: r.property_id, check_in: r.check_in, check_out: r.check_out }));
+}
+
 export async function getBookedByPropertyByMonth(
   forwardMonthList: string[]
 ): Promise<{
@@ -302,7 +365,7 @@ export function computeSmartForecast(
   forwardMonthList: string[],
   bookedByPropMonth: Map<string, Map<string, { nights: number; revenue: number }>>,
   properties: SmartProperty[],
-  historicalAvgByMonthOfYear: number[] = calibratedBenchmark(),
+  historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT,
 ): SmartForecast {
   // Active mgmt props only (exclude RT-owned).
   const mgmtProps = properties.filter((p) => !p.isRtOwned);
