@@ -176,7 +176,7 @@ export const OFFICE_START_MONTH = 3;
  * corroborated, and the actuals builder routes the card's Software rows onto
  * this line rather than the operating lump, so the ACT months show it:
  *
- *   Jun 2026  $1,272     Jul 2026  $3,586     Aug 2026  $3,804
+ *   Jun 2026  $1,272     Jul 2026  $3,420     Aug 2026  $3,804
  *
  * July and August run well above this constant. Anthropic is the driver,
  * $420 in April to $1,823 in August, nearly half the line. Whether that
