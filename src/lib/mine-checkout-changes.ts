@@ -84,6 +84,11 @@ export type MineCheckoutChangesResult = {
   /** Mined a time that already equals the property default - nothing
    *  diverges, so no adjustment is written. */
   matchesDefault: number;
+  /** Mined a date that does not actually move the checkout. */
+  noOpDate: number;
+  /** Mined an extension the Guesty calendar does not corroborate: filed
+   *  as a proposal for the operator instead of applied. */
+  uncorroboratedExtension: number;
   invalid: number;
   truncated: boolean;
   errors: string[];
@@ -139,6 +144,8 @@ export async function mineCheckoutChanges(
     alreadyMined: 0,
     unchanged: 0,
     matchesDefault: 0,
+    noOpDate: 0,
+    uncorroboratedExtension: 0,
     invalid: 0,
     truncated: false,
     errors: [],
@@ -282,6 +289,18 @@ export async function mineCheckoutChanges(
         continue;
       }
 
+      // A "one more night" that lands on (or before) the booked checkout
+      // moves nothing. Writing it anyway is what let the miner RATCHET: on
+      // 2026-08-31 it wrote 36 Granite 09-02 -> 09-02 from a vague host
+      // line, and on 09-02 it re-read the same thread, treated the standing
+      // row as the new baseline and produced 09-03, texting the cleaners to
+      // a house whose guest had already left. An extension must actually
+      // extend.
+      if (date && date <= c.check_out) {
+        result.noOpDate += 1;
+        continue;
+      }
+
       // A time-only agreement must not clobber a standing extension (and
       // vice versa): the new row carries the mined value plus whatever the
       // standing adjustment already established on the other axis.
@@ -301,6 +320,22 @@ export async function mineCheckoutChanges(
       if (time) slugParts.push(`time-${time.replace(':', '-')}`);
       const minerKey = `coadj:${c.conversation_id}:${slugParts.join('-')}`;
 
+      // A DATE extension moves an entire turnover to another day, so the
+      // thread alone is not enough: the extra nights must actually be
+      // occupied in Guesty's calendar. `unavailable` with a NULL block_type
+      // is Guesty's advance-notice artifact, not a stay -- the same phantom
+      // the turnover rail already discards -- so it does not corroborate.
+      // Uncorroborated extensions become proposals the operator can apply
+      // in one tap, never silent sends. Time-only changes are unaffected.
+      let confidence = change.confidence;
+      if (date) {
+        const corroborated = await extensionIsOccupied(supabase, propertyId, c.check_out, date);
+        if (!corroborated) {
+          confidence = 'low';
+          result.uncorroboratedExtension += 1;
+        }
+      }
+
       try {
         const inserted = await insertAdjustment(supabase, {
           propertyId,
@@ -312,7 +347,7 @@ export async function mineCheckoutChanges(
           source: 'miner',
           minerKey,
           evidence: change.quote.trim().slice(0, 500),
-          confidence: change.confidence,
+          confidence,
           createdBy: MINER_BOT,
         });
         if (!inserted) {
@@ -331,6 +366,52 @@ export async function mineCheckoutChanges(
   }
 
   return result;
+}
+
+
+/**
+ * Are the extra nights of a claimed extension actually occupied?
+ *
+ * Nights from the booked checkout up to (not including) the new checkout
+ * must each read `booked`, or `unavailable` WITH a real block_type. A NULL
+ * block_type on an unavailable night is Guesty's advance-notice / booking
+ * -window artifact rather than a stay (see the phantom-block handling in
+ * lib/operations.ts), and treating it as occupancy is precisely how a
+ * hallucinated extension gets auto-applied.
+ *
+ * Missing or stale mirror rows return false: unproven, so the change is
+ * proposed rather than applied. Wrongly proposing costs a tap; wrongly
+ * applying sends cleaners to the wrong house.
+ */
+async function extensionIsOccupied(
+  supabase: SupabaseClient,
+  propertyId: string,
+  bookedCheckOut: string,
+  newCheckOut: string,
+): Promise<boolean> {
+  const nights: string[] = [];
+  let d = bookedCheckOut;
+  for (let i = 0; i < 60 && d < newCheckOut; i++) {
+    nights.push(d);
+    d = addDays(d, 1);
+  }
+  if (nights.length === 0) return false;
+  const { data, error } = await supabase
+    .from('property_calendar_days')
+    .select('date, status, block_type')
+    .eq('property_id', propertyId)
+    .in('date', nights);
+  if (error || !data) return false;
+  const byDate = new Map(
+    (data as Array<{ date: string; status: string; block_type: string | null }>).map((r) => [r.date, r]),
+  );
+  return nights.every((n) => {
+    const cell = byDate.get(n);
+    if (!cell) return false;
+    const status = (cell.status || '').toLowerCase();
+    if (status === 'booked') return true;
+    return status === 'unavailable' && !!cell.block_type;
+  });
 }
 
 async function mineThread(
