@@ -15,6 +15,11 @@
  *     × the share of annual revenue that typically lands in that month
  *     (the Gloucester revenue-seasonality curve).
  *
+ * The current month runs the same path as every other month, with its uplift
+ * over the book pro-rated by the days still ahead. It used to short-circuit
+ * to the raw book, which meant the month in progress was forecast to pick up
+ * nothing at all, even on the 1st.
+ *
  * Blend: 50/50 when a month has bookings, 100% Part B when it doesn't,
  * then floored at the month's booked revenue. The floor is on the blend
  * rather than on Part A alone: a property booked past the benchmark pins
@@ -503,35 +508,38 @@ export function computeSmartForecast(
       const monthIdx = m - 1;
 
       let projectedGross: number;
-      if (ym === currentMonthKey) {
-        // Current month — use booked-so-far directly. Late-booking
-        // upside for the days remaining is small and unpredictable; we
-        // do not scale up by pacing (which would assume future booking
-        // capacity that doesn't exist for days already past) and we do
-        // not layer Part B (which would double-count what's already on
-        // the books). cell.revenue already excludes pre-activation
-        // nights for mid-month activations, so no activation pro-rate.
-        projectedGross = cell.revenue;
-      } else {
+      {
         const a = partA.get(ym) ?? null;
         const partB = annualGross * (revenueShare[monthIdx] ?? 0);
         // 50/50 when the month has bookings; 100% Part B when it doesn't.
         projectedGross = a != null ? 0.5 * a + 0.5 * partB : partB;
 
-        // Never project below what is already on the books.
+        // Current month: only the days still ahead can be sold.
         //
-        // Part A carries a 1x floor, so Part A alone can never sit under
-        // booked revenue. The blend broke that promise anyway: for a
-        // property already booked past the market benchmark the ratio pins
-        // at exactly 1, so Part A EQUALS booked, and averaging it with a
-        // smaller Part B lands under the floor. On 2026-09-02 that was ten
-        // of seventeen properties for September, including 17 Beach at
-        // $28,240 projected against $35,159 already booked.
+        // This used to print `cell.revenue` and stop, on the reasoning that
+        // days already past carry no booking capacity. True, and it
+        // over-corrected to zero pickup across the WHOLE month, including on
+        // the 1st, which is when every day is still ahead of you.
         //
-        // The floor belongs on the number the page prints, not on one
-        // component of it. A month can only ever gain bookings, so a
-        // projection beneath the current book is wrong on its face.
-        if (cell.revenue > projectedGross) projectedGross = cell.revenue;
+        // Backtested on August, standing on 2026-08-01 with only May, June
+        // and July calibrated. Nights are cancellation-aware and deduplicated
+        // to distinct (property, date), which is the only internally
+        // consistent basis available:
+        //
+        //     on the books 8/1   339 nights   64.3% occupancy
+        //     realized           363 nights   68.9%
+        //     old rule           339          -6.6% against realized
+        //     new rule           361          -0.5%
+        //
+        // The uplift over the book is pro-rated by the share of the month
+        // still ahead: all of it on the 1st, none on the last day. Below the
+        // floor it does nothing, because the floor already holds the book.
+        if (ym === currentMonthKey) {
+          const dim = daysInMonth(y, m);
+          const remaining = Math.max(0, Math.min(1, (dim - today.getDate() + 1) / dim));
+          projectedGross = cell.revenue + Math.max(0, projectedGross - cell.revenue) * remaining;
+        }
+
 
         // Activation month: a mid-month activation only earns from the
         // activation day onward, so pro-rate by the days remaining.
@@ -547,6 +555,22 @@ export function computeSmartForecast(
       // so it holds whether the month is projected or read off the books.
       const opFactor = operatingFactor(p.id, ym);
       if (opFactor < 1) projectedGross *= opFactor;
+
+      // Never project below what is already on the books.
+      //
+      // Part A carries a 1x floor, so Part A alone can never sit under booked
+      // revenue. The blend broke that promise anyway: for a property already
+      // booked past the benchmark the ratio pins at exactly 1, so Part A
+      // EQUALS booked, and averaging it with a smaller Part B lands under. On
+      // 2026-09-02 that was ten of seventeen properties for September, 17
+      // Beach worst at $28,240 projected against $35,159 booked.
+      //
+      // Applied LAST, after every pro-rate, because a floor that something
+      // else can push you back under is not a floor. Scaled by opFactor for
+      // the same reason the projection is: a property that leaves on the 21st
+      // cannot be held to a book that runs past the 21st.
+      const bookedFloor = cell.revenue * opFactor;
+      if (bookedFloor > projectedGross) projectedGross = bookedFloor;
 
       return {
         month: ym,
