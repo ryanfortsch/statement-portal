@@ -15,6 +15,27 @@
  *     × the share of annual revenue that typically lands in that month
  *     (the Gloucester revenue-seasonality curve).
  *
+ * NO LEAD-TIME BOOKING CURVE, and not for want of trying. Scaling a month by
+ * how full months like it usually are at this point would beat all of this,
+ * and Helm cannot measure that yet. `bookings.first_seen_at` looks like the
+ * field for it and is not: it equals `created_at` on every row of both
+ * sources (704/704 ical_import, 445/445 guesty_legacy), so it records when a
+ * row was inserted, not when a guest booked. On the legacy rows it also
+ * equals `last_seen_at` -- written once by a backfill, never re-observed --
+ * and July 2026's nights are ~100% legacy. A curve built on it measures when
+ * the sync ran.
+ *
+ * Backtested anyway, standing on 2026-08-01 with July as the only clean
+ * month: dividing the book by July's completion share beat the days-remaining
+ * rule below by 0.1% on the 1st and lost badly every day after, 9.1% mean
+ * absolute error against 4.5%. July's shape says a month is 98.5% sold by day
+ * 14; August was still selling into its final week. Two peak months do not
+ * share a shape, and neither of them can speak for a November.
+ *
+ * guesty_reservations.booked_at now captures Guesty's own confirmedAt. It
+ * only works forward, so the curve becomes buildable roughly a year after
+ * 2026-09-02, on real timestamps and with a shoulder month among them.
+ *
  * The current month runs the same path as every other month, with its uplift
  * over the book pro-rated by the days still ahead. It used to short-circuit
  * to the raw book, which meant the month in progress was forecast to pick up
