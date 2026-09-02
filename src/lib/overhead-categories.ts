@@ -34,6 +34,7 @@ export type OverheadCategory =
   | 'Software'
   | 'Marketing'
   | 'Listing platforms'
+  | 'Pass-through'
   | 'Guest supplies'
   | 'Repairs & upkeep'
   | 'Insurance'
@@ -56,7 +57,15 @@ type Rule = { category: OverheadCategory; matches: string[] };
 const VENDOR_RULES: Rule[] = [
   { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AWS', 'AMAZON WEB', '1PASSWORD', 'TAILSCALE', 'RESEND', 'POND5', 'LUTIFY'] },
   { category: 'Marketing', matches: ['FACEBK', 'FACEBOOK', 'META PL', 'META ', 'INSTAGRAM', 'EAGLE TRIBUNE', 'MAILCHIMP', 'GOOGLE ADS', 'YELP', 'VISTAPRINT', 'SEASIDE GRAPHICS'] },
-  { category: 'Listing platforms', matches: ['VRBO', 'HOMEAWAY', 'FURNISHED FINDER', 'FURNISHEDFINDER', 'EXPEDIA'] },
+  // VRBO/HomeAway/Expedia bill the channel commission to the card, and that
+  // same commission is already netted out of rental revenue before it reaches
+  // a statement. The money lands in the account and leaves again. Counting it
+  // as overhead charges Rising Tide twice for one fee.
+  //
+  // Furnished Finder is NOT in here on purpose: it is a flat listing
+  // subscription RT actually pays, and nothing nets it back.
+  { category: 'Pass-through', matches: ['VRBO', 'HOMEAWAY', 'EXPEDIA'] },
+  { category: 'Listing platforms', matches: ['FURNISHED FINDER', 'FURNISHEDFINDER'] },
   { category: 'Guest supplies', matches: ['AMAZON', 'AMZN', 'FIX LINENS', 'FIXLINENS', 'WALMART', 'TARGET', 'COSTCO', 'BED BATH', 'WAYFAIR', 'HOMEGOODS', 'IKEA', 'BJS', "BJ'S", 'CRATE&', 'CRATE &', 'CB2', 'POTTERY BARN', 'POTTERYBARN', 'WILLIAMS SONOMA', 'JOSSMAIN', 'JOSS & MAIN', 'WEBSTAURANT', 'AMENITIES', 'HOME DECOR GROUP', 'MARSHALLS'] },
   { category: 'Repairs & upkeep', matches: ['HOME DEPOT', 'HOMEDEPOT', 'LOWES', "LOWE'S", 'ACE HARDWARE', 'HARDWARE', 'TRUE VALUE', 'SHERWIN', 'FERGUSON', 'ROCKY', 'GRAINGER', 'PAONE', 'DASH DRAINS', 'BUILDING CENTER', 'MECHANICAL', 'DROMETER', 'PLUMBING', 'ELECTRIC', 'WALLACEHOME', 'WALLACE HOME'] },
   { category: 'Insurance', matches: ['PHILLIPS', 'INSURANCE', 'INSUR', 'GEICO', 'PROGRESSIVE', 'STATE FARM', 'LIBERTY MUT', 'TRAVELERS', 'HARTFORD'] },
@@ -254,7 +263,8 @@ export function resolveCardSpendSource<
 export const OVERHEAD_CATEGORIES: OverheadCategory[] = [
   'Software', 'Marketing', 'Listing platforms', 'Guest supplies',
   'Repairs & upkeep', 'Insurance', 'Health benefits', 'Rent & office',
-  'Professional', 'Payroll', 'Contractors', 'Card payment', 'Travel', 'Bank fees', 'Other',
+  'Professional', 'Payroll', 'Contractors', 'Card payment', 'Pass-through',
+  'Travel', 'Bank fees', 'Other',
 ];
 
 /* --------------------------------------------------------------------- */
