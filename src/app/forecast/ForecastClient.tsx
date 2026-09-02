@@ -855,7 +855,7 @@ const sections2026: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo' },
-      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
+      { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,586 in July and $3,804 in August, driven by Anthropic. The subscription cuts an earlier version assumed never showed up in the card data.' },
       { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
       { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
     ],
@@ -864,8 +864,8 @@ const sections2026: AssumptionSection[] = [
     heading: 'Step changes & triggers',
     items: [
       { label: 'Mar 2026', value: 'Office costs begin. Lease started March 2026; before that the line is $0.' },
-      { label: 'May 2026', value: 'Two pre-signed contracts go live (revenue starts). Bookkeeper final wrap-up payment $1,800 (above the regular $1K). Software subscriptions trimmed ~$400 (to $1,287/mo).' },
-      { label: 'Jun 2026', value: 'Three pre-signed contracts go live (revenue starts). Bookkeeper drops to $0 (engagement ends). Marketing & advertising cut to $0; software subscriptions trimmed a further $100 (to $1,187/mo).' },
+      { label: 'May 2026', value: 'Two pre-signed contracts go live (revenue starts). Bookkeeper final wrap-up payment $1,800 (above the regular $1K).' },
+      { label: 'Jun 2026', value: 'Three pre-signed contracts go live (revenue starts). Bookkeeper drops to $0 (engagement ends). Marketing & advertising steps down to about $175/mo (the cut is real and measured on the card). Software stays flat at $2,300/mo; no cut showed up in the card data.' },
       { label: 'Aug 2026', value: 'First hire begins at $5,000/mo.' },
       { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). Step function: month-by-month based on active count = current 9 + presigned + new started so far.' },
       { label: 'Each new month', value: 'Property starts contributing revenue from its start month. No separate onboarding charge — setup supplies are already in the Guest supplies & inventory line.' },
@@ -899,7 +899,7 @@ const sections2027: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo, full year' },
-      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
+      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran above $3,500.' },
       { label: 'Bank fees', value: '$100/mo' },
       { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo all year (Aug 2026 hire continues = $60K full year).' },
@@ -941,7 +941,7 @@ const sections2028: AssumptionSection[] = [
     heading: 'Recurring monthly',
     items: [
       { label: 'Office', value: '$800/mo (rent + dumpster), full year' },
-      { label: 'Software', value: '$1,187/mo from June 2026 — software on the corporate card (Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools), trimmed ~$500 from the $1,687 trailing baseline.' },
+      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran above $3,500.' },
       { label: 'Bank fees', value: '$100/mo' },
       { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
       { label: 'Hire', value: '$5,000/mo per hire all year. Second hire active throughout if portfolio is already over 20 props (very likely with rollovers).' },
@@ -1459,7 +1459,7 @@ function ForecastTable({
         />
         <DataRow
           label="Software"
-          info="Software subscriptions on the corporate card — Guesty, PriceLabs, QuickBooks, Adobe, AirDNA, AI tools. The $1,687/mo trailing baseline was trimmed by subscription cuts: $1,287/mo in May 2026, $1,187/mo from June onward."
+          info="Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,586 Jul, $3,804 Aug 2026). Projected months carry a flat $2,300/mo, the 2026 year-to-date average. The subscription cuts an earlier version of this model assumed never showed up in the card data; Anthropic has been the fastest-growing line."
           values={monthly.map((r) => r.exp_software)}
           fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
         />

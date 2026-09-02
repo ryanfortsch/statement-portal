@@ -12,8 +12,17 @@
  * matches the existing ACTUALS_2026 convention so the per-row totals
  * stay comparable:
  *
- *   card account  → exp_cc_ops (whole card is one lump from the bank's
- *                   perspective; matches the existing convention).
+ *   card account  → exp_software for rows the categorizer tagged
+ *                   'Software' (the subscription stack: Guesty, Anthropic,
+ *                   PriceLabs, QuickBooks, Adobe, Quo and the rest), and
+ *                   exp_cc_ops for everything else on the card. The card
+ *                   used to be one lump, which left the Software row at $0
+ *                   in every ACT month and then jumping to the $2,300
+ *                   projection in the first forward month, while the six
+ *                   Recurring rows quietly absorbed the real spend. The
+ *                   projected card model (ccOperatingCost) never included
+ *                   software, so this is what makes ACT and projected
+ *                   months describe the same shape.
  *   'Pass-through'  → dropped. VRBO and the other channel commissions bill
  *                   the card and are already netted out of rental revenue
  *                   before a statement sees them; counting them here charges
@@ -209,7 +218,12 @@ export async function getActualsFromDb(
       if (cat === 'Pass-through') {
         // deliberately counted nowhere
       } else if (acct === 'card') {
-        ma.exp_cc_ops += amt;
+        // The subscription stack gets its own row. The projection carries
+        // software on exp_software and never inside ccOperatingCost, so the
+        // ACT months have to split it out the same way or the Software row
+        // reads $0 through August and $2,300 from September.
+        if (cat === 'Software') ma.exp_software += amt;
+        else ma.exp_cc_ops += amt;
       } else {
         switch (cat) {
           case 'Rent & office':   ma.exp_office += amt; break;
