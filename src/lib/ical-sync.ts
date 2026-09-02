@@ -422,6 +422,52 @@ function dayGap(d1: string, d2: string): number {
  * The one-day endpoint tolerance absorbs the off-by-one that iCal's
  * exclusive-DTEND semantics occasionally produce across channels.
  */
+/**
+ * A guest identity that actually distinguishes two rows.
+ *
+ * Placeholders do not: Booking.com withholds the guest name until close to
+ * arrival and Guesty records "Guest to be announced" in the meantime, while
+ * the iCal feeds record "Reservation <code>". Two rows both wearing a
+ * placeholder tell us nothing about whether they are the same booking.
+ */
+function realGuestName(name: string | null): string | null {
+  if (isPlaceholderGuestName(name)) return null;
+  const t = (name ?? '').trim().toLowerCase().replace(/[^a-z]/g, '');
+  return t === '' ? null : t;
+}
+
+/** True only when the two rows name DIFFERENT people. */
+function conflictingGuest(a: DedupRow, b: DedupRow): boolean {
+  const ea = normId(a.guest_email);
+  const eb = normId(b.guest_email);
+  if (ea && eb && ea.toLowerCase() !== eb.toLowerCase()) return true;
+  const na = realGuestName(a.guest_name);
+  const nb = realGuestName(b.guest_name);
+  return !!(na && nb && na !== nb);
+}
+
+/**
+ * Same stay, even though the external ids disagree.
+ *
+ * Guesty reissues a reservation id when a booking is modified, and records
+ * the same Booking.com stay more than once as the guest name is revealed. The
+ * old rows linger with their own ids, so `conflictingIdentity` reads them as
+ * different reservations and blocks the date-based merge. The result is one
+ * physical stay counted two or three times: 21 Horton showed 43 occupied
+ * nights in a 31-night August.
+ *
+ * Requires BYTE-IDENTICAL dates, deliberately narrower than `sameStay`'s
+ * one-day tolerance. Differing ids plus fuzzy dates is where a genuine pair
+ * of distinct reservations would get wrongly merged; exact dates at one
+ * property is a stay, not a coincidence. Verified against the whole 2026
+ * book: five clusters collapse, and the only two exact-date pairs naming
+ * different people are both refused.
+ */
+function sameStayDespiteIds(a: DedupRow, b: DedupRow): boolean {
+  if (a.check_in !== b.check_in || a.check_out !== b.check_out) return false;
+  return !conflictingGuest(a, b);
+}
+
 function sameStay(a: DedupRow, b: DedupRow): boolean {
   const overlaps = a.check_in < b.check_out && b.check_in < a.check_out;
   if (!overlaps) return false;
@@ -620,6 +666,14 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
         // Blocks (owner holds) are distinct calendar entities; only ever fold
         // them in by a shared id, never by a bare date overlap.
         if (a.status === 'block' || b.status === 'block') continue;
+        // Identical dates and nothing saying these are different people: one
+        // stay, whatever the ids claim. Runs BEFORE conflictingIdentity,
+        // because reissued Guesty ids are exactly what that guard mistakes
+        // for two separate reservations.
+        if (sameStayDespiteIds(a, b)) {
+          union(a.id, b.id);
+          continue;
+        }
         // Don't let a date overlap merge two explicitly-different reservations.
         if (conflictingIdentity(a, b)) continue;
         // Same dates, no conflicting identity -> same stay (covers a direct-feed
