@@ -540,7 +540,14 @@ export function BankDepositReview({
               {attributed.map(dep => {
                 const busy = busyId === dep.id;
                 const guest = dep.attributed_reservation_code ? (guestByCode.get(dep.attributed_reservation_code) || dep.attributed_reservation_code) : null;
-                const sign = dep.direction === 'debit' ? '−' : '+';
+                // Sign the amount, don't sign the direction. A debit is money
+                // out whatever its stored sign; a deposit can be NEGATIVE (an
+                // occupancy-tax correction carving the state's money back out
+                // of a stay), and hard-coding '+' printed that as "+$-227.60".
+                const signed = dep.direction === 'debit'
+                  ? -Math.abs(Number(dep.amount) || 0)
+                  : (Number(dep.amount) || 0);
+                const sign = signed < 0 ? '−' : '+';
                 return (
                   <div key={dep.id} style={{
                     padding: '8px 14px', marginBottom: 6, background: 'var(--paper-2)',
@@ -548,7 +555,7 @@ export function BankDepositReview({
                     gap: 10, flexWrap: 'wrap', fontSize: 12,
                   }}>
                     <span className="font-mono" style={{ color: 'var(--ink-3)' }}>{fmtDate(dep.deposit_date)}</span>
-                    <span className="font-serif tabular-nums" style={{ fontSize: 13, color: 'var(--ink)' }}>{sign}{fmtMoney(Number(dep.amount))}</span>
+                    <span className="font-serif tabular-nums" style={{ fontSize: 13, color: 'var(--ink)' }}>{sign}{fmtMoney(Math.abs(signed))}</span>
                     <span style={{ color: 'var(--ink-2)' }}>
                       {dep.label || (dep.direction === 'debit' ? 'Reimbursement' : 'Add-on')}
                       {guest && <> &nbsp;&middot;&nbsp; <span style={{ fontFamily: 'var(--font-fraunces)' }}>{guest}</span></>}
