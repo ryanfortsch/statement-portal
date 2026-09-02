@@ -64,19 +64,25 @@ const CIF_BILLED_WINDOW: Record<string, { from: string; until: string | null }> 
   '79_main': { from: '1970-01-01', until: null },
   '3_south_st': { from: '1970-01-01', until: null },
   '3_windward': { from: '1970-01-01', until: null },
-  // 17 Beach does NOT owe the CIF, but Guesty auto-calculates it on every
-  // Direct/VRBO folio (11 bookings, $2,260.93, 2026-05-27 through
-  // 2027-07-08). Brian Guest Spillover GY-EcKUjyqJ is the lone exception,
-  // hand-zeroed with metadata.override.
+  // 17 Beach never owed the CIF, but Guesty auto-calculated it on every
+  // Direct/VRBO folio from inception until Dotti switched the listing tax
+  // config off on 2026-09-02 (both listings: 695d5c8afb0a0500153d5d1c and
+  // the relist 696a76a01e0e260014e13054). 11 bookings billed it,
+  // $2,260.93, 2026-05-27 through 2027-07-08.
   //
-  // This entry MUST stay until Guesty's config is switched off. Removing it
-  // while the folios still bill 14.7% makes applyCollectedNet invert at
-  // 1.117 and hand the guest's 3% to the owner as rent. When the config is
-  // fixed (Listing > Financials > Taxes, on BOTH 17 Beach listings:
-  // 695d5c8afb0a0500153d5d1c and the relist 696a76a01e0e260014e13054),
-  // stamp `until` with that date so charges before it still invert at
-  // 14.7% and already-recognized rent is never rewritten.
-  '17_beach_rd': { from: '1970-01-01', until: null },
+  // The entry STAYS, closed rather than deleted. Deleting it would make
+  // applyCollectedNet invert those 11 tax-inclusive charges at 1.117 and
+  // hand each guest's 3% to the owner as rent, which is the 79 Main July
+  // bug ($132.74 over-credited, Dotti's ruling 2026-08-02). Nicole Handley
+  // alone would have moved $266.77.
+  //
+  // `until` is 09-03, not 09-02, because the switch was thrown partway
+  // through 09-02 and a date cannot split a day. Charges created that day
+  // therefore invert at 14.7%. That is the deliberate direction: a charge
+  // billed at 11.7% and inverted at 14.7% under-recognizes rent by ~2.6%
+  // and shows up in collected_rebuilds, whereas the other rounding would
+  // silently pay an owner tax money.
+  '17_beach_rd': { from: '1970-01-01', until: '2026-09-03' },
 };
 
 function inWindow(w: { from: string; until: string | null } | undefined, iso: string): boolean {
