@@ -1204,14 +1204,36 @@ export async function submitPacketForContractor(formData: FormData): Promise<voi
   const packet = pData as { id: string; status: string; title: string; awarded_contractor_id: string | null } | null;
   if (!packet || !packet.awarded_contractor_id || !isWorkingStatus(packet.status)) return;
 
-  // Same floor as the inspector's own submit: no open stops.
-  const { data: stops } = await fieldDb().from('packet_stops').select('status').eq('packet_id', packetId);
-  const allComplete =
-    (stops ?? []).length > 0 &&
-    (stops as { status: string }[]).every((s) => s.status === 'complete' || s.status === 'skipped');
-  if (!allComplete) return;
+  // The office can wrap up a trip the inspector finished but never tapped
+  // through: any still-open stops are closed as complete first (Dotti,
+  // 2026-09-02 - James's 3rd stop sat in_progress for 21 hours after the work
+  // was done, and the submit button refused to render). The trip must have
+  // actually begun; a claimed-but-untouched packet has nothing to wrap up.
+  const { data: stops } = await fieldDb()
+    .from('packet_stops')
+    .select('id, status, started_at')
+    .eq('packet_id', packetId);
+  const stopRows = (stops ?? []) as { id: string; status: string; started_at: string | null }[];
+  if (stopRows.length === 0) return;
+  const unfinished = stopRows.filter((s) => s.status !== 'complete' && s.status !== 'skipped');
+  const begun = stopRows.some((s) => s.status !== 'pending' || s.started_at);
+  if (!begun) return;
 
   const nowIso = new Date().toISOString();
+  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  for (const st of unfinished) {
+    // A clock left running since a PREVIOUS day is a forgotten tap, not a
+    // marathon shift - clear it so the finalize suggestion falls back to the
+    // estimated on-site pay instead of pricing 21 idle hours at $40/hr.
+    const staleClock =
+      !!st.started_at &&
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(st.started_at)) < todayEt;
+    await fieldDb()
+      .from('packet_stops')
+      .update({ status: 'complete', completed_at: nowIso, ...(staleClock ? { started_at: null } : {}) })
+      .eq('id', st.id)
+      .not('status', 'in', '(complete,skipped)');
+  }
   // Atomic status guard - races a concurrent real submit / cancel safely.
   const { data: moved } = await fieldDb()
     .from('inspection_packets')
@@ -1235,6 +1257,7 @@ export async function submitPacketForContractor(formData: FormData): Promise<voi
     contractor_id: packet.awarded_contractor_id,
     actor_email: email,
     event_type: 'submitted_by_office',
+    payload: unfinished.length ? { stops_closed_by_office: unfinished.length } : null,
   });
 
   // The forgotten tap must not cost them a streak milestone (day 5/10 pays).

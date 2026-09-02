@@ -89,6 +89,10 @@ function deadlineLabel(iso: string | null): string | null {
   }
 }
 
+function todayETStr(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
 export default async function PacketDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const packet = await loadPacketDetail(id, { revealAccess: true });
@@ -203,6 +207,9 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // Every stop is done but the inspector never tapped Submit: offer the office
   // close-out so the packet doesn't sit in_progress (clock running, codes live).
   const readyToClose = tracking && doneCount === packet.stops.length;
+  // The office can also wrap up a trip that BEGAN but was never tapped
+  // through - unfinished stops are closed on the way (James, 2026-09-02).
+  const canWrapUp = tracking && !readyToClose && (doneCount > 0 || packet.visit_date < todayETStr());
   const inspectorFirst = packet.contractor?.full_name?.split(' ')[0] || 'the inspector';
 
   // Finalize-payout inputs (submitted / approved-unpaid): the same pricing
@@ -436,7 +443,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
         {/* Lifecycle controls: ONE loud action per state; everything else is a
             quiet utility link so the page doesn't shout five buttons at once. */}
         <div style={{ marginTop: 18 }}>
-          {(editable || readyToClose || packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at)) && (
+          {(editable || readyToClose || canWrapUp || packet.status === 'submitted' || (packet.status === 'approved' && !packet.paid_at)) && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               {editable && (
                 <>
@@ -461,13 +468,18 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   )}
                 </>
               )}
-              {readyToClose && (
+              {(readyToClose || canWrapUp) && (
                 <form action={submitPacketForContractor} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton label={`Submit for ${inspectorFirst}`} busyLabel="Closing out the trip…" style={btnDark} />
+                  <PendingButton
+                    label={readyToClose ? `Submit for ${inspectorFirst}` : `Wrap up & submit for ${inspectorFirst}`}
+                    busyLabel="Closing out the trip…"
+                    style={btnDark}
+                  />
                   <span style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 520 }}>
-                    Every stop is done but {inspectorFirst} never tapped Submit. This closes the trip out exactly like their own tap
-                    (stops the clock, pulls the door codes) and moves it to your review.
+                    {readyToClose
+                      ? `Every stop is done but ${inspectorFirst} never tapped Submit. This closes the trip out exactly like their own tap (stops the clock, pulls the door codes) and moves it to your review.`
+                      : `${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open — this marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to your review.`}
                   </span>
                 </form>
               )}
