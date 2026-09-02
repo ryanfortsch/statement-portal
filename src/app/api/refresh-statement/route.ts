@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
-import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, hasPriceableGross } from '@/lib/guesty-revenue-signal';
+import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, CONFIRMED_STATUS, hasPriceableGross } from '@/lib/guesty-revenue-signal';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectStay } from '@/lib/missing-direct-stays';
@@ -163,6 +163,9 @@ export async function POST(request: NextRequest) {
       .from('guesty_reservations')
       .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, status, total_taxes, channel_commission, folio_items, ${REVENUE_SIGNAL_COLUMNS}`)
       .eq('property_id', propertyId)
+      // Confirmed only: an inquiry has a quoted host_payout but no booking
+      // behind it, and a cancelled row must never be added to a statement.
+      .eq('status', CONFIRMED_STATUS)
       .gte('check_out', monthStart)
       .lt('check_out', monthEndExclusive)
       .or(REVENUE_SIGNAL_OR);

@@ -3,7 +3,7 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { PROPERTIES } from '@/lib/properties';
 import { getCachedPlatformCSV } from '@/lib/platform-csv-cache';
-import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR } from '@/lib/guesty-revenue-signal';
+import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, CONFIRMED_STATUS } from '@/lib/guesty-revenue-signal';
 import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
 import { isInternalSweepSource } from '@/lib/internal-transfers';
 import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
@@ -198,6 +198,11 @@ export async function loadPeriodData(month: string): Promise<
           // so a total_paid filter hid every one of them from this banner.
           .select(`confirmation_code, guest_name, check_out, ${REVENUE_SIGNAL_COLUMNS}`)
           .eq('property_id', prop.property_id)
+          // Confirmed only. An INQUIRY carries a host_payout because Guesty
+          // quoted a price, not because a guest booked -- August 2026 held 57
+          // of them, none with a confirmation code. Counting those as drift
+          // (or as unmatchable money) is a permanent false alarm.
+          .eq('status', CONFIRMED_STATUS)
           .gte('check_out', monthStart)
           .lt('check_out', monthEndExclusive)
           .or(REVENUE_SIGNAL_OR),
@@ -220,11 +225,12 @@ export async function loadPeriodData(month: string): Promise<
       const driftBookings = guestyRows.filter(
         (g: { confirmation_code: string | null }) => g.confirmation_code && !existingCodes.has(g.confirmation_code),
       );
-      // Revenue-bearing Guesty rows with NO confirmation code. Nothing can
-      // match or add these -- both the drift filter above and every
-      // code-keyed matcher skip them -- so without this count they are
-      // money that is simply invisible. Live check 2026-09-01 found ~$52k
-      // of them across 7 properties in August alone.
+      // A CONFIRMED booking with no confirmation code. Nothing can match or
+      // add such a row -- every matcher is code-keyed -- so it would be
+      // money that is simply invisible. The probe is now status-scoped, so
+      // this counts only genuine breakage: in live August 2026 data every
+      // one of the 112 confirmed rows carried a code, and the 57 code-less
+      // rows were all inquiries. This chip should normally read zero.
       const driftUnmatchable = guestyRows.filter(
         (g: { confirmation_code: string | null }) => !g.confirmation_code,
       ).length;
