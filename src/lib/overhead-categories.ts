@@ -55,7 +55,11 @@ type Rule = { category: OverheadCategory; matches: string[] };
 // inspecting the 2-yr card "Other" bucket (GEICO insurance, SQSP, Apple,
 // Lovable, Tempus Fugit law, Delta/Enterprise travel, Paone/Dash repairs).
 const VENDOR_RULES: Rule[] = [
-  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AWS', 'AMAZON WEB', '1PASSWORD', 'TAILSCALE', 'RESEND', 'POND5', 'LUTIFY'] },
+  // 'AWS' is deliberately not a bare needle. Matching is substring, and
+  // SHAWS (the grocery store) contains it: two July 2026 grocery debits
+  // ($166.35) were filed as Software that way and surfaced on the forecast.
+  // Real AWS charges read "AMAZON WEB SERVICES" or "AWS.AMAZON.CO".
+  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AMAZON WEB', 'AWS.AMAZON', 'AWS EMEA', '1PASSWORD', 'TAILSCALE', 'RESEND', 'POND5', 'LUTIFY'] },
   { category: 'Marketing', matches: ['FACEBK', 'FACEBOOK', 'META PL', 'META ', 'INSTAGRAM', 'EAGLE TRIBUNE', 'MAILCHIMP', 'GOOGLE ADS', 'YELP', 'VISTAPRINT', 'SEASIDE GRAPHICS'] },
   // VRBO/HomeAway/Expedia bill the channel commission to the card, and that
   // same commission is already netted out of rental revenue before it reaches

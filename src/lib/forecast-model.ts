@@ -172,9 +172,16 @@ export const OFFICE_START_MONTH = 3;
  * are removed rather than deferred: there is no month in the record where
  * software spend stepped down.
  *
- * Card detail stops 2026-06-06, so June onward is uncorroborated. If a cut
- * did land after that date, re-upload the card export on Cost Analysis and
- * the ACT rows will overwrite this projection for the affected months.
+ * Card detail now runs through 2026-09-01 (#1457), so June to August are
+ * corroborated, and the actuals builder routes the card's Software rows onto
+ * this line rather than the operating lump, so the ACT months show it:
+ *
+ *   Jun 2026  $1,272     Jul 2026  $3,586     Aug 2026  $3,804
+ *
+ * July and August run well above this constant. Anthropic is the driver,
+ * $420 in April to $1,823 in August, nearly half the line. Whether that
+ * holds depends on the responder prompt-cost work, so the constant stays at
+ * the 2026 YTD figure until a full quarter says otherwise.
  */
 export const SOFTWARE_MONTHLY = 2300;
 
@@ -589,7 +596,7 @@ export type MonthRow = {
 
   /** Office rent + dumpster (from March). */
   exp_office: number;
-  /** Software subscriptions (Gusto + AppFolio/PMS + Allie CC). */
+  /** Software subscriptions on the corporate card (Guesty, Anthropic, PriceLabs, QuickBooks, Adobe, Quo, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). */
   exp_software: number;
   /** MH Partners debt service. */
   exp_debt: number;
