@@ -882,20 +882,30 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                       <tr><td><span className="cat">Repairs &amp; Maint.</span></td><td className={repairs > 0 ? 'amt neg' : 'amt'} style={repairs > 0 ? {} : { color: 'var(--ink-4)' }}>{repairs > 0 ? `\u2212$${fmt(repairs)}` : '\u2014'}</td></tr>
                     );
                   })()}
-                  {Number(prop.attributed_debits_total || 0) > 0 && (
-                    <>
-                      {/* The stored scalar drives the amount so the column
-                          foots even if the itemisation query degraded; the
-                          rows below are best-effort detail. */}
-                      <tr><td><span className="cat">Refunds &amp; Adjustments</span></td><td className="amt neg">&minus;${fmt(Number(prop.attributed_debits_total))}</td></tr>
-                      {debitLines.map((dl, j) => (
-                        <tr key={`debit-${j}`} className="addon-row">
-                          <td><div className="addon-label">{dl.label}</div></td>
-                          <td className="addon-amt">&minus;${fmt(dl.amount)}</td>
-                        </tr>
-                      ))}
-                    </>
-                  )}
+                  {Number(prop.attributed_debits_total || 0) > 0 && (() => {
+                    // The stored scalar drives the amount so the column foots
+                    // even if the itemisation query degraded; the sub-rows are
+                    // best-effort detail.
+                    const debitTotal = Number(prop.attributed_debits_total);
+                    // A single attributed debit names its own line. Printing
+                    // "Refunds & Adjustments" over one "Fee on Refunded
+                    // Revenue" sub-row repeated the same figure twice under a
+                    // heading that called a management fee a refund.
+                    const sole = debitLines.length === 1
+                      && Math.abs(debitLines[0].amount - debitTotal) < 0.005
+                      ? debitLines[0] : null;
+                    return (
+                      <>
+                        <tr><td><span className="cat">{sole ? sole.label : 'Refunds & Adjustments'}</span></td><td className="amt neg">&minus;${fmt(debitTotal)}</td></tr>
+                        {!sole && debitLines.map((dl, j) => (
+                          <tr key={`debit-${j}`} className="addon-row">
+                            <td><div className="addon-label">{dl.label}</div></td>
+                            <td className="addon-amt">&minus;${fmt(dl.amount)}</td>
+                          </tr>
+                        ))}
+                      </>
+                    );
+                  })()}
                   {Number(prop.reserve_holdback || 0) > 0 && (
                     <tr><td><span className="cat">Owner Reserve</span></td><td className="amt neg">&minus;${fmt(Number(prop.reserve_holdback))}</td></tr>
                   )}
