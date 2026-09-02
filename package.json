@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --test \"src/**/__tests__/*.test.ts\"",
     "sync-sca-listings": "node scripts/sync-sca-listings.mjs"
   },
   "dependencies": {
