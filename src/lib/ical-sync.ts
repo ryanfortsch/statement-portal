@@ -527,12 +527,42 @@ const POSITIVE_STATUS_ORDER = ['completed', 'confirmed', 'pending', 'inquiry', '
  * present wins; a cluster of nothing but aggregate cancellations is treated as
  * cancelled because there's no positive signal left.
  */
+/**
+ * A "cancellation" dated after the guest left is not a cancellation.
+ *
+ * iCal feeds drop past events as a matter of routine, and the cancel pass
+ * above marks a vanished event cancelled. That is DELIBERATE and stays: the
+ * row is history, and its own comment explains why letting a rolled-off past
+ * booking cancel is the established behaviour. What is new is that such a row
+ * must not speak for the whole STAY.
+ *
+ * Before same-stay clustering got tighter, a rolled-off iCal row usually sat
+ * in its own cluster and hurt nobody. Now it lands beside the Guesty rows that
+ * say confirmed, and one dropped past event cancels a stay that demonstrably
+ * happened. 262 rows carry a cancelled_at after their own check_out; 99 stays
+ * covering 392 nights had a confirmed row and no surviving canonical because
+ * of it.
+ *
+ * 21 Horton, 2026-08-08 to 08-22, is the worked case. Robin Tellier stayed:
+ * three Guesty rows say confirmed. Two iCal rows went "cancelled" on 08-23 and
+ * 08-24, the days AFTER checkout, and that killed the cluster.
+ *
+ * Rows with no cancelled_at keep the old behaviour and stay trusted; absence
+ * of a timestamp is not evidence the cancel was late. A cancel dated on or
+ * before checkout is still trusted, so a genuine cancellation of a future
+ * stay is unaffected.
+ */
+function isPostStayCancel(r: DedupRow): boolean {
+  if (!r.cancelled_at) return false;
+  return r.cancelled_at.slice(0, 10) > r.check_out;
+}
+
 function clusterEffectiveStatus(
   cluster: DedupRow[],
   isFromAggregateFeed: (r: DedupRow) => boolean,
 ): string {
   const trustedCancel = cluster.some(
-    (r) => r.status === 'cancelled' && !isFromAggregateFeed(r),
+    (r) => r.status === 'cancelled' && !isFromAggregateFeed(r) && !isPostStayCancel(r),
   );
   if (trustedCancel) return 'cancelled';
   for (const s of POSITIVE_STATUS_ORDER) {
