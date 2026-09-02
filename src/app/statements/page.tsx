@@ -88,6 +88,18 @@ type AttributedDebit = {
   description: string | null;
 };
 
+/**
+ * An operator-attributed bank deposit: add-on revenue tied to one stay by
+ * confirmation code. It rides with that guest's Net Rev rather than hanging
+ * below the table, which is how the owner's copy prints it -- one number per
+ * guest, because a second figure under the same name reads as a correction.
+ * Amounts can be negative (an occupancy-tax correction carves the state's
+ * money back out of a stay's revenue), so nothing here may assume a credit.
+ */
+type AttributedAddOn = AttributedDebit & {
+  attributed_reservation_code: string | null;
+};
+
 type DataGap = {
   id: string;
   gap_type: string;
@@ -143,6 +155,7 @@ type PropertyStatement = {
   cleaning_events?: CleaningEvent[];
   repair_events?: RepairEvent[];
   attributed_debits?: AttributedDebit[];
+  attributed_addons?: AttributedAddOn[];
   data_gaps?: DataGap[];
   drift_bookings?: DriftBooking[];
   /** false = the drift probe FAILED. Not "no drift" -- unknown drift. */
@@ -1388,6 +1401,32 @@ function PropertyCard({
   // Same story on the way in: an attributed deposit is add-on revenue billed
   // on the Gross Revenue line.
   const grossRevenue = Number(prop.rental_revenue || 0) + Number(prop.add_ons_revenue || 0);
+  // ...and the Reservations table below has to agree with it. Its Net Rev
+  // column reads adjusted_revenue, which does NOT carry attributed add-ons,
+  // so a stay with one printed the pre-attribution figure and the column
+  // totalled rental_revenue while Gross Revenue two inches away totalled
+  // rental_revenue + add_ons_revenue. On 3 South's August 2026 statement
+  // that was a silent $227.60 disagreement (an occupancy-tax correction on
+  // the Javelly stay). Fold them in per stay, exactly as the owner's copy
+  // does at statements/render/page.tsx.
+  const addOnsByCode = new Map<string, AttributedAddOn[]>();
+  for (const a of prop.attributed_addons || []) {
+    const code = a.attributed_reservation_code;
+    if (!code) continue;
+    const list = addOnsByCode.get(code);
+    if (list) list.push(a);
+    else addOnsByCode.set(code, [a]);
+  }
+  const addOnTotalFor = (code: string | null) =>
+    (code ? addOnsByCode.get(code) || [] : []).reduce((s, a) => s + (Number(a.amount) || 0), 0);
+  // An add-on whose stay is not on this statement (carried from a month that
+  // already paid out, or attributed with no code) has no row to ride with.
+  // It is inside grossRevenue regardless, so it gets its own row or the
+  // column stops adding up.
+  const onStatementCodes = new Set((prop.reservations || []).map(r => r.confirmation_code).filter(Boolean));
+  const carriedAddOns = (prop.attributed_addons || []).filter(
+    a => !a.attributed_reservation_code || !onStatementCodes.has(a.attributed_reservation_code),
+  );
   const bankMatched = reservations.filter(r => r.bank_match_status === 'matched').length;
   const pctMatched = reservations.length > 0 ? Math.round((bankMatched / reservations.length) * 100) : 0;
 
@@ -1637,7 +1676,17 @@ function PropertyCard({
                 <tbody>
                   {reservations.map((r) => (
                     <tr key={r.id} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
-                      <td style={{ padding: '10px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>{r.guest_name}</td>
+                      <td style={{ padding: '10px 6px', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontWeight: 500 }}>
+                        {r.guest_name}
+                        {(addOnsByCode.get(r.confirmation_code) || []).map(a => (
+                          <div key={a.id} style={{ fontFamily: 'var(--font-inter)', fontWeight: 400, fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>
+                            {a.label || 'Add-on'}{' '}
+                            <span style={{ color: Number(a.amount) < 0 ? 'var(--negative)' : 'var(--positive)' }}>
+                              {Number(a.amount) < 0 ? '−' : '+'}{fmt(Math.abs(Number(a.amount)))}
+                            </span>
+                          </div>
+                        ))}
+                      </td>
                       <td style={{ padding: '10px 6px', color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
                         {fmtDate(r.check_in)} → {fmtDate(r.check_out)}
                         {(() => {
@@ -1675,7 +1724,7 @@ function PropertyCard({
                       <td style={{ padding: '10px 6px', textAlign: 'right', color: r.stripe_fee > 0 ? 'var(--negative)' : 'var(--ink-4)' }}>
                         {r.stripe_fee > 0 ? `−${fmt(r.stripe_fee)}` : '—'}
                       </td>
-                      <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontSize: 13 }}>{fmt(r.adjusted_revenue)}</td>
+                      <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontSize: 13 }}>{fmt(r.adjusted_revenue + addOnTotalFor(r.confirmation_code))}</td>
                       <td style={{ padding: '10px 6px', textAlign: 'center' }}>
                         {r.bank_match_status === 'matched' ? (
                           <span style={{ color: 'var(--positive)' }}>✓</span>
@@ -1685,13 +1734,27 @@ function PropertyCard({
                       </td>
                     </tr>
                   ))}
+                  {carriedAddOns.map((a) => (
+                    <tr key={a.id} style={{ borderBottom: '1px solid var(--rule-soft)' }}>
+                      <td style={{ padding: '10px 6px', color: 'var(--ink-2)' }}>+ {a.label || 'Add-on'}</td>
+                      <td style={{ padding: '10px 6px', color: 'var(--ink-4)', fontSize: 11 }}>
+                        {a.attributed_reservation_code ? `stay not on this statement · ${a.attributed_reservation_code}` : 'no reservation code'}
+                      </td>
+                      <td /><td /><td /><td />
+                      <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--ink)', fontFamily: 'var(--font-fraunces)', fontSize: 13 }}>{fmt(Number(a.amount) || 0)}</td>
+                      <td />
+                    </tr>
+                  ))}
                   <tr style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-2)' }}>
                     <td style={{ padding: '10px 6px', borderTop: '1px solid var(--ink)' }} colSpan={4}>Totals</td>
                     <td style={{ padding: '10px 6px', textAlign: 'right', borderTop: '1px solid var(--ink)' }}>{fmt(gtySum)}</td>
                     <td style={{ padding: '10px 6px', textAlign: 'right', borderTop: '1px solid var(--ink)', color: stripeSum > 0 ? 'var(--negative)' : 'var(--ink-4)' }}>
                       {stripeSum > 0 ? `−${fmt(stripeSum)}` : '—'}
                     </td>
-                    <td style={{ padding: '10px 6px', textAlign: 'right', borderTop: '1px solid var(--ink)' }}>{fmt(prop.rental_revenue)}</td>
+                    {/* Gross Revenue, not rental_revenue: the rows above now
+                        carry their attributed add-ons, so the column has to
+                        foot to the same figure the Financials block prints. */}
+                    <td style={{ padding: '10px 6px', textAlign: 'right', borderTop: '1px solid var(--ink)' }}>{fmt(grossRevenue)}</td>
                     <td style={{ padding: '10px 6px', textAlign: 'center', borderTop: '1px solid var(--ink)', color: 'var(--ink-4)', fontWeight: 400 }}>{bankMatched}/{reservations.length}</td>
                   </tr>
                 </tbody>

@@ -175,19 +175,26 @@ export async function loadPeriodData(month: string): Promise<
         supabaseAdmin.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
         supabaseAdmin.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
         supabaseAdmin.from('repair_events').select('*').eq('property_statement_id', prop.id).order('bank_charge_date'),
-        // The other half of the Repairs & Maint. line. An operator-attributed
-        // bank debit never becomes a repair_events row -- it is a charge that
-        // did not classify as a known maintenance vendor, so it went to the
-        // review queue and was deducted by hand. It keys on property+month,
-        // not on the statement id, because the attribution is made against
-        // the month rather than against a particular statement row.
+        // Both halves of the attribution queue, split by direction below.
+        //
+        // Debits are the other half of the Repairs & Maint. line: a charge
+        // that did not classify as a known maintenance vendor, so it went to
+        // the review queue and was deducted by hand, with no repair_events
+        // row to show for it.
+        //
+        // Deposits are add-on revenue billed on the Gross Revenue line, and
+        // the Reservations table needs them by confirmation code so a stay's
+        // Net Rev matches what the owner's copy prints for that guest.
+        //
+        // Keys on property+month, not on the statement id, because the
+        // attribution is made against the month rather than against a
+        // particular statement row.
         supabaseAdmin
           .from('bank_deposit_attributions')
-          .select('id, deposit_date, amount, label, description')
+          .select('id, deposit_date, amount, label, description, direction, attributed_reservation_code')
           .eq('property_id', prop.property_id)
           .eq('month', month)
           .eq('status', 'attributed')
-          .eq('direction', 'debit')
           .order('deposit_date'),
         supabaseAdmin.from('data_gaps').select('*').eq('property_statement_id', prop.id),
         supabaseAdmin
@@ -242,18 +249,29 @@ export async function loadPeriodData(month: string): Promise<
       if (gapResult.error) {
         console.error(`data_gaps read failed for ${prop.property_id}:`, gapResult.error.message);
       }
-      // The stored attributed_debits_total still drives every number, so a
-      // failed read here costs the itemized rows, not the total. Say so in
-      // the log rather than letting the section quietly under-report.
+      // The stored attributed_debits_total / add_ons_revenue still drive
+      // every number, so a failed read here costs the itemized rows, not the
+      // total. Say so in the log rather than letting the section quietly
+      // under-report.
       if (debitResult.error) {
-        console.error(`attributed debits read failed for ${prop.property_id}:`, debitResult.error.message);
+        console.error(`attributions read failed for ${prop.property_id}:`, debitResult.error.message);
       }
+      type AttributionRow = {
+        id: string; deposit_date: string | null; amount: number;
+        label: string | null; description: string | null;
+        direction: string | null; attributed_reservation_code: string | null;
+      };
+      const attributions = (debitResult.data || []) as AttributionRow[];
+      // Default 'deposit' matches loadAddOnTotals: the column arrived after
+      // the table did, and a null there has always meant a credit.
+      const isDebit = (a: AttributionRow) => (a.direction || 'deposit') === 'debit';
       return {
         ...prop,
         reservations: resResult.data || [],
         cleaning_events: cleanResult.data || [],
         repair_events: repairResult.data || [],
-        attributed_debits: debitResult.data || [],
+        attributed_debits: attributions.filter(isDebit),
+        attributed_addons: attributions.filter(a => !isDebit(a)),
         data_gaps: gapResult.data || [],
         gaps_known: !gapResult.error,
         drift_bookings: driftBookings,
