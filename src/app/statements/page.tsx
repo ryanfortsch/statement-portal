@@ -1407,11 +1407,11 @@ function PropertyCard({
     (a.bank_charge_date || a.checkout_date || '').localeCompare(b.bank_charge_date || b.checkout_date || ''));
   const repairs = prop.repair_events || [];
   const attributedDebits = prop.attributed_debits || [];
-  // What the owner's Repairs & Maint. line actually says, and what the
-  // Financials column has to subtract to reach the payout: vendor-classified
-  // repairs plus the debits an operator attributed by hand. Showing
-  // repairs_total alone left the column short by the attributed half, so it
-  // visibly did not add up to the payout underneath it.
+  // The total for the Repairs & Maintenance SECTION below, which lists both
+  // vendor-classified repairs and hand-attributed debits. The Financials
+  // column no longer sums them into one row: repairs and refunds each carry
+  // their own line there, so the column still foots to the payout without
+  // printing a guest refund as maintenance on the owner's house.
   const repairsCombined = Number(prop.repairs_total || 0) + Number(prop.attributed_debits_total || 0);
   // Same story on the way in: an attributed deposit is add-on revenue billed
   // on the Gross Revenue line.
@@ -1646,7 +1646,8 @@ function PropertyCard({
                   <FinRow label="Gross Revenue" value={fmt(grossRevenue)} />
                   <FinRow label={`Mgmt Fee (${prop.management_fee_pct}%)`} value={`−${fmt(prop.management_fee)}`} negative />
                   <FinRow label="Cleaning" value={`−${fmt(prop.cleaning_total)}`} negative />
-                  {repairsCombined > 0 && <FinRow label="Repairs" value={`−${fmt(repairsCombined)}`} negative />}
+                  {Number(prop.repairs_total || 0) > 0 && <FinRow label="Repairs" value={`−${fmt(Number(prop.repairs_total))}`} negative />}
+                  {Number(prop.attributed_debits_total || 0) > 0 && <FinRow label="Refunds & Adjustments" value={`−${fmt(Number(prop.attributed_debits_total))}`} negative />}
                   <ReserveHoldbackRow prop={prop} onSaved={onRefresh} />
                   <tr>
                     <td style={{ padding: '10px 0 0', borderTop: '1.5px solid var(--ink)', borderBottom: '2.5px double var(--ink)', fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
@@ -2338,15 +2339,19 @@ function DashboardContent() {
   }, [previewPropertyId, period, resolveCfg]);
 
   /**
-   * The statement's Repairs & Maint. line per property: repairs plus
-   * attributed debits, exactly what the statement's own row sums. Non-zero
-   * turns the finished-work list into the itemization of a charge the owner
-   * is paying, so the email can name the number they are looking at.
+   * The statement's Repairs & Maint. line per property. Non-zero turns the
+   * finished-work list into the itemization of a charge the owner is paying,
+   * so the email can name the number they are looking at.
+   *
+   * repairs_total ONLY. Attributed debits used to be added in here, which
+   * told an owner that a maintenance charge "covers" the work slips below it
+   * while the number secretly included a guest refund (4 Brier Neck's
+   * $3,000.00, August 2026). A refund covers no work.
    */
   const maintenanceChargeBy = useMemo(() => {
     const map: Record<string, number> = {};
     for (const p of period?.property_statements || []) {
-      map[p.property_id] = Number(p.repairs_total || 0) + Number(p.attributed_debits_total || 0);
+      map[p.property_id] = Number(p.repairs_total || 0);
     }
     return map;
   }, [period]);
