@@ -354,8 +354,14 @@ function buildRemittanceList(args: {
       //
       // It runs both ways. Under-collection is the common case, but a
       // listing can bill a Community Impact Fee its property does not owe
-      // (17 Beach, found 2026-09-02), and then this money is neither tax nor
-      // rent -- it is owed back to the guest and must not be wired out.
+      // (17 Beach, found 2026-09-02), and then the excess is not the state's
+      // money and must not be wired out.
+      //
+      // The line deliberately stops at "do not remit" and does not prescribe
+      // the remedy, because that is Dotti's call and it has gone both ways:
+      // she refunded nobody for 17 Beach and recognized the excess as revenue
+      // instead (2026-09-02), booked as a bank_deposit_attributions row whose
+      // tax_amount backs the over-collection out of this very wire.
       if (r.taxableRent > 0 && r.expectedTaxRate > 0) {
         const implied = r.taxToRemit / r.taxableRent;
         if (Math.abs(implied - r.expectedTaxRate) > 0.002) {
@@ -363,7 +369,7 @@ function buildRemittanceList(args: {
           const diff = shouldBe - r.taxToRemit;
           const verdict = diff >= 0
             ? `short ${dollars(diff)}`
-            : `OVER-COLLECTED ${dollars(-diff)} - do not remit, refund the guest`;
+            : `OVER-COLLECTED ${dollars(-diff)} - do not remit`;
           lines.push(
             `  ${'>> collected'.padEnd(26)} ${pct(implied).padStart(14)} ${`vs ${pct(r.expectedTaxRate)}`.padStart(12)}` +
             `   ${verdict}`,
