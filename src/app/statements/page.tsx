@@ -351,13 +351,22 @@ function buildRemittanceList(args: {
       // charging the wrong percentage and MassTaxConnect's computed excise
       // will not agree with the number we moved. Say so on the line rather
       // than let the accountant discover it in the filing.
+      //
+      // It runs both ways. Under-collection is the common case, but a
+      // listing can bill a Community Impact Fee its property does not owe
+      // (17 Beach, found 2026-09-02), and then this money is neither tax nor
+      // rent -- it is owed back to the guest and must not be wired out.
       if (r.taxableRent > 0 && r.expectedTaxRate > 0) {
         const implied = r.taxToRemit / r.taxableRent;
         if (Math.abs(implied - r.expectedTaxRate) > 0.002) {
           const shouldBe = r.taxableRent * r.expectedTaxRate;
+          const diff = shouldBe - r.taxToRemit;
+          const verdict = diff >= 0
+            ? `short ${dollars(diff)}`
+            : `OVER-COLLECTED ${dollars(-diff)} - do not remit, refund the guest`;
           lines.push(
             `  ${'>> collected'.padEnd(26)} ${pct(implied).padStart(14)} ${`vs ${pct(r.expectedTaxRate)}`.padStart(12)}` +
-            `   short ${dollars(shouldBe - r.taxToRemit)}`,
+            `   ${verdict}`,
           );
         }
       }

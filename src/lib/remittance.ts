@@ -45,7 +45,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadInstallmentsForCodes, type Installment } from '@/lib/installments';
-import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
+import { owedOccupancyTaxRate } from '@/lib/occupancy-tax';
 
 /** VRBO's commission, always 5% of the guest's pre-tax booking total. The
  *  legacy 4.4% gross-up baked into some historical CHANNEL COMMISSION
@@ -382,7 +382,13 @@ export async function buildRemittanceSheet(
       addOnRent,
       // Mid-month is the right probe date for the CIF gate: a rate that
       // starts mid-history applies to the month it starts in.
-      expectedTaxRate: round4(occupancyTaxMultiplier(stmt.property_id, `${month}-15`) - 1),
+      //
+      // Deliberately the OWED rate, not what the listing is billing. This
+      // field's whole job is to disagree with a misconfigured listing so
+      // the sheet flags it; wiring it to the billed rate made the two sides
+      // agree by construction and the check could never fire. 17 Beach bills
+      // the 3% CIF it does not owe, and that is exactly what this must catch.
+      expectedTaxRate: round4(owedOccupancyTaxRate(stmt.property_id, `${month}-15`)),
       stayTax: round2(stayTax),
       addOnTax,
       taxToRemit: round2(stayTax + addOnTax),

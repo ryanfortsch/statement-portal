@@ -22,7 +22,7 @@
  *     cost, a lost-key fee.
  */
 
-import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
+import { owedOccupancyTaxRate } from '@/lib/occupancy-tax';
 
 /** Request keys whose amount is stay principal, already tax-inclusive. */
 const PRINCIPAL_KEY = /^(ffdeposit|ffbalcharge):/;
@@ -69,7 +69,10 @@ export function splitAddOnTax(args: {
   if (!args.taxable) {
     return { baseCents: base, taxCents: 0, totalCents: base, rate: 0 };
   }
-  const rate = occupancyTaxMultiplier(args.propertyId, args.chargeCreatedIso) - 1;
+  // OWED, not billed: a new add-on fee should carry the tax the property
+  // actually owes even when its Guesty listing is mispriced, or we mint a
+  // payment link that over-charges the guest the same way the folio does.
+  const rate = owedOccupancyTaxRate(args.propertyId, args.chargeCreatedIso);
   const taxCents = Math.round(base * rate);
   return { baseCents: base, taxCents, totalCents: base + taxCents, rate };
 }
