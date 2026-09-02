@@ -39,6 +39,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
+import { splitFolio } from '@/lib/remittance';
 import { taxPortionOfNet } from '@/lib/addon-tax';
 import { loadAddOnTotals } from './statement-addons';
 import { chargeWindow } from './stripe-window';
@@ -519,16 +520,42 @@ export async function syncPropertyStripe(opts: {
     // used for the gross-mismatch check; taxes feed the amount-based
     // fallback matcher below (Stripe charges the guest's full gross, taxes
     // included, while guesty_rental_income is the pre-tax channel-net).
+    //
+    // `folio_items` is read because `total_taxes` is a CACHE of the folio's
+    // tax lines that Guesty leaves NULL on any listing whose tax config does
+    // not itemize, and on reservations created by hand. lib/remittance.ts
+    // learned this in August (its docblock: the scalar "is the fallback,
+    // never the source") after four properties silently fell off the tax
+    // sheet; this matcher was still trusting the scalar.
+    //
+    // The cost of the miss is a fee that never gets corrected. With taxes
+    // NULL the expected gross collapses to the pre-tax rent, so the search
+    // is for a charge that does not exist -- Stripe billed the guest the
+    // tax-inclusive total -- no candidate matches, and the row keeps the
+    // 3.9% + $0.40 placeholder forever while raising a stripe_missing_charge
+    // gap that reads as "no charge found" rather than "looked for the wrong
+    // number". Found on 17 Beach's Brian Guest Spillover GY-EcKUjyqJ: hunted
+    // $1,050.00, the charge was $1,172.85, real fee $34.31 against a $41.35
+    // estimate.
     const codesForThisProp = reservations.map(r => r.confirmation_code).filter(Boolean);
     const { data: gRes } = codesForThisProp.length
-      ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes').in('confirmation_code', codesForThisProp)
-      : { data: [] as { confirmation_code: string; total_paid: number | null; total_taxes: number | null }[] };
+      ? await supabase.from('guesty_reservations').select('confirmation_code, total_paid, total_taxes, folio_items').in('confirmation_code', codesForThisProp)
+      : { data: [] as { confirmation_code: string; total_paid: number | null; total_taxes: number | null; folio_items: unknown }[] };
     const grossByCode = new Map<string, number>();
     const taxesByCode = new Map<string, number>();
     (gRes || []).forEach(g => {
       if (!g.confirmation_code) return;
       if (g.total_paid != null) grossByCode.set(g.confirmation_code, g.total_paid);
-      if (g.total_taxes != null) taxesByCode.set(g.confirmation_code, g.total_taxes);
+      if (g.total_taxes != null) {
+        taxesByCode.set(g.confirmation_code, g.total_taxes);
+        return;
+      }
+      // Scalar absent: derive from the folio Guesty itself computed. Only a
+      // positive tax is worth recording -- a folio with no tax line at all
+      // (Airbnb, or the 32+ night exemption) is genuinely zero-tax and the
+      // pre-tax rent already IS the expected gross.
+      const folioTax = splitFolio(g.folio_items).tax;
+      if (folioTax > 0) taxesByCode.set(g.confirmation_code, folioTax);
     });
 
     // Aggregate Stripe charges. For Guesty-routed bookings the description
