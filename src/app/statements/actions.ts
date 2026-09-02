@@ -388,6 +388,65 @@ export async function upsertCloseTask(merged: Row): Promise<void> {
 }
 
 /**
+ * Clear the "Statement sent" stamp -- i.e. UNFREEZE a statement.
+ *
+ * This is the keystone the rest of the freeze hangs on. Eleven payout
+ * writers refuse to touch a sent statement without an explicit, recorded
+ * override; every one of them decides by reading close_tasks.email_sent_at.
+ * Until now the checkbox that clears that flag went through the same bare
+ * upsert as any other close-task field: one unlogged click disarmed all
+ * eleven guards, and nothing anywhere recorded that it happened. The guard
+ * was on the way ON and absent on the way OFF.
+ *
+ * Unfreezing stays a legitimate operator action (a statement marked sent by
+ * mistake, or a send that has to be redone), so this does not refuse it --
+ * it makes it deliberate and leaves a trace, the same bargain every other
+ * override in the freeze makes.
+ */
+export async function unmarkStatementSentAction(args: {
+  periodId: string;
+  propertyId: string;
+  statementId: string;
+}): Promise<{ ok: boolean; error: string | null }> {
+  const { periodId, propertyId, statementId } = args;
+
+  const { data: existing, error: readErr } = await supabaseAdmin
+    .from('close_tasks')
+    .select('*')
+    .eq('period_id', periodId)
+    .eq('property_id', propertyId)
+    .maybeSingle();
+  // Fail closed: if we cannot read what we are about to overwrite, do not
+  // overwrite it. A blind upsert here would blank the sibling stamps
+  // (drafted / owner paid / mgmt swept) it merges over.
+  if (readErr) return { ok: false, error: `close_tasks read failed: ${readErr.message}` };
+
+  const wasSentAt = (existing?.email_sent_at as string | null) ?? null;
+
+  // Record BEFORE clearing, so a failure cannot leave the statement
+  // unfrozen with no trace of who unfroze it.
+  if (wasSentAt) {
+    const { error: gapErr } = await supabaseAdmin.from('data_gaps').insert({
+      property_statement_id: statementId,
+      gap_type: 'post_send_write',
+      severity: 'warning',
+      description: `The "Statement sent" mark was removed (it was set ${wasSentAt.slice(0, 10)}), unfreezing this statement's numbers for every writer. The owner's copy may stop matching Helm until it is re-sent.`,
+      expected_data: `unfrozen ${new Date().toISOString()}`,
+      resolved: false,
+    });
+    if (gapErr) return { ok: false, error: `audit flag could not be written (${gapErr.message}); the statement was left marked sent` };
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from('close_tasks')
+    .update({ email_sent_at: null })
+    .eq('period_id', periodId)
+    .eq('property_id', propertyId);
+  if (updErr) return { ok: false, error: updErr.message };
+  return { ok: true, error: null };
+}
+
+/**
  * Every slip the operator could put in front of this owner this month, with
  * its generated paragraph. Same loader /api/draft-email uses, so what the
  * preview curates is exactly what the Gmail draft says.

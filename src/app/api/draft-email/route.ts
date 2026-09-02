@@ -377,14 +377,24 @@ export async function POST(request: NextRequest) {
       if (sentErr) {
         return NextResponse.json({ error: `close_tasks read failed: ${sentErr.message}` }, { status: 500 });
       }
+      // The period-level freeze counts too. statement-finality defines frozen
+      // as "sent OR the month was finalized", but this gate only ever read the
+      // sent stamp -- so in a month closed with Finalize Month a redraft
+      // sailed through and erased the sent record with no 409 and no audit
+      // row. Ask the one authority instead of re-deriving half its rule.
+      const { data: periodRow } = await sbForStmt
+        .from('statement_periods').select('status').eq('id', periodId).maybeSingle();
+      const periodFinal = periodRow?.status === 'final';
       const sent = (sentTasks || []).filter(t => t.email_sent_at);
-      if (sent.length > 0 && month >= FREEZE_FROM_MONTH) {
+      if ((sent.length > 0 || periodFinal) && month >= FREEZE_FROM_MONTH) {
         if (body.force !== true) {
           return NextResponse.json({
-            error: `Already marked sent (${sent.map(t => t.property_id).join(', ')}). Redrafting clears the sent stamp and unfreezes the statement's numbers until the new draft is sent.`,
+            error: periodFinal && sent.length === 0
+              ? `${month} is finalized. Redrafting reopens this statement's numbers; reopen the month first, or confirm to override.`
+              : `Already marked sent (${sent.map(t => t.property_id).join(', ')}). Redrafting clears the sent stamp and unfreezes the statement's numbers until the new draft is sent.`,
             frozen: true,
-            reason: 'email_sent',
-            email_sent_at: sent[0].email_sent_at,
+            reason: periodFinal && sent.length === 0 ? 'period_final' : 'email_sent',
+            email_sent_at: sent[0]?.email_sent_at ?? null,
             month,
           }, { status: 409 });
         }
