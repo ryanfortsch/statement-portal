@@ -58,6 +58,35 @@ for (const [name, booked, a, b] of SEPT) {
   if (got !== 9000) fail(`a month with no bookings must be pure Part B, got ${got}`);
 }
 
+/* -- the current month must forecast SOME pickup -------------------------- */
+// It used to print the raw book and stop, so the month in progress was
+// forecast to gain nothing at all, even standing on the 1st.
+const currentMonth = (booked, blended, dayOfMonth, daysInMonth) => {
+  const remaining = Math.max(0, Math.min(1, (daysInMonth - dayOfMonth + 1) / daysInMonth));
+  const g = booked + Math.max(0, blended - booked) * remaining;
+  return Math.max(g, booked);
+};
+// On the 1st every day is still ahead: the full uplift applies.
+if (Math.abs(currentMonth(339, 361, 1, 31) - 361) > 0.01) {
+  fail('on the 1st the current month must take the whole uplift');
+}
+// On the last day nothing is left to sell: the book stands.
+if (Math.abs(currentMonth(339, 361, 31, 31) - 339 - 22 / 31) > 0.01) {
+  fail('on the last day the current month must be back to essentially the book');
+}
+// Mid-month lands in between, and monotonically.
+{
+  let prev = Infinity;
+  for (let d = 1; d <= 31; d++) {
+    const v = currentMonth(339, 361, d, 31);
+    if (v > prev + 1e-9) fail(`current-month uplift must shrink as the month runs out (day ${d})`);
+    if (v < 339 - 1e-9) fail(`current-month projection fell under the book on day ${d}`);
+    prev = v;
+  }
+}
+// A month already booked past its blend keeps the book, never less.
+if (currentMonth(400, 361, 5, 31) !== 400) fail('a book above the blend must survive the current-month rule');
+
 /* -- floor 2: the benchmark ---------------------------------------------- */
 const multiplier = (pacingPct, benchPct) => {
   const hist = Math.max(benchPct, pacingPct);   // the floor under test
@@ -75,6 +104,6 @@ if (multiplier(48.0, 45.9) !== 1) fail('a month booked past its benchmark should
 if (multiplier(0, 55.9) !== 1) fail('an unbooked month must return a 1x multiplier, not Infinity');
 
 console.log(failures === 0
-  ? 'PASS - the blend never prints under the book across nine real September shapes, under-booked properties keep their scale-up, and the benchmark never implies a month ends below where it already stands.'
+  ? 'PASS - the blend never prints under the book across nine real September shapes, under-booked properties keep their scale-up, the current month takes its full uplift on the 1st and none on the last day while never dipping under the book, and the benchmark never implies a month ends below where it already stands.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);
