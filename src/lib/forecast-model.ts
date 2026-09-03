@@ -6,14 +6,14 @@
  *
  * Scope of the model: only the property-management business. Three things
  * are deliberately OUT of scope:
- *   - RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood) — those
- *     have their own P&L, not relevant to "what does another mgmt
- *     contract do for us?"
+ *   - RT-owned units (3 Locust, held by Goose of Astoria LLC; the only
+ *     properties row carrying is_rising_tide_owned). It has its own P&L,
+ *     not relevant to "what does another mgmt contract do for us?"
  *   - Personal owner draw — modeled separately by Ryan/Dotti.
  *   - Federal/state taxes, capex, distributions.
  *
  * Three revenue streams layer over a 12-month seasonality curve:
- *   1. CURRENT     — 9 properties already under management
+ *   1. CURRENT: the homes that file statements (seventeen in 2026)
  *   2. PRESIGNED   — 3 contracts signed but not yet onboarded
  *   3. NEW         — N hypothetical adds (the slider — 0 to 10)
  *
@@ -98,14 +98,17 @@ export const CURRENT_2026: ManagedProperty[] = [
 export const PRESIGNED_2026: ManagedProperty[] = [];
 
 /**
- * Whether a real property is open for at least one month of `year`. The
- * caller supplies it from forecast-operating-windows.ts (opensInYear), which
+ * Whether a real property is open in `year` (no month given: open for at
+ * least one month, which builds the roster and the hire trigger) or in a
+ * given month of it (which scales the card and the contractor bench on the
+ * homes actually operating). The caller supplies it from
+ * forecast-operating-windows.ts (opensIn), which
  * this module deliberately does not import: forecast-model.ts is loaded
  * directly under Node by scripts/forecast_rerack_check.mjs, where an
  * extensionless import cannot resolve. Without a predicate every entry is
  * assumed open, which is exactly the behaviour those scripts expect.
  */
-export type OpenInYear = (propertyId: string, year: number) => boolean;
+export type OpenInYear = (propertyId: string, year: number, month?: number) => boolean;
 
 /**
  * In 2027 the current properties roll forward as full-year actives.
@@ -568,11 +571,14 @@ export function bookkeeperCost(month: number, lastMonth: number | null): number 
 }
 
 /**
- * Per-year configuration. `getYearConfig(2026)` returns the layout used by
- * the live model — 9 current + 5 pre-signed (May/Jun) + N new (Jun-Dec).
- * `getYearConfig(2027)` returns 14 active props (the 9 + 5 ex-presigned
- * carried forward) + N new spread across the year, no debt service, hire
- * continues all year.
+ * Per-year configuration. `getYearConfig(2026)` returns the seventeen homes
+ * that filed 2026 statements (CURRENT_2026) plus N new from the slider, with
+ * the bookkeeper through May, the office from March and no salaried hire.
+ * `getYearConfig(2027)` and 2028 return that roster minus any home the
+ * operating windows have offline for the whole year (14 today), plus the
+ * rolled-forward synthetics at the fleet average fee, plus N new spread
+ * across the year, no bookkeeper, the office all year and the hire from
+ * January.
  */
 export type YearConfig = {
   year: ForecastYear;
@@ -949,14 +955,27 @@ export function calcYear(
     for (const p of config.presigned) if (m >= p.start) activeCount += 1;
     for (const start of newStartMonths) if (m >= start) activeCount += 1;
 
+    // Homes actually operating THIS month: the roster count minus any real
+    // home whose operating window has it closed (4 Brier Neck after August
+    // 2026, 73 Rocky Neck from November, 79 Main from late October, 16
+    // Waterman outside May to October). The card and the bench scale on
+    // this; the salaried-hire trigger stays on the roster count so a
+    // seasonal closure cannot toggle a body on and off.
+    let operatingCount = activeCount;
+    if (openIn) {
+      for (const p of config.current) {
+        if (m >= p.start && p.id && !openIn(p.id, year, m)) operatingCount -= 1;
+      }
+    }
+
     const exp_office = officeCost(m, config.officeStartMonth);
     const exp_software = softwareCost(year, m);
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
     const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
     const exp_accounting = accountingCost(year, m);
     const exp_bank = BANK_FEES_MONTHLY;
-    const exp_cc_ops = ccOperatingCost(activeCount, year, m);
-    const exp_contractors = contractorCost(year, m, activeCount, dist.CA);
+    const exp_cc_ops = ccOperatingCost(operatingCount, year, m);
+    const exp_contractors = contractorCost(year, m, operatingCount, dist.CA);
     const exp_hire = hireCost(m, config.hireStartMonth, activeCount);
     const exp_onboard_presigned = presignedStartCount * ONBOARDING_COST;
     const exp_onboard_new = newStartCount * ONBOARDING_COST;

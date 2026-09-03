@@ -1,6 +1,6 @@
 'use client';
 
-import { opensInYear } from '@/lib/forecast-operating-windows';
+import { opensIn } from '@/lib/forecast-operating-windows';
 import { useMemo, useState } from 'react';
 import {
   calcYear,
@@ -89,7 +89,7 @@ export function ForecastClient({
   }, [smart2027, smart2028, yearKey]);
 
   const yearConfig = useMemo(
-    () => getYearConfig(yearKey, rolledForward, opensInYear, matureFee),
+    () => getYearConfig(yearKey, rolledForward, opensIn, matureFee),
     [yearKey, rolledForward, matureFee]
   );
   // Substitute bank-derived actuals for completed 2026 months. The data
@@ -173,8 +173,15 @@ export function ForecastClient({
   // automatically when a property is added or deactivated in Helm.
   // Falls back to the model config if the smart forecast isn't
   // available (e.g. Supabase down).
+  // 2026 counts every managed home the smart forecast knows (all of them
+  // earned this year); forward years count the homes that earn in the year,
+  // so the three offboarded homes at $0 do not inflate the label.
   const liveCurrentCount =
-    smartForYear?.properties.length ?? yearConfig.current.length;
+    smartForYear
+      ? (yearKey === 2026
+          ? smartForYear.properties.length
+          : smartForYear.properties.filter((p) => p.totals.projectedMgmtFee > 0).length)
+      : yearConfig.current.length;
 
   // Per-year statement actuals: month-of-year → mgmt fee. Only months
   // that have at least one reconciled property_statements row are present.
@@ -193,7 +200,7 @@ export function ForecastClient({
     () => calcYear(
       numNew, yearKey, actualsForYear, actualsThrough, smartOverride,
       calibrationFactor, rolledForward, prospectsForYear.monthlyExpectedTotals,
-      statementByMonthForYear, opensInYear, matureFee,
+      statementByMonthForYear, opensIn, matureFee,
     ),
     [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear, matureFee]
   );
@@ -883,127 +890,111 @@ function Assumptions({ yearKey }: { yearKey: ForecastYear }) {
 
 const sections2026: AssumptionSection[] = [
   {
-    heading: 'Portfolio',
+    heading: 'Revenue',
     items: [
-      { label: 'Current 9', value: 'Already managed as of Jan 2026 (annual fees $18.7K-$44K each)' },
-      { label: 'Pre-signed 5', value: '$25K/yr each. 2 onboard May (Pre-signed #1 + 79 Main), 3 onboard June (Pre-signed #2/#3 + 16 Waterman). Use seasonality projection until they appear in Guesty.' },
-      { label: 'New mandates', value: '$25K/yr each in their first season, Cape Ann seasonality. Default 3 sprinkled Jul · Sep · Nov via slider. From 2027 they roll forward at the fleet average fee per earning home.' },
+      { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Closed months (ACT) carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at the run rate the closed statements of the home prove: its latest full month, or its whole record (first ramp month dropped once there are three), whichever is larger, once it has two closed months. Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table.' },
+      { label: 'Prospects', value: 'The live /prospects pipeline. Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
+      { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. From 2027 they roll forward at the fleet average fee per earning home.' },
+      { label: 'Operating windows', value: '4 Brier Neck ran June to August 2026 and is not renewed (notice given 2026-08-31). 73 Rocky Neck is off from November 2026 and 79 Main after 21 October 2026. 16 Waterman runs May to October every year. A closed month projects no revenue, and the card and the bench count only the homes operating that month.' },
     ],
   },
   {
-    heading: 'Recurring monthly',
+    heading: 'Recurring monthly (projected months; ACT months show the bank)',
     items: [
-      { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo' },
-      { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,420 in July and $3,804 in August, driven by Anthropic. The subscription cuts an earlier version assumed never showed up in the card data.' },
-      { label: 'Bank fees', value: '$100/mo (stop payments, service fees, returned checks)' },
-      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
+      { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through September 1. Variable: guest supplies and small repairs at $8,360 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%. Fixed: GEICO $519, AT&T $114, travel $175, admin $110, marketing $680 through May 2026 and $175 from June (the step-down is measured on the card, not assumed), and the $199 Furnished Finder renewal each August. The six Recurring rows are a fixed-ratio split of that card total, so no row equals its named constant.' },
+      { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,420 in July and $3,804 in August, on Anthropic API credits the operator ruled a one-off.' },
+      { label: 'Office', value: '$750/mo rent at 85 Eastern Ave plus $50/mo dumpster, from March 2026 when the lease began.' },
+      { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
+      { label: 'Contractors', value: 'The 1099 bench, paid direct from the operating account. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, from July 2026. Creative work (Cooper) $1,300/mo flat from July 2026. Everyone else $250/mo blended. The whole bench ran $8,288/mo over July 1 to August 25, 2026.' },
+      { label: 'Salaried hire', value: 'None in 2026. The August hire in the plan became the contractor bench instead, and carrying both would count the same money twice.' },
     ],
   },
   {
-    heading: 'Step changes & triggers',
+    heading: 'Periodic and one-time',
     items: [
-      { label: 'Mar 2026', value: 'Office costs begin. Lease started March 2026; before that the line is $0.' },
-      { label: 'May 2026', value: 'Two pre-signed contracts go live (revenue starts). Bookkeeper final wrap-up payment $1,800 (above the regular $1K).' },
-      { label: 'Jun 2026', value: 'Three pre-signed contracts go live (revenue starts). Bookkeeper drops to $0 (engagement ends). Marketing & advertising steps down to about $175/mo (the cut is real and measured on the card). Software stays flat at $2,300/mo; no cut showed up in the card data.' },
-      { label: 'Aug 2026', value: 'First hire begins at $5,000/mo.' },
-      { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). Step function: month-by-month based on active count = current 9 + presigned + new started so far.' },
-      { label: 'Each new month', value: 'Property starts contributing revenue from its start month. No separate onboarding charge — setup supplies are already in the Guest supplies & inventory line.' },
-      { label: 'CC scaling per month', value: 'CC = $4,573 × (1 + 0.5 × (active_count − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
-    ],
-  },
-  {
-    heading: 'Periodic & one-time',
-    items: [
-      { label: 'Mar 2026', value: 'Phillips insurance annual premium: $5,263.92 paid 03/02. One lump sum; $0 every other month.' },
-      { label: 'Apr 2026', value: 'MS Consultants one-time accounting engagement: $4,442.96 paid 04/15. Not recurring; $0 going forward.' },
+      { label: 'Mar 2026', value: 'Phillips commercial insurance, $5,264 paid 03/02. One lump; $0 every other month.' },
+      { label: 'Apr 2026', value: 'MS Consultants accounting, $4,443 paid 04/15. A one-off by operator ruling; $0 forward.' },
+      { label: 'Bookkeeper', value: 'MH Partners $1,000/mo through April 2026 and a final $1,800 wrap-up in May. $0 after.' },
+      { label: 'Onboarding', value: 'No separate onboarding charge. Setup supplies already sit in the card line.' },
     ],
   },
   {
     heading: 'Out of scope',
     items: [
-      { label: 'Excluded', value: 'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare premium (paid from biz account but treated as personal), ATM/debit-card personal, federal/state taxes, capex, distributions.' },
+      { label: 'Excluded', value: 'RT-owned units (3 Locust, held by Goose of Astoria LLC), personal owner draw, personal card and ATM spend, health benefits, federal and state taxes, capex, distributions, and channel commissions (VRBO, HomeAway, Expedia), which are netted out of rental revenue before a statement sees them and so are not an expense here.' },
     ],
   },
 ];
 
 const sections2027: AssumptionSection[] = [
   {
-    heading: 'Portfolio',
+    heading: 'Revenue',
     items: [
-      { label: 'Active (Jan 1)', value: '14 properties full-year: 9 original + 5 ex-presigned (incl. 79 Main, 16 Waterman) + however many new were added in 2026, all rolled forward as CA contracts at the fleet average fee per earning home, never below $25K.' },
-      { label: 'New mandates', value: '$25K/yr each in their first season. Default 3 sprinkled Mar · Jun · Sep via slider. Homes rolled forward from 2026 earn the fleet average fee per earning home, taken from the smart forecast, never below $25K.' },
+      { label: 'Active (Jan 1)', value: 'Fourteen homes drive the cost lines (card, bench, hire trigger): the seventeen that filed 2026 statements minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year. 16 Waterman is open May to October and counts only in those months. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today). Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
+      { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at its closed-statement run rate) spread over the Gloucester revenue curve, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
+      { label: 'Prospects', value: 'The live /prospects pipeline. Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
+      { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
     ],
   },
   {
     heading: 'Recurring monthly',
     items: [
-      { label: 'Office', value: '$750/mo rent + $50/mo dumpster = $800/mo, full year' },
+      { label: 'Corporate card', value: 'Same two-part model as 2026: $8,360 per live home per year on the turnover curve, plus the fixed floor (GEICO $519, AT&T $114, travel $175, admin $110, marketing $175 at the post-cut level measured on the card, Furnished Finder $199 in August). Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. The six Recurring rows are a fixed-ratio split of the card total, so no row equals its named constant.' },
       { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
-      { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
-      { label: 'Hire', value: '$5,000/mo all year (Aug 2026 hire continues = $60K full year).' },
+      { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
+      { label: 'Bank fees', value: '$10/mo.' },
+      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count, all year. Creative $1,300/mo. Everyone else $250/mo.' },
+      { label: 'Salaried hire', value: '$5,000/mo from January, a planning choice rather than a bank fact, on top of the contractor bench. A second hire at $5,000/mo from the first month the active count reaches 20: with the default sliders (14 active, 3 rolled forward, 3 new in Mar, Jun and Sep) that is September 2027.' },
     ],
   },
   {
-    heading: 'Step changes & triggers',
+    heading: 'Periodic and wind-down',
     items: [
-      { label: 'When active ≥ 20', value: 'Second hire auto-triggers ($5K/mo more). With default scenarios (14 baseline + 3 rolled fwd from 2026 + 3 in 2027), portfolio crosses 20 in September 2027.' },
-      { label: 'Each new month', value: 'Property is added to the active count and bumps the CC line. No separate onboarding charge — setup supplies sit in Guest supplies & inventory.' },
-      { label: 'CC scaling per month', value: '$4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
-    ],
-  },
-  {
-    heading: 'Periodic & wind-down',
-    items: [
-      { label: 'Mar 2027', value: 'Phillips insurance lump renewal (~$5,264, same as the 2026 assumption). One lump sum; $0 every other month.' },
-      { label: 'Bookkeeper', value: '$0 — engagement ended May 2026.' },
-      { label: 'Accounting', value: '$0 — MS Consultants was a one-time engagement.' },
+      { label: 'Mar 2027', value: 'Phillips insurance renewal, $5,264 lump, same as 2026. $0 every other month.' },
+      { label: 'Bookkeeper', value: '$0. The engagement ended May 2026.' },
+      { label: 'Accounting', value: '$0. MS Consultants was a one-off.' },
     ],
   },
   {
     heading: 'Out of scope',
     items: [
-      { label: 'Excluded', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions.' },
+      { label: 'Excluded', value: 'RT-owned units, personal draw, health benefits, taxes, capex, distributions, and channel commissions netted out of rental revenue.' },
     ],
   },
 ];
 
 const sections2028: AssumptionSection[] = [
   {
-    heading: 'Portfolio',
+    heading: 'Revenue',
     items: [
-      { label: 'Active (Jan 1)', value: '14 baseline properties + everything added in 2026 + everything added in 2027, all rolled forward as full-year CA contracts at the fleet average fee per earning home, never below $25K.' },
-      { label: 'New mandates', value: '$25K/yr each in their first season. Default 3 sprinkled Mar · Jun · Sep via slider. Homes rolled forward from 2026 and 2027 earn the fleet average fee per earning home, never below $25K.' },
+      { label: 'Active (Jan 1)', value: 'The fourteen 2027 homes drive the cost lines; the revenue row is every active managed home in Helm with its operating window applied. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
+      { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at its closed-statement run rate, spread over the Gloucester revenue curve, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
+      { label: 'Prospects', value: 'The live /prospects pipeline: each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
+      { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality. Default 3, in Mar, Jun and Sep.' },
     ],
   },
   {
     heading: 'Recurring monthly',
     items: [
-      { label: 'Office', value: '$800/mo (rent + dumpster), full year' },
-      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
-      { label: 'Bank fees', value: '$100/mo' },
-      { label: 'Operating CC', value: 'Itemized into guest supplies, listing platforms, repairs, and travel. Baseline $4,976/mo at 9 props through May 2026, $4,573 from June (marketing & advertising cut to $0). Scales 0.5x elasticity to active count.' },
-      { label: 'Hire', value: '$5,000/mo per hire all year. Second hire active throughout if portfolio is already over 20 props (very likely with rollovers).' },
-    ],
-  },
-  {
-    heading: 'Step changes & triggers',
-    items: [
-      { label: 'Each new month', value: 'No separate onboarding charge — setup supplies sit in Guest supplies & inventory.' },
-      { label: 'CC scaling per month', value: 'Continuous: $4,573 × (1 + 0.5 × (active − 9) / 9). Post-cut base $4,573. Examples: 14 active = $5,843/mo, 17 active = $6,605/mo, 20 active = $7,368/mo.' },
+      { label: 'Corporate card', value: 'Same two-part model: $8,360 per live home per year on the turnover curve, plus the fixed floor (GEICO $519, AT&T $114, travel $175, admin $110, marketing $175, Furnished Finder $199 in August). Scales with the homes operating each month. The six Recurring rows are a fixed-ratio split of the card total.' },
+      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed.' },
+      { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
+      { label: 'Bank fees', value: '$10/mo.' },
+      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count. Creative $1,300/mo. Everyone else $250/mo.' },
+      { label: 'Salaried hire', value: '$5,000/mo per hire all year. The second hire is active from January if the rollovers already put the count at 20, otherwise from the month it gets there.' },
     ],
   },
   {
     heading: 'Periodic',
     items: [
-      { label: 'Mar 2028', value: 'Phillips insurance lump renewal (~$5,264). One lump sum; $0 every other month.' },
-      { label: 'Bookkeeper / Accounting', value: '$0' },
+      { label: 'Mar 2028', value: 'Phillips insurance renewal, $5,264 lump. $0 every other month.' },
+      { label: 'Bookkeeper and accounting', value: '$0.' },
     ],
   },
   {
     heading: 'Out of scope',
     items: [
-      { label: 'Excluded', value: 'RT-owned units, personal draw, healthcare, taxes, capex, distributions.' },
+      { label: 'Excluded', value: 'RT-owned units, personal draw, health benefits, taxes, capex, distributions, and channel commissions netted out of rental revenue.' },
     ],
   },
 ];
@@ -1436,8 +1427,8 @@ function ForecastTable({
   const currentLabel = `Properties (${currentCount})`;
   const currentInfo =
     yearKey === 2026
-      ? 'Past months (Jan-Apr) use bank actuals from Chase ...5130. Any reconciled month from property_statements overrides the projection automatically (the "ACT" badge marks those columns). Forward months without a closed statement use the Smart Forecast: Guesty bookings × Gloucester pacing × each property\'s actual mgmt fee %. Seasonality fallback only when Guesty is unavailable.'
-      : `${currentCount} active properties full year. Each month uses statement actuals where Helm has reconciled the month, Smart Forecast where Guesty has bookings, and seasonality (scaled by the 2026 calibration factor) for everything else. Each property's annual gross is floored at the run rate its closed 2026 statements prove, so a home still ramping this August is not projected below it. Properties rolled forward from a prior year's slider ride Cape Ann seasonality on top, at the fleet average fee per earning home for the year (the mean of this table's per-property totals), never below the first-year $25K.`;
+      ? 'Closed months (ACT) carry the real management fee from the statements from April 2026 (January to March carry the bank sweep, since the Statements module began in April) and the real expenses from Chase ...5130. Any reconciled month from property_statements overrides the projection automatically (the "ACT" badge marks those columns). Forward months without a closed statement use the Smart Forecast: Guesty bookings × Gloucester pacing × each property\'s actual mgmt fee %. Seasonality fallback only when Guesty is unavailable.'
+      : `${currentCount} homes earning in the year (seasonal homes included; offboarded homes at $0 are not counted). Each month uses statement actuals where Helm has reconciled the month, Smart Forecast where Guesty has bookings, and seasonality (scaled by the 2026 calibration factor) for everything else. Each property's annual gross is floored at the run rate its closed 2026 statements prove, so a home still ramping this August is not projected below it. Properties rolled forward from a prior year's slider ride Cape Ann seasonality on top, at the fleet average fee per earning home for the year (the mean of this table's per-property totals), never below the first-year $25K.`;
   const presignedLabel = `Prospects (${prospectsCount})`;
   const presignedInfo =
     'Live pipeline from Helm\'s /prospects module. Each prospect\'s projected year-1 mgmt fee × close_likelihood_pct, summed per month. Owner payout (what the prospect sees) shown in the Prospect pipeline panel below; this row is what RT actually keeps.';
@@ -1507,7 +1498,7 @@ function ForecastTable({
         />
         <DataRow
           label="Bank fees"
-          info="Stop payments, monthly service charges, returned-check fees. Trailing 12-mo actuals averaged ~$112/mo."
+          info="$10/mo. Real fee rows on Chase ...5130 total $75 across 24 months; the old $100 to $112 figures counted bounced deposits, which are a wash, not a cost."
           values={monthly.map((r) => r.exp_bank)}
           fy={monthly.reduce((a, r) => a + r.exp_bank, 0)}
         />
