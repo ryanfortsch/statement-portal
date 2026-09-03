@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
-import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { splitFolio } from '@/lib/remittance';
 
@@ -267,7 +267,7 @@ async function fillPlatformGap(args: {
   propertyId: string;
   month: string;
   file: File;
-}) {
+}, gate: FreezeReceipt) {
   const { stmt, reservations, propertyId, month, file } = args;
 
   // 1. Parse the platform CSV into a map keyed by confirmation code, and
@@ -503,24 +503,15 @@ async function fillPlatformGap(args: {
       .upsert(guestyResUpserts, { onConflict: 'guesty_reservation_id' });
   }
 
-  // 5. Recompute the statement totals. Management fee follows whatever
-  //    totalRevenue now is; owner payout nets out cleaning + repairs
-  //    (unchanged from the prior run, since platform CSV doesn't touch
-  //    bank-sourced cleaning). Attributed add-ons / debits fold in via
-  //    the canonical terms so a patch can't clobber reviewed revenue.
-  const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(supabase, propertyId, month);
-  const managementFee = round2((totalRevenue + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
-  const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
-  const ownerPayout = round2(totalRevenue + addOnsRevenue - managementFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback);
-  // num_stays counts a booking ONCE on its checkout month -- synthetic
-  // cross-month installment rows (check_out in a later month) carry
-  // revenue here but are counted as a stay on their final statement.
-  const numStays = reservations.filter(r => {
-    if ((r.check_out || '').slice(0, 7) !== month) return false;
-    const ch = changes.find(c => c.id === r.id);
-    const adjusted = ch ? ch.next.adjusted_revenue : (r.adjusted_revenue || 0);
-    return adjusted > 0;
-  }).length;
+  // 5. Recompute the statement totals through the single write path (every
+  //    money column derived from the rows just written; fails closed). Then
+  //    the two non-money flags this path owns.
+  const totals = await writeStatementTotals(supabase, stmt.id, {
+    action: 'Fill gap (platform CSV)',
+    assertedFreeze: gate,
+  });
+  const managementFee = totals.after.management_fee;
+  const ownerPayout = totals.after.owner_payout;
 
   let confidence: 'red' | 'yellow' | 'green' = 'red';
   const hasGuesty = !!stmt.has_guesty_statement;
@@ -530,14 +521,7 @@ async function fillPlatformGap(args: {
 
   await supabase
     .from('property_statements')
-    .update({
-      rental_revenue: totalRevenue,
-      management_fee: managementFee,
-      owner_payout: ownerPayout,
-      num_stays: numStays,
-      has_platform_csv: true,
-      confidence,
-    })
+    .update({ has_platform_csv: true, confidence })
     .eq('id', stmt.id);
 
   // 6. Clear the gaps platform CSV resolves.
@@ -569,7 +553,7 @@ async function fillPlatformGap(args: {
           management_fee_pct: stmt.management_fee_pct,
           cleaning_total: stmt.cleaning_total,
           repairs_total: stmt.repairs_total,
-          reserve_holdback: reserveHoldback,
+          reserve_holdback: Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0),
         },
       });
       if (stripeSync.fee_updates.length > 0) {
@@ -637,8 +621,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Sent-statement freeze: both fill paths recompute owner_payout.
+    let finalityGate: FreezeReceipt;
     try {
-      await assertStatementWritable(supabase, { propertyId, month }, {
+      finalityGate = await assertStatementWritable(supabase, { propertyId, month }, {
         force: (formData.get('force') as string) === 'true',
         action: `Fill gap (${fileType === 'bank_csv' ? 'bank CSV' : 'platform CSV'})`,
       });
@@ -689,7 +674,7 @@ export async function POST(request: NextRequest) {
 
     // Dispatch to the per-file-type handler.
     if (fileType === 'platform_csv') {
-      return await fillPlatformGap({ stmt, reservations: reservations || [], propertyId, month, file });
+      return await fillPlatformGap({ stmt, reservations: reservations || [], propertyId, month, file }, finalityGate);
     }
     // else bank_csv -- continues below with existing logic.
 
@@ -978,22 +963,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 7. Update the property_statements row with the new bank-derived fields.
-    //    rental_revenue + management_fee are unchanged (those come from Guesty,
-    //    which we haven't touched). cleaning_total + repairs_total change,
-    //    owner_payout recomputes from both, keeping attributed add-on
-    //    revenue and debits in the equation so a bank re-upload can't
-    //    clobber reviewed money.
-    const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
-    const { addOnsRevenue: bankAddOns, attributedDebits: bankDebits } = await loadAddOnTotals(supabase, propertyId, month);
-    const newOwnerPayout =
-      Math.round(((stmt.rental_revenue || 0) + bankAddOns - (stmt.management_fee || 0) - cleaningTotal - repairsTotal - bankDebits - reserveHoldback) * 100) / 100;
+    // 7. Recompute through the single write path. cleaning_total is DERIVED
+    //    from the cleaning_events just inserted; repairs_total is OWNED and
+    //    passed as the override this path computed from the bank rows and
+    //    active receipts. Every other column comes from rows, so the stored
+    //    management_fee this path used to trust as-given can no longer ride
+    //    along stale. Then the two non-money flags.
+    const bankTotals = await writeStatementTotals(supabase, stmt.id, {
+      action: 'Fill gap (bank CSV)',
+      repairsTotal,
+      assertedFreeze: finalityGate,
+    });
+    const newOwnerPayout = bankTotals.after.owner_payout;
 
-    // Confidence: green if we now have all three sources. We don't know
-    // about has_platform_csv here without reading the existing row, but
-    // the safest behavior is: upgrade yellow -> green only if the other
-    // flags are already set; otherwise keep yellow. Fetch the current
-    // row's source flags to decide.
     const { data: curr } = await supabase
       .from('property_statements')
       .select('has_guesty_statement, has_platform_csv')
@@ -1007,13 +989,7 @@ export async function POST(request: NextRequest) {
 
     await supabase
       .from('property_statements')
-      .update({
-        cleaning_total: cleaningTotal,
-        repairs_total: repairsTotal,
-        owner_payout: newOwnerPayout,
-        has_bank_csv: true,
-        confidence,
-      })
+      .update({ has_bank_csv: true, confidence })
       .eq('id', stmt.id);
 
     // 8. Rebuild the bank-adjacent gaps. Remove the old 'missing_bank_csv'
@@ -1086,7 +1062,7 @@ export async function POST(request: NextRequest) {
             management_fee_pct: stmt.management_fee_pct,
             cleaning_total: cleaningTotal,
             repairs_total: repairsTotal,
-            reserve_holdback: reserveHoldback,
+            reserve_holdback: Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0),
           },
         });
         if (stripeSync.fee_updates.length > 0) {

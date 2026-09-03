@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
@@ -58,8 +59,9 @@ export async function DELETE(
 
   // Sent-statement freeze: voiding a receipt adds its amount back to the
   // payout. Force rides the query string (DELETE bodies are unreliable).
+  let finalityGate: FreezeReceipt;
   try {
-    await assertStatementWritable(supabase, { propertyId: receipt.property_id, month: receipt.month }, {
+    finalityGate = await assertStatementWritable(supabase, { propertyId: receipt.property_id, month: receipt.month }, {
       force: request.nextUrl.searchParams.get('force') === 'true',
       action: 'Void receipt',
       detail: `receipt ${id} · $${(Number(receipt.amount) || 0).toFixed(2)}`,
@@ -90,35 +92,35 @@ export async function DELETE(
   if (mirrorErr) console.warn('receipt mirror delete skipped:', mirrorErr.message);
 
   // Recompute the linked statement, if one exists for (property, month).
-  const { data: period } = await supabase
+  // Resolution fails closed: an unreadable period or statement is an error,
+  // never "no statement to update".
+  const { data: period, error: perErr } = await supabase
     .from('statement_periods')
     .select('id')
     .eq('month', receipt.month)
     .maybeSingle();
+  if (perErr) return NextResponse.json({ error: `statement_periods read failed: ${perErr.message}` }, { status: 500 });
   if (period) {
-    const { data: stmt } = await supabase
+    const { data: stmt, error: stmtErr } = await supabase
       .from('property_statements')
-      .select('id, rental_revenue, add_ons_revenue, management_fee, cleaning_total, repairs_total, attributed_debits_total, reserve_holdback')
+      .select('id, repairs_total')
       .eq('period_id', period.id)
       .eq('property_id', receipt.property_id)
       .maybeSingle();
+    if (stmtErr) return NextResponse.json({ error: `property_statements read failed: ${stmtErr.message}` }, { status: 500 });
     if (stmt) {
       // Delta off the stored column, clamped at zero (drift-safety; any
       // residue self-heals on the next ingest's from-scratch rebuild).
+      // repairs_total is OWNED: passed as an override to the single write
+      // path, which recomputes every other column from rows.
       const repairsTotal = round2(Math.max(0, (Number(stmt.repairs_total) || 0) - amount));
-      const rental = Number(stmt.rental_revenue) || 0;
-      const addOns = Number(stmt.add_ons_revenue) || 0;
-      const mgmt = Number(stmt.management_fee) || 0;
-      const cleaning = Number(stmt.cleaning_total) || 0;
-      const attributedDebits = Number(stmt.attributed_debits_total) || 0;
-      const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback) || 0;
-      const ownerPayout = round2(rental + addOns - mgmt - cleaning - repairsTotal - attributedDebits - reserveHoldback);
-      const { error: updErr } = await supabase
-        .from('property_statements')
-        .update({ repairs_total: repairsTotal, owner_payout: ownerPayout })
-        .eq('id', stmt.id);
-      if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
-      return NextResponse.json({ ok: true, repairs_total: repairsTotal, owner_payout: ownerPayout });
+      const totals = await writeStatementTotals(supabase, stmt.id as string, {
+        action: 'Void receipt',
+        detail: `receipt ${id} · $${amount.toFixed(2)}`,
+        repairsTotal,
+        assertedFreeze: finalityGate,
+      });
+      return NextResponse.json({ ok: true, repairs_total: repairsTotal, owner_payout: totals.after.owner_payout });
     }
   }
 

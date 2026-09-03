@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
-import { loadAddOnTotals } from '@/lib/statement-addons';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 
 /**
  * Resolve a data gap via an inline action -- no file upload, no re-ingest.
@@ -47,10 +47,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'gap not found' }, { status: 404 });
     }
 
+    let finalityGate: FreezeReceipt | undefined;
     // Sent-statement freeze: resolutions below recompute the payout.
     if (gap.property_statement_id) {
       try {
-        await assertStatementWritable(supabase, { statementId: gap.property_statement_id }, {
+        finalityGate = await assertStatementWritable(supabase, { statementId: gap.property_statement_id }, {
           force: body.force === true,
           action: `Resolve gap (${resolution})`,
           detail: `gap ${gapId} · ${String(gap.gap_type || '')}`,
@@ -126,43 +127,18 @@ export async function POST(request: NextRequest) {
 
       // Attributed add-ons / debits stay in the equation (canonical formula,
       // same as refresh-statement + the bank-deposits and reserve routes), so
-      // resolving a gap can't clobber reviewed add-on revenue. The month lives
-      // on statement_periods, not on the statement row.
-      const { data: period } = await supabase
-        .from('statement_periods')
-        .select('month')
-        .eq('id', stmt.period_id)
-        .maybeSingle();
-      const month = (period?.month as string) || '';
-      if (!month) {
-        // Never fall back to a month-less add-on read: it would return zeros
-        // and silently write a payout short by the add-on terms, which is the
-        // exact defect this branch exists to avoid.
-        return NextResponse.json(
-          { error: 'could not resolve the statement month; refusing to recompute the payout' },
-          { status: 500 },
-        );
-      }
-      const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(
-        supabase,
-        stmt.property_id,
-        month,
-      );
-
-      const { data: allRes } = await supabase
-        .from('reservations')
-        .select('adjusted_revenue')
-        .eq('property_statement_id', gap.property_statement_id);
-      const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
-      const newMgmtFee = round2((newRentalRev + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
-      const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
-      const newOwnerPayout = round2(
-        newRentalRev + addOnsRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback,
-      );
-      await supabase
-        .from('property_statements')
-        .update({ rental_revenue: newRentalRev, management_fee: newMgmtFee, owner_payout: newOwnerPayout })
-        .eq('id', gap.property_statement_id);
+      // The single write path: month, add-ons and every other input are
+      // resolved inside it and it fails closed on any read error, so the
+      // month-less-add-on hazard this branch used to guard against cannot
+      // recur. The early guard's receipt keeps a forced resolve to one
+      // audit row.
+      const totals = await writeStatementTotals(supabase, gap.property_statement_id, {
+        action: `Resolve gap (${resolution})`,
+        assertedFreeze: finalityGate,
+      });
+      const newRentalRev = totals.after.rental_revenue;
+      const newMgmtFee = totals.after.management_fee;
+      const newOwnerPayout = totals.after.owner_payout;
 
       // 3. Clear the gap.
       await supabase.from('data_gaps').delete().eq('id', gapId);

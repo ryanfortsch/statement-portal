@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
-import { loadAddOnTotals } from '@/lib/statement-addons';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { writeStatementTotals, type FreezeReceipt, type WriteResult } from '@/lib/statement-totals-write';
 
 /**
  * POST /api/reservations/remove
@@ -32,7 +32,6 @@ function getSupabase() {
   );
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const session = await auth();
@@ -47,8 +46,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const supabase = getSupabase();
 
   // Sent-statement freeze: removing a reservation recomputes owner_payout.
+  let finalityGate: FreezeReceipt;
   try {
-    await assertStatementWritable(supabase, { statementId: psid }, {
+    finalityGate = await assertStatementWritable(supabase, { statementId: psid }, {
       force: body.force === true,
       action: 'Remove cancelled reservation',
       detail: `confirmation code ${String(body.confirmation_code || '')}`,
@@ -104,11 +104,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // addOnsMgmtBase counts only attributions flagged apply_mgmt_fee, so it
   // cannot be read off the stored add_ons_revenue column -- that is what the
   // fee base was missing. Source of truth is bank_deposit_attributions.
-  const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(
-    supabase,
-    stmt.property_id,
-    month,
-  );
 
   // Delete the reservation, then its gaps (the cancelled_reservation gap +
   // the unmatched_bank gap for this guest/code).
@@ -120,46 +115,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .eq('property_statement_id', psid)
     .or(`expected_data.ilike.%${code}%,description.ilike.%${(res.guest_name || '').replace(/[%,]/g, '')}%`);
 
-  // Recompute the statement from the remaining reservations. The delete
-  // above already happened, so this cannot be a clean refusal -- but a
-  // swallowed error here would read as "no reservations left" and rewrite
-  // rental_revenue, num_stays and nights_booked to zero on a statement that
-  // still has stays. Fail loudly and tell the operator what to do.
-  const { data: remaining, error: remainingErr } = await supabase
-    .from('reservations')
-    .select('adjusted_revenue, nights, check_out')
-    .eq('property_statement_id', psid);
-  if (remainingErr) {
+  // The single write path recomputes every money column from the remaining
+  // rows. The delete above already happened, so a read failure cannot be a
+  // clean refusal -- but it is loud (throws) rather than a silent rewrite
+  // to zero. This is the ONE caller allowed to assert an empty reservations
+  // read: it may have just removed the last stay.
+  let totals: WriteResult;
+  try {
+    totals = await writeStatementTotals(supabase, psid, {
+      action: 'Remove cancelled reservation',
+      assertedFreeze: finalityGate,
+      expectEmptyReservations: true,
+    });
+  } catch (e) {
     return NextResponse.json({
-      error: `The reservation was removed, but the statement totals could not be recomputed (${remainingErr.message}). `
+      error: `The reservation was removed, but the statement totals could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
         + 'Re-run Refresh Statement (or re-ingest the month) before sending: the totals still include the removed stay.',
     }, { status: 500 });
   }
-  const rows = remaining || [];
-
-  const rentalRevenue = round2(rows.reduce((s, r) => s + (Number(r.adjusted_revenue) || 0), 0));
-  const feePct = (Number(stmt?.management_fee_pct) || 0) / 100;
-  const managementFee = round2((rentalRevenue + addOnsMgmtBase) * feePct);
-  const cleaning = Number(stmt?.cleaning_total) || 0;
-  const repairs = Number(stmt?.repairs_total) || 0;
-  const reserve = Number(stmt?.reserve_holdback) || 0;
-  const ownerPayout = round2(rentalRevenue + addOnsRevenue - managementFee - cleaning - repairs - reserve - attributedDebits);
-  const numStays = rows.filter(r =>
-    (Number(r.adjusted_revenue) || 0) > 0 && (r.check_out || '').slice(0, 7) === month,
-  ).length;
-  const nightsBooked = rows.reduce((s, r) => s + (Number(r.nights) || 0), 0);
-
-  const { error: updErr } = await supabase
-    .from('property_statements')
-    .update({
-      rental_revenue: rentalRevenue,
-      management_fee: managementFee,
-      owner_payout: ownerPayout,
-      num_stays: numStays,
-      nights_booked: nightsBooked,
-    })
-    .eq('id', psid);
-  if (updErr) return NextResponse.json({ error: `recompute failed: ${updErr.message}` }, { status: 500 });
+  const rentalRevenue = totals.after.rental_revenue;
+  const managementFee = totals.after.management_fee;
+  const ownerPayout = totals.after.owner_payout;
+  const numStays = totals.after.num_stays;
 
   return NextResponse.json({
     ok: true,

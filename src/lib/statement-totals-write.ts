@@ -9,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadAddOnTotals } from './statement-addons';
 import { assertStatementWritable, type FreezeStatus } from './statement-finality';
 import {
-  computeStatementTotals, round2,
+  computeStatementTotals,
   type StatementInputs, type StatementTotals, type ReservationInput, type CleaningEventInput,
 } from './statement-totals';
 
@@ -93,6 +93,8 @@ export async function loadStatementInputs(
   };
 }
 
+export type FreezeReceipt = { forced: boolean; freeze: FreezeStatus };
+
 export type WriteResult = {
   before: StatementTotals;
   after: StatementTotals;
@@ -125,6 +127,16 @@ export async function writeStatementTotals(
     repairsTotal?: number;
     reserveHoldback?: number;
     expectEmptyReservations?: boolean;
+    /**
+     * The early guard's receipt. A caller that writes child rows BEFORE
+     * recomputing (a credit, an attribution flip, a receipt, a deleted
+     * reservation) must run assertStatementWritable before those writes so
+     * a declined override leaves no partial state. Passing its result here
+     * skips the second guard, so a forced write files ONE audit row rather
+     * than two. It cannot be claimed without being held: the only way to
+     * obtain the object is to have made the call.
+     */
+    assertedFreeze?: FreezeReceipt;
   },
 ): Promise<WriteResult> {
   const loaded = await loadStatementInputs(supabase, statementId, {
@@ -138,9 +150,10 @@ export async function writeStatementTotals(
     );
   }
 
-  const { forced, freeze } = await assertStatementWritable(supabase, { statementId }, {
-    force: opts.force === true, action: opts.action, detail: opts.detail,
-  });
+  const { forced, freeze } = opts.assertedFreeze
+    ?? await assertStatementWritable(supabase, { statementId }, {
+      force: opts.force === true, action: opts.action, detail: opts.detail,
+    });
 
   const after = computeStatementTotals(loaded.inputs);
   const before = loaded.stored;

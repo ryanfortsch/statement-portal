@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
@@ -57,8 +58,9 @@ export async function PATCH(
   // Checked BEFORE the credit write -- a declined override must leave zero
   // partial state (a credit persisted on the event with the totals never
   // recomputed would silently fold into the payout on the next recompute).
+  let finalityGate: FreezeReceipt;
   try {
-    await assertStatementWritable(supabase, { statementId: stmtId }, {
+    finalityGate = await assertStatementWritable(supabase, { statementId: stmtId }, {
       force: body.force === true,
       action: 'Apply cleaning credit',
     });
@@ -73,37 +75,20 @@ export async function PATCH(
     .eq('id', id);
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
-  // Recompute cleaning_total and owner_payout for the parent statement.
-  // owner_payout subtracts attributed_debits_total too -- the bank-deposit
-  // review queue can attribute a charge (e.g. trash-can reimbursement) as
-  // a property-level expense, and this recompute must not clobber it back
-  // to zero. Read the column directly off the statement row instead of
-  // joining attributions so the two recompute paths stay independent.
-  const { data: stmt } = await supabase
-    .from('property_statements')
-    .select('id, rental_revenue, add_ons_revenue, management_fee, repairs_total, attributed_debits_total, reserve_holdback')
-    .eq('id', stmtId)
-    .maybeSingle();
-  if (stmt) {
-    const { data: allEvents } = await supabase
-      .from('cleaning_events')
-      .select('amount, credit_amount')
-      .eq('property_statement_id', stmtId);
-    const cleaningTotal = round2((allEvents || []).reduce(
-      (s, e) => s + (Number(e.amount) || 0) - (Number(e.credit_amount) || 0), 0,
-    ));
-    const rental = Number(stmt.rental_revenue) || 0;
-    const addOns = Number(stmt.add_ons_revenue) || 0;
-    const mgmt = Number(stmt.management_fee) || 0;
-    const repairs = Number(stmt.repairs_total) || 0;
-    const attributedDebits = Number(stmt.attributed_debits_total) || 0;
-    const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback) || 0;
-    const ownerPayout = round2(rental + addOns - mgmt - cleaningTotal - repairs - attributedDebits - reserveHoldback);
-    await supabase
-      .from('property_statements')
-      .update({ cleaning_total: cleaningTotal, owner_payout: ownerPayout })
-      .eq('id', stmtId);
-    return NextResponse.json({ ok: true, cleaning_total: cleaningTotal, owner_payout: ownerPayout, credit_amount: cappedCredit });
-  }
-  return NextResponse.json({ ok: true, credit_amount: cappedCredit });
+  // The single write path derives cleaning_total from the bank-family
+  // cleaning_events rows net of credits -- so an invoice-only row (an
+  // attribution waiting for its ACH) can no longer be pulled into the bill
+  // by applying a credit, which was the audit's #11 critical. Every other
+  // term is derived or owned the same way for every writer, and a read
+  // failure refuses rather than reporting ok with the credit stranded.
+  const totals = await writeStatementTotals(supabase, stmtId, {
+    action: 'Apply cleaning credit',
+    assertedFreeze: finalityGate,
+  });
+  return NextResponse.json({
+    ok: true,
+    cleaning_total: totals.after.cleaning_total,
+    owner_payout: totals.after.owner_payout,
+    credit_amount: cappedCredit,
+  });
 }
