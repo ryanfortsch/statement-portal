@@ -89,18 +89,34 @@ async function handle(request: NextRequest) {
     return NextResponse.json({ ok: true, dry: true, serviceDate, counts: day.counts, body: await composeDigestBodyLive(supabase, day) });
   }
 
-  const { digest, day } = await upsertDigestDraft(supabase, serviceDate);
-  return NextResponse.json({
-    ok: true,
-    serviceDate,
-    digestId: digest.id,
-    digestStatus: digest.status,
-    counts: day.counts,
-    expired,
-    vendor,
-    holds,
-    mine,
-  });
+  // The draft is the last step and the one that reads the schedule. If it
+  // cannot be built, say so plainly in the response (and to sync_status
+  // readers via the 200 body) rather than 500ing the cron or, worse,
+  // writing an empty draft that the card would show as a real day.
+  try {
+    const { digest, day } = await upsertDigestDraft(supabase, serviceDate);
+    return NextResponse.json({
+      ok: true,
+      serviceDate,
+      digestId: digest.id,
+      digestStatus: digest.status,
+      counts: day.counts,
+      expired,
+      vendor,
+      holds,
+      mine,
+    });
+  } catch (err) {
+    return NextResponse.json({
+      ok: false,
+      serviceDate,
+      error: err instanceof Error ? err.message : String(err),
+      expired,
+      vendor,
+      holds,
+      mine,
+    });
+  }
 }
 
 export async function GET(request: NextRequest) {

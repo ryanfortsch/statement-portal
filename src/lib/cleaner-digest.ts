@@ -32,6 +32,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { listPhoneNumbers, sendMessage } from '@/lib/quo';
 import {
   buildCheckoutSchedule,
+  ScheduleUnavailableError,
   todayET,
   addDays,
   type ScheduleDay,
@@ -502,6 +503,7 @@ export type AutoSendResult = {
     | 'skipped_by_operator'
     | 'already_handled'
     | 'no_recipients'
+    | 'schedule_unavailable'
     | 'send_failed';
   serviceDate: string;
   hourET: number;
@@ -558,14 +560,28 @@ export async function autoSendTomorrowDigest(
 
   // No draft yet (the afternoon cron failed, or this is the first run):
   // build one now rather than skipping the night entirely.
-  const { digest, day } = row
-    ? { digest: row, day: (await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 }))[0] }
-    : await upsertDigestDraft(supabase, serviceDate);
+  //
+  // If the schedule cannot be BUILT, refuse outright. The claim below has
+  // not happened yet, so the row stays pending and the operator sees it
+  // still waiting instead of a text that says nobody checks out.
+  let digest: DigestRow;
+  let day: ScheduleDay;
+  let body: string;
+  try {
+    ({ digest, day } = row
+      ? { digest: row, day: (await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 }))[0] }
+      : await upsertDigestDraft(supabase, serviceDate));
+    body = withOperatorNote(await composeDigestBodyLive(supabase, day), digest.operator_note);
+  } catch (err) {
+    if (err instanceof ScheduleUnavailableError) {
+      return { sent: false, reason: 'schedule_unavailable', ...base, detail: err.message };
+    }
+    throw err;
+  }
 
   const enabled = (await listScheduleRecipients(supabase)).filter((r) => r.enabled);
   if (enabled.length === 0) return { sent: false, reason: 'no_recipients', ...base };
 
-  const body = withOperatorNote(await composeDigestBodyLive(supabase, day), digest.operator_note);
   const res = await sendDigest(supabase, {
     digestId: digest.id,
     body,

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
   buildCheckoutSchedule,
+  ScheduleUnavailableError,
   todayET,
   addDays,
   type ScheduleDay,
@@ -73,7 +74,36 @@ export default async function CleanerSchedulePage({
   if (!recipient) notFound();
 
   const today = todayET();
-  const days = await buildCheckoutSchedule(supabase, { startDate: today, days: DAYS_SHOWN });
+  let days: ScheduleDay[];
+  try {
+    days = await buildCheckoutSchedule(supabase, { startDate: today, days: DAYS_SHOWN });
+  } catch (err) {
+    if (!(err instanceof ScheduleUnavailableError)) throw err;
+    // A cleaner opening this on a bad read must see "unavailable", not an
+    // empty week that looks like a week off.
+    return (
+      <>
+        <style>{css}</style>
+        <div className="rt-cl-page">
+          <header className="rt-cl-mast">
+            <div className="rt-cl-brand">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/rising-tide-logo.png" alt="Rising Tide" />
+              <div>
+                <div className="rt-cl-brandname">Rising Tide</div>
+                <div className="rt-cl-brandsub">Agenda de limpezas · cleaning schedule</div>
+              </div>
+            </div>
+          </header>
+          <div className="rt-cl-empty" style={{ borderColor: 'var(--signal)' }}>
+            <div className="rt-cl-emptymark">!</div>
+            Agenda indisponível agora. Tente de novo em um minuto.
+            <span>Schedule unavailable right now. Please try again in a minute.</span>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const { d } = await searchParams;
   const inRange = d && days.some((x) => x.date === d);

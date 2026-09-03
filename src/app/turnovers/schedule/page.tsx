@@ -7,12 +7,14 @@ import { SubmitButton } from '@/components/SubmitButton';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import {
   buildCheckoutSchedule,
+  ScheduleUnavailableError,
   todayET,
   addDays,
   formatTime12,
   adjustmentSourceLabel,
   SCHEDULE_EXCLUDED_PROPERTY_IDS,
   type CheckoutAdjustment,
+  type ScheduleDay,
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
 import { listScheduleRecipients, portalLink, type DigestRow } from '@/lib/cleaner-digest';
@@ -187,8 +189,13 @@ export default async function CheckoutSchedulePage({
   const err = first(sp.err);
   const today = todayET();
 
-  const [days, recipients, digestsRes, proposalsRes, propsRes, vendorData] = await Promise.all([
-    buildCheckoutSchedule(supabase, { startDate: today, days: DAYS }),
+  const [daysRes, recipients, digestsRes, proposalsRes, propsRes, vendorData] = await Promise.all([
+    buildCheckoutSchedule(supabase, { startDate: today, days: DAYS })
+      .then((d) => ({ ok: true as const, days: d, error: null as string | null }))
+      .catch((err: unknown) => {
+        if (err instanceof ScheduleUnavailableError) return { ok: false as const, days: [] as ScheduleDay[], error: err.message };
+        throw err;
+      }),
     listScheduleRecipients(supabase).catch(() => []),
     supabase
       .from('cleaner_schedule_digests')
@@ -212,6 +219,8 @@ export default async function CheckoutSchedulePage({
     })),
   ]);
 
+  const days = daysRes.days;
+  const scheduleError = daysRes.ok ? null : daysRes.error;
   const digestByDate = new Map<string, DigestRow>();
   for (const d of (digestsRes.data ?? []) as DigestRow[]) digestByDate.set(d.service_date, d);
   const proposals = (proposalsRes.data ?? []) as CheckoutAdjustment[];
@@ -291,6 +300,18 @@ export default async function CheckoutSchedulePage({
                 </span>
               </div>
             ))}
+          </div>
+        </Section>
+      )}
+
+      {scheduleError && (
+        <Section id="schedule-unavailable" title="Schedule unavailable" eyebrow="Read failure" paddingTop={8} paddingBottom={8}>
+          <div style={{ borderTop: '2px solid var(--signal)', padding: '14px 0', fontSize: 13, color: 'var(--ink)' }}>
+            <strong>The live schedule could not be loaded.</strong> The days below are hidden rather than shown empty,
+            because an empty day here would read as a day off. Nothing can be sent until this clears.
+            <div style={{ marginTop: 6, fontFamily: 'var(--font-mono), monospace', fontSize: 11, color: 'var(--ink-3)' }}>
+              {scheduleError}
+            </div>
           </div>
         </Section>
       )}
