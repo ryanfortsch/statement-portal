@@ -232,9 +232,15 @@ export async function saveAdjustmentAction(formData: FormData): Promise<void> {
     redirect(`${PAGE}?err=bad_stay`);
   }
   const time = rawTime ? normalizeTime(rawTime) : null;
-  const date = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
+  const dateValid = !rawDate || /^\d{4}-\d{2}-\d{2}$/.test(rawDate);
+  // The form pre-fills the date with the stay's own checkout, so a
+  // time-only edit arrives as date == originalCheckOut. Storing that PINS
+  // the date as operator truth, and a real Guesty extension the next day
+  // then reads as a conflict with a row that never meant to say anything
+  // about the date. The stay's own checkout is "no date change".
+  const date = rawDate && dateValid && rawDate !== originalCheckOut ? rawDate : null;
   if (rawTime && !time) redirect(`${PAGE}?err=bad_time${anchor}`);
-  if (rawDate && !date) redirect(`${PAGE}?err=bad_date${anchor}`);
+  if (!dateValid) redirect(`${PAGE}?err=bad_date${anchor}`);
   if (!time && !date) redirect(`${PAGE}?err=nothing_set${anchor}`);
   if (date && date < stayCheckIn) redirect(`${PAGE}?err=date_before_checkin${anchor}`);
 
@@ -283,20 +289,46 @@ export async function applyProposalAction(formData: FormData): Promise<void> {
   if (!row) redirect(`${backTarget(formData, '?err=proposal_gone')}`);
 
   // Supersede the standing active adjustment for the stay, then promote.
-  await supabase
+  // The standing row is read by id first so a promote that does not land
+  // (the proposal was dismissed or applied in another tab between the two
+  // writes) can put it back. Otherwise the stay is left with NO active row
+  // and silently falls back to Guesty truth.
+  const { data: standingRow, error: standingErr } = await supabase
     .from('checkout_adjustments')
-    .update({ status: 'superseded', updated_at: new Date().toISOString() })
+    .select('id')
     .eq('property_id', row.property_id)
     .eq('stay_check_in', row.stay_check_in)
-    .eq('status', 'active');
-  const { error } = await supabase
+    .eq('status', 'active')
+    .maybeSingle();
+  if (standingErr) redirect(backTarget(formData, '?err=apply_failed'));
+  const standingId = (standingRow as { id: string } | null)?.id ?? null;
+  const now = new Date().toISOString();
+  if (standingId) {
+    const { error: supErr } = await supabase
+      .from('checkout_adjustments')
+      .update({ status: 'superseded', updated_at: now })
+      .eq('id', standingId)
+      .eq('status', 'active');
+    if (supErr) redirect(backTarget(formData, '?err=apply_failed'));
+  }
+  const { data: promoted, error } = await supabase
     .from('checkout_adjustments')
-    .update({ status: 'active', updated_at: new Date().toISOString() })
+    .update({ status: 'active', updated_at: now })
     .eq('id', id)
-    .eq('status', 'proposed');
+    .eq('status', 'proposed')
+    .select('id')
+    .maybeSingle();
+  const landed = !error && !!promoted;
+  if (!landed && standingId) {
+    await supabase
+      .from('checkout_adjustments')
+      .update({ status: 'active', updated_at: new Date().toISOString() })
+      .eq('id', standingId)
+      .eq('status', 'superseded');
+  }
   revalidatePath(PAGE);
   revalidatePath(CARD);
-  redirect(backTarget(formData, error ? '?err=apply_failed' : '?applied=1'));
+  redirect(backTarget(formData, landed ? '?applied=1' : '?err=apply_failed'));
 }
 
 export async function dismissProposalAction(formData: FormData): Promise<void> {
