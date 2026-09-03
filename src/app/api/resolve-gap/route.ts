@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
@@ -13,6 +14,16 @@ import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals
  *     the reservation's stripe_fee, roll the deducted amount back into
  *     adjusted_revenue, recompute the statement's rental_revenue +
  *     management_fee + owner_payout, and delete the gap.
+ *
+ *   acknowledge (any gap type)
+ *     The operator has read the flag and dealt with it, or judged that
+ *     nothing needs doing. Marks the row resolved with a note and who did
+ *     it. Moves no money, so it deliberately runs BEFORE the sent-statement
+ *     freeze check: a flag on an already-sent statement must still be
+ *     dismissible, and refusing would leave it on the card forever.
+ *     Several gap types have no other action at all -- a lost cleaning
+ *     credit whose charge is genuinely gone, for one -- and before this
+ *     existed their only exit was a hand-written SQL update.
  *
  * More resolution types can be added as new switch branches.
  */
@@ -31,7 +42,7 @@ function extractConfirmationCode(description: string): string | null {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({} as { gap_id?: string; resolution?: string; force?: boolean }));
+    const body = await request.json().catch(() => ({} as { gap_id?: string; resolution?: string; force?: boolean; note?: string }));
     const gapId: string = body.gap_id || '';
     const resolution: string = body.resolution || '';
 
@@ -45,6 +56,24 @@ export async function POST(request: NextRequest) {
       .single();
     if (gapErr || !gap) {
       return NextResponse.json({ error: 'gap not found' }, { status: 404 });
+    }
+
+    // Acknowledge first: it writes no money column, so it must not be
+    // gated on the freeze (see the docblock).
+    if (resolution === 'acknowledge') {
+      const session = await auth();
+      const note = typeof body.note === 'string' ? body.note.slice(0, 500) : null;
+      const { error: ackErr } = await supabase
+        .from('data_gaps')
+        .update({
+          resolved: true,
+          resolved_at: new Date().toISOString(),
+          resolved_by: session?.user?.email || 'unknown',
+          resolution_note: note,
+        })
+        .eq('id', gapId);
+      if (ackErr) return NextResponse.json({ error: `could not resolve the flag: ${ackErr.message}` }, { status: 500 });
+      return NextResponse.json({ ok: true, resolution: 'acknowledge', gap_id: gapId });
     }
 
     let finalityGate: FreezeReceipt | undefined;

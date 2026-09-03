@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { assertStatementWritable, getFreezeStatus, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
  * Cross-month booking installment splits.
@@ -57,6 +59,143 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   return NextResponse.json({ installments: data || [] });
 }
 
+/**
+ * Slice-month gate. A split decides which month recognizes which share of
+ * a stay, and each of those months may already have been ingested -- or
+ * sent. Editing or clearing the split after that silently changes what
+ * those statements SHOULD have paid while their stored numbers stay put:
+ * the audit's "double-pay" critical (a slice moved out of a sent month
+ * whose statement still carried it, then recognized again in the new one).
+ *
+ * Two phases, deliberately. planSliceMonthGates only READS: without
+ * `force` it refuses with a 409 naming every affected month so the editor
+ * can confirm. commitSliceMonthFlags does the writing and runs only after
+ * the split is saved: sent or finalized months go through
+ * assertStatementWritable (filing the post_send_write audit row) and merely
+ * ingested months get an `installment_split_changed` warning gap, so the
+ * statements page shows them as needing a Refresh Statement / re-ingest
+ * before they are sent. Splitting the phases is what makes the failure
+ * path's "Nothing was changed" true. Read failures throw: an unreadable
+ * gate is not an open gate.
+ */
+type SliceMonthGate = { month: string; statementId: string; frozen: boolean; reason: string | null };
+
+class SliceMonthsNeedConfirm extends Error {
+  constructor(public readonly gates: SliceMonthGate[], propertyId: string, action: string) {
+    const list = gates.map(g => `${g.month}${g.frozen ? (g.reason === 'period_final' ? ' (finalized)' : ' (sent)') : ''}`).join(', ');
+    super(
+      `${propertyId} already has a statement for ${list}. ${action} changes what ${gates.length === 1 ? 'that month' : 'those months'} should pay: `
+      + 'each will be flagged and must be re-run (Refresh Statement or re-ingest) before it is sent again. Proceed?',
+    );
+  }
+}
+
+async function loadExistingSlices(
+  supabase: SupabaseClient,
+  code: string,
+): Promise<{ months: string[]; propertyId: string | null }> {
+  const { data, error } = await supabase
+    .from('reservation_installments')
+    .select('month, property_id')
+    .eq('confirmation_code', code);
+  if (error) {
+    // Only the table itself being absent is tolerable (migration not run).
+    // The message must say BOTH that something is missing AND name this
+    // table: a permission error that mentions the table is a real error.
+    const msg = error.message || '';
+    const tableMissing = error.code === 'PGRST205'
+      || (/reservation_installments/i.test(msg) && /could not find the table|does not exist/i.test(msg));
+    if (tableMissing) return { months: [], propertyId: null };
+    throw error;
+  }
+  const rows = (data || []) as { month: string; property_id: string }[];
+  return { months: [...new Set(rows.map(r => r.month))].sort(), propertyId: rows[0]?.property_id ?? null };
+}
+
+async function planSliceMonthGates(
+  supabase: SupabaseClient,
+  args: { code: string; propertyId: string; months: string[]; force: boolean; action: string },
+): Promise<SliceMonthGate[]> {
+  const months = [...new Set(args.months)].sort();
+  if (months.length === 0) return [];
+  const { data: periods, error: perErr } = await supabase
+    .from('statement_periods')
+    .select('id, month')
+    .in('month', months);
+  if (perErr) throw perErr;
+  const periodMonth = new Map((periods || []).map(p => [p.id as string, p.month as string]));
+  if (periodMonth.size === 0) return [];
+  const { data: stmts, error: stErr } = await supabase
+    .from('property_statements')
+    .select('id, period_id')
+    .eq('property_id', args.propertyId)
+    .in('period_id', [...periodMonth.keys()]);
+  if (stErr) throw stErr;
+
+  const gates: SliceMonthGate[] = [];
+  for (const st of stmts || []) {
+    const freeze = await getFreezeStatus(supabase, { statementId: st.id as string });
+    gates.push({
+      month: periodMonth.get(st.period_id as string) || '',
+      statementId: st.id as string,
+      frozen: freeze.frozen,
+      reason: freeze.reason ?? null,
+    });
+  }
+  gates.sort((a, b) => a.month.localeCompare(b.month));
+  if (gates.length === 0) return [];
+  if (!args.force) throw new SliceMonthsNeedConfirm(gates, args.propertyId, args.action);
+  return gates;
+}
+
+/**
+ * Stamp the affected months. Runs ONLY after the split itself is written:
+ * these are assertions about a change that happened, so filing them first
+ * and then failing the write would leave a sent statement carrying a
+ * post_send_write row for a rewrite that never occurred, and an ingested
+ * month told to re-run for a split that never changed. A failure here is
+ * reported without unwinding the split: the flags are the audit trail, and
+ * a missing flag is a smaller wrong than a false one.
+ */
+async function commitSliceMonthFlags(
+  supabase: SupabaseClient,
+  gates: SliceMonthGate[],
+  args: { code: string; action: string },
+): Promise<string[]> {
+  const failures: string[] = [];
+  for (const g of gates) {
+    try {
+      if (g.frozen) {
+        await assertStatementWritable(supabase, { statementId: g.statementId }, {
+          force: true,
+          action: args.action,
+          detail: `${args.code}: slice month ${g.month}`,
+        });
+        continue;
+      }
+      const { error } = await supabase.from('data_gaps').insert({
+        property_statement_id: g.statementId,
+        gap_type: 'installment_split_changed',
+        severity: 'warning',
+        description: `${args.action} for ${args.code} after ${g.month} was ingested. The share this statement recognizes may no longer match the split: re-run Refresh Statement or re-ingest ${g.month}, then resolve.`,
+        expected_data: `Re-ingest ${g.month}`,
+      });
+      if (error) throw error;
+    } catch (e) {
+      failures.push(`${g.month} (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
+  return failures;
+}
+
+function gateErrorResponse(e: unknown): NextResponse | null {
+  if (e instanceof SliceMonthsNeedConfirm) {
+    return NextResponse.json({ needs_confirm: true, error: e.message, months: e.gates }, { status: 409 });
+  }
+  if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+  return null;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const session = await auth();
   if (!session?.user?.email) return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
@@ -95,6 +234,53 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const supabase = getSupabase();
 
+  // Gate on every month the split touches: the months it used to cover and
+  // the months it will cover (a checkout month ingested un-split holds the
+  // whole stay, so it is stale the moment a split appears). Nothing is
+  // written until the gate passes.
+  let staleMonths: SliceMonthGate[] = [];
+  // The months the atomic replace's DELETE alone invalidates. If the insert
+  // then fails, ONLY these were actually changed -- flagging the incoming
+  // split's months there would file a post_send_write on a sent statement
+  // this request never touched.
+  let removedGates: SliceMonthGate[] = [];
+  try {
+    const existing = await loadExistingSlices(supabase, code);
+    const byProperty = new Map<string, string[]>();
+    byProperty.set(propertyId, installments.map(i => i.month));
+    const oldOwner = existing.propertyId || propertyId;
+    byProperty.set(oldOwner, [...(byProperty.get(oldOwner) || []), ...existing.months]);
+    // Plan every property first with the refusal suppressed, then raise ONE
+    // confirm over the combined list. Refusing per property would name only
+    // the first one's months while the forced retry flags both, so a split
+    // moving between properties would flag a statement the operator was
+    // never shown.
+    for (const [pid, months] of byProperty) {
+      staleMonths = staleMonths.concat(await planSliceMonthGates(supabase, {
+        code, propertyId: pid, months, force: true, action: 'Edit installment split',
+      }));
+    }
+    // De-duplicate: the same statement can arrive from both map entries
+    // when the split is not moving, and flagging it twice would file two
+    // audit rows for one change.
+    const bySid = new Map(staleMonths.map(g => [g.statementId, g]));
+    staleMonths = [...bySid.values()].sort((a, b) => a.month.localeCompare(b.month));
+    if (existing.propertyId && existing.months.length > 0) {
+      const removed = await planSliceMonthGates(supabase, {
+        code, propertyId: existing.propertyId, months: existing.months, force: true, action: 'Edit installment split',
+      });
+      const removedBySid = new Map(removed.map(g => [g.statementId, g]));
+      removedGates = [...removedBySid.values()].sort((a, b) => a.month.localeCompare(b.month));
+    }
+    if (staleMonths.length > 0 && body.force !== true) {
+      throw new SliceMonthsNeedConfirm(staleMonths, [...byProperty.keys()].join(' and '), 'Edit installment split');
+    }
+  } catch (e) {
+    const handled = gateErrorResponse(e);
+    if (handled) return handled;
+    return NextResponse.json({ error: `Could not check the months this split touches (${e instanceof Error ? e.message : String(e)}). Nothing was changed.` }, { status: 502 });
+  }
+
   // Atomic replace: delete all existing rows for this code, then insert
   // the new set. Same-transaction safety isn't a thing in PostgREST, so
   // we accept a brief window where the table is empty for this code --
@@ -131,9 +317,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .from('reservation_installments')
     .insert(rows)
     .select('id, confirmation_code, property_id, month, installment_revenue, installment_nights, is_final_month, note, created_at, updated_at');
-  if (insErr) return NextResponse.json({ error: `insert failed: ${insErr.message}` }, { status: 500 });
+  if (insErr) {
+    // The atomic replace already deleted the old rows. That IS a change to
+    // every month the old split touched, so the flags are filed here too:
+    // they are now true statements. Only the wording differs.
+    const failFlags = await commitSliceMonthFlags(supabase, removedGates, {
+      code, action: 'Installment split REMOVED (save failed)',
+    });
+    return NextResponse.json({
+      error: `insert failed: ${insErr.message}. The previous split for ${code} was removed and the new one did not save, so this booking currently has NO split -- it recognizes entirely in its checkout month. Re-enter the split.`,
+      ...(failFlags.length ? { flag_failures: failFlags } : {}),
+    }, { status: 500 });
+  }
 
-  return NextResponse.json({ installments: inserted || [] });
+  const flagFailures = await commitSliceMonthFlags(supabase, staleMonths, { code, action: 'Edit installment split' });
+
+  return NextResponse.json({
+    installments: inserted || [],
+    stale_months: staleMonths.map(g => g.month),
+    ...(flagFailures.length ? { flag_failures: flagFailures } : {}),
+  });
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
@@ -142,7 +345,29 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const code = (request.nextUrl.searchParams.get('confirmation_code') || '').trim();
   if (!code) return NextResponse.json({ error: 'confirmation_code required' }, { status: 400 });
   const supabase = getSupabase();
+  let staleMonths: SliceMonthGate[] = [];
+  try {
+    const existing = await loadExistingSlices(supabase, code);
+    if (existing.propertyId) {
+      staleMonths = await planSliceMonthGates(supabase, {
+        code,
+        propertyId: existing.propertyId,
+        months: existing.months,
+        force: request.nextUrl.searchParams.get('force') === 'true',
+        action: 'Clear installment split',
+      });
+    }
+  } catch (e) {
+    const handled = gateErrorResponse(e);
+    if (handled) return handled;
+    return NextResponse.json({ error: `Could not check the months this split touches (${e instanceof Error ? e.message : String(e)}). Nothing was changed.` }, { status: 502 });
+  }
   const { error } = await supabase.from('reservation_installments').delete().eq('confirmation_code', code);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  const flagFailures = await commitSliceMonthFlags(supabase, staleMonths, { code, action: 'Clear installment split' });
+  return NextResponse.json({
+    ok: true,
+    stale_months: staleMonths.map(g => g.month),
+    ...(flagFailures.length ? { flag_failures: flagFailures } : {}),
+  });
 }

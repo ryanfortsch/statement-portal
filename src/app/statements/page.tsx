@@ -717,9 +717,31 @@ function gapFillType(gapType: string): FillGapType | null {
   return null;
 }
 
+/**
+ * Gap types an automated pass OWNS: it deletes and re-derives them on every
+ * run (stripe-sync nightly, fill-gap on upload, the missing-direct sweep).
+ * Marking one resolved by hand is undone the next time that pass runs, so
+ * the Resolve button is not offered for them -- they clear themselves when
+ * the underlying condition clears, which is the honest contract. Everything
+ * else is a standing judgement that only a person can retire.
+ */
+const PIPELINE_OWNED_GAP_TYPES = new Set([
+  'missing_bank_csv', 'unmatched_bank',
+  'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
+]);
+// NOT vendor_refund_unapplied: Fill Gap deliberately no longer deletes and
+// re-derives it (a narrower CSV would lose a real one), so nothing retires
+// it automatically and Resolve is its only exit.
+const isPipelineOwnedGap = (gapType: string) =>
+  gapType.startsWith('stripe_') || PIPELINE_OWNED_GAP_TYPES.has(gapType);
+
 // Response shapes returned by /api/fill-gap -- discriminated by file_type.
 type BankChange = { guest: string; status_before: string; status_after: string; deposit_amount: number | null; adjusted_revenue: number | null; changed: boolean };
-type PlatformChange = { id: string; guest_before: string | null; guest_after: string; platform_before: string | null; platform_after: string; adjusted_revenue_before: number | null; adjusted_revenue_after: number };
+// adjusted_revenue_after is NULLABLE: a row whose money the operator owns
+// (paid_off_stripe) reports its existing value back verbatim rather than a
+// re-priced one, and that value can be null. This type is a hand-written
+// mirror of the /api/fill-gap response, so tsc cannot catch it drifting.
+type PlatformChange = { id: string; guest_before: string | null; guest_after: string; platform_before: string | null; platform_after: string; adjusted_revenue_before: number | null; adjusted_revenue_after: number | null };
 type FillGapResult =
   | {
       file_type: 'bank_csv';
@@ -935,7 +957,7 @@ function FillGapModal(props: {
                       <li key={i} style={{ padding: '6px 0', borderBottom: '1px dotted var(--rule)' }}>
                         <div><strong style={{ color: 'var(--ink)' }}>{c.guest_after}</strong>{nameChanged && c.guest_before && <span style={{ color: 'var(--ink-4)' }}> (was &ldquo;{c.guest_before}&rdquo;)</span>}</div>
                         {platChanged && <div style={{ color: 'var(--ink-3)', marginTop: 2 }}>Platform: {c.platform_before || '(unknown)'} &rarr; <strong>{c.platform_after}</strong></div>}
-                        {c.adjusted_revenue_before !== c.adjusted_revenue_after && (
+                        {c.adjusted_revenue_before !== c.adjusted_revenue_after && c.adjusted_revenue_after !== null && (
                           <div style={{ color: 'var(--ink-3)', marginTop: 2 }} className="tabular-nums">Net revenue: ${(c.adjusted_revenue_before ?? 0).toFixed(2)} &rarr; <strong>${c.adjusted_revenue_after.toFixed(2)}</strong></div>
                         )}
                       </li>
@@ -1966,6 +1988,13 @@ function PropertyCard({
                 {gaps.map((gap) => {
                   const fillable = gapFillType(gap.gap_type) !== null;
                   const offStripeResolvable = gap.gap_type === 'stripe_missing_charge';
+                  // A flag with no action of its own would otherwise sit on
+                  // the card forever and ride along in every Draft All
+                  // confirm, which is how operators learn to click through
+                  // the confirm without reading it.
+                  const needsManualResolve = !fillable && !offStripeResolvable
+                    && gap.gap_type !== 'cancelled_reservation'
+                    && !isPipelineOwnedGap(gap.gap_type);
                   return (
                     <div
                       key={gap.id}
@@ -1984,6 +2013,42 @@ function PropertyCard({
                         {gap.expected_data && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>{gap.expected_data}</div>}
                       </div>
                       <div style={{ flexShrink: 0, display: 'flex', gap: 6 }}>
+                        {needsManualResolve && (
+                          <button
+                            disabled={resolvingGapId === gap.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const note = prompt('Resolve this flag. What did you do? (optional, shown in the audit trail)');
+                              if (note === null) return;
+                              setResolvingGapId(gap.id);
+                              try {
+                                const res = await fetch('/api/resolve-gap', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ gap_id: gap.id, resolution: 'acknowledge', note }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                else onRefresh();
+                              } catch (err) {
+                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                              } finally {
+                                setResolvingGapId(null);
+                              }
+                            }}
+                            style={{
+                              border: '1px solid var(--ink-4)',
+                              background: 'transparent',
+                              color: 'var(--ink-3)',
+                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                              padding: '6px 10px',
+                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
+                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
+                            }}
+                          >
+                            {resolvingGapId === gap.id ? 'Working…' : 'Resolve'}
+                          </button>
+                        )}
                         {offStripeResolvable && (
                           <button
                             disabled={resolvingGapId === gap.id}
