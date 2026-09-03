@@ -1060,15 +1060,36 @@ export async function POST(request: NextRequest) {
       .from('data_gaps')
       .delete()
       .eq('property_statement_id', stmt.id)
-      // vendor_refund_unapplied is re-derived from this same CSV below, so
-      // delete-and-re-raise keeps it accurate rather than piling duplicates.
-      .in('gap_type', ['missing_bank_csv', 'unmatched_bank', 'vendor_refund_unapplied']);
+      // NOT vendor_refund_unapplied. It is derived from whatever rows the
+      // UPLOADED CSV happens to contain, so deleting the set and re-raising
+      // from this file loses a refund notice ingest filed from a fuller
+      // export. Money notices are not re-derivable from a narrower source:
+      // duplicates are prevented below instead, and the Resolve button
+      // retires one the operator has dealt with.
+      .in('gap_type', ['missing_bank_csv', 'unmatched_bank']);
 
     const newGaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
     // Vendor refunds this CSV could not net: critical, because each leaves
     // the owner billed gross until a human decides. (This path does not
-    // park the refund in the review queue; the gap is the notice.)
-    for (const c of unmatchedVendorCredits) newGaps.push(unappliedRefundGap(c, { parkedInQueue: false }));
+    // park the refund in the review queue; the gap is the notice.) Since
+    // the delete above deliberately spares this type, skip any whose notice
+    // is already open rather than filing a second copy. A read failure
+    // means we cannot tell, so file it: a duplicate notice is recoverable,
+    // a missing one is not.
+    {
+      const { data: openRefundGaps } = await supabase
+        .from('data_gaps')
+        .select('expected_data')
+        .eq('property_statement_id', stmt.id)
+        .eq('gap_type', 'vendor_refund_unapplied')
+        .or('resolved.is.null,resolved.eq.false');
+      const alreadyOpen = new Set((openRefundGaps || []).map(g => g.expected_data as string));
+      for (const c of unmatchedVendorCredits) {
+        const gap = unappliedRefundGap(c, { parkedInQueue: false });
+        if (alreadyOpen.has(gap.expected_data)) continue;
+        newGaps.push(gap);
+      }
+    }
     for (const u of resUpdates) {
       if (u.bank_match_status !== 'unmatched') continue;
       const res = (reservations || []).find(r => r.id === u.id);
