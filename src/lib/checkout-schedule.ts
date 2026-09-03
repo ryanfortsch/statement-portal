@@ -91,6 +91,24 @@ export function normalizeTime(raw: string | null | undefined): string | null {
   return `${String(h).padStart(2, '0')}:${min}`;
 }
 
+// ─── errors ───────────────────────────────────────────────────────────
+
+/**
+ * The schedule could not be built, so NOTHING downstream may treat it as
+ * empty. Before this existed every query error fell through `data ?? []`
+ * and composed a confident "Nenhum check-out neste dia." that the card
+ * displayed and autosend delivered. A schedule the system cannot see is
+ * not an empty schedule; it is an unknown one, and unknown must be loud.
+ */
+export class ScheduleUnavailableError extends Error {
+  readonly source: string;
+  constructor(source: string, detail: string) {
+    super(`schedule unavailable: ${source}: ${detail}`);
+    this.name = 'ScheduleUnavailableError';
+    this.source = source;
+  }
+}
+
 // ─── types ────────────────────────────────────────────────────────────
 
 /** operator = set by hand on /turnovers/schedule; miner = mined from a
@@ -342,6 +360,19 @@ export async function buildCheckoutSchedule(
       .lte('stay_check_in', endDate),
   ]);
 
+  // Fail CLOSED. A missing result is an unknown schedule, never an empty
+  // one; every reader of this function must surface that rather than
+  // rendering or sending a blank day.
+  if (propsRes.error) throw new ScheduleUnavailableError('properties', propsRes.error.message);
+  if (checkoutsRes.error) throw new ScheduleUnavailableError('bookings/checkouts', checkoutsRes.error.message);
+  if (checkinsRes.error) throw new ScheduleUnavailableError('bookings/checkins', checkinsRes.error.message);
+  if (adjRes.error) throw new ScheduleUnavailableError('checkout_adjustments', adjRes.error.message);
+  if (!propsRes.data || propsRes.data.length === 0) {
+    // Zero properties is not a plausible fleet; it is a read that returned
+    // nothing. Refuse rather than compose an empty schedule.
+    throw new ScheduleUnavailableError('properties', 'no rows returned');
+  }
+
   const properties = new Map<string, PropertyLite>();
   for (const p of (propsRes.data ?? []) as Array<PropertyLite & { is_active: boolean | null; kind: string | null }>) {
     if (SCHEDULE_EXCLUDED_PROPERTY_IDS.has(p.id)) continue;
@@ -382,13 +413,14 @@ export async function buildCheckoutSchedule(
     if (!checkoutStays.has(`${a.property_id}|${a.stay_check_in}`)) missingStayKeys.push(a);
   }
   if (missingStayKeys.length > 0) {
-    const { data } = await supabase
+    const { data, error: refetchErr } = await supabase
       .from('bookings')
       .select('id, property_id, check_in, check_out, guest_name, source')
       .in('property_id', [...new Set(missingStayKeys.map((a) => a.property_id))])
       .in('check_in', [...new Set(missingStayKeys.map((a) => a.stay_check_in))])
       .in('status', STAY_STATUSES)
       .is('duplicate_of', null);
+    if (refetchErr) throw new ScheduleUnavailableError('bookings/extended', refetchErr.message);
     const wanted = new Set(missingStayKeys.map((a) => `${a.property_id}|${a.stay_check_in}`));
     const fetched = collapseStays(
       ((data ?? []) as BookingLite[]).filter((b) => wanted.has(`${b.property_id}|${b.check_in}`)),

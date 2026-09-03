@@ -12,7 +12,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
-import { insertAdjustment, normalizeTime } from '@/lib/checkout-schedule';
+import { insertAdjustment, normalizeTime, ScheduleUnavailableError } from '@/lib/checkout-schedule';
 import {
   setAutosend,
   withOperatorNote,
@@ -61,8 +61,17 @@ export async function approveAndSendDigest(formData: FormData): Promise<void> {
   const note = String(formData.get('note') || '').trim().slice(0, 600);
   let finalBody = body;
   if (body === draftedBody.trim() && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
-    const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-    finalBody = await composeDigestBodyLive(supabase, day);
+    // An unedited approval recomposes from the LIVE schedule. If that
+    // schedule cannot be built right now, do not send anything at all:
+    // the stored draft may be stale and an empty day would read as "no
+    // checkouts". Fail loudly back to the card instead.
+    try {
+      const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
+      finalBody = await composeDigestBodyLive(supabase, day);
+    } catch (err) {
+      if (err instanceof ScheduleUnavailableError) redirect(`${CARD}?err=schedule_unavailable#schedule-digest`);
+      throw err;
+    }
   }
   // Persist the note first so a failed send never costs the typing, then
   // append it after the (possibly recomposed) schedule.
@@ -85,8 +94,15 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
   const serviceDate = String(formData.get('serviceDate') || '');
   if (!digestId || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) redirect(CARD_ANCHOR);
 
-  // An update exists to carry CHANGED truth: always compose fresh.
-  const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
+  // An update exists to carry CHANGED truth: always compose fresh, and
+  // refuse entirely if the truth cannot be read right now.
+  let day;
+  try {
+    [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
+  } catch (err) {
+    if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
+    throw err;
+  }
   const { data: noteRow } = await supabase
     .from('cleaner_schedule_digests')
     .select('operator_note')
@@ -142,7 +158,12 @@ export async function refreshDigestDraft(formData: FormData): Promise<void> {
       .update({ operator_note: String(formData.get('note') || '').trim().slice(0, 600), updated_at: new Date().toISOString() })
       .eq('id', digestId);
   }
-  await upsertDigestDraft(supabase, serviceDate);
+  try {
+    await upsertDigestDraft(supabase, serviceDate);
+  } catch (err) {
+    if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
+    throw err;
+  }
   revalidatePath(CARD);
   redirect(backTarget(formData, '#schedule-digest'));
 }
@@ -163,7 +184,12 @@ export async function rescanMessagesAction(formData: FormData): Promise<void> {
     // Fail-soft: the refreshed draft below still reflects operator truth.
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
-    await upsertDigestDraft(supabase, serviceDate);
+    try {
+      await upsertDigestDraft(supabase, serviceDate);
+    } catch (err) {
+      if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
+      throw err;
+    }
   }
   revalidatePath(CARD);
   revalidatePath(PAGE);

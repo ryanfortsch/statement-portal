@@ -257,10 +257,15 @@ export async function ScheduleDigestCard({
   }
 
   let day: ScheduleDay | null = null;
+  let scheduleError: string | null = null;
   try {
     [day] = await buildCheckoutSchedule(supabase, { startDate: digest.service_date, days: 1 });
-  } catch {
+  } catch (err) {
+    // Unknown, NOT empty. The card must say so and refuse to send; before
+    // this the rows simply vanished and the stale stored body was offered
+    // for approval as if it were the schedule.
     day = null;
+    scheduleError = err instanceof Error ? err.message : String(err);
   }
 
   const pending = digest.status === 'pending' || digest.status === 'sending';
@@ -290,7 +295,8 @@ export async function ScheduleDigestCard({
             {notice.err === 'quo_unconfigured' && 'Nothing sent: QUO_API_KEY is not set in this environment.'}
             {notice.err === 'all_failed' && 'Quo rejected every send - see the log below and try again.'}
             {notice.err === 'raced' && 'Already handled in another tab - this is the fresh state.'}
-            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced'].includes(notice.err) && `Error: ${notice.err}`}
+            {notice.err === 'schedule_unavailable' && 'Nothing sent: the live schedule could not be read at that moment. Try again in a minute.'}
+            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced', 'schedule_unavailable'].includes(notice.err) && `Error: ${notice.err}`}
           </div>
         )}
         {notice?.sent && (
@@ -300,6 +306,27 @@ export async function ScheduleDigestCard({
           </div>
         )}
 
+        {!day && (
+          <div
+            style={{
+              margin: '4px 0 12px',
+              padding: '12px 14px',
+              border: '2px solid var(--signal)',
+              borderRadius: 6,
+              fontSize: 13,
+              color: 'var(--ink)',
+              background: 'rgba(200,90,58,.06)',
+            }}
+          >
+            <strong>The live schedule could not be loaded.</strong> Nothing below is trustworthy and sending is disabled
+            until it comes back. This is a database read failure, not an empty day.
+            {scheduleError && (
+              <div style={{ marginTop: 6, fontFamily: 'var(--font-mono), monospace', fontSize: 11, color: 'var(--ink-3)' }}>
+                {scheduleError}
+              </div>
+            )}
+          </div>
+        )}
         {day && (
           <>
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 4 }}>
@@ -456,16 +483,16 @@ export async function ScheduleDigestCard({
                 label="Approve &amp; send via Quo"
                 busyLabel="Sending..."
                 formAction={approveAndSendDigest}
-                disabled={!anyEnabled}
+                disabled={!anyEnabled || !day}
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
                   padding: '9px 18px',
-                  background: anyEnabled ? 'var(--signal)' : 'var(--rule)',
-                  color: anyEnabled ? '#fff' : 'var(--ink-4)',
+                  background: anyEnabled && day ? 'var(--signal)' : 'var(--rule)',
+                  color: anyEnabled && day ? '#fff' : 'var(--ink-4)',
                   border: 'none',
                   borderRadius: 5,
-                  cursor: anyEnabled ? 'pointer' : 'not-allowed',
+                  cursor: anyEnabled && day ? 'pointer' : 'not-allowed',
                 }}
               />
               <SubmitButton
@@ -535,7 +562,7 @@ export async function ScheduleDigestCard({
                   label="Send an update"
                   busyLabel="Sending..."
                   spinnerTone="ink"
-                  disabled={!anyEnabled}
+                  disabled={!anyEnabled || !day}
                   style={{ fontSize: 12, padding: '8px 14px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
                 />
                 <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
