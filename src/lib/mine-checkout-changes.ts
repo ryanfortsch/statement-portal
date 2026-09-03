@@ -253,14 +253,22 @@ export async function mineCheckoutChanges(
     result.agreementsFound += changes.length;
     if (changes.length === 0) continue;
 
-    // The standing active adjustment, to no-op unchanged agreements.
-    const { data: standingRow } = await supabase
+    // The standing active adjustment, to no-op unchanged agreements and to
+    // merge a time-only change onto a standing extension. If this read
+    // FAILS we do not know what stands: proceeding as if nothing did would
+    // merge against null and write a row that drops the standing
+    // extension. Skip this thread; it is re-read next pass.
+    const { data: standingRow, error: standingErr } = await supabase
       .from('checkout_adjustments')
       .select('*')
       .eq('property_id', propertyId)
       .eq('stay_check_in', c.check_in)
       .eq('status', 'active')
       .maybeSingle();
+    if (standingErr) {
+      result.errors.push(`standing read ${propertyId} ${c.check_in}: ${standingErr.message}`);
+      continue;
+    }
     const standing = (standingRow ?? null) as CheckoutAdjustment | null;
 
     for (const change of changes) {
@@ -396,18 +404,39 @@ async function extensionIsOccupied(
     d = addDays(d, 1);
   }
   if (nights.length === 0) return false;
-  const { data, error } = await supabase
-    .from('property_calendar_days')
-    .select('date, status, block_type')
-    .eq('property_id', propertyId)
-    .in('date', nights);
+  const [{ data, error }, { data: others, error: othersErr }] = await Promise.all([
+    supabase
+      .from('property_calendar_days')
+      .select('date, status, block_type, synced_at')
+      .eq('property_id', propertyId)
+      .in('date', nights),
+    // Any OTHER stay starting inside the claimed extension window owns
+    // those nights. On a same-day turnover the next guest's nights read
+    // 'booked', which is exactly the trap: guest A's hallucinated "one
+    // more night" was being corroborated by guest B's real booking, and
+    // applying it would erase the same-day turn. The nights have to be
+    // booked AND not be someone else's.
+    supabase
+      .from('bookings')
+      .select('check_in')
+      .eq('property_id', propertyId)
+      .in('status', ['confirmed', 'completed'])
+      .is('duplicate_of', null)
+      .gte('check_in', bookedCheckOut)
+      .lt('check_in', newCheckOut),
+  ]);
   if (error || !data) return false;
+  if (othersErr || !others) return false;
+  if (others.length > 0) return false;
+  const freshCutoff = Date.now() - 36 * 3600_000;
   const byDate = new Map(
-    (data as Array<{ date: string; status: string; block_type: string | null }>).map((r) => [r.date, r]),
+    (data as Array<{ date: string; status: string; block_type: string | null; synced_at: string | null }>).map((r) => [r.date, r]),
   );
   return nights.every((n) => {
     const cell = byDate.get(n);
     if (!cell) return false;
+    const syncedMs = cell.synced_at ? Date.parse(cell.synced_at) : NaN;
+    if (!Number.isFinite(syncedMs) || syncedMs < freshCutoff) return false;
     const status = (cell.status || '').toLowerCase();
     if (status === 'booked') return true;
     return status === 'unavailable' && !!cell.block_type;
