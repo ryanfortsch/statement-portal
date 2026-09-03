@@ -45,6 +45,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const supabase = getSupabase();
 
+  // Count the statement's stays BEFORE the delete: the write path's
+  // empty-reservations refusal may only be waived when this removal takes
+  // the LAST one. Waiving it unconditionally would let a silently-empty
+  // read after removing one stay out of eight zero the whole statement.
+  const { count: priorCount, error: countErr } = await supabase
+    .from('reservations')
+    .select('id', { count: 'exact', head: true })
+    .eq('property_statement_id', psid);
+  if (countErr) return NextResponse.json({ error: `could not count the statement's reservations: ${countErr.message}. Nothing was changed.` }, { status: 502 });
+  const removingLastStay = (priorCount ?? 0) <= 1;
+
   // Sent-statement freeze: removing a reservation recomputes owner_payout.
   let finalityGate: FreezeReceipt;
   try {
@@ -125,12 +136,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     totals = await writeStatementTotals(supabase, psid, {
       action: 'Remove cancelled reservation',
       assertedFreeze: finalityGate,
-      expectEmptyReservations: true,
+      expectEmptyReservations: removingLastStay,
     });
   } catch (e) {
+    // Refresh cannot recompute an emptied statement (the write path refuses
+    // an empty read against stored stays, by design); only a re-ingest can.
     return NextResponse.json({
       error: `The reservation was removed, but the statement totals could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
-        + 'Re-run Refresh Statement (or re-ingest the month) before sending: the totals still include the removed stay.',
+        + (removingLastStay
+          ? 'That was the statement\'s last stay; re-ingest the month before sending.'
+          : 'Re-run Refresh Statement (or re-ingest the month) before sending: the totals still include the removed stay.'),
     }, { status: 500 });
   }
   const rentalRevenue = totals.after.rental_revenue;

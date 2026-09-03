@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
+import { writeStatementTotals, type FreezeReceipt, type WriteResult } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
@@ -81,10 +81,18 @@ export async function PATCH(
   // by applying a credit, which was the audit's #11 critical. Every other
   // term is derived or owned the same way for every writer, and a read
   // failure refuses rather than reporting ok with the credit stranded.
-  const totals = await writeStatementTotals(supabase, stmtId, {
-    action: 'Apply cleaning credit',
-    assertedFreeze: finalityGate,
-  });
+  let totals: WriteResult;
+  try {
+    totals = await writeStatementTotals(supabase, stmtId, {
+      action: 'Apply cleaning credit',
+      assertedFreeze: finalityGate,
+    });
+  } catch (e) {
+    return NextResponse.json({
+      error: `The credit was saved on the charge, but the statement could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
+        + 'Re-run Sync Stripe or Refresh Statement before sending: cleaning_total does not yet reflect this credit.',
+    }, { status: 500 });
+  }
   return NextResponse.json({
     ok: true,
     cleaning_total: totals.after.cleaning_total,

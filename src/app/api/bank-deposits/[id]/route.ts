@@ -36,6 +36,8 @@ function getSupabase() {
  * an error, never "no statement". Returns null only when there genuinely
  * is no statement for the month yet.
  */
+class RecomputeAfterWriteError extends Error {}
+
 async function recomputeStatementTotals(
   supabase: ReturnType<typeof getSupabase>,
   propertyId: string,
@@ -55,7 +57,16 @@ async function recomputeStatementTotals(
   if (stmtErr) throw new Error(`property_statements read failed: ${stmtErr.message}`);
   if (!stmt) return null;
 
-  const { after } = await writeStatementTotals(supabase, stmt.id as string, { action, assertedFreeze: gate });
+  let after;
+  try {
+    ({ after } = await writeStatementTotals(supabase, stmt.id as string, { action, assertedFreeze: gate }));
+  } catch (e) {
+    // The attribution row was already flipped by the caller. Say so.
+    throw new RecomputeAfterWriteError(
+      `The bank row was ${action === 'Attribute bank row' ? 'attributed' : 'returned to pending'}, but the statement could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
+      + 'Re-run Sync Stripe or Refresh Statement before sending.',
+    );
+  }
   return {
     rental_revenue: after.rental_revenue, add_ons_revenue: after.add_ons_revenue,
     attributed_debits_total: after.attributed_debits_total, management_fee: after.management_fee,
@@ -142,8 +153,13 @@ export async function PATCH(
       })
       .eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const totals = await recomputeStatementTotals(supabase, existing.property_id, existing.month, 'Un-attribute bank row', finalityGate as FreezeReceipt);
-    return NextResponse.json({ ok: true, totals });
+    try {
+      const totals = await recomputeStatementTotals(supabase, existing.property_id, existing.month, 'Un-attribute bank row', finalityGate as FreezeReceipt);
+      return NextResponse.json({ ok: true, totals });
+    } catch (e) {
+      if (e instanceof RecomputeAfterWriteError) return NextResponse.json({ error: e.message }, { status: 500 });
+      throw e;
+    }
   }
 
   // action === 'attribute'

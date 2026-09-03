@@ -114,13 +114,23 @@ export async function DELETE(
       // repairs_total is OWNED: passed as an override to the single write
       // path, which recomputes every other column from rows.
       const repairsTotal = round2(Math.max(0, (Number(stmt.repairs_total) || 0) - amount));
-      const totals = await writeStatementTotals(supabase, stmt.id as string, {
-        action: 'Void receipt',
-        detail: `receipt ${id} · $${amount.toFixed(2)}`,
-        repairsTotal,
-        assertedFreeze: finalityGate,
-      });
-      return NextResponse.json({ ok: true, repairs_total: repairsTotal, owner_payout: totals.after.owner_payout });
+      try {
+        const totals = await writeStatementTotals(supabase, stmt.id as string, {
+          action: 'Void receipt',
+          detail: `receipt ${id} · $${amount.toFixed(2)}`,
+          repairsTotal,
+          assertedFreeze: finalityGate,
+        });
+        return NextResponse.json({ ok: true, repairs_total: repairsTotal, owner_payout: totals.after.owner_payout });
+      } catch (e) {
+        // The receipt is already void, and a retried DELETE short-circuits
+        // on that status without recomputing -- so the operator must be told
+        // the recompute is the part still owed.
+        return NextResponse.json({
+          error: `The receipt was voided, but the statement could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
+            + 'Its amount is still in repairs_total until you re-run Refresh Statement or re-ingest the month.',
+        }, { status: 500 });
+      }
     }
   }
 

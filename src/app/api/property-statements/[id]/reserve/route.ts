@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
+import { writeStatementTotals, type FreezeReceipt, type WriteResult } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
@@ -69,11 +69,19 @@ export async function PATCH(
   // passed as an override and every other column is recomputed by the
   // single write path from rows, so a stale stored fee or add-on column can
   // no longer ride along under a reserve change.
-  const totals = await writeStatementTotals(supabase, id, {
-    action: 'Change Owner Reserve holdback',
-    reserveHoldback: amount,
-    assertedFreeze: finalityGate,
-  });
+  let totals: WriteResult;
+  try {
+    totals = await writeStatementTotals(supabase, id, {
+      action: 'Change Owner Reserve holdback',
+      reserveHoldback: amount,
+      assertedFreeze: finalityGate,
+    });
+  } catch (e) {
+    // Nothing was written: the reserve is applied inside the same write.
+    return NextResponse.json({
+      error: `The reserve was not saved: ${e instanceof Error ? e.message : String(e)}`,
+    }, { status: 500 });
+  }
   const ownerPayout = totals.after.owner_payout;
   const beforeReserve = round2(ownerPayout + amount);
 

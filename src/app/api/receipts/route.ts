@@ -363,13 +363,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // repairs_total is an OWNED term: passed as an override, while every
       // other column is recomputed from rows by the single write path.
       repairsTotal = round2((Number(stmt.repairs_total) || 0) + amount);
-      const totals = await writeStatementTotals(supabase, stmt.id, {
-        action: 'Add receipt to statement',
-        detail: `$${amount.toFixed(2)}${vendorName ? ` · ${vendorName}` : ''}`,
-        repairsTotal,
-        assertedFreeze: finalityGate,
-      });
-      ownerPayout = totals.after.owner_payout;
+      try {
+        const totals = await writeStatementTotals(supabase, stmt.id, {
+          action: 'Add receipt to statement',
+          detail: `$${amount.toFixed(2)}${vendorName ? ` · ${vendorName}` : ''}`,
+          repairsTotal,
+          assertedFreeze: finalityGate,
+        });
+        ownerPayout = totals.after.owner_payout;
+      } catch (e) {
+        // The receipt row and its mirror are already saved. A retry would
+        // book it twice; say exactly that.
+        return NextResponse.json({
+          error: `The receipt was SAVED (id ${receipt.id}), but the statement could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
+            + 'Do not add it again. Re-run Refresh Statement or re-ingest the month before sending.',
+          receipt,
+          statement_found: true,
+        }, { status: 500 });
+      }
     }
 
     return NextResponse.json({

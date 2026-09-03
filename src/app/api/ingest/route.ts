@@ -2362,11 +2362,15 @@ export async function POST(request: NextRequest) {
       property_statement_id: stmt.id,
       summary: {
         reservations: processedReservations.length,
-        total_revenue: postSyncTotals?.rental_revenue ?? totalRevenue,
+        // Post-sync figures first, then the write path's (the value actually
+        // stored), never ingest's own pre-check locals: when the self-check
+        // above overrode them, echoing them here would report a payout that
+        // is not on the statement.
+        total_revenue: postSyncTotals?.rental_revenue ?? ingestTotals.after.rental_revenue,
         stripe_fees: totalStripeFees,
-        management_fee: postSyncTotals?.management_fee ?? managementFee,
-        cleaning_total: cleaningTotal,
-        owner_payout: postSyncTotals?.owner_payout ?? ownerPayout,
+        management_fee: postSyncTotals?.management_fee ?? ingestTotals.after.management_fee,
+        cleaning_total: ingestTotals.after.cleaning_total,
+        owner_payout: postSyncTotals?.owner_payout ?? ingestTotals.after.owner_payout,
         confidence,
         data_gaps: gaps.length + (stripeSync?.refunds_detected.length || 0) + (stripeSync?.gross_mismatches.length || 0) + (stripeSync?.reservations_missing_charge.length || 0),
       },

@@ -70,14 +70,30 @@ describe('the canonical formula', () => {
     assert.equal(computeStatementTotals(base({ managementFeePct: 0 })).management_fee, 0);
   });
 
-  test('rounding: each stored term is rounded to cents, the fee before it enters the payout', () => {
+  test('rounding: the fee is rounded to cents BEFORE it enters the payout', () => {
+    // 333.34 * .25 = 83.335. Rounded first -> 83.34 -> payout 250.00.
+    // Unrounded, 333.34 - 83.335 = 250.005 -> 250.01. This fixture is
+    // chosen because the two orders DISAGREE; the previous fixture
+    // (333.333) passed under either order, which pinned nothing.
     const t = computeStatementTotals(base({
-      reservations: [{ adjusted_revenue: 333.333, nights: 1, check_out: '2026-08-01' }],
+      reservations: [{ adjusted_revenue: 333.34, nights: 1, check_out: '2026-08-01' }],
       cleaningEvents: [],
     }));
-    assert.equal(t.rental_revenue, 333.33);
-    assert.equal(t.management_fee, 83.33);          // round2(333.33 * .25 = 83.3325)
-    assert.equal(t.owner_payout, 250);              // 333.33 - 83.33
+    assert.equal(t.rental_revenue, 333.34);
+    assert.equal(t.management_fee, 83.34);
+    assert.equal(t.owner_payout, 250);
+  });
+
+  test('the fee base is rounded ONCE: single round2((rental + base) * pct), not ingest\'s old double round', () => {
+    // 0.29 + 0.37 = 0.6599999999999999 in doubles. Single round of the
+    // product: 0.16. Ingest used to round the base to 0.66 first, giving
+    // 0.17. The canonical rule is the single round; this pins it.
+    const t = computeStatementTotals(base({
+      reservations: [{ adjusted_revenue: 0.29, nights: 1, check_out: '2026-08-01' }],
+      cleaningEvents: [],
+      addOns: { addOnsRevenue: 0.37, addOnsMgmtBase: 0.37, attributedDebits: 0 },
+    }));
+    assert.equal(t.management_fee, 0.16);
   });
 
   test('nulls and undefined in any input read as zero, never NaN', () => {

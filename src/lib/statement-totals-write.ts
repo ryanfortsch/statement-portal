@@ -128,6 +128,13 @@ export async function writeStatementTotals(
     reserveHoldback?: number;
     expectEmptyReservations?: boolean;
     /**
+     * Same signature for cleaning: an empty cleaning_events read against a
+     * stored cleaning_total > 0 is refused unless asserted. No caller needs
+     * it today -- a month with no cleaning charges stores 0 -- so it exists
+     * only so the refusal has a documented override rather than none.
+     */
+    expectEmptyCleaning?: boolean;
+    /**
      * The early guard's receipt. A caller that writes child rows BEFORE
      * recomputing (a credit, an attribution flip, a receipt, a deleted
      * reservation) must run assertStatementWritable before those writes so
@@ -149,6 +156,12 @@ export async function writeStatementTotals(
       `read returned no rows for a statement that records ${loaded.stored.num_stays} stays; refusing to zero it`,
     );
   }
+  if (loaded.inputs.cleaningEvents.length === 0 && loaded.stored.cleaning_total > 0 && !opts.expectEmptyCleaning) {
+    throw new StatementReadError(
+      'cleaning_events',
+      `read returned no rows for a statement that bills $${loaded.stored.cleaning_total.toFixed(2)} of cleaning; refusing to zero it`,
+    );
+  }
 
   const { forced, freeze } = opts.assertedFreeze
     ?? await assertStatementWritable(supabase, { statementId }, {
@@ -157,10 +170,25 @@ export async function writeStatementTotals(
 
   const after = computeStatementTotals(loaded.inputs);
   const before = loaded.stored;
-  const changed = (Object.keys(after) as (keyof StatementTotals)[]).some(k => after[k] !== before[k]);
+
+  // Write the DERIVED columns always, and an OWNED column only when this
+  // caller supplied it. The owned values were read at the top of the load,
+  // several round trips ago; writing them back unconditionally would let a
+  // sync silently overwrite a reserve the operator changed in the meantime
+  // -- a clobber none of the old per-site writers could commit, since none
+  // of them wrote a column it did not own.
+  const payload: Partial<StatementTotals> = {
+    rental_revenue: after.rental_revenue, add_ons_revenue: after.add_ons_revenue,
+    attributed_debits_total: after.attributed_debits_total, management_fee: after.management_fee,
+    cleaning_total: after.cleaning_total, owner_payout: after.owner_payout,
+    num_stays: after.num_stays, nights_booked: after.nights_booked,
+  };
+  if (opts.repairsTotal !== undefined) payload.repairs_total = after.repairs_total;
+  if (opts.reserveHoldback !== undefined) payload.reserve_holdback = after.reserve_holdback;
+  const changed = (Object.keys(payload) as (keyof StatementTotals)[]).some(k => payload[k] !== before[k]);
 
   if (changed) {
-    const { error } = await supabase.from('property_statements').update(after).eq('id', statementId);
+    const { error } = await supabase.from('property_statements').update(payload).eq('id', statementId);
     if (error) throw new Error(`statement-totals: write failed (${error.message})`);
   }
   return { before, after, changed, forced, freeze };
