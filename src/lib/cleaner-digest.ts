@@ -38,6 +38,7 @@ import {
   type ScheduleDay,
 } from '@/lib/checkout-schedule';
 import { loadVendorAppointments } from '@/lib/vendor-schedule';
+import { detectExtensionHolds } from '@/lib/extension-holds';
 
 export type ScheduleRecipient = {
   phone: string;
@@ -564,6 +565,10 @@ export async function autoSendTomorrowDigest(
   // If the schedule cannot be BUILT, refuse outright. The claim below has
   // not happened yet, so the row stays pending and the operator sees it
   // still waiting instead of a text that says nobody checks out.
+  // Same freshness rule as a manual approval: pick up any hold placed
+  // since the afternoon draft before composing. Fail-soft.
+  try { await detectExtensionHolds(supabase); } catch { /* never blocks the send */ }
+
   let digest: DigestRow;
   let day: ScheduleDay;
   let body: string;

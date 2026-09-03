@@ -618,11 +618,17 @@ export async function insertAdjustment(
 
   // Only a human's own edit lands active unconditionally. Every derived
   // source (thread miner, Guesty hold) must be high-confidence AND must
-  // not be overriding something an operator set by hand.
+  // not be overriding something stronger than itself: an operator's own
+  // row protects against every derived source, and a Guesty-hold row (hard
+  // calendar data) protects against the thread miner (an AI reading
+  // prose). The miner ran after the hold on 2026-08-24 and would have
+  // replaced a correct 84 Thatcher hold date with an off-by-one the
+  // calendar happened to corroborate.
   let status: 'active' | 'proposed' = 'active';
   if (input.source !== 'operator') {
     const operatorStanding = standing?.source === 'operator';
-    status = input.confidence === 'high' && !operatorStanding ? 'active' : 'proposed';
+    const holdOutranksMiner = input.source === 'miner' && standing?.source === 'guesty_hold';
+    status = input.confidence === 'high' && !operatorStanding && !holdOutranksMiner ? 'active' : 'proposed';
   }
 
   let supersededId: string | null = null;

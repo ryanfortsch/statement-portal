@@ -52,6 +52,9 @@ export type ExtensionHoldsResult = {
   proposed: number;
   ignoredNoCorroboration: number;
   alreadyRecorded: number;
+  /** Active guesty_hold adjustments whose hold no longer exists in a fresh
+   *  mirror, dismissed so a refunded/removed extension does not persist. */
+  retracted: number;
   errors: string[];
 };
 
@@ -70,14 +73,29 @@ type HoldLite = {
   block_note: string | null;
 };
 
-/** Significant lowercase name tokens (>= 3 chars), so "Stacey Grillo"
- *  matches a note reading "Extension hold - Stacey Grillo (paid, Helm)"
- *  without a one-letter initial causing a spurious hit. */
+/** Words that appear in hold notes for reasons that have nothing to do
+ *  with who the guest is. "Will Harmon" must not match "Owner will be up
+ *  for the weekend". */
+const NAME_STOPWORDS = new Set([
+  'will', 'with', 'from', 'here', 'that', 'this', 'then', 'they', 'them', 'have', 'been',
+  'owner', 'guest', 'hold', 'block', 'week', 'weekend', 'stay', 'night', 'nights', 'extra',
+  'extension', 'paid', 'helm', 'family', 'friends', 'house', 'home', 'clean', 'cleaning',
+]);
+
+/** Significant lowercase name tokens: at least four characters, not a
+ *  stopword, and matched as WHOLE words. "Stacey Grillo" matches a note
+ *  reading "Extension hold - Stacey Grillo (paid, Helm)"; a three-letter
+ *  fragment or a name that is also an English word does not. Placeholder
+ *  guest names (ical "Reservation HM...") yield no usable tokens. */
 function nameTokens(name: string | null): string[] {
   return (name ?? '')
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 3);
+    .filter((t) => t.length >= 4 && !NAME_STOPWORDS.has(t) && !/^(reservation|reserved|blocked|airbnb|vrbo|hm[a-z0-9]+)$/.test(t));
+}
+
+function noteNames(note: string, tokens: string[]): boolean {
+  return tokens.some((t) => new RegExp(`\\b${t}\\b`, 'i').test(note));
 }
 
 export async function detectExtensionHolds(
@@ -91,6 +109,7 @@ export async function detectExtensionHolds(
     proposed: 0,
     ignoredNoCorroboration: 0,
     alreadyRecorded: 0,
+    retracted: 0,
     errors: [],
   };
 
@@ -138,16 +157,62 @@ export async function detectExtensionHolds(
       .gte('created_at', since),
   ]);
   const EXTENSION_LABEL = /extens|extra night/i;
-  const linkProps = new Set(
-    ((linksRes.data ?? []) as Array<{ property_id: string; label: string | null }>)
-      .filter((r) => EXTENSION_LABEL.test(r.label ?? ''))
-      .map((r) => r.property_id),
-  );
+  // Links carry the guest's name. A link for a DIFFERENT guest at the same
+  // property is not evidence for this stay (the 45-day lookback spans
+  // several stays per house). A link with no name at all still counts at
+  // property level, since that is all it can say.
+  const extensionLinks = ((linksRes.data ?? []) as Array<{ property_id: string; label: string | null; guest_name: string | null }>)
+    .filter((r) => EXTENSION_LABEL.test(r.label ?? ''));
+  const linkBacksStay = (propertyId: string, guestName: string | null): boolean => {
+    const stayTokens = nameTokens(guestName);
+    return extensionLinks.some((l) => {
+      if (l.property_id !== propertyId) return false;
+      const linkTokens = nameTokens(l.guest_name);
+      if (linkTokens.length === 0 || stayTokens.length === 0) return true;
+      return linkTokens.some((t) => stayTokens.includes(t));
+    });
+  };
   const slipProps = new Set(
     ((slipsRes.data ?? []) as Array<{ property_id: string; from_guest_request_key: string | null }>)
       .filter((r) => /extension|extra_night/i.test(r.from_guest_request_key ?? ''))
       .map((r) => r.property_id),
   );
+
+  // RETRACT first. An active guesty_hold adjustment whose hold is no longer
+  // in the (successfully read) mirror describes an extension that was
+  // refunded or removed. Left alone it keeps the stay on the wrong day
+  // indefinitely. Only holds inside the scanned window can be judged, so
+  // only adjustments whose original checkout falls in it are eligible.
+  if (!holdsRes.error) {
+    const { data: liveHolds, error: liveErr } = await supabase
+      .from('checkout_adjustments')
+      .select('id, property_id, original_check_out, miner_key')
+      .eq('status', 'active')
+      .eq('source', 'guesty_hold')
+      .gte('original_check_out', today)
+      .lte('original_check_out', horizonEnd);
+    if (liveErr) {
+      result.errors.push(`retract read: ${liveErr.message}`);
+    } else {
+      for (const a of (liveHolds ?? []) as Array<{ id: string; property_id: string; original_check_out: string; miner_key: string | null }>) {
+        const stillHeld = holdByKey.get(`${a.property_id}|${a.original_check_out}`);
+        const keyEnd = a.miner_key?.split(':')[3] ?? null;
+        if (stillHeld && (!keyEnd || stillHeld.block_end === keyEnd)) continue;
+        const { data: gone } = await supabase
+          .from('checkout_adjustments')
+          .update({
+            status: 'dismissed',
+            note: 'Hold removed from the Guesty calendar; extension retracted',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', a.id)
+          .eq('status', 'active')
+          .select('id')
+          .maybeSingle();
+        if (gone) result.retracted += 1;
+      }
+    }
+  }
 
   // Collapse duplicate booking rows per stay so one extension can't be
   // filed twice under the same key (the insert is idempotent anyway, but
@@ -164,9 +229,9 @@ export async function detectExtensionHolds(
 
     const note = (hold.block_note ?? '').toLowerCase();
     const tokens = nameTokens(stay.guest_name);
-    const namesGuest = tokens.length > 0 && tokens.some((t) => note.includes(t));
+    const namesGuest = tokens.length > 0 && noteNames(note, tokens);
     const saysExtension = /extens/i.test(note);
-    const backedByMoney = linkProps.has(stay.property_id) || slipProps.has(stay.property_id);
+    const backedByMoney = linkBacksStay(stay.property_id, stay.guest_name) || slipProps.has(stay.property_id);
 
     let confidence: 'high' | 'medium' | null = null;
     if (namesGuest || saysExtension) confidence = 'high';

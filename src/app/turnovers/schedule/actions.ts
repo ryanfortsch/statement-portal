@@ -65,6 +65,10 @@ export async function approveAndSendDigest(formData: FormData): Promise<void> {
     // schedule cannot be built right now, do not send anything at all:
     // the stored draft may be stale and an empty day would read as "no
     // checkouts". Fail loudly back to the card instead.
+    // A hold placed after the afternoon cron (the payment landed at 5pm)
+    // must reach a 6pm send. Hold detection is deterministic and cheap, so
+    // it runs again right here; a failure in it never blocks the send.
+    try { await detectExtensionHolds(supabase); } catch { /* fail-soft */ }
     try {
       const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
       finalBody = await composeDigestBodyLive(supabase, day);
@@ -96,6 +100,7 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
 
   // An update exists to carry CHANGED truth: always compose fresh, and
   // refuse entirely if the truth cannot be read right now.
+  try { await detectExtensionHolds(supabase); } catch { /* fail-soft */ }
   let day;
   try {
     [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
