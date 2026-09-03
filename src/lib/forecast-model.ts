@@ -249,15 +249,26 @@ export const INSURANCE_ANNUAL = 5264;
 export const INSURANCE_MONTH = 3;
 
 /**
- * Accounting (MS Consultants). RERACKED Aug 2026: this was modeled as a
- * one-time engagement at $0 forward, but the bank shows it recurring
- * annually - $4,156.62 on 2025-01-13 and $4,442.96 on 2026-04-15. It is a
- * tax-season lump, not a monthly retainer, so it is modeled the same way
- * as the insurance premium: one hit, in April.
+ * Accounting (MS Consultants). The Aug 2026 rerack modeled this as an
+ * annual April lump because the bank showed two hits, $4,156.62 on
+ * 2025-01-13 and $4,442.96 on 2026-04-15, and read them as a tax-season
+ * engagement that recurs. The operator ruled on 2026-09-02 that MS
+ * Consultants was a one-off, so nothing projects forward: $0 in every
+ * month of 2027 and 2028. The April 2026 hit is kept for the seasonality
+ * path only, and that month is an ACT month carrying the real charge.
+ * Do not reinstate the annual lump on the strength of the 2025 payment
+ * without asking; that evidence was already on the table when she ruled.
  */
 export const ACCOUNTING_MONTHLY = 0;
 export const ACCOUNTING_ANNUAL = 4450;
 export const ACCOUNTING_MONTH = 4;
+/** The one year the lump lands. Later years project $0. */
+export const ACCOUNTING_YEAR = 2026;
+
+export function accountingCost(year: number, month: number): number {
+  if (year === ACCOUNTING_YEAR && month === ACCOUNTING_MONTH) return ACCOUNTING_ANNUAL;
+  return ACCOUNTING_MONTHLY;
+}
 
 /**
  * Bank fees and stop payments. RERACKED Aug 2026: actual FEE_TRANSACTION
@@ -918,7 +929,7 @@ export function calcYear(
     const exp_software = softwareCost(year, m);
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
     const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
-    const exp_accounting = m === ACCOUNTING_MONTH ? ACCOUNTING_ANNUAL : ACCOUNTING_MONTHLY;
+    const exp_accounting = accountingCost(year, m);
     const exp_bank = BANK_FEES_MONTHLY;
     const exp_cc_ops = ccOperatingCost(activeCount, year, m);
     const exp_contractors = contractorCost(year, m, activeCount, dist.CA);
