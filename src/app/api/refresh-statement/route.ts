@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { loadAddOnTotals } from '@/lib/statement-addons';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, CONFIRMED_STATUS, hasPriceableGross } from '@/lib/guesty-revenue-signal';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { writeStatementTotals, type FreezeReceipt, type WriteResult } from '@/lib/statement-totals-write';
 import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectStay } from '@/lib/missing-direct-stays';
 import { splitFolio } from '@/lib/remittance';
 
@@ -97,8 +97,9 @@ export async function POST(request: NextRequest) {
 
     // Sent-statement freeze: a refresh moves owner_payout, so a statement
     // already marked sent needs an explicit force (recorded as a gap).
+    let finalityGate: FreezeReceipt;
     try {
-      await assertStatementWritable(supabase, { propertyId, month }, {
+      finalityGate = await assertStatementWritable(supabase, { propertyId, month }, {
         force: body.force === true,
         action: 'Refresh statement (add missed bookings)',
       });
@@ -340,49 +341,27 @@ export async function POST(request: NextRequest) {
     const { error: insertErr } = await supabase.from('reservations').insert(newRows);
     if (insertErr) throw insertErr;
 
-    // Recompute statement totals from the freshest reservations. This read
-    // runs AFTER the insert, so a failure cannot be a clean refusal -- but
-    // it must not be silent either: an empty result here would zero
-    // rental_revenue, num_stays and nights_booked and rewrite the payout as
-    // if the property had no bookings at all.
-    const { data: allRes, error: allResErr } = await supabase
-      .from('reservations')
-      .select('adjusted_revenue, nights, check_out')
-      .eq('property_statement_id', stmt.id);
-    if (allResErr) {
+    // The single write path recomputes every money column from the rows just
+    // inserted and fails closed on any read error (statement-totals-write.ts).
+    // The early guard's receipt is passed so a forced refresh files one
+    // audit row, not two.
+    let totals: WriteResult;
+    try {
+      totals = await writeStatementTotals(supabase, stmt.id, {
+        action: 'Refresh statement (add missed bookings)',
+        assertedFreeze: finalityGate,
+      });
+    } catch (e) {
       throw new Error(
-        `Bookings were added, but the statement totals could not be recomputed (${allResErr.message}). ` +
+        `Bookings were added, but the statement totals could not be recomputed (${e instanceof Error ? e.message : String(e)}). ` +
         'The statement now understates revenue until you re-run Refresh or re-ingest the month.',
       );
     }
-    const newRentalRev = round2((allRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
-    // Attributed add-ons / debits stay in the equation (canonical formula,
-    // same as the bank-deposits + reserve routes) so a refresh can't
-    // clobber reviewed revenue.
-    const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(supabase, propertyId, month);
-    const newMgmtFee = round2((newRentalRev + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
-    const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0);
-    const newOwnerPayout = round2(
-      newRentalRev + addOnsRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback,
-    );
-    // num_stays counts a booking ONCE on its checkout month -- synthetic
-    // cross-month installment rows (check_out in a later month) carry
-    // revenue here but are counted as a stay on their final statement.
-    const newNumStays = (allRes || []).filter(
-      r => (r.adjusted_revenue || 0) > 0 && (r.check_out || '').slice(0, 7) === month,
-    ).length;
-    const newNightsBooked = (allRes || []).reduce((s, r) => s + (r.nights || 0), 0);
-
-    await supabase
-      .from('property_statements')
-      .update({
-        rental_revenue: newRentalRev,
-        management_fee: newMgmtFee,
-        owner_payout: newOwnerPayout,
-        num_stays: newNumStays,
-        nights_booked: newNightsBooked,
-      })
-      .eq('id', stmt.id);
+    const newRentalRev = totals.after.rental_revenue;
+    const newMgmtFee = totals.after.management_fee;
+    const newOwnerPayout = totals.after.owner_payout;
+    const newNumStays = totals.after.num_stays;
+    const newNightsBooked = totals.after.nights_booked;
 
     const flaggedMissingDirect = await runMissingDirectCheck();
 

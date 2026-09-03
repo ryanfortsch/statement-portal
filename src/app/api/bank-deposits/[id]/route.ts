@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { auth } from '@/auth';
 
@@ -23,75 +24,54 @@ function getSupabase() {
   );
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * Recompute and persist property_statements totals for the
- * (property_id, month) of the given attribution, folding in all currently
- * attributed add-ons. Returns the new totals so the caller can echo them.
+ * Recompute and persist the statement for the (property_id, month) of the
+ * given attribution through the single write path, which reads every
+ * attributed row itself (loadAddOnTotals), derives the rest from rows, and
+ * FAILS CLOSED. Until this, the read here discarded its error and a
+ * transient failure persisted "this statement has no add-ons".
+ *
+ * Resolution reads fail closed too: an unreadable period or statement is
+ * an error, never "no statement". Returns null only when there genuinely
+ * is no statement for the month yet.
  */
+class RecomputeAfterWriteError extends Error {}
+
 async function recomputeStatementTotals(
   supabase: ReturnType<typeof getSupabase>,
   propertyId: string,
   month: string,
+  action: string,
+  gate: FreezeReceipt,
 ): Promise<{ rental_revenue: number; add_ons_revenue: number; attributed_debits_total: number; management_fee: number; owner_payout: number } | null> {
-  // Find the property_statement via period + property.
-  const { data: period } = await supabase.from('statement_periods').select('id').eq('month', month).maybeSingle();
+  const { data: period, error: perErr } = await supabase.from('statement_periods').select('id').eq('month', month).maybeSingle();
+  if (perErr) throw new Error(`statement_periods read failed: ${perErr.message}`);
   if (!period) return null;
-  const { data: stmt } = await supabase
+  const { data: stmt, error: stmtErr } = await supabase
     .from('property_statements')
-    .select('id, rental_revenue, cleaning_total, repairs_total, management_fee_pct, reserve_holdback')
+    .select('id')
     .eq('period_id', period.id)
     .eq('property_id', propertyId)
     .maybeSingle();
+  if (stmtErr) throw new Error(`property_statements read failed: ${stmtErr.message}`);
   if (!stmt) return null;
 
-  // Pull every attributed row -- both deposits (credits, feed add_ons_revenue)
-  // and debits (charges, feed attributed_debits_total). One query, branch
-  // by direction so deposit-flavor and debit-flavor totals stay separate.
-  const { data: attrs } = await supabase
-    .from('bank_deposit_attributions')
-    .select('amount, apply_mgmt_fee, direction')
-    .eq('property_id', propertyId)
-    .eq('month', month)
-    .eq('status', 'attributed');
-
-  let addOnsRevenue = 0;
-  let addOnsMgmtBase = 0;
-  let attributedDebits = 0;
-  for (const a of attrs || []) {
-    const amt = Number(a.amount) || 0;
-    if ((a.direction || 'deposit') === 'debit') {
-      attributedDebits += amt;
-    } else {
-      addOnsRevenue += amt;
-      if (a.apply_mgmt_fee) addOnsMgmtBase += amt;
-    }
+  let after;
+  try {
+    ({ after } = await writeStatementTotals(supabase, stmt.id as string, { action, assertedFreeze: gate }));
+  } catch (e) {
+    // The attribution row was already flipped by the caller. Say so.
+    throw new RecomputeAfterWriteError(
+      `The bank row was ${action === 'Attribute bank row' ? 'attributed' : 'returned to pending'}, but the statement could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
+      + 'Re-run Sync Stripe or Refresh Statement before sending.',
+    );
   }
-  addOnsRevenue = round2(addOnsRevenue);
-  addOnsMgmtBase = round2(addOnsMgmtBase);
-  attributedDebits = round2(attributedDebits);
-
-  const rentalRevenue = Number(stmt.rental_revenue) || 0;
-  const cleaning = Number(stmt.cleaning_total) || 0;
-  const repairs = Number(stmt.repairs_total) || 0;
-  const feePct = (Number(stmt.management_fee_pct) || 0) / 100;
-  const feeBase = round2(rentalRevenue + addOnsMgmtBase);
-  const managementFee = round2(feeBase * feePct);
-  const reserveHoldback = Number((stmt as { reserve_holdback?: number }).reserve_holdback) || 0;
-  const ownerPayout = round2(rentalRevenue + addOnsRevenue - managementFee - cleaning - repairs - attributedDebits - reserveHoldback);
-
-  await supabase
-    .from('property_statements')
-    .update({
-      add_ons_revenue: addOnsRevenue,
-      attributed_debits_total: attributedDebits,
-      management_fee: managementFee,
-      owner_payout: ownerPayout,
-    })
-    .eq('id', stmt.id);
-
-  return { rental_revenue: rentalRevenue, add_ons_revenue: addOnsRevenue, attributed_debits_total: attributedDebits, management_fee: managementFee, owner_payout: ownerPayout };
+  return {
+    rental_revenue: after.rental_revenue, add_ons_revenue: after.add_ons_revenue,
+    attributed_debits_total: after.attributed_debits_total, management_fee: after.management_fee,
+    owner_payout: after.owner_payout,
+  };
 }
 
 export async function PATCH(
@@ -124,9 +104,10 @@ export async function PATCH(
 
   // Sent-statement freeze: attribute and unattribute both recompute the
   // statement's payout. Dismiss of a pending row touches no totals.
+  let finalityGate: FreezeReceipt | undefined;
   if (action === 'attribute' || action === 'unattribute') {
     try {
-      await assertStatementWritable(supabase, { propertyId: existing.property_id, month: existing.month }, {
+      finalityGate = await assertStatementWritable(supabase, { propertyId: existing.property_id, month: existing.month }, {
         force: body.force === true,
         action: action === 'attribute'
           ? (direction === 'debit' ? 'Attribute bank debit' : 'Attribute bank deposit')
@@ -172,8 +153,13 @@ export async function PATCH(
       })
       .eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    const totals = await recomputeStatementTotals(supabase, existing.property_id, existing.month);
-    return NextResponse.json({ ok: true, totals });
+    try {
+      const totals = await recomputeStatementTotals(supabase, existing.property_id, existing.month, 'Un-attribute bank row', finalityGate as FreezeReceipt);
+      return NextResponse.json({ ok: true, totals });
+    } catch (e) {
+      if (e instanceof RecomputeAfterWriteError) return NextResponse.json({ error: e.message }, { status: 500 });
+      throw e;
+    }
   }
 
   // action === 'attribute'
@@ -215,6 +201,6 @@ export async function PATCH(
     .eq('id', id);
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
 
-  const totals = await recomputeStatementTotals(supabase, existing.property_id, existing.month);
+  const totals = await recomputeStatementTotals(supabase, existing.property_id, existing.month, 'Attribute bank row', finalityGate as FreezeReceipt);
   return NextResponse.json({ ok: true, totals });
 }

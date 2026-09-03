@@ -2,11 +2,15 @@
   "name": "helm",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --test \"src/**/__tests__/*.test.ts\"",
     "sync-sca-listings": "node scripts/sync-sca-listings.mjs"
   },
   "dependencies": {

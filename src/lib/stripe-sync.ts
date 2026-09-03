@@ -41,11 +41,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
 import { splitFolio } from '@/lib/remittance';
 import { taxPortionOfNet } from '@/lib/addon-tax';
-import { loadAddOnTotals } from './statement-addons';
 import { chargeWindow } from './stripe-window';
 import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
-import { FREEZE_FROM_MONTH, getFreezeStatus } from '@/lib/statement-finality';
+import { FREEZE_FROM_MONTH, getFreezeStatus, assertStatementWritable, StatementFrozenError } from '@/lib/statement-finality';
 import { loadInstallmentsForCodes } from '@/lib/installments';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 
 export type StripeSyncResult = {
   property_id: string;
@@ -421,34 +421,21 @@ export async function syncPropertyStripe(opts: {
     // the operator closed as a whole. And the gate now fails CLOSED for
     // months >= FREEZE_FROM_MONTH: if the freeze state cannot be read,
     // the sync skips this property rather than assuming it is writable.
-    const { data: periodRow, error: periodErr } = await supabase
-      .from('statement_periods')
-      .select('id, status')
-      .eq('month', month)
-      .maybeSingle();
-    if (periodErr && month >= FREEZE_FROM_MONTH) {
-      result.error = `finality check failed (period read): ${periodErr.message}; skipping to avoid writing a possibly-frozen statement`;
+    // One guard, one receipt. The inline gate this replaces read the period
+    // and close task itself and yielded no receipt, so the totals write at
+    // the end ran a SECOND, independent freeze check after the reservation
+    // fee updates had already landed -- and a freeze flipping in between
+    // left rows updated with the statement never recomputed. Asking the one
+    // authority here and handing its receipt to the write path makes the
+    // whole sync one decision. Fails closed: an unreadable freeze state is
+    // this property's sync error, not a licence to write.
+    let freezeReceipt: FreezeReceipt;
+    try {
+      freezeReceipt = await assertStatementWritable(supabase, { statementId: stmt.id }, { action: 'Stripe sync' });
+    } catch (e) {
+      if (e instanceof StatementFrozenError) { result.skipped_sent = true; return result; }
+      result.error = `finality check failed: ${e instanceof Error ? e.message : String(e)}; skipping to avoid writing a possibly-frozen statement`;
       return result;
-    }
-    if (periodRow?.status === 'final' && month >= FREEZE_FROM_MONTH) {
-      result.skipped_sent = true;
-      return result;
-    }
-    if (periodRow?.id) {
-      const { data: closeTask, error: taskErr } = await supabase
-        .from('close_tasks')
-        .select('email_sent_at')
-        .eq('period_id', periodRow.id)
-        .eq('property_id', propertyId)
-        .maybeSingle();
-      if (taskErr && month >= FREEZE_FROM_MONTH) {
-        result.error = `finality check failed (close_tasks read): ${taskErr.message}; skipping to avoid writing a possibly-sent statement`;
-        return result;
-      }
-      if (closeTask?.email_sent_at) {
-        result.skipped_sent = true;
-        return result;
-      }
     }
 
     const charges = await listChargesAroundMonth(restrictedKey, month);
@@ -1394,35 +1381,20 @@ export async function syncPropertyStripe(opts: {
       });
     }
 
-    // Recompute statement totals if any fees changed. Uses the canonical
-    // formula (same as the bank-deposits / receipts / reserve routes):
-    // attributed add-ons join the revenue + fee base, attributed debits
-    // and the reserve come off the payout. A statement with no
-    // attributions gets zeros for all three terms and lands on numbers
-    // identical to the pre-add-on formula.
-    if (result.fee_updates.length > 0 || result.gross_reconstructions.length > 0 || result.collected_rebuilds.length > 0) {
-      const { data: freshRes } = await supabase
-        .from('reservations')
-        .select('adjusted_revenue')
-        .eq('property_statement_id', stmt.id);
-      const newRentalRevenue = round2((freshRes || []).reduce((s, r) => s + (r.adjusted_revenue || 0), 0));
-      const { addOnsRevenue, addOnsMgmtBase, attributedDebits } = await loadAddOnTotals(supabase, propertyId, month);
-      const newMgmtFee = round2((newRentalRevenue + addOnsMgmtBase) * (stmt.management_fee_pct / 100));
-      // Read the live reserve rather than trusting opts: fill-gap's
-      // callers don't thread reserve_holdback through, and a stale/missing
-      // value here silently paid the owner their withheld reserve.
-      const { data: freshStmt } = await supabase
-        .from('property_statements')
-        .select('reserve_holdback')
-        .eq('id', stmt.id)
-        .maybeSingle();
-      const reserveHoldback = Number((freshStmt as { reserve_holdback?: number } | null)?.reserve_holdback ?? stmt.reserve_holdback ?? 0);
-      const newOwnerPayout = round2(newRentalRevenue + addOnsRevenue - newMgmtFee - (stmt.cleaning_total || 0) - (stmt.repairs_total || 0) - attributedDebits - reserveHoldback);
-      await supabase
-        .from('property_statements')
-        .update({ rental_revenue: newRentalRevenue, add_ons_revenue: addOnsRevenue, attributed_debits_total: attributedDebits, management_fee: newMgmtFee, owner_payout: newOwnerPayout })
-        .eq('id', stmt.id);
-    }
+    // Recompute statement totals if any fees changed -- through the single
+    // write path, which reads every input itself. This closes two hazards
+    // the inline version carried: cleaning_total / repairs_total came from
+    // the CALLER's memory (a stale snapshot could recompute the payout
+    // against numbers that were no longer the stored ones), and the
+    // reservations read discarded its error (a failed read zeroed the
+    // month). A throw here lands in this function's outer catch as the
+    // property's sync error, with every stored value untouched.
+    // Unconditional, and deliberately so: it is idempotent (no write when
+    // nothing changed), and a sync whose fee updates landed but whose totals
+    // write failed last night would otherwise never be recomputed, because
+    // tonight's run sees nothing new and skips. The receipt from the guard
+    // above means this is not a second freeze check.
+    await writeStatementTotals(supabase, stmt.id, { action: 'Stripe sync', assertedFreeze: freezeReceipt });
 
     // Persist discrepancy gaps. Wipe any prior stripe_* gaps so re-runs
     // don't pile up duplicates.

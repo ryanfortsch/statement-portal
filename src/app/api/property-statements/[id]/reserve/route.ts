@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { writeStatementTotals, type FreezeReceipt, type WriteResult } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 
 /**
@@ -52,8 +53,9 @@ export async function PATCH(
   const supabase = getSupabase();
 
   // Sent-statement freeze: the reserve holdback moves owner_payout.
+  let finalityGate: FreezeReceipt;
   try {
-    await assertStatementWritable(supabase, { statementId: id }, {
+    finalityGate = await assertStatementWritable(supabase, { statementId: id }, {
       force: body.force === true,
       action: 'Change Owner Reserve holdback',
       detail: `new amount $${amount.toFixed(2)}`,
@@ -63,29 +65,25 @@ export async function PATCH(
     throw e;
   }
 
-  const { data: stmt, error: readErr } = await supabase
-    .from('property_statements')
-    .select('id, rental_revenue, add_ons_revenue, management_fee, cleaning_total, repairs_total, attributed_debits_total')
-    .eq('id', id)
-    .maybeSingle();
-  if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
-  if (!stmt) return NextResponse.json({ error: 'statement not found' }, { status: 404 });
-
-  const rental = Number(stmt.rental_revenue) || 0;
-  const addOns = Number(stmt.add_ons_revenue) || 0;
-  const mgmt = Number(stmt.management_fee) || 0;
-  const cleaning = Number(stmt.cleaning_total) || 0;
-  const repairs = Number(stmt.repairs_total) || 0;
-  const attributedDebits = Number(stmt.attributed_debits_total) || 0;
-
-  const beforeReserve = round2(rental + addOns - mgmt - cleaning - repairs - attributedDebits);
-  const ownerPayout = round2(beforeReserve - amount);
-
-  const { error: updErr } = await supabase
-    .from('property_statements')
-    .update({ reserve_holdback: amount, owner_payout: ownerPayout })
-    .eq('id', id);
-  if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 });
+  // reserve_holdback is an OWNED term (operator-set, no ledger): it is
+  // passed as an override and every other column is recomputed by the
+  // single write path from rows, so a stale stored fee or add-on column can
+  // no longer ride along under a reserve change.
+  let totals: WriteResult;
+  try {
+    totals = await writeStatementTotals(supabase, id, {
+      action: 'Change Owner Reserve holdback',
+      reserveHoldback: amount,
+      assertedFreeze: finalityGate,
+    });
+  } catch (e) {
+    // Nothing was written: the reserve is applied inside the same write.
+    return NextResponse.json({
+      error: `The reserve was not saved: ${e instanceof Error ? e.message : String(e)}`,
+    }, { status: 500 });
+  }
+  const ownerPayout = totals.after.owner_payout;
+  const beforeReserve = round2(ownerPayout + amount);
 
   return NextResponse.json({
     ok: true,

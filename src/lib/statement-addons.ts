@@ -39,8 +39,15 @@ export type AddOnTotals = {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// Narrow to THIS table. A bare `relation` / `does not exist` match swallows
+// unrelated failures -- "could not open relation with OID" during a
+// concurrent DDL, a missing COLUMN -- straight back into the zeros this
+// function exists to refuse. Same narrowing installments.ts received.
 const missingTable = (err: { code?: string; message?: string } | null): boolean =>
-  !!err && (err.code === 'PGRST205' || /does not exist|relation|Could not find the table/i.test(err.message || ''));
+  !!err && (
+    err.code === 'PGRST205' ||
+    (/bank_deposit_attributions/i.test(err.message || '') && /relation .* does not exist|Could not find the table|does not exist/i.test(err.message || ''))
+  );
 
 export async function loadAddOnTotals(
   supabase: SupabaseClient,

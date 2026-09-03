@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { PROPERTIES } from '@/lib/properties';
 import { assertStatementWritable, getFreezeStatus, StatementFrozenError } from '@/lib/statement-finality';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 
 /**
  * Receipt-backed property expenses.
@@ -108,20 +109,6 @@ async function findStatement(
   return { stmt: (stmt as StatementRow | null) || null, periodId: period.id as string };
 }
 
-/**
- * Canonical owner-payout recompute after a repairs_total delta. Every term
- * except repairs_total is read straight off the statement row (the
- * cleaning-events/[id] pattern) so the two recompute paths stay independent.
- */
-function recomputePayout(stmt: StatementRow, newRepairsTotal: number): number {
-  const rental = Number(stmt.rental_revenue) || 0;
-  const addOns = Number(stmt.add_ons_revenue) || 0;
-  const mgmt = Number(stmt.management_fee) || 0;
-  const cleaning = Number(stmt.cleaning_total) || 0;
-  const attributedDebits = Number(stmt.attributed_debits_total) || 0;
-  const reserveHoldback = Number(stmt.reserve_holdback) || 0;
-  return round2(rental + addOns - mgmt - cleaning - newRepairsTotal - attributedDebits - reserveHoldback);
-}
 
 type Warning = {
   kind: 'possible_double_deduction' | 'statement_already_sent' | 'statement_frozen';
@@ -202,7 +189,7 @@ async function collectWarnings(
       }
       if (sent) {
         const before = Number(stmt.owner_payout) || 0;
-        const after = recomputePayout(stmt, round2((Number(stmt.repairs_total) || 0) + amount));
+        const after = round2(before - amount);
         warnings.push({
           kind: 'statement_already_sent',
           message: `${month}'s statement was already sent to the owner. This changes the payout from $${before.toFixed(2)} to $${after.toFixed(2)}.`,
@@ -279,9 +266,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // The confirm above showed the frozen warning, so acknowledged (or an
     // explicit force) is informed consent; this records the audit gap.
+    let finalityGate: FreezeReceipt | undefined;
     if (freeze.frozen) {
       try {
-        await assertStatementWritable(supabase, { propertyId, month }, {
+        finalityGate = await assertStatementWritable(supabase, { propertyId, month }, {
           force: acknowledgeWarnings || force,
           action: 'Add receipt to statement',
           detail: `$${amount.toFixed(2)}${vendorName ? ` · ${vendorName}` : ''}`,
@@ -372,13 +360,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (mirrorErr) console.warn('receipt mirror repair_events insert skipped:', mirrorErr.message);
 
       // DELTA off the stored column -- never SUM(repair_events); see header.
+      // repairs_total is an OWNED term: passed as an override, while every
+      // other column is recomputed from rows by the single write path.
       repairsTotal = round2((Number(stmt.repairs_total) || 0) + amount);
-      ownerPayout = recomputePayout(stmt, repairsTotal);
-      const { error: updErr } = await supabase
-        .from('property_statements')
-        .update({ repairs_total: repairsTotal, owner_payout: ownerPayout })
-        .eq('id', stmt.id);
-      if (updErr) throw updErr;
+      try {
+        const totals = await writeStatementTotals(supabase, stmt.id, {
+          action: 'Add receipt to statement',
+          detail: `$${amount.toFixed(2)}${vendorName ? ` · ${vendorName}` : ''}`,
+          repairsTotal,
+          assertedFreeze: finalityGate,
+        });
+        ownerPayout = totals.after.owner_payout;
+      } catch (e) {
+        // The receipt row and its mirror are already saved. A retry would
+        // book it twice; say exactly that.
+        return NextResponse.json({
+          error: `The receipt was SAVED (id ${receipt.id}), but the statement could not be recomputed (${e instanceof Error ? e.message : String(e)}). `
+            + 'Do not add it again. Re-run Refresh Statement or re-ingest the month before sending.',
+          receipt,
+          statement_found: true,
+        }, { status: 500 });
+      }
     }
 
     return NextResponse.json({

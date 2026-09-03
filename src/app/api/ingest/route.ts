@@ -10,6 +10,7 @@ import { loadInstallmentsForMonth, loadInstallmentsForCode, loadInstallmentsForC
 import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { detectMissingDirectStays, missingDirectGapRows } from '@/lib/missing-direct-stays';
 import { splitFolio } from '@/lib/remittance';
@@ -450,12 +451,13 @@ export async function POST(request: NextRequest) {
     // A month the operator already marked sent (or finalized) needs an
     // explicit force, which is recorded on the statement as a gap.
     let finalityForced = false;
+    let finalityGate: FreezeReceipt | null = null;
     try {
-      const gate = await assertStatementWritable(supabase, { propertyId, month }, {
+      finalityGate = await assertStatementWritable(supabase, { propertyId, month }, {
         force: (formData.get('force') as string) === 'true',
         action: 'Re-ingest statement',
       });
-      finalityForced = gate.forced;
+      finalityForced = finalityGate.forced;
     } catch (e) {
       if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
       throw e;
@@ -2237,6 +2239,32 @@ export async function POST(request: NextRequest) {
     type PostSyncTotals = { rental_revenue: number; management_fee: number; owner_payout: number };
     let stripeSync: StripeSyncResult | null = null;
     let postSyncTotals: PostSyncTotals | null = null;
+    // 9x. The single write path is the last word on every money column.
+    //     Every child row is in place now, so it recomputes the statement
+    //     from those rows exactly as any later writer will, with repairs and
+    //     reserve passed as the owned terms this route computed. Its number
+    //     should equal the one inserted above; if it does not, that is a
+    //     live self-check failure worth a flag rather than a silent
+    //     overwrite in either direction. The write path's value wins because
+    //     it is the value every subsequent recompute would produce.
+    const ingestTotals = await writeStatementTotals(supabase, stmt.id, {
+      action: 'Ingest',
+      repairsTotal,
+      reserveHoldback: preservedReserveHoldback,
+      assertedFreeze: finalityGate ?? undefined,
+    });
+    if (Math.abs(ingestTotals.after.owner_payout - ownerPayout) > 0.02) {
+      const { error: selfErr } = await supabase.from('data_gaps').insert({
+        property_statement_id: stmt.id,
+        gap_type: 'ingest_recompute_mismatch',
+        severity: 'warning',
+        description: `Ingest computed an owner payout of $${ownerPayout.toFixed(2)} but recomputing from the rows it wrote gives $${ingestTotals.after.owner_payout.toFixed(2)}. The row-derived figure is what every later recompute will produce, so it is the one stored; the discrepancy itself is the thing to explain.`,
+        expected_data: `ingest ${ownerPayout.toFixed(2)} vs rows ${ingestTotals.after.owner_payout.toFixed(2)} · ${new Date().toISOString()}`,
+        resolved: false,
+      });
+      if (selfErr) console.error('ingest: self-check gap insert failed', selfErr.message);
+    }
+
     const stripeKey = getStripeKeysMap()[propertyId];
     if (stripeKey) {
       try {
@@ -2334,11 +2362,15 @@ export async function POST(request: NextRequest) {
       property_statement_id: stmt.id,
       summary: {
         reservations: processedReservations.length,
-        total_revenue: postSyncTotals?.rental_revenue ?? totalRevenue,
+        // Post-sync figures first, then the write path's (the value actually
+        // stored), never ingest's own pre-check locals: when the self-check
+        // above overrode them, echoing them here would report a payout that
+        // is not on the statement.
+        total_revenue: postSyncTotals?.rental_revenue ?? ingestTotals.after.rental_revenue,
         stripe_fees: totalStripeFees,
-        management_fee: postSyncTotals?.management_fee ?? managementFee,
-        cleaning_total: cleaningTotal,
-        owner_payout: postSyncTotals?.owner_payout ?? ownerPayout,
+        management_fee: postSyncTotals?.management_fee ?? ingestTotals.after.management_fee,
+        cleaning_total: ingestTotals.after.cleaning_total,
+        owner_payout: postSyncTotals?.owner_payout ?? ingestTotals.after.owner_payout,
         confidence,
         data_gaps: gaps.length + (stripeSync?.refunds_detected.length || 0) + (stripeSync?.gross_mismatches.length || 0) + (stripeSync?.reservations_missing_charge.length || 0),
       },
