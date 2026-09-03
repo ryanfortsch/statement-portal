@@ -719,7 +719,11 @@ function gapFillType(gapType: string): FillGapType | null {
 
 // Response shapes returned by /api/fill-gap -- discriminated by file_type.
 type BankChange = { guest: string; status_before: string; status_after: string; deposit_amount: number | null; adjusted_revenue: number | null; changed: boolean };
-type PlatformChange = { id: string; guest_before: string | null; guest_after: string; platform_before: string | null; platform_after: string; adjusted_revenue_before: number | null; adjusted_revenue_after: number };
+// adjusted_revenue_after is NULLABLE: a row whose money the operator owns
+// (paid_off_stripe) reports its existing value back verbatim rather than a
+// re-priced one, and that value can be null. This type is a hand-written
+// mirror of the /api/fill-gap response, so tsc cannot catch it drifting.
+type PlatformChange = { id: string; guest_before: string | null; guest_after: string; platform_before: string | null; platform_after: string; adjusted_revenue_before: number | null; adjusted_revenue_after: number | null };
 type FillGapResult =
   | {
       file_type: 'bank_csv';
@@ -935,7 +939,7 @@ function FillGapModal(props: {
                       <li key={i} style={{ padding: '6px 0', borderBottom: '1px dotted var(--rule)' }}>
                         <div><strong style={{ color: 'var(--ink)' }}>{c.guest_after}</strong>{nameChanged && c.guest_before && <span style={{ color: 'var(--ink-4)' }}> (was &ldquo;{c.guest_before}&rdquo;)</span>}</div>
                         {platChanged && <div style={{ color: 'var(--ink-3)', marginTop: 2 }}>Platform: {c.platform_before || '(unknown)'} &rarr; <strong>{c.platform_after}</strong></div>}
-                        {c.adjusted_revenue_before !== c.adjusted_revenue_after && (
+                        {c.adjusted_revenue_before !== c.adjusted_revenue_after && c.adjusted_revenue_after !== null && (
                           <div style={{ color: 'var(--ink-3)', marginTop: 2 }} className="tabular-nums">Net revenue: ${(c.adjusted_revenue_before ?? 0).toFixed(2)} &rarr; <strong>${c.adjusted_revenue_after.toFixed(2)}</strong></div>
                         )}
                       </li>

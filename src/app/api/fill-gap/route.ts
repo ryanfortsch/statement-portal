@@ -366,7 +366,12 @@ async function fillPlatformGap(args: {
   type ResChange = {
     id: string;
     prev: { guest: string | null; platform: string | null; adjusted: number | null };
-    next: { guest: string; platform: string; stripe_fee: number; adjusted_revenue: number };
+    // stripe_fee / adjusted_revenue are nullable because a row whose money
+    // the operator owns (paid_off_stripe) reports its EXISTING values here
+    // and is not re-priced. Reporting them verbatim, rather than coercing a
+    // null to 0, is what keeps before === after so the client shows no
+    // phantom "net revenue changed" line.
+    next: { guest: string; platform: string; stripe_fee: number | null; adjusted_revenue: number | null; hold_money: boolean };
   };
   const changes: ResChange[] = [];
   let totalRevenue = 0;
@@ -470,15 +475,19 @@ async function fillPlatformGap(args: {
     const csvName = titleCase(match.guest);
     const nextName = priorIsPlaceholder && csvName ? csvName : (priorName || csvName || 'Guest');
 
-    const nextFee = keepOperatorMoney ? (res.stripe_fee || 0) : stripeFee;
-    const nextAdjusted = keepOperatorMoney ? (res.adjusted_revenue || 0) : adjustedRevenue;
+    const nextFee = keepOperatorMoney ? res.stripe_fee : stripeFee;
+    const nextAdjusted = keepOperatorMoney ? res.adjusted_revenue : adjustedRevenue;
     changes.push({
       id: res.id,
       prev: { guest: res.guest_name, platform: res.platform, adjusted: res.adjusted_revenue },
-      next: { guest: nextName, platform: normalizedPlatform, stripe_fee: nextFee, adjusted_revenue: nextAdjusted },
+      next: {
+        guest: nextName, platform: normalizedPlatform,
+        stripe_fee: nextFee, adjusted_revenue: nextAdjusted,
+        hold_money: keepOperatorMoney,
+      },
     });
-    totalRevenue += nextAdjusted;
-    stripeFeeTotal += nextFee;
+    totalRevenue += nextAdjusted || 0;
+    stripeFeeTotal += nextFee || 0;
   }
 
   totalRevenue = round2(totalRevenue);
@@ -488,15 +497,19 @@ async function fillPlatformGap(args: {
   //    UPDATEs with different values in a single call, and writing to
   //    service role makes the UPDATE actually land).
   for (const c of changes) {
-    await supabase
-      .from('reservations')
-      .update({
-        guest_name: c.next.guest,
-        platform: c.next.platform,
-        stripe_fee: c.next.stripe_fee,
-        adjusted_revenue: c.next.adjusted_revenue,
-      })
-      .eq('id', c.id);
+    // A held row takes the name and platform correction only. Its money
+    // columns are not in the payload at all, so this is a true no-op on
+    // them rather than a write-back of the same value (which would turn a
+    // stored NULL into 0).
+    const patch: Record<string, unknown> = {
+      guest_name: c.next.guest,
+      platform: c.next.platform,
+    };
+    if (!c.next.hold_money) {
+      patch.stripe_fee = c.next.stripe_fee;
+      patch.adjusted_revenue = c.next.adjusted_revenue;
+    }
+    await supabase.from('reservations').update(patch).eq('id', c.id);
   }
 
   // 4. Upsert the guesty_reservations rows so the upcoming-bookings panel
