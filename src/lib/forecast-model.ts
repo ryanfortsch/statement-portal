@@ -147,7 +147,19 @@ export const NEW_ORDER_2027 = [3, 6, 9, 1, 5, 7, 11, 4, 8, 10, 12, 2] as const;
 /** 2028 — same shape as 2027. Default 3 in Mar/Jun/Sep. */
 export const NEW_ORDER_2028 = [3, 6, 9, 1, 5, 7, 11, 4, 8, 10, 12, 2] as const;
 
-/** Each new property is assumed to be a Cape Ann management contract at $25K/yr. */
+/**
+ * A new management contract in its FIRST season: $25K a year on Cape Ann
+ * seasonality from its start month. A first season is a ramp (thin calendar,
+ * no reviews yet), so this deliberately sits below the fleet. From its second
+ * year the home is a rolled-forward synthetic in getYearConfig and steps up
+ * to the fleet's own projected average fee per earning home, the `matureFee`
+ * the page derives from the smart forecast (about $32K on 2026-09-02 against
+ * a $28K median), never below this first-year figure. The mean counts a
+ * seasonal home (16 Waterman, May to October) at its seasonal total, which
+ * leans the figure slightly conservative for a full-year synthetic. Before
+ * 2026-09-02 a rolled-forward home stayed at $25K for life, which made every
+ * added home worth less than the average one already run.
+ */
 export const NEW_PROPERTY_FEE = 25000;
 export const NEW_PROPERTY_TYPE: SeasonType = 'CA';
 
@@ -590,6 +602,13 @@ export function getYearConfig(
   year: ForecastYear,
   rolledForward: number = 0,
   openIn?: OpenInYear,
+  /**
+   * Annual fee a home in its second season or later is assumed to earn:
+   * the fleet's projected average per earning home, from the smart forecast.
+   * Omitted (the pure check scripts, or smart unavailable) it falls back to
+   * NEW_PROPERTY_FEE, and it is never allowed below that first-year figure.
+   */
+  matureFee?: number,
 ): YearConfig {
   if (year === 2026) {
     // 2026 is the starting year; nothing to roll forward into it.
@@ -604,11 +623,14 @@ export function getYearConfig(
     };
   }
 
-  // Synthesize the rolled-forward properties as $25K/yr CA contracts
-  // active from January 1 of the given year.
+  // Synthesize the rolled-forward properties as CA contracts active from
+  // January 1 of the given year, in their second season or later, so at the
+  // fleet's average fee rather than the first-year $25K.
+  const rolledFee =
+    matureFee != null && Number.isFinite(matureFee) ? Math.max(NEW_PROPERTY_FEE, matureFee) : NEW_PROPERTY_FEE;
   const synth: ManagedProperty[] = Array.from({ length: rolledForward }, (_, i) => ({
     name: `Rolled fwd #${i + 1}`,
-    fee: NEW_PROPERTY_FEE,
+    fee: rolledFee,
     type: NEW_PROPERTY_TYPE,
     start: 1,
     synthetic: true,
@@ -785,9 +807,11 @@ export function calcYear(
    * the seasonality fallback stop counting them. Omitted by the pure check
    * scripts, which then see the full roster.
    */
-  openIn?: OpenInYear
+  openIn?: OpenInYear,
+  /** Second-season fee for rolled-forward homes; see getYearConfig. */
+  matureFee?: number
 ): YearResult {
-  const config = getYearConfig(year, rolledForward ?? 0, openIn);
+  const config = getYearConfig(year, rolledForward ?? 0, openIn, matureFee);
   const maxNew = config.newOrder.length;
   const n = Math.max(0, Math.min(maxNew, Math.round(numNew)));
   const newStartMonths: number[] = config.newOrder.slice(0, n);
