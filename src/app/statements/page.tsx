@@ -1970,6 +1970,11 @@ function PropertyCard({
                 {gaps.map((gap) => {
                   const fillable = gapFillType(gap.gap_type) !== null;
                   const offStripeResolvable = gap.gap_type === 'stripe_missing_charge';
+                  // A flag with no action of its own would otherwise sit on
+                  // the card forever and ride along in every Draft All
+                  // confirm, which is how operators learn to click through
+                  // the confirm without reading it.
+                  const needsManualResolve = !fillable && !offStripeResolvable && gap.gap_type !== 'cancelled_reservation';
                   return (
                     <div
                       key={gap.id}
@@ -1988,6 +1993,42 @@ function PropertyCard({
                         {gap.expected_data && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>{gap.expected_data}</div>}
                       </div>
                       <div style={{ flexShrink: 0, display: 'flex', gap: 6 }}>
+                        {needsManualResolve && (
+                          <button
+                            disabled={resolvingGapId === gap.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const note = prompt('Resolve this flag. What did you do? (optional, shown in the audit trail)');
+                              if (note === null) return;
+                              setResolvingGapId(gap.id);
+                              try {
+                                const res = await fetch('/api/resolve-gap', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ gap_id: gap.id, resolution: 'acknowledge', note }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                else onRefresh();
+                              } catch (err) {
+                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                              } finally {
+                                setResolvingGapId(null);
+                              }
+                            }}
+                            style={{
+                              border: '1px solid var(--ink-4)',
+                              background: 'transparent',
+                              color: 'var(--ink-3)',
+                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                              padding: '6px 10px',
+                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
+                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
+                            }}
+                          >
+                            {resolvingGapId === gap.id ? 'Working…' : 'Resolve'}
+                          </button>
+                        )}
                         {offStripeResolvable && (
                           <button
                             disabled={resolvingGapId === gap.id}

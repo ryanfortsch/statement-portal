@@ -3,7 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
-import { netVendorCredits, vendorChargeNet, reapplyPreservedCredits, unappliedRefundGap, orphanedCreditGap, type VendorCharge, type PreservedCleaningCredit } from '@/lib/vendor-credit-netting';
+import { netVendorCredits, vendorChargeNet, reapplyPreservedCredits, unappliedRefundGap, orphanedCreditGap, orphanCreditKey, parseOrphanCreditKey, orphanCreditRestored, type VendorCharge, type PreservedCleaningCredit } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
 import { buildRemittanceSheet } from '@/lib/remittance';
 import { getActivePropertyForStatements } from '@/lib/properties';
@@ -2039,14 +2039,31 @@ export async function POST(request: NextRequest) {
     // A hand-applied credit whose charge did not come back in the re-upload.
     // Until the operator re-applies or confirms it, the owner is billed gross.
     for (const pc of orphanedCredits) gaps.push(orphanedCreditGap(pc));
-    // Verbatim, so a carried notice reads as the same gap it was.
-    for (const g of carriedOrphanGaps) {
-      gaps.push({
-        gap_type: 'cleaning_credit_orphaned',
-        description: g.description,
-        severity: 'critical',
-        expected_data: g.expected_data ?? '',
-      });
+    // Carry an unresolved notice forward, but give it two ways out, or it
+    // becomes a permanent critical: nothing in the product can mark this
+    // gap type resolved except the acknowledge action, and the Draft All
+    // pre-flight names every critical in its confirm dialog. A notice
+    // retires when the operator re-applies the credit (the charge is back
+    // AND carries a credit again), and is never re-filed alongside an
+    // identical one this run just derived.
+    {
+      const freshKeys = new Set(orphanedCredits.map(orphanCreditKey));
+      const carriedKeys = new Set<string>();
+      for (const g of carriedOrphanGaps) {
+        const key = parseOrphanCreditKey(g.expected_data);
+        if (key) {
+          if (freshKeys.has(key) || carriedKeys.has(key)) continue;
+          if (orphanCreditRestored(cleaningInserts, key)) continue;
+          carriedKeys.add(key);
+        }
+        gaps.push({
+          gap_type: 'cleaning_credit_orphaned',
+          // Verbatim, so a carried notice reads as the same gap it was.
+          description: g.description,
+          severity: 'critical',
+          expected_data: g.expected_data ?? '',
+        });
+      }
     }
 
     // The tax sweep is provably occupancy tax -- it went to the tax-only
@@ -2287,12 +2304,26 @@ export async function POST(request: NextRequest) {
     //     live self-check failure worth a flag rather than a silent
     //     overwrite in either direction. The write path's value wins because
     //     it is the value every subsequent recompute would produce.
-    const ingestTotals = await writeStatementTotals(supabase, stmt.id, {
-      action: 'Ingest',
-      repairsTotal,
-      reserveHoldback: preservedReserveHoldback,
-      assertedFreeze: finalityGate ?? undefined,
-    });
+    let ingestTotals: Awaited<ReturnType<typeof writeStatementTotals>>;
+    try {
+      ingestTotals = await writeStatementTotals(supabase, stmt.id, {
+        action: 'Ingest',
+        repairsTotal,
+        reserveHoldback: preservedReserveHoldback,
+        assertedFreeze: finalityGate ?? undefined,
+      });
+    } catch (e) {
+      // The statement row and every child row ARE persisted at this point;
+      // only the reconciling recompute failed. Its figures are the ones
+      // that would have corrected the section-10 CSV totals inserted
+      // above, which are gross by any re-applied operator credit -- so
+      // saying "nothing landed" here would be false and would leave the
+      // owner billed a struck charge with no visible sign.
+      return NextResponse.json({
+        error: `The statement for ${propertyId} / ${month} was rebuilt and SAVED, but the reconciling recompute failed (${e instanceof Error ? e.message : String(e)}). `
+          + 'Its totals are the pre-credit figures from the upload and may over-bill cleaning. Run Refresh Statement (or Sync Stripe) on this property before sending it. Do not re-upload: the rows are already in place.',
+      }, { status: 500 });
+    }
     // The comparison figure has to account for the preserved operator
     // credits re-applied in section 11: `ownerPayout` was built on a
     // cleaning total computed from the CSV alone (section 10), which is

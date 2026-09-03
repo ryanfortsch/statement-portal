@@ -12,6 +12,17 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
  * message names the months; confirming retries with force, and the server
  * flags each affected statement so it is re-run before it goes out.
  */
+/**
+ * The server flags each affected statement AFTER writing the split. A flag
+ * that fails to file is reported rather than swallowed: without it, a sent
+ * statement carries no record that its share changed, and an ingested month
+ * is never told to re-run.
+ */
+function flagFailureNote(data: { flag_failures?: string[] }, lead: string): string {
+  if (!data.flag_failures?.length) return lead;
+  return `${lead} These months could NOT be flagged and need a manual Refresh Statement or re-ingest: ${data.flag_failures.join('; ')}.`;
+}
+
 async function staleMonthsGate(res: Response): Promise<'none' | 'proceed' | 'declined'> {
   if (res.status !== 409) return 'none';
   const data = await res.clone().json().catch(() => null) as { needs_confirm?: boolean; frozen?: boolean; error?: string } | null;
@@ -231,7 +242,14 @@ export function InstallmentEditor({
       if (gate === 'declined') return;
       if (gate === 'proceed') res = await post({ ...payload, force: true });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Save failed');
+      if (!res.ok) throw new Error(flagFailureNote(data, data.error || 'Save failed'));
+      // A month whose flag did not file is a statement that now disagrees
+      // with the split and says nothing about it. Keep the modal open so
+      // the operator sees which one to re-run by hand.
+      if (data.flag_failures?.length) {
+        setError(flagFailureNote(data, 'The split saved.'));
+        return;
+      }
       onClose();
       softRefresh();
     } catch (err) {
@@ -251,7 +269,11 @@ export function InstallmentEditor({
       if (gate === 'declined') return;
       if (gate === 'proceed') res = await fetch(`${url}&force=true`, { method: 'DELETE' });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Clear failed');
+      if (!res.ok) throw new Error(flagFailureNote(data, data.error || 'Clear failed'));
+      if (data.flag_failures?.length) {
+        setError(flagFailureNote(data, 'The split was cleared.'));
+        return;
+      }
       onClose();
       softRefresh();
     } catch (err) {

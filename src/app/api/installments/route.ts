@@ -245,10 +245,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     byProperty.set(propertyId, installments.map(i => i.month));
     const oldOwner = existing.propertyId || propertyId;
     byProperty.set(oldOwner, [...(byProperty.get(oldOwner) || []), ...existing.months]);
+    // Plan every property first with the refusal suppressed, then raise ONE
+    // confirm over the combined list. Refusing per property would name only
+    // the first one's months while the forced retry flags both, so a split
+    // moving between properties would flag a statement the operator was
+    // never shown.
     for (const [pid, months] of byProperty) {
       staleMonths = staleMonths.concat(await planSliceMonthGates(supabase, {
-        code, propertyId: pid, months, force: body.force === true, action: 'Edit installment split',
+        code, propertyId: pid, months, force: true, action: 'Edit installment split',
       }));
+    }
+    // De-duplicate: the same statement can arrive from both map entries
+    // when the split is not moving, and flagging it twice would file two
+    // audit rows for one change.
+    const bySid = new Map(staleMonths.map(g => [g.statementId, g]));
+    staleMonths = [...bySid.values()].sort((a, b) => a.month.localeCompare(b.month));
+    if (staleMonths.length > 0 && body.force !== true) {
+      throw new SliceMonthsNeedConfirm(staleMonths, [...byProperty.keys()].join(' and '), 'Edit installment split');
     }
   } catch (e) {
     const handled = gateErrorResponse(e);
@@ -293,11 +306,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .insert(rows)
     .select('id, confirmation_code, property_id, month, installment_revenue, installment_nights, is_final_month, note, created_at, updated_at');
   if (insErr) {
-    // The atomic replace already deleted the old rows, so say so rather
-    // than let the operator assume the previous split survived. No month
-    // flags were filed: nothing claims a change that did not happen.
+    // The atomic replace already deleted the old rows. That IS a change to
+    // every month the old split touched, so the flags are filed here too:
+    // they are now true statements. Only the wording differs.
+    const failFlags = await commitSliceMonthFlags(supabase, staleMonths, {
+      code, action: 'Installment split REMOVED (save failed)',
+    });
     return NextResponse.json({
       error: `insert failed: ${insErr.message}. The previous split for ${code} was removed and the new one did not save, so this booking currently has NO split -- it recognizes entirely in its checkout month. Re-enter the split.`,
+      ...(failFlags.length ? { flag_failures: failFlags } : {}),
     }, { status: 500 });
   }
 

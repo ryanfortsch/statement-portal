@@ -143,6 +143,47 @@ const sourceFamily = (source: string): string =>
   (source === 'matched' || source === 'bank' || source === 'corroborated') ? 'cleaning' : source;
 
 /**
+ * The families a preserved credit can meaningfully belong to. Mirrors
+ * CLEANING_MONEY_SOURCES in statement-totals.ts collapsed through
+ * sourceFamily -- kept as a literal rather than an import so this module
+ * stays dependency-free and loads bare under `node --test`.
+ *
+ * A credit on a source='invoice' row is NOT here on purpose. Invoice rows
+ * are attribution, never money: deriveCleaningTotal skips them, so such a
+ * credit bills nothing and its loss costs nothing. Orphaning it would file
+ * a critical notice claiming the owner is now billed gross, which is false.
+ */
+const MONEY_FAMILIES = new Set(['cleaning', 'bank-linen', 'bank-laundry']);
+
+const AUTO_NETTED_MARK = '(auto-netted at';
+
+/** Stable machine key for a preserved credit's charge: date|amount|family. */
+export function orphanCreditKey(pc: Pick<PreservedCleaningCredit, 'bank_charge_date' | 'bank_charge_amount' | 'source'>): string {
+  const amt = Number(pc.bank_charge_amount);
+  return `${pc.bank_charge_date || '?'}|${Number.isFinite(amt) && pc.bank_charge_amount !== null ? amt.toFixed(2) : '?'}|${sourceFamily(pc.source)}`;
+}
+
+/** Read the key back off a stored gap's expected_data. Null if absent. */
+export function parseOrphanCreditKey(expectedData: string | null): string | null {
+  const m = (expectedData || '').match(/key=([^\s]+)$/);
+  return m ? m[1] : null;
+}
+
+/**
+ * True when the rebuilt rows now contain the charge this key describes AND
+ * that charge carries a credit again. That is the natural exit for a
+ * carried `cleaning_credit_orphaned` notice: the operator re-applied the
+ * credit, so the notice has answered itself and must not be re-filed.
+ */
+export function orphanCreditRestored<T extends CreditableInsert>(inserts: T[], key: string): boolean {
+  return inserts.some(ins => orphanCreditKey({
+    bank_charge_date: ins.bank_charge_date,
+    bank_charge_amount: ins.bank_charge_amount,
+    source: ins.source,
+  }) === key && !!ins.credit_amount);
+}
+
+/**
  * Re-apply credits the operator had placed by hand onto the rebuilt rows,
  * BEFORE they are inserted. A credit rides on a charge, and a charge is
  * identified across rebuilds by bank date + amount + family ('matched' and
@@ -171,12 +212,27 @@ export function reapplyPreservedCredits<T extends CreditableInsert>(
   const orphaned: PreservedCleaningCredit[] = [];
   let applied = 0;
   for (const pc of preserved) {
-    if ((pc.credit_reason || '').includes('(auto-netted at')) continue;
+    if ((pc.credit_reason || '').includes(AUTO_NETTED_MARK)) continue;
+    // A credit on a non-money row (source='invoice') bills nothing, so it
+    // is neither re-applied nor orphaned. Silently dropping it is correct:
+    // the row it rode on is attribution that the rebuild re-derives.
+    if (!MONEY_FAMILIES.has(sourceFamily(pc.source))) continue;
     const pcAmount = Number(pc.bank_charge_amount);
+    if (!Number.isFinite(pcAmount) || pc.bank_charge_amount === null) { orphaned.push(pc); continue; }
     const candidates = inserts.filter(ins =>
       ins.bank_charge_date === pc.bank_charge_date &&
-      Number.isFinite(pcAmount) && Math.abs(ins.bank_charge_amount - pcAmount) <= 0.005 &&
+      Math.abs(ins.bank_charge_amount - pcAmount) <= 0.005 &&
       sourceFamily(ins.source) === sourceFamily(pc.source));
+    // If a charge with this exact key already carries an AUTO-NETTED
+    // credit, the vendor's refund has actually posted this round. The
+    // operator's own credit was standing in for that refund, and applying
+    // it to a sibling charge would zero a second, real charge: two $250
+    // cleanings billed as $0 instead of $250. Orphan it and let a human
+    // decide, rather than move money on a guess.
+    if (candidates.some(ins => (ins.credit_reason || '').includes(AUTO_NETTED_MARK))) {
+      orphaned.push(pc);
+      continue;
+    }
     const target = candidates.find(ins => !ins.credit_amount);
     if (target) {
       target.credit_amount = Math.round(Math.min(Number(pc.credit_amount) || 0, target.amount) * 100) / 100;
@@ -213,11 +269,14 @@ export function unappliedRefundGap(c: VendorCredit, opts: { parkedInQueue: boole
 export function orphanedCreditGap(pc: PreservedCleaningCredit): VendorGap {
   const chargeAmt = Number(pc.bank_charge_amount);
   const creditAmt = (Number(pc.credit_amount) || 0).toFixed(2);
-  const chargeLabel = `${pc.vendor || pc.source} charge${Number.isFinite(chargeAmt) ? ` of $${chargeAmt.toFixed(2)}` : ''} on ${pc.bank_charge_date || 'an unknown date'}`;
+  const hasAmount = pc.bank_charge_amount !== null && Number.isFinite(chargeAmt);
+  const chargeLabel = `${pc.vendor || pc.source} charge${hasAmount ? ` of $${chargeAmt.toFixed(2)}` : ' of an unrecorded amount'} on ${pc.bank_charge_date || 'an unknown date'}`;
   return {
     gap_type: 'cleaning_credit_orphaned',
     description: `The rebuild could not re-apply the $${creditAmt} credit the operator had placed on the ${chargeLabel}${pc.credit_reason ? ` ("${pc.credit_reason}")` : ''}: no matching charge in the re-uploaded bank CSV. cleaning_total currently bills WITHOUT it. Re-apply the credit on the right row (Mark Duplicate) or confirm the charge is gone, then resolve.`,
     severity: 'critical',
-    expected_data: `${chargeLabel} carrying a $${creditAmt} credit`,
+    // The trailing key= token is machine-read by the re-ingest carry so a
+    // notice can retire itself once the credit is demonstrably back.
+    expected_data: `${chargeLabel} carrying a $${creditAmt} credit · key=${orphanCreditKey(pc)}`,
   };
 }
