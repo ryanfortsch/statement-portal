@@ -179,6 +179,9 @@ type BookingLite = {
   check_out: string;
   guest_name: string | null;
   source: string;
+  /** When Helm first saw this row. A calendar mirror older than the booking
+   *  cannot be evidence the booking is gone; see findGhostStays. */
+  first_seen_at?: string | null;
 };
 
 type PropertyLite = {
@@ -259,9 +262,11 @@ const MIRROR_FRESH_HOURS = 36;
  *
  * Deliberately one-directional and hard to trigger: it can only ever DROP
  * a stay, never invent one, and it refuses to judge unless the mirror
- * covers every night, is fresh, and is unanimous. Missing rows, a stale
- * sync, or any night that is booked/unavailable all keep the stay -- a
- * missed cleaning is far worse than a redundant one.
+ * covers every night, is fresh, is NEWER than the booking, is unanimous,
+ * and the property has a single Guesty listing (a merged multi-listing
+ * mirror cannot prove absence). Missing rows, a stale sync, or any night
+ * that is booked/unavailable all keep the stay -- a missed cleaning is far
+ * worse than a redundant one.
  */
 async function findGhostStays(
   supabase: SupabaseClient,
@@ -276,31 +281,57 @@ async function findGhostStays(
   const from = allNights.reduce((a, b) => (a < b ? a : b));
   const to = allNights.reduce((a, b) => (a > b ? a : b));
 
-  const { data, error } = await supabase
-    .from('property_calendar_days')
-    .select('property_id, date, status, synced_at')
-    .in('property_id', propertyIds)
-    .gte('date', from)
-    .lte('date', to);
+  const [{ data, error }, { data: listingRows, error: listingErr }] = await Promise.all([
+    supabase
+      .from('property_calendar_days')
+      .select('property_id, date, status, synced_at')
+      .in('property_id', propertyIds)
+      .gte('date', from)
+      .lte('date', to),
+    supabase
+      .from('guesty_listings')
+      .select('property_id')
+      .in('property_id', propertyIds),
+  ]);
   if (error || !data) return ghosts;
+  // Cannot tell how many listings a property has: cannot judge any of
+  // them. Keeping every stay is the safe failure.
+  if (listingErr || !listingRows) return ghosts;
+
+  // A property with several Guesty listings has a MERGED mirror: a night
+  // reads 'available' if ANY of its listings is open (calendar-days
+  // mergeListingDays). So for those properties 'available' cannot prove
+  // nobody is booked -- 17 Beach runs three listings, and a real stay on
+  // one of them showed as a ghost. They are exempt; only a single-listing
+  // property's calendar speaks for the whole house.
+  const listingCount = new Map<string, number>();
+  for (const r of listingRows as Array<{ property_id: string | null }>) {
+    if (r.property_id) listingCount.set(r.property_id, (listingCount.get(r.property_id) ?? 0) + 1);
+  }
 
   const freshCutoff = Date.now() - MIRROR_FRESH_HOURS * 3600_000;
-  const byKey = new Map<string, { status: string; fresh: boolean }>();
+  const byKey = new Map<string, { status: string; syncedMs: number }>();
   for (const r of data as Array<{ property_id: string; date: string; status: string; synced_at: string | null }>) {
     const syncedMs = r.synced_at ? Date.parse(r.synced_at) : NaN;
-    byKey.set(`${r.property_id}|${r.date}`, {
-      status: (r.status || '').toLowerCase(),
-      fresh: Number.isFinite(syncedMs) && syncedMs >= freshCutoff,
-    });
+    byKey.set(`${r.property_id}|${r.date}`, { status: (r.status || '').toLowerCase(), syncedMs });
   }
 
   for (const stay of stays) {
+    if ((listingCount.get(stay.property_id) ?? 0) > 1) continue;
     const nights = nightsOf(stay.check_in, stay.check_out);
     if (nights.length === 0) continue;
+    // The mirror must be NEWER than the booking it would overrule. A stay
+    // created this morning judged against last night's 'available' rows is
+    // not a ghost, it is a booking the mirror has not seen yet. No
+    // first_seen_at means we cannot establish that ordering: keep the stay.
+    const seenMs = stay.first_seen_at ? Date.parse(stay.first_seen_at) : NaN;
+    if (!Number.isFinite(seenMs)) continue;
     let allAvailableAndFresh = true;
     for (const night of nights) {
       const cell = byKey.get(`${stay.property_id}|${night}`);
-      if (!cell || !cell.fresh || cell.status !== 'available') {
+      const fresh = !!cell && Number.isFinite(cell.syncedMs) && cell.syncedMs >= freshCutoff;
+      const newerThanBooking = !!cell && cell.syncedMs > seenMs;
+      if (!cell || !fresh || !newerThanBooking || cell.status !== 'available') {
         allAvailableAndFresh = false;
         break;
       }
@@ -337,14 +368,14 @@ export async function buildCheckoutSchedule(
       .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind'),
     supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at')
       .gte('check_out', startDate)
       .lte('check_out', endDate)
       .in('status', STAY_STATUSES)
       .is('duplicate_of', null),
     supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at')
       .gte('check_in', startDate)
       .lte('check_in', endDate)
       .in('status', STAY_STATUSES)
@@ -415,7 +446,7 @@ export async function buildCheckoutSchedule(
   if (missingStayKeys.length > 0) {
     const { data, error: refetchErr } = await supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at')
       .in('property_id', [...new Set(missingStayKeys.map((a) => a.property_id))])
       .in('check_in', [...new Set(missingStayKeys.map((a) => a.stay_check_in))])
       .in('status', STAY_STATUSES)

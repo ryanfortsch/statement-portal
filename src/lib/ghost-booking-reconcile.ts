@@ -81,6 +81,7 @@ type CandidateRow = {
   check_out: string;
   guest_name: string | null;
   external_confirmation_code: string | null;
+  first_seen_at: string | null;
 };
 
 function addDays(date: string, n: number): string {
@@ -115,7 +116,7 @@ export async function cancelGhostBookings(
 
   const { data: candRows, error: candErr } = await supabaseAdmin
     .from('bookings')
-    .select('id, property_id, check_in, check_out, guest_name, external_confirmation_code')
+    .select('id, property_id, check_in, check_out, guest_name, external_confirmation_code, first_seen_at')
     .eq('status', 'confirmed')
     .is('duplicate_of', null)
     .gte('check_out', from);
@@ -130,32 +131,50 @@ export async function cancelGhostBookings(
   // ── signal 1: the calendar mirror ──────────────────────────────────
   const allNights = candidates.flatMap((c) => nightsOf(c.check_in, c.check_out));
   if (allNights.length === 0) return result;
-  const { data: calRows, error: calErr } = await supabaseAdmin
-    .from('property_calendar_days')
-    .select('property_id, date, status, synced_at')
-    .in('property_id', [...new Set(candidates.map((c) => c.property_id))])
-    .gte('date', allNights.reduce((a, b) => (a < b ? a : b)))
-    .lte('date', allNights.reduce((a, b) => (a > b ? a : b)));
+  const propertyIds = [...new Set(candidates.map((c) => c.property_id))];
+  const [{ data: calRows, error: calErr }, { data: listingRows, error: listingErr }] = await Promise.all([
+    supabaseAdmin
+      .from('property_calendar_days')
+      .select('property_id, date, status, synced_at')
+      .in('property_id', propertyIds)
+      .gte('date', allNights.reduce((a, b) => (a < b ? a : b)))
+      .lte('date', allNights.reduce((a, b) => (a > b ? a : b))),
+    supabaseAdmin.from('guesty_listings').select('property_id').in('property_id', propertyIds),
+  ]);
   if (calErr) {
     result.errors.push(`calendar: ${calErr.message}`);
     return result;
   }
+  if (listingErr) {
+    result.errors.push(`guesty_listings: ${listingErr.message}`);
+    return result;
+  }
+  // A multi-listing property's mirror is merged ('available' if ANY
+  // listing is open), so it cannot prove a stay is absent. Exempt, same
+  // as the read-side guard in checkout-schedule.ts.
+  const listingCount = new Map<string, number>();
+  for (const r of (listingRows ?? []) as Array<{ property_id: string | null }>) {
+    if (r.property_id) listingCount.set(r.property_id, (listingCount.get(r.property_id) ?? 0) + 1);
+  }
   const freshCutoff = Date.now() - MIRROR_FRESH_HOURS * 3600_000;
-  const cal = new Map<string, { status: string; fresh: boolean }>();
+  const cal = new Map<string, { status: string; syncedMs: number }>();
   for (const r of (calRows ?? []) as Array<{ property_id: string; date: string; status: string; synced_at: string | null }>) {
     const ms = r.synced_at ? Date.parse(r.synced_at) : NaN;
-    cal.set(`${r.property_id}|${r.date}`, {
-      status: (r.status || '').toLowerCase(),
-      fresh: Number.isFinite(ms) && ms >= freshCutoff,
-    });
+    cal.set(`${r.property_id}|${r.date}`, { status: (r.status || '').toLowerCase(), syncedMs: ms });
   }
 
   const calendarSaysEmpty = candidates.filter((c) => {
+    if ((listingCount.get(c.property_id) ?? 0) > 1) return false;
     const nights = nightsOf(c.check_in, c.check_out);
     if (nights.length === 0) return false;
+    // The mirror must postdate the booking: rows synced before Helm first
+    // saw the booking say nothing about it. Unknown first_seen_at = keep.
+    const seenMs = c.first_seen_at ? Date.parse(c.first_seen_at) : NaN;
+    if (!Number.isFinite(seenMs)) return false;
     return nights.every((n) => {
       const cell = cal.get(`${c.property_id}|${n}`);
-      return !!cell && cell.fresh && cell.status === 'available';
+      if (!cell || !Number.isFinite(cell.syncedMs)) return false;
+      return cell.syncedMs >= freshCutoff && cell.syncedMs > seenMs && cell.status === 'available';
     });
   });
   if (calendarSaysEmpty.length === 0) return result;
