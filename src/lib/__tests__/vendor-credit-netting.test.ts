@@ -99,37 +99,51 @@ const preserved = (over: Partial<PreservedCleaningCredit>): PreservedCleaningCre
 
 test('a hand-applied credit lands back on the same charge after a rebuild', () => {
   const rows = [insert('2026-07-05', 250, 'bank'), insert('2026-07-12', 250, 'matched')];
-  const orphans = reapplyPreservedCredits(rows, [preserved({ source: 'matched' })]);
-  assert.deepEqual(orphans, []);
+  const { orphaned, applied } = reapplyPreservedCredits(rows, [preserved({ source: 'matched' })]);
+  assert.deepEqual(orphaned, []);
+  assert.equal(applied, 250);
   assert.equal(rows[0].credit_amount, 250);
   assert.equal(rows[0].credit_reason, 'Duplicate charge');
   assert.equal(rows[1].credit_amount, undefined);
 });
 
-test("'matched' and 'bank' are the same charge: a changed checkout match does not orphan the credit", () => {
-  const rows = [insert('2026-07-05', 250, 'bank')];
-  assert.deepEqual(reapplyPreservedCredits(rows, [preserved({ source: 'matched' })]), []);
-  assert.equal(rows[0].credit_amount, 250);
+test("'matched', 'bank' and 'corroborated' are one charge: an invoice flip does not orphan the credit", () => {
+  // /api/sync-invoices flips a matched/bank row to 'corroborated' in place
+  // when it attaches the QuickBooks invoice. That is the routine close
+  // step, so a credit applied afterwards must still find its charge when a
+  // rebuild re-inserts it as plain 'matched'/'bank'.
+  for (const storedSource of ['matched', 'bank', 'corroborated']) {
+    for (const rebuiltSource of ['matched', 'bank']) {
+      const rows = [insert('2026-07-05', 250, rebuiltSource)];
+      const { orphaned, applied } = reapplyPreservedCredits(rows, [preserved({ source: storedSource })]);
+      assert.deepEqual(orphaned, [], `${storedSource} -> ${rebuiltSource} orphaned`);
+      assert.equal(rows[0].credit_amount, 250);
+      assert.equal(applied, 250);
+    }
+  }
 });
 
 test('a credit whose charge did not come back is returned as orphaned, nothing else touched', () => {
   const rows = [insert('2026-07-19', 250, 'bank')];
-  const orphans = reapplyPreservedCredits(rows, [preserved({ bank_charge_date: '2026-07-05' })]);
-  assert.equal(orphans.length, 1);
+  const { orphaned, applied } = reapplyPreservedCredits(rows, [preserved({ bank_charge_date: '2026-07-05' })]);
+  assert.equal(orphaned.length, 1);
+  assert.equal(applied, 0);
   assert.equal(rows[0].credit_amount, undefined);
 });
 
 test('auto-netted credits are not re-applied (the netting pass recomputes them)', () => {
   const rows = [insert('2026-07-05', 250, 'bank')];
-  const orphans = reapplyPreservedCredits(rows, [preserved({ credit_reason: 'Cape Ann Elite refund posted 07/09/2026 (auto-netted at ingest)' })]);
-  assert.deepEqual(orphans, []);
+  const { orphaned, applied } = reapplyPreservedCredits(rows, [preserved({ credit_reason: 'Cape Ann Elite refund posted 07/09/2026 (auto-netted at ingest)' })]);
+  assert.deepEqual(orphaned, []);
+  assert.equal(applied, 0);
   assert.equal(rows[0].credit_amount, undefined);
 });
 
 test('a charge already carrying a credit is never credited twice, and is not an orphan', () => {
   const rows = [{ ...insert('2026-07-05', 250, 'bank'), credit_amount: 250, credit_reason: 'auto' }];
-  const orphans = reapplyPreservedCredits(rows, [preserved({})]);
-  assert.deepEqual(orphans, []);
+  const { orphaned, applied } = reapplyPreservedCredits(rows, [preserved({})]);
+  assert.deepEqual(orphaned, []);
+  assert.equal(applied, 0);
   assert.equal(rows[0].credit_amount, 250);
   assert.equal(rows[0].credit_reason, 'auto');
 });
@@ -141,10 +155,21 @@ test('linen and laundry credits stay in their own family', () => {
   assert.equal(rows[1].credit_amount, 95);
 });
 
-test('the re-applied credit is capped at the charge', () => {
+test('the re-applied credit is capped at the charge, and applied reports the capped figure', () => {
   const rows = [insert('2026-07-05', 250, 'bank')];
-  reapplyPreservedCredits(rows, [preserved({ credit_amount: 400 })]);
+  const { applied } = reapplyPreservedCredits(rows, [preserved({ credit_amount: 400 })]);
   assert.equal(rows[0].credit_amount, 250);
+  assert.equal(applied, 250);
+});
+
+test('applied sums every re-applied credit, so a caller can correct a pre-pass total', () => {
+  const rows = [insert('2026-07-05', 250, 'bank'), insert('2026-07-09', 95, 'bank-linen')];
+  const { orphaned, applied } = reapplyPreservedCredits(rows, [
+    preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, credit_amount: 250, source: 'corroborated' }),
+    preserved({ bank_charge_date: '2026-07-09', bank_charge_amount: 95, credit_amount: 40.5, source: 'bank-linen', vendor: "Nor'East" }),
+  ]);
+  assert.deepEqual(orphaned, []);
+  assert.equal(applied, 290.5);
 });
 
 test('gap builders: unapplied refund is critical and says whether it was parked', () => {

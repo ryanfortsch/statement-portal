@@ -67,13 +67,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  * the audit's "double-pay" critical (a slice moved out of a sent month
  * whose statement still carried it, then recognized again in the new one).
  *
- * Without `force`: refuses with a 409 naming every affected month, so the
- * editor can confirm. With `force`: sent or finalized months go through
- * assertStatementWritable (files the post_send_write audit row); merely
- * ingested months get an `installment_split_changed` warning gap so the
+ * Two phases, deliberately. planSliceMonthGates only READS: without
+ * `force` it refuses with a 409 naming every affected month so the editor
+ * can confirm. commitSliceMonthFlags does the writing and runs only after
+ * the split is saved: sent or finalized months go through
+ * assertStatementWritable (filing the post_send_write audit row) and merely
+ * ingested months get an `installment_split_changed` warning gap, so the
  * statements page shows them as needing a Refresh Statement / re-ingest
- * before they are sent. Read failures throw: an unreadable gate is not an
- * open gate.
+ * before they are sent. Splitting the phases is what makes the failure
+ * path's "Nothing was changed" true. Read failures throw: an unreadable
+ * gate is not an open gate.
  */
 type SliceMonthGate = { month: string; statementId: string; frozen: boolean; reason: string | null };
 
@@ -109,7 +112,7 @@ async function loadExistingSlices(
   return { months: [...new Set(rows.map(r => r.month))].sort(), propertyId: rows[0]?.property_id ?? null };
 }
 
-async function gateSliceMonths(
+async function planSliceMonthGates(
   supabase: SupabaseClient,
   args: { code: string; propertyId: string; months: string[]; force: boolean; action: string },
 ): Promise<SliceMonthGate[]> {
@@ -142,26 +145,47 @@ async function gateSliceMonths(
   gates.sort((a, b) => a.month.localeCompare(b.month));
   if (gates.length === 0) return [];
   if (!args.force) throw new SliceMonthsNeedConfirm(gates, args.propertyId, args.action);
-
-  for (const g of gates) {
-    if (g.frozen) {
-      await assertStatementWritable(supabase, { statementId: g.statementId }, {
-        force: true,
-        action: args.action,
-        detail: `${args.code}: slice month ${g.month}`,
-      });
-      continue;
-    }
-    const { error } = await supabase.from('data_gaps').insert({
-      property_statement_id: g.statementId,
-      gap_type: 'installment_split_changed',
-      severity: 'warning',
-      description: `${args.action} for ${args.code} after ${g.month} was ingested. The share this statement recognizes may no longer match the split: re-run Refresh Statement or re-ingest ${g.month}, then resolve.`,
-      expected_data: `Re-ingest ${g.month}`,
-    });
-    if (error) throw error;
-  }
   return gates;
+}
+
+/**
+ * Stamp the affected months. Runs ONLY after the split itself is written:
+ * these are assertions about a change that happened, so filing them first
+ * and then failing the write would leave a sent statement carrying a
+ * post_send_write row for a rewrite that never occurred, and an ingested
+ * month told to re-run for a split that never changed. A failure here is
+ * reported without unwinding the split: the flags are the audit trail, and
+ * a missing flag is a smaller wrong than a false one.
+ */
+async function commitSliceMonthFlags(
+  supabase: SupabaseClient,
+  gates: SliceMonthGate[],
+  args: { code: string; action: string },
+): Promise<string[]> {
+  const failures: string[] = [];
+  for (const g of gates) {
+    try {
+      if (g.frozen) {
+        await assertStatementWritable(supabase, { statementId: g.statementId }, {
+          force: true,
+          action: args.action,
+          detail: `${args.code}: slice month ${g.month}`,
+        });
+        continue;
+      }
+      const { error } = await supabase.from('data_gaps').insert({
+        property_statement_id: g.statementId,
+        gap_type: 'installment_split_changed',
+        severity: 'warning',
+        description: `${args.action} for ${args.code} after ${g.month} was ingested. The share this statement recognizes may no longer match the split: re-run Refresh Statement or re-ingest ${g.month}, then resolve.`,
+        expected_data: `Re-ingest ${g.month}`,
+      });
+      if (error) throw error;
+    } catch (e) {
+      failures.push(`${g.month} (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
+  return failures;
 }
 
 function gateErrorResponse(e: unknown): NextResponse | null {
@@ -222,7 +246,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const oldOwner = existing.propertyId || propertyId;
     byProperty.set(oldOwner, [...(byProperty.get(oldOwner) || []), ...existing.months]);
     for (const [pid, months] of byProperty) {
-      staleMonths = staleMonths.concat(await gateSliceMonths(supabase, {
+      staleMonths = staleMonths.concat(await planSliceMonthGates(supabase, {
         code, propertyId: pid, months, force: body.force === true, action: 'Edit installment split',
       }));
     }
@@ -268,9 +292,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     .from('reservation_installments')
     .insert(rows)
     .select('id, confirmation_code, property_id, month, installment_revenue, installment_nights, is_final_month, note, created_at, updated_at');
-  if (insErr) return NextResponse.json({ error: `insert failed: ${insErr.message}` }, { status: 500 });
+  if (insErr) {
+    // The atomic replace already deleted the old rows, so say so rather
+    // than let the operator assume the previous split survived. No month
+    // flags were filed: nothing claims a change that did not happen.
+    return NextResponse.json({
+      error: `insert failed: ${insErr.message}. The previous split for ${code} was removed and the new one did not save, so this booking currently has NO split -- it recognizes entirely in its checkout month. Re-enter the split.`,
+    }, { status: 500 });
+  }
 
-  return NextResponse.json({ installments: inserted || [], stale_months: staleMonths.map(g => g.month) });
+  const flagFailures = await commitSliceMonthFlags(supabase, staleMonths, { code, action: 'Edit installment split' });
+
+  return NextResponse.json({
+    installments: inserted || [],
+    stale_months: staleMonths.map(g => g.month),
+    ...(flagFailures.length ? { flag_failures: flagFailures } : {}),
+  });
 }
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
@@ -283,7 +320,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
     const existing = await loadExistingSlices(supabase, code);
     if (existing.propertyId) {
-      staleMonths = await gateSliceMonths(supabase, {
+      staleMonths = await planSliceMonthGates(supabase, {
         code,
         propertyId: existing.propertyId,
         months: existing.months,
@@ -298,5 +335,10 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   }
   const { error } = await supabase.from('reservation_installments').delete().eq('confirmation_code', code);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, stale_months: staleMonths.map(g => g.month) });
+  const flagFailures = await commitSliceMonthFlags(supabase, staleMonths, { code, action: 'Clear installment split' });
+  return NextResponse.json({
+    ok: true,
+    stale_months: staleMonths.map(g => g.month),
+    ...(flagFailures.length ? { flag_failures: flagFailures } : {}),
+  });
 }

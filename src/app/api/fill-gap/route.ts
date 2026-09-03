@@ -408,11 +408,7 @@ async function fillPlatformGap(args: {
 
   for (const res of reservations) {
     const match = platformMap.get(res.confirmation_code);
-    // paid_off_stripe: the operator resolved this stay as paid by check or
-    // wire, zeroing its Stripe fee. Re-applying the 3.9% estimate here would
-    // revert that decision -- and stripe-sync then protects the wrong number
-    // forever, because paid_off_stripe is one of its never-rewrite classes.
-    if (!match || installmentCoded.has(res.confirmation_code) || res.bank_match_status === 'paid_off_stripe') {
+    if (!match || installmentCoded.has(res.confirmation_code)) {
       // No CSV row for this reservation (or it's an installment slice);
       // keep its current adjusted revenue in the running total so the
       // statement math stays right.
@@ -420,6 +416,16 @@ async function fillPlatformGap(args: {
       stripeFeeTotal += res.stripe_fee || 0;
       continue;
     }
+    // paid_off_stripe: the operator resolved this stay as paid by check or
+    // wire, zeroing its Stripe fee. Re-applying the 3.9% estimate would
+    // revert that decision -- and stripe-sync then protects the wrong
+    // number forever, because paid_off_stripe is one of its never-rewrite
+    // classes. Only the MONEY is held, though: this row still takes the
+    // CSV's guest name and platform, or a stay resolved off Stripe would
+    // keep its confirmation code as the guest name on the owner's
+    // statement while the unresolved_guest_names gap that would have
+    // flagged it is cleared below.
+    const keepOperatorMoney = res.bank_match_status === 'paid_off_stripe';
     matchedCount++;
     const normalizedPlatform = normalizePlatform(match.platform) || 'Unknown';
     const platformUpper = normalizedPlatform.toUpperCase();
@@ -464,13 +470,15 @@ async function fillPlatformGap(args: {
     const csvName = titleCase(match.guest);
     const nextName = priorIsPlaceholder && csvName ? csvName : (priorName || csvName || 'Guest');
 
+    const nextFee = keepOperatorMoney ? (res.stripe_fee || 0) : stripeFee;
+    const nextAdjusted = keepOperatorMoney ? (res.adjusted_revenue || 0) : adjustedRevenue;
     changes.push({
       id: res.id,
       prev: { guest: res.guest_name, platform: res.platform, adjusted: res.adjusted_revenue },
-      next: { guest: nextName, platform: normalizedPlatform, stripe_fee: stripeFee, adjusted_revenue: adjustedRevenue },
+      next: { guest: nextName, platform: normalizedPlatform, stripe_fee: nextFee, adjusted_revenue: nextAdjusted },
     });
-    totalRevenue += adjustedRevenue;
-    stripeFeeTotal += stripeFee;
+    totalRevenue += nextAdjusted;
+    stripeFeeTotal += nextFee;
   }
 
   totalRevenue = round2(totalRevenue);
@@ -683,6 +691,29 @@ export async function POST(request: NextRequest) {
     }
     // else bank_csv -- continues below with existing logic.
 
+    // Hand-applied cleaning credits ride on the rows section 6 wipes.
+    // Capture them BEFORE any write in this handler, so the fail-closed
+    // 502 below can honestly say nothing was changed: section 5 rewrites
+    // every reservation's bank match status, and a read failure after
+    // that point would leave those flipped with the gap rebuild never
+    // reached. Losing a credit silently re-bills the owner a charge the
+    // operator had already struck.
+    let preservedCredits: PreservedCleaningCredit[] = [];
+    {
+      const { data: creditRows, error: creditReadErr } = await supabase
+        .from('cleaning_events')
+        .select('bank_charge_date, bank_charge_amount, source, vendor, credit_amount, credit_reason')
+        .eq('property_statement_id', stmt.id)
+        .gt('credit_amount', 0);
+      if (creditReadErr) {
+        return NextResponse.json(
+          { error: `Could not read the existing cleaning credits for ${propertyId} / ${month} (${creditReadErr.message}). Nothing was changed -- retrying is safe.` },
+          { status: 502 },
+        );
+      }
+      preservedCredits = (creditRows || []) as PreservedCleaningCredit[];
+    }
+
     // 3. Parse the bank CSV (same shape the main ingest expects).
     const bankText = await file.text();
     const bankRows = parseCSV(bankText);
@@ -879,25 +910,6 @@ export async function POST(request: NextRequest) {
     // 6. Rebuild cleaning_events + repair_events: the old ones were sourced
     //    from (probably absent) prior bank data. Wipe and re-insert from the
     //    fresh CSV.
-    // Hand-applied cleaning credits ride on the rows about to be wiped.
-    // Capture them so the rebuild re-applies them (same rule as /api/ingest,
-    // vendor-credit-netting.ts); fail closed, since losing one silently
-    // re-bills the owner a charge the operator had already struck.
-    let preservedCredits: PreservedCleaningCredit[] = [];
-    {
-      const { data: creditRows, error: creditReadErr } = await supabase
-        .from('cleaning_events')
-        .select('bank_charge_date, bank_charge_amount, source, vendor, credit_amount, credit_reason')
-        .eq('property_statement_id', stmt.id)
-        .gt('credit_amount', 0);
-      if (creditReadErr) {
-        return NextResponse.json(
-          { error: `Could not read the existing cleaning credits for ${propertyId} / ${month} (${creditReadErr.message}). Nothing was changed -- retrying is safe.` },
-          { status: 502 },
-        );
-      }
-      preservedCredits = (creditRows || []) as PreservedCleaningCredit[];
-    }
     let orphanedCredits: PreservedCleaningCredit[] = [];
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
     // repair_events table may not exist if the migration hasn't run.
@@ -979,7 +991,7 @@ export async function POST(request: NextRequest) {
           ...vendorCreditFields(c),
         });
       }
-      orphanedCredits = reapplyPreservedCredits(cleaningInserts, preservedCredits);
+      ({ orphaned: orphanedCredits } = reapplyPreservedCredits(cleaningInserts, preservedCredits));
       await insertCleaningEvents(supabase, cleaningInserts);
     }
 
@@ -1060,7 +1072,11 @@ export async function POST(request: NextRequest) {
       .from('data_gaps')
       .delete()
       .eq('property_statement_id', stmt.id)
-      .in('gap_type', ['missing_bank_csv', 'unmatched_bank', 'vendor_refund_unapplied', 'cleaning_credit_orphaned']);
+      // NOT 'cleaning_credit_orphaned': unlike the others it cannot be
+      // re-derived. The run that files it has already deleted the credited
+      // row, so a later run reads no credits and would raise nothing to
+      // replace what it deleted. It stays until the operator resolves it.
+      .in('gap_type', ['missing_bank_csv', 'unmatched_bank', 'vendor_refund_unapplied']);
 
     const newGaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
     // Vendor refunds this CSV could not net, and operator credits the
@@ -1127,7 +1143,7 @@ export async function POST(request: NextRequest) {
           stmt: {
             id: stmt.id,
             management_fee_pct: stmt.management_fee_pct,
-            cleaning_total: cleaningTotal,
+            cleaning_total: bankTotals.after.cleaning_total,
             repairs_total: repairsTotal,
             reserve_holdback: Number((stmt as { reserve_holdback?: number }).reserve_holdback ?? 0),
           },
@@ -1161,7 +1177,9 @@ export async function POST(request: NextRequest) {
       month,
       property_statement_id: stmt.id,
       summary: {
-        cleaning_total: cleaningTotal,
+        // The stored figure, net of any re-applied operator credit -- not
+        // the pre-credit total this handler computed from the CSV alone.
+        cleaning_total: bankTotals.after.cleaning_total,
         owner_payout: postSyncOwnerPayout ?? newOwnerPayout,
         cleaning_events: cleaningCharges.length + linenCharges.length,
         reservations_matched: resUpdates.filter(u => u.bank_match_status === 'matched').length,

@@ -1518,6 +1518,31 @@ export async function POST(request: NextRequest) {
       preservedCredits = (creditRows || []) as PreservedCredit[];
     }
 
+    // An UNRESOLVED cleaning_credit_orphaned notice must survive too, and
+    // it cannot be re-derived: the run that files it has already deleted
+    // the credited row, so the next re-ingest reads no credits, files no
+    // orphan, and would delete the only record that a credit was lost
+    // (section 8 wipes data_gaps wholesale, and the statement row itself
+    // is replaced). Carry the unresolved ones onto the rebuilt statement.
+    let carriedOrphanGaps: { description: string; expected_data: string | null }[] = [];
+    if (existingStmt) {
+      const { data: gapRows, error: gapReadErr } = await supabase
+        .from('data_gaps')
+        .select('description, expected_data')
+        .eq('property_statement_id', existingStmt.id)
+        .eq('gap_type', 'cleaning_credit_orphaned')
+        // resolved is NULLABLE: .eq('resolved', false) drops NULL rows on
+        // SQL three-valued logic, which would silently lose the notice.
+        .or('resolved.is.null,resolved.eq.false');
+      if (gapReadErr) {
+        return NextResponse.json(
+          { error: `Could not read the open cleaning-credit notices for ${propertyId} / ${month} (${gapReadErr.message}). Nothing was changed -- retrying is safe.` },
+          { status: 502 },
+        );
+      }
+      carriedOrphanGaps = (gapRows || []) as { description: string; expected_data: string | null }[];
+    }
+
     if (existingStmt) {
       await supabase.from('reservations').delete().eq('property_statement_id', existingStmt.id);
       await supabase.from('cleaning_events').delete().eq('property_statement_id', existingStmt.id);
@@ -1928,7 +1953,7 @@ export async function POST(request: NextRequest) {
     // credit whose charge no longer exists in the re-uploaded CSV is filed
     // as a critical gap in section 12; the owner is billed the gross until
     // the operator decides.
-    const orphanedCredits = reapplyPreservedCredits(cleaningInserts, preservedCredits);
+    const { orphaned: orphanedCredits, applied: reappliedCreditTotal } = reapplyPreservedCredits(cleaningInserts, preservedCredits);
     await insertCleaningEvents(supabase, cleaningInserts);
 
     // 11b. Insert repair events: handyman / vendor charges from the bank,
@@ -2014,6 +2039,15 @@ export async function POST(request: NextRequest) {
     // A hand-applied credit whose charge did not come back in the re-upload.
     // Until the operator re-applies or confirms it, the owner is billed gross.
     for (const pc of orphanedCredits) gaps.push(orphanedCreditGap(pc));
+    // Verbatim, so a carried notice reads as the same gap it was.
+    for (const g of carriedOrphanGaps) {
+      gaps.push({
+        gap_type: 'cleaning_credit_orphaned',
+        description: g.description,
+        severity: 'critical',
+        expected_data: g.expected_data ?? '',
+      });
+    }
 
     // The tax sweep is provably occupancy tax -- it went to the tax-only
     // account -- so when Helm cannot reproduce the amount, the missing
@@ -2259,13 +2293,22 @@ export async function POST(request: NextRequest) {
       reserveHoldback: preservedReserveHoldback,
       assertedFreeze: finalityGate ?? undefined,
     });
-    if (Math.abs(ingestTotals.after.owner_payout - ownerPayout) > 0.02) {
+    // The comparison figure has to account for the preserved operator
+    // credits re-applied in section 11: `ownerPayout` was built on a
+    // cleaning total computed from the CSV alone (section 10), which is
+    // gross by exactly the re-applied amount, while the write path derives
+    // cleaning_total from the rows including those credits. Without this
+    // term a SUCCESSFUL re-ingest of any statement carrying an operator
+    // credit files a mismatch gap on itself, and a self-check that cries
+    // wolf on its own success is how a real divergence gets waved through.
+    const expectedPayout = Math.round((ownerPayout + reappliedCreditTotal) * 100) / 100;
+    if (Math.abs(ingestTotals.after.owner_payout - expectedPayout) > 0.02) {
       const { error: selfErr } = await supabase.from('data_gaps').insert({
         property_statement_id: stmt.id,
         gap_type: 'ingest_recompute_mismatch',
         severity: 'warning',
-        description: `Ingest computed an owner payout of $${ownerPayout.toFixed(2)} but recomputing from the rows it wrote gives $${ingestTotals.after.owner_payout.toFixed(2)}. The row-derived figure is what every later recompute will produce, so it is the one stored; the discrepancy itself is the thing to explain.`,
-        expected_data: `ingest ${ownerPayout.toFixed(2)} vs rows ${ingestTotals.after.owner_payout.toFixed(2)} · ${new Date().toISOString()}`,
+        description: `Ingest computed an owner payout of $${expectedPayout.toFixed(2)}${reappliedCreditTotal ? ` (including $${reappliedCreditTotal.toFixed(2)} of re-applied operator credits)` : ''} but recomputing from the rows it wrote gives $${ingestTotals.after.owner_payout.toFixed(2)}. The row-derived figure is what every later recompute will produce, so it is the one stored; the discrepancy itself is the thing to explain.`,
+        expected_data: `ingest ${expectedPayout.toFixed(2)} vs rows ${ingestTotals.after.owner_payout.toFixed(2)} · ${new Date().toISOString()}`,
         resolved: false,
       });
       if (selfErr) console.error('ingest: self-check gap insert failed', selfErr.message);

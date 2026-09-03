@@ -127,8 +127,20 @@ export type CreditableInsert = {
   credit_reason?: string;
 };
 
+/**
+ * Which vendor family a stored cleaning_events row belongs to, for the
+ * purpose of matching a preserved credit back to its rebuilt charge.
+ *
+ * 'matched', 'bank' and 'corroborated' are ALL the same Cape Ann Elite
+ * bank charge: 'matched' vs 'bank' is only whether a checkout was found,
+ * and /api/sync-invoices flips a matched/bank row to 'corroborated' in
+ * place when it attaches the QuickBooks invoice. That flip is the routine
+ * monthly close step, so a credit the operator applied to an
+ * invoice-verified charge MUST still find its charge after a rebuild
+ * re-inserts it as plain 'matched'/'bank'.
+ */
 const sourceFamily = (source: string): string =>
-  (source === 'matched' || source === 'bank') ? 'cleaning' : source;
+  (source === 'matched' || source === 'bank' || source === 'corroborated') ? 'cleaning' : source;
 
 /**
  * Re-apply credits the operator had placed by hand onto the rebuilt rows,
@@ -145,12 +157,19 @@ const sourceFamily = (source: string): string =>
  *   - a credit whose charge did not come back in the new CSV is returned
  *     so the caller files `cleaning_credit_orphaned`. Until the operator
  *     decides, the owner is billed the gross -- visibly, not silently.
+ *
+ * Returns the orphans plus `applied`, the total credit actually re-applied.
+ * Callers need that number: a caller that computed a cleaning total BEFORE
+ * this pass (both /api/ingest and /api/fill-gap do) is holding a figure
+ * that is gross by exactly `applied`, and comparing it to what the write
+ * path derives from the rows would otherwise read as a real divergence.
  */
 export function reapplyPreservedCredits<T extends CreditableInsert>(
   inserts: T[],
   preserved: PreservedCleaningCredit[],
-): PreservedCleaningCredit[] {
+): { orphaned: PreservedCleaningCredit[]; applied: number } {
   const orphaned: PreservedCleaningCredit[] = [];
+  let applied = 0;
   for (const pc of preserved) {
     if ((pc.credit_reason || '').includes('(auto-netted at')) continue;
     const pcAmount = Number(pc.bank_charge_amount);
@@ -162,13 +181,14 @@ export function reapplyPreservedCredits<T extends CreditableInsert>(
     if (target) {
       target.credit_amount = Math.round(Math.min(Number(pc.credit_amount) || 0, target.amount) * 100) / 100;
       target.credit_reason = pc.credit_reason || 'Operator credit (preserved across re-ingest)';
+      applied = Math.round((applied + target.credit_amount) * 100) / 100;
     } else if (candidates.length === 0) {
       orphaned.push(pc);
     }
     // candidates exist but every one already carries a credit: the refund
     // is netted this round; nothing to add and nothing to flag.
   }
-  return orphaned;
+  return { orphaned, applied };
 }
 
 // ---------------------------------------------------------------------------
