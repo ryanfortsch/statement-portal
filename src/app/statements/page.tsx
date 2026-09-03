@@ -717,6 +717,21 @@ function gapFillType(gapType: string): FillGapType | null {
   return null;
 }
 
+/**
+ * Gap types an automated pass OWNS: it deletes and re-derives them on every
+ * run (stripe-sync nightly, fill-gap on upload, the missing-direct sweep).
+ * Marking one resolved by hand is undone the next time that pass runs, so
+ * the Resolve button is not offered for them -- they clear themselves when
+ * the underlying condition clears, which is the honest contract. Everything
+ * else is a standing judgement that only a person can retire.
+ */
+const PIPELINE_OWNED_GAP_TYPES = new Set([
+  'missing_bank_csv', 'unmatched_bank', 'vendor_refund_unapplied',
+  'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
+]);
+const isPipelineOwnedGap = (gapType: string) =>
+  gapType.startsWith('stripe_') || PIPELINE_OWNED_GAP_TYPES.has(gapType);
+
 // Response shapes returned by /api/fill-gap -- discriminated by file_type.
 type BankChange = { guest: string; status_before: string; status_after: string; deposit_amount: number | null; adjusted_revenue: number | null; changed: boolean };
 // adjusted_revenue_after is NULLABLE: a row whose money the operator owns
@@ -1974,7 +1989,9 @@ function PropertyCard({
                   // the card forever and ride along in every Draft All
                   // confirm, which is how operators learn to click through
                   // the confirm without reading it.
-                  const needsManualResolve = !fillable && !offStripeResolvable && gap.gap_type !== 'cancelled_reservation';
+                  const needsManualResolve = !fillable && !offStripeResolvable
+                    && gap.gap_type !== 'cancelled_reservation'
+                    && !isPipelineOwnedGap(gap.gap_type);
                   return (
                     <div
                       key={gap.id}

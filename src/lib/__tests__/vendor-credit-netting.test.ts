@@ -247,11 +247,14 @@ test('a money-source credit with no recorded charge amount is orphaned, not matc
 
 // --- the carried notice retires itself ---
 
-test('the orphan gap carries a machine key that round-trips', () => {
-  const pc = preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, source: 'corroborated' });
+test('the orphan gap carries a machine key that round-trips, including the credit amount', () => {
+  const pc = preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, source: 'corroborated', credit_amount: 250 });
   const g = orphanedCreditGap(pc);
-  assert.equal(parseOrphanCreditKey(g.expected_data), '2026-07-05|250.00|cleaning');
-  assert.equal(orphanCreditKey(pc), '2026-07-05|250.00|cleaning');
+  assert.equal(parseOrphanCreditKey(g.expected_data), '2026-07-05|250.00|cleaning|250.00');
+  assert.equal(orphanCreditKey(pc), '2026-07-05|250.00|cleaning|250.00');
+  // Two notices about the SAME charge must not collapse into one.
+  const partial = preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, source: 'matched', credit_amount: 60 });
+  assert.notEqual(orphanCreditKey(partial), orphanCreditKey(pc));
 });
 
 test('an unrecorded charge amount reads as unrecorded, never as $0.00', () => {
@@ -260,11 +263,32 @@ test('an unrecorded charge amount reads as unrecorded, never as $0.00', () => {
   assert.match(g.description, /unrecorded amount/);
 });
 
-test('a carried notice retires once the charge is back AND credited again', () => {
-  const key = orphanCreditKey(preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, source: 'matched' }));
+test('a carried notice retires once the charge is back AND the OPERATOR credited it again', () => {
+  const key = orphanCreditKey(preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, source: 'matched', credit_amount: 250 }));
   const uncredited = [insert('2026-07-05', 250, 'bank')];
   assert.equal(orphanCreditRestored(uncredited, key), false, 'charge back but still uncredited: keep the notice');
-  const credited = [{ ...insert('2026-07-05', 250, 'bank'), credit_amount: 250 }];
+  const credited = [{ ...insert('2026-07-05', 250, 'bank'), credit_amount: 250, credit_reason: 'Duplicate charge' }];
   assert.equal(orphanCreditRestored(credited, key), true);
   assert.equal(orphanCreditRestored([], key), false, 'charge absent: keep the notice');
+});
+
+test('an AUTO-NETTED credit never retires a notice: the pipeline cannot vouch for the operator', () => {
+  // The sibling that CAUSED the orphan shares the charge, so a blind
+  // "does it carry a credit" test let the notice delete itself on the very
+  // next ingest with no human action.
+  const key = orphanCreditKey(preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, source: 'matched', credit_amount: 250 }));
+  const autoNetted = [{
+    ...insert('2026-07-05', 250, 'bank'),
+    credit_amount: 250,
+    credit_reason: 'Cape Ann Elite refund posted 07/09/2026 (auto-netted at ingest)',
+  }];
+  assert.equal(orphanCreditRestored(autoNetted, key), false);
+});
+
+test('a credit of a DIFFERENT amount does not answer the notice', () => {
+  const key = orphanCreditKey(preserved({ bank_charge_date: '2026-07-05', bank_charge_amount: 250, source: 'matched', credit_amount: 60 }));
+  const wrongAmount = [{ ...insert('2026-07-05', 250, 'bank'), credit_amount: 250, credit_reason: 'Duplicate charge' }];
+  assert.equal(orphanCreditRestored(wrongAmount, key), false);
+  const rightAmount = [{ ...insert('2026-07-05', 250, 'bank'), credit_amount: 60, credit_reason: 'Overbilled $60 on this turn' }];
+  assert.equal(orphanCreditRestored(rightAmount, key), true);
 });

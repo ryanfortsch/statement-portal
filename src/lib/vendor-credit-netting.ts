@@ -157,10 +157,22 @@ const MONEY_FAMILIES = new Set(['cleaning', 'bank-linen', 'bank-laundry']);
 
 const AUTO_NETTED_MARK = '(auto-netted at';
 
-/** Stable machine key for a preserved credit's charge: date|amount|family. */
-export function orphanCreditKey(pc: Pick<PreservedCleaningCredit, 'bank_charge_date' | 'bank_charge_amount' | 'source'>): string {
+/**
+ * Stable machine key for a preserved credit: date|charge|family|credit.
+ *
+ * The CREDIT amount is part of the key on purpose. Keyed on the charge
+ * alone, two different notices about the same $250 charge (a $60 partial
+ * and a $250 duplicate) collapse into one and the other is deleted, and a
+ * $250 credit could answer a notice about a $60 one.
+ */
+export function orphanCreditKey(
+  pc: Pick<PreservedCleaningCredit, 'bank_charge_date' | 'bank_charge_amount' | 'source' | 'credit_amount'>,
+): string {
   const amt = Number(pc.bank_charge_amount);
-  return `${pc.bank_charge_date || '?'}|${Number.isFinite(amt) && pc.bank_charge_amount !== null ? amt.toFixed(2) : '?'}|${sourceFamily(pc.source)}`;
+  const charge = pc.bank_charge_amount !== null && Number.isFinite(amt) ? amt.toFixed(2) : '?';
+  const cred = Number(pc.credit_amount);
+  const credit = Number.isFinite(cred) ? cred.toFixed(2) : '?';
+  return `${pc.bank_charge_date || '?'}|${charge}|${sourceFamily(pc.source)}|${credit}`;
 }
 
 /** Read the key back off a stored gap's expected_data. Null if absent. */
@@ -176,11 +188,22 @@ export function parseOrphanCreditKey(expectedData: string | null): string | null
  * credit, so the notice has answered itself and must not be re-filed.
  */
 export function orphanCreditRestored<T extends CreditableInsert>(inserts: T[], key: string): boolean {
-  return inserts.some(ins => orphanCreditKey({
-    bank_charge_date: ins.bank_charge_date,
-    bank_charge_amount: ins.bank_charge_amount,
-    source: ins.source,
-  }) === key && !!ins.credit_amount);
+  return inserts.some(ins => {
+    if (!ins.credit_amount) return false;
+    // ONLY an operator credit answers the notice. A credit the netting
+    // pass wrote this run is the pipeline's own work: counting it as the
+    // operator's re-application is how a notice retired itself on the very
+    // next ingest, since the auto-netted sibling that CAUSED the orphan
+    // shares the orphaned credit's charge. Absence of the operator's
+    // action is not evidence the operator acted.
+    if ((ins.credit_reason || '').includes(AUTO_NETTED_MARK)) return false;
+    return orphanCreditKey({
+      bank_charge_date: ins.bank_charge_date,
+      bank_charge_amount: ins.bank_charge_amount,
+      source: ins.source,
+      credit_amount: ins.credit_amount,
+    }) === key;
+  });
 }
 
 /**

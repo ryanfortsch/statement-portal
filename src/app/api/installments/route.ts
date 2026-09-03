@@ -239,6 +239,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // whole stay, so it is stale the moment a split appears). Nothing is
   // written until the gate passes.
   let staleMonths: SliceMonthGate[] = [];
+  // The months the atomic replace's DELETE alone invalidates. If the insert
+  // then fails, ONLY these were actually changed -- flagging the incoming
+  // split's months there would file a post_send_write on a sent statement
+  // this request never touched.
+  let removedGates: SliceMonthGate[] = [];
   try {
     const existing = await loadExistingSlices(supabase, code);
     const byProperty = new Map<string, string[]>();
@@ -260,6 +265,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // audit rows for one change.
     const bySid = new Map(staleMonths.map(g => [g.statementId, g]));
     staleMonths = [...bySid.values()].sort((a, b) => a.month.localeCompare(b.month));
+    if (existing.propertyId && existing.months.length > 0) {
+      const removed = await planSliceMonthGates(supabase, {
+        code, propertyId: existing.propertyId, months: existing.months, force: true, action: 'Edit installment split',
+      });
+      const removedBySid = new Map(removed.map(g => [g.statementId, g]));
+      removedGates = [...removedBySid.values()].sort((a, b) => a.month.localeCompare(b.month));
+    }
     if (staleMonths.length > 0 && body.force !== true) {
       throw new SliceMonthsNeedConfirm(staleMonths, [...byProperty.keys()].join(' and '), 'Edit installment split');
     }
@@ -309,7 +321,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // The atomic replace already deleted the old rows. That IS a change to
     // every month the old split touched, so the flags are filed here too:
     // they are now true statements. Only the wording differs.
-    const failFlags = await commitSliceMonthFlags(supabase, staleMonths, {
+    const failFlags = await commitSliceMonthFlags(supabase, removedGates, {
       code, action: 'Installment split REMOVED (save failed)',
     });
     return NextResponse.json({
