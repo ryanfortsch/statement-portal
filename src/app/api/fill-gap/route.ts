@@ -3,6 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
+import { netVendorCredits, vendorChargeNet, vendorCreditFields, reapplyPreservedCredits, unappliedRefundGap, orphanedCreditGap, type VendorCharge, type VendorCredit, type PreservedCleaningCredit } from '@/lib/vendor-credit-netting';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
@@ -195,10 +196,10 @@ function normalizePlatform(raw?: string | null): string | null {
  * See /api/ingest for the algorithm's rationale. Duplicated here so
  * neither route drifts from the other on this accounting rule.
  */
-function matchCleaningsToReservations<R extends { check_out: string; guest_name: string }>(
-  cleaningCharges: { date: string; amount: number; description: string }[],
+function matchCleaningsToReservations<C extends { date: string; amount: number; description: string }, R extends { check_out: string; guest_name: string }>(
+  cleaningCharges: C[],
   reservations: R[],
-): { charge: typeof cleaningCharges[number]; matchedGuest: string | null; matchedCheckout: string | null }[] {
+): { charge: C; matchedGuest: string | null; matchedCheckout: string | null }[] {
   const withISO = cleaningCharges.map((c, origIdx) => ({
     c, origIdx, iso: isoFromMMDDYYYY(c.date),
   }));
@@ -407,7 +408,11 @@ async function fillPlatformGap(args: {
 
   for (const res of reservations) {
     const match = platformMap.get(res.confirmation_code);
-    if (!match || installmentCoded.has(res.confirmation_code)) {
+    // paid_off_stripe: the operator resolved this stay as paid by check or
+    // wire, zeroing its Stripe fee. Re-applying the 3.9% estimate here would
+    // revert that decision -- and stripe-sync then protects the wrong number
+    // forever, because paid_off_stripe is one of its never-rewrite classes.
+    if (!match || installmentCoded.has(res.confirmation_code) || res.bank_match_status === 'paid_off_stripe') {
       // No CSV row for this reservation (or it's an installment slice);
       // keep its current adjusted revenue in the running total so the
       // statement math stays right.
@@ -688,10 +693,16 @@ export async function POST(request: NextRequest) {
     // Cleaning (Cape Ann Elite) and linen (Nor'East) tracked separately;
     // both fold into cleaning_total. Linens are additive cost, never matched
     // to a checkout. Mirrors /api/ingest via the shared classifier.
-    const cleaningCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
-    const linenCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
-    const laundryCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
-    const repairCharges: { date: string; amount: number; description: string; vendor: string }[] = [];
+    const cleaningCharges: VendorCharge[] = [];
+    const linenCharges: VendorCharge[] = [];
+    const laundryCharges: VendorCharge[] = [];
+    const repairCharges: VendorCharge[] = [];
+    // Vendor CREDITS (refunds), held out of the deposit pool and netted
+    // against their own vendor's charges after the loop -- same rule as
+    // /api/ingest via the shared helper. Until now a refund fell through
+    // to the deposits list as an "other" deposit and the owner stayed
+    // billed the gross.
+    const vendorCredits: VendorCredit[] = [];
     const deposits: { date: string; amount: number; description: string; source: string }[] = [];
     for (const row of bankRows) {
       const desc = row['Description'] || row['DESCRIPTION'] || '';
@@ -722,6 +733,13 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Vendor CREDIT (refund). A $47.40 laundry refund must never
+      // amount-match an Airbnb payout, so it never reaches the deposits.
+      if (cls && amount > 0 && isInMonth(date, month)) {
+        vendorCredits.push({ kind: cls.kind, vendor: cls.vendor, date, amount: Math.round(amount * 100) / 100, description: desc });
+        continue;
+      }
+
       if (amount > 0) {
         let source = 'other';
         if (descUpper.includes('AIRBNB')) source = 'airbnb';
@@ -731,9 +749,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
-    const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
-    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
+    // Net refunds against their charges (one copy of the rule, shared with
+    // /api/ingest). Matched charges carry credit_amount/credit_reason onto
+    // their cleaning_events rows below; the write path then bills the net.
+    // Unmatched credits raise vendor_refund_unapplied in section 5b.
+    const unmatchedVendorCredits = netVendorCredits(
+      { cleaning: cleaningCharges, linen: linenCharges, laundry: laundryCharges },
+      vendorCredits,
+      'bank re-upload',
+    );
+    const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + vendorChargeNet(c), 0) * 100) / 100;
+    const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + vendorChargeNet(c), 0) * 100) / 100;
+    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + vendorChargeNet(c), 0) * 100) / 100;
     const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal + laundryTotal) * 100) / 100;
     let repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
@@ -774,6 +801,13 @@ export async function POST(request: NextRequest) {
     const availableDeposits = [...deposits]; // consumed as we match
 
     for (const res of reservations || []) {
+      // Operator-set markers survive the re-match. paid_off_stripe is a
+      // decision (paid by check or wire, Stripe fee zeroed) and
+      // installment_no_bank_event is a slice that by design has no deposit
+      // of its own. Both used to be flattened to 'unmatched' here on every
+      // bank re-upload, which un-did the operator's work and re-raised the
+      // gaps she had already resolved.
+      if (res.bank_match_status === 'paid_off_stripe' || res.bank_match_status === 'installment_no_bank_event') continue;
       const platform = (res.platform || '').toUpperCase();
       const isStripeChannel = platform.includes('HOMEAWAY') || platform.includes('VRBO') || platform === 'MANUAL';
       const isBooking = platform.includes('BOOKING');
@@ -845,6 +879,26 @@ export async function POST(request: NextRequest) {
     // 6. Rebuild cleaning_events + repair_events: the old ones were sourced
     //    from (probably absent) prior bank data. Wipe and re-insert from the
     //    fresh CSV.
+    // Hand-applied cleaning credits ride on the rows about to be wiped.
+    // Capture them so the rebuild re-applies them (same rule as /api/ingest,
+    // vendor-credit-netting.ts); fail closed, since losing one silently
+    // re-bills the owner a charge the operator had already struck.
+    let preservedCredits: PreservedCleaningCredit[] = [];
+    {
+      const { data: creditRows, error: creditReadErr } = await supabase
+        .from('cleaning_events')
+        .select('bank_charge_date, bank_charge_amount, source, vendor, credit_amount, credit_reason')
+        .eq('property_statement_id', stmt.id)
+        .gt('credit_amount', 0);
+      if (creditReadErr) {
+        return NextResponse.json(
+          { error: `Could not read the existing cleaning credits for ${propertyId} / ${month} (${creditReadErr.message}). Nothing was changed -- retrying is safe.` },
+          { status: 502 },
+        );
+      }
+      preservedCredits = (creditRows || []) as PreservedCleaningCredit[];
+    }
+    let orphanedCredits: PreservedCleaningCredit[] = [];
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
     // repair_events table may not exist if the migration hasn't run.
     const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', stmt.id);
@@ -860,6 +914,9 @@ export async function POST(request: NextRequest) {
         amount: number;
         source: string;
         vendor: string;
+        // Auto-netted refund or a preserved operator credit.
+        credit_amount?: number;
+        credit_reason?: string;
       };
       const cleaningInserts: CleaningEventInsert[] = [];
       if (cleaningCharges.length > 0) {
@@ -873,6 +930,7 @@ export async function POST(request: NextRequest) {
             amount: m.charge.amount,
             source: m.matchedGuest ? 'matched' : 'bank',
             vendor: CLEANING_VENDOR_DEFAULT,
+            ...vendorCreditFields(m.charge),
           });
         }
       }
@@ -887,6 +945,7 @@ export async function POST(request: NextRequest) {
           amount: c.amount,
           source: 'bank-linen',
           vendor: LINEN_VENDOR_NAME,
+          ...vendorCreditFields(c),
         });
       }
       // Laundry Plus charges. Mirror of /api/ingest: attribute to nearest
@@ -917,8 +976,10 @@ export async function POST(request: NextRequest) {
           amount: c.amount,
           source: 'bank-laundry',
           vendor: LAUNDRY_VENDOR_NAME,
+          ...vendorCreditFields(c),
         });
       }
+      orphanedCredits = reapplyPreservedCredits(cleaningInserts, preservedCredits);
       await insertCleaningEvents(supabase, cleaningInserts);
     }
 
@@ -999,9 +1060,15 @@ export async function POST(request: NextRequest) {
       .from('data_gaps')
       .delete()
       .eq('property_statement_id', stmt.id)
-      .in('gap_type', ['missing_bank_csv', 'unmatched_bank']);
+      .in('gap_type', ['missing_bank_csv', 'unmatched_bank', 'vendor_refund_unapplied', 'cleaning_credit_orphaned']);
 
     const newGaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
+    // Vendor refunds this CSV could not net, and operator credits the
+    // rebuild could not re-apply. Both critical: each leaves the owner
+    // billed gross until a human decides. (This path does not park the
+    // refund in the review queue; the gap is the notice.)
+    for (const c of unmatchedVendorCredits) newGaps.push(unappliedRefundGap(c, { parkedInQueue: false }));
+    for (const pc of orphanedCredits) newGaps.push(orphanedCreditGap(pc));
     for (const u of resUpdates) {
       if (u.bank_match_status !== 'unmatched') continue;
       const res = (reservations || []).find(r => r.id === u.id);

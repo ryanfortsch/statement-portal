@@ -6,6 +6,20 @@ import { effectiveCommission, wasCommissionStripped } from '@/lib/revenue-math';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
+ * /api/installments refuses with 409 { needs_confirm } when a month the
+ * split touches already has a statement (ingested, sent, or finalized):
+ * changing the split changes what that month should pay. The server's
+ * message names the months; confirming retries with force, and the server
+ * flags each affected statement so it is re-run before it goes out.
+ */
+async function staleMonthsGate(res: Response): Promise<'none' | 'proceed' | 'declined'> {
+  if (res.status !== 409) return 'none';
+  const data = await res.clone().json().catch(() => null) as { needs_confirm?: boolean; frozen?: boolean; error?: string } | null;
+  if (!data?.needs_confirm && !data?.frozen) return 'none';
+  return confirm(data.error || 'A month this split touches already has a statement. Proceed?') ? 'proceed' : 'declined';
+}
+
+/**
  * Inline editor for a cross-month booking's installment split.
  *
  * Opens as a modal anchored to the booking. Pre-populates the per-month
@@ -197,20 +211,25 @@ export function InstallmentEditor({
     if (!exact) { setError(`Sum must equal $${fmt(totalRev)} (currently $${fmt(sum)})`); return; }
     setBusy(true); setError(null);
     try {
-      const res = await fetch('/api/installments', {
+      const payload = {
+        confirmation_code: booking.confirmation_code,
+        property_id: booking.property_id,
+        installments: drafts.map(d => ({
+          month: d.month,
+          installment_revenue: d.installment_revenue,
+          installment_nights: d.installment_nights,
+          is_final_month: d.is_final_month,
+        })),
+      };
+      const post = (body: Record<string, unknown>) => fetch('/api/installments', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          confirmation_code: booking.confirmation_code,
-          property_id: booking.property_id,
-          installments: drafts.map(d => ({
-            month: d.month,
-            installment_revenue: d.installment_revenue,
-            installment_nights: d.installment_nights,
-            is_final_month: d.is_final_month,
-          })),
-        }),
+        body: JSON.stringify(body),
       });
+      let res = await post(payload);
+      const gate = await staleMonthsGate(res);
+      if (gate === 'declined') return;
+      if (gate === 'proceed') res = await post({ ...payload, force: true });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       onClose();
@@ -226,7 +245,11 @@ export function InstallmentEditor({
     if (!confirm(`Remove the installment split for ${booking.guest_name}? The booking will recognize entirely in its checkout month, like a normal stay.`)) return;
     setBusy(true); setError(null);
     try {
-      const res = await fetch(`/api/installments?confirmation_code=${encodeURIComponent(booking.confirmation_code)}`, { method: 'DELETE' });
+      const url = `/api/installments?confirmation_code=${encodeURIComponent(booking.confirmation_code)}`;
+      let res = await fetch(url, { method: 'DELETE' });
+      const gate = await staleMonthsGate(res);
+      if (gate === 'declined') return;
+      if (gate === 'proceed') res = await fetch(`${url}&force=true`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Clear failed');
       onClose();

@@ -3,6 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
+import { netVendorCredits, vendorChargeNet, reapplyPreservedCredits, unappliedRefundGap, orphanedCreditGap, type VendorCharge, type PreservedCleaningCredit } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
 import { buildRemittanceSheet } from '@/lib/remittance';
 import { getActivePropertyForStatements } from '@/lib/properties';
@@ -826,12 +827,6 @@ export async function POST(request: NextRequest) {
     // roll into cleaning_total so the owner statement shows one combined
     // "Cleaning" line (linens were bundled into Cape Ann Elite's invoices
     // before May 2026; folding them back in keeps owner payouts correct).
-    type VendorCharge = {
-      date: string; amount: number; description: string; vendor: string;
-      // Set when a same-vendor CREDIT in the same month nets this charge
-      // out (see the vendor-refund pass below the bank loop).
-      credit_amount?: number; credit_reason?: string;
-    };
     const cleaningCharges: VendorCharge[] = [];
     const linenCharges: VendorCharge[] = [];
     const laundryCharges: VendorCharge[] = [];
@@ -913,40 +908,13 @@ export async function POST(request: NextRequest) {
     // Credits with no same-month exact match (partial refunds, refunds of a
     // prior month's charge) are NOT guessed at: they raise a critical data
     // gap and land in the bank review queue below.
-    const bankDateMs = (d: string): number => {
-      const parts = d.split('/');
-      if (parts.length !== 3) return NaN;
-      return Date.UTC(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
-    };
-    const unmatchedVendorCredits: typeof vendorCredits = [];
-    for (const credit of vendorCredits) {
-      // Auto-net only the cleaning family: cleaning_events carries
-      // credit_amount/credit_reason so the netted row stays visible.
-      // repair_events has no credit fields yet, so a maintenance-vendor
-      // refund goes the loud route (critical gap + review queue) instead
-      // of silently diverging rows from repairs_total.
-      const pool: VendorCharge[] | null =
-        credit.kind === 'cleaning' ? cleaningCharges :
-        credit.kind === 'linen' ? linenCharges :
-        credit.kind === 'laundry' ? laundryCharges : null;
-      let target: VendorCharge | null = null;
-      const creditMs = bankDateMs(credit.date);
-      for (const ch of pool || []) {
-        if (ch.credit_amount) continue;
-        if (Math.abs(ch.amount - credit.amount) > 0.005) continue;
-        if (!target) { target = ch; continue; }
-        const a = Math.abs(bankDateMs(ch.date) - creditMs);
-        const b = Math.abs(bankDateMs(target.date) - creditMs);
-        if (!isNaN(a) && (isNaN(b) || a < b)) target = ch;
-      }
-      if (target) {
-        target.credit_amount = credit.amount;
-        target.credit_reason = `${credit.vendor} refund posted ${credit.date} (auto-netted at ingest)`;
-      } else {
-        unmatchedVendorCredits.push(credit);
-      }
-    }
-    const chargeNet = (c: VendorCharge) => c.amount - (c.credit_amount || 0);
+    // One copy of the rule, shared with /api/fill-gap (vendor-credit-netting.ts).
+    const unmatchedVendorCredits = netVendorCredits(
+      { cleaning: cleaningCharges, linen: linenCharges, laundry: laundryCharges },
+      vendorCredits,
+      'ingest',
+    );
+    const chargeNet = vendorChargeNet;
 
     // cleaning_total folds cleaning + linens into one number (owner-facing
     // single "Cleaning" line). owner_payout already deducts cleaning_total,
@@ -1505,15 +1473,50 @@ export async function POST(request: NextRequest) {
     // would silently drop a $2000 reserve back to $0. Tolerates the
     // reserve_holdback migration not having run yet: query wraps in a
     // try/catch and falls back to 0.
-    const { data: existingStmt } = await supabase
+    // maybeSingle, and the error CHECKED. This used .single() with the error
+    // discarded, which relied on the no-row error to mean "first ingest" --
+    // and so a transient read failure ALSO read as "first ingest": the wipe
+    // branch was skipped (leaving the old rows to double up under the new
+    // statement) and preservedReserveHoldback fell to 0, paying out a
+    // $2,000 reserve the operator had withheld. Absence of data is not a fact.
+    const { data: existingStmt, error: existingErr } = await supabase
       .from('property_statements')
       .select('id, reserve_holdback')
       .eq('period_id', period.id)
       .eq('property_id', propertyId)
-      .single();
+      .maybeSingle();
+    if (existingErr) {
+      return NextResponse.json(
+        { error: `Could not read the existing statement for ${propertyId} / ${month} (${existingErr.message}). Nothing was changed -- retrying is safe.` },
+        { status: 502 },
+      );
+    }
 
     const preservedReserveHoldback = Number((existingStmt as { reserve_holdback?: number } | null)?.reserve_holdback ?? 0);
     const ownerPayout = Math.round((ownerPayoutBeforeReserve - preservedReserveHoldback) * 100) / 100;
+
+    // Hand-applied cleaning credits (Mark Duplicate / refund on a charge)
+    // live on the cleaning_events rows about to be wiped. Capture them so
+    // they can be re-applied to the rebuilt rows in section 11 -- a
+    // re-upload used to erase every one of them and re-bill the owner the
+    // duplicate the operator had already struck. Read fails closed: losing
+    // a credit silently is exactly the failure this exists to prevent.
+    type PreservedCredit = PreservedCleaningCredit;
+    let preservedCredits: PreservedCredit[] = [];
+    if (existingStmt) {
+      const { data: creditRows, error: creditReadErr } = await supabase
+        .from('cleaning_events')
+        .select('bank_charge_date, bank_charge_amount, source, vendor, credit_amount, credit_reason')
+        .eq('property_statement_id', existingStmt.id)
+        .gt('credit_amount', 0);
+      if (creditReadErr) {
+        return NextResponse.json(
+          { error: `Could not read the existing cleaning credits for ${propertyId} / ${month} (${creditReadErr.message}). Nothing was changed -- retrying is safe.` },
+          { status: 502 },
+        );
+      }
+      preservedCredits = (creditRows || []) as PreservedCredit[];
+    }
 
     if (existingStmt) {
       await supabase.from('reservations').delete().eq('property_statement_id', existingStmt.id);
@@ -1920,6 +1923,12 @@ export async function POST(request: NextRequest) {
         ...creditFields(c),
       });
     }
+    // Re-apply the operator's hand-applied credits captured in section 8
+    // before the wipe (rule and its tests: vendor-credit-netting.ts). A
+    // credit whose charge no longer exists in the re-uploaded CSV is filed
+    // as a critical gap in section 12; the owner is billed the gross until
+    // the operator decides.
+    const orphanedCredits = reapplyPreservedCredits(cleaningInserts, preservedCredits);
     await insertCleaningEvents(supabase, cleaningInserts);
 
     // 11b. Insert repair events: handyman / vendor charges from the bank,
@@ -2000,14 +2009,11 @@ export async function POST(request: NextRequest) {
     // Vendors never pay us -- a vendor credit is always a refund. When one
     // can't be netted automatically (no same-month exact-amount charge), it
     // must be resolved by hand, so make it impossible to miss.
-    for (const c of unmatchedVendorCredits) {
-      gaps.push({
-        gap_type: 'vendor_refund_unapplied',
-        description: `${c.vendor} sent money BACK: $${c.amount.toFixed(2)} credit on ${c.date} with no same-amount ${c.kind} charge this month to net it against. If it refunds a prior month's charge, apply a credit on that statement's row (Mark Duplicate); the credit is also parked in the bank review queue.`,
-        severity: 'critical',
-        expected_data: `Matching ${c.vendor} charge for $${c.amount.toFixed(2)}`,
-      });
-    }
+    for (const c of unmatchedVendorCredits) gaps.push(unappliedRefundGap(c, { parkedInQueue: true }));
+
+    // A hand-applied credit whose charge did not come back in the re-upload.
+    // Until the operator re-applies or confirms it, the owner is billed gross.
+    for (const pc of orphanedCredits) gaps.push(orphanedCreditGap(pc));
 
     // The tax sweep is provably occupancy tax -- it went to the tax-only
     // account -- so when Helm cannot reproduce the amount, the missing
