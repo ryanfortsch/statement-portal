@@ -7,7 +7,7 @@
  *
  * Run: node --experimental-strip-types scripts/forecast_operating_windows_check.mjs
  */
-import { operatingFactor, isOperating, opensInYear } from '../src/lib/forecast-operating-windows.ts';
+import { operatingFactor, isOperating, opensInYear, opensIn } from '../src/lib/forecast-operating-windows.ts';
 
 let failures = 0;
 const fail = (m) => { failures++; console.log(`FAIL  ${m}`); };
@@ -73,7 +73,22 @@ for (const [id, year, want, msg] of ROSTER) {
   if (opensInYear(id, year) !== want) fail(`${id} ${year}: ${msg}, expected ${want}`);
 }
 
+// The month form of the same predicate: what the card and the bench scale on.
+const MONTHLY = [
+  ['16_waterman', 2027, 1, false, 'January: closed for the season'],
+  ['16_waterman', 2027, 7, true, 'July: open'],
+  ['4_brier_neck', 2026, 8, true, 'August 2026: last operating month'],
+  ['4_brier_neck', 2026, 9, false, 'September 2026: closed'],
+  ['79_main', 2026, 10, true, 'October 2026: partial month still counts as operating'],
+  ['79_main', 2026, 11, false, 'November 2026: gone'],
+  ['3_south_st', 2026, 2, true, 'no window, open'],
+];
+for (const [id, year, month, want, msg] of MONTHLY) {
+  if (opensIn(id, year, month) !== want) fail(`${id} ${year}-${month}: ${msg}, expected ${want}`);
+}
+if (opensIn('4_brier_neck', 2027) !== false) fail('opensIn without a month must behave as opensInYear');
+
 console.log(failures === 0
-  ? `PASS - all ${EXPECT.length + 3 + ROSTER.length} operating-window assertions hold; 79 Main's October pro-rates to ${(21 / 31).toFixed(4)}.`
+  ? `PASS - all ${EXPECT.length + 3 + ROSTER.length + MONTHLY.length + 1} operating-window assertions hold; 79 Main's October pro-rates to ${(21 / 31).toFixed(4)}.`
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

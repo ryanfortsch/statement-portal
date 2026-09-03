@@ -116,3 +116,15 @@ export function opensInYear(propertyId: string, year: number): boolean {
   }
   return false;
 }
+
+/**
+ * The predicate forecast-model.ts takes (OpenInYear): with a month it asks
+ * whether the home operates in that month, without one whether it operates
+ * at all in the year. The month form scales the card and the contractor
+ * bench on the homes actually open each month; the year form builds the
+ * roster and the hire trigger.
+ */
+export function opensIn(propertyId: string, year: number, month?: number): boolean {
+  if (month == null) return opensInYear(propertyId, year);
+  return isOperating(propertyId, `${year}-${String(month).padStart(2, '0')}`);
+}

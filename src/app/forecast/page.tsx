@@ -55,7 +55,7 @@ function CoverSheet() {
     ['Currency', 'USD'],
     [
       'Excluded',
-      'RT-owned units (3 Locust, Lighthouse Point, 65 Calderwood), personal owner draw, healthcare, federal/state taxes, capex, distributions',
+      'RT-owned units (3 Locust), personal owner draw, personal card and ATM spend, health benefits, federal/state taxes, capex, distributions, channel commissions netted out of rental revenue',
     ],
   ];
 
