@@ -46,8 +46,10 @@ export type OperatingWindow = {
 
 export const OPERATING_WINDOWS: Record<string, OperatingWindow> = {
   // 4 Brier Neck is a summer-only rental. September came off the season as
-  // of the Aug 2026 schedule review, so it now runs June through August.
-  '4_brier_neck': { seasonMonths: [6, 7, 8] },
+  // of the Aug 2026 schedule review, so it ran June through August. Jane
+  // Armstrong gave notice on 2026-08-31; the agreement runs to 2026-12-31 and
+  // is not renewed for 2027, so nothing projects after August 2026.
+  '4_brier_neck': { seasonMonths: [6, 7, 8], offlineFrom: '2026-09' },
   // 73 Rocky Neck was slated for decommissioning after Aug 2026, then picked
   // up September and October. Last operating month is now Oct 2026.
   '73_rocky_neck': { offlineFrom: '2026-11' },
@@ -99,4 +101,18 @@ export function operatingFactor(propertyId: string, ym: string): number {
  */
 export function isOperating(propertyId: string, ym: string): boolean {
   return operatingFactor(propertyId, ym) > 0;
+}
+
+/**
+ * Whether a property is open for at least one month of `year`. A seasonal
+ * home (16 Waterman, May to October) is; a home offline before the year
+ * (4 Brier Neck non-renewed, 73 Rocky Neck from November 2026, 79 Main from
+ * 21 October 2026) is not. forecast-model.ts takes this as its OpenInYear
+ * predicate so the yearly roster agrees with the smart layer.
+ */
+export function opensInYear(propertyId: string, year: number): boolean {
+  for (let m = 1; m <= 12; m++) {
+    if (operatingFactor(propertyId, `${year}-${String(m).padStart(2, '0')}`) > 0) return true;
+  }
+  return false;
 }

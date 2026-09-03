@@ -25,12 +25,24 @@
 export type SeasonType = 'CA' | 'FL' | 'LS';
 
 export type ManagedProperty = {
+  /**
+   * properties.id when the entry is a real Helm property. Lets the roster
+   * consult the operating windows, so a home offboarded before a forecast
+   * year stops counting as active in it. Hypotheticals carry none.
+   */
+  id?: string;
   name: string;
   /** Annual management fee in dollars (what RT collects, not gross rent). */
   fee: number;
   type: SeasonType;
   /** First month (1-12) the property contributes revenue. */
   start: number;
+  /**
+   * A hypothetical rolled forward from a prior year's slider. It exists in
+   * no Guesty listing, so the smart forecast cannot see it and calcYear has
+   * to carry its revenue on seasonality even when smart owns the real fleet.
+   */
+  synthetic?: boolean;
 };
 
 /** Years the model can render. */
@@ -57,23 +69,23 @@ export type ForecastYear = 2026 | 2027 | 2028;
  * annualized figures are correspondingly soft.
  */
 export const CURRENT_2026: ManagedProperty[] = [
-  { name: '17 Beach', fee: 46519, type: 'CA', start: 1 },
-  { name: '21 Horton', fee: 29881, type: 'CA', start: 1 },
-  { name: '73 Rocky Neck', fee: 28458, type: 'CA', start: 1 },
-  { name: '3 South', fee: 23180, type: 'CA', start: 1 },
-  { name: '20 Hammond', fee: 17196, type: 'CA', start: 1 },
-  { name: '20 Enon', fee: 10556, type: 'LS', start: 1 },
-  { name: '53 Rocky Neck', fee: 29702, type: 'CA', start: 5 },
-  { name: '30 Woodward', fee: 26307, type: 'CA', start: 5 },
-  { name: '19 Rackliffe', fee: 27484, type: 'CA', start: 6 },
-  { name: '79 Main', fee: 17640, type: 'CA', start: 6 },
-  { name: '16 Waterman', fee: 17302, type: 'CA', start: 6 },
-  { name: '36 Granite', fee: 14194, type: 'CA', start: 6 },
-  { name: '4 Brier Neck', fee: 31728, type: 'CA', start: 7 },
-  { name: '84 Thatcher', fee: 26455, type: 'CA', start: 7 },
-  { name: '53 Rocky Neck, Downstairs', fee: 9238, type: 'CA', start: 7 },
-  { name: '3 Windward', fee: 33805, type: 'CA', start: 8 },
-  { name: '225 Washington', fee: 3580, type: 'CA', start: 8 },
+  { id: '17_beach_rd', name: '17 Beach', fee: 46519, type: 'CA', start: 1 },
+  { id: '21_horton', name: '21 Horton', fee: 29881, type: 'CA', start: 1 },
+  { id: '73_rocky_neck', name: '73 Rocky Neck', fee: 28458, type: 'CA', start: 1 },
+  { id: '3_south_st', name: '3 South', fee: 23180, type: 'CA', start: 1 },
+  { id: '20_hammond', name: '20 Hammond', fee: 17196, type: 'CA', start: 1 },
+  { id: '20_enon', name: '20 Enon', fee: 10556, type: 'LS', start: 1 },
+  { id: '53_rocky_neck', name: '53 Rocky Neck', fee: 29702, type: 'CA', start: 5 },
+  { id: '30_woodward', name: '30 Woodward', fee: 26307, type: 'CA', start: 5 },
+  { id: '19_rackliffe', name: '19 Rackliffe', fee: 27484, type: 'CA', start: 6 },
+  { id: '79_main', name: '79 Main', fee: 17640, type: 'CA', start: 6 },
+  { id: '16_waterman', name: '16 Waterman', fee: 17302, type: 'CA', start: 6 },
+  { id: '36_granite', name: '36 Granite', fee: 14194, type: 'CA', start: 6 },
+  { id: '4_brier_neck', name: '4 Brier Neck', fee: 31728, type: 'CA', start: 7 },
+  { id: '84_thatcher', name: '84 Thatcher', fee: 26455, type: 'CA', start: 7 },
+  { id: '53_rocky_neck_2', name: '53 Rocky Neck, Downstairs', fee: 9238, type: 'CA', start: 7 },
+  { id: '3_windward', name: '3 Windward', fee: 33805, type: 'CA', start: 8 },
+  { id: '225_washington', name: '225 Washington', fee: 3580, type: 'CA', start: 8 },
 ];
 /**
  * Pre-signed list — DEPRECATED in favor of live Helm Prospects pipeline.
@@ -86,14 +98,38 @@ export const CURRENT_2026: ManagedProperty[] = [
 export const PRESIGNED_2026: ManagedProperty[] = [];
 
 /**
- * In 2027 the 9 current properties roll forward as full-year actives.
- * Prospects that closed in 2026 will appear in Helm's `properties`
- * table by then and get queried as currents — until then the forecast
- * layer carries them forward via the prospects feed.
+ * Whether a real property is open for at least one month of `year`. The
+ * caller supplies it from forecast-operating-windows.ts (opensInYear), which
+ * this module deliberately does not import: forecast-model.ts is loaded
+ * directly under Node by scripts/forecast_rerack_check.mjs, where an
+ * extensionless import cannot resolve. Without a predicate every entry is
+ * assumed open, which is exactly the behaviour those scripts expect.
+ */
+export type OpenInYear = (propertyId: string, year: number) => boolean;
+
+/**
+ * In 2027 the current properties roll forward as full-year actives.
+ * Prospects that closed in 2026 will appear in Helm's `properties` table by
+ * then and get queried as currents; until then the forecast layer carries
+ * them via the prospects feed. Filtered by the operating windows in
+ * getYearConfig when a predicate is supplied.
  */
 export const ACTIVE_2027: ManagedProperty[] = [
   ...CURRENT_2026.map((p) => ({ ...p, start: 1 })),
 ];
+
+/**
+ * The roster for a forward year: ACTIVE_2027 minus any home the operating
+ * windows have offline for the whole year (4 Brier Neck non-renewed, 73
+ * Rocky Neck from November 2026, 79 Main from 21 October 2026). Seasonal
+ * homes stay. Until this filter existed the offboarded homes remained in
+ * the roster, so activeCount, which scales the card and the contractor
+ * bench, counted 17 earning homes where the smart layer had 14.
+ */
+function rosterFor(year: number, openIn?: OpenInYear): ManagedProperty[] {
+  if (!openIn) return ACTIVE_2027;
+  return ACTIVE_2027.filter((p) => !p.id || openIn(p.id, year));
+}
 
 /**
  * Order in which hypothetical new 2026 properties come online. Sprinkled
@@ -539,7 +575,11 @@ export type YearConfig = {
  *                      rolledForward = 4. For 2028: rolledForward = 4 +
  *                      whatever was added in 2027.
  */
-export function getYearConfig(year: ForecastYear, rolledForward: number = 0): YearConfig {
+export function getYearConfig(
+  year: ForecastYear,
+  rolledForward: number = 0,
+  openIn?: OpenInYear,
+): YearConfig {
   if (year === 2026) {
     // 2026 is the starting year; nothing to roll forward into it.
     return {
@@ -560,12 +600,13 @@ export function getYearConfig(year: ForecastYear, rolledForward: number = 0): Ye
     fee: NEW_PROPERTY_FEE,
     type: NEW_PROPERTY_TYPE,
     start: 1,
+    synthetic: true,
   }));
 
   if (year === 2027) {
     return {
       year: 2027,
-      current: [...ACTIVE_2027, ...synth],
+      current: [...rosterFor(2027, openIn), ...synth],
       presigned: [],
       newOrder: NEW_ORDER_2027,
       bookkeeperLastMonth: null,
@@ -577,7 +618,7 @@ export function getYearConfig(year: ForecastYear, rolledForward: number = 0): Ye
   // 2028 — same 14-property baseline as 2027 plus all rollovers.
   return {
     year: 2028,
-    current: [...ACTIVE_2027, ...synth],
+    current: [...rosterFor(2028, openIn), ...synth],
     presigned: [],
     newOrder: NEW_ORDER_2028,
     bookkeeperLastMonth: null,
@@ -726,9 +767,16 @@ export function calcYear(
    * the model projects. Bank-derived ACTUALS overrides this when both
    * are present for the same month.
    */
-  statementRevenueByMonth?: ReadonlyMap<number, number>
+  statementRevenueByMonth?: ReadonlyMap<number, number>,
+  /**
+   * Operating-window predicate from forecast-operating-windows.ts. Drops
+   * homes offline for the whole year from the roster, so activeCount and
+   * the seasonality fallback stop counting them. Omitted by the pure check
+   * scripts, which then see the full roster.
+   */
+  openIn?: OpenInYear
 ): YearResult {
-  const config = getYearConfig(year, rolledForward ?? 0);
+  const config = getYearConfig(year, rolledForward ?? 0, openIn);
   const maxNew = config.newOrder.length;
   const n = Math.max(0, Math.min(maxNew, Math.round(numNew)));
   const newStartMonths: number[] = config.newOrder.slice(0, n);
@@ -802,9 +850,16 @@ export function calcYear(
     let rev_new = 0;
 
     if (useSmart) {
-      // Smart Forecast owns the current 9 portfolio. Presigned + new
-      // remain on seasonality because they aren't in Guesty yet.
+      // Smart Forecast owns the real fleet. Presigned + new remain on
+      // seasonality because they aren't in Guesty yet, and so do the
+      // hypotheticals rolled forward from a prior year's slider: they are in
+      // no Guesty listing either, so smart cannot see them. They used to be
+      // dropped here while still counting toward activeCount, so a rolled
+      // forward property cost money in 2027 and earned nothing.
       rev_current = smartFee;
+      for (const p of config.current) {
+        if (p.synthetic && m >= p.start) rev_current += p.fee * dist[p.type];
+      }
     } else {
       // No smart data — fall back to seasonality for current too.
       for (const p of config.current) {

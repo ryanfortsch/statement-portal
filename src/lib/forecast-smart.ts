@@ -54,6 +54,16 @@
  * stays, and property_statements only a handful of reconciled months),
  * so the property's own forward booking pace is the baseline. Properties
  * with no forward bookings at all fall back to the portfolio average.
+ *
+ * STATEMENT FLOOR. That forward pace looks only at the months ahead, and on
+ * 2026-09-02 those were the shoulder and the off-season, thin on the books
+ * and capped at 2.5x. It projected the homes onboarded in June to August to
+ * earn less next August than the August they had just closed while still
+ * ramping. So the annual gross is now floored at what the property's own
+ * closed statements imply (forecast-statement-floor.ts): the latest closed
+ * full month annualized on its share, or the whole closed record, whichever
+ * is larger, and only once a property has two closed full months. A floor
+ * only raises; with no statements the model runs exactly as before.
  */
 
 import { supabaseAdmin as supabase } from './supabase-admin';
@@ -64,6 +74,7 @@ import {
   daysInMonth,
 } from './forecast-occupancy';
 import { isOperating, operatingFactor } from './forecast-operating-windows';
+import { statementFloor } from './forecast-statement-floor';
 
 /**
  * Ceiling on the pacing scale-up.
@@ -149,6 +160,9 @@ export type SmartPropertyMonth = {
   operating: boolean;
 };
 
+/** Where a property's annual gross came from. */
+export type AnnualBasis = 'pacing' | 'statements' | 'portfolio';
+
 export type SmartPropertyForecast = {
   property: SmartProperty;
   monthly: SmartPropertyMonth[];
@@ -157,6 +171,14 @@ export type SmartPropertyForecast = {
     projectedGross: number;
     projectedMgmtFee: number;
   };
+  /** The annual gross Part B spreads across the year. */
+  annualGross: number;
+  /**
+   * 'pacing' when the property's own forward bookings set it, 'statements'
+   * when its closed statements floored it higher, 'portfolio' when it had no
+   * forward bookings and took the portfolio average.
+   */
+  annualBasis: AnnualBasis;
 };
 
 export type SmartForecast = {
@@ -392,6 +414,12 @@ export function computeSmartForecast(
   bookedByPropMonth: Map<string, Map<string, { nights: number; revenue: number }>>,
   properties: SmartProperty[],
   historicalAvgByMonthOfYear: number[] = HISTORICAL_AVG_RECENT,
+  /**
+   * property_id -> YYYY-MM -> closed-statement gross, from
+   * getStatementGrossByProperty(). Optional: without it the annual gross is
+   * forward pace only, exactly as before the floor existed.
+   */
+  statementGrossByProp?: ReadonlyMap<string, ReadonlyMap<string, number>>,
 ): SmartForecast {
   // Active mgmt props only (exclude RT-owned).
   const mgmtProps = properties.filter((p) => !p.isRtOwned);
@@ -501,7 +529,18 @@ export function computeSmartForecast(
     const propBooked = bookedByPropMonth.get(p.id) ?? new Map();
     const partA = partAByProp.get(p.id) ?? new Map<string, number>();
     const ownAnnual = annualByProp.get(p.id) ?? 0;
-    const annualGross = ownAnnual > 0 ? ownAnnual : fallbackAnnual;
+    const paceAnnual = ownAnnual > 0 ? ownAnnual : fallbackAnnual;
+    // Hold the forward pace to what the closed statements already proved.
+    // The floor only raises: a property pacing toward a bigger year keeps it.
+    const floor = statementFloor({
+      grossByMonth: statementGrossByProp?.get(p.id) ?? new Map<string, number>(),
+      revenueShare,
+      activatedAt: p.activatedAt,
+      operatingFactor: (ym) => operatingFactor(p.id, ym),
+    });
+    const annualGross = Math.max(paceAnnual, floor.annual);
+    const annualBasis: AnnualBasis =
+      floor.annual > paceAnnual ? 'statements' : ownAnnual > 0 ? 'pacing' : 'portfolio';
     const feeFraction = (p.mgmtFeePct ?? 0) / 100;
 
     const activated = p.activatedAt ? new Date(p.activatedAt) : null;
@@ -610,7 +649,7 @@ export function computeSmartForecast(
       }),
       { bookedRevenue: 0, projectedGross: 0, projectedMgmtFee: 0 }
     );
-    return { property: p, monthly, totals };
+    return { property: p, monthly, totals, annualGross, annualBasis };
   });
 
   const totals = propsForecast.reduce(

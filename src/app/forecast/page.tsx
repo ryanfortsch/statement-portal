@@ -26,10 +26,7 @@ import {
 } from '@/lib/forecast-actuals';
 import { getActualsFromDb } from '@/lib/forecast-actuals-from-db';
 import { getProspectForecast } from '@/lib/forecast-prospects';
-import {
-  getStatementRevenueByMonth,
-  type StatementRevenueByMonth,
-} from '@/lib/forecast-statement-actuals';
+import { getStatementRevenueByMonth, type StatementRevenueByMonth, getStatementGrossByProperty } from '@/lib/forecast-statement-actuals';
 
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
@@ -232,16 +229,18 @@ async function getSmartForecast(endYear: number): Promise<SmartForecast | null> 
     // flat haircut understates the peak. Falls back to the raw market curve
     // when there is not enough closed history to measure.
     const closed = closedMonthsOf(today.getFullYear(), today);
-    const calibration = computeRealizedCalibration(
-      await getClosedMonthStays(closed),
-      closed,
-      HISTORICAL_AVG_RECENT,
-    );
+    const [closedStays, statementGross] = await Promise.all([
+      getClosedMonthStays(closed),
+      getStatementGrossByProperty(),
+    ]);
+    const calibration = computeRealizedCalibration(closedStays, closed, HISTORICAL_AVG_RECENT);
     const benchmark = calibration.byMonth.size > 0
       ? calibratedBenchmarkFrom(calibration, HISTORICAL_AVG_RECENT)
       : undefined;
 
-    return computeSmartForecast(months, bookedByPropMonth, properties, benchmark);
+    // Closed statements floor each property's annual gross, so a home that
+    // was still ramping in August is not projected below that August.
+    return computeSmartForecast(months, bookedByPropMonth, properties, benchmark, statementGross);
   } catch (err) {
     console.error('[forecast] smart forecast failed:', err);
     return null;
@@ -263,7 +262,7 @@ function filterToYear(smart: SmartForecast | null, year: number): SmartForecast 
       months: [],
       monthInputs: [],
       properties: smart.properties.map((p) => ({
-        property: p.property,
+        ...p,
         monthly: [],
         totals: { bookedRevenue: 0, projectedGross: 0, projectedMgmtFee: 0 },
       })),
@@ -281,7 +280,7 @@ function filterToYear(smart: SmartForecast | null, year: number): SmartForecast 
       }),
       { bookedRevenue: 0, projectedGross: 0, projectedMgmtFee: 0 }
     );
-    return { property: p.property, monthly, totals };
+    return { ...p, monthly, totals };
   });
   const totals = properties.reduce(
     (acc, p) => ({
