@@ -2049,13 +2049,20 @@ export async function POST(request: NextRequest) {
     {
       const freshKeys = new Set(orphanedCredits.map(orphanCreditKey));
       const carriedKeys = new Set<string>();
+      const carriedDescriptions = new Set(gaps.filter(g => g.gap_type === 'cleaning_credit_orphaned').map(g => g.description));
       for (const g of carriedOrphanGaps) {
         const key = parseOrphanCreditKey(g.expected_data);
         if (key) {
           if (freshKeys.has(key) || carriedKeys.has(key)) continue;
           if (orphanCreditRestored(cleaningInserts, key)) continue;
           carriedKeys.add(key);
+        } else {
+          // A notice with no key predates the keyed format. It cannot
+          // retire itself, so at minimum never let it multiply: dedupe on
+          // the description, which is what the operator reads.
+          if (carriedDescriptions.has(g.description)) continue;
         }
+        carriedDescriptions.add(g.description);
         gaps.push({
           gap_type: 'cleaning_credit_orphaned',
           // Verbatim, so a carried notice reads as the same gap it was.
