@@ -1,5 +1,6 @@
 'use client';
 
+import { opensInYear } from '@/lib/forecast-operating-windows';
 import { useMemo, useState } from 'react';
 import {
   calcYear,
@@ -74,7 +75,7 @@ export function ForecastClient({
     /* 2028 */ numNew2026 + numNew2027;
 
   const yearConfig = useMemo(
-    () => getYearConfig(yearKey, rolledForward),
+    () => getYearConfig(yearKey, rolledForward, opensInYear),
     [yearKey, rolledForward]
   );
   // Substitute bank-derived actuals for completed 2026 months. The data
@@ -178,7 +179,7 @@ export function ForecastClient({
     () => calcYear(
       numNew, yearKey, actualsForYear, actualsThrough, smartOverride,
       calibrationFactor, rolledForward, prospectsForYear.monthlyExpectedTotals,
-      statementByMonthForYear,
+      statementByMonthForYear, opensInYear,
     ),
     [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear]
   );
@@ -449,7 +450,24 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
           />
           {data.properties.map((p) => (
             <tr key={`fee-${p.property.id}`} style={{ background: 'rgba(58, 107, 74, 0.03)' }}>
-              <td style={labelCellStyle({ color: 'var(--ink-2)', fontWeight: 500 })}>{p.property.name}</td>
+              <td style={labelCellStyle({ color: 'var(--ink-2)', fontWeight: 500 })}>
+                {p.property.name}
+                {p.annualBasis === 'statements' && (
+                  <span
+                    title={`Annual gross floored at the run rate of this property's closed statements: ${fmtUsd(p.annualGross)}`}
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 8.5,
+                      letterSpacing: '.12em',
+                      textTransform: 'uppercase',
+                      color: 'var(--signal)',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    floor
+                  </span>
+                )}
+              </td>
               <td style={cellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
                 {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
               </td>
@@ -552,9 +570,15 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
         share of annual revenue that typically lands in that month. That
         annual gross is the property&apos;s own forward bookings, pace-corrected
         and annualized, since Helm has no full year of per-property booking
-        history to draw on. When a month has no bookings yet, Part A drops out
-        and Part B carries 100%. The mgmt fee column is the blended gross ×
-        that property&apos;s fee %.
+        history to draw on, and it is floored at what the property&apos;s own
+        closed statements imply: the latest closed full month annualized on
+        its share, or the whole closed record, whichever is larger, once a
+        property has two closed full months. That floor is what stops a home
+        that was still ramping in August from being projected below that
+        August; rows it lifts carry a <em>floor</em> tag. When a month has no
+        bookings yet, Part A drops out and Part B
+        carries 100%. The mgmt fee column is the blended gross × that
+        property&apos;s fee %.
       </div>
     </div>
   );
@@ -1395,7 +1419,7 @@ function ForecastTable({
   const currentInfo =
     yearKey === 2026
       ? 'Past months (Jan-Apr) use bank actuals from Chase ...5130. Any reconciled month from property_statements overrides the projection automatically (the "ACT" badge marks those columns). Forward months without a closed statement use the Smart Forecast: Guesty bookings × Gloucester pacing × each property\'s actual mgmt fee %. Seasonality fallback only when Guesty is unavailable.'
-      : `${currentCount} active properties full year. Each month uses statement actuals where Helm has reconciled the month, Smart Forecast where Guesty has bookings, and seasonality (scaled by the 2026 calibration factor) for everything else.`;
+      : `${currentCount} active properties full year. Each month uses statement actuals where Helm has reconciled the month, Smart Forecast where Guesty has bookings, and seasonality (scaled by the 2026 calibration factor) for everything else. Each property's annual gross is floored at the run rate its closed 2026 statements prove, so a home still ramping this August is not projected below it. Properties rolled forward from a prior year's slider ride Cape Ann seasonality at $25K/yr on top.`;
   const presignedLabel = `Prospects (${prospectsCount})`;
   const presignedInfo =
     'Live pipeline from Helm\'s /prospects module. Each prospect\'s projected year-1 mgmt fee × close_likelihood_pct, summed per month. Owner payout (what the prospect sees) shown in the Prospect pipeline panel below; this row is what RT actually keeps.';
