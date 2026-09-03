@@ -94,3 +94,17 @@ test('gap builders: unapplied refund is critical and says whether it was parked'
   assert.match(parked.description, /parked in the bank review queue/);
   assert.doesNotMatch(notParked.description, /parked/);
 });
+
+test('the refund notice is identified by vendor, amount AND date', () => {
+  // Fill Gap uses expected_data as the notice's identity when deciding
+  // whether a refund is already filed. Keyed on vendor and amount alone,
+  // two separate refunds of the same amount collapse and the second is
+  // never raised, leaving the owner billed gross with nothing on the card.
+  const a = unappliedRefundGap(credit('laundry', '07/05/2026', 47.4, 'Laundry Plus'), { parkedInQueue: false });
+  const b = unappliedRefundGap(credit('laundry', '07/19/2026', 47.4, 'Laundry Plus'), { parkedInQueue: false });
+  assert.notEqual(a.expected_data, b.expected_data);
+  assert.match(a.expected_data, /refund 07\/05\/2026/);
+  // Same refund seen twice must still collapse.
+  const again = unappliedRefundGap(credit('laundry', '07/05/2026', 47.4, 'Laundry Plus'), { parkedInQueue: false });
+  assert.equal(a.expected_data, again.expected_data);
+});

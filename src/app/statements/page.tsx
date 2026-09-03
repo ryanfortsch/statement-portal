@@ -726,9 +726,12 @@ function gapFillType(gapType: string): FillGapType | null {
  * else is a standing judgement that only a person can retire.
  */
 const PIPELINE_OWNED_GAP_TYPES = new Set([
-  'missing_bank_csv', 'unmatched_bank', 'vendor_refund_unapplied',
+  'missing_bank_csv', 'unmatched_bank',
   'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
 ]);
+// NOT vendor_refund_unapplied: Fill Gap deliberately no longer deletes and
+// re-derives it (a narrower CSV would lose a real one), so nothing retires
+// it automatically and Resolve is its only exit.
 const isPipelineOwnedGap = (gapType: string) =>
   gapType.startsWith('stripe_') || PIPELINE_OWNED_GAP_TYPES.has(gapType);
 

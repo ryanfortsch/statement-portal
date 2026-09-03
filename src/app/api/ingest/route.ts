@@ -1988,8 +1988,6 @@ export async function POST(request: NextRequest) {
     // must be resolved by hand, so make it impossible to miss.
     for (const c of unmatchedVendorCredits) gaps.push(unappliedRefundGap(c, { parkedInQueue: true }));
 
-    // A hand-applied credit whose charge did not come back in the re-upload.
-    // Until the operator re-applies or confirms it, the owner is billed gross.
     // The tax sweep is provably occupancy tax -- it went to the tax-only
     // account -- so when Helm cannot reproduce the amount, the missing
     // piece is Helm's, not the wire's. A sweep larger than the computed
@@ -2238,24 +2236,21 @@ export async function POST(request: NextRequest) {
       });
     } catch (e) {
       // The statement row and every child row ARE persisted at this point;
-      // only the reconciling recompute failed. Its figures are the ones
-      // that would have corrected the section-10 CSV totals inserted
-      // above, which are gross by any re-applied operator credit -- so
-      // saying "nothing landed" here would be false and would leave the
-      // owner billed a struck charge with no visible sign.
+      // only the reconciling recompute failed. Saying "nothing landed"
+      // would be false, and the stored totals are this upload's own
+      // figures, never reconciled against the rows that were written.
       return NextResponse.json({
         error: `The statement for ${propertyId} / ${month} was rebuilt and SAVED, but the reconciling recompute failed (${e instanceof Error ? e.message : String(e)}). `
-          + 'Its totals are the pre-credit figures from the upload and may over-bill cleaning. Run Refresh Statement (or Sync Stripe) on this property before sending it. Do not re-upload: the rows are already in place.',
+          + 'Its totals are the upload\'s own figures and were never checked against the rows. Run Refresh Statement (or Sync Stripe) on this property before sending it. Do not re-upload: the rows are already in place.',
       }, { status: 500 });
     }
-    const expectedPayout = ownerPayout;
-    if (Math.abs(ingestTotals.after.owner_payout - expectedPayout) > 0.02) {
+    if (Math.abs(ingestTotals.after.owner_payout - ownerPayout) > 0.02) {
       const { error: selfErr } = await supabase.from('data_gaps').insert({
         property_statement_id: stmt.id,
         gap_type: 'ingest_recompute_mismatch',
         severity: 'warning',
-        description: `Ingest computed an owner payout of $${expectedPayout.toFixed(2)} but recomputing from the rows it wrote gives $${ingestTotals.after.owner_payout.toFixed(2)}. The row-derived figure is what every later recompute will produce, so it is the one stored; the discrepancy itself is the thing to explain.`,
-        expected_data: `ingest ${expectedPayout.toFixed(2)} vs rows ${ingestTotals.after.owner_payout.toFixed(2)} · ${new Date().toISOString()}`,
+        description: `Ingest computed an owner payout of $${ownerPayout.toFixed(2)} but recomputing from the rows it wrote gives $${ingestTotals.after.owner_payout.toFixed(2)}. The row-derived figure is what every later recompute will produce, so it is the one stored; the discrepancy itself is the thing to explain.`,
+        expected_data: `ingest ${ownerPayout.toFixed(2)} vs rows ${ingestTotals.after.owner_payout.toFixed(2)} · ${new Date().toISOString()}`,
         resolved: false,
       });
       if (selfErr) console.error('ingest: self-check gap insert failed', selfErr.message);

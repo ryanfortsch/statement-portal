@@ -131,6 +131,9 @@ export function unappliedRefundGap(c: VendorCredit, opts: { parkedInQueue: boole
       + 'If it refunds a prior month\'s charge, apply a credit on that statement\'s row (Mark Duplicate)'
       + (opts.parkedInQueue ? '; the credit is also parked in the bank review queue.' : '.'),
     severity: 'critical',
-    expected_data: `Matching ${c.vendor} charge for $${c.amount.toFixed(2)}`,
+    // The date is part of this string because callers use it as the notice's
+    // identity. Vendor plus amount alone collapses two separate refunds of
+    // the same amount into one notice, and the second is never filed.
+    expected_data: `Matching ${c.vendor} charge for $${c.amount.toFixed(2)} (refund ${c.date})`,
   };
 }

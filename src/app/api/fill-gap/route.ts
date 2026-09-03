@@ -3,7 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
-import { netVendorCredits, vendorChargeNet, vendorCreditFields, unappliedRefundGap, type VendorCharge, type VendorCredit } from '@/lib/vendor-credit-netting';
+import { netVendorCredits, vendorCreditFields, unappliedRefundGap, type VendorCharge, type VendorCredit } from '@/lib/vendor-credit-netting';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
@@ -779,10 +779,10 @@ export async function POST(request: NextRequest) {
       vendorCredits,
       'bank re-upload',
     );
-    const cleaningOnlyTotal = Math.round(cleaningCharges.reduce((sum, c) => sum + vendorChargeNet(c), 0) * 100) / 100;
-    const linenTotal = Math.round(linenCharges.reduce((sum, c) => sum + vendorChargeNet(c), 0) * 100) / 100;
-    const laundryTotal = Math.round(laundryCharges.reduce((sum, c) => sum + vendorChargeNet(c), 0) * 100) / 100;
-    const cleaningTotal = Math.round((cleaningOnlyTotal + linenTotal + laundryTotal) * 100) / 100;
+    // No local cleaning total is computed here on purpose: the single write
+    // path derives cleaning_total from the rows this handler inserts, and a
+    // second figure computed from the CSV alongside it is exactly the kind
+    // of near-duplicate that drifts.
     let repairsTotal = Math.round(repairCharges.reduce((sum, c) => sum + c.amount, 0) * 100) / 100;
 
     // Receipt-backed expenses fold into repairs_total, mirroring /api/ingest.
@@ -900,6 +900,9 @@ export async function POST(request: NextRequest) {
     // 6. Rebuild cleaning_events + repair_events: the old ones were sourced
     //    from (probably absent) prior bank data. Wipe and re-insert from the
     //    fresh CSV.
+    // NOTE: like /api/ingest, this wipe still LOSES a hand-applied cleaning
+    // credit. Preserving one by matching it back to a rebuilt charge is
+    // unsound; see the note in src/lib/vendor-credit-netting.ts.
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
     // repair_events table may not exist if the migration hasn't run.
     const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', stmt.id);
@@ -915,7 +918,7 @@ export async function POST(request: NextRequest) {
         amount: number;
         source: string;
         vendor: string;
-        // Auto-netted refund or a preserved operator credit.
+        // Set when a vendor refund in this CSV auto-nets the charge.
         credit_amount?: number;
         credit_reason?: string;
       };
@@ -1077,12 +1080,14 @@ export async function POST(request: NextRequest) {
     // means we cannot tell, so file it: a duplicate notice is recoverable,
     // a missing one is not.
     {
+      // Resolved rows count too. expected_data identifies the refund itself
+      // (vendor, amount, date), so once the operator has dealt with THAT
+      // refund, re-uploading the same month's CSV must not raise it again.
       const { data: openRefundGaps } = await supabase
         .from('data_gaps')
         .select('expected_data')
         .eq('property_statement_id', stmt.id)
-        .eq('gap_type', 'vendor_refund_unapplied')
-        .or('resolved.is.null,resolved.eq.false');
+        .eq('gap_type', 'vendor_refund_unapplied');
       const alreadyOpen = new Set((openRefundGaps || []).map(g => g.expected_data as string));
       for (const c of unmatchedVendorCredits) {
         const gap = unappliedRefundGap(c, { parkedInQueue: false });
@@ -1182,8 +1187,7 @@ export async function POST(request: NextRequest) {
       month,
       property_statement_id: stmt.id,
       summary: {
-        // The stored figure, net of any re-applied operator credit -- not
-        // the pre-credit total this handler computed from the CSV alone.
+        // The stored figure, derived from the rows just inserted.
         cleaning_total: bankTotals.after.cleaning_total,
         owner_payout: postSyncOwnerPayout ?? newOwnerPayout,
         cleaning_events: cleaningCharges.length + linenCharges.length,
