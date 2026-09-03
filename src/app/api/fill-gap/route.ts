@@ -3,7 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
-import { netVendorCredits, vendorChargeNet, vendorCreditFields, reapplyPreservedCredits, unappliedRefundGap, orphanedCreditGap, type VendorCharge, type VendorCredit, type PreservedCleaningCredit } from '@/lib/vendor-credit-netting';
+import { netVendorCredits, vendorChargeNet, vendorCreditFields, unappliedRefundGap, type VendorCharge, type VendorCredit } from '@/lib/vendor-credit-netting';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
@@ -704,29 +704,6 @@ export async function POST(request: NextRequest) {
     }
     // else bank_csv -- continues below with existing logic.
 
-    // Hand-applied cleaning credits ride on the rows section 6 wipes.
-    // Capture them BEFORE any write in this handler, so the fail-closed
-    // 502 below can honestly say nothing was changed: section 5 rewrites
-    // every reservation's bank match status, and a read failure after
-    // that point would leave those flipped with the gap rebuild never
-    // reached. Losing a credit silently re-bills the owner a charge the
-    // operator had already struck.
-    let preservedCredits: PreservedCleaningCredit[] = [];
-    {
-      const { data: creditRows, error: creditReadErr } = await supabase
-        .from('cleaning_events')
-        .select('bank_charge_date, bank_charge_amount, source, vendor, credit_amount, credit_reason')
-        .eq('property_statement_id', stmt.id)
-        .gt('credit_amount', 0);
-      if (creditReadErr) {
-        return NextResponse.json(
-          { error: `Could not read the existing cleaning credits for ${propertyId} / ${month} (${creditReadErr.message}). Nothing was changed -- retrying is safe.` },
-          { status: 502 },
-        );
-      }
-      preservedCredits = (creditRows || []) as PreservedCleaningCredit[];
-    }
-
     // 3. Parse the bank CSV (same shape the main ingest expects).
     const bankText = await file.text();
     const bankRows = parseCSV(bankText);
@@ -923,7 +900,6 @@ export async function POST(request: NextRequest) {
     // 6. Rebuild cleaning_events + repair_events: the old ones were sourced
     //    from (probably absent) prior bank data. Wipe and re-insert from the
     //    fresh CSV.
-    let orphanedCredits: PreservedCleaningCredit[] = [];
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
     // repair_events table may not exist if the migration hasn't run.
     const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', stmt.id);
@@ -1004,7 +980,6 @@ export async function POST(request: NextRequest) {
           ...vendorCreditFields(c),
         });
       }
-      ({ orphaned: orphanedCredits } = reapplyPreservedCredits(cleaningInserts, preservedCredits));
       await insertCleaningEvents(supabase, cleaningInserts);
     }
 
@@ -1085,19 +1060,15 @@ export async function POST(request: NextRequest) {
       .from('data_gaps')
       .delete()
       .eq('property_statement_id', stmt.id)
-      // NOT 'cleaning_credit_orphaned': unlike the others it cannot be
-      // re-derived. The run that files it has already deleted the credited
-      // row, so a later run reads no credits and would raise nothing to
-      // replace what it deleted. It stays until the operator resolves it.
+      // vendor_refund_unapplied is re-derived from this same CSV below, so
+      // delete-and-re-raise keeps it accurate rather than piling duplicates.
       .in('gap_type', ['missing_bank_csv', 'unmatched_bank', 'vendor_refund_unapplied']);
 
     const newGaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
-    // Vendor refunds this CSV could not net, and operator credits the
-    // rebuild could not re-apply. Both critical: each leaves the owner
-    // billed gross until a human decides. (This path does not park the
-    // refund in the review queue; the gap is the notice.)
+    // Vendor refunds this CSV could not net: critical, because each leaves
+    // the owner billed gross until a human decides. (This path does not
+    // park the refund in the review queue; the gap is the notice.)
     for (const c of unmatchedVendorCredits) newGaps.push(unappliedRefundGap(c, { parkedInQueue: false }));
-    for (const pc of orphanedCredits) newGaps.push(orphanedCreditGap(pc));
     for (const u of resUpdates) {
       if (u.bank_match_status !== 'unmatched') continue;
       const res = (reservations || []).find(r => r.id === u.id);

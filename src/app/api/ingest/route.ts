@@ -3,7 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
-import { netVendorCredits, vendorChargeNet, reapplyPreservedCredits, unappliedRefundGap, orphanedCreditGap, orphanCreditKey, parseOrphanCreditKey, orphanCreditRestored, type VendorCharge, type PreservedCleaningCredit } from '@/lib/vendor-credit-netting';
+import { netVendorCredits, vendorChargeNet, unappliedRefundGap, type VendorCharge } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
 import { buildRemittanceSheet } from '@/lib/remittance';
 import { getActivePropertyForStatements } from '@/lib/properties';
@@ -1495,53 +1495,11 @@ export async function POST(request: NextRequest) {
     const preservedReserveHoldback = Number((existingStmt as { reserve_holdback?: number } | null)?.reserve_holdback ?? 0);
     const ownerPayout = Math.round((ownerPayoutBeforeReserve - preservedReserveHoldback) * 100) / 100;
 
-    // Hand-applied cleaning credits (Mark Duplicate / refund on a charge)
-    // live on the cleaning_events rows about to be wiped. Capture them so
-    // they can be re-applied to the rebuilt rows in section 11 -- a
-    // re-upload used to erase every one of them and re-bill the owner the
-    // duplicate the operator had already struck. Read fails closed: losing
-    // a credit silently is exactly the failure this exists to prevent.
-    type PreservedCredit = PreservedCleaningCredit;
-    let preservedCredits: PreservedCredit[] = [];
-    if (existingStmt) {
-      const { data: creditRows, error: creditReadErr } = await supabase
-        .from('cleaning_events')
-        .select('bank_charge_date, bank_charge_amount, source, vendor, credit_amount, credit_reason')
-        .eq('property_statement_id', existingStmt.id)
-        .gt('credit_amount', 0);
-      if (creditReadErr) {
-        return NextResponse.json(
-          { error: `Could not read the existing cleaning credits for ${propertyId} / ${month} (${creditReadErr.message}). Nothing was changed -- retrying is safe.` },
-          { status: 502 },
-        );
-      }
-      preservedCredits = (creditRows || []) as PreservedCredit[];
-    }
-
-    // An UNRESOLVED cleaning_credit_orphaned notice must survive too, and
-    // it cannot be re-derived: the run that files it has already deleted
-    // the credited row, so the next re-ingest reads no credits, files no
-    // orphan, and would delete the only record that a credit was lost
-    // (section 8 wipes data_gaps wholesale, and the statement row itself
-    // is replaced). Carry the unresolved ones onto the rebuilt statement.
-    let carriedOrphanGaps: { description: string; expected_data: string | null }[] = [];
-    if (existingStmt) {
-      const { data: gapRows, error: gapReadErr } = await supabase
-        .from('data_gaps')
-        .select('description, expected_data')
-        .eq('property_statement_id', existingStmt.id)
-        .eq('gap_type', 'cleaning_credit_orphaned')
-        // resolved is NULLABLE: .eq('resolved', false) drops NULL rows on
-        // SQL three-valued logic, which would silently lose the notice.
-        .or('resolved.is.null,resolved.eq.false');
-      if (gapReadErr) {
-        return NextResponse.json(
-          { error: `Could not read the open cleaning-credit notices for ${propertyId} / ${month} (${gapReadErr.message}). Nothing was changed -- retrying is safe.` },
-          { status: 502 },
-        );
-      }
-      carriedOrphanGaps = (gapRows || []) as { description: string; expected_data: string | null }[];
-    }
+    // NOTE: hand-applied cleaning credits are still LOST by this wipe. The
+    // preservation that briefly lived here matched a stored credit back to a
+    // rebuilt charge on (date, amount, family), which is unsound -- see the
+    // note in src/lib/vendor-credit-netting.ts. It is being replaced by a
+    // durable override row rather than patched further.
 
     if (existingStmt) {
       await supabase.from('reservations').delete().eq('property_statement_id', existingStmt.id);
@@ -1948,12 +1906,6 @@ export async function POST(request: NextRequest) {
         ...creditFields(c),
       });
     }
-    // Re-apply the operator's hand-applied credits captured in section 8
-    // before the wipe (rule and its tests: vendor-credit-netting.ts). A
-    // credit whose charge no longer exists in the re-uploaded CSV is filed
-    // as a critical gap in section 12; the owner is billed the gross until
-    // the operator decides.
-    const { orphaned: orphanedCredits, applied: reappliedCreditTotal } = reapplyPreservedCredits(cleaningInserts, preservedCredits);
     await insertCleaningEvents(supabase, cleaningInserts);
 
     // 11b. Insert repair events: handyman / vendor charges from the bank,
@@ -2038,41 +1990,6 @@ export async function POST(request: NextRequest) {
 
     // A hand-applied credit whose charge did not come back in the re-upload.
     // Until the operator re-applies or confirms it, the owner is billed gross.
-    for (const pc of orphanedCredits) gaps.push(orphanedCreditGap(pc));
-    // Carry an unresolved notice forward, but give it two ways out, or it
-    // becomes a permanent critical: nothing in the product can mark this
-    // gap type resolved except the acknowledge action, and the Draft All
-    // pre-flight names every critical in its confirm dialog. A notice
-    // retires when the operator re-applies the credit (the charge is back
-    // AND carries a credit again), and is never re-filed alongside an
-    // identical one this run just derived.
-    {
-      const freshKeys = new Set(orphanedCredits.map(orphanCreditKey));
-      const carriedKeys = new Set<string>();
-      const carriedDescriptions = new Set(gaps.filter(g => g.gap_type === 'cleaning_credit_orphaned').map(g => g.description));
-      for (const g of carriedOrphanGaps) {
-        const key = parseOrphanCreditKey(g.expected_data);
-        if (key) {
-          if (freshKeys.has(key) || carriedKeys.has(key)) continue;
-          if (orphanCreditRestored(cleaningInserts, key)) continue;
-          carriedKeys.add(key);
-        } else {
-          // A notice with no key predates the keyed format. It cannot
-          // retire itself, so at minimum never let it multiply: dedupe on
-          // the description, which is what the operator reads.
-          if (carriedDescriptions.has(g.description)) continue;
-        }
-        carriedDescriptions.add(g.description);
-        gaps.push({
-          gap_type: 'cleaning_credit_orphaned',
-          // Verbatim, so a carried notice reads as the same gap it was.
-          description: g.description,
-          severity: 'critical',
-          expected_data: g.expected_data ?? '',
-        });
-      }
-    }
-
     // The tax sweep is provably occupancy tax -- it went to the tax-only
     // account -- so when Helm cannot reproduce the amount, the missing
     // piece is Helm's, not the wire's. A sweep larger than the computed
@@ -2331,21 +2248,13 @@ export async function POST(request: NextRequest) {
           + 'Its totals are the pre-credit figures from the upload and may over-bill cleaning. Run Refresh Statement (or Sync Stripe) on this property before sending it. Do not re-upload: the rows are already in place.',
       }, { status: 500 });
     }
-    // The comparison figure has to account for the preserved operator
-    // credits re-applied in section 11: `ownerPayout` was built on a
-    // cleaning total computed from the CSV alone (section 10), which is
-    // gross by exactly the re-applied amount, while the write path derives
-    // cleaning_total from the rows including those credits. Without this
-    // term a SUCCESSFUL re-ingest of any statement carrying an operator
-    // credit files a mismatch gap on itself, and a self-check that cries
-    // wolf on its own success is how a real divergence gets waved through.
-    const expectedPayout = Math.round((ownerPayout + reappliedCreditTotal) * 100) / 100;
+    const expectedPayout = ownerPayout;
     if (Math.abs(ingestTotals.after.owner_payout - expectedPayout) > 0.02) {
       const { error: selfErr } = await supabase.from('data_gaps').insert({
         property_statement_id: stmt.id,
         gap_type: 'ingest_recompute_mismatch',
         severity: 'warning',
-        description: `Ingest computed an owner payout of $${expectedPayout.toFixed(2)}${reappliedCreditTotal ? ` (including $${reappliedCreditTotal.toFixed(2)} of re-applied operator credits)` : ''} but recomputing from the rows it wrote gives $${ingestTotals.after.owner_payout.toFixed(2)}. The row-derived figure is what every later recompute will produce, so it is the one stored; the discrepancy itself is the thing to explain.`,
+        description: `Ingest computed an owner payout of $${expectedPayout.toFixed(2)} but recomputing from the rows it wrote gives $${ingestTotals.after.owner_payout.toFixed(2)}. The row-derived figure is what every later recompute will produce, so it is the one stored; the discrepancy itself is the thing to explain.`,
         expected_data: `ingest ${expectedPayout.toFixed(2)} vs rows ${ingestTotals.after.owner_payout.toFixed(2)} · ${new Date().toISOString()}`,
         resolved: false,
       });
