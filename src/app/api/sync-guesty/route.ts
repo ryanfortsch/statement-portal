@@ -16,6 +16,16 @@ import { guestNameFromRawReview, normalizeGuestyReview } from '@/lib/guesty-revi
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
+// The FLOOR of the needle map, not the whole of it. `listingNeedles()` below
+// overlays every `properties.listing_match` in the database on top of this, so
+// an ordinary new property needs no entry here: stamping the column when the
+// property is created is enough.
+//
+// This object is still required, because two mapped listings have no
+// properties row at all (65 Calderwood and 3246 NE 27th, both RT-owned and
+// out of the management fleet). Without them the DB-only map would drop
+// listings that are mapped today.
+//
 // Keep this in sync with PROPERTY_DETAILS[*].listing_match in statements/render/page.tsx
 //
 // Sub-unit needles MUST be a superstring of their parent's needle (e.g. the
@@ -175,9 +185,46 @@ async function guestyGet(path: string, token: string, params?: Record<string, st
 type ListingRow = { listing_id: string; property_id: string; nickname: string | null; address: string | null; hero_url: string | null };
 type UnmatchedListing = { listing_id: string; nickname: string | null; address: string | null };
 
+/**
+ * Needles to match a Guesty listing against, property id to needle.
+ *
+ * The hardcoded LISTING_MATCH is the floor; every non-empty
+ * `properties.listing_match` in the database is layered on top and wins.
+ *
+ * Why this is not a hardcoded map any more: 4 Middle Road went live in
+ * Guesty as listing 6a8f8eaca4a9df0011764b00 ("4 Middle", 4 Middle Rd,
+ * Rockport) and its own properties row already carried listing_match
+ * '4 middle', but the sync read only the hardcoded object, so the listing
+ * fell into `unmatched` on every run while the sync recorded status "ok".
+ * Helm therefore held zero reservations, zero bookings and zero statements
+ * for a home that was taking bookings, and the forecast projected it off the
+ * portfolio average. The same failure hid 225 Washington until 2026-08-24,
+ * which is why it is fixed at the source rather than by adding one more line.
+ *
+ * A DB read failure is not fatal: the floor still matches every listing that
+ * matched before this function existed.
+ */
+async function listingNeedles(): Promise<Record<string, string>> {
+  const needles: Record<string, string> = { ...LISTING_MATCH };
+  try {
+    const { data, error } = await getSupabase()
+      .from('properties')
+      .select('id, listing_match');
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      const needle = (row.listing_match ?? '').toString().trim().toLowerCase();
+      if (row.id && needle) needles[row.id] = needle;
+    }
+  } catch (err) {
+    console.error('[sync-guesty] listing_match read failed, using the hardcoded floor:', err);
+  }
+  return needles;
+}
+
 async function refreshListingMap(
   token: string,
 ): Promise<{ rows: ListingRow[]; unmatched: UnmatchedListing[] }> {
+  const needles = await listingNeedles();
   const all: any[] = [];
   let skip = 0;
   const limit = 100;
@@ -204,7 +251,7 @@ async function refreshListingMap(
     // (found 2026-07-20 via the revenue page showing the sub-unit empty).
     let matched: string | null = null;
     let matchedLen = 0;
-    for (const [propId, needle] of Object.entries(LISTING_MATCH)) {
+    for (const [propId, needle] of Object.entries(needles)) {
       if (needle.length > matchedLen && haystack.includes(needle)) {
         matched = propId;
         matchedLen = needle.length;
