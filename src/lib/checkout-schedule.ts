@@ -577,11 +577,11 @@ export async function insertAdjustment(
   if (input.minerKey) {
     const { data: priorRow } = await supabase
       .from('checkout_adjustments')
-      .select('id, status')
+      .select('id, status, updated_at')
       .eq('miner_key', input.minerKey)
       .maybeSingle();
     if (priorRow) {
-      const prior = priorRow as { id: string; status: string };
+      const prior = priorRow as { id: string; status: string; updated_at: string | null };
       // Already in force, dismissed by a human, or still waiting on one:
       // all three are correct states to leave alone.
       if (prior.status !== 'superseded') return null;
@@ -597,14 +597,54 @@ export async function insertAdjustment(
         .eq('status', 'active')
         .maybeSingle();
       if (inForce) return null;
+
+      // Reviving is NOT a free pass back to 'active'. Two things can have
+      // happened while this row sat superseded, and each means the stay was
+      // already ruled on:
+      //
+      //   - Somebody dismissed the row that superseded this one: the
+      //     operator's "Remove adjustment (back to Guesty)", or the hold
+      //     retraction when a paid extension was refunded and its hold left
+      //     the Guesty mirror. Both deliberately put the stay back on Guesty
+      //     truth. Quietly re-imposing an overlay undoes that decision with
+      //     no chip and no tap, and the dismissal only ever marked its OWN
+      //     row, so this superseded sibling was left revivable.
+      //   - The evidence got weaker. The miner downgrades to 'low' when
+      //     extensionIsOccupied no longer holds, but this branch used to
+      //     return before input.confidence was ever read, so a stale
+      //     extension came back verbatim and fully active.
+      //
+      // A revival that cannot clear the bar a fresh row would clear comes
+      // back as a PROPOSAL: the fact is still surfaced, a human decides.
+      const { data: ruledOn } = await supabase
+        .from('checkout_adjustments')
+        .select('id')
+        .eq('property_id', input.propertyId)
+        .eq('stay_check_in', input.stayCheckIn)
+        .eq('status', 'dismissed')
+        .gte('updated_at', prior.updated_at ?? '1970-01-01')
+        .limit(1);
+      const overruled = !!ruledOn && ruledOn.length > 0;
+      const revivedStatus: 'active' | 'proposed' =
+        input.source === 'operator' || (input.confidence === 'high' && !overruled) ? 'active' : 'proposed';
       const { data: revived } = await supabase
         .from('checkout_adjustments')
-        .update({ status: 'active', updated_at: new Date().toISOString() })
+        .update({
+          status: revivedStatus,
+          // The fact is re-derived on every pass, so bring TODAY's values
+          // back rather than the ones frozen when the row was superseded.
+          adjusted_check_out: input.adjustedCheckOut ?? null,
+          adjusted_checkout_time: input.adjustedCheckoutTime ?? null,
+          note: input.note ?? '',
+          evidence: input.evidence ?? null,
+          confidence: input.confidence ?? null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', prior.id)
         .eq('status', 'superseded')
         .select('id')
         .maybeSingle();
-      return revived ? { id: prior.id, status: 'active' } : null;
+      return revived ? { id: prior.id, status: revivedStatus } : null;
     }
   }
 
