@@ -39,6 +39,7 @@
  */
 
 import { supabaseAdmin } from './supabase-admin';
+import { selectAllPaged } from './paged-select';
 
 /** Mirror rows older than this cannot overrule a confirmed booking: we
  *  could not tell "cancelled" from "not synced lately". */
@@ -61,6 +62,10 @@ const MAX_CANCELS_PER_RUN = 5;
 /** Only look at stays that are current or recent. An old row being wrong
  *  hurts nobody today, and the mirror does not retain distant history. */
 const LOOKBACK_DAYS = 14;
+
+/** The other half of "current or recent". Without it the candidate set ran
+ *  to the far future and the calendar read below spanned a year. */
+const FORWARD_DAYS = 60;
 
 export type GhostBookingResult = {
   examined: number;
@@ -114,12 +119,18 @@ export async function cancelGhostBookings(
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
   const from = addDays(today, -LOOKBACK_DAYS);
 
+  // Bounded at BOTH ends. The docblock has always said "current or recent",
+  // but with no upper bound every future booking widened the calendar read
+  // below, including the 3 Locust 2027 pre-release placeholders, which
+  // stretched one select across roughly a year times the whole fleet.
+  const until = addDays(today, FORWARD_DAYS);
   const { data: candRows, error: candErr } = await supabaseAdmin
     .from('bookings')
     .select('id, property_id, check_in, check_out, guest_name, external_confirmation_code, first_seen_at')
     .eq('status', 'confirmed')
     .is('duplicate_of', null)
-    .gte('check_out', from);
+    .gte('check_out', from)
+    .lte('check_out', until);
   if (candErr) {
     result.errors.push(`bookings: ${candErr.message}`);
     return result;
@@ -132,19 +143,34 @@ export async function cancelGhostBookings(
   const allNights = candidates.flatMap((c) => nightsOf(c.check_in, c.check_out));
   if (allNights.length === 0) return result;
   const propertyIds = [...new Set(candidates.map((c) => c.property_id))];
-  const [{ data: calRows, error: calErr }, { data: listingRows, error: listingErr }] = await Promise.all([
-    supabaseAdmin
-      .from('property_calendar_days')
-      .select('property_id, date, status, synced_at')
-      .in('property_id', propertyIds)
-      .gte('date', allNights.reduce((a, b) => (a < b ? a : b)))
-      .lte('date', allNights.reduce((a, b) => (a > b ? a : b))),
-    supabaseAdmin.from('guesty_listings').select('property_id').in('property_id', propertyIds),
-  ]);
-  if (calErr) {
-    result.errors.push(`calendar: ${calErr.message}`);
+  const nightsFrom = allNights.reduce((a, b) => (a < b ? a : b));
+  const nightsTo = allNights.reduce((a, b) => (a > b ? a : b));
+  // PAGED. A bare select stops at PostgREST's silent 1000-row cap, and the
+  // missing cells read as "no mirror row", which makes a candidate look
+  // uncorroborated and quietly drops it. The pass then reports a clean run
+  // having examined almost nothing. Ordered by (property_id, date) because
+  // range() is an OFFSET window and an unstable sort overlaps or skips.
+  let calRows: Array<{ property_id: string; date: string; status: string; synced_at: string | null }>;
+  try {
+    calRows = await selectAllPaged((fromIdx, toIdx) =>
+      supabaseAdmin
+        .from('property_calendar_days')
+        .select('property_id, date, status, synced_at')
+        .in('property_id', propertyIds)
+        .gte('date', nightsFrom)
+        .lte('date', nightsTo)
+        .order('property_id', { ascending: true })
+        .order('date', { ascending: true })
+        .range(fromIdx, toIdx),
+    );
+  } catch (err) {
+    result.errors.push(`calendar: ${err instanceof Error ? err.message : String(err)}`);
     return result;
   }
+  const { data: listingRows, error: listingErr } = await supabaseAdmin
+    .from('guesty_listings')
+    .select('property_id')
+    .in('property_id', propertyIds);
   if (listingErr) {
     result.errors.push(`guesty_listings: ${listingErr.message}`);
     return result;
@@ -158,7 +184,7 @@ export async function cancelGhostBookings(
   }
   const freshCutoff = Date.now() - MIRROR_FRESH_HOURS * 3600_000;
   const cal = new Map<string, { status: string; syncedMs: number }>();
-  for (const r of (calRows ?? []) as Array<{ property_id: string; date: string; status: string; synced_at: string | null }>) {
+  for (const r of calRows) {
     const ms = r.synced_at ? Date.parse(r.synced_at) : NaN;
     cal.set(`${r.property_id}|${r.date}`, { status: (r.status || '').toLowerCase(), syncedMs: ms });
   }

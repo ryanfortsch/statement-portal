@@ -35,6 +35,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { selectAllPaged } from '@/lib/paged-select';
 
 // Same exclusion set as lib/operations.ts NON_OPERATIONS_PROPERTY_IDS
 // (file-local there): out-of-region homes whose owners handle their own
@@ -319,19 +320,31 @@ async function findGhostStays(
   const from = allNights.reduce((a, b) => (a < b ? a : b));
   const to = allNights.reduce((a, b) => (a > b ? a : b));
 
-  const [{ data, error }, { data: listingRows, error: listingErr }] = await Promise.all([
-    supabase
-      .from('property_calendar_days')
-      .select('property_id, date, status, synced_at')
-      .in('property_id', propertyIds)
-      .gte('date', from)
-      .lte('date', to),
-    supabase
-      .from('guesty_listings')
-      .select('property_id')
-      .in('property_id', propertyIds),
-  ]);
-  if (error || !data) return ghosts;
+  // PAGED, and ordered, because range() is an OFFSET window. A week of the
+  // fleet is usually under the 1000-row cap, but one long mid-term stay
+  // pushes it over, and a truncated read silently turns the guard off: the
+  // missing cells are indistinguishable from "no mirror row".
+  let data: Array<{ property_id: string; date: string; status: string; synced_at: string | null }>;
+  try {
+    data = await selectAllPaged((fromIdx, toIdx) =>
+      supabase
+        .from('property_calendar_days')
+        .select('property_id, date, status, synced_at')
+        .in('property_id', propertyIds)
+        .gte('date', from)
+        .lte('date', to)
+        .order('property_id', { ascending: true })
+        .order('date', { ascending: true })
+        .range(fromIdx, toIdx),
+    );
+  } catch {
+    // Cannot read the mirror: judge nothing, keep every stay.
+    return ghosts;
+  }
+  const { data: listingRows, error: listingErr } = await supabase
+    .from('guesty_listings')
+    .select('property_id')
+    .in('property_id', propertyIds);
   // Cannot tell how many listings a property has: cannot judge any of
   // them. Keeping every stay is the safe failure.
   if (listingErr || !listingRows) return ghosts;
@@ -349,7 +362,7 @@ async function findGhostStays(
 
   const freshCutoff = Date.now() - MIRROR_FRESH_HOURS * 3600_000;
   const byKey = new Map<string, { status: string; syncedMs: number }>();
-  for (const r of data as Array<{ property_id: string; date: string; status: string; synced_at: string | null }>) {
+  for (const r of data) {
     const syncedMs = r.synced_at ? Date.parse(r.synced_at) : NaN;
     byKey.set(`${r.property_id}|${r.date}`, { status: (r.status || '').toLowerCase(), syncedMs });
   }
