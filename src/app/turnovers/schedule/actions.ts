@@ -295,13 +295,16 @@ export async function applyProposalAction(formData: FormData): Promise<void> {
   // and silently falls back to Guesty truth.
   const { data: standingRow, error: standingErr } = await supabase
     .from('checkout_adjustments')
-    .select('id')
+    .select('id, adjusted_check_out, adjusted_checkout_time')
     .eq('property_id', row.property_id)
     .eq('stay_check_in', row.stay_check_in)
     .eq('status', 'active')
     .maybeSingle();
   if (standingErr) redirect(backTarget(formData, '?err=apply_failed'));
-  const standingId = (standingRow as { id: string } | null)?.id ?? null;
+  const standing = standingRow as
+    | { id: string; adjusted_check_out: string | null; adjusted_checkout_time: string | null }
+    | null;
+  const standingId = standing?.id ?? null;
   const now = new Date().toISOString();
   if (standingId) {
     const { error: supErr } = await supabase
@@ -311,9 +314,24 @@ export async function applyProposalAction(formData: FormData): Promise<void> {
       .eq('status', 'active');
     if (supErr) redirect(backTarget(formData, '?err=apply_failed'));
   }
+  // A proposal carries only the axis it is about. The miner merges against
+  // whatever stood WHEN IT WAS FILED, so a time-only proposal filed before
+  // an extension landed still has a null date, and promoting it verbatim
+  // would supersede the extension and leave the stay with no date at all:
+  // it would fall back to Guesty's earlier checkout, putting cleaners in an
+  // occupied house and leaving the real turnover on nobody's list. Merge at
+  // APPLY time instead, against what actually stands now. The proposal wins
+  // every axis it actually sets; the standing row keeps the rest.
+  const mergedCheckOut = row.adjusted_check_out ?? standing?.adjusted_check_out ?? null;
+  const mergedTime = row.adjusted_checkout_time ?? standing?.adjusted_checkout_time ?? null;
   const { data: promoted, error } = await supabase
     .from('checkout_adjustments')
-    .update({ status: 'active', updated_at: now })
+    .update({
+      status: 'active',
+      adjusted_check_out: mergedCheckOut,
+      adjusted_checkout_time: mergedTime,
+      updated_at: now,
+    })
     .eq('id', id)
     .eq('status', 'proposed')
     .select('id')
