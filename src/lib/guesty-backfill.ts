@@ -155,6 +155,11 @@ export async function backfillGuestyToBookings(
     if (!r.property_id || !r.check_in || !r.check_out) { skippedInvalid++; continue; }
     if (!knownPropertyIds.has(r.property_id as string)) { skippedUnknownProperty++; continue; }
 
+    // null means Guesty said nothing we recognise. A NEW row still defaults
+    // to confirmed (a stay we know nothing about is more safely cleaned
+    // than skipped); an EXISTING row keeps whatever it has. See the status
+    // patch below.
+    const mappedStatus = mapStatus(r.status as string | null);
     const desired: Row = {
       property_id: r.property_id as string,
       channel: mapChannel(r.channel as string | null),
@@ -164,7 +169,7 @@ export async function backfillGuestyToBookings(
       check_in: (r.check_in as string).slice(0, 10),
       check_out: (r.check_out as string).slice(0, 10),
       nights: (r.nights as number | null) ?? null,
-      status: mapStatus(r.status as string | null),
+      status: mappedStatus ?? 'confirmed',
       guest_name: (r.guest_name as string | null) ?? null,
       payout: r.host_payout != null ? Number(r.host_payout) : null,
     };
@@ -192,7 +197,15 @@ export async function backfillGuestyToBookings(
     if (prior.check_in?.slice(0, 10) !== desired.check_in) patch.check_in = desired.check_in;
     if (prior.check_out?.slice(0, 10) !== desired.check_out) patch.check_out = desired.check_out;
     if ((prior.nights ?? null) !== desired.nights) patch.nights = desired.nights;
-    if (prior.status !== desired.status) patch.status = desired.status;
+    // Only move an existing row's status when Guesty actually said
+    // something we recognise. The catch-all used to resolve every unknown
+    // and absent status to 'confirmed', and sync-guesty runs this backfill
+    // in the SAME request as cancelGhostBookings, roughly twenty lines
+    // later: a ghost the reconciler had just cancelled was patched straight
+    // back to confirmed seconds afterwards, and the schedule reads
+    // confirmed as a checkout. A status we cannot read is not evidence the
+    // stay is live.
+    if (mappedStatus !== null && prior.status !== mappedStatus) patch.status = mappedStatus;
     if (desired.guest_name != null && prior.guest_name !== desired.guest_name)
       patch.guest_name = desired.guest_name;
     if (Number(prior.payout ?? NaN) !== Number(desired.payout ?? NaN))
@@ -285,12 +298,28 @@ function mapChannel(raw: string | null): BookingChannel {
   return 'other';
 }
 
-function mapStatus(raw: string | null): BookingStatus {
-  if (!raw) return 'confirmed';
+/**
+ * Guesty status -> bookings status.
+ *
+ * `declined` and `expired` are recognised explicitly: both mean the stay
+ * never happened, and the old catch-all mirrored them into bookings as
+ * `confirmed`, which is a checkout the cleaner schedule then sends someone
+ * to. `closed` deliberately does NOT map to cancelled: proven on this
+ * account, 12 of 14 closed reservations were real stays, so closed is
+ * retirement, not cancellation, and it keeps falling through.
+ *
+ * An unrecognised or absent status returns null, meaning "Guesty did not
+ * tell us". A new row still defaults to confirmed on null, because a stay
+ * we know nothing about is more safely cleaned than skipped, but an
+ * EXISTING row is left alone; see the status patch in the mirror loop.
+ */
+function mapStatus(raw: string | null): BookingStatus | null {
+  if (!raw) return null;
   const s = raw.toLowerCase();
-  if (s.includes('cancel')) return 'cancelled';
+  if (s.includes('cancel') || s.includes('declined') || s.includes('expired')) return 'cancelled';
   if (s.includes('inquiry')) return 'inquiry';
   if (s.includes('pending')) return 'pending';
   if (s.includes('completed')) return 'completed';
-  return 'confirmed';
+  if (s.includes('confirmed') || s.includes('reserved')) return 'confirmed';
+  return null;
 }
