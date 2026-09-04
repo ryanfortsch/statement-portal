@@ -108,6 +108,9 @@ function RowLine({ row }: { row: ScheduleRow }) {
           </span>
         )}
         {row.adjustment?.drifted && <Chip tone="warn">Guesty moved · re-check</Chip>}
+        {row.conflictingCheckOut && (
+          <Chip tone="warn">Feeds disagree · other says {row.conflictingCheckOut}</Chip>
+        )}
       </span>
     </div>
   );

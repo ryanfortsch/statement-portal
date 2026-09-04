@@ -112,6 +112,11 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
         {adj?.drifted && (
           <span style={{ fontSize: 11, fontWeight: 700, color: '#8a6d1a' }}>Guesty moved since - re-check</span>
         )}
+        {row.conflictingCheckOut && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#8a6d1a' }}>
+            feeds disagree - another says {row.conflictingCheckOut}
+          </span>
+        )}
         {verdict && (
           <span
             style={{
