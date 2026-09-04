@@ -42,6 +42,23 @@ import { insertAdjustment, todayET, addDays } from '@/lib/checkout-schedule';
 
 const HOLD_BOT = 'guesty-hold';
 const DEFAULT_HORIZON_DAYS = 30;
+
+/**
+ * How far BACK the scan reaches.
+ *
+ * A hold is squared away on the Guesty calendar whenever the operator gets
+ * to it, which is routinely after the afternoon cron: the guest asks to
+ * extend on checkout morning, pays, and the calendar is fixed that evening.
+ * Anchoring both reads at today meant the stay (check_out = yesterday) and
+ * its hold (block_start = yesterday) dropped out of the scan on the SAME
+ * run and never came back, so the extension was never written and the real,
+ * later checkout appeared on no digest at all. The AI miner already allows
+ * a day of grace; the deterministic path allowed none, which is backwards.
+ *
+ * A week covers ordinary late calendar squaring. Corroboration is unchanged,
+ * so widening the window cannot by itself apply anything.
+ */
+const LOOKBACK_DAYS = 7;
 /** Extension-ish payment links / slips this recent count as corroboration. */
 const CORROBORATION_LOOKBACK_DAYS = 45;
 
@@ -100,7 +117,7 @@ function noteNames(note: string, tokens: string[]): boolean {
 
 export async function detectExtensionHolds(
   supabase: SupabaseClient,
-  opts?: { horizonDays?: number },
+  opts?: { horizonDays?: number; lookbackDays?: number },
 ): Promise<ExtensionHoldsResult> {
   const result: ExtensionHoldsResult = {
     staysScanned: 0,
@@ -115,12 +132,15 @@ export async function detectExtensionHolds(
 
   const today = todayET();
   const horizonEnd = addDays(today, opts?.horizonDays ?? DEFAULT_HORIZON_DAYS);
+  // Scan start, not today: a hold entered after yesterday's cron still has
+  // to be found. See LOOKBACK_DAYS.
+  const scanStart = addDays(today, -(opts?.lookbackDays ?? LOOKBACK_DAYS));
 
   const [staysRes, holdsRes] = await Promise.all([
     supabase
       .from('bookings')
       .select('property_id, check_in, check_out, guest_name')
-      .gte('check_out', today)
+      .gte('check_out', scanStart)
       .lte('check_out', horizonEnd)
       .in('status', ['confirmed', 'completed'])
       .is('duplicate_of', null),
@@ -128,7 +148,7 @@ export async function detectExtensionHolds(
       .from('property_calendar_days')
       .select('property_id, block_start, block_end, block_type, block_note')
       .not('block_type', 'is', null)
-      .gte('block_start', today)
+      .gte('block_start', scanStart)
       .lte('block_start', horizonEnd),
   ]);
 
@@ -182,14 +202,16 @@ export async function detectExtensionHolds(
   // in the (successfully read) mirror describes an extension that was
   // refunded or removed. Left alone it keeps the stay on the wrong day
   // indefinitely. Only holds inside the scanned window can be judged, so
-  // only adjustments whose original checkout falls in it are eligible.
+  // only adjustments whose original checkout falls in it are eligible. The
+  // bound matches the scan exactly (scanStart, not today) or a retraction
+  // would judge a hold the scan above never loaded and dismiss it as gone.
   if (!holdsRes.error) {
     const { data: liveHolds, error: liveErr } = await supabase
       .from('checkout_adjustments')
       .select('id, property_id, original_check_out, miner_key')
       .eq('status', 'active')
       .eq('source', 'guesty_hold')
-      .gte('original_check_out', today)
+      .gte('original_check_out', scanStart)
       .lte('original_check_out', horizonEnd);
     if (liveErr) {
       result.errors.push(`retract read: ${liveErr.message}`);
@@ -245,6 +267,12 @@ export async function detectExtensionHolds(
     // block_end is the last HELD night, so the guest leaves the next day.
     const newCheckOut = addDays(hold.block_end, 1);
     if (newCheckOut <= stay.check_out) continue;
+    // The lookback exists to catch a hold entered LATE for a checkout that
+    // still matters. An extension that already finished cannot change any
+    // cleaning day, so writing it would only be noise on the workroom and a
+    // new row for the revival path to reason about. Today still counts: the
+    // digest for today may not have gone out yet.
+    if (newCheckOut < today) continue;
 
     const evidenceBits = [
       hold.block_note ? `Guesty hold: "${hold.block_note}"` : `Guesty ${hold.block_type} hold`,
