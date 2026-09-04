@@ -149,6 +149,9 @@ export type ScheduleRow = {
   /** The property default, for "was 10:00" context when time is adjusted. */
   defaultTime: string;
   sameDayTurnover: boolean;
+  /** Another feed's row for this same stay claims a different checkout.
+   *  Neither answer is safe to pick silently, so it is shown. */
+  conflictingCheckOut: string | null;
   nextCheckinTime: string | null;
   nextGuestName: string | null;
   adjustment: {
@@ -182,6 +185,12 @@ type BookingLite = {
   /** When Helm first saw this row. A calendar mirror older than the booking
    *  cannot be evidence the booking is gone; see findGhostStays. */
   first_seen_at?: string | null;
+  /** When the feed last re-confirmed this row. Used only to break a tie
+   *  between twins the scoring cannot separate; see collapseStays. */
+  last_seen_at?: string | null;
+  /** Set by collapseStays: another canonical row for this same stay claims
+   *  a DIFFERENT checkout. Not a winner, a warning. */
+  conflictingCheckOut?: string | null;
 };
 
 type PropertyLite = {
@@ -216,18 +225,47 @@ function guestNameScore(name: string | null): number {
  *  duplicate_of provably misses cross-source pairs). Collapse to one row
  *  per (property_id, check_in), preferring a real guest name, then a
  *  non-ical source. */
+/**
+ * One row per stay, from a table that holds several by design (one per
+ * feed). The winner supplies the checkout the cleaners are sent on.
+ *
+ * Scoring prefers a real guest name, then the Guesty feed over a bare ical
+ * row. Two things the old version got wrong:
+ *
+ *   - A TIE fell to heap order, which is arbitrary. When two feeds score
+ *     the same, the one the feed re-confirmed most recently is the better
+ *     guess, so last_seen_at breaks the tie.
+ *   - A DISAGREEMENT about check_out was resolved silently. Nothing in the
+ *     score relates to freshness, so a stale but better-named twin could
+ *     win with an earlier date: cleaners sent while the guest is still in
+ *     the house, and the real turnover on nobody's list. There is no safe
+ *     silent answer here (guessing early wastes a trip, guessing late
+ *     misses a turnover), so the loser's date is carried forward as a
+ *     conflict for a human to settle rather than being dropped.
+ */
 function collapseStays(rows: BookingLite[]): Map<string, BookingLite> {
   const byStay = new Map<string, BookingLite>();
+  const seenAt = (b: BookingLite) => {
+    const ms = b.last_seen_at ? Date.parse(b.last_seen_at) : NaN;
+    return Number.isFinite(ms) ? ms : 0;
+  };
   for (const r of rows) {
     const key = `${r.property_id}|${r.check_in}`;
     const prev = byStay.get(key);
     if (!prev) {
-      byStay.set(key, r);
+      byStay.set(key, { ...r });
       continue;
     }
     const score = (b: BookingLite) =>
       guestNameScore(b.guest_name) * 10 + (b.source !== 'ical_import' ? 1 : 0);
-    if (score(r) > score(prev)) byStay.set(key, r);
+    const rWins = score(r) > score(prev) || (score(r) === score(prev) && seenAt(r) > seenAt(prev));
+    const winner = rWins ? { ...r } : prev;
+    const loser = rWins ? prev : r;
+    winner.conflictingCheckOut =
+      loser.check_out !== winner.check_out
+        ? loser.check_out
+        : (prev.conflictingCheckOut ?? winner.conflictingCheckOut ?? null);
+    byStay.set(key, winner);
   }
   return byStay;
 }
@@ -368,14 +406,14 @@ export async function buildCheckoutSchedule(
       .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind'),
     supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at')
       .gte('check_out', startDate)
       .lte('check_out', endDate)
       .in('status', STAY_STATUSES)
       .is('duplicate_of', null),
     supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at')
       .gte('check_in', startDate)
       .lte('check_in', endDate)
       .in('status', STAY_STATUSES)
@@ -446,7 +484,7 @@ export async function buildCheckoutSchedule(
   if (missingStayKeys.length > 0) {
     const { data, error: refetchErr } = await supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at')
       .in('property_id', [...new Set(missingStayKeys.map((a) => a.property_id))])
       .in('check_in', [...new Set(missingStayKeys.map((a) => a.stay_check_in))])
       .in('status', STAY_STATUSES)
@@ -501,6 +539,7 @@ export async function buildCheckoutSchedule(
       time,
       defaultTime,
       sameDayTurnover: !!arrival,
+      conflictingCheckOut: stay.conflictingCheckOut ?? null,
       nextCheckinTime: arrival
         ? (normalizeTime(prop.default_checkin_time) ?? FALLBACK_CHECKIN_TIME)
         : null,
