@@ -36,13 +36,16 @@ export const dynamic = 'force-dynamic';
 
 const DAYS = 7;
 
+// Every label is about the CLEANER. "Nothing booked" once read as a
+// vacancy, which is the opposite of what it meant.
 const STATUS_LABEL: Record<CleaningStatus, { text: string; tone: 'ok' | 'warn' | 'bad' | 'mute' }> = {
-  agree: { text: 'Booked', tone: 'ok' },
-  early: { text: 'Before checkout', tone: 'warn' },
-  no_appointment: { text: 'Nothing booked', tone: 'bad' },
-  no_checkout: { text: 'Nobody checks out', tone: 'bad' },
+  agree: { text: 'Cleaner booked', tone: 'ok' },
+  early: { text: 'Cleaner before checkout', tone: 'warn' },
+  late: { text: 'Cleaner after check-in', tone: 'bad' },
+  no_appointment: { text: 'No cleaner booked', tone: 'bad' },
+  no_checkout: { text: 'Cleaner booked · no checkout', tone: 'bad' },
   unannounced: { text: 'Not announced yet', tone: 'mute' },
-  unchecked: { text: 'Booked · not cross-checked', tone: 'ok' },
+  unchecked: { text: 'Cleaner booked · not cross-checked', tone: 'ok' },
 };
 
 const TONE: Record<'ok' | 'warn' | 'bad' | 'mute', CSSProperties> = {
@@ -134,8 +137,22 @@ function CleaningRow({ item }: { item: CleaningItem }) {
           ? `${item.guestName ? `${item.guestName} · ` : ''}out ${formatTime12(item.checkoutTime)}`
           : 'no checkout on our schedule'}
       </span>
-      {item.sameDayTurnover && item.nextCheckinTime && (
-        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>next guest at {formatTime12(item.nextCheckinTime)}</span>
+      {item.sameDayTurnover && (
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '.08em',
+            textTransform: 'uppercase',
+            color: 'var(--signal)',
+            border: '1px solid var(--signal)',
+            borderRadius: 3,
+            padding: '2px 7px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          same day{item.nextCheckinTime ? ` · next guest ${formatTime12(item.nextCheckinTime)}` : ''}
+        </span>
       )}
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'baseline', gap: 12 }}>
         {flagged && item.checkIn && (
@@ -181,11 +198,12 @@ export default async function CleaningsPage({
   const attentionTotal = days.reduce((s, d) => s + d.attention, 0);
   // What the "needs a look" count is made of, in the order worth chasing.
   const breakdown = (() => {
-    const counts = { no_appointment: 0, early: 0, no_checkout: 0 };
+    const counts = { no_appointment: 0, early: 0, late: 0, no_checkout: 0 };
     for (const d of days) for (const i of d.items) if (i.status in counts) counts[i.status as keyof typeof counts] += 1;
     const parts: string[] = [];
-    if (counts.no_appointment > 0) parts.push(`${counts.no_appointment} nothing booked`);
+    if (counts.no_appointment > 0) parts.push(`${counts.no_appointment} no cleaner booked`);
     if (counts.early > 0) parts.push(`${counts.early} before checkout`);
+    if (counts.late > 0) parts.push(`${counts.late} after check-in`);
     if (counts.no_checkout > 0) parts.push(`${counts.no_checkout} nobody checks out`);
     return parts.join(' · ');
   })();
@@ -224,8 +242,10 @@ export default async function CleaningsPage({
       >
         <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 680 }}>
           The crew&rsquo;s own bookings, read from the appointment reminders Jobber texts the Quo line about two days
-          ahead, checked against our checkout schedule. Nothing here is predicted: a day past their last text is
-          marked not announced yet, never empty.
+          ahead, laid against our checkouts. A house is flagged when a guest leaves and no cleaner is booked, when
+          the cleaner is booked before the guest is out, or, on a same-day turnover, at or after the next
+          guest&rsquo;s check-in. Nothing here is predicted: a day past their last text is marked not announced yet,
+          never empty.
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)' }}>
             {horizon ? (
               <>
@@ -314,7 +334,7 @@ export default async function CleaningsPage({
           paddingTop={8}
           paddingBottom={12}
           empty={day.items.length === 0}
-          emptyMessage={day.announced ? 'No checkouts and nothing booked.' : 'No checkouts on our schedule. Not announced yet.'}
+          emptyMessage={day.announced ? 'No checkouts, and no cleaner booked.' : 'No checkouts on our schedule. Not announced yet.'}
         >
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {day.items.map((item) => (
