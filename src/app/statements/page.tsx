@@ -2195,7 +2195,9 @@ function PropertyCard({
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              const code = (gap.expected_data || '').replace(/^reservation:/, '').trim();
+                              // First token only: expected_data is `reservation:CODE`, and any
+                              // trailing annotation must never reach the route as part of the code.
+                              const code = (gap.expected_data || '').replace(/^reservation:/, '').trim().split(/\s+/)[0] || '';
                               if (!code) { alert('No confirmation code on this gap.'); return; }
                               if (!confirm(`Remove this cancelled reservation from the statement?\n\nHelm re-verifies it's cancelled in Guesty, then deletes it and recomputes the owner payout. It won't touch a booking Guesty still shows as confirmed.`)) return;
                               setResolvingGapId(gap.id);

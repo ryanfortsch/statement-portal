@@ -58,21 +58,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const removingLastStay = (priorCount ?? 0) <= 1;
 
   // Sent-statement freeze: removing a reservation recomputes owner_payout.
-  let finalityGate: FreezeReceipt;
-  try {
-    finalityGate = await assertStatementWritable(supabase, { statementId: psid }, {
-      force: body.force === true,
-      action: 'Remove cancelled reservation',
-      detail: `confirmation code ${String(body.confirmation_code || '')}`,
-    });
-  } catch (e) {
-    if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
-    throw e;
-  }
-
   const { data: res, error: resErr } = await supabase
     .from('reservations')
-    .select('id, guest_name, adjusted_revenue, platform')
+    .select('id, guest_name, adjusted_revenue, platform, bank_match_status')
     .eq('property_statement_id', psid)
     .eq('confirmation_code', code)
     .maybeSingle();
@@ -95,11 +83,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // the cached column (pre-cancel for anything cancelled since the nightly
   // sync, and NULL on every csv-fallback row). Unknown refuses: an
   // unreadable payout is not a zero payout.
-  const verdict = classifyCancelledStay({ statementAmount: res.adjusted_revenue, retained: live?.hostPayout ?? null, platform: res.platform });
+  const verdict = classifyCancelledStay({
+    statementAmount: res.adjusted_revenue,
+    retained: live?.hostPayout ?? null,
+    platform: res.platform,
+    bankMatched: res.bank_match_status === 'matched',
+  });
   if (verdict.kind === 'retained_unknown') {
     return NextResponse.json({
       error: verdict.reason === 'channel_basis'
-        ? `${res.guest_name} is cancelled, but Helm cannot tell what a Booking.com cancellation retained (the channel's payout figure includes tax). Refusing to remove: check the folio in Guesty first. Nothing was changed.`
+        ? `${res.guest_name} is cancelled and Guesty reports money retained, but on ${verdict.platform} that figure includes tax and does not compare to the statement line. Refusing to remove: check the folio in Guesty first. Nothing was changed.`
         : `${res.guest_name} is cancelled, but Guesty did not return what the cancellation policy retained. Refusing to remove until that is known: a retained amount is the owner's revenue. Nothing was changed.`,
     }, { status: 409 });
   }
@@ -108,9 +101,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       error: `${res.guest_name} is cancelled, but the cancellation policy retained $${retained.toFixed(2)}, and that is the owner's revenue. Refusing to remove. `
         + (verdict.kind === 'retained_matches'
-          ? 'The statement already carries exactly that amount; nothing to do. Resolve the flag with a note.'
-          : `The statement carries $${verdict.statementAmount.toFixed(2)}: correct it to $${retained.toFixed(2)} instead of removing it.`),
+          ? 'The statement carries exactly that amount and the deposit is in; nothing to do. Resolve the flag with a note.'
+          : verdict.kind === 'retained_unreceived'
+            ? 'The statement carries exactly that amount but the payout has not reached the bank yet. Hold it until the deposit shows, or move it to the month it lands; do not delete it.'
+            : `The statement carries $${verdict.statementAmount.toFixed(2)}: correct it to $${retained.toFixed(2)} instead of removing it.`),
     }, { status: 409 });
+  }
+
+  let finalityGate: FreezeReceipt;
+  try {
+    finalityGate = await assertStatementWritable(supabase, { statementId: psid }, {
+      force: body.force === true,
+      action: 'Remove cancelled reservation',
+      detail: `confirmation code ${String(body.confirmation_code || '')}`,
+    });
+  } catch (e) {
+    if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
+    throw e;
   }
 
   // Everything the recompute needs that the delete does NOT change: the

@@ -2276,6 +2276,8 @@ export async function POST(request: NextRequest) {
             statementAmount: r.adjusted_revenue,
             retained: liveRow?.hostPayout ?? null,
             platform: r.platform,
+            // Retained is not received: only a bank-matched row is silent.
+            bankMatched: r.bank_match_status === 'matched',
           });
           const gap = cancelledStayGap(verdict, r.guest_name, r.confirmation_code, matchNote);
           if (gap) gaps.push(gap);

@@ -446,7 +446,7 @@ export async function POST(request: NextRequest) {
     if (statementIds.length > 0) {
       const { data: resRows, error: resErr } = await sbForStmt
         .from('reservations')
-        .select('confirmation_code, guest_name, platform, adjusted_revenue')
+        .select('confirmation_code, guest_name, platform, adjusted_revenue, bank_match_status')
         .in('property_statement_id', statementIds);
       // Fail closed: an unreadable reservation list is not a clean one.
       if (resErr) {
@@ -472,17 +472,17 @@ export async function POST(request: NextRequest) {
         const cancelled = probed
           .map(r => ({ r, v: live.get(r.confirmation_code as string) }))
           .filter(({ v }) => isCancelledStatus(v?.status))
-          .map(({ r, v }) => ({ r, verdict: classifyCancelledStay({ statementAmount: Number(r.adjusted_revenue), retained: v?.hostPayout ?? null, platform: r.platform }) }))
+          .map(({ r, v }) => ({ r, verdict: classifyCancelledStay({ statementAmount: Number(r.adjusted_revenue), retained: v?.hostPayout ?? null, platform: r.platform, bankMatched: r.bank_match_status === 'matched' }) }))
           .filter(({ verdict }) => verdict.kind !== 'retained_matches');
         if (cancelled.length > 0) {
           const names = cancelled
-            .map(({ r, verdict }) => `${r.guest_name} ($${Number(r.adjusted_revenue).toFixed(2)}, ${r.confirmation_code}${verdict.kind === 'retained_differs' ? `, policy retained $${verdict.retained.toFixed(2)}` : verdict.kind === 'retained_unknown' ? ', retained amount unknown' : ', nothing retained'})`)
+            .map(({ r, verdict }) => `${r.guest_name} ($${Number(r.adjusted_revenue).toFixed(2)}, ${r.confirmation_code}${verdict.kind === 'retained_differs' ? `, policy retained $${verdict.retained.toFixed(2)}` : verdict.kind === 'retained_unreceived' ? ', retained but the payout has not reached the bank' : verdict.kind === 'retained_unknown' ? ', retained amount unknown' : ', nothing retained'})`)
             .join('; ');
           return NextResponse.json({
             error:
               `${cancelled.length} booking${cancelled.length === 1 ? '' : 's'} on this statement `
               + `${cancelled.length === 1 ? 'has' : 'have'} been CANCELLED in Guesty since it was built: ${names}. `
-              + 'A cancellation that retained money must carry the retained amount; one that retained nothing must be removed. Fix that and let the payout recompute before drafting.',
+              + 'A cancellation that retained money belongs on the statement of the month its payout lands, at the retained amount; one that retained nothing must be removed. Fix that and let the payout recompute before drafting.',
             cancelled_on_statement: true,
             cancelled_codes: cancelled.map(({ r }) => r.confirmation_code),
           }, { status: 422 });
