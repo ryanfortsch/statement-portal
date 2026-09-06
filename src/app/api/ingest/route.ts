@@ -1776,11 +1776,23 @@ export async function POST(request: NextRequest) {
       // month. A cancellation whose retained payout equals one of these to
       // the cent is the same stay rebooked under a new code, and that
       // deposit is the rebooked stay's ordinary money: never suggest it.
-      const { data: recognizedRows, error: recErr } = await supabase
-        .from('reservations')
-        .select('guesty_rental_income, platform')
-        .eq('property_id', propertyId)
-        .gt('guesty_rental_income', 0);
+      // Reached through the statement, not reservations.property_id: that
+      // column is a later denormalization and a sparse one would make
+      // this list empty, which would read as "no twins" and silently
+      // disarm the exclusion. The statement link is the canonical one.
+      const { data: propStmts, error: psErr } = await supabase
+        .from('property_statements')
+        .select('id')
+        .eq('property_id', propertyId);
+      if (psErr) throw new Error(psErr.message);
+      const propStmtIds = (propStmts || []).map(x => x.id as string);
+      const { data: recognizedRows, error: recErr } = propStmtIds.length > 0
+        ? await supabase
+            .from('reservations')
+            .select('guesty_rental_income, platform')
+            .in('property_statement_id', propStmtIds)
+            .gt('guesty_rental_income', 0)
+        : { data: [], error: null };
       if (recErr) throw new Error(recErr.message);
       recognizedAmounts = (recognizedRows || [])
         .filter(r => (r.platform || '').toUpperCase() === 'AIRBNB')
