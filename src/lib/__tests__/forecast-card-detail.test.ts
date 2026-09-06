@@ -48,6 +48,10 @@ describe('routeCardRow', () => {
     assert.equal(routeCardRow('Other', 'ATT*BILL PAYMENT'), 'telecom');
     assert.equal(routeCardRow('Other', 'PURCHASE INTEREST CHARGE'), 'travel_other');
   });
+
+  test('the dumpster rides the Office line it is projected on', () => {
+    assert.equal(routeCardRow('Rent & office', 'REPUBLIC SERVICES TRASH'), 'office');
+  });
 });
 
 describe('categorizer sees the decoded name', () => {

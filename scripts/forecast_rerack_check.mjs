@@ -152,7 +152,9 @@ const ROUTE_CASES = [
   ['Other', 'AT&amp;T BILL PAYMENT', 'telecom'],
   ['Other', 'PURCHASE INTEREST CHARGE', 'travel_other'],
   ['Travel', 'JETBLUE     2792111926428', 'travel_other'],
-  ['Rent & office', 'REPUBLIC SERVICES TRASH', 'travel_other'],
+  // The dumpster is projected on the Office line, so a measured month
+  // carries it there too, not in Travel & other.
+  ['Rent & office', 'REPUBLIC SERVICES TRASH', 'office'],
 ];
 for (const [category, description, want] of ROUTE_CASES) {
   const got = routeCardRow(category, description.toUpperCase());
