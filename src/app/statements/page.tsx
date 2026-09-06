@@ -737,6 +737,9 @@ const PIPELINE_OWNED_GAP_TYPES = new Set([
   'missing_bank_csv', 'unmatched_bank',
   'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
 ]);
+// NOT cancelled_reservation_retained: there is no in-app path to edit one
+// stay's amount, so the only honest exits are a re-ingest after Sync Guesty
+// or a Resolve with a note.
 // NOT vendor_refund_unapplied: Fill Gap deliberately no longer deletes and
 // re-derives it (a narrower CSV would lose a real one), so nothing retires
 // it automatically and Resolve is its only exit.
@@ -2094,7 +2097,9 @@ function PropertyCard({
                   // confirm, which is how operators learn to click through
                   // the confirm without reading it.
                   const needsManualResolve = !fillable && !offStripeResolvable
-                    && gap.gap_type !== 'cancelled_reservation'
+                    // cancelled_reservation keeps its Remove button AND gets
+                    // Resolve: Remove now refuses when the cancellation
+                    // retained money, and a refused flag needs an exit.
                     && !isPipelineOwnedGap(gap.gap_type);
                   return (
                     <div
@@ -2190,7 +2195,9 @@ function PropertyCard({
                             disabled={resolvingGapId === gap.id}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              const code = (gap.expected_data || '').replace(/^reservation:/, '').trim();
+                              // First token only: expected_data is `reservation:CODE`, and any
+                              // trailing annotation must never reach the route as part of the code.
+                              const code = (gap.expected_data || '').replace(/^reservation:/, '').trim().split(/\s+/)[0] || '';
                               if (!code) { alert('No confirmation code on this gap.'); return; }
                               if (!confirm(`Remove this cancelled reservation from the statement?\n\nHelm re-verifies it's cancelled in Guesty, then deletes it and recomputes the owner payout. It won't touch a booking Guesty still shows as confirmed.`)) return;
                               setResolvingGapId(gap.id);

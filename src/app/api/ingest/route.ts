@@ -3,13 +3,15 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
+import { classifyCancelledStay, cancelledStayGap } from '@/lib/cancelled-stay';
+import { checkLiveGuestyCancellation } from '@/lib/cancel-check';
 import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-ruling';
 import { netVendorCredits, vendorChargeNet, unappliedRefundGap, type VendorCharge } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
 import { buildRemittanceSheet } from '@/lib/remittance';
 import { getActivePropertyForStatements } from '@/lib/properties';
 import { loadInstallmentsForMonth, loadInstallmentsForCode, loadInstallmentsForCodes, type Installment } from '@/lib/installments';
-import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
+import { isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
@@ -2246,23 +2248,39 @@ export async function POST(request: NextRequest) {
       }
       if (cancelSuspects.size > 0) {
         const suspects = [...cancelSuspects.values()];
-        const liveStatus = await checkLiveGuestyStatus(suspects.map(r => r.confirmation_code));
+        const live = await checkLiveGuestyCancellation(suspects.map(r => r.confirmation_code));
         for (const r of suspects) {
           // Either signal is enough. Live is authoritative when it answers;
           // when it doesn't (429 / network / no creds it returns nothing), a
           // cached cancel must still raise the flag rather than fall silent.
           const cached = guestyLookupMap.get(r.confirmation_code)?.status;
-          if (!isCancelledStatus(liveStatus.get(r.confirmation_code)) && !isCancelledStatus(cached)) continue;
+          const liveRow = live.get(r.confirmation_code);
+          if (!isCancelledStatus(liveRow?.status) && !isCancelledStatus(cached)) continue;
           const matchNote = r.bank_match_status === 'unmatched'
             ? ''
             : ` It carries a ${r.bank_match_status} bank match, which does NOT make it real -- check what that deposit actually belongs to.`;
-          gaps.push({
-            gap_type: 'cancelled_reservation',
-            description: `${r.guest_name} CANCELLED in Guesty but is still on this statement at $${r.adjusted_revenue}. Remove it -- this booking never paid.${matchNote}`,
-            severity: 'critical',
-            // Carries the code so the Remove action can find the exact row.
-            expected_data: `reservation:${r.confirmation_code}`,
+          // Cancelled is not "never paid". Airbnb applies the cancellation
+          // policy and pays the host what it retains; Guesty lists the
+          // retained net on the owner statement. This flag used to say
+          // "never paid, remove it" for every cancellation, and a retained
+          // $775.29 (Catherine Dixon, 20 Hammond, August 2026) was removed
+          // from a sent statement on that instruction, leaving the owner
+          // $581.47 short. The verdict reads what was retained from the LIVE
+          // probe only (src/lib/cancelled-stay.ts): the cached host_payout
+          // is the pre-cancel figure for any booking cancelled since the
+          // nightly sync, and on a full-refund cancel it equals the
+          // statement line, which would have read as "retained, matches"
+          // and silenced the very leak this guard was built to catch.
+          // Live unavailable is unknown, and unknown is loud.
+          const verdict = classifyCancelledStay({
+            statementAmount: r.adjusted_revenue,
+            retained: liveRow?.hostPayout ?? null,
+            platform: r.platform,
+            // Retained is not received: only a bank-matched row is silent.
+            bankMatched: r.bank_match_status === 'matched',
           });
+          const gap = cancelledStayGap(verdict, r.guest_name, r.confirmation_code, matchNote);
+          if (gap) gaps.push(gap);
         }
       }
     } catch (err) {

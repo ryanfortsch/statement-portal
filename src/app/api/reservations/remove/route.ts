@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
+import { checkLiveGuestyCancellation, isCancelledStatus } from '@/lib/cancel-check';
+import { classifyCancelledStay } from '@/lib/cancelled-stay';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { writeStatementTotals, type FreezeReceipt, type WriteResult } from '@/lib/statement-totals-write';
 
@@ -57,6 +58,56 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const removingLastStay = (priorCount ?? 0) <= 1;
 
   // Sent-statement freeze: removing a reservation recomputes owner_payout.
+  const { data: res, error: resErr } = await supabase
+    .from('reservations')
+    .select('id, guest_name, adjusted_revenue, platform, bank_match_status')
+    .eq('property_statement_id', psid)
+    .eq('confirmation_code', code)
+    .maybeSingle();
+  if (resErr) return NextResponse.json({ error: resErr.message }, { status: 500 });
+  if (!res) return NextResponse.json({ error: 'reservation not found on this statement' }, { status: 404 });
+
+  // Re-verify LIVE before deleting anything. Never remove a booking Guesty
+  // doesn't confirm as cancelled.
+  const live = (await checkLiveGuestyCancellation([code])).get(code);
+  if (!isCancelledStatus(live?.status)) {
+    return NextResponse.json({
+      error: `Guesty status for ${res.guest_name} is "${live?.status || 'unknown/unreachable'}", not cancelled. Refusing to remove -- re-check in Guesty.`,
+    }, { status: 409 });
+  }
+
+  // Cancelled is not "never paid". If the cancellation policy retained
+  // money, that retained amount IS the owner's revenue and the row must
+  // stay, at that amount. Removing it is how a sent August 2026 statement
+  // went out $581.47 short. The figure comes from the same LIVE read, never
+  // the cached column (pre-cancel for anything cancelled since the nightly
+  // sync, and NULL on every csv-fallback row). Unknown refuses: an
+  // unreadable payout is not a zero payout.
+  const verdict = classifyCancelledStay({
+    statementAmount: res.adjusted_revenue,
+    retained: live?.hostPayout ?? null,
+    platform: res.platform,
+    bankMatched: res.bank_match_status === 'matched',
+  });
+  if (verdict.kind === 'retained_unknown') {
+    return NextResponse.json({
+      error: verdict.reason === 'channel_basis'
+        ? `${res.guest_name} is cancelled and Guesty reports money retained, but on ${verdict.platform} that figure includes tax and does not compare to the statement line. Refusing to remove: check the folio in Guesty first. Nothing was changed.`
+        : `${res.guest_name} is cancelled, but Guesty did not return what the cancellation policy retained. Refusing to remove until that is known: a retained amount is the owner's revenue. Nothing was changed.`,
+    }, { status: 409 });
+  }
+  if (verdict.kind !== 'never_paid') {
+    const retained = verdict.retained;
+    return NextResponse.json({
+      error: `${res.guest_name} is cancelled, but the cancellation policy retained $${retained.toFixed(2)}, and that is the owner's revenue. Refusing to remove. `
+        + (verdict.kind === 'retained_matches'
+          ? 'The statement carries exactly that amount and the deposit is in; nothing to do. Resolve the flag with a note.'
+          : verdict.kind === 'retained_unreceived'
+            ? 'The statement carries exactly that amount but the payout has not reached the bank yet. Hold it until the deposit shows, or move it to the month it lands; do not delete it.'
+            : `The statement carries $${verdict.statementAmount.toFixed(2)}: correct it to $${retained.toFixed(2)} instead of removing it.`),
+    }, { status: 409 });
+  }
+
   let finalityGate: FreezeReceipt;
   try {
     finalityGate = await assertStatementWritable(supabase, { statementId: psid }, {
@@ -67,25 +118,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (e) {
     if (e instanceof StatementFrozenError) return NextResponse.json(frozenResponseBody(e), { status: 409 });
     throw e;
-  }
-
-  const { data: res, error: resErr } = await supabase
-    .from('reservations')
-    .select('id, guest_name, adjusted_revenue')
-    .eq('property_statement_id', psid)
-    .eq('confirmation_code', code)
-    .maybeSingle();
-  if (resErr) return NextResponse.json({ error: resErr.message }, { status: 500 });
-  if (!res) return NextResponse.json({ error: 'reservation not found on this statement' }, { status: 404 });
-
-  // Re-verify LIVE before deleting anything. Never remove a booking Guesty
-  // doesn't confirm as cancelled.
-  const live = await checkLiveGuestyStatus([code]);
-  const status = live.get(code);
-  if (!isCancelledStatus(status)) {
-    return NextResponse.json({
-      error: `Guesty status for ${res.guest_name} is "${status || 'unknown/unreachable'}", not cancelled. Refusing to remove -- re-check in Guesty.`,
-    }, { status: 409 });
   }
 
   // Everything the recompute needs that the delete does NOT change: the
