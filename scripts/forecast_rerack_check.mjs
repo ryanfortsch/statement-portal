@@ -41,6 +41,7 @@ import {
   CC_LISTING_ANNUAL,
 } from '../src/lib/forecast-model.ts';
 import { CC_DETAIL_KEYS, routeCardRow, sumCardDetail } from '../src/lib/forecast-card-detail.ts';
+import { opensIn } from '../src/lib/forecast-operating-windows.ts';
 
 let failures = 0;
 const fail = (msg) => { failures++; console.log(`FAIL  ${msg}`); };
@@ -64,7 +65,7 @@ const rowValue = (m, cat) => (m.cc_detail ? m.cc_detail[cat.key] : (m.exp_cc_ops
 const renderedTotal = (m) =>
   CC_OPERATING_BREAKDOWN.reduce((a, c) => a + rowValue(m, c), 0) +
   m.exp_office + m.exp_software + m.exp_bank + m.exp_contractors +
-  m.exp_hire + m.exp_debt + m.exp_insurance + m.exp_accounting +
+  m.exp_debt + m.exp_insurance + m.exp_accounting +
   m.exp_onboard_presigned + m.exp_onboard_new;
 
 if (CC_OPERATING_BREAKDOWN.length !== CC_DETAIL_KEYS.length ||
@@ -180,9 +181,32 @@ for (const mo of [1, 2, 3, 4, 5, 6]) {
   const got = y26.monthly[mo - 1].exp_contractors;
   if (got > 260) fail(`2026-${String(mo).padStart(2, '0')} contractors ${got.toFixed(0)} — field labor started 2026-07-07, only the misc baseline belongs here`);
 }
-// The salaried hire did not happen in 2026; the bench absorbed it.
-const hire26 = y26.monthly.reduce((a, m) => a + m.exp_hire, 0);
-if (hire26 !== 0) fail(`2026 hire total is ${hire26}, expected 0 — the $5K/mo Aug-2026 hire became the 1099 bench`);
+// There is no salaried-hire line in any year (decided 2026-09-06): people
+// cost scales linearly with the fleet through the bench.
+if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow; the salaried hire was removed');
+
+/* -- invariant 2b: people scale linearly, so an added home never loses --- */
+// The old count-triggered second hire made whichever home landed on 20 read
+// as a loss (six new in 2027 netted $8,625 LESS than five). With people on
+// the bench alone, each added home must add more revenue than cost.
+{
+  const run = (n) => calcYear(n, 2027, undefined, undefined, undefined, undefined, 0, undefined, undefined, opensIn);
+  let prev = run(0);
+  for (let n = 1; n <= 8; n++) {
+    const cur = run(n);
+    if (cur.totals.net_business <= prev.totals.net_business) {
+      fail(`2027 net falls from ${Math.round(prev.totals.net_business)} to ${Math.round(cur.totals.net_business)} going from ${n - 1} to ${n} new homes`);
+    }
+    prev = cur;
+  }
+  // Per-home people cost lands where the 2026 bench put it: field $33,700/16
+  // plus creative $15,600/16, about $3,080 a year per home before misc.
+  const full = run(0);
+  const people = full.monthly.reduce((a, m) => a + m.exp_contractors, 0);
+  const homes = full.monthly.reduce((a, m) => a + m.active_count, 0) / 12;
+  const perHome = (people - 12 * 250) / homes;
+  if (perHome < 2500 || perHome > 4000) fail(`2027 people cost per home is ${perHome.toFixed(0)}/yr, expected roughly $3,100 (bench scaled linearly)`);
+}
 
 /* -- invariant 3: operating-account categorization ---------------------- */
 const CASES = [
@@ -267,6 +291,6 @@ if (!has('2026-07', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-07 lo
 if (!has('2026-07', (r) => r.category === 'Contractors')) fail('resolveCardSpendSource dropped a non-card row');
 
 console.log(failures === 0
-  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench and is the whole people line (no salaried hire, so 2027 net rises with every added home), the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

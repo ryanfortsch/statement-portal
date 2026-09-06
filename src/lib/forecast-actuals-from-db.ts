@@ -128,7 +128,6 @@ function blank(month: string): MonthlyActual {
     exp_bank: 0,
     exp_cc_ops: 0,
     exp_contractors: 0,
-    exp_hire: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   };
@@ -336,7 +335,6 @@ export async function getActualsFromDb(
         exp_bank: round2(ma.exp_bank),
         exp_cc_ops: round2(ma.exp_cc_ops),
         exp_contractors: round2(ma.exp_contractors),
-        exp_hire: round2(ma.exp_hire),
       };
     }
     const actuals = dense as MonthlyActual[];
