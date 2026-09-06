@@ -21,7 +21,6 @@ test('the ruling zeroes the fee and rolls it into revenue, on THIS run\'s number
   assert.equal(r.adjusted_revenue, 4300.00);
   assert.equal(r.bank_match_status, OFF_STRIPE_STATUS);
   assert.equal(out.reclaimed, 192.96);
-  assert.deepEqual(out.applied, [{ code: 'GY-2p8ZgNK8', guest: 'Guest', reclaimed: 192.96 }]);
 });
 
 test('a corrected PDF still takes effect: the ruling rides the new figures, not the old ones', () => {
@@ -42,6 +41,11 @@ test('a row untouched by any ruling is left exactly as it was', () => {
   assert.equal(out.reclaimed, 0);
 });
 
+// The regression this guards: an earlier draft gated the marker on
+// re-deriving the channel, so a run where the platform came back 'Unknown'
+// wrote no marker at all, the wipe deleted the last copy of the ruling, and
+// the NEXT run went back to charging the fee. The marker IS the record, so
+// it is written for a ruled code whatever this run priced the row at.
 test('a ruled row whose fee is already zero still gets the marker, so the ruling survives the NEXT rebuild', () => {
   const r = row({ stripe_fee: 0, adjusted_revenue: 4300.00 });
   const out = applyOffStripeRulings([r], new Set(['GY-2p8ZgNK8']));
@@ -57,17 +61,6 @@ test('re-applying twice never double-credits', () => {
   const second = applyOffStripeRulings([r], ruled);
   assert.equal(r.adjusted_revenue, 4300.00);
   assert.equal(second.reclaimed, 0);
-});
-
-test('a row this run priced at no fee still keeps the marker, whatever its channel', () => {
-  // The regression this guards: an earlier draft gated the marker on
-  // re-deriving the channel, so a run where the platform came back
-  // 'Unknown' wrote no marker, the wipe deleted the last copy, and the
-  // NEXT run went back to charging the fee. The marker IS the record.
-  const r = row({ stripe_fee: 0, adjusted_revenue: 900 });
-  applyOffStripeRulings([r], new Set(['GY-2p8ZgNK8']));
-  assert.equal(r.bank_match_status, OFF_STRIPE_STATUS);
-  assert.equal(r.adjusted_revenue, 900, 'no fee was charged, so nothing is reclaimed');
 });
 
 test('reclaimed sums across rows so the caller can correct its running totals', () => {
@@ -88,15 +81,6 @@ test('an installment slice keeps the ruling: its prorated fee is zeroed too', ()
   assert.equal(slice.bank_match_status, OFF_STRIPE_STATUS);
 });
 
-test('the outcome names each stay and what its ruling suppressed, so the operator can see it', () => {
-  const a = row({ confirmation_code: 'A', guest_name: 'Barry Allen', stripe_fee: 192.96, adjusted_revenue: 4107.04 });
-  const b = row({ confirmation_code: 'B', guest_name: 'Evan Friese', stripe_fee: 0, adjusted_revenue: 11343.95 });
-  const out = applyOffStripeRulings([a, b], new Set(['A', 'B']));
-  assert.deepEqual(out.applied, [
-    { code: 'A', guest: 'Barry Allen', reclaimed: 192.96 },
-    { code: 'B', guest: 'Evan Friese', reclaimed: 0 },
-  ]);
-});
 
 test('reclaimed equals the total revenue actually moved, which is what the caller adds to its totals', () => {
   // The caller does totalRevenue += reclaimed and totalStripeFees -= reclaimed.

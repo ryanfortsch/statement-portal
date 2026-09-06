@@ -28,7 +28,6 @@ export const OFF_STRIPE_STATUS = 'paid_off_stripe';
 
 export type OffStripeRow = {
   confirmation_code: string;
-  guest_name?: string | null;
   stripe_fee: number;
   adjusted_revenue: number;
   bank_match_status: string;
@@ -39,8 +38,6 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export type OffStripeOutcome = {
   /** Total fee reclaimed into revenue. Callers must add this to their revenue running total and subtract it from their fee total. */
   reclaimed: number;
-  /** Per stay: the ruling was applied, and how much fee it suppressed. */
-  applied: { code: string; guest: string; reclaimed: number }[];
 };
 
 /**
@@ -66,7 +63,6 @@ export function applyOffStripeRulings<T extends OffStripeRow>(
   rows: T[],
   ruledCodes: Set<string>,
 ): OffStripeOutcome {
-  const applied: { code: string; guest: string; reclaimed: number }[] = [];
   let reclaimed = 0;
 
   for (const row of rows) {
@@ -78,8 +74,7 @@ export function applyOffStripeRulings<T extends OffStripeRow>(
       reclaimed = round2(reclaimed + fee);
     }
     row.bank_match_status = OFF_STRIPE_STATUS;
-    applied.push({ code: row.confirmation_code, guest: row.guest_name || 'Guest', reclaimed: fee > 0 ? fee : 0 });
   }
 
-  return { reclaimed, applied };
+  return { reclaimed };
 }

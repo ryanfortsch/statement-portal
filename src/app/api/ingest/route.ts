@@ -1465,6 +1465,20 @@ export async function POST(request: NextRequest) {
         const ruled = new Set((ruledRows || []).map(r => r.confirmation_code as string));
         if (ruled.size > 0) {
           const { reclaimed } = applyOffStripeRulings(processedReservations, ruled);
+          // Correcting the running totals is only sound because every row
+          // that can carry a fee is a row already counted into them: the
+          // one class excluded from totalRevenue is a homeowner stay, and
+          // that branch structurally leaves stripe_fee at 0. Dropping the
+          // channel test above made that invariant load-bearing, and it
+          // lives in this file's pricing branches where no test reaches
+          // it, so check it rather than trust it. Reclaiming more fee than
+          // was ever charged would credit the owner money twice.
+          if (reclaimed > totalStripeFees + 0.005) {
+            return NextResponse.json({
+              error: `Refusing to write ${propertyId} / ${month}: the off-Stripe rulings would reclaim $${reclaimed.toFixed(2)} of Stripe fees but only $${totalStripeFees.toFixed(2)} was charged. `
+                + 'That means a fee-bearing reservation was priced without being counted, which would overpay the owner. No statement was built, wiped or repriced.',
+            }, { status: 500 });
+          }
           totalRevenue = Math.round((totalRevenue + reclaimed) * 100) / 100;
           totalStripeFees = Math.round((totalStripeFees - reclaimed) * 100) / 100;
         }
