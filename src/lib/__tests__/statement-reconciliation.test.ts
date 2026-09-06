@@ -68,9 +68,18 @@ test('stays: a booking confirmed in Guesty but not on the statement blocks', () 
   assert.equal(r.reconciled, false);
 });
 
-test('stays: the PDF header claiming more reservations than could be read is a difference', () => {
+test('stays: the PDF header claiming more reservations than could be read is shown, never judged', () => {
+  // Guesty prints a $0 block for a cancelled-then-reprocessed stay and the
+  // parser reads nothing from it, so header > read is the normal shape of
+  // a month with a cancellation. Judging it would false-alarm every such
+  // month at the close.
   const r = reconcileStatement(base({ statement: { ...base().statement, pdf_stay_count: 4 } }));
-  assert.equal(laneOf(r, 'stays').state, 'differs');
+  const l = laneOf(r, 'stays');
+  assert.equal(l.state, 'agree');
+  const line = l.lines.find(x => x.label.startsWith('PDF header lists 4'));
+  assert.ok(line);
+  assert.equal(line.tone, 'neutral');
+  assert.equal(r.reconciled, true);
 });
 
 test('stays: no recorded PDF list is neutral, not a pass and not a failure', () => {

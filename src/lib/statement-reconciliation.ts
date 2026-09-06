@@ -185,12 +185,20 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       const hereNotOnPdf = [...stayCodes].filter(c => !pdfSet.has(c));
       if (onPdfNotHere.length) lines.push({ label: 'On the PDF, not on the statement', count: onPdfNotHere.length, codes: onPdfNotHere, tone: 'warn' });
       if (hereNotOnPdf.length) lines.push({ label: 'On the statement, not on the PDF (added after ingest)', count: hereNotOnPdf.length, codes: hereNotOnPdf, tone: 'neutral' });
+      // The header's count vs what the parser could read is shown, never
+      // judged. Guesty prints a date-range block with $0.00 and no rental
+      // line for a stay that was cancelled and reprocessed, and the parser
+      // deliberately reads nothing from it (that empty block used to slurp
+      // the NEXT stay's rental line and duplicate it). So a header claiming
+      // more than was read is the normal shape of a month with a
+      // cancellation, not a missing stay. Missing stays are caught by the
+      // code comparison above and the Guesty probe.
       const claimed = i.statement.pdf_stay_count;
       if (claimed !== null && claimed !== pdfCodes.length) {
-        lines.push({ label: `PDF header says ${claimed} reservations, ${pdfCodes.length} could be read`, tone: 'warn' });
+        lines.push({ label: `PDF header lists ${claimed} reservation${claimed === 1 ? '' : 's'}; ${pdfCodes.length} carried rental income (a cancelled and reprocessed stay prints as $0)`, tone: 'neutral' });
       }
       const state: LaneState = i.driftCodes === null ? 'unknown'
-        : (onPdfNotHere.length === 0 && i.driftCodes.length === 0 && (claimed === null || claimed === pdfCodes.length)) ? 'agree' : 'differs';
+        : (onPdfNotHere.length === 0 && i.driftCodes.length === 0) ? 'agree' : 'differs';
       lanes.push(lane('stays', 'Stays', true, state,
         state === 'agree'
           ? `${stays.length} stays, every one the PDF listed${hereNotOnPdf.length ? `, plus ${hereNotOnPdf.length} added after ingest` : ''}`
