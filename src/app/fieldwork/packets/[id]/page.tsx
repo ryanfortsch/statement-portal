@@ -15,11 +15,12 @@ import { AutoRefresh } from '@/components/AutoRefresh';
 import { haversineMiles } from '@/lib/proximity';
 import { dollars, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type PacketStopDetail } from '@/lib/field-types';
 import { FieldAvatar } from '@/components/FieldAvatar';
-import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows, submitPacketForContractor, orderStopsByCleaningTime } from '../actions';
+import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows, submitPacketForContractor, orderStopsByCleaningTime, homeReceiptOnPacket, unhomeReceiptFromPacket } from '../actions';
 import { StopList } from './StopList';
 import { canClaim, fmtVisitTime, parseTrade, navTrade, type ContractorRow } from '@/lib/field-types';
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
+import { loadOpenReceipts, loadPacketReceipts } from '@/lib/field-receipts';
 import { suggestFinalCents, isRushVisit } from '@/lib/field-pricing';
 import { FinalPayoutField } from './FinalPayoutField';
 import { loadTextWindow, fmtSpan } from '@/lib/field-text-window';
@@ -126,7 +127,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   // autosave in the stop editor fires a revalidation (a full re-render of this
   // page), and the "Saving…" indicator waits on it — batching turns ~five serial
   // DB round-trips into one, so the save clears far quicker.
-  const [review, events, paySummary, attachableByStop, addableProps] = await Promise.all([
+  // Receipts: what already rides this payout, and what the awarded contractor
+  // is still owed with no payout to ride. Only while the money can still move.
+  const receiptsOpen = !!packet.awarded_contractor_id && !packet.paid_at && ['claimed', 'in_progress', 'submitted', 'approved'].includes(packet.status);
+  const [review, events, paySummary, attachableByStop, addableProps, homedReceipts, openReceipts] = await Promise.all([
     packet.status === 'submitted' || packet.status === 'approved'
       ? loadPacketReview(id)
       : Promise.resolve([] as Awaited<ReturnType<typeof loadPacketReview>>),
@@ -153,6 +157,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             ((data ?? []) as { id: string; name: string | null; address: string | null; kind: string | null }[]).filter((p) => !onTrip.has(p.id)),
           )
       : Promise.resolve([] as { id: string; name: string | null; address: string | null; kind: string | null }[]),
+    loadPacketReceipts(id).catch(() => [] as Awaited<ReturnType<typeof loadPacketReceipts>>),
+    receiptsOpen
+      ? loadOpenReceipts(packet.awarded_contractor_id!).catch(() => [] as Awaited<ReturnType<typeof loadOpenReceipts>>)
+      : Promise.resolve([] as Awaited<ReturnType<typeof loadOpenReceipts>>),
   ]);
 
   // The claimable pool for this packet (active, onboarded, cleared, same trade),
@@ -422,6 +430,82 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 Flagged issues open as work orders on the Work board when you approve.
               </div>
             )}
+          </div>
+        )}
+
+        {/* RECEIPTS. Money the contractor spent for a home. What rides this
+            payout already, then anything they are still owed with no payout to
+            ride (a board slip, a receipt that landed after its trip was paid).
+            One click folds an open one into expenses_cents, so Mark paid and
+            the paid email carry it. */}
+        {(homedReceipts.length > 0 || openReceipts.length > 0) && (
+          <div style={{ marginTop: 20, border: `1px solid ${openReceipts.length > 0 ? 'var(--tide-deep)' : 'var(--rule)'}`, borderRadius: 10, padding: '14px 18px', background: openReceipts.length > 0 ? 'rgba(58,107,138,0.05)' : 'var(--paper-2, #fff)' }}>
+            <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>
+              Receipts
+            </div>
+            {homedReceipts.map((r, i) => (
+              <div key={r.slipId} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--rule)' : 'none', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 160, flex: 1 }}>
+                  <div className="font-serif" style={{ fontSize: 15 }}>
+                    {r.propertyName}
+                    <span style={{ fontSize: 12.5, color: 'var(--ink-3)', fontFamily: 'inherit' }}> · <Link href={`/work/${r.slipId}`} style={{ color: 'var(--ink-3)' }}>{r.title}</Link></span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--tide-deep)', fontWeight: 600, marginTop: 3 }}>
+                    {dollars(r.expenseCents)} · riding this payout
+                  </div>
+                  {r.photoUrls.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      {r.photoUrls.map((u, j) => (
+                        <a key={j} href={u} target="_blank" rel="noopener noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={u} alt="" style={{ width: 56, height: 56, objectFit: 'cover', border: '1px solid var(--rule)', borderRadius: 6 }} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {!packet.paid_at && (
+                  <form action={unhomeReceiptFromPacket}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <input type="hidden" name="slip_id" value={r.slipId} />
+                    <PendingButton label="Take off" busyLabel="Removing…" style={btnGhost} spinnerTone="ink" />
+                  </form>
+                )}
+              </div>
+            ))}
+            {openReceipts.map((r, i) => (
+              <div key={r.slipId} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i || homedReceipts.length ? '1px solid var(--rule)' : 'none', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 160, flex: 1 }}>
+                  <div className="font-serif" style={{ fontSize: 15 }}>
+                    {r.propertyName}
+                    <span style={{ fontSize: 12.5, color: 'var(--ink-3)', fontFamily: 'inherit' }}> · <Link href={`/work/${r.slipId}`} style={{ color: 'var(--ink-3)' }}>{r.title}</Link></span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: 'var(--signal)', fontWeight: 600, marginTop: 3 }}>
+                    {dollars(r.expenseCents)} · not in any payout yet
+                    <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>
+                      {' '}· filed {fmtDate(r.createdAt.slice(0, 10))}
+                      {r.priorPacket?.paidAt ? ` · ${r.priorPacket.title} was paid before it landed` : ''}
+                    </span>
+                  </div>
+                  {r.description && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 3 }}>{r.description}</div>}
+                  {r.photoUrls.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      {r.photoUrls.map((u, j) => (
+                        <a key={j} href={u} target="_blank" rel="noopener noreferrer">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={u} alt="" style={{ width: 56, height: 56, objectFit: 'cover', border: '1px solid var(--rule)', borderRadius: 6 }} />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <form action={homeReceiptOnPacket}>
+                  <input type="hidden" name="packet_id" value={packet.id} />
+                  <input type="hidden" name="slip_id" value={r.slipId} />
+                  <PendingButton label={`Add to this payout · ${dollars(r.expenseCents)}`} busyLabel="Adding…" style={btnDark} />
+                </form>
+              </div>
+            ))}
           </div>
         )}
 

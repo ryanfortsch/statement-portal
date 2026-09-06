@@ -89,16 +89,20 @@ export default async function WorkSlipDetailPage({
   const { slip, property, inspection, inspectionItem, comments } = data;
 
   // A slip carrying an out-of-pocket receipt: say whether the money is riding
-  // a payout or still needs a home, so a contractor's reimbursement can never
-  // silently die in a description ("$27.60 TP holders", 2026-08-23).
+  // a payout, already went out, or still needs a home, so a contractor's
+  // reimbursement can never silently die in a description ("$27.60 TP
+  // holders", 2026-08-23). An explicit home (receipt_packet_id) wins over the
+  // visit it was reported from.
+  const receiptPacketId = slip.receipt_packet_id ?? slip.reported_from_packet_id;
   const receiptPacket =
-    (slip.expense_cents ?? 0) > 0 && slip.reported_from_packet_id
+    (slip.expense_cents ?? 0) > 0 && receiptPacketId
       ? ((await supabase
           .from('inspection_packets')
           .select('id, title, visit_date, paid_at')
-          .eq('id', slip.reported_from_packet_id)
+          .eq('id', receiptPacketId)
           .maybeSingle()).data as { id: string; title: string; visit_date: string; paid_at: string | null } | null)
       : null;
+  const receiptPaidOut = !!receiptPacket?.paid_at && slip.receipt_packet_id === receiptPacket?.id;
 
   const priorityColor =
     slip.priority === 'high' ? 'var(--negative)' :
@@ -219,9 +223,17 @@ export default async function WorkSlipDetailPage({
                 </Link>
                 {' '}— paid out with that visit.
               </span>
+            ) : receiptPaidOut && receiptPacket ? (
+              <span style={{ color: 'var(--ink-3)' }}>
+                {' '}· paid out with{' '}
+                <Link href={`/fieldwork/packets/${receiptPacket.id}`} style={{ color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
+                  {receiptPacket.title}
+                </Link>
+                .
+              </span>
             ) : (
               <span style={{ color: 'var(--signal)', fontWeight: 600 }}>
-                {' '}· not in any payout yet — add it at their next packet&apos;s approval (bonus or final).
+                {' '}· not in any payout yet. It is offered on their next packet&apos;s approve screen; one click folds it in.
               </span>
             )}
           </div>
