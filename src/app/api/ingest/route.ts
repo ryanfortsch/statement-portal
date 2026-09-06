@@ -3,6 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
+import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-ruling';
 import { netVendorCredits, vendorChargeNet, unappliedRefundGap, type VendorCharge } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
 import { buildRemittanceSheet } from '@/lib/remittance';
@@ -1411,6 +1412,77 @@ export async function POST(request: NextRequest) {
         // once, attached to the checkout-month statement only.
         bank_match_status: 'installment_no_bank_event',
       });
+    }
+
+    // 4b. Re-apply operator rulings this rebuild cannot re-derive.
+    //
+    // A stay the operator marked paid by check or wire (/api/resolve-gap)
+    // carries no Stripe fee. resolve-gap is the ONLY writer of that marker
+    // and it deletes the gap afterwards, so the marker is the single
+    // surviving record of the decision -- and the wipe-and-rebuild below
+    // destroys it, restoring the 3.9% estimate and dropping the payout
+    // (about $117 on a $4,000 wired Direct stay at a 25% fee). It has
+    // already happened in production: two August statements went out with
+    // a Stripe fee charged on a stay marked paid off-Stripe, and because
+    // the marker also makes stripe-sync skip the row, nothing would ever
+    // have corrected them.
+    //
+    // Keyed on confirmation code: the ruling is about the STAY, and codes
+    // survive the rebuild where row ids do not. What is re-applied is the
+    // RULING against THIS run's freshly computed numbers, never the old
+    // absolute values, so a corrected PDF still takes effect. Runs before
+    // the totals below so the payout, the management fee base and the
+    // ingest self-check all see the corrected figures.
+    //
+    // The ruling is shown on the reservation row itself (the bank column
+    // reads "off-Stripe"), not filed as a data_gap. A gap here could never
+    // be cleared -- nothing in the product clears the ruling behind it --
+    // and the close-review count has no severity filter, so one correct
+    // ruling would have blocked "Month is clear" and ridden along in every
+    // Draft All confirm forever.
+    {
+      const codes = [...new Set(processedReservations.map(r => r.confirmation_code).filter(Boolean))];
+      if (codes.length > 0) {
+        const { data: ruledRows, error: ruledErr } = await supabase
+          .from('reservations')
+          .select('confirmation_code')
+          .in('confirmation_code', codes)
+          .eq('bank_match_status', OFF_STRIPE_STATUS);
+        // Fail closed. An unreadable ruling is not an absent ruling, and
+        // proceeding would silently bill the owner a fee they do not owe.
+        if (ruledErr) {
+          // Precise about what "nothing happened" means: a forced
+          // re-ingest of a sent statement has ALREADY filed its
+          // post_send_write override flag several hundred lines above, and
+          // the platform CSV cache and guesty_reservations upsert have run.
+          // None of them touch a statement's numbers; no statement was
+          // built, wiped or repriced.
+          return NextResponse.json({
+            error: `Could not read the off-Stripe rulings for the stays in this upload (${ruledErr.message}). `
+              + 'No statement was built, wiped or repriced -- retrying is safe.',
+          }, { status: 502 });
+        }
+        const ruled = new Set((ruledRows || []).map(r => r.confirmation_code as string));
+        if (ruled.size > 0) {
+          const { reclaimed } = applyOffStripeRulings(processedReservations, ruled);
+          // Correcting the running totals is only sound because every row
+          // that can carry a fee is a row already counted into them: the
+          // one class excluded from totalRevenue is a homeowner stay, and
+          // that branch structurally leaves stripe_fee at 0. Dropping the
+          // channel test above made that invariant load-bearing, and it
+          // lives in this file's pricing branches where no test reaches
+          // it, so check it rather than trust it. Reclaiming more fee than
+          // was ever charged would credit the owner money twice.
+          if (reclaimed > totalStripeFees + 0.005) {
+            return NextResponse.json({
+              error: `Refusing to write ${propertyId} / ${month}: the off-Stripe rulings would reclaim $${reclaimed.toFixed(2)} of Stripe fees but only $${totalStripeFees.toFixed(2)} was charged. `
+                + 'That means a fee-bearing reservation was priced without being counted, which would overpay the owner. No statement was built, wiped or repriced.',
+            }, { status: 500 });
+          }
+          totalRevenue = Math.round((totalRevenue + reclaimed) * 100) / 100;
+          totalStripeFees = Math.round((totalStripeFees - reclaimed) * 100) / 100;
+        }
+      }
     }
 
     // 5. Calculate totals.
