@@ -905,8 +905,8 @@ const sections2026: AssumptionSection[] = [
       { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,420 in July and $3,804 in August, on Anthropic API credits the operator ruled a one-off.' },
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave plus $50/mo dumpster, from March 2026 when the lease began.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
-      { label: 'Contractors', value: 'The 1099 bench, paid direct from the operating account. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, from July 2026. Creative work (Cooper) $1,300/mo flat from July 2026. Everyone else $250/mo blended. The whole bench ran $8,288/mo over July 1 to August 25, 2026.' },
-      { label: 'Salaried hire', value: 'None in 2026. The August hire in the plan became the contractor bench instead, and carrying both would count the same money twice.' },
+      { label: 'Contractors', value: 'The 1099 bench, paid direct from the operating account. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, from July 2026. Creative work (Cooper) $1,300/mo per 16 homes, scaled to the live fleet, from July 2026. Everyone else $250/mo blended. The whole bench ran $8,288/mo over July 1 to August 25, 2026.' },
+      { label: 'Salaried hire', value: 'None, in 2026 or any later year. The August 2026 hire in the plan became the contractor bench instead, and the count-triggered second hire was dropped on 2026-09-06: people cost scales linearly with the fleet through the bench, about $3,340 per home per year.' },
     ],
   },
   {
@@ -930,7 +930,7 @@ const sections2027: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Active (Jan 1)', value: 'Fourteen homes drive the cost lines (card, bench, hire trigger): the seventeen that filed 2026 statements minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year. 16 Waterman is open May to October and counts only in those months. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today). Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
+      { label: 'Active (Jan 1)', value: 'Fourteen homes drive the cost lines (card and bench): the seventeen that filed 2026 statements minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year. 16 Waterman is open May to October and counts only in those months. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today). Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
       { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at its closed-statement run rate) spread over the Gloucester revenue curve, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
       { label: 'Prospects', value: 'The live /prospects pipeline. Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
@@ -943,8 +943,8 @@ const sections2027: AssumptionSection[] = [
       { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
       { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
       { label: 'Bank fees', value: '$10/mo.' },
-      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count, all year. Creative $1,300/mo. Everyone else $250/mo.' },
-      { label: 'Salaried hire', value: '$5,000/mo from January, a planning choice rather than a bank fact, on top of the contractor bench. A second hire at $5,000/mo from the first month the active count reaches 20: with the default sliders (14 active, 3 rolled forward, 3 new in Mar, Jun and Sep) that is September 2027.' },
+      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count, all year. Creative $1,300/mo per 16 homes, scaled the same way. Everyone else $250/mo. That is the whole people line, about $3,340 per home per year.' },
+      { label: 'Salaried hire', value: 'None. Dropped 2026-09-06: the $5,000/mo January hire and the second hire at 20 homes were planning steps, not bank facts, and the step made whichever home landed on 20 read as a loss. People cost now scales linearly with the fleet through the bench, which is what Rising Tide actually pays.' },
     ],
   },
   {
@@ -980,8 +980,8 @@ const sections2028: AssumptionSection[] = [
       { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed.' },
       { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
       { label: 'Bank fees', value: '$10/mo.' },
-      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count. Creative $1,300/mo. Everyone else $250/mo.' },
-      { label: 'Salaried hire', value: '$5,000/mo per hire all year. The second hire is active from January if the rollovers already put the count at 20, otherwise from the month it gets there.' },
+      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count. Creative $1,300/mo per 16 homes, scaled the same way. Everyone else $250/mo. The whole people line, about $3,340 per home per year.' },
+      { label: 'Salaried hire', value: 'None. People cost scales linearly with the fleet through the bench (decided 2026-09-06).' },
     ],
   },
   {
@@ -1315,7 +1315,7 @@ function KpiStrip({
       <KpiCell
         label="Total expenses"
         value={fmtDollar(totals.exp_total)}
-        sub="Corp + office + hire"
+        sub="Corp + office + bench"
         last
       />
       <KpiCell
@@ -1508,15 +1508,9 @@ function ForecastTable({
         <SubsectionRow label="People" />
         <DataRow
           label="Contractors & payroll"
-          info="Everyone RT pays to do the work, other than a salaried hire. Invisible to the model until this rerack: the bench is paid straight out of Chase ...5130 by Zelle and the Chase payroll rail, and Gusto wages were landing on the Software row. Delaney Jordan's field labor started 2026-07-07 and is paid per job, clustered on checkout days, so it rides the seasonality curve and scales with the portfolio. Cooper's creative work adds $1,300/mo flat from 2026-07-29. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The whole bench ran $8,288/mo across July and August 2026."
+          info="Everyone RT pays to do the work. The whole people line: there is no salaried hire in any year (dropped 2026-09-06; the count-triggered second hire made whichever home landed on 20 read as a loss). The bench is paid straight out of Chase ...5130 by Zelle and the Chase payroll rail. Delaney Jordan's field labor started 2026-07-07 and is paid per job, clustered on checkout days, so it rides the seasonality curve and scales with the fleet. Cooper's creative work is $1,300/mo per 16 homes from 2026-07-29, scaled the same way. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The bench ran $8,288/mo across July and August 2026, about $3,340 per home per year."
           values={monthly.map((r) => r.exp_contractors)}
           fy={monthly.reduce((a, r) => a + r.exp_contractors, 0)}
-        />
-        <DataRow
-          label="New hire"
-          info="A salaried body, on top of the 1099 bench rather than instead of it. The original plan put a $5,000/mo hire in August 2026. It did not happen that way: Delaney and Cooper started in July and ran $8,288/mo between them, so 2026 now carries $0 here and the bench line above carries the money. 2027 still budgets a salaried hire from January, which is a planning choice rather than something the bank data settles. A second hire is added automatically once active property count reaches 20."
-          values={monthly.map((r) => r.exp_hire)}
-          fy={monthly.reduce((a, r) => a + r.exp_hire, 0)}
         />
 
         <SubsectionRow label="Periodic & wind-down" />

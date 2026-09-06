@@ -307,7 +307,6 @@ export type MonthlyActual = {
   exp_bank: number;
   exp_cc_ops: number;
   exp_contractors: number;
-  exp_hire: number;
   exp_onboard_presigned: number;
   exp_onboard_new: number;
   /**
@@ -331,7 +330,6 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 0, // $1,208.78 deposit return is a wash, not a fee
     exp_cc_ops: 3054.42, // CC payment only
     exp_contractors: 1410.00, // Mark Bell
-    exp_hire: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },
@@ -346,7 +344,6 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 0,
     exp_cc_ops: 3411.32, // CC payment only
     exp_contractors: 150.00, // Mateo
-    exp_hire: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },
@@ -361,7 +358,6 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 0,
     exp_cc_ops: 6637.24, // CC $6,597.24 + Allie $40.00
     exp_contractors: 0,
-    exp_hire: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },
@@ -376,7 +372,6 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 30.00, // Stop payment fee
     exp_cc_ops: 8040.00, // CC $8,000 + Allie $40
     exp_contractors: 250.00, // Ian Drometer
-    exp_hire: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },

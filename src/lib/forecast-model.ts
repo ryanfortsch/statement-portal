@@ -101,7 +101,7 @@ export const PRESIGNED_2026: ManagedProperty[] = [];
 
 /**
  * Whether a real property is open in `year` (no month given: open for at
- * least one month, which builds the roster and the hire trigger) or in a
+ * least one month, which builds the roster) or in a
  * given month of it (which scales the card and the contractor bench on the
  * homes actually operating). The caller supplies it from
  * forecast-operating-windows.ts (opensIn), which
@@ -538,8 +538,10 @@ export const CONTRACTOR_FIELD_START_MONTH_2026 = 7;
 /**
  * Creative bench (Cooper). Paid $300/wk on the Chase "Basic Online Payroll"
  * rail from 2026-07-29, with occasional larger weeks, $2,300 through 08/25.
- * Flat monthly: shoots are scheduled against the content calendar, not
- * against turnover volume, so this does not ride the seasonality curve.
+ * $1,300/mo at the 16-home calibration fleet, scaled to the live count:
+ * content is per listing, so a bigger fleet is more shoots. It does not
+ * ride the seasonality curve, because shoots are scheduled against the
+ * content calendar rather than turnover volume.
  */
 export const CONTRACTOR_CREATIVE_MONTHLY = 1300;
 export const CONTRACTOR_CREATIVE_START_MONTH_2026 = 7;
@@ -575,35 +577,27 @@ export function contractorCost(
     const scale = activeCount / CONTRACTOR_FIELD_PROP_COUNT;
     field = CONTRACTOR_FIELD_ANNUAL * seasonShare * scale;
   }
-  const creative = month >= creativeStart ? CONTRACTOR_CREATIVE_MONTHLY : 0;
+  const creative =
+    month >= creativeStart
+      ? CONTRACTOR_CREATIVE_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT)
+      : 0;
   const misc = CONTRACTOR_MISC_MONTHLY;
   return field + creative + misc;
 }
 
 /**
- * Hire economics, a SALARIED body, distinct from the 1099 bench above.
+ * There is no salaried-hire line.
  *
- * The plan put a first hire at $5K/mo in August 2026. It did not happen
- * that way: Ryan built a contractor bench instead. Delaney started
- * 2026-07-07 and Cooper 2026-07-29, and between them they ran $7,958 in
- * the first 25 days of August alone, the hire budget, spent, and then
- * some. Carrying both lines in 2026 double-counts the same money, so
- * 2026's hire start moves past the end of the year (see getYearConfig).
- *
- * 2027 keeps a salaried hire from January. That is a forward planning
- * choice rather than something the bank data settles, and it sits on top
- * of the contractor line, not instead of it.
+ * The plan once put a $5K/mo body in August 2026 and a second at 20 homes.
+ * The first became the 1099 bench instead (Delaney from 2026-07-07, Cooper
+ * from 2026-07-29), and the second was a step: whichever home happened to
+ * be the twentieth dragged $20K of hire in behind it and read as a loss.
+ * Decided 2026-09-06: people cost scales linearly with the fleet, which is
+ * what the bench above already does, about $3,340 per home per year on
+ * the 2026 calibration. Nothing here prices a body to run twenty-plus
+ * homes who is not an owner; the model treats the owners' time as free
+ * everywhere else too, so this is the consistent choice, not a hidden one.
  */
-export const HIRE_MONTHLY = 5000;
-/** 13 = never within the year. 2026's hire became the 1099 bench instead. */
-export const HIRE_START_MONTH = 13;
-export const SECOND_HIRE_AT_PROP_COUNT = 20;
-
-export function hireCost(month: number, hireStartMonth: number, activeCount: number): number {
-  if (month < hireStartMonth) return 0;
-  const numHires = activeCount >= SECOND_HIRE_AT_PROP_COUNT ? 2 : 1;
-  return numHires * HIRE_MONTHLY;
-}
 
 export const MONTH_LABELS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -634,8 +628,8 @@ export function bookkeeperCost(month: number, lastMonth: number | null): number 
  * `getYearConfig(2027)` and 2028 return that roster minus any home the
  * operating windows have offline for the whole year (14 today), plus the
  * rolled-forward synthetics at the fleet average fee, plus N new spread
- * across the year, no bookkeeper, the office all year and the hire from
- * January.
+ * across the year, no bookkeeper and the office all year. No year carries a
+ * salaried hire: people cost is the bench, scaled to the fleet.
  */
 export type YearConfig = {
   year: ForecastYear;
@@ -647,8 +641,6 @@ export type YearConfig = {
   newOrder: readonly number[];
   /** Last month bookkeeper retainer is paid (1-12), or null if engagement ended. */
   bookkeeperLastMonth: number | null;
-  /** First month new hire shows up in the budget (1-12). */
-  hireStartMonth: number;
   /** First month office rent kicks in (1 if continuous from prior year). */
   officeStartMonth: number;
 };
@@ -681,7 +673,6 @@ export function getYearConfig(
       presigned: PRESIGNED_2026,
       newOrder: NEW_ORDER_2026,
       bookkeeperLastMonth: 5,
-      hireStartMonth: HIRE_START_MONTH, // 13 = no salaried hire in 2026; the bench absorbed it
       officeStartMonth: 3,
     };
   }
@@ -706,7 +697,6 @@ export function getYearConfig(
       presigned: [],
       newOrder: NEW_ORDER_2027,
       bookkeeperLastMonth: null,
-      hireStartMonth: 1,
       officeStartMonth: 1,
     };
   }
@@ -718,7 +708,6 @@ export function getYearConfig(
     presigned: [],
     newOrder: NEW_ORDER_2028,
     bookkeeperLastMonth: null,
-    hireStartMonth: 1,
     officeStartMonth: 1,
   };
 }
@@ -757,8 +746,6 @@ export type MonthRow = {
   cc_detail: CardDetail | null;
   /** 1099 contractor bench, field labor + creative + misc. */
   exp_contractors: number;
-  /** New hire from Oct. */
-  exp_hire: number;
   /** Onboarding cost for pre-signed contracts — $0 (folded into supplies). */
   exp_onboard_presigned: number;
   /** Onboarding cost for slider-added properties — $0 (folded into supplies). */
@@ -807,7 +794,6 @@ export type ActualsByMonth = ReadonlyArray<{
   exp_bank: number;
   exp_cc_ops: number;
   exp_contractors: number;
-  exp_hire: number;
   exp_onboard_presigned: number;
   exp_onboard_new: number;
   /** Card itemisation; absent or null when the month has no category detail. */
@@ -903,7 +889,6 @@ export function calcYear(
         a.exp_bank +
         a.exp_cc_ops +
         a.exp_contractors +
-        a.exp_hire +
         a.exp_onboard_presigned +
         a.exp_onboard_new;
       // Active count for actuals month: derived from config so it matches
@@ -928,7 +913,6 @@ export function calcYear(
         exp_cc_ops: a.exp_cc_ops,
         cc_detail: a.cc_detail ?? null,
         exp_contractors: a.exp_contractors,
-        exp_hire: a.exp_hire,
         exp_onboard_presigned: a.exp_onboard_presigned,
         exp_onboard_new: a.exp_onboard_new,
         exp_total,
@@ -1015,8 +999,9 @@ export function calcYear(
     const presignedStartCount = config.presigned.filter((p) => p.start === m).length;
     const newStartCount = newStartMonths.filter((s) => s === m).length;
 
-    // Active property count this month — drives CC scaling + 2nd-hire
-    // trigger.
+    // Roster count this month: every home on the books, open or not. Feeds
+    // active_count (the Managed at year-end figure); costs scale on the
+    // operating count below.
     let activeCount = 0;
     for (const p of config.current) if (m >= p.start) activeCount += 1;
     for (const p of config.presigned) if (m >= p.start) activeCount += 1;
@@ -1025,9 +1010,8 @@ export function calcYear(
     // Homes actually operating THIS month: the roster count minus any real
     // home whose operating window has it closed (4 Brier Neck after August
     // 2026, 73 Rocky Neck from November, 79 Main from late October, 16
-    // Waterman outside May to October). The card and the bench scale on
-    // this; the salaried-hire trigger stays on the roster count so a
-    // seasonal closure cannot toggle a body on and off.
+    // Waterman outside May to October). The card and the bench, which is
+    // the whole people line, scale on this.
     let operatingCount = activeCount;
     if (openIn) {
       for (const p of config.current) {
@@ -1044,7 +1028,6 @@ export function calcYear(
     const cc_detail = ccOperatingDetail(operatingCount, year, m);
     const exp_cc_ops = ccOperatingCost(operatingCount, year, m);
     const exp_contractors = contractorCost(year, m, operatingCount, dist.CA);
-    const exp_hire = hireCost(m, config.hireStartMonth, activeCount);
     const exp_onboard_presigned = presignedStartCount * ONBOARDING_COST;
     const exp_onboard_new = newStartCount * ONBOARDING_COST;
     const exp_total =
@@ -1056,7 +1039,6 @@ export function calcYear(
       exp_bank +
       exp_cc_ops +
       exp_contractors +
-      exp_hire +
       exp_onboard_presigned +
       exp_onboard_new;
 
@@ -1077,7 +1059,6 @@ export function calcYear(
       exp_cc_ops,
       cc_detail,
       exp_contractors,
-      exp_hire,
       exp_onboard_presigned,
       exp_onboard_new,
       exp_total,
