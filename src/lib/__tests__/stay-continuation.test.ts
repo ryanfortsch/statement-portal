@@ -8,7 +8,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { isContinuation, guestNameKey, guestNameScore, displayGuestName } from '../stay-continuation.ts';
+import { isContinuation, chainStays, guestNameKey, guestNameScore, displayGuestName } from '../stay-continuation.ts';
 
 type Arrival = { propertyId: string; checkIn: string; guestName: string | null };
 
@@ -102,5 +102,83 @@ describe('guest name helpers', () => {
     assert.equal(displayGuestName('  Linda Nelson '), 'Linda Nelson');
     assert.equal(guestNameKey('Hold for owner'), '');
     assert.equal(guestNameKey('Linda   NELSON'), 'linda nelson');
+  });
+});
+
+describe('chainStays', () => {
+  type Row = { id: string; propertyId: string; guestName: string | null; checkIn: string; checkOut: string };
+  const read = (r: Row) => r;
+  const seg = (id: string, propertyId: string, guestName: string | null, checkIn: string, checkOut: string): Row => ({
+    id,
+    propertyId,
+    guestName,
+    checkIn,
+    checkOut,
+  });
+
+  // The real rows, deliberately out of order.
+  const prudenzi = [
+    seg('c', '53_rocky_neck_2', 'Simon Prudenzi', '2026-09-06', '2026-09-07'),
+    seg('a', '53_rocky_neck_2', 'Simon Prudenzi', '2026-09-04', '2026-09-05'),
+    seg('d', '53_rocky_neck_2', 'Simon Prudenzi', '2026-09-07', '2026-09-08'),
+    seg('b', '53_rocky_neck_2', 'Simon Prudenzi', '2026-09-05', '2026-09-06'),
+    seg('up', '53_rocky_neck', 'Simon Prudenzi', '2026-09-08', '2026-09-09'),
+  ];
+
+  test('four nightly rows become one stay with the last checkout; the move upstairs stays separate', () => {
+    const chains = chainStays(prudenzi, read);
+    const stays = chains.map((c) => `${prudenzi[c.index].id}:${prudenzi[c.index].checkIn}->${c.checkOut} (+${c.merged.length})`);
+    assert.deepEqual(stays, ['up:2026-09-08->2026-09-09 (+0)', 'a:2026-09-04->2026-09-08 (+3)']);
+    const head = chains.find((c) => prudenzi[c.index].id === 'a')!;
+    assert.deepEqual(head.merged.map((j) => prudenzi[j].id).sort(), ['b', 'c', 'd']);
+  });
+
+  test('a different real guest arriving on the checkout day is a turnover, not a chain', () => {
+    const rows = [
+      seg('x', '20_enon', 'Manmeet Singh', '2026-09-04', '2026-09-06'),
+      seg('y', '20_enon', 'April Henkel', '2026-09-06', '2026-09-10'),
+    ];
+    const chains = chainStays(rows, read);
+    assert.equal(chains.length, 2);
+    assert.ok(chains.every((c) => c.merged.length === 0));
+  });
+
+  test('a gap night breaks the chain even for the same guest', () => {
+    const rows = [
+      seg('x', '3_south_st', 'Nadeem', '2026-09-05', '2026-09-06'),
+      seg('y', '3_south_st', 'Nadeem', '2026-09-07', '2026-09-08'),
+    ];
+    assert.equal(chainStays(rows, read).length, 2);
+  });
+
+  test('placeholders never chain', () => {
+    const rows = [
+      seg('x', '17_beach_rd', 'Reservation', '2026-09-05', '2026-09-06'),
+      seg('y', '17_beach_rd', 'Reservation', '2026-09-06', '2026-09-07'),
+      seg('z', '17_beach_rd', null, '2026-09-07', '2026-09-08'),
+    ];
+    assert.equal(chainStays(rows, read).length, 3);
+  });
+
+  test('a placeholder twin inside a merged span is absorbed; a different real name overlapping is left visible', () => {
+    const rows = [
+      seg('a', '53_rocky_neck_2', 'Simon Prudenzi', '2026-09-04', '2026-09-05'),
+      seg('b', '53_rocky_neck_2', 'Simon Prudenzi', '2026-09-05', '2026-09-06'),
+      seg('twin', '53_rocky_neck_2', 'Reservation 9KX2M', '2026-09-05', '2026-09-06'),
+      seg('odd', '53_rocky_neck_2', 'Someone Else', '2026-09-05', '2026-09-06'),
+    ];
+    const chains = chainStays(rows, read);
+    const head = chains.find((c) => rows[c.index].id === 'a')!;
+    assert.equal(head.checkOut, '2026-09-06');
+    assert.deepEqual(head.merged.map((j) => rows[j].id).sort(), ['b', 'twin']);
+    assert.ok(chains.some((c) => rows[c.index].id === 'odd'));
+  });
+
+  test('a chain never crosses houses', () => {
+    const rows = [
+      seg('a', '53_rocky_neck_2', 'Simon Prudenzi', '2026-09-07', '2026-09-08'),
+      seg('b', '53_rocky_neck', 'Simon Prudenzi', '2026-09-08', '2026-09-09'),
+    ];
+    assert.equal(chainStays(rows, read).length, 2);
   });
 });
