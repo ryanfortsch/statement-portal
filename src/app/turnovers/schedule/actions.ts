@@ -24,6 +24,7 @@ import {
 import { buildCheckoutSchedule } from '@/lib/checkout-schedule';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
+import { decideTurnoverNote } from '@/lib/turnover-notes';
 
 const CARD = '/cleaner-messaging';
 const CARD_ANCHOR = `${CARD}#schedule-digest`;
@@ -196,6 +197,26 @@ export async function rescanMessagesAction(formData: FormData): Promise<void> {
       throw err;
     }
   }
+  revalidatePath(CARD);
+  revalidatePath(PAGE);
+  redirect(backTarget(formData, '#schedule-digest'));
+}
+
+/** Put a mined turnover note into tomorrow's message, or drop it. Nothing
+ *  a guest said reaches the crew without one of these two taps. */
+export async function addTurnoverNoteAction(formData: FormData): Promise<void> {
+  const email = await requireEmail();
+  const id = String(formData.get('id') || '');
+  if (id) await decideTurnoverNote(supabase, id, 'added', email);
+  revalidatePath(CARD);
+  revalidatePath(PAGE);
+  redirect(backTarget(formData, '#schedule-digest'));
+}
+
+export async function dismissTurnoverNoteAction(formData: FormData): Promise<void> {
+  const email = await requireEmail();
+  const id = String(formData.get('id') || '');
+  if (id) await decideTurnoverNote(supabase, id, 'dismissed', email);
   revalidatePath(CARD);
   revalidatePath(PAGE);
   redirect(backTarget(formData, '#schedule-digest'));

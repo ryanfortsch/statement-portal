@@ -19,6 +19,7 @@ import {
   type ScheduleDay,
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
+import { loadTurnoverNotes, type TurnoverNote } from '@/lib/turnover-notes';
 import {
   approveAndSendDigest,
   sendDigestUpdate,
@@ -28,6 +29,8 @@ import {
   rescanMessagesAction,
   toggleRecipientAction,
   applyProposalAction,
+  addTurnoverNoteAction,
+  dismissTurnoverNoteAction,
   dismissProposalAction,
   ensureTomorrowDraft,
 } from '../turnovers/schedule/actions';
@@ -112,6 +115,86 @@ function RowLine({ row }: { row: ScheduleRow }) {
           <Chip tone="warn">Feeds disagree · other says {row.conflictingCheckOut}</Chip>
         )}
       </span>
+    </div>
+  );
+}
+
+/**
+ * What the guest told us about the state they are leaving the house in.
+ *
+ * These are proposals only. A note reaches the crew when, and only when,
+ * somebody taps Add: the guest's own words are shown beside each one so the
+ * claim can be checked before it goes in front of Rosa. See
+ * src/lib/turnover-notes.ts.
+ */
+function TurnoverNotes({ notes }: { notes: TurnoverNote[] }) {
+  const proposed = notes.filter((n) => n.status === 'proposed');
+  const added = notes.filter((n) => n.status === 'added');
+  if (proposed.length === 0 && added.length === 0) return null;
+  return (
+    <div style={{ marginTop: 14, padding: '12px 14px', border: '1px solid var(--rule)', borderRadius: 6 }}>
+      <div style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)' }}>
+        From the guests &middot; add to the message?
+      </div>
+      {proposed.map((n) => (
+        <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, flex: '1 1 260px' }}>
+            <strong>{n.property_id}</strong>
+            {': '}
+            {n.note_en}
+            {n.evidence && (
+              <span style={{ color: 'var(--ink-3)', display: 'block', fontSize: 12, marginTop: 2 }}>
+                &ldquo;{n.evidence.length > 140 ? `${n.evidence.slice(0, 140)}...` : n.evidence}&rdquo;
+              </span>
+            )}
+            <span style={{ color: 'var(--ink-4)', display: 'block', fontSize: 12, marginTop: 2, fontFamily: 'var(--font-mono), monospace' }}>
+              {n.note_pt}
+            </span>
+          </span>
+          <span style={{ display: 'flex', gap: 8 }}>
+            <form action={addTurnoverNoteAction}>
+              <input type="hidden" name="id" value={n.id} />
+              <input type="hidden" name="back" value="card" />
+              <SubmitButton
+                label="Add"
+                busyLabel="Adding..."
+                spinnerTone="ink"
+                style={{ fontSize: 11, padding: '4px 10px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+              />
+            </form>
+            <form action={dismissTurnoverNoteAction}>
+              <input type="hidden" name="id" value={n.id} />
+              <input type="hidden" name="back" value="card" />
+              <SubmitButton
+                label="Not needed"
+                busyLabel="..."
+                spinnerTone="ink"
+                style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 4, cursor: 'pointer' }}
+              />
+            </form>
+          </span>
+        </div>
+      ))}
+      {added.map((n) => (
+        <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, flex: '1 1 260px', color: 'var(--ink-3)' }}>
+            <strong>{n.property_id}</strong>
+            {': '}
+            {n.note_pt}
+          </span>
+          <Chip tone="muted">in the message</Chip>
+          <form action={dismissTurnoverNoteAction}>
+            <input type="hidden" name="id" value={n.id} />
+            <input type="hidden" name="back" value="card" />
+            <SubmitButton
+              label="Remove"
+              busyLabel="..."
+              spinnerTone="ink"
+              style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 4, cursor: 'pointer' }}
+            />
+          </form>
+        </div>
+      ))}
     </div>
   );
 }
@@ -228,6 +311,7 @@ export async function ScheduleDigestCard({
 }) {
   let digest: DigestRow | null = null;
   let recipients: ScheduleRecipient[] = [];
+  let turnoverNotes: TurnoverNote[] = [];
   let settings: Awaited<ReturnType<typeof getScheduleSettings>> = {
     autosend_enabled: false, send_hour_et: 18, last_autosend_at: null, last_autosend_date: null, updated_by: '',
   };
@@ -239,6 +323,15 @@ export async function ScheduleDigestCard({
     ]);
   } catch {
     return null; // pre-migration or DB hiccup: never block the messaging page
+  }
+  // Optional. A missing notes table (pre-migration) must never take the
+  // approval card down with it.
+  if (digest) {
+    try {
+      turnoverNotes = await loadTurnoverNotes(supabase, digest.service_date);
+    } catch {
+      turnoverNotes = [];
+    }
   }
 
   if (!digest) {
@@ -341,6 +434,7 @@ export async function ScheduleDigestCard({
               <RowLine key={`${r.propertyId}|${r.checkIn}`} row={r} />
             ))}
             <Proposals day={day} />
+            <TurnoverNotes notes={turnoverNotes} />
           </>
         )}
 

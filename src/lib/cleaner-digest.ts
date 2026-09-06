@@ -38,6 +38,7 @@ import {
   type ScheduleDay,
 } from '@/lib/checkout-schedule';
 import { loadVendorAppointments } from '@/lib/vendor-schedule';
+import { loadAddedNotesByProperty } from '@/lib/turnover-notes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 
 export type ScheduleRecipient = {
@@ -111,7 +112,13 @@ export async function loadVendorTimes(
  * and a cleaning slotted BEFORE it is called out: that is a cleaner sent
  * into an occupied house.
  */
-export function composeDigestBody(day: ScheduleDay, vendorTimes?: Map<string, string>): string {
+export function composeDigestBody(
+  day: ScheduleDay,
+  vendorTimes?: Map<string, string>,
+  /** Operator-approved turnover notes per property, already in Portuguese.
+   *  Only notes a human tapped Add on ever get here; see turnover-notes.ts. */
+  notesByProperty?: Map<string, string[]>,
+): string {
   const lines: string[] = [];
   lines.push(`Rising Tide - limpezas`);
   lines.push(dayLabel(day.date));
@@ -140,6 +147,11 @@ export function composeDigestBody(day: ScheduleDay, vendorTimes?: Map<string, st
     if (r.adjustment?.adjustedTime) tags.push(`mudou de ${r.defaultTime}`);
     if (r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut) tags.push('estadia estendida');
     lines.push(`${i + 1}) ${clean ?? r.time} - ${r.propertyName}${tags.length ? ` (${tags.join('; ')})` : ''}`);
+    // Notes hang under the house they belong to rather than in a block at
+    // the end, so the crew reads them in context on the right stop.
+    for (const note of notesByProperty?.get(r.propertyId) ?? []) {
+      lines.push(`   - ${note}`);
+    }
   });
   if (anyVendor) {
     lines.push('');
@@ -153,7 +165,11 @@ export async function composeDigestBodyLive(
   supabase: SupabaseClient,
   day: ScheduleDay,
 ): Promise<string> {
-  return composeDigestBody(day, await loadVendorTimes(supabase, day.date));
+  const [vendorTimes, notes] = await Promise.all([
+    loadVendorTimes(supabase, day.date),
+    loadAddedNotesByProperty(supabase, day.date),
+  ]);
+  return composeDigestBody(day, vendorTimes, notes);
 }
 
 // ─── draft upsert (cron + refresh) ────────────────────────────────────
