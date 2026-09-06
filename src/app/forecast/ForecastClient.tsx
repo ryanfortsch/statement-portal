@@ -1488,7 +1488,7 @@ function ForecastTable({
         })}
         <DataRow
           label="Office"
-          info="$750/mo rent at 85 Eastern Ave + $50/mo dumpster (flat year-round). Lease started March 2026."
+          info="$750/mo rent at 85 Eastern Ave plus $193/mo for the Republic Services dumpster, the mean since service began: $165 a month April to June 2026, then $471 on 2026-08-14 with no July charge. Lease started March 2026. ACT months read the landlord ACHs from the operating account plus the Republic Services charges on the card."
           values={monthly.map((r) => r.exp_office)}
           fy={monthly.reduce((a, r) => a + r.exp_office, 0)}
         />

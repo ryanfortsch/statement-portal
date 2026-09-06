@@ -200,8 +200,22 @@ export const ONBOARDING_COST = 0;
 
 /** Office rent at 85 Eastern Ave. Confirmed: 3 ACHs of $750 in 2026. */
 export const OFFICE_RENT_MONTHLY = 750;
-/** Dumpster — flat $50/mo year-round (no summer surcharge). */
-export const DUMPSTER_MONTHLY = 50;
+/**
+ * The office dumpster: Republic Services, billed to the card and filed as
+ * Rent & office. Nothing on the card before April 2026, when the office
+ * opened. Then $165 on 04-30, 05-27 and 06-14, no July charge, and $471 on
+ * 2026-08-14: $966 over the five months since service began, $193/mo.
+ *
+ * The August charge does not say what it covers. Read as July and August
+ * together it is a raised rate of about $235; read as a quarter it is $157.
+ * The mean since service began is the figure carried until a September
+ * charge settles it. It was $50 flat until 2026-09-06, a number no bank row
+ * had ever shown, while the real charges read as Travel & other because a
+ * card row filed under Rent & office had no route to the Office line.
+ * routeCardRow sends them here now, so ACT months and projected months
+ * describe the same shape.
+ */
+export const DUMPSTER_MONTHLY = 193;
 /** Office costs only kick in from March (when the lease begins). */
 export const OFFICE_START_MONTH = 3;
 
