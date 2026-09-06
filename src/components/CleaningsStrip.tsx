@@ -21,9 +21,11 @@ import { VENDOR_LABEL } from '@/lib/vendor-schedule';
  * throws: a blank strip on the home page would read as "no cleanings".
  */
 
+// About the cleaner, always: "nothing booked" once read as a vacancy.
 const SHORT_REASON: Partial<Record<CleaningStatus, string>> = {
-  early: 'before checkout',
-  no_appointment: 'nothing booked',
+  early: 'cleaner before checkout',
+  late: 'cleaner after check-in',
+  no_appointment: 'no cleaner booked',
   no_checkout: 'nobody checks out',
 };
 
@@ -79,6 +81,20 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
                 <span style={{ fontWeight: 600, color: flagged ? 'var(--signal)' : 'var(--ink)', minWidth: 0 }}>
                   {item.propertyName}
                 </span>
+                {item.sameDayTurnover && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '.06em',
+                      textTransform: 'uppercase',
+                      color: 'var(--signal)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    same day{item.nextCheckinTime ? ` ${formatTime12(item.nextCheckinTime)}` : ''}
+                  </span>
+                )}
                 {flagged && (
                   <span style={{ fontSize: 11, color: 'var(--signal)', whiteSpace: 'nowrap' }}>
                     {SHORT_REASON[item.status]}

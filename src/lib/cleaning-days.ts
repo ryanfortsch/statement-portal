@@ -15,14 +15,16 @@
  */
 
 import type { ScheduleDay } from '@/lib/checkout-schedule';
-import type { VendorAppointmentRow, VendorDayReport } from '@/lib/vendor-schedule';
+import type { VendorAppointmentRow, VendorDayReport } from '@/lib/vendor-reconcile';
 
 export type CleaningStatus =
   /** Vendor is coming, at or after our checkout. */
   | 'agree'
   /** Vendor is coming BEFORE the house frees up. */
   | 'early'
-  /** We have a checkout and the vendor has nothing booked. */
+  /** Same-day turnover, and the vendor is booked at or after the next guest's check-in. */
+  | 'late'
+  /** A guest leaves and the vendor has no cleaner booked for the house. */
   | 'no_appointment'
   /** Vendor is coming and nobody checks out (extension, cancellation, owner in). */
   | 'no_checkout'
@@ -34,6 +36,7 @@ export type CleaningStatus =
 /** The statuses worth a human's attention. Everything else is quiet. */
 export const ATTENTION_STATUSES: ReadonlySet<CleaningStatus> = new Set<CleaningStatus>([
   'early',
+  'late',
   'no_appointment',
   'no_checkout',
 ]);
@@ -104,7 +107,9 @@ export function composeCleaningDay(day: ScheduleDay, report: VendorDayReport): C
     const verdict = report.byRow.get(`${row.propertyId}|${row.checkIn}`);
     const status: CleaningStatus = verdict?.kind ?? 'unannounced';
     const cleaningTime =
-      verdict && (verdict.kind === 'agree' || verdict.kind === 'early') ? verdict.time : null;
+      verdict && (verdict.kind === 'agree' || verdict.kind === 'early' || verdict.kind === 'late')
+        ? verdict.time
+        : null;
     return {
       propertyId: row.propertyId,
       propertyName: row.propertyName,

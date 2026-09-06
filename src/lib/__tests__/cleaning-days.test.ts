@@ -10,7 +10,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { composeCleaningDay, composeVendorOnlyDay, ATTENTION_STATUSES } from '../cleaning-days.ts';
 import type { ScheduleDay, ScheduleRow } from '../checkout-schedule.ts';
-import type { VendorDayReport, VendorVerdict } from '../vendor-schedule.ts';
+import type { VendorDayReport, VendorVerdict } from '../vendor-reconcile.ts';
 
 function row(propertyId: string, propertyName: string, time: string, guestName = 'Guest'): ScheduleRow {
   return {
@@ -128,6 +128,18 @@ describe('composeCleaningDay', () => {
     assert.equal(early.items[0].cleaningTime, '10:30');
     assert.equal(early.attention, 1);
     assert.equal(early.booked, 1);
+  });
+
+  test('a same-day visit at or after the next check-in is late: listed at its time and flagged', () => {
+    const enon = { ...row('20_enon', '20 Enon', '11:00', 'Manmeet Singh'), sameDayTurnover: true, nextCheckinTime: '15:00' };
+    const d = composeCleaningDay(day([enon]), report([[enon, { kind: 'late', time: '16:00', checkinTime: '15:00' }]]));
+    assert.equal(d.items[0].status, 'late');
+    assert.equal(d.items[0].cleaningTime, '16:00');
+    assert.equal(d.items[0].sameDayTurnover, true);
+    assert.equal(d.items[0].nextCheckinTime, '15:00');
+    assert.equal(d.booked, 1);
+    assert.equal(d.attention, 1);
+    assert.ok(ATTENTION_STATUSES.has('late'));
   });
 
   test('a visit with nobody leaving is listed at its time, flagged, and counts as booked', () => {
