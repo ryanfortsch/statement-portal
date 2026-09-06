@@ -34,11 +34,29 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ScheduleDay, ScheduleRow } from '@/lib/checkout-schedule';
+import { selectAllPaged } from '@/lib/paged-select';
+import { recordSyncResult } from '@/lib/sync-status';
 
 /** Jobber's relay number for A-1's dispatch. Overridable for a vendor
  *  change without a deploy. */
 function vendorPhone(): string {
   return process.env.VENDOR_DISPATCH_PHONE || '+15592351822';
+}
+
+/** The last ten digits of the dispatch number: the one form both the
+ *  server-side filter and the in-memory check key on, so a "+1" prefix
+ *  present on one side and absent on the other can never split them. */
+function vendorPhoneSuffix(): string {
+  return vendorPhone().replace(/\D/g, '').slice(-10);
+}
+
+/** True when a Quo `from` is the Jobber relay. The webhook uses this to
+ *  parse a reminder the moment it lands instead of waiting for the
+ *  afternoon sweep: Jobber texts at 09:30 ET and the cron runs at 16:00,
+ *  so the day-after-tomorrow column sat stale for the hours between. */
+export function isVendorReminderSender(from: string | null | undefined): boolean {
+  const digits = String(from ?? '').replace(/\D/g, '');
+  return digits.length >= 10 && digits.endsWith(vendorPhoneSuffix());
 }
 
 /** Stored key: names the Jobber sender the parser keys on, not the brand. */
@@ -142,8 +160,35 @@ export type IngestResult = {
  * Read recent vendor reminders out of `quo_events` and upsert them.
  * Latest reminder for a (property, day) wins -- the vendor re-sends when a
  * visit is rescheduled, and the newest text is the current plan.
+ *
+ * Three callers, one parser: the afternoon cleaner-schedule cron (the
+ * sweep), the Quo webhook the moment a reminder lands (see quo-ingest.ts),
+ * and the Pull button on /turnovers/cleanings. Every run records itself
+ * on sync_status as 'vendor-appointments' -- when, how many texts it read,
+ * and any address it could not place -- so the page can say when the
+ * schedule was last read instead of leaving the reader to trust it.
  */
 export async function ingestVendorAppointments(
+  supabase: SupabaseClient,
+  opts?: { days?: number },
+): Promise<IngestResult> {
+  const result = await ingestVendorAppointmentsInner(supabase, opts);
+  await recordSyncResult('vendor-appointments', {
+    processed: result.scanned,
+    failed: result.errors.length,
+    firstError: result.errors[0],
+    result: {
+      scanned: result.scanned,
+      parsed: result.parsed,
+      upserted: result.upserted,
+      unmatched: result.unmatched,
+      days: opts?.days ?? 30,
+    },
+  });
+  return result;
+}
+
+async function ingestVendorAppointmentsInner(
   supabase: SupabaseClient,
   opts?: { days?: number },
 ): Promise<IngestResult> {
@@ -160,25 +205,49 @@ export async function ingestVendorAppointments(
   }
   const properties = (propRows ?? []) as PropertyLite[];
 
-  const { data: events, error } = await supabase
-    .from('quo_events')
-    .select('payload, received_at')
-    .eq('event_type', 'message.received')
-    .gte('received_at', since)
-    .order('received_at', { ascending: true });
-  if (error) {
-    result.errors.push(`quo_events: ${error.message}`);
+  const phone = vendorPhoneSuffix();
+
+  // Filter to the vendor's number ON THE SERVER, and page the read.
+  //
+  // The first version selected every inbound message of the last 30 days
+  // and picked the vendor's out in memory. PostgREST silently caps a bare
+  // select at 1000 rows, and with the read ordered oldest-first the rows
+  // it dropped were the NEWEST. On 2026-09-05 inbound volume crossed 1000
+  // per 30 days (998 through the Sep 4 batch) and the eleven reminders for
+  // Sep 7 and 8 never landed, while every sweep reported success. Jobber's
+  // ~100 texts a month now come back in one short page whatever the rest
+  // of the line is doing, and the paged read is there for the day that
+  // stops being true.
+  type EventRow = { payload: unknown; received_at: string };
+  let events: EventRow[];
+  try {
+    events = await selectAllPaged<EventRow>(
+      (from, to) =>
+        supabase
+          .from('quo_events')
+          .select('payload, received_at')
+          .eq('event_type', 'message.received')
+          .gte('received_at', since)
+          .like('payload->data->object->>from', `%${phone}`)
+          .order('received_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'vendor reminders' },
+    );
+  } catch (err) {
+    result.errors.push(`quo_events: ${err instanceof Error ? err.message : String(err)}`);
     return result;
   }
 
-  const phone = vendorPhone().replace(/\D/g, '').slice(-10);
   // Newest wins per (property, day): events are ascending, so a later
   // reminder simply overwrites the earlier entry in this map.
   const byKey = new Map<string, VendorAppointment & { announced_at: string | null; message_id: string | null }>();
 
-  for (const ev of (events ?? []) as Array<{ payload: unknown; received_at: string }>) {
+  for (const ev of events) {
     const obj = (ev.payload as { data?: { object?: Record<string, unknown> } })?.data?.object;
     if (!obj) continue;
+    // The server filter is a suffix match on the raw string; re-check on
+    // digits so a formatting quirk can never let a stranger's text in.
     const from = String(obj.from ?? '').replace(/\D/g, '');
     if (!from.endsWith(phone)) continue;
     result.scanned += 1;
