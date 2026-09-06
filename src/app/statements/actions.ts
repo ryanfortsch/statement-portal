@@ -717,7 +717,7 @@ export async function loadBankDepositReview(propertyId: string, month: string): 
 > {
   const { data, error } = await supabaseAdmin
     .from('bank_deposit_attributions')
-    .select('id, deposit_date, amount, description, source, suggested_reservation_code, direction, status, attributed_reservation_code, label')
+    .select('id, deposit_date, amount, description, source, suggested_reservation_code, direction, status, attributed_reservation_code, label, review_note')
     .eq('property_id', propertyId)
     .eq('month', month)
     .in('status', ['pending', 'attributed'])
