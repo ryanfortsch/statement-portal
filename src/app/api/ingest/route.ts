@@ -1431,9 +1431,15 @@ export async function POST(request: NextRequest) {
     // survive the rebuild where row ids do not. What is re-applied is the
     // RULING against THIS run's freshly computed numbers, never the old
     // absolute values, so a corrected PDF still takes effect. Runs before
-    // the totals below so the payout and the ingest self-check both see
-    // the corrected figures.
-    const offStripeReapplied: { code: string; guest: string; reclaimed: number }[] = [];
+    // the totals below so the payout, the management fee base and the
+    // ingest self-check all see the corrected figures.
+    //
+    // The ruling is shown on the reservation row itself (the bank column
+    // reads "off-Stripe"), not filed as a data_gap. A gap here could never
+    // be cleared -- nothing in the product clears the ruling behind it --
+    // and the close-review count has no severity filter, so one correct
+    // ruling would have blocked "Month is clear" and ridden along in every
+    // Draft All confirm forever.
     {
       const codes = [...new Set(processedReservations.map(r => r.confirmation_code).filter(Boolean))];
       if (codes.length > 0) {
@@ -1445,17 +1451,22 @@ export async function POST(request: NextRequest) {
         // Fail closed. An unreadable ruling is not an absent ruling, and
         // proceeding would silently bill the owner a fee they do not owe.
         if (ruledErr) {
+          // Precise about what "nothing happened" means: a forced
+          // re-ingest of a sent statement has ALREADY filed its
+          // post_send_write override flag several hundred lines above, and
+          // the platform CSV cache and guesty_reservations upsert have run.
+          // None of them touch a statement's numbers; no statement was
+          // built, wiped or repriced.
           return NextResponse.json({
-            error: `Could not read the off-Stripe rulings for ${propertyId} / ${month} (${ruledErr.message}). `
-              + 'No statement was created or changed -- retrying is safe.',
+            error: `Could not read the off-Stripe rulings for the stays in this upload (${ruledErr.message}). `
+              + 'No statement was built, wiped or repriced -- retrying is safe.',
           }, { status: 502 });
         }
         const ruled = new Set((ruledRows || []).map(r => r.confirmation_code as string));
         if (ruled.size > 0) {
-          const { reclaimed, applied } = applyOffStripeRulings(processedReservations, ruled);
+          const { reclaimed } = applyOffStripeRulings(processedReservations, ruled);
           totalRevenue = Math.round((totalRevenue + reclaimed) * 100) / 100;
           totalStripeFees = Math.round((totalStripeFees - reclaimed) * 100) / 100;
-          offStripeReapplied.push(...applied.filter(a => a.reclaimed > 0));
         }
       }
     }
@@ -2034,22 +2045,6 @@ export async function POST(request: NextRequest) {
     // can't be netted automatically (no same-month exact-amount charge), it
     // must be resolved by hand, so make it impossible to miss.
     for (const c of unmatchedVendorCredits) gaps.push(unappliedRefundGap(c, { parkedInQueue: true }));
-
-    // Say out loud when a ruling suppressed a fee this rebuild would
-    // otherwise have charged. Before this the decision was invisible after
-    // the fact: resolve-gap deletes its own gap, so nothing on the card
-    // showed that a stay was being treated as paid off-Stripe. It also
-    // makes a STALE ruling visible -- re-applying it every rebuild is what
-    // keeps a correct decision alive, and the same thing that would keep a
-    // wrong one alive, so the operator needs to see it to overrule it.
-    for (const a of offStripeReapplied) {
-      gaps.push({
-        gap_type: 'off_stripe_ruling_applied',
-        description: `${a.guest} (${a.code}) is marked paid off-Stripe, so this rebuild suppressed the $${a.reclaimed.toFixed(2)} Stripe fee it would otherwise have charged and paid that amount to the owner. If this stay DID go through Stripe, the ruling is wrong and needs clearing before the statement goes out.`,
-        severity: 'info',
-        expected_data: `${a.code}: off-Stripe ruling, $${a.reclaimed.toFixed(2)} fee suppressed`,
-      });
-    }
 
     // The tax sweep is provably occupancy tax -- it went to the tax-only
     // account -- so when Helm cannot reproduce the amount, the missing

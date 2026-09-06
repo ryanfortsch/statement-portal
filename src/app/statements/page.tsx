@@ -728,11 +728,6 @@ function gapFillType(gapType: string): FillGapType | null {
 const PIPELINE_OWNED_GAP_TYPES = new Set([
   'missing_bank_csv', 'unmatched_bank',
   'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
-  // Re-derived by /api/ingest on every rebuild: it is a standing statement
-  // about the statement, not a task, and it clears itself when the ruling
-  // behind it is cleared. Offering Resolve would promise an exit the next
-  // ingest takes straight back.
-  'off_stripe_ruling_applied',
 ]);
 // NOT vendor_refund_unapplied: Fill Gap deliberately no longer deletes and
 // re-derives it (a narrower CSV would lose a real one), so nothing retires
@@ -1771,6 +1766,20 @@ function PropertyCard({
                       <td style={{ padding: '10px 6px', textAlign: 'center' }}>
                         {r.bank_match_status === 'matched' ? (
                           <span style={{ color: 'var(--positive)' }}>✓</span>
+                        ) : r.bank_match_status === 'paid_off_stripe' ? (
+                          // The operator ruled this stay paid by check, ACH
+                          // or wire, so no Stripe fee is charged. Said here
+                          // rather than as a data gap: it is a standing fact
+                          // about the row, and it explains the "—" in the fee
+                          // column beside it. Without it the row is
+                          // indistinguishable from one that simply never
+                          // matched a deposit.
+                          <span
+                            title="Operator ruled: paid by check, ACH or wire. No Stripe fee charged."
+                            style={{ color: 'var(--ink-3)', fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase' }}
+                          >
+                            off-Stripe
+                          </span>
                         ) : (
                           <span style={{ color: 'var(--ink-4)' }}>—</span>
                         )}

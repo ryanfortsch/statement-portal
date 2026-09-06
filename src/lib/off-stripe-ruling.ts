@@ -29,23 +29,10 @@ export const OFF_STRIPE_STATUS = 'paid_off_stripe';
 export type OffStripeRow = {
   confirmation_code: string;
   guest_name?: string | null;
-  platform: string;
   stripe_fee: number;
   adjusted_revenue: number;
   bank_match_status: string;
 };
-
-/**
- * Channels whose card processing runs through Rising Tide's own Stripe.
- * Airbnb and Booking.com pay net of their own fees and never carry a
- * Stripe fee, so the ruling is meaningless there. resolve-gap refuses to
- * set the marker on them for the same reason; this mirrors that guard so a
- * stale marker on a re-platformed stay cannot move money.
- */
-export function isRtStripeChannel(platform: string | null | undefined): boolean {
-  const p = (platform || '').toUpperCase();
-  return p.includes('HOMEAWAY') || p === 'VRBO' || p === 'MANUAL';
-}
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -54,8 +41,6 @@ export type OffStripeOutcome = {
   reclaimed: number;
   /** Per stay: the ruling was applied, and how much fee it suppressed. */
   applied: { code: string; guest: string; reclaimed: number }[];
-  /** Ruled codes skipped because the channel never carries an RT Stripe fee. */
-  skippedNonStripe: string[];
 };
 
 /**
@@ -63,24 +48,29 @@ export type OffStripeOutcome = {
  * code was ruled off-Stripe. Keyed on the code because the ruling is about
  * the STAY: codes survive a rebuild, row ids do not.
  *
- * A row whose fee this run computed as 0 still gets the marker, so the
- * ruling survives the NEXT rebuild too. That is the whole point: the
- * marker is the record.
+ * The marker is written UNCONDITIONALLY for a ruled code, including on a
+ * row this run priced at no fee. That is the whole point: the marker IS
+ * the record, so any path that skips writing it lets one rebuild delete
+ * the ruling for good.
+ *
+ * The money is conditional only on whether THIS run actually computed a
+ * fee. Deliberately NOT on the channel: ingest already made that decision
+ * when it priced the row, and a second, slightly different channel test
+ * here is exactly where the two drift apart (ingest accepts any platform
+ * containing 'VRBO'; a stricter equality test here would refuse to
+ * reclaim a fee ingest had just charged, and a run where the platform
+ * resolved to 'Unknown' would drop the ruling entirely). Airbnb and
+ * Booking.com rows are priced at no fee anyway, so they reclaim nothing.
  */
 export function applyOffStripeRulings<T extends OffStripeRow>(
   rows: T[],
   ruledCodes: Set<string>,
 ): OffStripeOutcome {
   const applied: { code: string; guest: string; reclaimed: number }[] = [];
-  const skippedNonStripe: string[] = [];
   let reclaimed = 0;
 
   for (const row of rows) {
     if (!ruledCodes.has(row.confirmation_code)) continue;
-    if (!isRtStripeChannel(row.platform)) {
-      skippedNonStripe.push(row.confirmation_code);
-      continue;
-    }
     const fee = Number(row.stripe_fee) || 0;
     if (fee > 0) {
       row.adjusted_revenue = round2((Number(row.adjusted_revenue) || 0) + fee);
@@ -91,5 +81,5 @@ export function applyOffStripeRulings<T extends OffStripeRow>(
     applied.push({ code: row.confirmation_code, guest: row.guest_name || 'Guest', reclaimed: fee > 0 ? fee : 0 });
   }
 
-  return { reclaimed, applied, skippedNonStripe };
+  return { reclaimed, applied };
 }
