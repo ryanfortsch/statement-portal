@@ -35,10 +35,30 @@ export function isCancelledStatus(status: string | undefined | null): boolean {
   return s === 'canceled' || s === 'cancelled';
 }
 
-type GuestyResRow = { confirmationCode?: string; status?: string };
+type GuestyResRow = { confirmationCode?: string; status?: string; money?: { hostPayout?: number | string | null } };
 
-export async function checkLiveGuestyStatus(codes: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/** What Guesty says LIVE about a booking: its status and what the channel paid the host. */
+export type LiveCancellation = {
+  status: string;
+  /**
+   * money.hostPayout, the channel's payout to the host. For a CANCELLED
+   * Airbnb stay this is what the cancellation policy retained (it equals
+   * the PDF's rental income line to the cent). Null when Guesty returned
+   * the row without a money block: unknown, which is not zero.
+   */
+  hostPayout: number | null;
+};
+
+/**
+ * Live status AND retained payout per code. The cached
+ * guesty_reservations.host_payout is written only by the full nightly sync
+ * and is therefore the PRE-cancel figure for any booking cancelled since;
+ * a decision about money after a cancel must come from this live read or
+ * be treated as unknown. The status-only wrapper below keeps the older
+ * call shape for callers that need nothing else.
+ */
+export async function checkLiveGuestyCancellation(codes: string[]): Promise<Map<string, LiveCancellation>> {
+  const out = new Map<string, LiveCancellation>();
   const uniq = [...new Set(codes.map(c => (c || '').trim()).filter(Boolean))];
   if (uniq.length === 0) return out;
   // No creds -> can't check. Degrade to "all unknown" (flags nothing).
@@ -49,7 +69,7 @@ export async function checkLiveGuestyStatus(codes: string[]): Promise<Map<string
       const page = await guestyGet<{ results?: GuestyResRow[]; data?: GuestyResRow[] }>(
         '/v1/reservations',
         {
-          fields: 'status confirmationCode',
+          fields: 'status confirmationCode money',
           limit: 3,
           // Surfaces canceled rows (they're hidden by the default status
           // filter). Redundant with the code filter on this account but
@@ -60,10 +80,19 @@ export async function checkLiveGuestyStatus(codes: string[]): Promise<Map<string
       );
       const rows = page.results ?? page.data ?? [];
       const match = rows.find(r => r?.confirmationCode === code) ?? rows[0];
-      if (match?.status) out.set(code, String(match.status).toLowerCase());
+      if (match?.status) {
+        const hp = match.money?.hostPayout;
+        const n = hp === null || hp === undefined || hp === '' ? NaN : Number(hp);
+        out.set(code, { status: String(match.status).toLowerCase(), hostPayout: Number.isFinite(n) ? n : null });
+      }
     } catch {
       // Rate-limited / auth / network: leave this code unknown. Never throw.
     }
   }
   return out;
+}
+
+export async function checkLiveGuestyStatus(codes: string[]): Promise<Map<string, string>> {
+  const full = await checkLiveGuestyCancellation(codes);
+  return new Map([...full].map(([code, v]) => [code, v.status]));
 }

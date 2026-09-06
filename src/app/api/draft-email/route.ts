@@ -11,7 +11,8 @@ import {
 } from '@/lib/email-templates';
 import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
 import { verifyStatementIntegrity, FREEZE_FROM_MONTH } from '@/lib/statement-finality';
-import { checkLiveGuestyStatus, isCancelledStatus } from '@/lib/cancel-check';
+import { checkLiveGuestyCancellation, isCancelledStatus } from '@/lib/cancel-check';
+import { classifyCancelledStay } from '@/lib/cancelled-stay';
 import { renderStatementPdf, statementPdfFilename } from '@/lib/pdf';
 
 // Puppeteer + Chromium cold start can take 3-5s; give the handler plenty of
@@ -461,19 +462,29 @@ export async function POST(request: NextRequest) {
       });
       const probed = candidates.slice(0, CANCEL_RECHECK_CAP);
       if (probed.length > 0) {
-        const live = await checkLiveGuestyStatus(probed.map(r => r.confirmation_code as string));
-        const cancelled = probed.filter(r => isCancelledStatus(live.get(r.confirmation_code as string)));
+        const live = await checkLiveGuestyCancellation(probed.map(r => r.confirmation_code as string));
+        // Cancelled is not "never paid". A cancellation whose policy retained
+        // exactly what the statement carries is a legitimate resident (the
+        // retained amount is the owner's revenue) and must be sendable;
+        // refusing it here while the Remove route also refuses left the
+        // correct case with no way out. Same live verdict as ingest and
+        // Remove (src/lib/cancelled-stay.ts); unknown still refuses.
+        const cancelled = probed
+          .map(r => ({ r, v: live.get(r.confirmation_code as string) }))
+          .filter(({ v }) => isCancelledStatus(v?.status))
+          .map(({ r, v }) => ({ r, verdict: classifyCancelledStay({ statementAmount: Number(r.adjusted_revenue), retained: v?.hostPayout ?? null, platform: r.platform }) }))
+          .filter(({ verdict }) => verdict.kind !== 'retained_matches');
         if (cancelled.length > 0) {
           const names = cancelled
-            .map(r => `${r.guest_name} ($${Number(r.adjusted_revenue).toFixed(2)}, ${r.confirmation_code})`)
+            .map(({ r, verdict }) => `${r.guest_name} ($${Number(r.adjusted_revenue).toFixed(2)}, ${r.confirmation_code}${verdict.kind === 'retained_differs' ? `, policy retained $${verdict.retained.toFixed(2)}` : verdict.kind === 'retained_unknown' ? ', retained amount unknown' : ', nothing retained'})`)
             .join('; ');
           return NextResponse.json({
             error:
               `${cancelled.length} booking${cancelled.length === 1 ? '' : 's'} on this statement `
               + `${cancelled.length === 1 ? 'has' : 'have'} been CANCELLED in Guesty since it was built: ${names}. `
-              + `Remove ${cancelled.length === 1 ? 'it' : 'them'} from the statement and let the payout recompute before drafting.`,
+              + 'A cancellation that retained money must carry the retained amount; one that retained nothing must be removed. Fix that and let the payout recompute before drafting.',
             cancelled_on_statement: true,
-            cancelled_codes: cancelled.map(r => r.confirmation_code),
+            cancelled_codes: cancelled.map(({ r }) => r.confirmation_code),
           }, { status: 422 });
         }
       }
