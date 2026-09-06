@@ -69,18 +69,32 @@ export function isVehicleInsurance(descUpper: string): boolean {
 }
 
 /**
+ * Chase's card export writes the ampersand as "&amp;", so an AT&T bill can
+ * reach here as "AT&AMP;T MOBILITY EPAY". The ingest route now decodes
+ * that before storing, but four 2026 bills were stored escaped and read as
+ * Travel & other for months; this keeps the matcher honest against any row
+ * that slipped through. Same one-liner as decodeHtmlEntities in
+ * overhead-categories.ts, repeated here because this module must stay
+ * import-free for scripts/forecast_rerack_check.mjs.
+ */
+function unescapeAmp(descUpper: string): string {
+  return descUpper.replace(/&AMP;|&#0*38;|&#X0*26;/g, '&');
+}
+
+/**
  * AT&T bills as "AT&T MOBILITY EPAY", "AT&T BILL PAYMENT" and "ATT*BILL
  * PAYMENT". The categorizer has no Telecom bucket, so these land in Other
  * and are pulled out here by description.
  */
 export function isTelecom(descUpper: string): boolean {
+  const d = unescapeAmp(descUpper);
   return (
-    descUpper.includes('AT&T') ||
-    descUpper.includes('ATT*') ||
-    descUpper.includes('VERIZON') ||
-    descUpper.includes('T-MOBILE') ||
-    descUpper.includes('COMCAST') ||
-    descUpper.includes('XFINITY')
+    d.includes('AT&T') ||
+    d.includes('ATT*') ||
+    d.includes('VERIZON') ||
+    d.includes('T-MOBILE') ||
+    d.includes('COMCAST') ||
+    d.includes('XFINITY')
   );
 }
 
