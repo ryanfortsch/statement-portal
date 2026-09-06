@@ -146,6 +146,11 @@ export function composeDigestBody(
     if (r.sameDayTurnover) tags.push(`MESMO DIA, prox. entrada ${r.nextCheckinTime}`);
     if (r.adjustment?.adjustedTime) tags.push(`mudou de ${r.defaultTime}`);
     if (r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut) tags.push('estadia estendida');
+    // Guesty moved this stay to a third date after the adjustment was
+    // written, so neither side of the overlay matches it any more. The
+    // operator card has shown this since day one; the message never did,
+    // which is how a confidently wrong line reaches a phone.
+    if (r.adjustment?.drifted) tags.push('ATENCAO: Guesty mudou, confirmar');
     lines.push(`${i + 1}) ${clean ?? r.time} - ${r.propertyName}${tags.length ? ` (${tags.join('; ')})` : ''}`);
     // Notes hang under the house they belong to rather than in a block at
     // the end, so the crew reads them in context on the right stop.
@@ -521,6 +526,7 @@ export type AutoSendResult = {
     | 'already_handled'
     | 'no_recipients'
     | 'schedule_unavailable'
+    | 'drift_needs_review'
     | 'send_failed';
   serviceDate: string;
   hourET: number;
@@ -601,6 +607,21 @@ export async function autoSendTomorrowDigest(
   }
 
   const enabled = (await listScheduleRecipients(supabase)).filter((r) => r.enabled);
+  // A drifted row means Guesty moved the stay somewhere neither side of the
+  // adjustment expects, and the overlay still wins. With a human on the
+  // card that is a visible "re-check" chip they can act on. Unattended,
+  // nobody looks, so this is exactly the confidently-wrong-line case that
+  // put two bad texts on the cleaners' phones. Hold it for a person.
+  const drifted = day.rows.filter((r) => r.adjustment?.drifted);
+  if (drifted.length > 0) {
+    return {
+      sent: false,
+      reason: 'drift_needs_review',
+      ...base,
+      detail: drifted.map((r) => r.propertyName).join(', '),
+    };
+  }
+
   if (enabled.length === 0) return { sent: false, reason: 'no_recipients', ...base };
 
   const res = await sendDigest(supabase, {
