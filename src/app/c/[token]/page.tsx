@@ -207,6 +207,9 @@ export default async function CleanerSchedulePage({
                     {r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut && (
                       <span className="rt-cl-tag">estadia estendida</span>
                     )}
+                    {r.adjustment?.drifted && (
+                      <span className="rt-cl-tag is-drift">atenção: Guesty mudou, confirmar</span>
+                    )}
                     {clean && clean < r.time && (
                       <span className="rt-cl-tag is-sameday">atenção: saída só às {r.time}</span>
                     )}
@@ -293,6 +296,7 @@ const css = `
   }
   .rt-cl-tag.is-sameday { border-color: var(--signal); color: #fff; background: var(--signal); }
   .rt-cl-tag.is-quiet { border-style: dashed; color: var(--ink-4); font-weight: 500; }
+  .rt-cl-tag.is-drift { border-color: #8a6d1a; color: #8a6d1a; background: rgba(214,165,30,.12); }
 
   .rt-cl-empty {
     margin-top: 34px; padding: 40px 20px; text-align: center;

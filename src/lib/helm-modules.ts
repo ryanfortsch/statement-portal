@@ -146,6 +146,21 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
+  // A Turnovers tab (TurnoverTabs). The crew's own side of the schedule:
+  // Cape Ann Elite's bookings, read from the Jobber reminder texts they
+  // send the Quo line, against our checkouts day by day.
+  {
+    id: 'cleanings',
+    href: '/turnovers/cleanings',
+    number: '02c',
+    title: 'Cleanings',
+    description: "Cape Ann Elite's own cleaning schedule (A-1 Maintenance), read from the Jobber reminders they text the Quo line, checked against our checkouts day by day. Also the strip on the home page.",
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'operations',
+  },
   // FieldTabs still handles the job-type/lens sub-navigation underneath.
   {
     id: 'field',

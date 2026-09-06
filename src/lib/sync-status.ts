@@ -38,6 +38,7 @@ export const SYNC_SOURCES = [
   'csv-fallback',
   'stripe',
   'quo',
+  'vendor-appointments',
   'seam',
   'ical',
 ] as const;

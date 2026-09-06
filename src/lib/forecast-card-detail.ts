@@ -15,10 +15,11 @@
  * solely through the operating account's card payoff, which has no
  * category detail to offer.
  *
- * Two card categories never reach these buckets. Software has its own row
- * (#1459), and a non-vehicle insurance premium on the card is a one-time
- * hit that belongs on the Insurance line beside Phillips, not in the
- * monthly run rate.
+ * Three card categories never reach these buckets. Software has its own row
+ * (#1459), a non-vehicle insurance premium on the card is a one-time hit
+ * that belongs on the Insurance line beside Phillips, not in the monthly
+ * run rate, and Republic Services (the office dumpster, filed as Rent &
+ * office) rides the Office line beside the rent it is projected with.
  *
  * Deliberately dependency-free so `scripts/forecast_rerack_check.mjs` can
  * import it on its own.
@@ -69,18 +70,32 @@ export function isVehicleInsurance(descUpper: string): boolean {
 }
 
 /**
+ * Chase's card export writes the ampersand as "&amp;", so an AT&T bill can
+ * reach here as "AT&AMP;T MOBILITY EPAY". The ingest route now decodes
+ * that before storing, but four 2026 bills were stored escaped and read as
+ * Travel & other for months; this keeps the matcher honest against any row
+ * that slipped through. Same one-liner as decodeHtmlEntities in
+ * overhead-categories.ts, repeated here because this module must stay
+ * import-free for scripts/forecast_rerack_check.mjs.
+ */
+function unescapeAmp(descUpper: string): string {
+  return descUpper.replace(/&AMP;|&#0*38;|&#X0*26;/g, '&');
+}
+
+/**
  * AT&T bills as "AT&T MOBILITY EPAY", "AT&T BILL PAYMENT" and "ATT*BILL
  * PAYMENT". The categorizer has no Telecom bucket, so these land in Other
  * and are pulled out here by description.
  */
 export function isTelecom(descUpper: string): boolean {
+  const d = unescapeAmp(descUpper);
   return (
-    descUpper.includes('AT&T') ||
-    descUpper.includes('ATT*') ||
-    descUpper.includes('VERIZON') ||
-    descUpper.includes('T-MOBILE') ||
-    descUpper.includes('COMCAST') ||
-    descUpper.includes('XFINITY')
+    d.includes('AT&T') ||
+    d.includes('ATT*') ||
+    d.includes('VERIZON') ||
+    d.includes('T-MOBILE') ||
+    d.includes('COMCAST') ||
+    d.includes('XFINITY')
   );
 }
 
@@ -88,7 +103,7 @@ export function isTelecom(descUpper: string): boolean {
  * Where a card-shaped overhead row lands: its own row (software, a one-time
  * insurance premium) or one of the six Recurring buckets.
  */
-export type CardRoute = 'software' | 'insurance' | CardDetailKey;
+export type CardRoute = 'software' | 'insurance' | 'office' | CardDetailKey;
 
 export function routeCardRow(category: string, descUpper: string): CardRoute {
   switch (category) {
@@ -96,6 +111,13 @@ export function routeCardRow(category: string, descUpper: string): CardRoute {
       return 'software';
     case 'Insurance':
       return isVehicleInsurance(descUpper) ? 'vehicle_insurance' : 'insurance';
+    case 'Rent & office':
+      // Republic Services, the office dumpster, bills the card. The Office
+      // line projects it (DUMPSTER_MONTHLY beside the rent), so an ACT month
+      // has to carry it there too or the row changes shape at the seam.
+      // Until 2026-09-06 it fell through to Travel & other while the Office
+      // row projected a $50 dumpster no bank row had ever shown.
+      return 'office';
     case 'Guest supplies':
       return 'supplies';
     case 'Repairs & upkeep':
@@ -104,8 +126,8 @@ export function routeCardRow(category: string, descUpper: string): CardRoute {
     case 'Listing platforms':
       return 'marketing';
     default:
-      // Travel, Other, the card's own interest charges, Republic Services on
-      // the card, and whatever else the categorizer could not name.
+      // Travel, Other, the card's own interest charges, and whatever else
+      // the categorizer could not name.
       return isTelecom(descUpper) ? 'telecom' : 'travel_other';
   }
 }

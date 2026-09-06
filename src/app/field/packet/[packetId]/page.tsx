@@ -717,6 +717,11 @@ export default async function PacketPage({
               + {dollars(packet.bonus_cents)} bonus
             </span>
           )}
+          {packet.expenses_cents > 0 && (
+            <span style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }} title="Receipts you recorded, added to this payout">
+              + {dollars(packet.expenses_cents)} receipts
+            </span>
+          )}
         </div>
       ) : (
         <div style={{ marginBottom: 24 }}>
@@ -1222,6 +1227,11 @@ export default async function PacketPage({
                 <div style={{ marginTop: 8, borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', padding: '10px 14px', color: 'var(--ink)', fontSize: 14, lineHeight: 1.5 }}>
                   <strong style={{ color: 'var(--signal)' }}>+ {dollars(packet.bonus_cents)} bonus</strong>
                   {packet.bonus_reason ? <> for {packet.bonus_reason}</> : null}. Thank you for going the extra mile.
+                </div>
+              )}
+              {packet.status === 'approved' && packet.expenses_cents > 0 && (
+                <div style={{ marginTop: 8, fontSize: 13.5, color: 'var(--ink-3)' }}>
+                  Includes <strong style={{ color: 'var(--ink)' }}>{dollars(packet.expenses_cents)}</strong> in receipts you recorded.
                 </div>
               )}
             </div>

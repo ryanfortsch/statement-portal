@@ -88,6 +88,9 @@ export type CalendarDayRow = {
 
 export type CalendarDaysSyncResult = {
   listings_touched: number;
+  /** Properties whose refresh threw and was skipped entirely. Callers must
+   *  report this: a run that lost a property is not a success. */
+  properties_failed: number;
   days_written: number;
   hold_days: number;
   window: { startDate: string; endDate: string };
@@ -317,6 +320,7 @@ export async function syncCalendarDays(
 
   return {
     listings_touched: listingsTouched,
+    properties_failed: errors.length,
     days_written: daysWritten,
     hold_days: holdDays,
     window: { startDate, endDate },

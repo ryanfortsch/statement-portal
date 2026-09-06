@@ -405,8 +405,12 @@ export type PacketSuggestion = {
   }>;
 };
 
+/** Whole dollars read clean ("$200"); anything with cents keeps them
+ *  ("$21.24"), because receipts put real cents into payouts and Mark paid
+ *  must show the number the office actually sends. */
 export function dollars(cents: number): string {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const exact = Math.round(cents) % 100 !== 0;
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: exact ? 2 : 0, maximumFractionDigits: exact ? 2 : 0 });
 }
 
 // ── Payout: estimate vs. locked final ─────────────────────────────────────

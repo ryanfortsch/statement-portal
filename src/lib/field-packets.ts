@@ -2417,7 +2417,7 @@ export type StopReview = {
  *  expenses_cents. Idempotent recompute, never an increment, so retries and
  *  edits can't double-count. */
 export async function recomputePacketExpenses(packetId: string): Promise<void> {
-  const [{ data: stopSlips }, { data: attached }, { data: reported }] = await Promise.all([
+  const [{ data: stopSlips }, { data: attached }, { data: reported }, { data: homed }] = await Promise.all([
     fieldDb().from('packet_stops').select('work_slip_id').eq('packet_id', packetId).not('work_slip_id', 'is', null),
     fieldDb()
       .from('packet_stop_work_slips')
@@ -2425,7 +2425,11 @@ export async function recomputePacketExpenses(packetId: string): Promise<void> {
       .eq('packet_stops.packet_id', packetId),
     // Post-visit reports can carry an out-of-pocket receipt too ("bought TP
     // holders at Marshall's") — they ride the visit they came from.
-    fieldDb().from('work_slips').select('id, expense_cents').eq('reported_from_packet_id', packetId).not('expense_cents', 'is', null),
+    fieldDb().from('work_slips').select('id, expense_cents, receipt_packet_id').eq('reported_from_packet_id', packetId).not('expense_cents', 'is', null),
+    // Receipts homed onto this payout explicitly: a board slip filed on the
+    // trip, or one the office folded in from the approve screen. See
+    // field-receipts.ts for the rules.
+    fieldDb().from('work_slips').select('id, expense_cents').eq('receipt_packet_id', packetId).not('expense_cents', 'is', null),
   ]);
   const slipIds = [
     ...new Set([
@@ -2433,18 +2437,27 @@ export async function recomputePacketExpenses(packetId: string): Promise<void> {
       ...((attached ?? []) as unknown as { work_slip_id: string }[]).map((r) => r.work_slip_id),
     ]),
   ];
-  // Dedupe by slip id across all three sources (the office can attach a
-  // reported slip back onto the very packet it was reported from).
+  // Dedupe by slip id across every source (the office can attach a reported
+  // slip back onto the very packet it was reported from). A receipt with an
+  // explicit home (receipt_packet_id) counts toward THAT packet only, so a
+  // receipt moved off a paid packet onto the next one is never counted twice.
+  type SlipMoney = { id: string; expense_cents: number | null; receipt_packet_id?: string | null };
   const byId = new Map<string, number>();
+  const take = (r: SlipMoney) => {
+    if (r.receipt_packet_id && r.receipt_packet_id !== packetId) return;
+    byId.set(r.id, r.expense_cents || 0);
+  };
   if (slipIds.length) {
-    const { data: w } = await fieldDb().from('work_slips').select('id, expense_cents').in('id', slipIds);
-    for (const r of (w ?? []) as { id: string; expense_cents: number | null }[]) byId.set(r.id, r.expense_cents || 0);
+    const { data: w } = await fieldDb().from('work_slips').select('id, expense_cents, receipt_packet_id').in('id', slipIds);
+    for (const r of (w ?? []) as SlipMoney[]) take(r);
   }
-  for (const r of (reported ?? []) as { id: string; expense_cents: number | null }[]) byId.set(r.id, r.expense_cents || 0);
+  for (const r of (reported ?? []) as SlipMoney[]) take(r);
+  for (const r of (homed ?? []) as SlipMoney[]) byId.set(r.id, r.expense_cents || 0);
   const total = [...byId.values()].reduce((a, v) => a + v, 0);
   // Never rewrite a PAID packet: its payout is a receipt. A late-arriving
   // expense on a paid packet stays visible on the slip (the office work-slip
-  // page flags it for the next payout) instead of mutating settled money.
+  // page flags it, and the next packet's approve screen offers to fold it in)
+  // instead of mutating settled money.
   await fieldDb()
     .from('inspection_packets')
     .update({ expenses_cents: total, updated_at: new Date().toISOString() })

@@ -18,7 +18,11 @@
  *                   exp_insurance for an Insurance row that is not GEICO
  *                   (a premium paid once, like the $3,188.57 Arbella charge
  *                   on 2026-04-15, belongs beside Phillips and not in a
- *                   monthly run rate); exp_cc_ops for everything else,
+ *                   monthly run rate); exp_office for a Rent & office row
+ *                   (Republic Services, the dumpster, bills the card and
+ *                   is projected on the Office line beside the rent, so
+ *                   the ACT month carries it there too); exp_cc_ops for
+ *                   everything else,
  *                   itemised into `cc_detail` by routeCardRow so the six
  *                   Recurring rows read what the card actually carried.
  *                   The card used to be one lump split by fixed weights,
@@ -230,6 +234,7 @@ export async function getActualsFromDb(
       const place = (route: CardRoute) => {
         if (route === 'software') ma.exp_software += amt;
         else if (route === 'insurance') ma.exp_insurance += amt;
+        else if (route === 'office') ma.exp_office += amt;
         else {
           ma.exp_cc_ops += amt;
           detail[route] += amt;

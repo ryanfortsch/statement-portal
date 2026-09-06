@@ -30,6 +30,34 @@
 
 export type OverheadAccount = 'card' | 'operating';
 
+/**
+ * Chase's card export HTML-escapes merchant names: AT&T arrives as
+ * "AT&amp;T MOBILITY EPAY" and Crate & Barrel as "CRATE&amp;BARREL CB2 NOD".
+ * Stored as-is, those rows miss every needle written against the real
+ * name, which is how four 2026 AT&T bills sat on the Travel & other row
+ * while the Telecom row read $0. The ingest route decodes before it
+ * categorizes and before it builds the dedupe_key, so a re-upload of the
+ * same file lands on the same row. The stored rows that predate this were
+ * rewritten by 20260906130000_overhead_decode_html_entities.sql.
+ *
+ * Only the entities a bank export plausibly emits; this is not an HTML
+ * parser. Dependency-free on purpose: scripts/forecast_rerack_check.mjs
+ * imports this module directly under Node.
+ */
+export function decodeHtmlEntities(s: string): string {
+  if (!s || s.indexOf('&') === -1) return s;
+  return s
+    .replace(/&amp;/gi, '&')
+    .replace(/&#0*38;/g, '&')
+    .replace(/&#x0*26;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ');
+}
+
 export type OverheadCategory =
   | 'Software'
   | 'Marketing'
@@ -130,7 +158,10 @@ export function categorizeOverhead(args: {
   // Costs are negative. Credits / income / refunds (>= 0) are never overhead.
   if (amount >= 0) return null;
 
-  const descUpper = (description || '').toUpperCase();
+  // Decoded here as well as at ingest, so a caller handing over a raw
+  // export line (the check script, an older stored row) matches the same
+  // needles the upload does.
+  const descUpper = decodeHtmlEntities(description || '').toUpperCase();
 
   // Explicitly personal vendors are dropped on either account.
   if (PERSONAL_VENDORS.some(v => descUpper.includes(v))) return null;
@@ -348,7 +379,7 @@ function titleCase(s: string): string {
  * trailing store/transaction numbers).
  */
 export function canonicalVendor(description: string): string {
-  const s = (description || '').toUpperCase().trim();
+  const s = decodeHtmlEntities(description || '').toUpperCase().trim();
   if (!s) return 'Unknown';
   for (const v of CANONICAL_VENDORS) {
     if (v.match.some(m => s.includes(m))) return v.name;

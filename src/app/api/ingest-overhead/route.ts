@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
-import { categorizeOverhead, type OverheadAccount } from '@/lib/overhead-categories';
+import { categorizeOverhead, decodeHtmlEntities, type OverheadAccount } from '@/lib/overhead-categories';
 
 /**
  * Ingest Rising Tide overhead from a corporate-account CSV or XLSX export.
@@ -56,7 +56,11 @@ function detectAndParse(text: string): { account: OverheadAccount; rows: ParsedT
       account: 'card' as const,
       txn_date: isoDate(r['Transaction Date'] || ''),
       post_date: isoDate(r['Post Date'] || ''),
-      description: (r['Description'] || '').trim(),
+      // Chase escapes "&" as "&amp;" in its exports (AT&T, Crate & Barrel).
+      // Decode before categorizing and before the dedupe_key is built from
+      // this string, so the stored row carries the real name and a
+      // re-upload of the same file lands on the same key.
+      description: decodeHtmlEntities((r['Description'] || '').trim()),
       amount: parseFloat((r['Amount'] || '0').replace(/[,$]/g, '')) || 0,
       chaseCategory: (r['Category'] || '').trim(),
       type: (r['Type'] || '').trim(),
@@ -70,7 +74,11 @@ function detectAndParse(text: string): { account: OverheadAccount; rows: ParsedT
       account: 'operating' as const,
       txn_date: isoDate(r['Posting Date'] || ''),
       post_date: isoDate(r['Posting Date'] || ''),
-      description: (r['Description'] || '').trim(),
+      // Chase escapes "&" as "&amp;" in its exports (AT&T, Crate & Barrel).
+      // Decode before categorizing and before the dedupe_key is built from
+      // this string, so the stored row carries the real name and a
+      // re-upload of the same file lands on the same key.
+      description: decodeHtmlEntities((r['Description'] || '').trim()),
       amount: parseFloat((r['Amount'] || '0').replace(/[,$]/g, '')) || 0,
       type: (r['Type'] || '').trim(),
     }));

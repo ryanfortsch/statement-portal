@@ -69,6 +69,11 @@ export type WorkSlipRow = {
    *  Summed onto the packet's expenses_cents by recomputePacketExpenses when
    *  the slip rides a live packet; otherwise the office slip page flags it. */
   expense_cents: number | null;
+  /** Who is owed that receipt (a board completion on an office-created slip
+   *  has no reporter), and the packet whose payout carries it. A slip with a
+   *  receipt_packet_id counts toward that packet only. See field-receipts.ts. */
+  receipt_contractor_id: string | null;
+  receipt_packet_id: string | null;
   /** Latest confirmation from someone standing in the home (end-of-inspection
    *  verification) that this slip is still outstanding. Name is denormalized
    *  so the anon /work board never joins RLS-locked contractors. */
