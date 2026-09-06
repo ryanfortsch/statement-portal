@@ -317,7 +317,8 @@ export async function loadPeriodData(month: string): Promise<
       const onStatement = new Set(codes);
       const pdfOnlyCodes = (pdfStays || []).map(p => p.code).filter(c => !onStatement.has(c));
       let splitCodes: Set<string> | null = null;
-      let excused: { splitElsewhere: Set<string>; cancelled: Set<string> } | null = null;
+      let excused: { splitElsewhere: Set<string>; cancelled: Set<string>; sliceHere: Set<string> } | null = null;
+      let excuseFailure: 'installments' | 'guesty' | null = null;
       try {
         const byCode = await loadInstallmentsForCodes(supabaseAdmin, [...codes, ...driftCandidateCodes, ...pdfOnlyCodes]);
         const splitElsewhereOf = (list: string[]) => new Set(list.filter(c => {
@@ -332,18 +333,23 @@ export async function loadPeriodData(month: string): Promise<
         // A PDF stay the operator removed as cancelled leaves no record of
         // its own (the removal deletes the row and its gap), so the excuse
         // is read from Guesty: the booking is cancelled there.
+        // An absent PDF stay with a slice due THIS month is missing whatever
+        // its checkout says: the operator split it after ingest, and only a
+        // re-ingest books the slice. Checked before the out-of-month excuse.
+        const sliceHere = new Set(pdfOnlyCodes.filter(c => (byCode.get(c) || []).some(r => r.month === month)));
         let cancelled = new Set<string>();
         if (pdfOnlyCodes.length > 0) {
           const { data: cx, error: cxErr } = await supabaseAdmin
             .from('guesty_reservations')
             .select('confirmation_code, status')
             .in('confirmation_code', pdfOnlyCodes);
-          if (cxErr) throw new Error(`guesty status read failed: ${cxErr.message}`);
+          if (cxErr) { excuseFailure = 'guesty'; throw new Error(`guesty status read failed: ${cxErr.message}`); }
           cancelled = new Set((cx || []).filter((g: { status: string | null }) => (g.status || '').toLowerCase().startsWith('cancel')).map((g: { confirmation_code: string }) => g.confirmation_code));
         }
-        excused = { splitElsewhere: splitElsewhereOf(pdfOnlyCodes), cancelled };
+        excused = { splitElsewhere: splitElsewhereOf(pdfOnlyCodes), cancelled, sliceHere };
       } catch (e) {
-        console.error(`installments/excuse read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
+        if (!excuseFailure) excuseFailure = 'installments';
+        console.error(`${excuseFailure} read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
       }
       if (!recompute.ok) console.error(`recompute failed for ${prop.property_id}:`, recompute.error);
 
@@ -383,6 +389,7 @@ export async function loadPeriodData(month: string): Promise<
               : null,
             splitCodes,
             excused,
+            excuseFailure,
             feeds: { stripe: feedState('stripe'), invoices: feedState('gmail-invoices') },
             feedsKnown,
             recomputed: recompute.ok ? {

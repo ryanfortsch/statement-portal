@@ -56,6 +56,15 @@ const eq = (a: number, b: number) => Math.abs(a - b) <= EPS;
 export const SYNTHETIC_SLICE_STATUS = 'installment_no_bank_event';
 export const OFF_STRIPE_STATUS = 'paid_off_stripe';
 const CAE_SOURCES = new Set(['bank', 'matched', 'corroborated']);
+/**
+ * /api/sync-invoices attaches an invoice to a bank charge when the two are
+ * within $2 (sync-invoices/route.ts, the `< 2` in its matcher). A pair the
+ * product itself formed under that rule cannot be a hard failure at half a
+ * cent, or the product would pair two amounts and then block the close on
+ * them. So a pair is judged at the matcher's tolerance; a sub-tolerance
+ * difference is shown as a line. The two constants must move together.
+ */
+const INVOICE_PAIR_TOLERANCE = 2;
 const LINEN_LAUNDRY_SOURCES = new Set(['bank-linen', 'bank-laundry']);
 
 export const isPassThroughChannel = (platform: string | null | undefined): boolean => {
@@ -147,7 +156,14 @@ export type ReconciliationInput = {
    * and need no input. Null = the installments read failed (the split set is
    * unknowable, which is not the same as empty).
    */
-  excused: { splitElsewhere: Set<string>; cancelled: Set<string> } | null;
+  excused: {
+    splitElsewhere: Set<string>;
+    cancelled: Set<string>;
+    /** Absent PDF stays that carry an installment slice due THIS month: missing, whatever their checkout. */
+    sliceHere: Set<string>;
+  } | null;
+  /** Which read left `excused` null, so the lane can say so truthfully. */
+  excuseFailure?: 'installments' | 'guesty' | null;
   /** False when the sync_status read FAILED: feed states below are unknown, not ok. */
   feedsKnown?: boolean;
   /** Feed health for the lanes that lean on a sync. */
@@ -211,9 +227,16 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       // some on purpose, and both used to read as a hard difference that
       // nothing could clear.
       const outOfMonth: string[] = [], splitElsewhere: string[] = [], cancelled: string[] = [], missing: string[] = [];
+      let absent = 0;
       for (const p of pdf) {
         if (onStatement.has(p.code)) continue;
-        if (!inMonth(p.check_out)) outOfMonth.push(p.code);
+        absent += 1;
+        // Order matters. A stay checking out next month is normally
+        // excused by ingest's month gate, but if the operator has since
+        // split it with a slice due HERE, that slice is money this month
+        // and only a re-ingest books it. Checkout cannot excuse it.
+        if (i.excused?.sliceHere.has(p.code)) missing.push(p.code);
+        else if (!inMonth(p.check_out)) outOfMonth.push(p.code);
         else if (i.excused?.cancelled.has(p.code)) cancelled.push(p.code);
         else if (i.excused?.splitElsewhere.has(p.code)) splitElsewhere.push(p.code);
         else missing.push(p.code);
@@ -233,14 +256,16 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       if (claimed !== null && claimed !== pdf.length) {
         lines.push({ label: `PDF header lists ${claimed} reservation${claimed === 1 ? '' : 's'}; ${pdf.length} carried rental income (a cancelled and reprocessed stay prints as $0)`, tone: 'neutral' });
       }
-      // Without the installment read, a PDF-only stay could be a split
-      // recognized elsewhere or a missing stay, and the difference is money.
-      const state: LaneState = i.driftCodes === null || (i.excused === null && missing.length > 0) ? 'unknown'
+      // Without the excuse reads, ANY absent PDF stay is unknowable: an
+      // out-of-month one might carry a slice due here, an in-month one might
+      // be split elsewhere or cancelled, and each difference is money.
+      const state: LaneState = i.driftCodes === null || (i.excused === null && absent > 0) ? 'unknown'
         : (missing.length === 0 && i.driftCodes.length === 0) ? 'agree' : 'differs';
+      const failedRead = i.excuseFailure === 'guesty' ? 'Guesty status read failed' : 'Installment read failed';
       lanes.push(lane('stays', 'Stays', true, state,
         state === 'agree'
           ? `${stays.length} stays, every one the PDF listed${hereNotOnPdf.length ? `, plus ${hereNotOnPdf.length} added after ingest` : ''}`
-          : state === 'unknown' ? (i.driftCodes === null ? 'Guesty check failed' : 'Installment read failed: a PDF stay is absent and cannot be excused or judged')
+          : state === 'unknown' ? (i.driftCodes === null ? 'Guesty check failed' : `${failedRead}: a PDF stay is absent and cannot be excused or judged`)
           : `${missing.length + (i.driftCodes?.length || 0)} stay${missing.length + (i.driftCodes?.length || 0) === 1 ? '' : 's'} missing`,
         lines));
     }
@@ -373,21 +398,32 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       lanes.push(lane('cleaning', 'Cleaning', true, 'not_recorded', `${money(bankTotal)} from the bank · no invoices on file to check it against`, lines));
     } else {
       // The hard check is per corroborated pair: a bank charge and the
-      // invoice attached to it must agree to the cent, net of any credit.
-      // A bank charge with no invoice, or an invoice with no bank charge,
-      // is the ordinary shape of month-end -- the invoice is emailed on the
-      // 31st and the ACH lands on the 2nd, and the sync attaches each to
-      // the month it fell in -- so those open the lane with a warning and
-      // never block it. Judging them made two consecutive months fail with
-      // nothing in the product to clear either.
-      const mismatched = paired.filter(e => !eq(n(e.amount) - n(e.credit_amount), n(e.invoice_amount)));
+      // invoice attached to it must agree within the tolerance the product
+      // paired them at. A bank charge with no invoice, or an invoice with
+      // no bank charge, is the ordinary shape of month-end -- the invoice
+      // is emailed on the 31st and the ACH lands on the 2nd, and the sync
+      // attaches each to the month it fell in -- so those open the lane
+      // with a warning and never block it. Judging them made two
+      // consecutive months fail with nothing in the product to clear.
+      //
+      // A pair whose bank side is fully credited is a charge the operator
+      // struck (a duplicate the vendor refunded): its invoice is for money
+      // the owner is no longer billed, which is expected, not a mismatch.
+      // Treating it as one made the verdict depend on which of two equal
+      // charges the invoice matcher happened to attach to.
+      const live = paired.filter(e => n(e.amount) - n(e.credit_amount) > EPS);
+      const struck = paired.filter(e => n(e.amount) - n(e.credit_amount) <= EPS);
+      const mismatched = live.filter(e => Math.abs(n(e.amount) - n(e.credit_amount) - n(e.invoice_amount)) > INVOICE_PAIR_TOLERANCE);
+      const nearMiss = live.filter(e => !mismatched.includes(e) && !eq(n(e.amount) - n(e.credit_amount), n(e.invoice_amount)));
       for (const e of mismatched) lines.push({ label: `Bank ${money(n(e.amount) - n(e.credit_amount))} vs its invoice ${money(n(e.invoice_amount))}`, amount: round2(n(e.amount) - n(e.credit_amount) - n(e.invoice_amount)), tone: 'warn' });
-      if (uninvoiced.length) lines.push({ label: 'Bank charge with no invoice yet', count: uninvoiced.length, amount: round2(uninvoiced.reduce((s, e) => s + n(e.amount), 0)), tone: 'warn' });
+      for (const e of nearMiss) lines.push({ label: `Bank ${money(n(e.amount) - n(e.credit_amount))} vs its invoice ${money(n(e.invoice_amount))} (within the $${INVOICE_PAIR_TOLERANCE} the matcher pairs at; the bank amount is what is billed)`, amount: round2(n(e.amount) - n(e.credit_amount) - n(e.invoice_amount)), tone: 'neutral' });
+      if (struck.length) lines.push({ label: 'Invoiced charge fully credited, so no longer billed', count: struck.length, amount: round2(struck.reduce((s, e) => s + n(e.invoice_amount), 0)), tone: 'neutral' });
+      if (uninvoiced.length) lines.push({ label: 'Bank charge with no invoice yet', count: uninvoiced.length, amount: round2(uninvoiced.reduce((s, e) => s + n(e.amount) - n(e.credit_amount), 0)), tone: 'warn' });
       if (unpaid.length) lines.push({ label: 'Invoice with no bank charge yet (usually paid next month)', count: unpaid.length, amount: round2(unpaid.reduce((s, e) => s + n(e.invoice_amount), 0)), tone: 'warn' });
       const state: LaneState = mismatched.length ? 'differs' : 'agree';
       lanes.push(lane('cleaning', 'Cleaning', true, state,
         state === 'agree'
-          ? `${money(bankTotal)} from the bank; ${paired.length} invoiced charge${paired.length === 1 ? '' : 's'} agree${paired.length === 1 ? 's' : ''} to the cent${uninvoiced.length || unpaid.length ? `, ${uninvoiced.length + unpaid.length} straddling the month` : ''}`
+          ? `${money(bankTotal)} from the bank; ${live.length} invoiced charge${live.length === 1 ? '' : 's'} agree${live.length === 1 ? 's' : ''}${nearMiss.length ? ` (${nearMiss.length} within the matcher's tolerance)` : ' to the cent'}${uninvoiced.length || unpaid.length ? `, ${uninvoiced.length + unpaid.length} straddling the month` : ''}`
           : `${mismatched.length} invoiced charge${mismatched.length === 1 ? '' : 's'} disagree${mismatched.length === 1 ? 's' : ''} with the invoice`,
         lines));
     }
