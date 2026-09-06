@@ -9,14 +9,40 @@ import {
   fmtNum,
   MONTH_LABELS,
   CC_OPERATING_BREAKDOWN,
+  CURRENT_2026,
+  NEW_PROPERTY_FEE,
   type ForecastYear,
+  type ManagedProperty,
   type MonthRow,
   type YearResult,
 } from '@/lib/forecast-model';
+import { knownFromRoster, rosterFromRegistry } from '@/lib/forecast-roster';
 import type { MonthlyActual } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
 import type { ProspectForecast } from '@/lib/forecast-prospects';
 import type { StatementRevenueByMonth } from '@/lib/forecast-statement-actuals';
+
+const KNOWN_2026 = knownFromRoster(CURRENT_2026);
+
+/**
+ * The cost roster for a year from the smart feed's property list, or
+ * undefined when smart is unavailable so the model keeps CURRENT_2026.
+ */
+function buildRoster(data: SmartForecast | null, year: ForecastYear): ManagedProperty[] | undefined {
+  if (!data) return undefined;
+  return rosterFromRegistry(
+    data.properties.map((p) => ({
+      id: p.property.id,
+      name: p.property.name,
+      isRtOwned: p.property.isRtOwned,
+      activatedAt: p.property.activatedAt,
+      projectedMgmtFee: year === 2026 ? 0 : p.totals.projectedMgmtFee,
+    })),
+    year,
+    year === 2026 ? KNOWN_2026 : {},
+    NEW_PROPERTY_FEE,
+  );
+}
 
 type Props = {
   smart2026: SmartForecast | null;
@@ -88,9 +114,26 @@ export function ForecastClient({
     return earning.reduce((a, v) => a + v, 0) / earning.length;
   }, [smart2027, smart2028, yearKey]);
 
+  // The homes the cost lines scale on, from Helm's registry via the smart
+  // feed, so a home costs from the month it is activated rather than from
+  // its first closed statement. 2026 keeps the statement-derived start
+  // months and fees for the homes that predate activated_at; smart's 2026
+  // fee covers only the months ahead, so it is not used as an annual one.
+  const roster2026 = useMemo(() => buildRoster(smart2026, 2026), [smart2026]);
+  const roster2027 = useMemo(() => buildRoster(smart2027, 2027), [smart2027]);
+  const roster2028 = useMemo(() => buildRoster(smart2028, 2028), [smart2028]);
+  const rosterForYear =
+    yearKey === 2026 ? roster2026 :
+    yearKey === 2027 ? roster2027 :
+    roster2028;
+  // How many homes each forward year starts with before its rollovers and
+  // new ones, for the slider captions. Offline homes are already out.
+  const base2027 = getYearConfig(2027, 0, opensIn, undefined, roster2027).current.length;
+  const base2028 = getYearConfig(2028, 0, opensIn, undefined, roster2028).current.length;
+
   const yearConfig = useMemo(
-    () => getYearConfig(yearKey, rolledForward, opensIn, matureFee),
-    [yearKey, rolledForward, matureFee]
+    () => getYearConfig(yearKey, rolledForward, opensIn, matureFee, rosterForYear),
+    [yearKey, rolledForward, matureFee, rosterForYear]
   );
   // Substitute bank-derived actuals for completed 2026 months. The data
   // comes from the parent (page.tsx) — either the live overhead_expenses
@@ -200,9 +243,9 @@ export function ForecastClient({
     () => calcYear(
       numNew, yearKey, actualsForYear, actualsThrough, smartOverride,
       calibrationFactor, rolledForward, prospectsForYear.monthlyExpectedTotals,
-      statementByMonthForYear, opensIn, matureFee,
+      statementByMonthForYear, opensIn, matureFee, rosterForYear,
     ),
-    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear, matureFee]
+    [numNew, yearKey, actualsForYear, actualsThrough, smartOverride, calibrationFactor, rolledForward, prospectsForYear, statementByMonthForYear, matureFee, rosterForYear]
   );
 
   /** Switch year. Per-year slider state is independent so no clamping needed. */
@@ -226,6 +269,8 @@ export function ForecastClient({
         setNumNew2026={setNumNew2026}
         numNew2027={numNew2027}
         matureFee={matureFee}
+        base2027={base2027}
+        base2028={base2028}
         setNumNew2027={setNumNew2027}
         numNew2028={numNew2028}
         setNumNew2028={setNumNew2028}
@@ -934,7 +979,7 @@ const sections2027: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Active (Jan 1)', value: 'Fourteen homes drive the cost lines (card and bench): the seventeen that filed 2026 statements minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year. 16 Waterman is open May to October and counts only in those months. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today). Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
+      { label: 'Active (Jan 1)', value: 'Every active managed home in Helm\'s registry drives the cost lines (card and bench), minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year; 16 Waterman is open May to October and counts only in those months. A home costs from the month it is activated, so 4 Middle Road is on the cost lines from day one rather than from its first closed statement. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today). Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
       { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at its closed-statement run rate) spread over the Gloucester revenue curve, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
       { label: 'Prospects', value: 'The live /prospects pipeline. Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
@@ -971,7 +1016,7 @@ const sections2028: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Active (Jan 1)', value: 'The fourteen 2027 homes drive the cost lines; the revenue row is every active managed home in Helm with its operating window applied. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
+      { label: 'Active (Jan 1)', value: 'The same active managed homes drive the cost lines and the revenue row, each with its operating window applied. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
       { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at its closed-statement run rate, spread over the Gloucester revenue curve, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
       { label: 'Prospects', value: 'The live /prospects pipeline: each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality. Default 3, in Mar, Jun and Sep.' },
@@ -1012,6 +1057,8 @@ function ScenarioControl({
   setNumNew2026,
   numNew2027,
   matureFee,
+  base2027,
+  base2028,
   setNumNew2027,
   numNew2028,
   setNumNew2028,
@@ -1025,6 +1072,9 @@ function ScenarioControl({
   setNumNew2027: (n: number) => void;
   /** Fleet average fee per earning home for the viewed year; labels the rolled-forward rows. */
   matureFee?: number;
+  /** Homes each forward year starts with before rollovers and new ones; offline homes already out. */
+  base2027: number;
+  base2028: number;
   numNew2028: number;
   setNumNew2028: (n: number) => void;
   prospectsCount2026: number;
@@ -1090,7 +1140,7 @@ function ScenarioControl({
             setN={setNumNew2027}
             newOrder={getYearConfig(2027).newOrder}
             isActiveYear={yearKey === 2027}
-            subLabel={`beyond 14 active + ${numNew2026} rolled fwd${matureFee && yearKey === 2027 ? ` at $${Math.round(matureFee / 1000)}K/yr` : ''}`}
+            subLabel={`beyond ${base2027} active + ${numNew2026} rolled fwd${matureFee && yearKey === 2027 ? ` at $${Math.round(matureFee / 1000)}K/yr` : ''}`}
           />
         )}
         {showRow2028 && (
@@ -1100,7 +1150,7 @@ function ScenarioControl({
             setN={setNumNew2028}
             newOrder={getYearConfig(2028).newOrder}
             isActiveYear={yearKey === 2028}
-            subLabel={`beyond 14 active + ${numNew2026 + numNew2027} rolled fwd${matureFee && yearKey === 2028 ? ` at $${Math.round(matureFee / 1000)}K/yr` : ''}`}
+            subLabel={`beyond ${base2028} active + ${numNew2026 + numNew2027} rolled fwd${matureFee && yearKey === 2028 ? ` at $${Math.round(matureFee / 1000)}K/yr` : ''}`}
           />
         )}
       </div>

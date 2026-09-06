@@ -43,6 +43,8 @@ import {
 } from '../src/lib/forecast-model.ts';
 import { CC_DETAIL_KEYS, routeCardRow, sumCardDetail } from '../src/lib/forecast-card-detail.ts';
 import { opensIn } from '../src/lib/forecast-operating-windows.ts';
+import { rosterFromRegistry, knownFromRoster } from '../src/lib/forecast-roster.ts';
+import { CURRENT_2026, NEW_PROPERTY_FEE } from '../src/lib/forecast-model.ts';
 
 let failures = 0;
 const fail = (msg) => { failures++; console.log(`FAIL  ${msg}`); };
@@ -226,6 +228,46 @@ if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow
   if (perHome < 2500 || perHome > 4000) fail(`2027 people cost per home is ${perHome.toFixed(0)}/yr, expected roughly $3,100 (bench scaled linearly)`);
 }
 
+/* -- invariant 2c: the cost roster comes from the registry --------------- */
+// The cost lines used to scale on the hardcoded statement roster, so a home
+// earned from the day it was activated and cost nothing until its first
+// statement closed. The registry roster must: drop RT-owned, drop homes
+// activated after the year, start a home the month it was activated, keep
+// the statement-derived 2026 start for homes with no activated_at, and put
+// a brand-new home on the cost lines.
+{
+  const known = knownFromRoster(CURRENT_2026);
+  const homes = [
+    { id: '3_locust', name: '3 Locust', isRtOwned: true, activatedAt: null, projectedMgmtFee: 0 },
+    { id: '53_rocky_neck', name: '53 Rocky Neck', isRtOwned: false, activatedAt: null, projectedMgmtFee: 0 },
+    { id: '84_thatcher', name: '84 Thatcher', isRtOwned: false, activatedAt: '2026-06-15T00:00:00Z', projectedMgmtFee: 0 },
+    { id: '4_middle', name: '4 Middle Road', isRtOwned: false, activatedAt: null, projectedMgmtFee: 0 },
+    { id: 'next_year', name: 'Signed for 2027', isRtOwned: false, activatedAt: '2027-03-01', projectedMgmtFee: 0 },
+  ];
+  const r26 = rosterFromRegistry(homes, 2026, known, NEW_PROPERTY_FEE);
+  const by = Object.fromEntries(r26.map((p) => [p.id, p]));
+  if (by['3_locust']) fail('roster: RT-owned 3 Locust must stay off the cost lines');
+  if (by['next_year']) fail('roster: a home activated in 2027 must not be on the 2026 roster');
+  if (!by['53_rocky_neck'] || by['53_rocky_neck'].start !== 5) fail('roster: 53 Rocky Neck keeps its statement-derived May start when activated_at is null');
+  if (!by['53_rocky_neck'] || by['53_rocky_neck'].fee !== known['53_rocky_neck'].fee) fail('roster: 53 Rocky Neck keeps its known 2026 fee');
+  if (!by['84_thatcher'] || by['84_thatcher'].start !== 6) fail('roster: 84 Thatcher starts the month it was activated (June)');
+  if (!by['4_middle'] || by['4_middle'].start !== 1 || by['4_middle'].fee !== NEW_PROPERTY_FEE) fail('roster: 4 Middle Road is on the cost lines at the first-season fee');
+  const r27 = rosterFromRegistry(homes.map((h) => ({ ...h, projectedMgmtFee: 31000 })), 2027, {}, NEW_PROPERTY_FEE);
+  const by27 = Object.fromEntries(r27.map((p) => [p.id, p]));
+  if (!by27['next_year'] || by27['next_year'].start !== 3) fail('roster: the 2027 signing starts in March 2027');
+  if (!by27['84_thatcher'] || by27['84_thatcher'].start !== 1 || by27['84_thatcher'].fee !== 31000) fail('roster: a 2026 home is full-year in 2027 at the projected fee');
+  if (r27.some((p) => p.id === '3_locust')) fail('roster: RT-owned stays off in 2027 too');
+
+  // Injected into calcYear, the roster is what the cost lines scale on.
+  const yA = calcYear(0, 2026);
+  const yB = calcYear(0, 2026, undefined, undefined, undefined, undefined, 0, undefined, undefined, undefined, undefined,
+    [...CURRENT_2026, { id: '4_middle', name: '4 Middle Road', fee: NEW_PROPERTY_FEE, type: 'CA', start: 9 }]);
+  const dec = (y) => y.monthly[11];
+  if (dec(yB).active_count !== dec(yA).active_count + 1) fail('calcYear: an injected roster home must raise December active_count by one');
+  if (dec(yB).exp_cc_ops <= dec(yA).exp_cc_ops || dec(yB).exp_contractors <= dec(yA).exp_contractors) fail('calcYear: an injected roster home must add card and bench cost');
+  if (yB.monthly[7].exp_cc_ops !== yA.monthly[7].exp_cc_ops) fail('calcYear: a home starting in September must not change August');
+}
+
 /* -- invariant 3: operating-account categorization ---------------------- */
 const CASES = [
   ['DEPOSITED ITEM RETURNED       Stop Payment   099001139', -1208.78, 'DEPOSIT_RETURN', null],
@@ -309,6 +351,6 @@ if (!has('2026-07', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-07 lo
 if (!has('2026-07', (r) => r.category === 'Contractors')) fail('resolveCardSpendSource dropped a non-card row');
 
 console.log(failures === 0
-  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench and is the whole people line (no salaried hire, so 2027 net rises with every added home), the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench and is the whole people line (no salaried hire, so 2027 net rises with every added home), the cost roster comes from the registry (RT-owned off, activation month honored, a new home costs from day one), the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

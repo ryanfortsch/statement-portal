@@ -131,9 +131,10 @@ export const ACTIVE_2027: ManagedProperty[] = [
  * the roster, so activeCount, which scales the card and the contractor
  * bench, counted 17 earning homes where the smart layer had 14.
  */
-function rosterFor(year: number, openIn?: OpenInYear): ManagedProperty[] {
-  if (!openIn) return ACTIVE_2027;
-  return ACTIVE_2027.filter((p) => !p.id || openIn(p.id, year));
+function rosterFor(year: number, openIn?: OpenInYear, base?: ManagedProperty[]): ManagedProperty[] {
+  const src = base ?? ACTIVE_2027;
+  if (!openIn) return src;
+  return src.filter((p) => !p.id || openIn(p.id, year));
 }
 
 /**
@@ -664,12 +665,19 @@ export function getYearConfig(
    * NEW_PROPERTY_FEE, and it is never allowed below that first-year figure.
    */
   matureFee?: number,
+  /**
+   * The homes that cost money this year, built from Helm's registry by
+   * forecast-roster.ts. Omitted (the pure check scripts, or smart
+   * unavailable) the hardcoded CURRENT_2026 stands in, which is exactly the
+   * roster the cost lines scaled on before the registry fed them.
+   */
+  roster?: ManagedProperty[],
 ): YearConfig {
   if (year === 2026) {
     // 2026 is the starting year; nothing to roll forward into it.
     return {
       year: 2026,
-      current: CURRENT_2026,
+      current: roster ?? CURRENT_2026,
       presigned: PRESIGNED_2026,
       newOrder: NEW_ORDER_2026,
       bookkeeperLastMonth: 5,
@@ -693,7 +701,7 @@ export function getYearConfig(
   if (year === 2027) {
     return {
       year: 2027,
-      current: [...rosterFor(2027, openIn), ...synth],
+      current: [...rosterFor(2027, openIn, roster), ...synth],
       presigned: [],
       newOrder: NEW_ORDER_2027,
       bookkeeperLastMonth: null,
@@ -704,7 +712,7 @@ export function getYearConfig(
   // 2028 — same 14-property baseline as 2027 plus all rollovers.
   return {
     year: 2028,
-    current: [...rosterFor(2028, openIn), ...synth],
+    current: [...rosterFor(2028, openIn, roster), ...synth],
     presigned: [],
     newOrder: NEW_ORDER_2028,
     bookkeeperLastMonth: null,
@@ -867,9 +875,11 @@ export function calcYear(
    */
   openIn?: OpenInYear,
   /** Second-season fee for rolled-forward homes; see getYearConfig. */
-  matureFee?: number
+  matureFee?: number,
+  /** The registry-built cost roster; see getYearConfig. */
+  roster?: ManagedProperty[]
 ): YearResult {
-  const config = getYearConfig(year, rolledForward ?? 0, openIn, matureFee);
+  const config = getYearConfig(year, rolledForward ?? 0, openIn, matureFee, roster);
   const maxNew = config.newOrder.length;
   const n = Math.max(0, Math.min(maxNew, Math.round(numNew)));
   const newStartMonths: number[] = config.newOrder.slice(0, n);
