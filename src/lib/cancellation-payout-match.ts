@@ -55,10 +55,23 @@ const ms = (d: string) => new Date(`${d}T00:00:00Z`).getTime();
 export function matchCancellationPayout(
   deposit: { amount: number; source: string | null; deposit_date: string },
   candidates: CancelledCandidate[],
+  /**
+   * Rental income of every recognized Airbnb stay on the property, any
+   * month. A cancelled booking whose retained payout equals one of these
+   * to the cent is, on the live data, the same stay rebooked under a new
+   * code (three of the fleet's cancellations do this), and a deposit of
+   * that amount is the rebooked stay's ordinary money, not a cancellation
+   * payout. Suggesting the cancelled twin would attribute it on top of
+   * the stay already recognized. So an amount that any recognized stay
+   * already carries is never suggested. Removing a suggestion is the safe
+   * direction: the queue falls back to what it did before.
+   */
+  recognizedAmounts: number[] = [],
 ): CancellationPayoutMatch | null {
   if ((deposit.source || '') !== 'airbnb') return null;
   const amount = Math.round(deposit.amount * 100) / 100;
   if (!(amount > 0)) return null;
+  if (recognizedAmounts.some(a => Number.isFinite(a) && Math.abs(a - amount) <= EPS)) return null;
   const depMs = ms(deposit.deposit_date);
   if (!Number.isFinite(depMs)) return null;
 

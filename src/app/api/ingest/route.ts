@@ -1736,6 +1736,7 @@ export async function POST(request: NextRequest) {
     // the suggestion as it was and says so in the log: the fallback is the
     // status quo guess, not a silent pass.
     let cancelledCandidates: CancelledCandidate[] = [];
+    let recognizedAmounts: number[] = [];
     try {
       const { data: cancelledRows, error: cancelledErr } = await supabase
         .from('guesty_reservations')
@@ -1771,6 +1772,20 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+      // Rental income of every recognized Airbnb stay on this property, any
+      // month. A cancellation whose retained payout equals one of these to
+      // the cent is the same stay rebooked under a new code, and that
+      // deposit is the rebooked stay's ordinary money: never suggest it.
+      const { data: recognizedRows, error: recErr } = await supabase
+        .from('reservations')
+        .select('guesty_rental_income, platform')
+        .eq('property_id', propertyId)
+        .gt('guesty_rental_income', 0);
+      if (recErr) throw new Error(recErr.message);
+      recognizedAmounts = (recognizedRows || [])
+        .filter(r => (r.platform || '').toUpperCase() === 'AIRBNB')
+        .map(r => Number(r.guesty_rental_income))
+        .filter(n => Number.isFinite(n));
       cancelledCandidates = airbnb.map(r => ({
         code: r.confirmation_code as string,
         guest_name: r.guest_name,
@@ -1822,6 +1837,7 @@ export async function POST(request: NextRequest) {
       const cancellation = matchCancellationPayout(
         { amount: d.amount, source: d.source, deposit_date: isoDate },
         cancelledCandidates,
+        recognizedAmounts,
       );
       const safeDesc = (d.description || '').slice(0, 60);
       reviewRows.push({
