@@ -246,7 +246,7 @@ export async function loadPeriodData(month: string): Promise<
         (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean),
       );
       const guestyRows = driftKnown ? (guestyResResult.data || []) : [];
-      const driftBookings = guestyRows.filter(
+      let driftBookings = guestyRows.filter(
         (g: { confirmation_code: string | null }) => g.confirmation_code && !existingCodes.has(g.confirmation_code),
       );
       // A CONFIRMED booking with no confirmation code. Nothing can match or
@@ -282,14 +282,35 @@ export async function loadPeriodData(month: string): Promise<
       // Default 'deposit' matches loadAddOnTotals: the column arrived after
       // the table did, and a null there has always meant a credit.
       const isDebit = (a: AttributionRow) => (a.direction || 'deposit') === 'debit';
-      // Installment splits for this statement's stays: a sliced stay is
-      // allowed to differ from the PDF. A failed read is null, and the Helm
-      // lane reports unknown rather than guessing which stays are sliced.
+      // Installment splits, for two things at once.
+      //
+      // For the statement's own stays: a sliced stay is allowed to differ
+      // from the PDF (the Helm lane). For the DRIFT candidates: a confirmed
+      // stay that is split, with no slice for THIS month, is correctly
+      // absent from this statement, not missing from it. Kate Bacon's
+      // 35-night Direct stay checks out August 1 and is recognized entirely
+      // on June and July, so August is a sliceless month for it by design
+      // (#1406); before this the probe called it a missing August booking.
+      // The exclusion is applied to driftBookings itself so the month
+      // strip, the card banner and the reconciliation lane agree on one
+      // population.
+      //
+      // A failed read is null for the Helm lane (unknown, blocks) and leaves
+      // drift UNFILTERED, which can only over-report. Fail closed in the
+      // direction that shows more, never less.
       const codes = (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean) as string[];
+      const driftCandidateCodes = driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[];
       let splitCodes: Set<string> | null = null;
       try {
-        const byCode = await loadInstallmentsForCodes(supabaseAdmin, codes);
-        splitCodes = new Set([...byCode.entries()].filter(([, rows]) => rows.length > 0).map(([code]) => code));
+        const byCode = await loadInstallmentsForCodes(supabaseAdmin, [...codes, ...driftCandidateCodes]);
+        splitCodes = new Set(codes.filter(c => (byCode.get(c) || []).length > 0));
+        const splitElsewhere = new Set(driftCandidateCodes.filter(c => {
+          const rows = byCode.get(c) || [];
+          return rows.length > 0 && !rows.some(r => r.month === month);
+        }));
+        if (splitElsewhere.size > 0) {
+          driftBookings = driftBookings.filter((g: { confirmation_code: string | null }) => !g.confirmation_code || !splitElsewhere.has(g.confirmation_code));
+        }
       } catch (e) {
         console.error(`installments read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
       }
