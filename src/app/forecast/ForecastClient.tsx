@@ -211,8 +211,11 @@ export function ForecastClient({
   };
 
   const springTrough = Math.min(...year.cumulative.slice(0, 6), 0);
-  // Total managed = current properties + prospects in this year + N new
-  const totalManaged = liveCurrentCount + prospectsForYear.totals.count + numNew;
+  // Total managed at year-end: the homes earning this year, plus every home
+  // added on a PRIOR year's slider (rolled forward as a full-year active),
+  // plus the prospects, plus this year's new. Leaving the rollovers out
+  // made 2028 read 28 with 39 homes on the books.
+  const totalManaged = liveCurrentCount + rolledForward + prospectsForYear.totals.count + numNew;
 
   return (
     <>
@@ -238,6 +241,7 @@ export function ForecastClient({
           year={year}
           numNew={numNew}
           totalManaged={totalManaged}
+          rolledForward={rolledForward}
           springTrough={springTrough}
           yearKey={yearKey}
           currentCount={liveCurrentCount}
@@ -1267,6 +1271,7 @@ function KpiStrip({
   year,
   numNew,
   totalManaged,
+  rolledForward,
   springTrough,
   yearKey,
   currentCount,
@@ -1275,16 +1280,24 @@ function KpiStrip({
   year: YearResult;
   numNew: number;
   totalManaged: number;
+  rolledForward: number;
   springTrough: number;
   yearKey: ForecastYear;
   currentCount: number;
   prospectsCount: number;
 }) {
   const { totals } = year;
+  // Every term that is in the number is in the caption, so the two always
+  // add up to each other.
   const portfolioBreakdown =
     yearKey === 2026
       ? `${currentCount} current + ${prospectsCount} prospects + ${numNew} new`
-      : `${currentCount} active + ${numNew} new`;
+      : [
+          `${currentCount} active`,
+          rolledForward > 0 ? `${rolledForward} rolled fwd` : null,
+          prospectsCount > 0 ? `${prospectsCount} prospect${prospectsCount === 1 ? '' : 's'}` : null,
+          `${numNew} new`,
+        ].filter(Boolean).join(' + ');
   const revBreakdown =
     yearKey === 2026
       ? `cur ${fmtCompactSimple(totals.rev_current)} · prospects ${fmtCompactSimple(totals.rev_presigned)} · new ${fmtCompactSimple(totals.rev_new)}`
