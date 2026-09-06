@@ -539,7 +539,7 @@ export async function POST(request: NextRequest) {
     // Carried to step 12, which turns it into a critical gap.
     let foreignPdfSection: { heading: string; listing: string; property_id: string } | null = null;
     let pdfDebug = '';
-    let pdfFacts: { stay_count: number | null; rental_income_sum: number; codes: string[] } | null = null;
+    let pdfFacts: { stay_count: number | null; stays: { code: string; check_out: string; rental_income: number }[] } | null = null;
 
     if (guestyPDFFile) {
       const pdfBuffer = Buffer.from(await guestyPDFFile.arrayBuffer());
@@ -572,14 +572,26 @@ export async function POST(request: NextRequest) {
       }
       foreignPdfSection = parsed.foreignSingleSection;
       reservations = parsed.reservations.map(r => ({ ...r, guest_name: '' }));
-      // Keep what the PDF said, for reconciliation. Written once on the
-      // statement below and never updated: the point is to hold Helm's
-      // rows up against a record that Helm did not derive.
-      pdfFacts = {
-        stay_count: parsed.targetStayCount,
-        rental_income_sum: Math.round(parsed.reservations.reduce((s, r) => s + (r.rental_income || 0), 0) * 100) / 100,
-        codes: parsed.reservations.map(r => r.confirmation_code).filter(Boolean),
-      };
+      // Keep what the PDF said, per stay, for reconciliation. Written once
+      // on the statement below and never updated: the point is to hold
+      // Helm's rows up against a record that Helm did not derive. Per stay,
+      // not a list and a sum, because ingest itself declines to insert some
+      // of these BY DESIGN (a split stay recognized in another month; a row
+      // whose checkout falls outside the month), and telling an excused
+      // absence from a missing stay needs the stay's own checkout and amount.
+      //
+      // Nothing is recorded for a PDF whose lone section belongs to another
+      // house or from which nothing could be read: an empty list there is
+      // not a fact about this statement, and a later check would certify
+      // against a PDF that described someone else's revenue.
+      pdfFacts = (parsed.foreignSingleSection || parsed.reservations.length === 0)
+        ? null
+        : {
+            stay_count: parsed.targetStayCount,
+            stays: parsed.reservations
+              .filter(r => r.confirmation_code)
+              .map(r => ({ code: r.confirmation_code, check_out: r.check_out, rental_income: Math.round((r.rental_income || 0) * 100) / 100 })),
+          };
     }
 
     // 2. Parse platform CSV (maps confirmation codes to platforms + guest names).
@@ -1642,11 +1654,12 @@ export async function POST(request: NextRequest) {
         has_platform_csv: hasPlatform,
         has_bank_csv: hasBank,
         confidence,
-        // The PDF's own claims, for reconciliation (see the migration
-        // statement_pdf_facts). Null when no PDF was part of this upload.
+        // The PDF's own claims, for reconciliation (migrations
+        // statement_pdf_facts + statement_pdf_stays). Null when no PDF was
+        // part of this upload, or it described another house, or nothing
+        // could be read from it.
         pdf_stay_count: pdfFacts?.stay_count ?? null,
-        pdf_rental_income_sum: pdfFacts?.rental_income_sum ?? null,
-        pdf_confirmation_codes: pdfFacts?.codes ?? null,
+        pdf_stays: pdfFacts?.stays ?? null,
       })
       .select()
       .single();

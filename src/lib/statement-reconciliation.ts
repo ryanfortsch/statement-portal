@@ -105,9 +105,14 @@ export type ReconciliationInput = {
     num_stays: number | null;
     nights_booked: number | null;
     has_bank_csv: boolean;
+    /**
+     * The PDF header's reservation count. Shown, never judged: besides the
+     * $0 reprocessed-cancellation blocks, the header regex cannot tell a
+     * listing name ending in a digit from the count that follows it.
+     */
     pdf_stay_count: number | null;
-    pdf_rental_income_sum: number | null;
-    pdf_confirmation_codes: string[] | null;
+    /** What the PDF printed per stay, target section only. Null = not recorded. */
+    pdf_stays: { code: string; check_out: string; rental_income: number }[] | null;
   };
   reservations: {
     confirmation_code: string | null;
@@ -133,6 +138,18 @@ export type ReconciliationInput = {
   driftCodes: string[] | null;
   /** Codes on this statement that carry an installment split. Null = the read failed. */
   splitCodes: Set<string> | null;
+  /**
+   * PDF stays that are absent from the statement for a reason ingest or the
+   * operator decided, so their absence is excused rather than missing:
+   *   splitElsewhere   split across months with no slice for THIS month
+   *   cancelled        cancelled in Guesty and removed from the statement
+   * Out-of-month absences are excused from the PDF stay's own checkout date
+   * and need no input. Null = the installments read failed (the split set is
+   * unknowable, which is not the same as empty).
+   */
+  excused: { splitElsewhere: Set<string>; cancelled: Set<string> } | null;
+  /** False when the sync_status read FAILED: feed states below are unknown, not ok. */
+  feedsKnown?: boolean;
   /** Feed health for the lanes that lean on a sync. */
   feeds: { stripe: 'ok' | 'error' | 'unknown'; invoices: 'ok' | 'error' | 'unknown' };
   /** The pure payout formula run over the same rows. Null = it could not be computed. */
@@ -166,19 +183,17 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
 
   // ── STAYS: the PDF's list vs the statement's ─────────────────────────
   {
-    const pdfCodes = i.statement.pdf_confirmation_codes;
+    const pdf = i.statement.pdf_stays;
     const lines: LaneLine[] = [];
     if (i.driftCodes === null) {
       lines.push({ label: 'Guesty check failed: bookings could be missing without showing here', tone: 'warn' });
     } else if (i.driftCodes.length > 0) {
       lines.push({ label: 'Confirmed in Guesty, not on this statement', count: i.driftCodes.length, codes: i.driftCodes, tone: 'warn' });
     }
-    if (pdfCodes === null) {
+    if (pdf === null) {
       // No PDF list to compare against, but the Guesty probe still stands
       // on its own: a confirmed, paid stay that is not on the statement is
-      // a missing stay whether or not the PDF facts were kept. The dry run
-      // over August found exactly this on a sent statement and read it as
-      // reconciled, because drift only judged inside the recorded branch.
+      // a missing stay whether or not the PDF facts were kept.
       const state: LaneState = i.driftCodes === null ? 'unknown' : i.driftCodes.length > 0 ? 'differs' : 'not_recorded';
       lanes.push(lane('stays', 'Stays', true, state,
         state === 'unknown' ? 'Guesty check failed'
@@ -186,50 +201,80 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
           : `${stays.length} on the statement · PDF list not recorded (ingested before reconciliation)`,
         lines));
     } else {
-      const pdfSet = new Set(pdfCodes);
-      const onPdfNotHere = pdfCodes.filter(c => !stayCodes.has(c));
-      const hereNotOnPdf = [...stayCodes].filter(c => !pdfSet.has(c));
-      if (onPdfNotHere.length) lines.push({ label: 'On the PDF, not on the statement', count: onPdfNotHere.length, codes: onPdfNotHere, tone: 'warn' });
+      // Every non-synthetic row counts as "on the statement" here, whatever
+      // its checkout: a row booked under the has-a-slice-this-month
+      // exemption checks out in another month and is still on this one.
+      const onStatement = new Set(i.reservations.filter(r => r.bank_match_status !== SYNTHETIC_SLICE_STATUS).map(codeOf).filter(Boolean));
+      const pdfCodes = new Set(pdf.map(p => p.code));
+      // Each PDF stay that is absent is EXCUSED or MISSING, never just
+      // "absent": ingest declines some by design and the operator removes
+      // some on purpose, and both used to read as a hard difference that
+      // nothing could clear.
+      const outOfMonth: string[] = [], splitElsewhere: string[] = [], cancelled: string[] = [], missing: string[] = [];
+      for (const p of pdf) {
+        if (onStatement.has(p.code)) continue;
+        if (!inMonth(p.check_out)) outOfMonth.push(p.code);
+        else if (i.excused?.cancelled.has(p.code)) cancelled.push(p.code);
+        else if (i.excused?.splitElsewhere.has(p.code)) splitElsewhere.push(p.code);
+        else missing.push(p.code);
+      }
+      const hereNotOnPdf = [...onStatement].filter(c => !pdfCodes.has(c));
+      if (missing.length) lines.push({ label: 'On the PDF, not on the statement', count: missing.length, codes: missing, tone: 'warn' });
+      if (outOfMonth.length) lines.push({ label: 'On the PDF but checks out in another month, so not recognized here', count: outOfMonth.length, codes: outOfMonth, tone: 'neutral' });
+      if (splitElsewhere.length) lines.push({ label: 'On the PDF, split across months and recognized in another', count: splitElsewhere.length, codes: splitElsewhere, tone: 'neutral' });
+      if (cancelled.length) lines.push({ label: 'On the PDF, cancelled in Guesty and removed', count: cancelled.length, codes: cancelled, tone: 'neutral' });
       if (hereNotOnPdf.length) lines.push({ label: 'On the statement, not on the PDF (added after ingest)', count: hereNotOnPdf.length, codes: hereNotOnPdf, tone: 'neutral' });
       // The header's count vs what the parser could read is shown, never
       // judged. Guesty prints a date-range block with $0.00 and no rental
       // line for a stay that was cancelled and reprocessed, and the parser
-      // deliberately reads nothing from it (that empty block used to slurp
-      // the NEXT stay's rental line and duplicate it). So a header claiming
-      // more than was read is the normal shape of a month with a
-      // cancellation, not a missing stay. Missing stays are caught by the
-      // code comparison above and the Guesty probe.
+      // deliberately reads nothing from it, so a header claiming more than
+      // was read is the normal shape of a month with a cancellation.
       const claimed = i.statement.pdf_stay_count;
-      if (claimed !== null && claimed !== pdfCodes.length) {
-        lines.push({ label: `PDF header lists ${claimed} reservation${claimed === 1 ? '' : 's'}; ${pdfCodes.length} carried rental income (a cancelled and reprocessed stay prints as $0)`, tone: 'neutral' });
+      if (claimed !== null && claimed !== pdf.length) {
+        lines.push({ label: `PDF header lists ${claimed} reservation${claimed === 1 ? '' : 's'}; ${pdf.length} carried rental income (a cancelled and reprocessed stay prints as $0)`, tone: 'neutral' });
       }
-      const state: LaneState = i.driftCodes === null ? 'unknown'
-        : (onPdfNotHere.length === 0 && i.driftCodes.length === 0) ? 'agree' : 'differs';
+      // Without the installment read, a PDF-only stay could be a split
+      // recognized elsewhere or a missing stay, and the difference is money.
+      const state: LaneState = i.driftCodes === null || (i.excused === null && missing.length > 0) ? 'unknown'
+        : (missing.length === 0 && i.driftCodes.length === 0) ? 'agree' : 'differs';
       lanes.push(lane('stays', 'Stays', true, state,
         state === 'agree'
           ? `${stays.length} stays, every one the PDF listed${hereNotOnPdf.length ? `, plus ${hereNotOnPdf.length} added after ingest` : ''}`
-          : state === 'unknown' ? 'Guesty check failed'
-          : `${stays.length} on the statement vs ${pdfCodes.length} on the PDF`,
+          : state === 'unknown' ? (i.driftCodes === null ? 'Guesty check failed' : 'Installment read failed: a PDF stay is absent and cannot be excused or judged')
+          : `${missing.length + (i.driftCodes?.length || 0)} stay${missing.length + (i.driftCodes?.length || 0) === 1 ? '' : 's'} missing`,
         lines));
     }
   }
 
-  // ── GROSS: what the PDF printed vs what the statement carries ────────
+  // ── GROSS: what the PDF printed per stay vs what the statement carries ─
   {
-    const pdfSum = i.statement.pdf_rental_income_sum;
-    const pdfCodes = i.statement.pdf_confirmation_codes;
-    if (pdfSum === null || pdfCodes === null) {
-      lanes.push(lane('gross', 'PDF rental income', true, 'not_recorded', 'PDF total not recorded (ingested before reconciliation)'));
+    const pdf = i.statement.pdf_stays;
+    if (pdf === null) {
+      lanes.push(lane('gross', 'PDF rental income', true, 'not_recorded', 'PDF amounts not recorded (ingested before reconciliation)'));
     } else {
-      const pdfSet = new Set(pdfCodes);
-      const carried = round2(i.reservations.filter(r => pdfSet.has(codeOf(r)) && r.bank_match_status !== SYNTHETIC_SLICE_STATUS)
-        .reduce((s, r) => s + n(r.guesty_rental_income), 0));
-      const delta = round2(carried - pdfSum);
-      const state: LaneState = eq(delta, 0) ? 'agree' : 'differs';
+      // Per stay, for the PDF stays that ARE on the statement: does the row
+      // carry what the PDF printed? Absent stays are the Stays lane's job;
+      // comparing sums would blame them for a difference that is not money.
+      const byCode = new Map<string, number>();
+      for (const r of i.reservations) {
+        if (r.bank_match_status === SYNTHETIC_SLICE_STATUS) continue;
+        const c = codeOf(r);
+        if (c && !byCode.has(c)) byCode.set(c, n(r.guesty_rental_income));
+      }
+      const changed: { code: string; delta: number }[] = [];
+      let compared = 0, pdfTotal = 0;
+      for (const p of pdf) {
+        if (!byCode.has(p.code)) continue;
+        compared += 1;
+        pdfTotal = round2(pdfTotal + p.rental_income);
+        const delta = round2(byCode.get(p.code)! - p.rental_income);
+        if (!eq(delta, 0)) changed.push({ code: p.code, delta });
+      }
+      const state: LaneState = changed.length ? 'differs' : 'agree';
       lanes.push(lane('gross', 'PDF rental income', true, state,
-        state === 'agree' ? `${money(pdfSum)} on the PDF, carried exactly`
-          : `PDF printed ${money(pdfSum)}, statement carries ${money(carried)} (${delta > 0 ? '+' : ''}${money(delta)}) for those stays`,
-        state === 'agree' ? [] : [{ label: 'A PDF stay\'s rental income was changed after ingest', amount: delta, tone: 'warn' }]));
+        state === 'agree' ? `${money(pdfTotal)} across ${compared} stay${compared === 1 ? '' : 's'}, carried exactly as printed`
+          : `${changed.length} stay${changed.length === 1 ? '' : 's'} carr${changed.length === 1 ? 'ies' : 'y'} a different rental income than the PDF printed`,
+        changed.map(c => ({ label: 'Rental income changed after ingest', amount: c.delta, codes: [c.code], tone: 'warn' as LineTone }))));
     }
   }
 
@@ -310,31 +355,40 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
   {
     const cae = i.cleaningEvents.filter(e => CAE_SOURCES.has(e.source || ''));
     const bankTotal = round2(cae.reduce((s, e) => s + n(e.amount) - n(e.credit_amount), 0));
-    const invoiced = i.cleaningEvents.filter(e => !!e.invoice_no);
-    const invoiceTotal = round2(invoiced.reduce((s, e) => s + n(e.invoice_amount), 0));
-    const unpaid = i.cleaningEvents.filter(e => e.source === 'invoice');
+    const paired = cae.filter(e => !!e.invoice_no && e.invoice_amount !== null);
     const uninvoiced = cae.filter(e => !e.invoice_no);
+    const unpaid = i.cleaningEvents.filter(e => e.source === 'invoice');
     const linen = i.cleaningEvents.filter(e => LINEN_LAUNDRY_SOURCES.has(e.source || ''));
     const linenTotal = round2(linen.reduce((s, e) => s + n(e.amount) - n(e.credit_amount), 0));
     const credits = i.cleaningEvents.filter(e => n(e.credit_amount) > 0);
     const lines: LaneLine[] = [];
     const turnovers = n(i.statement.num_stays);
     lines.push({ label: `${cae.length} Cape Ann Elite charge${cae.length === 1 ? '' : 's'} against ${turnovers} turnover${turnovers === 1 ? '' : 's'} (a late-month checkout bills next month)`, tone: cae.length === turnovers ? 'ok' : 'neutral' });
-    if (linen.length) lines.push({ label: `Linen and laundry, never invoiced`, count: linen.length, amount: linenTotal, tone: 'neutral' });
+    if (linen.length) lines.push({ label: 'Linen and laundry, never invoiced', count: linen.length, amount: linenTotal, tone: 'neutral' });
     if (credits.length) lines.push({ label: 'Credits applied', count: credits.length, amount: -round2(credits.reduce((s, e) => s + n(e.credit_amount), 0)), tone: 'neutral' });
     if (i.feeds.invoices === 'error') {
       lines.push({ label: 'Invoice sync is failing: invoices may be missing', tone: 'warn' });
       lanes.push(lane('cleaning', 'Cleaning', true, 'unknown', 'Invoice sync failing', lines));
-    } else if (invoiced.length === 0) {
+    } else if (paired.length === 0 && unpaid.length === 0) {
       lanes.push(lane('cleaning', 'Cleaning', true, 'not_recorded', `${money(bankTotal)} from the bank · no invoices on file to check it against`, lines));
     } else {
-      if (uninvoiced.length) lines.push({ label: 'Bank charge with no invoice', count: uninvoiced.length, amount: round2(uninvoiced.reduce((s, e) => s + n(e.amount), 0)), tone: 'warn' });
-      if (unpaid.length) lines.push({ label: 'Invoice with no bank charge (unpaid or paid elsewhere)', count: unpaid.length, amount: round2(unpaid.reduce((s, e) => s + n(e.invoice_amount), 0)), tone: 'warn' });
-      const delta = round2(bankTotal - invoiceTotal);
-      const state: LaneState = eq(delta, 0) ? 'agree' : 'differs';
+      // The hard check is per corroborated pair: a bank charge and the
+      // invoice attached to it must agree to the cent, net of any credit.
+      // A bank charge with no invoice, or an invoice with no bank charge,
+      // is the ordinary shape of month-end -- the invoice is emailed on the
+      // 31st and the ACH lands on the 2nd, and the sync attaches each to
+      // the month it fell in -- so those open the lane with a warning and
+      // never block it. Judging them made two consecutive months fail with
+      // nothing in the product to clear either.
+      const mismatched = paired.filter(e => !eq(n(e.amount) - n(e.credit_amount), n(e.invoice_amount)));
+      for (const e of mismatched) lines.push({ label: `Bank ${money(n(e.amount) - n(e.credit_amount))} vs its invoice ${money(n(e.invoice_amount))}`, amount: round2(n(e.amount) - n(e.credit_amount) - n(e.invoice_amount)), tone: 'warn' });
+      if (uninvoiced.length) lines.push({ label: 'Bank charge with no invoice yet', count: uninvoiced.length, amount: round2(uninvoiced.reduce((s, e) => s + n(e.amount), 0)), tone: 'warn' });
+      if (unpaid.length) lines.push({ label: 'Invoice with no bank charge yet (usually paid next month)', count: unpaid.length, amount: round2(unpaid.reduce((s, e) => s + n(e.invoice_amount), 0)), tone: 'warn' });
+      const state: LaneState = mismatched.length ? 'differs' : 'agree';
       lanes.push(lane('cleaning', 'Cleaning', true, state,
-        state === 'agree' ? `${money(bankTotal)} from the bank, invoices agree to the cent`
-          : `Bank ${money(bankTotal)} vs invoices ${money(invoiceTotal)} (${delta > 0 ? '+' : ''}${money(delta)})`,
+        state === 'agree'
+          ? `${money(bankTotal)} from the bank; ${paired.length} invoiced charge${paired.length === 1 ? '' : 's'} agree${paired.length === 1 ? 's' : ''} to the cent${uninvoiced.length || unpaid.length ? `, ${uninvoiced.length + unpaid.length} straddling the month` : ''}`
+          : `${mismatched.length} invoiced charge${mismatched.length === 1 ? '' : 's'} disagree${mismatched.length === 1 ? 's' : ''} with the invoice`,
         lines));
     }
   }
@@ -376,6 +430,7 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
     if (l.state === 'unknown') blocking.push(`${l.title}: ${l.summary}`);
     else if (l.hard && l.state === 'differs') blocking.push(`${l.title}: ${l.summary}`);
   }
+  if (i.feedsKnown === false) blocking.push('Feed health could not be read: a failing sync would not show here');
   if (i.gapsKnown === false) blocking.push('Flag list could not be read: open critical flags may exist');
   else if (openCriticalGaps > 0) blocking.push(`${openCriticalGaps} open critical flag${openCriticalGaps === 1 ? '' : 's'}`);
   return { reconciled: blocking.length === 0, blocking, lanes, openCriticalGaps };

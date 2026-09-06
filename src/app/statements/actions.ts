@@ -169,8 +169,14 @@ export async function loadPeriodData(month: string): Promise<
     .from('property_statements').select('*').eq('period_id', periodData.id).order('property_name');
   // Feed health once for the whole period: the Stripe and invoice lanes
   // report unknown when their sync is failing, since a silent sync is not
-  // a clean one.
-  const syncMap = await loadLastSyncMap();
+  // a clean one. Read here with the error kept, not through loadLastSyncMap,
+  // which swallows its error and returns an empty map that would read as
+  // every feed healthy.
+  const syncRead = await supabaseAdmin.from('sync_status').select('source, last_status');
+  const feedsKnown = !syncRead.error;
+  if (syncRead.error) console.error('sync_status read failed:', syncRead.error.message);
+  const syncMap: Record<string, { last_status: string | null }> = {};
+  for (const r of (syncRead.data || []) as { source: string; last_status: string | null }[]) syncMap[r.source] = { last_status: r.last_status };
   if (propsError) return { error: propsError.message || JSON.stringify(propsError) };
 
   const monthStart = `${month}-01`;
@@ -300,19 +306,44 @@ export async function loadPeriodData(month: string): Promise<
       // direction that shows more, never less.
       const codes = (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean) as string[];
       const driftCandidateCodes = driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[];
+      // PDF stays absent from the statement: ingest declines some by design
+      // and the operator removes some on purpose. The engine needs to know
+      // which absences are excused, and that takes the same installment read
+      // plus a Guesty status read for the absent codes.
+      const pdfStaysRaw = (prop as unknown as { pdf_stays?: unknown }).pdf_stays;
+      const pdfStays = Array.isArray(pdfStaysRaw)
+        ? (pdfStaysRaw as { code: string; check_out: string; rental_income: number }[]).filter(p => p && typeof p.code === 'string')
+        : null;
+      const onStatement = new Set(codes);
+      const pdfOnlyCodes = (pdfStays || []).map(p => p.code).filter(c => !onStatement.has(c));
       let splitCodes: Set<string> | null = null;
+      let excused: { splitElsewhere: Set<string>; cancelled: Set<string> } | null = null;
       try {
-        const byCode = await loadInstallmentsForCodes(supabaseAdmin, [...codes, ...driftCandidateCodes]);
-        splitCodes = new Set(codes.filter(c => (byCode.get(c) || []).length > 0));
-        const splitElsewhere = new Set(driftCandidateCodes.filter(c => {
+        const byCode = await loadInstallmentsForCodes(supabaseAdmin, [...codes, ...driftCandidateCodes, ...pdfOnlyCodes]);
+        const splitElsewhereOf = (list: string[]) => new Set(list.filter(c => {
           const rows = byCode.get(c) || [];
           return rows.length > 0 && !rows.some(r => r.month === month);
         }));
-        if (splitElsewhere.size > 0) {
-          driftBookings = driftBookings.filter((g: { confirmation_code: string | null }) => !g.confirmation_code || !splitElsewhere.has(g.confirmation_code));
+        splitCodes = new Set(codes.filter(c => (byCode.get(c) || []).length > 0));
+        const driftSplitElsewhere = splitElsewhereOf(driftCandidateCodes);
+        if (driftSplitElsewhere.size > 0) {
+          driftBookings = driftBookings.filter((g: { confirmation_code: string | null }) => !g.confirmation_code || !driftSplitElsewhere.has(g.confirmation_code));
         }
+        // A PDF stay the operator removed as cancelled leaves no record of
+        // its own (the removal deletes the row and its gap), so the excuse
+        // is read from Guesty: the booking is cancelled there.
+        let cancelled = new Set<string>();
+        if (pdfOnlyCodes.length > 0) {
+          const { data: cx, error: cxErr } = await supabaseAdmin
+            .from('guesty_reservations')
+            .select('confirmation_code, status')
+            .in('confirmation_code', pdfOnlyCodes);
+          if (cxErr) throw new Error(`guesty status read failed: ${cxErr.message}`);
+          cancelled = new Set((cx || []).filter((g: { status: string | null }) => (g.status || '').toLowerCase().startsWith('cancel')).map((g: { confirmation_code: string }) => g.confirmation_code));
+        }
+        excused = { splitElsewhere: splitElsewhereOf(pdfOnlyCodes), cancelled };
       } catch (e) {
-        console.error(`installments read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
+        console.error(`installments/excuse read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
       }
       if (!recompute.ok) console.error(`recompute failed for ${prop.property_id}:`, recompute.error);
 
@@ -326,7 +357,7 @@ export async function loadPeriodData(month: string): Promise<
           repairs_total: number | null; add_ons_revenue: number | null; attributed_debits_total: number | null;
           reserve_holdback: number | null; owner_payout: number | null; num_stays: number | null;
           nights_booked: number | null; has_bank_csv: boolean | null;
-          pdf_stay_count: number | null; pdf_rental_income_sum: number | null; pdf_confirmation_codes: string[] | null;
+          pdf_stay_count: number | null;
         };
         const feedState = (src: string): 'ok' | 'error' | 'unknown' => {
           const st = syncMap[src]?.last_status;
@@ -341,8 +372,7 @@ export async function loadPeriodData(month: string): Promise<
               reserve_holdback: st.reserve_holdback, owner_payout: st.owner_payout, num_stays: st.num_stays,
               nights_booked: st.nights_booked, has_bank_csv: !!st.has_bank_csv,
               pdf_stay_count: st.pdf_stay_count ?? null,
-              pdf_rental_income_sum: st.pdf_rental_income_sum === null || st.pdf_rental_income_sum === undefined ? null : Number(st.pdf_rental_income_sum),
-              pdf_confirmation_codes: Array.isArray(st.pdf_confirmation_codes) ? st.pdf_confirmation_codes : null,
+              pdf_stays: pdfStays === null ? null : pdfStays.map(p => ({ code: p.code, check_out: String(p.check_out || ''), rental_income: Number(p.rental_income) || 0 })),
             },
             reservations: resResult.data || [],
             cleaningEvents: cleanResult.data || [],
@@ -352,7 +382,9 @@ export async function loadPeriodData(month: string): Promise<
               ? driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[]
               : null,
             splitCodes,
+            excused,
             feeds: { stripe: feedState('stripe'), invoices: feedState('gmail-invoices') },
+            feedsKnown,
             recomputed: recompute.ok ? {
               rental_revenue: recompute.totals.rental_revenue, management_fee: recompute.totals.management_fee,
               cleaning_total: recompute.totals.cleaning_total, owner_payout: recompute.totals.owner_payout,

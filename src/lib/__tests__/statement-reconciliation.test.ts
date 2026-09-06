@@ -24,14 +24,21 @@ function base(over: Partial<ReconciliationInput> = {}): ReconciliationInput {
       rental_revenue: 3350, management_fee: 837.5, cleaning_total: 600, repairs_total: 0,
       add_ons_revenue: 0, attributed_debits_total: 0, reserve_holdback: 0, owner_payout: 1912.5,
       num_stays: 3, nights_booked: 9, has_bank_csv: true,
-      pdf_stay_count: 3, pdf_rental_income_sum: 3500, pdf_confirmation_codes: ['A1', 'A2', 'M1'],
+      pdf_stay_count: 3,
+      pdf_stays: [
+        { code: 'A1', check_out: '2026-08-12', rental_income: 1000 },
+        { code: 'A2', check_out: '2026-08-12', rental_income: 500 },
+        { code: 'M1', check_out: '2026-08-20', rental_income: 2000 },
+      ],
     },
     reservations,
     cleaningEvents: [bank(300), bank(300)],
     gaps: [],
     driftCodes: [],
     splitCodes: new Set(),
+    excused: { splitElsewhere: new Set(), cancelled: new Set() },
     feeds: { stripe: 'ok', invoices: 'ok' },
+    feedsKnown: true,
     recomputed: { rental_revenue: 3350, management_fee: 837.5, cleaning_total: 600, owner_payout: 1912.5, num_stays: 3, nights_booked: 9 },
     ...over,
   };
@@ -82,8 +89,70 @@ test('stays: the PDF header claiming more reservations than could be read is sho
   assert.equal(r.reconciled, true);
 });
 
+test('stays: an absent PDF stay that checks out in another month is excused, not missing', () => {
+  // Ingest's out-of-month gate declines these by design. They used to read
+  // as a hard difference that nothing could clear.
+  const r = reconcileStatement(base({ statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'S9', check_out: '2026-09-02', rental_income: 3100 }] } }));
+  const l = laneOf(r, 'stays');
+  assert.equal(l.state, 'agree');
+  assert.deepEqual(l.lines.find(x => x.label.includes('another month'))?.codes, ['S9']);
+  assert.equal(r.reconciled, true);
+});
+
+test('stays: an absent PDF stay split and recognized in another month is excused', () => {
+  const r = reconcileStatement(base({
+    statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'KB', check_out: '2026-08-01', rental_income: 8400 }] },
+    excused: { splitElsewhere: new Set(['KB']), cancelled: new Set() },
+  }));
+  const l = laneOf(r, 'stays');
+  assert.equal(l.state, 'agree');
+  assert.deepEqual(l.lines.find(x => x.label.includes('split across months'))?.codes, ['KB']);
+});
+
+test('stays: an absent PDF stay cancelled in Guesty and removed is excused', () => {
+  const r = reconcileStatement(base({
+    statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'CD', check_out: '2026-08-09', rental_income: 775.29 }] },
+    excused: { splitElsewhere: new Set(), cancelled: new Set(['CD']) },
+  }));
+  assert.equal(laneOf(r, 'stays').state, 'agree');
+  assert.equal(r.reconciled, true);
+});
+
+test('stays: an absent PDF stay with no excuse is missing and blocks', () => {
+  const r = reconcileStatement(base({ statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'GONE', check_out: '2026-08-15', rental_income: 900 }] } }));
+  const l = laneOf(r, 'stays');
+  assert.equal(l.state, 'differs');
+  assert.deepEqual(l.lines.find(x => x.label.startsWith('On the PDF, not on'))?.codes, ['GONE']);
+  assert.equal(r.reconciled, false);
+});
+
+test('stays: with the installment read failed, an unexcused absence is unknown, not judged either way', () => {
+  const r = reconcileStatement(base({
+    statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'KB', check_out: '2026-08-01', rental_income: 8400 }] },
+    excused: null, splitCodes: null,
+  }));
+  assert.equal(laneOf(r, 'stays').state, 'unknown');
+  assert.equal(r.reconciled, false);
+  // ...but with nothing absent, a failed installment read does not touch this lane
+  const clean = reconcileStatement(base({ excused: null }));
+  assert.equal(laneOf(clean, 'stays').state, 'agree');
+});
+
+test('stays: a row on the statement that checks out in another month still counts as on the statement', () => {
+  // Booked under the has-a-slice-this-month exemption: on the statement,
+  // checkout elsewhere. It must not be reported "not on the statement".
+  const exempt = manual('X1', 1200, 1200, 0, { check_out: '2026-09-03' });
+  const r = reconcileStatement(base({
+    reservations: [...base().reservations, exempt],
+    statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'X1', check_out: '2026-09-03', rental_income: 1200 }] },
+    splitCodes: new Set(['X1']),
+  }));
+  assert.equal(laneOf(r, 'stays').state, 'agree');
+  assert.equal(laneOf(r, 'stays').lines.some(x => x.codes?.includes('X1')), false);
+});
+
 test('stays: no recorded PDF list is neutral, not a pass and not a failure', () => {
-  const r = reconcileStatement(base({ statement: { ...base().statement, pdf_confirmation_codes: null, pdf_rental_income_sum: null, pdf_stay_count: null } }));
+  const r = reconcileStatement(base({ statement: { ...base().statement, pdf_stays: null, pdf_stay_count: null } }));
   assert.equal(laneOf(r, 'stays').state, 'not_recorded');
   assert.equal(laneOf(r, 'gross').state, 'not_recorded');
   assert.equal(r.reconciled, true, 'not_recorded never blocks');
@@ -94,7 +163,7 @@ test('stays: a confirmed Guesty stay missing from the statement blocks even with
   // with a confirmed stay missing, because drift was only judged inside
   // the recorded branch. Every pre-existing statement is unrecorded.
   const r = reconcileStatement(base({
-    statement: { ...base().statement, pdf_confirmation_codes: null, pdf_rental_income_sum: null, pdf_stay_count: null },
+    statement: { ...base().statement, pdf_stays: null, pdf_stay_count: null },
     driftCodes: ['GY-qqVPackv'],
   }));
   const l = laneOf(r, 'stays');
@@ -115,11 +184,17 @@ test('synthetic installment slices are not stays', () => {
   assert.equal(laneOf(r, 'stays').state, 'agree');
 });
 
-test('gross: a PDF stay whose rental income changed after ingest is caught to the cent', () => {
+test('gross: a PDF stay whose rental income changed after ingest is caught to the cent, by stay', () => {
   const r = reconcileStatement(base({ reservations: [airbnb('A1', 1000.01), airbnb('A2', 500), manual('M1', 2000, 1850, 78.4)] }));
   const l = laneOf(r, 'gross');
   assert.equal(l.state, 'differs');
   assert.equal(l.lines[0].amount, 0.01);
+  assert.deepEqual(l.lines[0].codes, ['A1']);
+});
+
+test('gross: an absent PDF stay is the Stays lane\'s business and never makes the amounts differ', () => {
+  const r = reconcileStatement(base({ statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'S9', check_out: '2026-09-02', rental_income: 3100 }] } }));
+  assert.equal(laneOf(r, 'gross').state, 'agree');
 });
 
 test('helm: an Airbnb stay whose net differs from the PDF blocks; a Manual one is structural and reported', () => {
@@ -142,14 +217,26 @@ test('helm: a sliced Airbnb stay is allowed to differ from the PDF; an unknown i
   assert.equal(unknown.reconciled, false);
 });
 
-test('cleaning: invoices agreeing with the bank to the cent is the hard check', () => {
+test('cleaning: each invoiced charge agreeing with its invoice to the cent is the hard check', () => {
   const r = reconcileStatement(base());
   assert.equal(laneOf(r, 'cleaning').state, 'agree');
-  const off = reconcileStatement(base({ cleaningEvents: [bank(300), bank(245, null), { source: 'invoice', amount: 300, credit_amount: null, invoice_no: 'INV-x', invoice_amount: 300 }] }));
+  const off = reconcileStatement(base({ cleaningEvents: [bank(300), { source: 'corroborated', amount: 245, credit_amount: null, invoice_no: 'INV-9', invoice_amount: 250 }] }));
   const l = laneOf(off, 'cleaning');
   assert.equal(l.state, 'differs');
+  assert.equal(l.lines.find(x => x.label.startsWith('Bank $245.00 vs its invoice'))?.amount, -5);
+  assert.equal(off.reconciled, false);
+});
+
+test('cleaning: a charge without an invoice, or an invoice without a charge, warns but never blocks', () => {
+  // Month-end: the invoice is emailed on the 31st and the ACH lands on the
+  // 2nd, and each attaches to the month it fell in. Judging that made two
+  // consecutive months fail with nothing in the product to clear either.
+  const r = reconcileStatement(base({ cleaningEvents: [bank(300), bank(245, null), { source: 'invoice', amount: 300, credit_amount: null, invoice_no: 'INV-x', invoice_amount: 300 }] }));
+  const l = laneOf(r, 'cleaning');
+  assert.equal(l.state, 'agree');
   assert.equal(l.lines.find(x => x.label.startsWith('Bank charge with no invoice'))?.amount, 245);
   assert.equal(l.lines.find(x => x.label.startsWith('Invoice with no bank charge'))?.amount, 300);
+  assert.equal(r.reconciled, true);
 });
 
 test('cleaning: no invoices on file is neutral; a failing invoice sync is unknown', () => {
@@ -161,13 +248,15 @@ test('cleaning: no invoices on file is neutral; a failing invoice sync is unknow
   assert.equal(failing.reconciled, false);
 });
 
-test('cleaning: a credit nets the bank side, matching how the write path bills', () => {
+test('cleaning: a credit nets the bank side of its pair, matching how the write path bills', () => {
+  // A fully credited duplicate charge nets to $0 against a $300 invoice:
+  // that pair disagrees, and it should, because the invoice is for a
+  // charge the operator has struck.
   const credited: Ev = { source: 'matched', amount: 300, credit_amount: 300, invoice_no: 'INV-d', invoice_amount: 300 };
-  // Bank net 300 (one real, one fully credited) vs invoices 600: the duplicate invoice is the difference.
   const r = reconcileStatement(base({ cleaningEvents: [bank(300), credited] }));
   const l = laneOf(r, 'cleaning');
   assert.equal(l.state, 'differs');
-  assert.match(l.summary, /Bank \$300\.00 vs invoices \$600\.00/);
+  assert.equal(l.lines.find(x => x.label.startsWith('Bank $0.00 vs its invoice $300.00'))?.amount, -300);
 });
 
 test('payout: a stored money column off from its rows blocks; a count-only miss does not', () => {
@@ -206,4 +295,10 @@ test('a failed flag read blocks: an empty list from a failed read is not "no fla
   const r = reconcileStatement(base({ gaps: [], gapsKnown: false }));
   assert.equal(r.reconciled, false);
   assert.match(r.blocking.join(' '), /could not be read/);
+});
+
+test('a failed feed-health read blocks: an empty sync map is not "every feed healthy"', () => {
+  const r = reconcileStatement(base({ feedsKnown: false }));
+  assert.equal(r.reconciled, false);
+  assert.match(r.blocking.join(' '), /Feed health could not be read/);
 });
