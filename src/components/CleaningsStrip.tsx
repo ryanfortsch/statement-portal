@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
 import { addDays, formatTime12 } from '@/lib/checkout-schedule';
-import { loadCleaningSchedule } from '@/lib/cleaning-schedule';
+import { loadCleaningOutlook } from '@/lib/cleaning-schedule';
 import { ATTENTION_STATUSES, type CleaningDay, type CleaningStatus } from '@/lib/cleaning-days';
 import { VENDOR_LABEL } from '@/lib/vendor-schedule';
 
@@ -111,9 +111,10 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
 
 export async function CleaningsStrip() {
   if (!isServiceConfigured) return null;
-  let sched: Awaited<ReturnType<typeof loadCleaningSchedule>>;
+  let sched: Awaited<ReturnType<typeof loadCleaningOutlook>>;
   try {
-    sched = await loadCleaningSchedule(supabase, { days: 3 });
+    // Shared with the morning brief on this same page (React cache).
+    sched = await loadCleaningOutlook(supabase);
   } catch {
     return null;
   }

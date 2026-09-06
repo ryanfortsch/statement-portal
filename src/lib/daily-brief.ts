@@ -12,6 +12,8 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { loadCleaningOutlook, cleaningFlags } from '@/lib/cleaning-schedule';
+import type { CleaningFlag } from '@/lib/cleaning-days';
 import {
   isStayConciergeConfigured,
   listApprovals,
@@ -43,6 +45,14 @@ export type BriefStay = {
   checkIn: string;
   checkOut: string;
 };
+
+/** A house on the cleaning crew's schedule that needs a human: a guest
+ *  leaving with no cleaner booked, a cleaner booked before the guest is
+ *  out or after the next one is in, or a cleaner with nobody leaving.
+ *  Today through the day after tomorrow, the vendor's whole horizon.
+ *  Built by lib/cleaning-schedule.ts, the same read /turnovers/cleanings
+ *  and the home strip use. */
+export type BriefCleaningFlag = CleaningFlag;
 
 export type BriefInboundTouch = {
   contactId: string;
@@ -119,6 +129,7 @@ export type DailyBrief = {
   date: string;
   checkoutsToday: BriefStay[];
   checkinsToday: BriefStay[];
+  cleaningFlags: BriefCleaningFlag[];
   inspectionsCompletedToday: BriefInspection[];
   highPrioritySlips: WorkSlipRow[];
   ownerActionSlips: WorkSlipRow[];
@@ -146,6 +157,7 @@ export type DailyBrief = {
     inspectionsToday: number;
     activeProspects: number;
     feedsStuck: number;
+    cleaningFlags: number;
   };
 };
 
@@ -961,6 +973,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { data: syncRows },
     unreadEmails,
     emailTotals,
+    cleaningFlagList,
   ] = await Promise.all([
     supabase.from('properties').select('id, name').eq('is_active', true),
     supabase
@@ -1020,6 +1033,13 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     supabase.from('sync_status').select('source, last_synced_at, last_attempted_at, last_status, last_error, error_count'),
     loadUnreadEmailsFromCache().catch(() => [] as BriefEmail[]),
     loadEmailTriageTotals().catch(() => ({ needsReply: 0, fyi: 0, notifications: 0, unread: 0 })),
+    // The crew's schedule against ours, today through the day after
+    // tomorrow. A failed read is an empty list here, never a crash: the
+    // brief has to render even when the schedule cannot be built, and the
+    // cleanings page says so in its own words.
+    loadCleaningOutlook(supabase)
+      .then(cleaningFlags)
+      .catch(() => [] as CleaningFlag[]),
   ]);
 
   const propertyById = new Map<string, string>();
@@ -1215,6 +1235,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     date: todayIso,
     checkoutsToday: ((checkouts ?? []) as ReservationPick[]).map(toStay),
     checkinsToday: ((checkins ?? []) as ReservationPick[]).map(toStay),
+    cleaningFlags: cleaningFlagList,
     inspectionsCompletedToday,
     highPrioritySlips,
     ownerActionSlips,
@@ -1241,6 +1262,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       inspectionsToday: inspectionsCompletedToday.length,
       activeProspects: activeProspects.length,
       feedsStuck: feedsNeedingAttention.length,
+      cleaningFlags: cleaningFlagList.length,
     },
   };
 }
@@ -1251,6 +1273,12 @@ export function briefHeadline(brief: DailyBrief): string {
   // Lead with stuck feeds so the morning SMS surfaces a silent-fail before
   // the rest of the noise: a stuck Guesty sync, a stale Quo backfill, etc.
   if (brief.totals.feedsStuck) bits.push(`${brief.totals.feedsStuck} feed${brief.totals.feedsStuck === 1 ? '' : 's'} stuck`);
+  // Next: a house with no cleaner (or the wrong cleaner time) is the one
+  // thing on this list with a clock on it, since Jobber books ~2 days out.
+  if (brief.totals.cleaningFlags) {
+    const n = brief.totals.cleaningFlags;
+    bits.push(`${n} cleaning${n === 1 ? '' : 's'} to check`);
+  }
   if (brief.totals.needsReply) bits.push(`${brief.totals.needsReply} email${brief.totals.needsReply === 1 ? '' : 's'} need${brief.totals.needsReply === 1 ? 's' : ''} a reply`);
   if (brief.checkinsToday.length) bits.push(`${brief.checkinsToday.length} check-in${brief.checkinsToday.length === 1 ? '' : 's'}`);
   if (brief.totals.approvals) bits.push(`${brief.totals.approvals} draft${brief.totals.approvals === 1 ? '' : 's'} to review`);

@@ -402,6 +402,47 @@ export default async function TodayPage() {
     );
   }
 
+  // The cleaning crew's schedule against ours, where the two disagree.
+  // Today through the day after tomorrow: as far as the vendor announces.
+  if (brief.cleaningFlags.length) {
+    sections.push(
+      <section key="cleanings" className="mb-12">
+        <SectionHead
+          number={num()}
+          title="Cleanings to check"
+          count={brief.cleaningFlags.length}
+          href="/turnovers/cleanings"
+        />
+        <ul>
+          {brief.cleaningFlags.map((f) => (
+            <li
+              key={`${f.date}-${f.propertyId}`}
+              className="flex justify-between items-baseline gap-4 py-2 border-b last:border-b-0"
+              style={{ borderColor: 'var(--rule-soft)' }}
+            >
+              <div className="text-sm flex items-baseline flex-wrap gap-x-2">
+                <span
+                  className="font-mono text-[10px] mr-1"
+                  style={{ color: 'var(--ink-3)', letterSpacing: '0.08em', textTransform: 'uppercase' }}
+                >
+                  {f.dayLabel}
+                </span>
+                <Link
+                  href={`/turnovers/cleanings#day-${f.date}`}
+                  className="font-medium hover:underline underline-offset-2"
+                  style={{ color: 'var(--ink)' }}
+                >
+                  {f.propertyName}
+                </Link>
+                <span style={{ color: 'var(--ink-3)' }}>{f.detail}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>,
+    );
+  }
+
   // Needs-reply emails first, then FYI. Notifications are filtered
   // out earlier in the loader so they never surface here.
   const visibleEmails = [...brief.unreadEmails].sort((a, b) => {

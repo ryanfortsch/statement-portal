@@ -164,3 +164,73 @@ export function composeVendorOnlyDay(
     }));
   return finish(date, !!horizon && date <= horizon, items);
 }
+
+// ─── flags for the brief ──────────────────────────────────────────────
+
+/** One thing on the crew's schedule that needs a human, in words a text
+ *  message can carry. */
+export type CleaningFlag = {
+  date: string;
+  /** "Today", "Tomorrow", or the weekday, as the caller labels it. */
+  dayLabel: string;
+  propertyId: string;
+  propertyName: string;
+  status: CleaningStatus;
+  /** The part after the house: "Sarah Braun out 10 AM, no cleaner booked". */
+  detail: string;
+  /** House plus detail: "4 Middle Road, Sarah Braun out 10 AM, no cleaner booked". */
+  summary: string;
+};
+
+/** What is wrong, without the house name. Time formatting is injected so
+ *  this file stays import-free. */
+export function flagDetail(item: CleaningItem, formatTime: (hhmm: string) => string): string {
+  const t = (v: string | null) => (v ? formatTime(v) : '?');
+  const leaving = item.guestName
+    ? `${item.guestName} out ${t(item.checkoutTime)}`
+    : `checkout ${t(item.checkoutTime)}`;
+  switch (item.status) {
+    case 'no_appointment':
+      return `${leaving}, no cleaner booked`;
+    case 'early':
+      return `cleaner ${t(item.cleaningTime)} before the ${t(item.checkoutTime)} checkout`;
+    case 'late':
+      return `cleaner ${t(item.cleaningTime)} after the ${t(item.nextCheckinTime)} check-in`;
+    case 'no_checkout':
+      return `cleaner booked ${t(item.cleaningTime)}, nobody checks out`;
+    case 'agree':
+    case 'unchecked':
+      return `cleaner ${t(item.cleaningTime)}`;
+    case 'unannounced':
+      return 'not announced yet';
+  }
+}
+
+/**
+ * Every attention item across announced days, in day order then route
+ * order, as one line each. Unannounced days contribute nothing: a day the
+ * vendor has not spoken about is not a problem to text anyone about.
+ */
+export function collectCleaningFlags(
+  days: CleaningDay[],
+  opts: { labelDay: (date: string) => string; formatTime: (hhmm: string) => string },
+): CleaningFlag[] {
+  const out: CleaningFlag[] = [];
+  for (const day of days) {
+    if (!day.announced) continue;
+    for (const item of day.items) {
+      if (!ATTENTION_STATUSES.has(item.status)) continue;
+      const detail = flagDetail(item, opts.formatTime);
+      out.push({
+        date: day.date,
+        dayLabel: opts.labelDay(day.date),
+        propertyId: item.propertyId,
+        propertyName: item.propertyName,
+        status: item.status,
+        detail,
+        summary: `${item.propertyName}, ${detail}`,
+      });
+    }
+  }
+  return out;
+}
