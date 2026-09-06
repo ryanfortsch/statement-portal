@@ -135,7 +135,7 @@ function CleaningRow({ item }: { item: CleaningItem }) {
           : 'no checkout on our schedule'}
       </span>
       {item.sameDayTurnover && item.nextCheckinTime && (
-        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>next guest in {formatTime12(item.nextCheckinTime)}</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>next guest at {formatTime12(item.nextCheckinTime)}</span>
       )}
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'baseline', gap: 12 }}>
         {flagged && item.checkIn && (
@@ -179,6 +179,16 @@ export default async function CleaningsPage({
   const sched = await loadCleaningSchedule(supabase, { days: DAYS });
   const { today, horizon, lastAnnouncedAt, days, scheduleError, ingest } = sched;
   const attentionTotal = days.reduce((s, d) => s + d.attention, 0);
+  // What the "needs a look" count is made of, in the order worth chasing.
+  const breakdown = (() => {
+    const counts = { no_appointment: 0, early: 0, no_checkout: 0 };
+    for (const d of days) for (const i of d.items) if (i.status in counts) counts[i.status as keyof typeof counts] += 1;
+    const parts: string[] = [];
+    if (counts.no_appointment > 0) parts.push(`${counts.no_appointment} nothing booked`);
+    if (counts.early > 0) parts.push(`${counts.early} before checkout`);
+    if (counts.no_checkout > 0) parts.push(`${counts.no_checkout} nobody checks out`);
+    return parts.join(' · ');
+  })();
   const todayStat = dayStat(days[0]);
   const tomorrowStat = dayStat(days[1]);
 
@@ -272,7 +282,7 @@ export default async function CleaningsPage({
           <Stat
             label="Needs a look"
             value={String(attentionTotal)}
-            sub={attentionTotal > 0 ? 'before checkout, nothing booked, nobody leaving' : 'every announced day agrees'}
+            sub={attentionTotal > 0 ? breakdown : 'every announced day agrees'}
             accent={attentionTotal > 0}
             last
           />
