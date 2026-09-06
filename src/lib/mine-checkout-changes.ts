@@ -41,6 +41,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateObject } from 'ai';
+import { holdBelongsToGuest } from '@/lib/extension-holds';
 import { z } from 'zod';
 import {
   isStayConciergeConfigured,
@@ -337,7 +338,13 @@ export async function mineCheckoutChanges(
       // in one tap, never silent sends. Time-only changes are unaffected.
       let confidence = change.confidence;
       if (date) {
-        const corroborated = await extensionIsOccupied(supabase, propertyId, c.check_out, date);
+        const corroborated = await extensionIsOccupied(
+          supabase,
+          propertyId,
+          c.check_out,
+          date,
+          c.guest_full || null,
+        );
         if (!corroborated) {
           confidence = 'low';
           result.uncorroboratedExtension += 1;
@@ -396,6 +403,7 @@ async function extensionIsOccupied(
   propertyId: string,
   bookedCheckOut: string,
   newCheckOut: string,
+  guestName: string | null,
 ): Promise<boolean> {
   const nights: string[] = [];
   let d = bookedCheckOut;
@@ -407,7 +415,7 @@ async function extensionIsOccupied(
   const [{ data, error }, { data: others, error: othersErr }] = await Promise.all([
     supabase
       .from('property_calendar_days')
-      .select('date, status, block_type, synced_at')
+      .select('date, status, block_type, block_note, synced_at')
       .eq('property_id', propertyId)
       .in('date', nights),
     // Any OTHER stay starting inside the claimed extension window owns
@@ -430,7 +438,15 @@ async function extensionIsOccupied(
   if (others.length > 0) return false;
   const freshCutoff = Date.now() - 36 * 3600_000;
   const byDate = new Map(
-    (data as Array<{ date: string; status: string; block_type: string | null; synced_at: string | null }>).map((r) => [r.date, r]),
+    (
+      data as Array<{
+        date: string;
+        status: string;
+        block_type: string | null;
+        block_note: string | null;
+        synced_at: string | null;
+      }>
+    ).map((r) => [r.date, r]),
   );
   return nights.every((n) => {
     const cell = byDate.get(n);
@@ -439,7 +455,14 @@ async function extensionIsOccupied(
     if (!Number.isFinite(syncedMs) || syncedMs < freshCutoff) return false;
     const status = (cell.status || '').toLowerCase();
     if (status === 'booked') return true;
-    return status === 'unavailable' && !!cell.block_type;
+    // A manual hold only corroborates when it is about THIS guest. Owner
+    // use is the common case for a block abutting a checkout (seven of
+    // eight fleet-wide on 2026-08-24), and the owner blocking the night
+    // after a guest leaves is not evidence the guest stayed. Same test
+    // detectExtensionHolds already applies to the exact same rows.
+    return (
+      status === 'unavailable' && !!cell.block_type && holdBelongsToGuest(cell.block_note, guestName)
+    );
   });
 }
 

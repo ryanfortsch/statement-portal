@@ -115,6 +115,19 @@ function noteNames(note: string, tokens: string[]): boolean {
   return tokens.some((t) => new RegExp(`\\b${t}\\b`, 'i').test(note));
 }
 
+/**
+ * Does this hold's note tie it to THIS guest, or say outright that it is an
+ * extension? The same test detectExtensionHolds applies before it will
+ * trust a hold, exported so the thread miner cannot answer it differently.
+ * Of eight abutting holds fleet-wide on 2026-08-24, SEVEN were owner use.
+ */
+export function holdBelongsToGuest(note: string | null, guestName: string | null): boolean {
+  const n = (note ?? '').toLowerCase();
+  if (/extens/.test(n)) return true;
+  const tokens = nameTokens(guestName);
+  return tokens.length > 0 && noteNames(n, tokens);
+}
+
 export async function detectExtensionHolds(
   supabase: SupabaseClient,
   opts?: { horizonDays?: number; lookbackDays?: number },
