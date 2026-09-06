@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
-import { loadDailyBrief, type BriefEmail, type BriefInboundTouch } from '@/lib/daily-brief';
+import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefCleaningFlag } from '@/lib/daily-brief';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
@@ -69,6 +69,7 @@ export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
   let fyi: BriefEmail[] = [];
   let inboundWaiting: BriefInboundTouch[] = [];
+  let cleaningFlags: BriefCleaningFlag[] = [];
   let gmailConfigured = true;
 
   try {
@@ -76,6 +77,7 @@ export async function ForMeFeed() {
     needsReply = brief.unreadEmails.filter((e) => e.triage === 'needs_reply');
     fyi = brief.unreadEmails.filter((e) => e.triage === 'fyi');
     inboundWaiting = brief.inboundWaiting;
+    cleaningFlags = brief.cleaningFlags;
     gmailConfigured = brief.gmailConfigured;
   } catch {
     // Surface a graceful empty state rather than crash the home page.
@@ -107,7 +109,12 @@ export async function ForMeFeed() {
   const hasReplyItems = replyTotal > 0;
   const hasWalks = plannedWalks.length > 0;
   const nothing =
-    !hasReplyItems && workFiltered.length === 0 && glance.length === 0 && !hasWalks && queueCards.length === 0;
+    !hasReplyItems &&
+    workFiltered.length === 0 &&
+    glance.length === 0 &&
+    !hasWalks &&
+    queueCards.length === 0 &&
+    cleaningFlags.length === 0;
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
@@ -138,6 +145,29 @@ export async function ForMeFeed() {
               row links to its board; a row only renders while its count is
               nonzero, so the block disappears on its own when the queues are
               clear. */}
+          {/* CLEANINGS TO CHECK — a house with a guest leaving and no cleaner
+              booked, or a cleaner booked before the guest is out or after
+              the next one is in. Today through the day after tomorrow, which
+              is as far as the vendor announces. Same read as the strip above
+              and the cleanings page; no clear button, because a flag clears
+              itself the moment the vendor's schedule catches up. First,
+              because Jobber books about two days out: this is the one
+              section with a clock on it. */}
+          {cleaningFlags.length > 0 && (
+            <div style={{ marginBottom: 36 }}>
+              <SectionHeaderLink
+                href="/turnovers/cleanings"
+                title="Cleanings to check"
+                eyebrow={`${cleaningFlags.length} to check`}
+              />
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {cleaningFlags.map((f) => (
+                  <CleaningFlagRow key={`${f.date}|${f.propertyId}`} flag={f} />
+                ))}
+              </div>
+            </div>
+          )}
+
           {queueCards.length > 0 && (
             <div style={{ marginBottom: 36 }}>
               <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
@@ -816,6 +846,28 @@ async function loadStatementQueue(): Promise<QueueCard | null> {
   } catch {
     return null;
   }
+}
+
+function CleaningFlagRow({ flag }: { flag: BriefCleaningFlag }) {
+  return (
+    <Link
+      href={`/turnovers/cleanings#day-${flag.date}`}
+      style={{ ...feedRowStyle, alignItems: 'baseline', textDecoration: 'none', color: 'inherit' }}
+    >
+      <span aria-hidden style={{ ...dotStyle, background: 'var(--signal)' }} />
+      <span
+        className="font-mono"
+        style={{ flexShrink: 0, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-3)', minWidth: 78 }}
+      >
+        {flag.dayLabel}
+      </span>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: 'var(--ink)' }}>
+        <span style={{ fontWeight: 600 }}>{flag.propertyName}</span>
+        <span style={{ color: 'var(--ink-3)' }}> · {flag.detail}</span>
+      </span>
+      <span className="eyebrow">→</span>
+    </Link>
+  );
 }
 
 function QueueRow({ card }: { card: QueueCard }) {

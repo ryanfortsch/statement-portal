@@ -8,7 +8,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { composeCleaningDay, composeVendorOnlyDay, ATTENTION_STATUSES } from '../cleaning-days.ts';
+import { composeCleaningDay, composeVendorOnlyDay, collectCleaningFlags, flagDetail, ATTENTION_STATUSES } from '../cleaning-days.ts';
 import type { ScheduleDay, ScheduleRow } from '../checkout-schedule.ts';
 import type { VendorDayReport, VendorVerdict } from '../vendor-reconcile.ts';
 
@@ -215,5 +215,63 @@ describe('composeVendorOnlyDay', () => {
     const d = composeVendorOnlyDay('2026-09-09', appts, '2026-09-08', names);
     assert.equal(d.announced, false);
     assert.equal(d.items.length, 0);
+  });
+});
+
+describe('collectCleaningFlags', () => {
+  // A plain 12-hour formatter, so the lines read the way the brief texts them.
+  const fmt = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return m === 0 ? `${h12} ${h >= 12 ? 'PM' : 'AM'}` : `${h12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+  };
+  const labelDay = (date: string) => ({ '2026-09-06': 'Today', '2026-09-07': 'Tomorrow' })[date] ?? 'Tuesday';
+
+  const middle = row('4_middle', '4 Middle Road', '10:00', 'Sarah Braun');
+  const windward = row('3_windward', '3 Windward', '10:00', 'Natalie Pinckney');
+  const thatcher = row('84_thatcher', '84 Thatcher', '11:00', 'Stacey Grillo');
+  const enon = { ...row('20_enon', '20 Enon', '11:00', 'Manmeet Singh'), sameDayTurnover: true, nextCheckinTime: '15:00' };
+
+  const monday = composeCleaningDay(
+    day([windward, middle, thatcher, enon]),
+    report(
+      [
+        [windward, { kind: 'agree', time: '10:00' }],
+        [middle, { kind: 'no_appointment' }],
+        [thatcher, { kind: 'early', time: '10:30', checkoutTime: '11:00' }],
+        [enon, { kind: 'late', time: '16:00', checkinTime: '15:00' }],
+      ],
+      [{ propertyId: '79_main', propertyName: '79 Main', time: '13:00' }],
+    ),
+  );
+  const wednesday = composeCleaningDay(
+    day([row('19_rackliffe', '19 Rackliffe', '11:00', 'Josh + Maretta Silverman')], '2026-09-09'),
+    report([], [], false),
+  );
+
+  test('one line per attention item, in route order, and nothing from an unannounced day', () => {
+    const flags = collectCleaningFlags([monday, wednesday], { labelDay, formatTime: fmt });
+    assert.deepEqual(
+      flags.map((f) => `${f.dayLabel}: ${f.summary}`),
+      [
+        'Tomorrow: 84 Thatcher, cleaner 10:30 AM before the 11 AM checkout',
+        'Tomorrow: 79 Main, cleaner booked 1 PM, nobody checks out',
+        'Tomorrow: 20 Enon, cleaner 4 PM after the 3 PM check-in',
+        'Tomorrow: 4 Middle Road, Sarah Braun out 10 AM, no cleaner booked',
+      ],
+    );
+    assert.ok(flags.every((f) => ATTENTION_STATUSES.has(f.status)));
+    assert.equal(flags[3].detail, 'Sarah Braun out 10 AM, no cleaner booked');
+    assert.equal(flags[3].date, '2026-09-07');
+  });
+
+  test('a placeholder guest still reads as a checkout', () => {
+    const anon = row('17_beach_rd', '17 Beach', '10:00', '');
+    assert.equal(flagDetail({ ...composeCleaningDay(day([anon]), report([[anon, { kind: 'no_appointment' }]])).items[0] }, fmt), 'checkout 10 AM, no cleaner booked');
+  });
+
+  test('nothing to flag is an empty list, not a line saying so', () => {
+    const quiet = composeCleaningDay(day([windward]), report([[windward, { kind: 'agree', time: '10:00' }]]));
+    assert.deepEqual(collectCleaningFlags([quiet, wednesday], { labelDay, formatTime: fmt }), []);
   });
 });

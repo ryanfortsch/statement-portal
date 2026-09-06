@@ -14,16 +14,24 @@
  *     day is 'unannounced'. Silence, never a fake "nothing booked".
  */
 
+import { cache } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   buildCheckoutSchedule,
   ScheduleUnavailableError,
   addDays,
   todayET,
+  formatTime12,
   type ScheduleDay,
 } from '@/lib/checkout-schedule';
 import { loadVendorAppointments, reconcileDay, VENDOR_ID } from '@/lib/vendor-schedule';
-import { composeCleaningDay, composeVendorOnlyDay, type CleaningDay } from '@/lib/cleaning-days';
+import {
+  composeCleaningDay,
+  composeVendorOnlyDay,
+  collectCleaningFlags,
+  type CleaningDay,
+  type CleaningFlag,
+} from '@/lib/cleaning-days';
 
 /** How the reminder texts last got read into vendor_appointments. */
 export type VendorIngestStatus = {
@@ -136,4 +144,29 @@ export async function loadCleaningSchedule(
     scheduleError: schedule.error,
     ingest,
   };
+}
+
+/**
+ * Today, tomorrow and the day after: exactly the vendor's announcement
+ * horizon. Memoized per request (React cache, keyed on the client
+ * singleton) so the home strip and the morning brief, which render on the
+ * same page, share one read instead of building the schedule twice.
+ */
+export const loadCleaningOutlook = cache(
+  async (supabase: SupabaseClient): Promise<CleaningSchedule> => loadCleaningSchedule(supabase, { days: 3 }),
+);
+
+/** "Today", "Tomorrow", then the weekday. */
+export function labelCleaningDay(date: string, today: string): string {
+  if (date === today) return 'Today';
+  if (date === addDays(today, 1)) return 'Tomorrow';
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+}
+
+/** The attention items of a schedule as one-line flags for the brief. */
+export function cleaningFlags(sched: CleaningSchedule): CleaningFlag[] {
+  return collectCleaningFlags(sched.days, {
+    labelDay: (date) => labelCleaningDay(date, sched.today),
+    formatTime: formatTime12,
+  });
 }
