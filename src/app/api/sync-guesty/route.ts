@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { decideListingRetirement, type ListingRowLite } from '@/lib/listing-retirement';
 import { NextRequest, NextResponse } from 'next/server';
 import { recordSyncFailure, recordSyncSuccess, recordSyncResult } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
@@ -223,16 +224,23 @@ async function listingNeedles(): Promise<Record<string, string>> {
 
 async function refreshListingMap(
   token: string,
-): Promise<{ rows: ListingRow[]; unmatched: UnmatchedListing[] }> {
+): Promise<{ rows: ListingRow[]; unmatched: UnmatchedListing[]; removed: ListingRowLite[]; held: ListingRowLite[] }> {
   const needles = await listingNeedles();
   const all: any[] = [];
   let skip = 0;
   const limit = 100;
+  // A pull is complete only when it reached a short page. Hitting the skip
+  // guard means Guesty had more than we read, and an incomplete pull must
+  // never be allowed to retire rows below.
+  let pullComplete = false;
   while (true) {
     const page = await guestyGet('/v1/listings', token, { limit, skip });
     const batch = page.results || page.data || [];
     all.push(...batch);
-    if (batch.length < limit) break;
+    if (batch.length < limit) {
+      pullComplete = true;
+      break;
+    }
     skip += limit;
     if (skip > 2000) break;
   }
@@ -357,7 +365,41 @@ async function refreshListingMap(
       }
     }
   }
-  return { rows, unmatched };
+  // Retire rows Guesty no longer returns. The upsert above only ever added;
+  // a listing removed on Guesty's side (17 Beach's Back Unit, gone since
+  // 2026-06-02) stayed in the map for months, and every calendar refresh
+  // 404'd on it. The guard (lib/listing-retirement.ts) refuses to act on an
+  // incomplete pull, an implausibly small fleet, or a stale set bigger than
+  // a quarter of the table, so a bad response can never wipe the map.
+  let removed: ListingRowLite[] = [];
+  let held: ListingRowLite[] = [];
+  try {
+    const { data: existingRows, error: existingErr } = await getSupabase()
+      .from('guesty_listings')
+      .select('listing_id, property_id, nickname');
+    if (!existingErr && existingRows) {
+      const decision = decideListingRetirement(
+        existingRows as ListingRowLite[],
+        all.map((l) => String(l._id)),
+        { pullComplete },
+      );
+      held = decision.held;
+      if (decision.retire.length > 0) {
+        const { error: delErr } = await getSupabase()
+          .from('guesty_listings')
+          .delete()
+          .in('listing_id', decision.retire.map((r) => r.listing_id));
+        if (delErr) console.warn('[sync-guesty] listing retirement failed:', delErr.message);
+        else removed = decision.retire;
+      } else if (held.length > 0) {
+        console.warn('[sync-guesty] stale listings held, not retired:', decision.reason, held.map((r) => r.listing_id));
+      }
+    }
+  } catch (err) {
+    console.warn('[sync-guesty] listing retirement skipped:', err instanceof Error ? err.message : String(err));
+  }
+
+  return { rows, unmatched, removed, held };
 }
 
 async function loadListingMap(): Promise<Record<string, string>> {
@@ -653,11 +695,19 @@ export async function POST(request: NextRequest) {
     let unmatchedListings: UnmatchedListing[] = [];
     if (refreshMap) {
       try {
-        const { rows, unmatched } = await refreshListingMap(token);
+        const { rows, unmatched, removed, held } = await refreshListingMap(token);
         mapped = rows.length;
         unmatchedListings = unmatched;
         rows.forEach(r => { listingMap[r.listing_id] = r.property_id; });
-        await recordSyncSuccess('guesty-listings', { mapped, unmatched_count: unmatched.length, unmatched });
+        await recordSyncSuccess('guesty-listings', {
+          mapped,
+          unmatched_count: unmatched.length,
+          unmatched,
+          // Rows Guesty stopped returning that this run retired, and any
+          // stale rows the guard held back for a human.
+          removed: removed.map(r => ({ listing_id: r.listing_id, property_id: r.property_id, nickname: r.nickname })),
+          held: held.map(r => ({ listing_id: r.listing_id, property_id: r.property_id, nickname: r.nickname })),
+        });
       } catch (err) {
         await recordSyncFailure('guesty-listings', err);
         // Fall back to the cached map so reviews/reservations/calendar still run.

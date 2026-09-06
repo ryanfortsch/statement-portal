@@ -30,7 +30,7 @@
  */
 
 import { supabaseAdmin } from './supabase-admin';
-import { getGuestyToken, guestyGet, sleep } from './guesty-client';
+import { getGuestyToken, guestyGet, sleep, GuestyNotFound } from './guesty-client';
 
 /** Guesty block-ref types that represent a deliberate hold on the calendar
  *  (vs an availability-rule artifact). 'm' manual and 'o' owner-portal are
@@ -95,6 +95,13 @@ export type CalendarDaysSyncResult = {
   hold_days: number;
   window: { startDate: string; endDate: string };
   errors?: string[];
+  /** Listings Guesty answered 404 for: gone on their side, still in our map
+   *  until the nightly listing sync retires them. Skipped, not failed. */
+  gone_listings?: string[];
+  /** Mapped property ids with no row in `properties` (owners' out-of-region
+   *  homes). Their day rows cannot be written (FK), so they are skipped
+   *  rather than failed every run. */
+  skipped_unknown_property?: string[];
 };
 
 /** listing_id -> property_id from the guesty_listings mapping table (already
@@ -255,20 +262,55 @@ export async function syncCalendarDays(
     listingsByProperty.set(propertyId, list);
   }
 
+  // The properties the day table can actually hold rows for. The listing
+  // map also carries two owners' out-of-region homes (65 Calderwood, 3246
+  // NE 27th) that were never `properties` rows, so their upsert violated
+  // the FK on every run and kept the whole feed reading 'error' while the
+  // fleet synced fine underneath. If this read fails we cannot tell, so we
+  // fall back to trying everything, as before.
+  let knownProperties: Set<string> | null = null;
+  {
+    const { data: propRows, error: propErr } = await supabaseAdmin.from('properties').select('id');
+    if (!propErr && propRows) knownProperties = new Set((propRows as Array<{ id: string }>).map((p) => p.id));
+  }
+  const goneListings: string[] = [];
+  const skippedUnknownProperty: string[] = [];
+
   for (const [propertyId, listingIds] of listingsByProperty) {
+    if (knownProperties && !knownProperties.has(propertyId)) {
+      skippedUnknownProperty.push(propertyId);
+      continue;
+    }
     try {
       const perListing: CalendarDayRow[][] = [];
       for (const listingId of listingIds) {
-        const data = await guestyGet<GuestyCalendarResponse>(
-          `/v1/availability-pricing/api/calendar/listings/${listingId}`,
-          token,
-          { startDate, endDate },
-        );
+        let data: GuestyCalendarResponse | null = null;
+        try {
+          data = await guestyGet<GuestyCalendarResponse>(
+            `/v1/availability-pricing/api/calendar/listings/${listingId}`,
+            token,
+            { startDate, endDate },
+          );
+        } catch (err) {
+          // A listing Guesty no longer has. One dead listing used to abort
+          // the whole property (17 Beach lost its mirror for months over a
+          // unit removed in June); now the house's live listings still sync
+          // and the dead one is reported for the listing sync to retire.
+          if (err instanceof GuestyNotFound) {
+            goneListings.push(listingId);
+            continue;
+          }
+          throw err;
+        }
         const days = data?.days ?? data?.data?.days ?? [];
         perListing.push(mapGuestyDays(propertyId, days));
         listingsTouched += 1;
         await sleep(150); // polite pacing across ~16 listings
       }
+      // Every listing of this house is gone: write nothing and sweep
+      // nothing, so the mirror keeps what it had rather than going blank on
+      // one run's worth of 404s.
+      if (perListing.length === 0) continue;
       const rows = mergeListingDays(perListing).map((r) => ({
         ...r,
         synced_at: runStartIso,
@@ -325,6 +367,8 @@ export async function syncCalendarDays(
     hold_days: holdDays,
     window: { startDate, endDate },
     errors: errors.length > 0 ? errors : undefined,
+    gone_listings: goneListings.length > 0 ? goneListings : undefined,
+    skipped_unknown_property: skippedUnknownProperty.length > 0 ? skippedUnknownProperty : undefined,
   };
 }
 
