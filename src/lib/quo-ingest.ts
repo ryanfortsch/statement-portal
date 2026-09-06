@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { normalizePhone } from '@/lib/quo';
 import { matchPropertyFromCleanerText } from '@/lib/properties';
 import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
+import { ingestVendorAppointments, isVendorReminderSender } from '@/lib/vendor-schedule';
 
 /**
  * Quo (OpenPhone) WEBHOOK ingest. Shared by the live webhook
@@ -139,6 +140,20 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
   if (!msg) return;
   const fromPhone = msg.from ?? '';
   const body = messageBody(msg);
+
+  // 0. The cleaning vendor's dispatch. Jobber texts A-1's appointment
+  // reminders from a relay number that is neither a cleaner nor a
+  // contact, so they fell through to the unknown-number queue and waited
+  // for the afternoon cleaner-schedule sweep to be parsed. Parse on
+  // arrival instead: the event is already in quo_events (the webhook
+  // persists before it dispatches), so a short re-scan through the one
+  // shared parser lands it in vendor_appointments within seconds, and the
+  // day-after-tomorrow column is right at 09:31 instead of 16:00.
+  if (isVendorReminderSender(fromPhone)) {
+    const r = await ingestVendorAppointments(supabase, { days: 4 });
+    if (r.errors.length > 0) throw new Error(`vendor reminder: ${r.errors.join('; ')}`);
+    return;
+  }
 
   // 1. Cleaner path: a completion ping and/or a maintenance issue.
   const cleanerHit = await matchCleanerPhone(fromPhone);

@@ -1174,6 +1174,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { source: 'guesty-guests',       maxAgeMs: 36 * 3_600_000 },
     { source: 'gmail-replies',       maxAgeMs:  6 * 3_600_000 },
     { source: 'quo',                 maxAgeMs: 36 * 3_600_000 },
+    { source: 'vendor-appointments', maxAgeMs: 36 * 3_600_000 }, // A-1 reminder texts; the 16:00 sweep runs daily
     { source: 'seam',                maxAgeMs: 36 * 3_600_000 },
     { source: 'ical',                maxAgeMs:  3 * 3_600_000 },
     { source: 'stripe',              maxAgeMs: null }, // on-demand "Sync Stripe" button

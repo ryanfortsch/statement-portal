@@ -12,6 +12,7 @@ import { HomeFeedTabs } from '@/components/HomeFeedTabs';
 import { ForMeFeed } from '@/components/ForMeFeed';
 import { AskHelm } from '@/components/AskHelm';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
+import { CleaningsStrip } from '@/components/CleaningsStrip';
 
 export const dynamic = 'force-dynamic';
 // Today's signals read live from Supabase per request, so don't cache.
@@ -370,6 +371,12 @@ export default async function HelmHome() {
           />
         </div>
       </section>
+
+      {/* CLEANINGS — the crew's next three days, from their own Jobber
+          reminders. Sits with the signals because it IS today's question
+          at 9 AM: is a cleaner coming, and when. Full page at
+          /turnovers/cleanings. Renders nothing when the read fails. */}
+      <CleaningsStrip />
 
       {/* FEED — "For Me" (triaged signal) default, Recent Activity behind a
           tab. Promoted above the calendar so the personal triage sits right

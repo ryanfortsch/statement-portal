@@ -80,6 +80,7 @@ Load-bearing `src/lib` modules by import count: `supabase-admin` (144), `propert
 | `/cost-analysis` | Housekeeping cost trends per property |
 | `/turnovers` | Turnover pipeline and the six-stage cleaning lifecycle |
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions |
+| `/turnovers/cleanings` | Cape Ann Elite's own bookings (A-1 Maintenance, via Jobber reminder texts to Quo) against our checkouts. A three-day strip of the same data sits on the home page |
 | `/inspections` | Property inspection runs |
 | `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger), trades (the outside vendor directory) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
