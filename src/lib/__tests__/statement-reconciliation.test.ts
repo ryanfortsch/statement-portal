@@ -286,7 +286,7 @@ test('cleaning: a fully credited pair is a struck charge, listed and never a mis
   const realB: Ev = { source: 'bank', amount: 300, credit_amount: null, invoice_no: null, invoice_amount: null };
   const onStruck = reconcileStatement(base({ cleaningEvents: [struckA, realB] }));
   assert.equal(laneOf(onStruck, 'cleaning').state, 'agree');
-  assert.equal(laneOf(onStruck, 'cleaning').lines.find(x => x.label.startsWith('Invoiced charge fully credited'))?.count, 1);
+  assert.equal(laneOf(onStruck, 'cleaning').lines.find(x => x.label.startsWith('Invoiced charge credited'))?.count, 1);
   assert.equal(laneOf(onStruck, 'cleaning').lines.find(x => x.label.startsWith('Bank charge with no invoice'))?.amount, 300);
   const struckNoInv: Ev = { source: 'matched', amount: 300, credit_amount: 300, invoice_no: null, invoice_amount: null };
   const realWithInv: Ev = { source: 'corroborated', amount: 300, credit_amount: null, invoice_no: 'INV-d', invoice_amount: 300 };
@@ -340,4 +340,30 @@ test('a failed feed-health read blocks: an empty sync map is not "every feed hea
   const r = reconcileStatement(base({ feedsKnown: false }));
   assert.equal(r.reconciled, false);
   assert.match(r.blocking.join(' '), /Feed health could not be read/);
+});
+
+test('cleaning: a PARTIAL credit on an invoiced charge is a decision, not a mismatch, and cannot block', () => {
+  // Auto-netting refuses partial refunds by design, so the operator applies
+  // them by hand; a $50 credit on a $300 invoiced charge then blocked while
+  // a $300 credit was neutral, a cliff with no lever.
+  const partial: Ev = { source: 'corroborated', amount: 300, credit_amount: 50, invoice_no: 'INV-p', invoice_amount: 300 };
+  const r = reconcileStatement(base({ cleaningEvents: [bank(300), partial] }));
+  const l = laneOf(r, 'cleaning');
+  assert.equal(l.state, 'agree');
+  assert.equal(l.lines.find(x => x.label.startsWith('Invoiced charge credited'))?.amount, 250);
+  assert.equal(r.reconciled, true);
+});
+
+test('stays: a cancelled stay that still carries a slice for this month is excused, and the stale split is called out', () => {
+  // Calling it missing would send the operator to a re-ingest that books
+  // cancelled revenue, since the PDF fork exempts a sliced code from the
+  // month gate.
+  const r = reconcileStatement(base({
+    statement: { ...base().statement, pdf_stays: [...base().statement.pdf_stays!, { code: 'CX', check_out: '2026-09-03', rental_income: 6000 }] },
+    excused: { splitElsewhere: new Set(), cancelled: new Set(['CX']), sliceHere: new Set(['CX']) },
+  }));
+  const l = laneOf(r, 'stays');
+  assert.equal(l.state, 'agree');
+  assert.deepEqual(l.lines.find(x => x.label.startsWith('Cancelled, but still carries'))?.codes, ['CX']);
+  assert.equal(r.reconciled, true);
 });

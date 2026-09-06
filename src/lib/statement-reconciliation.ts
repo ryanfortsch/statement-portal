@@ -226,18 +226,24 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       // "absent": ingest declines some by design and the operator removes
       // some on purpose, and both used to read as a hard difference that
       // nothing could clear.
-      const outOfMonth: string[] = [], splitElsewhere: string[] = [], cancelled: string[] = [], missing: string[] = [];
+      const outOfMonth: string[] = [], splitElsewhere: string[] = [], cancelled: string[] = [], missing: string[] = [], cancelledWithSlice: string[] = [];
       let absent = 0;
       for (const p of pdf) {
         if (onStatement.has(p.code)) continue;
         absent += 1;
-        // Order matters. A stay checking out next month is normally
-        // excused by ingest's month gate, but if the operator has since
-        // split it with a slice due HERE, that slice is money this month
-        // and only a re-ingest books it. Checkout cannot excuse it.
-        if (i.excused?.sliceHere.has(p.code)) missing.push(p.code);
+        // Order matters. A cancelled stay is excused first: its slice, if
+        // one is still on file, is not money due, and calling it missing
+        // would send the operator to a re-ingest that books cancelled
+        // revenue (the PDF fork exempts a sliced code from the month gate).
+        // Then a slice due HERE beats checkout: the operator split the stay
+        // after ingest, that slice is money this month, and only a
+        // re-ingest books it, so checkout cannot excuse it.
+        if (i.excused?.cancelled.has(p.code)) {
+          cancelled.push(p.code);
+          if (i.excused.sliceHere.has(p.code)) cancelledWithSlice.push(p.code);
+        }
+        else if (i.excused?.sliceHere.has(p.code)) missing.push(p.code);
         else if (!inMonth(p.check_out)) outOfMonth.push(p.code);
-        else if (i.excused?.cancelled.has(p.code)) cancelled.push(p.code);
         else if (i.excused?.splitElsewhere.has(p.code)) splitElsewhere.push(p.code);
         else missing.push(p.code);
       }
@@ -246,6 +252,7 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       if (outOfMonth.length) lines.push({ label: 'On the PDF but checks out in another month, so not recognized here', count: outOfMonth.length, codes: outOfMonth, tone: 'neutral' });
       if (splitElsewhere.length) lines.push({ label: 'On the PDF, split across months and recognized in another', count: splitElsewhere.length, codes: splitElsewhere, tone: 'neutral' });
       if (cancelled.length) lines.push({ label: 'On the PDF, cancelled in Guesty and removed', count: cancelled.length, codes: cancelled, tone: 'neutral' });
+      if (cancelledWithSlice.length) lines.push({ label: 'Cancelled, but still carries an installment slice for this month: delete the split before any re-ingest', count: cancelledWithSlice.length, codes: cancelledWithSlice, tone: 'warn' });
       if (hereNotOnPdf.length) lines.push({ label: 'On the statement, not on the PDF (added after ingest)', count: hereNotOnPdf.length, codes: hereNotOnPdf, tone: 'neutral' });
       // The header's count vs what the parser could read is shown, never
       // judged. Guesty prints a date-range block with $0.00 and no rental
@@ -406,18 +413,22 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       // with a warning and never block it. Judging them made two
       // consecutive months fail with nothing in the product to clear.
       //
-      // A pair whose bank side is fully credited is a charge the operator
-      // struck (a duplicate the vendor refunded): its invoice is for money
-      // the owner is no longer billed, which is expected, not a mismatch.
-      // Treating it as one made the verdict depend on which of two equal
-      // charges the invoice matcher happened to attach to.
-      const live = paired.filter(e => n(e.amount) - n(e.credit_amount) > EPS);
-      const struck = paired.filter(e => n(e.amount) - n(e.credit_amount) <= EPS);
+      // A pair whose bank side carries a credit is a charge the operator
+      // has struck, wholly or in part (a duplicate the vendor refunded, an
+      // overbilled turn): the credited portion is money the owner is no
+      // longer billed, which is a decision already shown on the Credits
+      // line, not a mismatch. Partitioning on the NET instead made a $299
+      // credit block and a $300 credit neutral, a cliff nothing could
+      // clear short of removing a real refund. And since the product only
+      // pairs amounts within $2 and neither side is edited afterwards, a
+      // credit was the only thing that could ever trip the hard check.
+      const live = paired.filter(e => n(e.credit_amount) <= EPS);
+      const struck = paired.filter(e => n(e.credit_amount) > EPS);
       const mismatched = live.filter(e => Math.abs(n(e.amount) - n(e.credit_amount) - n(e.invoice_amount)) > INVOICE_PAIR_TOLERANCE);
       const nearMiss = live.filter(e => !mismatched.includes(e) && !eq(n(e.amount) - n(e.credit_amount), n(e.invoice_amount)));
       for (const e of mismatched) lines.push({ label: `Bank ${money(n(e.amount) - n(e.credit_amount))} vs its invoice ${money(n(e.invoice_amount))}`, amount: round2(n(e.amount) - n(e.credit_amount) - n(e.invoice_amount)), tone: 'warn' });
       for (const e of nearMiss) lines.push({ label: `Bank ${money(n(e.amount) - n(e.credit_amount))} vs its invoice ${money(n(e.invoice_amount))} (within the $${INVOICE_PAIR_TOLERANCE} the matcher pairs at; the bank amount is what is billed)`, amount: round2(n(e.amount) - n(e.credit_amount) - n(e.invoice_amount)), tone: 'neutral' });
-      if (struck.length) lines.push({ label: 'Invoiced charge fully credited, so no longer billed', count: struck.length, amount: round2(struck.reduce((s, e) => s + n(e.invoice_amount), 0)), tone: 'neutral' });
+      if (struck.length) lines.push({ label: 'Invoiced charge credited, billed net', count: struck.length, amount: round2(struck.reduce((s, e) => s + n(e.amount) - n(e.credit_amount), 0)), tone: 'neutral' });
       if (uninvoiced.length) lines.push({ label: 'Bank charge with no invoice yet', count: uninvoiced.length, amount: round2(uninvoiced.reduce((s, e) => s + n(e.amount) - n(e.credit_amount), 0)), tone: 'warn' });
       if (unpaid.length) lines.push({ label: 'Invoice with no bank charge yet (usually paid next month)', count: unpaid.length, amount: round2(unpaid.reduce((s, e) => s + n(e.invoice_amount), 0)), tone: 'warn' });
       const state: LaneState = mismatched.length ? 'differs' : 'agree';
