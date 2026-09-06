@@ -88,6 +88,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }, { status: 409 });
   }
 
+  // Cancelled is not "never paid". If the cancellation policy retained
+  // money, that retained amount IS the owner's revenue and the row must
+  // stay, at that amount. Removing it is how a sent August 2026 statement
+  // went out $581.47 short. Read fails closed: an unreadable payout is not
+  // a zero payout.
+  const { data: gr, error: grErr } = await supabase
+    .from('guesty_reservations')
+    .select('host_payout')
+    .eq('confirmation_code', code)
+    .maybeSingle();
+  if (grErr) {
+    return NextResponse.json({ error: `Could not read what the cancellation retained for ${res.guest_name} (${grErr.message}). Refusing to remove; nothing was changed.` }, { status: 502 });
+  }
+  const retained = Math.round((Number(gr?.host_payout) || 0) * 100) / 100;
+  if (retained > 0.005) {
+    return NextResponse.json({
+      error: `${res.guest_name} is cancelled, but the cancellation policy retained $${retained.toFixed(2)}, and that is the owner's revenue. Refusing to remove. `
+        + (Math.abs((Number(res.adjusted_revenue) || 0) - retained) <= 0.005
+          ? 'The statement already carries exactly that amount; nothing to do.'
+          : `The statement carries $${(Number(res.adjusted_revenue) || 0).toFixed(2)}: correct it to $${retained.toFixed(2)} instead of removing it.`),
+    }, { status: 409 });
+  }
+
   // Everything the recompute needs that the delete does NOT change: the
   // statement's own fields, its month, and the attributed add-on totals.
   // Read them BEFORE deleting so a failure here refuses cleanly instead of
