@@ -492,7 +492,15 @@ export async function buildCheckoutSchedule(
   for (const a of activeByStay.values()) {
     if (!a.adjusted_check_out) continue;
     if (a.adjusted_check_out < startDate || a.adjusted_check_out > endDate) continue;
-    if (!checkoutStays.has(`${a.property_id}|${a.stay_check_in}`)) missingStayKeys.push(a);
+    const key = `${a.property_id}|${a.stay_check_in}`;
+    // A stay the ghost guard just deleted is ABSENT from checkoutStays,
+    // which reads identically to "the base query never saw it". Without
+    // this the refetch pulls the cancelled row straight back in, and any
+    // stay carrying a date adjustment was effectively exempt from the
+    // guard. The guard is drop-only and hard to trigger; when it does
+    // fire, it stays fired.
+    if (ghosts.has(key)) continue;
+    if (!checkoutStays.has(key)) missingStayKeys.push(a);
   }
   if (missingStayKeys.length > 0) {
     const { data, error: refetchErr } = await supabase
@@ -511,7 +519,13 @@ export async function buildCheckoutSchedule(
   }
 
   // Arrivals for same-day-turnover detection, keyed by property|date.
+  // Ghost-filtered too: the guard was only ever applied to checkouts, so a
+  // cancelled ARRIVAL still flagged a real checkout as MESMO DIA. That
+  // tells the crew to rush a turn that has nobody coming, and on the
+  // vendor cross-check it reads as a disagreement with Cape Ann Elite.
   const checkinStays = collapseStays((checkinsRes.data ?? []) as BookingLite[]);
+  const arrivalGhosts = await findGhostStays(supabase, [...checkinStays.values()]);
+  for (const key of arrivalGhosts) checkinStays.delete(key);
   const arrivalByPropertyDay = new Map<string, BookingLite>();
   for (const b of checkinStays.values()) {
     arrivalByPropertyDay.set(`${b.property_id}|${b.check_in}`, b);
