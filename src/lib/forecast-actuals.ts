@@ -20,6 +20,8 @@
  * the trailing 12-month window: Jun 2025 → May 2026 inclusive.
  */
 
+import type { CardDetail } from './forecast-card-detail';
+
 export type ExpenseLine = {
   id: string;
   label: string;
@@ -308,6 +310,13 @@ export type MonthlyActual = {
   exp_hire: number;
   exp_onboard_presigned: number;
   exp_onboard_new: number;
+  /**
+   * exp_cc_ops itemised into the six Recurring Monthly buckets, from the
+   * card's own categories. Absent here (the hardcoded rows predate the
+   * itemisation) and null for a month whose card spend is known only
+   * through a card payoff; the UI then falls back to a proportional split.
+   */
+  cc_detail?: CardDetail | null;
 };
 
 export const ACTUALS_2026: MonthlyActual[] = [
