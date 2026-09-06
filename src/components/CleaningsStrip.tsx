@@ -76,15 +76,7 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
                 >
                   {item.cleaningTime ? formatTime12(item.cleaningTime) : '—'}
                 </span>
-                <span
-                  style={{
-                    fontWeight: 600,
-                    color: flagged ? 'var(--signal)' : 'var(--ink)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
+                <span style={{ fontWeight: 600, color: flagged ? 'var(--signal)' : 'var(--ink)', minWidth: 0 }}>
                   {item.propertyName}
                 </span>
                 {flagged && (
