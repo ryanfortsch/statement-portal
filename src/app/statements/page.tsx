@@ -728,6 +728,11 @@ function gapFillType(gapType: string): FillGapType | null {
 const PIPELINE_OWNED_GAP_TYPES = new Set([
   'missing_bank_csv', 'unmatched_bank',
   'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
+  // Re-derived by /api/ingest on every rebuild: it is a standing statement
+  // about the statement, not a task, and it clears itself when the ruling
+  // behind it is cleared. Offering Resolve would promise an exit the next
+  // ingest takes straight back.
+  'off_stripe_ruling_applied',
 ]);
 // NOT vendor_refund_unapplied: Fill Gap deliberately no longer deletes and
 // re-derives it (a narrower CSV would lose a real one), so nothing retires

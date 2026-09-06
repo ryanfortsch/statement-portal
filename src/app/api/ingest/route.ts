@@ -3,6 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
+import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-ruling';
 import { netVendorCredits, vendorChargeNet, unappliedRefundGap, type VendorCharge } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
 import { buildRemittanceSheet } from '@/lib/remittance';
@@ -1413,6 +1414,52 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // 4b. Re-apply operator rulings this rebuild cannot re-derive.
+    //
+    // A stay the operator marked paid by check or wire (/api/resolve-gap)
+    // carries no Stripe fee. resolve-gap is the ONLY writer of that marker
+    // and it deletes the gap afterwards, so the marker is the single
+    // surviving record of the decision -- and the wipe-and-rebuild below
+    // destroys it, restoring the 3.9% estimate and dropping the payout
+    // (about $117 on a $4,000 wired Direct stay at a 25% fee). It has
+    // already happened in production: two August statements went out with
+    // a Stripe fee charged on a stay marked paid off-Stripe, and because
+    // the marker also makes stripe-sync skip the row, nothing would ever
+    // have corrected them.
+    //
+    // Keyed on confirmation code: the ruling is about the STAY, and codes
+    // survive the rebuild where row ids do not. What is re-applied is the
+    // RULING against THIS run's freshly computed numbers, never the old
+    // absolute values, so a corrected PDF still takes effect. Runs before
+    // the totals below so the payout and the ingest self-check both see
+    // the corrected figures.
+    const offStripeReapplied: { code: string; guest: string; reclaimed: number }[] = [];
+    {
+      const codes = [...new Set(processedReservations.map(r => r.confirmation_code).filter(Boolean))];
+      if (codes.length > 0) {
+        const { data: ruledRows, error: ruledErr } = await supabase
+          .from('reservations')
+          .select('confirmation_code')
+          .in('confirmation_code', codes)
+          .eq('bank_match_status', OFF_STRIPE_STATUS);
+        // Fail closed. An unreadable ruling is not an absent ruling, and
+        // proceeding would silently bill the owner a fee they do not owe.
+        if (ruledErr) {
+          return NextResponse.json({
+            error: `Could not read the off-Stripe rulings for ${propertyId} / ${month} (${ruledErr.message}). `
+              + 'No statement was created or changed -- retrying is safe.',
+          }, { status: 502 });
+        }
+        const ruled = new Set((ruledRows || []).map(r => r.confirmation_code as string));
+        if (ruled.size > 0) {
+          const { reclaimed, applied } = applyOffStripeRulings(processedReservations, ruled);
+          totalRevenue = Math.round((totalRevenue + reclaimed) * 100) / 100;
+          totalStripeFees = Math.round((totalStripeFees - reclaimed) * 100) / 100;
+          offStripeReapplied.push(...applied.filter(a => a.reclaimed > 0));
+        }
+      }
+    }
+
     // 5. Calculate totals.
     //
     // Add-on revenue: bank_deposit_attributions rows already marked
@@ -1987,6 +2034,22 @@ export async function POST(request: NextRequest) {
     // can't be netted automatically (no same-month exact-amount charge), it
     // must be resolved by hand, so make it impossible to miss.
     for (const c of unmatchedVendorCredits) gaps.push(unappliedRefundGap(c, { parkedInQueue: true }));
+
+    // Say out loud when a ruling suppressed a fee this rebuild would
+    // otherwise have charged. Before this the decision was invisible after
+    // the fact: resolve-gap deletes its own gap, so nothing on the card
+    // showed that a stay was being treated as paid off-Stripe. It also
+    // makes a STALE ruling visible -- re-applying it every rebuild is what
+    // keeps a correct decision alive, and the same thing that would keep a
+    // wrong one alive, so the operator needs to see it to overrule it.
+    for (const a of offStripeReapplied) {
+      gaps.push({
+        gap_type: 'off_stripe_ruling_applied',
+        description: `${a.guest} (${a.code}) is marked paid off-Stripe, so this rebuild suppressed the $${a.reclaimed.toFixed(2)} Stripe fee it would otherwise have charged and paid that amount to the owner. If this stay DID go through Stripe, the ruling is wrong and needs clearing before the statement goes out.`,
+        severity: 'info',
+        expected_data: `${a.code}: off-Stripe ruling, $${a.reclaimed.toFixed(2)} fee suppressed`,
+      });
+    }
 
     // The tax sweep is provably occupancy tax -- it went to the tax-only
     // account -- so when Helm cannot reproduce the amount, the missing
