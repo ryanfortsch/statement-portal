@@ -12,6 +12,7 @@ import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types'
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { recomputePacketExpenses, revalidatePacket, getContractorReliability } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
+import { parseReceiptDollars, resolveReceiptPacket, homeReceipt } from '@/lib/field-receipts';
 import { programPacketCodes, revokePacketCodes } from '@/lib/field-locks';
 import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
@@ -84,7 +85,7 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
     created_by_email: contractor.email,
     reported_by_contractor_id: contractor.id,
     reported_from_packet_id: visit.packetId,
-    ...(expenseCents > 0 ? { expense_cents: expenseCents } : {}),
+    ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
   });
   if (error) return { ok: false, error: 'Could not file that just now. Try again, or text the office.' };
 
@@ -148,6 +149,14 @@ export async function completeBoardSlip(formData: FormData) {
   const taken = await slipIdsOnLivePackets();
   if (taken.has(slipId)) redirect('/field/property-work?ontrip=1');
 
+  // Out-of-pocket receipt ("$21.24 for the shower rod"), same $500 cap as
+  // every receipt rail. Homed onto the trip they are on (or just finished) at
+  // this home so it rides that payout; with no trip to ride it stays open and
+  // the office folds it in from their next packet's approve screen. Blank
+  // never clears a receipt already on the slip.
+  const expenseCents = parseReceiptDollars(formData.get('expense_dollars'));
+  const receiptPacketId = expenseCents > 0 && slip.property_id ? await resolveReceiptPacket(contractor.id, slip.property_id).catch(() => null) : null;
+
   const attribution = `Done by ${contractor.full_name} (Field)${note ? `: ${note}` : ''}`;
   await fieldDb()
     .from('work_slips')
@@ -163,14 +172,16 @@ export async function completeBoardSlip(formData: FormData) {
       resolution_notes: slip.resolution_notes ? `${slip.resolution_notes}\n${attribution}` : attribution,
       photo_urls: [...new Set([...(slip.photo_urls ?? []), ...photos])],
       updated_at: new Date().toISOString(),
+      ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
     })
     .eq('id', slipId);
+  if (receiptPacketId) await homeReceipt({ slipId, packetId: receiptPacketId, contractorId: contractor.id, actorEmail: contractor.email }).catch(() => {});
   await logEvent({
     contractorId: contractor.id,
     actorEmail: contractor.email,
     propertyId: slip.property_id,
     eventType: 'board_slip_completed',
-    payload: { work_slip_id: slipId },
+    payload: { work_slip_id: slipId, ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_packet_id: receiptPacketId } : {}) },
   });
   revalidatePath('/field/property-work');
   revalidatePath('/work');
@@ -196,23 +207,36 @@ export async function createBoardSlip(formData: FormData) {
   }
   if (!propertyId || title.length < 3) redirect('/field/property-work');
 
-  await fieldDb().from('work_slips').insert({
-    property_id: propertyId,
-    title: title.slice(0, 200),
-    description: description ? description.slice(0, 4000) : null,
-    category: 'maintenance',
-    priority,
-    status: 'open',
-    photo_urls: photos,
-    created_by_email: contractor.email,
-    reported_by_contractor_id: contractor.id,
-  });
+  // Out-of-pocket receipt ("$27.60, TP holders from Marshalls"). This is where
+  // the busiest contractor files everything, so the receipt rail has to live
+  // here too: same cap, same homing as the mark-done path above.
+  const expenseCents = parseReceiptDollars(formData.get('expense_dollars'));
+  const receiptPacketId = expenseCents > 0 ? await resolveReceiptPacket(contractor.id, propertyId).catch(() => null) : null;
+
+  const { data: created } = await fieldDb()
+    .from('work_slips')
+    .insert({
+      property_id: propertyId,
+      title: title.slice(0, 200),
+      description: description ? description.slice(0, 4000) : null,
+      category: 'maintenance',
+      priority,
+      status: 'open',
+      photo_urls: photos,
+      created_by_email: contractor.email,
+      reported_by_contractor_id: contractor.id,
+      ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
+    })
+    .select('id')
+    .maybeSingle();
+  const slipId = (created as { id: string } | null)?.id ?? null;
+  if (slipId && receiptPacketId) await homeReceipt({ slipId, packetId: receiptPacketId, contractorId: contractor.id, actorEmail: contractor.email }).catch(() => {});
   await logEvent({
     contractorId: contractor.id,
     actorEmail: contractor.email,
     propertyId,
     eventType: 'board_slip_created',
-    payload: { title: title.slice(0, 200), priority },
+    payload: { title: title.slice(0, 200), priority, ...(expenseCents > 0 ? { work_slip_id: slipId, expense_cents: expenseCents, receipt_packet_id: receiptPacketId } : {}) },
   });
   revalidatePath('/field/property-work');
   revalidatePath('/work');
@@ -746,7 +770,8 @@ export async function completeMaintenanceStop(formData: FormData) {
       status: 'in_progress',
       resolution_notes: note,
       photo_urls: photos,
-      expense_cents: expenseCents,
+      // Blank never clears a receipt already on the slip.
+      ...(expenseCents != null ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq('id', stop.work_slip_id);
@@ -808,7 +833,14 @@ async function applyAttachedSlipCompletion(args: {
   const mergedPhotos = [...new Set([...existing, ...args.photoUrls])];
   await fieldDb()
     .from('work_slips')
-    .update({ status: 'in_progress', resolution_notes: args.note, photo_urls: mergedPhotos, expense_cents: args.expenseCents && args.expenseCents > 0 ? Math.min(Math.round(args.expenseCents), 50000) : null, updated_at: new Date().toISOString() })
+    .update({
+      status: 'in_progress',
+      resolution_notes: args.note,
+      photo_urls: mergedPhotos,
+      // Blank never clears a receipt already on the slip.
+      ...(args.expenseCents && args.expenseCents > 0 ? { expense_cents: Math.min(Math.round(args.expenseCents), 50000), receipt_contractor_id: args.contractor.id } : {}),
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', att.work_slip_id);
   // Guard the stamp so a race (two submits both seeing null) can't double-fire
   // the packet bump + audit event.

@@ -13,6 +13,7 @@ import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
 import { sendInviteEmail, notifyContractorsOfPacket, sendPaidEmail, sendChangesRequestedEmail, sendClaimConfirmation, sendApprovedEmail, sendReassignedEmail, sendEstimateRaisedEmail, sendTripStopAddedEmail, sendTripStopRemovedEmail, sendStartTimeEmail, sendStreakBonusOfficeEmail } from '@/lib/field-notify';
 import { maybeAwardStreakBonus } from '@/lib/field-streaks';
+import { homeReceipt, unhomeReceipt } from '@/lib/field-receipts';
 import { openWorkSlipsForInspectionIssues } from '@/lib/inspection-issue-slips';
 import { sendInspectionReportEmail } from '@/lib/inspection-report-email';
 import { fmtVisitTime, canClaim, parseTrade, effectiveBaseCents, type PacketRow } from '@/lib/field-types';
@@ -1716,4 +1717,31 @@ export async function setContractorW9(formData: FormData): Promise<void> {
     .update({ w9_on_file: onFile, vendor_key: key, updated_at: new Date().toISOString() })
     .eq('id', contractorId);
   revalidatePath('/fieldwork/roster');
+}
+
+// ── Receipts ──────────────────────────────────────────────────────────
+/** Fold an open receipt (money a contractor spent that no payout carries yet)
+ *  into this packet's payout. The approve screen lists these for the awarded
+ *  contractor; one click and expenses_cents carries it, so Mark paid and the
+ *  paid email both include it. Refuses a paid packet. */
+export async function homeReceiptOnPacket(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const slipId = String(formData.get('slip_id') || '');
+  if (!packetId || !slipId) return;
+  await homeReceipt({ slipId, packetId, actorEmail: email });
+  revalidatePath(`/fieldwork/packets/${packetId}`);
+  revalidatePath(`/work/${slipId}`);
+}
+
+/** Take a receipt back off this packet's payout (a mis-click, or it was paid
+ *  another way). The receipt returns to open and the packet recomputes. */
+export async function unhomeReceiptFromPacket(formData: FormData): Promise<void> {
+  const email = await staffEmail();
+  const packetId = String(formData.get('packet_id') || '');
+  const slipId = String(formData.get('slip_id') || '');
+  if (!slipId) return;
+  await unhomeReceipt({ slipId, actorEmail: email });
+  if (packetId) revalidatePath(`/fieldwork/packets/${packetId}`);
+  revalidatePath(`/work/${slipId}`);
 }
