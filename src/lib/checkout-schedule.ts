@@ -25,6 +25,12 @@
  *      defaultCheckOutTime by /api/sync-guesty), falling back to
  *      10:00 / 16:00 when unset.
  *
+ * One thing it refuses to list: a checkout where the same real guest
+ * checks back in at the same house that day. An owner blocking their home
+ * as a run of one-night reservations produces a "checkout" every morning
+ * of a stay nobody leaves; only the last row's checkout is real. See
+ * stay-continuation.ts.
+ *
  * Proposed (unapplied) miner adjustments ride along on each row so the
  * digest approval card and the schedule page can offer one-tap apply.
  *
@@ -37,6 +43,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { selectAllPaged } from '@/lib/paged-select';
 import { NON_LIVE_STATUSES } from '@/lib/ghost-booking-reconcile';
+import { guestNameScore, displayGuestName, isContinuation } from '@/lib/stay-continuation';
 
 // Same exclusion set as lib/operations.ts NON_OPERATIONS_PROPERTY_IDS
 // (file-local there): out-of-region homes whose owners handle their own
@@ -216,15 +223,8 @@ export function adjustmentSourceLabel(source: AdjustmentSource): string {
 
 // ─── stay collapse ────────────────────────────────────────────────────
 
-// Same placeholder test as the turnover rail (operations.ts guestNameScore):
-// first token gives an ical placeholder away.
-const PLACEHOLDER_FIRST_TOKEN = /^(reservation|tbd|guest|n\/a|hold|blocked|airbnb|vrbo|not)$/i;
-
-function guestNameScore(name: string | null): number {
-  const t = (name ?? '').trim();
-  if (!t) return 0;
-  return PLACEHOLDER_FIRST_TOKEN.test(t.split(/\s+/)[0]) ? 1 : 2;
-}
+// guestNameScore / displayGuestName live in stay-continuation.ts now (same
+// placeholder test as the turnover rail, operations.ts guestNameScore).
 
 /** bookings holds several rows per stay (guesty_legacy + ical placeholders;
  *  duplicate_of provably misses cross-source pairs). Collapse to one row
@@ -274,11 +274,6 @@ function collapseStays(rows: BookingLite[]): Map<string, BookingLite> {
   }
   return byStay;
 }
-
-function displayGuestName(name: string | null): string {
-  return guestNameScore(name) === 2 ? (name ?? '').trim() : '';
-}
-
 
 // ─── ghost stays ──────────────────────────────────────────────────────
 
@@ -590,6 +585,19 @@ export async function buildCheckoutSchedule(
     const adj = activeByStay.get(stayKey) ?? null;
     const effectiveCheckOut = adj?.adjusted_check_out ?? stay.check_out;
     if (effectiveCheckOut < startDate || effectiveCheckOut > endDate) continue;
+
+    // The same real guest checking back in here today is not a checkout:
+    // an owner's nightly-booked stay reads as one every morning otherwise.
+    // Judged on the EFFECTIVE day, so an extension moves the question with
+    // it. Placeholder names never chain (see stay-continuation.ts).
+    if (
+      isContinuation(
+        { propertyId: stay.property_id, guestName: stay.guest_name, effectiveCheckOut },
+        (propertyId, date) => arrivalByPropertyDay.get(`${propertyId}|${date}`)?.guest_name,
+      )
+    ) {
+      continue;
+    }
 
     const defaultTime = normalizeTime(prop.default_checkout_time) ?? FALLBACK_CHECKOUT_TIME;
     const time = normalizeTime(adj?.adjusted_checkout_time) ?? defaultTime;
