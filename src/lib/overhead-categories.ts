@@ -87,7 +87,7 @@ const VENDOR_RULES: Rule[] = [
   // SHAWS (the grocery store) contains it: two July 2026 grocery debits
   // ($166.35) were filed as Software that way and surfaced on the forecast.
   // Real AWS charges read "AMAZON WEB SERVICES" or "AWS.AMAZON.CO".
-  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AMAZON WEB', 'AWS.AMAZON', 'AWS EMEA', '1PASSWORD', 'TAILSCALE', 'RESEND', 'POND5', 'LUTIFY'] },
+  { category: 'Software', matches: ['GUESTY', 'PRICELABS', 'PRICE LABS', 'INTUIT', 'QUICKBOOKS', 'QBOOKS', 'ADOBE', 'AIRDNA', 'OPENAI', 'ANTHROPIC', 'CLAUDE', 'ZOOM', 'DROPBOX', 'DOCUSIGN', 'QUO', 'OPENPHONE', 'NOTION', 'SLACK', 'SQUARESPACE', 'SQSP', 'GODADDY', 'VERCEL', 'SUPABASE', 'CANVA', 'GOOGLE *', 'GSUITE', 'MICROSOFT', 'GITHUB', 'APPLE.COM', 'LOVABLE', 'RUNWAY', 'CURSOR', 'AMAZON WEB', 'AWS.AMAZON', 'AWS EMEA', '1PASSWORD', 'TAILSCALE', 'RESEND', 'POND5', 'LUTIFY', 'SEAM IOT', 'MIDJOURNEY'] },
   { category: 'Marketing', matches: ['FACEBK', 'FACEBOOK', 'META PL', 'META ', 'INSTAGRAM', 'EAGLE TRIBUNE', 'MAILCHIMP', 'GOOGLE ADS', 'YELP', 'VISTAPRINT', 'SEASIDE GRAPHICS'] },
   // VRBO/HomeAway/Expedia bill the channel commission to the card, and that
   // same commission is already netted out of rental revenue before it reaches
@@ -323,6 +323,8 @@ const CANONICAL_VENDORS: { name: string; match: string[] }[] = [
   { name: 'Anthropic', match: ['ANTHROPIC', 'CLAUDE'] },
   { name: 'Cursor', match: ['CURSOR'] },
   { name: 'Lovable', match: ['LOVABLE'] },
+  { name: 'Seam (smart locks)', match: ['SEAM IOT'] },
+  { name: 'Midjourney', match: ['MIDJOURNEY'] },
   { name: 'Runway', match: ['RUNWAY'] },
   { name: 'GitHub', match: ['GITHUB'] },
   { name: 'Vercel', match: ['VERCEL'] },
