@@ -70,11 +70,12 @@ test('a very long guest name truncates the name, never the instruction', () => {
   assert.match(m.label, /^ALREADY on 2026-08 statement, do not attribute: /);
 });
 
-test('an amount that a recognized stay on the property already carries is never suggested: it is the rebooked stay\'s money', () => {
+test('an amount that a recognized stay on the property already carries is never suggested: it is that row\'s own money', () => {
   // Live data 2026-09-06: three cancelled Airbnb bookings retained exactly
-  // what a recognized stay on the same property earned, to the cent, i.e.
-  // the same stay rebooked under a new code. That deposit is the stay's
-  // ordinary payout; suggesting the cancelled twin would pay it twice.
+  // what a recognized stay on the same property earned, and each was the
+  // same stay (same code, guest, dates) carried in full on a sent
+  // statement. That deposit is the row's own payout; suggesting the
+  // cancelled booking would pay it twice.
   assert.equal(matchCancellationPayout(dep(775.29), [dixon], [1250, 775.29, 900]), null);
   assert.ok(matchCancellationPayout(dep(775.29), [dixon], [1250, 775.31, 900]), 'a cent apart is a different stay');
   assert.ok(matchCancellationPayout(dep(775.29), [dixon], []), 'no recognized amounts, no exclusion');

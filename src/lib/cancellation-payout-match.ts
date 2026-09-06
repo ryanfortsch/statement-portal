@@ -57,12 +57,14 @@ export function matchCancellationPayout(
   candidates: CancelledCandidate[],
   /**
    * Rental income of every recognized Airbnb stay on the property, any
-   * month. A cancelled booking whose retained payout equals one of these
-   * to the cent is, on the live data, the same stay rebooked under a new
-   * code (three of the fleet's cancellations do this), and a deposit of
-   * that amount is the rebooked stay's ordinary money, not a cancellation
-   * payout. Suggesting the cancelled twin would attribute it on top of
-   * the stay already recognized. So an amount that any recognized stay
+   * month. On the live data, three cancelled bookings retained exactly
+   * what a recognized stay on the same property earned, and each was the
+   * SAME stay: same code, same guest, same dates, on a sent statement at
+   * the full amount. Guesty marks the booking cancelled while the policy
+   * keeps everything, so the stay is correctly recognized already, and a
+   * deposit of that amount is that row's own money arriving, not a new
+   * cancellation payout. Suggesting it would attribute it on top of the
+   * stay already recognized. So an amount that any recognized stay
    * already carries is never suggested. Removing a suggestion is the safe
    * direction: the queue falls back to what it did before.
    */

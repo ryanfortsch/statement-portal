@@ -1774,8 +1774,9 @@ export async function POST(request: NextRequest) {
       }
       // Rental income of every recognized Airbnb stay on this property, any
       // month. A cancellation whose retained payout equals one of these to
-      // the cent is the same stay rebooked under a new code, and that
-      // deposit is the rebooked stay's ordinary money: never suggest it.
+      // the cent is that same stay, already recognized in full (Guesty
+      // marks it cancelled while the policy keeps everything), and that
+      // deposit is the row's own money: never suggest it.
       // Reached through the statement, not reservations.property_id: that
       // column is a later denormalization and a sparse one would make
       // this list empty, which would read as "no twins" and silently
