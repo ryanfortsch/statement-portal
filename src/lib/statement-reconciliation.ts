@@ -174,9 +174,15 @@ export function reconcileStatement(i: ReconciliationInput): Reconciliation {
       lines.push({ label: 'Confirmed in Guesty, not on this statement', count: i.driftCodes.length, codes: i.driftCodes, tone: 'warn' });
     }
     if (pdfCodes === null) {
-      lanes.push(lane('stays', 'Stays', true,
-        i.driftCodes === null ? 'unknown' : 'not_recorded',
-        i.driftCodes === null ? 'Guesty check failed'
+      // No PDF list to compare against, but the Guesty probe still stands
+      // on its own: a confirmed, paid stay that is not on the statement is
+      // a missing stay whether or not the PDF facts were kept. The dry run
+      // over August found exactly this on a sent statement and read it as
+      // reconciled, because drift only judged inside the recorded branch.
+      const state: LaneState = i.driftCodes === null ? 'unknown' : i.driftCodes.length > 0 ? 'differs' : 'not_recorded';
+      lanes.push(lane('stays', 'Stays', true, state,
+        state === 'unknown' ? 'Guesty check failed'
+          : state === 'differs' ? `${i.driftCodes!.length} confirmed in Guesty, not on this statement`
           : `${stays.length} on the statement · PDF list not recorded (ingested before reconciliation)`,
         lines));
     } else {

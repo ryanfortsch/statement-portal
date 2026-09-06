@@ -89,6 +89,20 @@ test('stays: no recorded PDF list is neutral, not a pass and not a failure', () 
   assert.equal(r.reconciled, true, 'not_recorded never blocks');
 });
 
+test('stays: a confirmed Guesty stay missing from the statement blocks even with no PDF list recorded', () => {
+  // The August dry run: 17 Beach, a sent statement, read as reconciled
+  // with a confirmed stay missing, because drift was only judged inside
+  // the recorded branch. Every pre-existing statement is unrecorded.
+  const r = reconcileStatement(base({
+    statement: { ...base().statement, pdf_confirmation_codes: null, pdf_rental_income_sum: null, pdf_stay_count: null },
+    driftCodes: ['GY-qqVPackv'],
+  }));
+  const l = laneOf(r, 'stays');
+  assert.equal(l.state, 'differs');
+  assert.deepEqual(l.lines.find(x => x.codes)?.codes, ['GY-qqVPackv']);
+  assert.equal(r.reconciled, false);
+});
+
 test('stays: a failed Guesty probe is unknown and blocks. Absence of data is not a fact', () => {
   const r = reconcileStatement(base({ driftCodes: null }));
   assert.equal(laneOf(r, 'stays').state, 'unknown');
