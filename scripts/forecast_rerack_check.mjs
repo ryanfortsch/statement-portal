@@ -29,6 +29,7 @@ import {
   cardCompleteMonths,
   resolveCardSpendSource,
   CARD_PROXY_CATEGORY,
+  decodeHtmlEntities,
 } from '../src/lib/overhead-categories.ts';
 import {
   calcYear,
@@ -145,6 +146,10 @@ const ROUTE_CASES = [
   ['Listing platforms', 'FURNISHED FINDER', 'marketing'],
   ['Other', 'AT&T MOBILITY EPAY', 'telecom'],
   ['Other', 'ATT*BILL PAYMENT', 'telecom'],
+  // Chase escapes the ampersand in its export. Four 2026 bills were stored
+  // this way and read as Travel & other while Telecom showed $0.
+  ['Other', 'AT&amp;T MOBILITY EPAY', 'telecom'],
+  ['Other', 'AT&amp;T BILL PAYMENT', 'telecom'],
   ['Other', 'PURCHASE INTEREST CHARGE', 'travel_other'],
   ['Travel', 'JETBLUE     2792111926428', 'travel_other'],
   ['Rent & office', 'REPUBLIC SERVICES TRASH', 'travel_other'],
@@ -156,6 +161,17 @@ for (const [category, description, want] of ROUTE_CASES) {
 {
   const d = ccOperatingDetail(17, 2026, 4);
   if (d.vehicle_insurance !== 519) fail('projected April vehicle insurance must be the $519 run rate, not the one-time $3,707');
+}
+// The ingest route decodes Chase's escaped ampersand before it stores a row
+// or builds its dedupe_key; a re-upload must land on the decoded key.
+for (const [raw, want] of [
+  ['AT&amp;T MOBILITY EPAY', 'AT&T MOBILITY EPAY'],
+  ['CRATE&amp;BARREL CB2 NOD', 'CRATE&BARREL CB2 NOD'],
+  ['AT&#38;T BILL PAYMENT', 'AT&T BILL PAYMENT'],
+  ['GEICO  *AUTO', 'GEICO  *AUTO'],
+]) {
+  const got = decodeHtmlEntities(raw);
+  if (got !== want) fail(`decodeHtmlEntities("${raw}") -> "${got}", expected "${want}"`);
 }
 
 /* -- invariant 2: contractors reproduce the calibration window ---------- */
