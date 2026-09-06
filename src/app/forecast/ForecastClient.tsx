@@ -1468,12 +1468,14 @@ function ForecastTable({
 
         <SubsectionRow label="Recurring monthly" />
         {CC_OPERATING_BREAKDOWN.map((cat) => {
-          // The categories are a proportional split of exp_cc_ops. The
-          // weights only hold their ratio to one another, so the split
-          // rescales itself to whatever the month's card figure is; the
-          // marketing step-down is already inside that figure.
+          // Measured wherever the month carries card detail: the card's own
+          // categories for an ACT month, the model's own terms for a
+          // projected one. The proportional split by fallback weight is
+          // only for a month whose card spend is known through a payoff
+          // alone, which has no categories to read.
           const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
-          const catValue = (r: MonthRow) => (r.exp_cc_ops * cat.monthly) / denom;
+          const catValue = (r: MonthRow) =>
+            r.cc_detail ? r.cc_detail[cat.key] : (r.exp_cc_ops * cat.monthly) / denom;
           return (
             <DataRow
               key={cat.label}
@@ -1526,7 +1528,7 @@ function ForecastTable({
         />
         <DataRow
           label="Insurance"
-          info="A single annual insurance premium (Phillips) paid as one lump sum in March. $5,263.92 in 2026; same March renewal assumed forward. $0 every other month."
+          info="Premiums paid once, not monthly. Phillips commercial liability, $5,263.92 by ACH on 2026-03-02, assumed to renew each March. Arbella, $3,188.57 on the card on 2026-04-15, is treated as a one-time hit and is not projected forward. GEICO auto is monthly and lives on the Vehicle & other insurance row above. $0 every other month."
           values={monthly.map((r) => r.exp_insurance)}
           fy={monthly.reduce((a, r) => a + r.exp_insurance, 0)}
         />

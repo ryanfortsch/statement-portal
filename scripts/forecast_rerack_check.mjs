@@ -4,11 +4,12 @@
  * Two invariants, both of which broke silently in the past:
  *
  *   1. The itemized expense rows the /forecast table renders must sum to
- *      `exp_total`. The Chase-card rows are a PROPORTIONAL SPLIT of
- *      `exp_cc_ops` against CC_BASELINE_MONTHLY, so adding a category to
- *      CC_OPERATING_BREAKDOWN without moving CC_BASELINE_MONTHLY (or
- *      changing CC_MARKETING_MONTHLY without changing the matching
- *      breakdown entry) makes the visible rows stop adding up.
+ *      `exp_total`. The six Chase-card rows read `cc_detail`, which must
+ *      itself sum to `exp_cc_ops` in every projected month, and the
+ *      proportional fallback split (for a month with no card detail) must
+ *      too. Vehicle insurance is $519 in every projected month: April
+ *      2026's $3,707 was GEICO plus a one-time Arbella premium, and the
+ *      premium belongs on the Insurance line, never in the run rate.
  *
  *   2. The 1099 contractor line must reproduce the observed bench cost in
  *      the window it was calibrated on: $8,288/mo across 2026-07-01 to
@@ -29,7 +30,17 @@ import {
   resolveCardSpendSource,
   CARD_PROXY_CATEGORY,
 } from '../src/lib/overhead-categories.ts';
-import { calcYear, CC_OPERATING_BREAKDOWN, CC_SUPPLY_SEASON } from '../src/lib/forecast-model.ts';
+import {
+  calcYear,
+  ccOperatingDetail,
+  CC_OPERATING_BREAKDOWN,
+  CC_SUPPLY_SEASON,
+  CC_VEHICLE_INSURANCE_MONTHLY,
+  CC_TELECOM_MONTHLY,
+  CC_MARKETING_POST_CUT_MONTHLY,
+  CC_LISTING_ANNUAL,
+} from '../src/lib/forecast-model.ts';
+import { CC_DETAIL_KEYS, routeCardRow, sumCardDetail } from '../src/lib/forecast-card-detail.ts';
 
 let failures = 0;
 const fail = (msg) => { failures++; console.log(`FAIL  ${msg}`); };
@@ -46,19 +57,105 @@ const fail = (msg) => { failures++; console.log(`FAIL  ${msg}`); };
 }
 
 /* -- invariant 1b: rendered rows sum to exp_total, every month ---------- */
+// Exactly what ForecastClient does: read the bucket from cc_detail, fall
+// back to the proportional split only when a month has none.
+const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
+const rowValue = (m, cat) => (m.cc_detail ? m.cc_detail[cat.key] : (m.exp_cc_ops * cat.monthly) / denom);
+const renderedTotal = (m) =>
+  CC_OPERATING_BREAKDOWN.reduce((a, c) => a + rowValue(m, c), 0) +
+  m.exp_office + m.exp_software + m.exp_bank + m.exp_contractors +
+  m.exp_hire + m.exp_debt + m.exp_insurance + m.exp_accounting +
+  m.exp_onboard_presigned + m.exp_onboard_new;
+
+if (CC_OPERATING_BREAKDOWN.length !== CC_DETAIL_KEYS.length ||
+    CC_OPERATING_BREAKDOWN.some((c) => !CC_DETAIL_KEYS.includes(c.key))) {
+  fail('CC_OPERATING_BREAKDOWN keys must be exactly the six card-detail buckets');
+}
+
 for (const [year, rolled] of [[2026, 0], [2027, 3], [2028, 6]]) {
   const r = calcYear(3, year, undefined, undefined, undefined, undefined, rolled);
   for (const m of r.monthly) {
-    const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
-    const split = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + (m.exp_cc_ops * c.monthly) / denom, 0);
-    const rendered =
-      split + m.exp_office + m.exp_software + m.exp_bank + m.exp_contractors +
-      m.exp_hire + m.exp_debt + m.exp_insurance + m.exp_accounting +
-      m.exp_onboard_presigned + m.exp_onboard_new;
+    const tag = `${year}-${String(m.month).padStart(2, '0')}`;
+    const rendered = renderedTotal(m);
     if (Math.abs(rendered - m.exp_total) > 0.01) {
-      fail(`${year}-${String(m.month).padStart(2, '0')} rows sum to ${rendered.toFixed(2)}, exp_total is ${m.exp_total.toFixed(2)}`);
+      fail(`${tag} rows sum to ${rendered.toFixed(2)}, exp_total is ${m.exp_total.toFixed(2)}`);
+    }
+    // A projected month always carries its own itemisation, and it foots.
+    if (!m.cc_detail) { fail(`${tag} projected month has no cc_detail`); continue; }
+    const detailSum = sumCardDetail(m.cc_detail);
+    if (Math.abs(detailSum - m.exp_cc_ops) > 0.01) {
+      fail(`${tag} cc_detail sums to ${detailSum.toFixed(2)}, exp_cc_ops is ${m.exp_cc_ops.toFixed(2)}`);
+    }
+    if (m.cc_detail.vehicle_insurance !== CC_VEHICLE_INSURANCE_MONTHLY) {
+      fail(`${tag} vehicle insurance is ${m.cc_detail.vehicle_insurance}, the run rate is ${CC_VEHICLE_INSURANCE_MONTHLY}`);
+    }
+    if (m.cc_detail.telecom !== CC_TELECOM_MONTHLY) fail(`${tag} telecom is ${m.cc_detail.telecom}`);
+    if (year >= 2027 || m.month >= 6) {
+      const wantMkt = CC_MARKETING_POST_CUT_MONTHLY + (m.month === 8 ? CC_LISTING_ANNUAL : 0);
+      if (Math.abs(m.cc_detail.marketing - wantMkt) > 0.01) {
+        fail(`${tag} marketing is ${m.cc_detail.marketing}, expected ${wantMkt} (post-cut, Furnished Finder in August)`);
+      }
+    }
+    if (m.cc_detail.repairs <= 0 || m.cc_detail.repairs > m.cc_detail.supplies * 0.1) {
+      fail(`${tag} repairs ${m.cc_detail.repairs.toFixed(0)} against supplies ${m.cc_detail.supplies.toFixed(0)}: measured share is about 5%`);
     }
   }
+}
+
+/* -- invariant 1c: an ACT month reads its measured detail, or falls back - */
+{
+  const measured = {
+    month: '2026-04', revenue: 50000,
+    exp_office: 1500, exp_software: 2740, exp_debt: 937.5, exp_insurance: 3188.57,
+    exp_accounting: 4442.96, exp_bank: 30, exp_cc_ops: 7093, exp_contractors: 250,
+    exp_hire: 0, exp_onboard_presigned: 0, exp_onboard_new: 0,
+    // What April 2026 really carried once Arbella moved to exp_insurance:
+    // GEICO alone on the vehicle row.
+    cc_detail: { supplies: 5086, repairs: 394, vehicle_insurance: 518.81, travel_other: 337.19, marketing: 757, telecom: 0 },
+  };
+  const proxied = { ...measured, month: '2026-05', cc_detail: null };
+  // actuals is indexed by month - 1 and may be sparse.
+  const acts = [];
+  acts[3] = measured;
+  acts[4] = proxied;
+  const r = calcYear(0, 2026, acts, 5);
+  const apr = r.monthly[3];
+  const may = r.monthly[4];
+  if (!apr.is_actual || !may.is_actual) fail('ACT rows were not marked actual');
+  if (Math.abs(rowValue(apr, CC_OPERATING_BREAKDOWN.find((c) => c.key === 'vehicle_insurance')) - 518.81) > 0.001) {
+    fail('April 2026 vehicle-insurance row should read the measured GEICO charge');
+  }
+  if (Math.abs(renderedTotal(apr) - apr.exp_total) > 0.01) fail('measured ACT month rows do not foot to exp_total');
+  if (may.cc_detail !== null) fail('a proxy-sourced ACT month must carry null cc_detail');
+  if (Math.abs(renderedTotal(may) - may.exp_total) > 0.01) fail('proxy-split ACT month rows do not foot to exp_total');
+  if (Math.abs(rowValue(may, CC_OPERATING_BREAKDOWN[0]) - (7093 * CC_OPERATING_BREAKDOWN[0].monthly) / denom) > 0.01) {
+    fail('proxy-sourced ACT month should fall back to the proportional split');
+  }
+}
+
+/* -- invariant 1d: where a card row lands ------------------------------- */
+const ROUTE_CASES = [
+  ['Insurance', 'GEICO  *AUTO', 'vehicle_insurance'],
+  ['Insurance', 'ARBELLA INSURANCE', 'insurance'],
+  ['Software', 'GUESTY  INC.', 'software'],
+  ['Software', 'Anthropic', 'software'],
+  ['Guest supplies', 'SP FIX LINENS', 'supplies'],
+  ['Repairs & upkeep', "ROCKY'S ACE HARDWARE GLOUCESTER MA", 'repairs'],
+  ['Marketing', 'FACEBK *ADS', 'marketing'],
+  ['Listing platforms', 'FURNISHED FINDER', 'marketing'],
+  ['Other', 'AT&T MOBILITY EPAY', 'telecom'],
+  ['Other', 'ATT*BILL PAYMENT', 'telecom'],
+  ['Other', 'PURCHASE INTEREST CHARGE', 'travel_other'],
+  ['Travel', 'JETBLUE     2792111926428', 'travel_other'],
+  ['Rent & office', 'REPUBLIC SERVICES TRASH', 'travel_other'],
+];
+for (const [category, description, want] of ROUTE_CASES) {
+  const got = routeCardRow(category, description.toUpperCase());
+  if (got !== want) fail(`routeCardRow(${category}, "${description}") -> ${got}, expected ${want}`);
+}
+{
+  const d = ccOperatingDetail(17, 2026, 4);
+  if (d.vehicle_insurance !== 519) fail('projected April vehicle insurance must be the $519 run rate, not the one-time $3,707');
 }
 
 /* -- invariant 2: contractors reproduce the calibration window ---------- */
@@ -170,6 +267,6 @@ if (!has('2026-07', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-07 lo
 if (!has('2026-07', (r) => r.category === 'Contractors')) fail('resolveCardSpendSource dropped a non-card row');
 
 console.log(failures === 0
-  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench, the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

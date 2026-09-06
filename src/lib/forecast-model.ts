@@ -22,6 +22,8 @@
  * `start` month so partial-year onboardings are pro-rated correctly.
  */
 
+import type { CardDetail, CardDetailKey } from './forecast-card-detail';
+
 export type SeasonType = 'CA' | 'FL' | 'LS';
 
 export type ManagedProperty = {
@@ -374,69 +376,110 @@ export const CC_FIXED_MONTHLY =
   CC_VEHICLE_INSURANCE_MONTHLY + CC_TELECOM_MONTHLY + CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY;
 
 /**
- * Card spend for one month: consumables that scale with the fleet and the
- * season, plus the fixed floor.
+ * Of the per-property variable spend, the slice that is hardware, plumbing
+ * and propane rather than linens and consumables. Measured on the 2026 card
+ * and operating rows through August: $3,142 of Repairs & upkeep against
+ * $58,298 of Guest supplies, 5.1%. An earlier itemisation put this at 20%,
+ * which is how the Repairs row came to claim $1,660 a month the card never
+ * showed.
+ */
+export const CC_REPAIRS_SHARE = 0.05;
+
+/**
+ * The card for one month, itemised the same way the ACT months are.
  *
- * The old signature is unchanged. `month` was already accepted and ignored;
- * it now indexes the seasonal curve. Elasticity is structural rather than a
- * tuned coefficient: the variable term is fully elastic by construction and
- * the fixed term is not elastic at all, so the blended figure falls out of the
- * mix instead of being asserted. Same shape as contractorCost, which already
- * rides a curve and scales with the fleet.
+ * Consumables and repairs scale with the fleet and the season; insurance,
+ * telecom, travel and marketing are the fixed floor. Furnished Finder's
+ * annual listing fee rides the marketing bucket in August. The six keys are
+ * the six Recurring Monthly rows on /forecast, so a projected month and a
+ * measured one describe the same shape and the table has no seam between
+ * them.
+ *
+ * Elasticity is structural rather than a tuned coefficient: the variable
+ * term is fully elastic by construction and the fixed term is not elastic
+ * at all, so the blended figure falls out of the mix instead of being
+ * asserted. Same shape as contractorCost, which already rides a curve and
+ * scales with the fleet.
+ */
+export function ccOperatingDetail(
+  activePropCount: number,
+  year: number,
+  month: number,
+): CardDetail {
+  const variable =
+    CC_SUPPLY_ANNUAL_PER_PROP * (CC_SUPPLY_SEASON[month - 1] ?? 0) * activePropCount;
+  return {
+    supplies: variable * (1 - CC_REPAIRS_SHARE),
+    repairs: variable * CC_REPAIRS_SHARE,
+    vehicle_insurance: CC_VEHICLE_INSURANCE_MONTHLY,
+    travel_other: CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY,
+    marketing: marketingCost(year, month) + (month === CC_LISTING_MONTH ? CC_LISTING_ANNUAL : 0),
+    telecom: CC_TELECOM_MONTHLY,
+  };
+}
+
+/**
+ * Card spend for one month: the sum of ccOperatingDetail, so the total and
+ * its itemisation cannot drift apart.
  */
 export function ccOperatingCost(
   activePropCount: number,
   year: number,
   month: number,
 ): number {
-  const variable =
-    CC_SUPPLY_ANNUAL_PER_PROP * (CC_SUPPLY_SEASON[month - 1] ?? 0) * activePropCount;
-  const fixed =
-    CC_FIXED_MONTHLY +
-    marketingCost(year, month) +
-    (month === CC_LISTING_MONTH ? CC_LISTING_ANNUAL : 0);
-  return variable + fixed;
+  const d = ccOperatingDetail(activePropCount, year, month);
+  return d.supplies + d.repairs + d.vehicle_insurance + d.travel_other + d.marketing + d.telecom;
 }
 
 /**
- * Itemisation for the Recurring Monthly rows on /forecast.
+ * The Recurring Monthly rows on /forecast, in display order.
  *
- * These are a PROPORTIONAL SPLIT of the month's card figure, so the weights
- * only have to hold their ratio to one another; the split rescales itself to
- * whatever ccOperatingCost returns. Values are a representative mid-season
- * month at the current fleet.
+ * `key` selects the bucket in a month's `cc_detail`, which is measured for
+ * an ACT month and the model's own term for a projected one. `monthly` is
+ * a FALLBACK weight, used only for a month whose card spend is known solely
+ * through the operating account's card payoff and so has no category
+ * detail; such a month is split proportionally by these weights. Values
+ * are a representative mid-season month at the current fleet and only
+ * their ratio matters.
  */
 export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
+  key: CardDetailKey;
   label: string;
   monthly: number;
   info: string;
 }> = [
   {
+    key: 'supplies',
     label: 'Guest supplies & inventory',
-    monthly: 6700,
-    info: 'Amazon, Fix Linens, Target, HomeGoods. The dominant card line and the seasonal one: $236 per property in February against $1,492 in June. Bought the month before the guests arrive, which is why it leads the turnover curve.',
+    monthly: 7940,
+    info: 'Amazon, Fix Linens, Target, HomeGoods. The dominant card line and the seasonal one: $236 per property in February against $1,492 in June. Bought the month before the guests arrive, which is why it leads the turnover curve. ACT months show the real card figure.',
   },
   {
+    key: 'repairs',
     label: 'Repairs & upkeep',
-    monthly: 1660,
-    info: 'Hardware stores, plumbing, propane and small contractor charges on the card. Rides the same per-property seasonal curve as supplies.',
+    monthly: 420,
+    info: 'Hardware stores, plumbing, propane and small contractor charges on the card. About 5% of the variable card spend, measured on 2026: $3,142 against $58,298 of supplies through August. Rides the same per-property seasonal curve as supplies.',
   },
   {
+    key: 'vehicle_insurance',
     label: 'Vehicle & other insurance',
     monthly: 519,
-    info: 'GEICO auto, $519 every month of 2026 and unchanged since March 2025. Separate from the Phillips commercial premium, which is an annual ACH out of the operating account.',
+    info: 'GEICO auto, $519 every month of 2026 and unchanged since March 2025, and that is the run rate forward. ACT months show the real GEICO charge. The $3,189 Arbella premium that hit the card on 2026-04-15 is a one-time payment and sits on the Insurance line below, beside Phillips, not in this row.',
   },
   {
+    key: 'travel_other',
     label: 'Travel & other',
     monthly: 285,
-    info: 'Flights, car rental, fuel, meals and miscellaneous admin. Averaged across the whole card record rather than 2026 alone, because one month (November 2025, $3,600) carries most of a year.',
+    info: 'Flights, car rental, fuel, meals, the card\'s own interest charges, and the small remainder the categorizer could not name. Projected at $285/mo, averaged across the whole card record rather than 2026 alone, because one month (November 2025, $3,600) carries most of a year.',
   },
   {
+    key: 'marketing',
     label: 'Marketing & advertising',
     monthly: 175,
-    info: 'Facebook and Meta, plus occasional print. Ran $680/mo through May, then stepped down to roughly $175 from June. The cut is real and measured, not assumed.',
+    info: 'Facebook and Meta, plus occasional print, plus the $199 Furnished Finder listing each August. Ran $680/mo through May, then stepped down to roughly $175 from June. The cut is real and measured, not assumed.',
   },
   {
+    key: 'telecom',
     label: 'Telecom',
     monthly: 114,
     info: 'AT&T. Five charges from April onward, nothing before it.',
@@ -689,8 +732,15 @@ export type MonthRow = {
   exp_accounting: number;
   /** Bank fees, stop payments, returned checks. */
   exp_bank: number;
-  /** Operating CC pass-through (median of trailing 12 mo). */
+  /** The corporate card, less software and one-time insurance premiums. */
   exp_cc_ops: number;
+  /**
+   * exp_cc_ops itemised into the six Recurring Monthly buckets. Measured for
+   * an ACT month with card detail, the model's own terms for a projected
+   * month, null for an ACT month known only through a card payoff (the UI
+   * then splits exp_cc_ops by the CC_OPERATING_BREAKDOWN weights).
+   */
+  cc_detail: CardDetail | null;
   /** 1099 contractor bench, field labor + creative + misc. */
   exp_contractors: number;
   /** New hire from Oct. */
@@ -746,6 +796,8 @@ export type ActualsByMonth = ReadonlyArray<{
   exp_hire: number;
   exp_onboard_presigned: number;
   exp_onboard_new: number;
+  /** Card itemisation; absent or null when the month has no category detail. */
+  cc_detail?: CardDetail | null;
 }>;
 
 /**
@@ -860,6 +912,7 @@ export function calcYear(
         exp_accounting: a.exp_accounting,
         exp_bank: a.exp_bank,
         exp_cc_ops: a.exp_cc_ops,
+        cc_detail: a.cc_detail ?? null,
         exp_contractors: a.exp_contractors,
         exp_hire: a.exp_hire,
         exp_onboard_presigned: a.exp_onboard_presigned,
@@ -974,6 +1027,7 @@ export function calcYear(
     const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
     const exp_accounting = accountingCost(year, m);
     const exp_bank = BANK_FEES_MONTHLY;
+    const cc_detail = ccOperatingDetail(operatingCount, year, m);
     const exp_cc_ops = ccOperatingCost(operatingCount, year, m);
     const exp_contractors = contractorCost(year, m, operatingCount, dist.CA);
     const exp_hire = hireCost(m, config.hireStartMonth, activeCount);
@@ -1007,6 +1061,7 @@ export function calcYear(
       exp_accounting,
       exp_bank,
       exp_cc_ops,
+      cc_detail,
       exp_contractors,
       exp_hire,
       exp_onboard_presigned,

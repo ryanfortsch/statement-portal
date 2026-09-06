@@ -14,15 +14,17 @@
  *
  *   card account  → exp_software for rows the categorizer tagged
  *                   'Software' (the subscription stack: Guesty, Anthropic,
- *                   PriceLabs, QuickBooks, Adobe, Quo and the rest), and
- *                   exp_cc_ops for everything else on the card. The card
- *                   used to be one lump, which left the Software row at $0
- *                   in every ACT month and then jumping to the $2,300
- *                   projection in the first forward month, while the six
- *                   Recurring rows quietly absorbed the real spend. The
- *                   projected card model (ccOperatingCost) never included
- *                   software, so this is what makes ACT and projected
- *                   months describe the same shape.
+ *                   PriceLabs, QuickBooks, Adobe, Quo and the rest);
+ *                   exp_insurance for an Insurance row that is not GEICO
+ *                   (a premium paid once, like the $3,188.57 Arbella charge
+ *                   on 2026-04-15, belongs beside Phillips and not in a
+ *                   monthly run rate); exp_cc_ops for everything else,
+ *                   itemised into `cc_detail` by routeCardRow so the six
+ *                   Recurring rows read what the card actually carried.
+ *                   The card used to be one lump split by fixed weights,
+ *                   which left the Software row at $0 in every ACT month
+ *                   and put $3,707 of "vehicle insurance" on April, a
+ *                   month GEICO billed $519 like every other.
  *   'Pass-through'  → dropped. VRBO and the other channel commissions bill
  *                   the card and are already netted out of rental revenue
  *                   before a statement sees them; counting them here charges
@@ -67,6 +69,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { ACTUALS_2026, type MonthlyActual } from '@/lib/forecast-actuals';
 import { CARD_PROXY_CATEGORY, cardCompleteMonths, resolveCardSpendSource } from '@/lib/overhead-categories';
+import {
+  CC_DETAIL_KEYS,
+  emptyCardDetail,
+  routeCardRow,
+  type CardDetail,
+  type CardRoute,
+} from '@/lib/forecast-card-detail';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey =
@@ -198,8 +207,13 @@ export async function getActualsFromDb(
     const complete = cardCompleteMonths(rows, cardMaxTxnDate);
     const usableRows = resolveCardSpendSource(rows, complete);
 
-    // Aggregate per month into MonthlyActual.
+    // Aggregate per month into MonthlyActual, itemising the card as it goes.
     const byMonth = new Map<string, MonthlyActual>();
+    const detailByMonth = new Map<string, CardDetail>();
+    // Months whose card spend is the operating account's payoff rather than
+    // the charges themselves. A payoff carries no categories, so such a
+    // month gets no detail and the UI falls back to a proportional split.
+    const proxyMonths = new Set<string>();
     for (const r of usableRows) {
       if (!r.month) continue;
       const amt = Math.abs(Number(r.amount) || 0); // source is signed; expenses are positive
@@ -209,6 +223,19 @@ export async function getActualsFromDb(
       const desc = (r.description || '').toUpperCase();
 
       const ma = byMonth.get(r.month) ?? blank(r.month);
+      const detail = detailByMonth.get(r.month) ?? emptyCardDetail();
+
+      // Card-shaped spend lands in one of three places: its own row
+      // (software, a premium paid once) or one of the six Recurring
+      // buckets, which add up to exp_cc_ops by construction.
+      const place = (route: CardRoute) => {
+        if (route === 'software') ma.exp_software += amt;
+        else if (route === 'insurance') ma.exp_insurance += amt;
+        else {
+          ma.exp_cc_ops += amt;
+          detail[route] += amt;
+        }
+      };
 
       // A channel commission already netted out of rental revenue is not
       // overhead. VRBO and its peers bill the card and the same fee is
@@ -218,12 +245,13 @@ export async function getActualsFromDb(
       if (cat === 'Pass-through') {
         // deliberately counted nowhere
       } else if (acct === 'card') {
-        // The subscription stack gets its own row. The projection carries
-        // software on exp_software and never inside ccOperatingCost, so the
-        // ACT months have to split it out the same way or the Software row
-        // reads $0 through August and $2,300 from September.
-        if (cat === 'Software') ma.exp_software += amt;
-        else ma.exp_cc_ops += amt;
+        // The subscription stack gets its own row (#1459): the projection
+        // carries software on exp_software and never inside the card model.
+        // A non-vehicle insurance premium on the card (Arbella, $3,188.57 on
+        // 2026-04-15) is a one-time hit and goes to the Insurance line
+        // beside Phillips, so the vehicle-insurance bucket reads what GEICO
+        // charged and nothing else.
+        place(routeCardRow(cat, desc));
       } else {
         switch (cat) {
           case 'Rent & office':   ma.exp_office += amt; break;
@@ -239,7 +267,10 @@ export async function getActualsFromDb(
           // Card payoff standing in for card spend. Only survives to here in
           // months whose card export does not reach month end; the rest were
           // removed by resolveCardSpendSource.
-          case CARD_PROXY_CATEGORY: ma.exp_cc_ops += amt; break;
+          case CARD_PROXY_CATEGORY:
+            ma.exp_cc_ops += amt;
+            proxyMonths.add(r.month);
+            break;
           case 'Health benefits': /* out of scope for the mgmt-business forecast */ break;
           case 'Professional':
             if (desc.includes('MH PARTNERS') || desc.includes('MHPARTNERS')) {
@@ -247,16 +278,18 @@ export async function getActualsFromDb(
             } else if (desc.includes('MS CONSULTANTS') || desc.includes('MSCONSULTANTS')) {
               ma.exp_accounting += amt;
             } else {
-              ma.exp_cc_ops += amt;
+              place('travel_other');
             }
             break;
           default:
             // Marketing, Listing platforms, Guest supplies, Repairs & upkeep,
-            // Travel, Other — operating-account ops fall into the catch-all.
-            ma.exp_cc_ops += amt;
+            // Travel, Other: operating-account ops land in the same buckets
+            // the card does.
+            place(routeCardRow(cat, desc));
         }
       }
       byMonth.set(r.month, ma);
+      detailByMonth.set(r.month, detail);
     }
 
     // Build a sparse dense-indexed array: actuals[m - 1] = month m's
@@ -286,8 +319,14 @@ export async function getActualsFromDb(
       const liveRev = revenueByMonth[ym] ?? 0;
       const fallbackRev = ACTUALS_2026[m - 1]?.revenue ?? 0;
       const revenue = liveRev > 0 ? liveRev : fallbackRev;
+      const rawDetail = detailByMonth.get(ym);
+      const cc_detail: CardDetail | null =
+        rawDetail && !proxyMonths.has(ym)
+          ? (Object.fromEntries(CC_DETAIL_KEYS.map((k) => [k, round2(rawDetail[k])])) as CardDetail)
+          : null;
       dense[m - 1] = {
         ...ma,
+        cc_detail,
         revenue: round2(revenue),
         exp_office: round2(ma.exp_office),
         exp_software: round2(ma.exp_software),
