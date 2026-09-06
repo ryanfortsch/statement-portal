@@ -36,6 +36,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { selectAllPaged } from '@/lib/paged-select';
+import { NON_LIVE_STATUSES } from '@/lib/ghost-booking-reconcile';
 
 // Same exclusion set as lib/operations.ts NON_OPERATIONS_PROPERTY_IDS
 // (file-local there): out-of-region homes whose owners handle their own
@@ -192,6 +193,9 @@ type BookingLite = {
   /** Set by collapseStays: another canonical row for this same stay claims
    *  a DIFFERENT checkout. Not a winner, a warning. */
   conflictingCheckOut?: string | null;
+  /** The reservation record's code, so the ghost guard can ask Guesty's own
+   *  reservation status as a second witness before dropping a stay. */
+  external_confirmation_code?: string | null;
 };
 
 type PropertyLite = {
@@ -324,12 +328,18 @@ async function findGhostStays(
   // fleet is usually under the 1000-row cap, but one long mid-term stay
   // pushes it over, and a truncated read silently turns the guard off: the
   // missing cells are indistinguishable from "no mirror row".
-  let data: Array<{ property_id: string; date: string; status: string; synced_at: string | null }>;
+  let data: Array<{
+    property_id: string;
+    date: string;
+    status: string;
+    synced_at: string | null;
+    block_type: string | null;
+  }>;
   try {
     data = await selectAllPaged((fromIdx, toIdx) =>
       supabase
         .from('property_calendar_days')
-        .select('property_id, date, status, synced_at')
+        .select('property_id, date, status, synced_at, block_type')
         .in('property_id', propertyIds)
         .gte('date', from)
         .lte('date', to)
@@ -361,10 +371,35 @@ async function findGhostStays(
   }
 
   const freshCutoff = Date.now() - MIRROR_FRESH_HOURS * 3600_000;
-  const byKey = new Map<string, { status: string; syncedMs: number }>();
+  const byKey = new Map<string, { status: string; syncedMs: number; blockType: string | null }>();
   for (const r of data) {
     const syncedMs = r.synced_at ? Date.parse(r.synced_at) : NaN;
-    byKey.set(`${r.property_id}|${r.date}`, { status: (r.status || '').toLowerCase(), syncedMs });
+    byKey.set(`${r.property_id}|${r.date}`, {
+      status: (r.status || '').toLowerCase(),
+      syncedMs,
+      blockType: r.block_type ?? null,
+    });
+  }
+
+  // WITNESS TWO. The calendar alone is one source, and this guard's only
+  // move is to erase a stay from the cleaners' day. The source-side pass
+  // (cancelGhostBookings) has always required agreement between the
+  // calendar and Guesty's own reservation record before it cancels
+  // anything; the read-side pass did not, and could drop a real stay on a
+  // single witness. It now asks the same question. A reservation we have no
+  // record of is NOT evidence: direct and SCA bookings legitimately have
+  // none, so those stays are kept.
+  const codes = stays.map((s) => s.external_confirmation_code).filter((c): c is string => !!c);
+  const resStatus = new Map<string, string>();
+  if (codes.length > 0) {
+    const { data: resRows, error: resErr } = await supabase
+      .from('guesty_reservations')
+      .select('confirmation_code, status')
+      .in('confirmation_code', [...new Set(codes)]);
+    if (resErr) return ghosts; // cannot read the second witness: judge nothing
+    for (const r of (resRows ?? []) as Array<{ confirmation_code: string; status: string | null }>) {
+      resStatus.set(r.confirmation_code, (r.status || '').toLowerCase());
+    }
   }
 
   for (const stay of stays) {
@@ -377,12 +412,26 @@ async function findGhostStays(
     // first_seen_at means we cannot establish that ordering: keep the stay.
     const seenMs = stay.first_seen_at ? Date.parse(stay.first_seen_at) : NaN;
     if (!Number.isFinite(seenMs)) continue;
+    // Guesty's own reservation record has to agree the stay is not live.
+    const code = stay.external_confirmation_code;
+    const st = code ? resStatus.get(code) : undefined;
+    if (!st || !NON_LIVE_STATUSES.has(st)) continue;
+
     let allAvailableAndFresh = true;
     for (const night of nights) {
       const cell = byKey.get(`${stay.property_id}|${night}`);
       const fresh = !!cell && Number.isFinite(cell.syncedMs) && cell.syncedMs >= freshCutoff;
       const newerThanBooking = !!cell && cell.syncedMs > seenMs;
-      if (!cell || !fresh || !newerThanBooking || cell.status !== 'available') {
+      // 'unavailable' with a NULL block_type is not a hold. It is Guesty's
+      // advance-notice artifact: TONIGHT is exported as a one-night block on
+      // every unbooked listing (see mapGuestyDays, and operations.ts which
+      // discards exactly these). Reading it as occupancy meant the guard
+      // could never fire for a stay checking out TOMORROW, because tonight
+      // is that stay's last night and on a now-cancelled listing it carries
+      // the phantom. That is the single most useful day for it to work.
+      const empty =
+        !!cell && (cell.status === 'available' || (cell.status === 'unavailable' && !cell.blockType));
+      if (!cell || !fresh || !newerThanBooking || !empty) {
         allAvailableAndFresh = false;
         break;
       }
@@ -419,14 +468,14 @@ export async function buildCheckoutSchedule(
       .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind'),
     supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at, external_confirmation_code')
       .gte('check_out', startDate)
       .lte('check_out', endDate)
       .in('status', STAY_STATUSES)
       .is('duplicate_of', null),
     supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at, external_confirmation_code')
       .gte('check_in', startDate)
       .lte('check_in', endDate)
       .in('status', STAY_STATUSES)
@@ -505,7 +554,7 @@ export async function buildCheckoutSchedule(
   if (missingStayKeys.length > 0) {
     const { data, error: refetchErr } = await supabase
       .from('bookings')
-      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at')
+      .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at, external_confirmation_code')
       .in('property_id', [...new Set(missingStayKeys.map((a) => a.property_id))])
       .in('check_in', [...new Set(missingStayKeys.map((a) => a.stay_check_in))])
       .in('status', STAY_STATUSES)

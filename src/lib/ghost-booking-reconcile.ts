@@ -48,7 +48,7 @@ const MIRROR_FRESH_HOURS = 36;
 /** Reservation states that mean the stay is not live. `confirmed` is the
  *  only live one; an absent record is NOT evidence (direct/SCA bookings
  *  legitimately have none). */
-const NON_LIVE_STATUSES = new Set(['canceled', 'cancelled', 'closed', 'declined', 'expired']);
+export const NON_LIVE_STATUSES = new Set(['canceled', 'cancelled', 'closed', 'declined', 'expired']);
 
 /**
  * Refuse to act on more than this in one run. If the calendar mirror ever
