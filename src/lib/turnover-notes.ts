@@ -39,7 +39,10 @@ const MAX_MESSAGE_CHARS = 1_200;
 const MAX_TRANSCRIPT_CHARS = 14_000;
 /** Only stays leaving within this many days can still be acted on. */
 const DEFAULT_HORIZON_DAYS = 3;
-const DEFAULT_MAX_THREADS = 12;
+/** The 3-day window routinely holds 20-plus checkouts across the fleet, and
+ *  a note missed is the whole point of the feature. One model call per
+ *  thread, once a day, is cheap enough to cover all of them. */
+const DEFAULT_MAX_THREADS = 30;
 
 export type TurnoverNote = {
   id: string;
