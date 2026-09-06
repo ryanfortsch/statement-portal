@@ -3,6 +3,10 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
+import {
+  matchCancellationPayout, buildCancelledCandidates, cancellationCheckNote, CANCELLATION_CHECK_INCOMPLETE_PREFIX,
+  type CancelledCandidate, type CachedCancelledRow, type CancellationPayoutMatch, type LiveFigure, type RecognizedStay,
+} from '@/lib/cancellation-payout-match';
 import { classifyCancelledStay, cancelledStayGap } from '@/lib/cancelled-stay';
 import { checkLiveGuestyCancellation } from '@/lib/cancel-check';
 import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-ruling';
@@ -1033,6 +1037,145 @@ export async function POST(request: NextRequest) {
       centralBookingTransfers = (centralRows || []).length;
     }
 
+    // Cancellation payouts (src/lib/cancellation-payout-match.ts). An
+    // Airbnb guest who cancels under a policy that keeps part of the
+    // payment produces a deposit months later, after the original
+    // check-in, with no stay on any statement to match it. Decided HERE,
+    // before the per-stay matchers in section 4, because the Airbnb 1:1
+    // matcher takes any deposit within $5 of a stay's rental income, with
+    // no date window and first pick: a $778.00 stay whose own payout
+    // landed last month would consume a $775.29 cancellation payout, mark
+    // itself matched, and the deposit would never reach the review queue.
+    //
+    // The cache supplies identity and dates only. guesty_reservations.
+    // host_payout is written by the full nightly sync alone; the
+    // reconciler that flips a booking to cancelled updates status and
+    // nothing else, so for a booking cancelled since its last full sync
+    // the cached figure is the PRE-cancel amount. The retained figure is
+    // read live, per code, bounded to this property's cancelled Airbnb
+    // bookings whose check-in is within the matcher's 400-day window. A
+    // code Guesty does not answer for is unchecked, and the queue row
+    // says so rather than guessing: a wrong suggestion written once is
+    // kept by the queue's dedupe forever.
+    //
+    // A cancelled booking that is on THIS PDF (Guesty lists a fully
+    // retained cancellation as a stay) is a stay: section 4 corroborates
+    // its own payout and the cancel guard later in this route judges it.
+    // It is excluded here so its deposit is not held back from section 4,
+    // and its amount joins the recognized set.
+    const depToISO = (str: string) => {
+      const parts = str.split('/');
+      if (parts.length !== 3) return '';
+      return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+    };
+    let cancelledCandidates: CancelledCandidate[] = [];
+    let recognizedStays: RecognizedStay[] = [];
+    let cancellationCheck: { unchecked: string[]; readFailed: boolean } = { unchecked: [], readFailed: true };
+    try {
+      const winStartD = new Date(`${month}-01T00:00:00Z`);
+      winStartD.setUTCDate(winStartD.getUTCDate() - 400);
+      const winEndD = new Date(`${month}-01T00:00:00Z`);
+      winEndD.setUTCMonth(winEndD.getUTCMonth() + 1);
+      winEndD.setUTCDate(winEndD.getUTCDate() + 400);
+      const { data: cancelledRows, error: cancelledErr } = await supabase
+        .from('guesty_reservations')
+        .select('confirmation_code, guest_name, check_in, check_out, channel')
+        .eq('property_id', propertyId)
+        .in('status', ['canceled', 'cancelled'])
+        .gte('check_in', winStartD.toISOString().slice(0, 10))
+        .lte('check_in', winEndD.toISOString().slice(0, 10));
+      if (cancelledErr) throw new Error(cancelledErr.message);
+      const onThisPdf = new Set<string>(reservations.map(r => r.confirmation_code).filter(Boolean));
+      const cached: CachedCancelledRow[] = (cancelledRows || [])
+        .filter(r => (r.channel || '').toUpperCase() === 'AIRBNB' && r.confirmation_code && !onThisPdf.has(r.confirmation_code as string))
+        .map(r => ({
+          code: r.confirmation_code as string,
+          guest_name: (r.guest_name as string | null) ?? null,
+          check_in: String(r.check_in),
+          check_out: String(r.check_out),
+        }));
+      // Which statement already carries each code, if any. Three plain
+      // reads rather than a nested embed: property_statements has no month
+      // column, and an embed that silently returned nothing would read as
+      // "on no statement", which is the wrong direction to fail.
+      const recognizedOn = new Map<string, string>();
+      if (cached.length > 0) {
+        const { data: onRows, error: onErr } = await supabase
+          .from('reservations')
+          .select('confirmation_code, property_statement_id')
+          .in('confirmation_code', cached.map(c => c.code));
+        if (onErr) throw new Error(onErr.message);
+        const sids = [...new Set((onRows || []).map(r => r.property_statement_id as string).filter(Boolean))];
+        if (sids.length > 0) {
+          const { data: stmts, error: stErr } = await supabase.from('property_statements').select('id, period_id').in('id', sids);
+          if (stErr) throw new Error(stErr.message);
+          const pids = [...new Set((stmts || []).map(st => st.period_id as string).filter(Boolean))];
+          const { data: periods, error: perErr } = await supabase.from('statement_periods').select('id, month').in('id', pids);
+          if (perErr) throw new Error(perErr.message);
+          const monthOfPeriod = new Map((periods || []).map(pp => [pp.id as string, pp.month as string]));
+          const monthOfStmt = new Map((stmts || []).map(st => [st.id as string, monthOfPeriod.get(st.period_id as string) || '']));
+          for (const r of onRows || []) {
+            const m = monthOfStmt.get(r.property_statement_id as string);
+            if (r.confirmation_code && m && !recognizedOn.has(r.confirmation_code as string)) recognizedOn.set(r.confirmation_code as string, m);
+          }
+        }
+      }
+      // Every recognized Airbnb stay on this property, any month, plus
+      // every row on this PDF: code and rental income. A candidate whose
+      // retained payout equals what a DIFFERENT stay earned is never
+      // suggested (the deposit is as likely that stay's own money); its
+      // OWN recognized row is the already-recognized case and gets the
+      // ALREADY note. Reached through the statement, not
+      // reservations.property_id: that column is a later denormalization
+      // and a sparse one would make this list empty, which would read as
+      // "no twins" and silently disarm the exclusion.
+      const { data: propStmts, error: psErr } = await supabase
+        .from('property_statements')
+        .select('id')
+        .eq('property_id', propertyId);
+      if (psErr) throw new Error(psErr.message);
+      const propStmtIds = (propStmts || []).map(x => x.id as string);
+      const { data: recognizedRows, error: recErr } = propStmtIds.length > 0
+        ? await supabase
+            .from('reservations')
+            .select('confirmation_code, guesty_rental_income, platform')
+            .in('property_statement_id', propStmtIds)
+            .gt('guesty_rental_income', 0)
+        : { data: [], error: null };
+      if (recErr) throw new Error(recErr.message);
+      recognizedStays = [
+        ...(recognizedRows || [])
+          .filter(r => (r.platform || '').toUpperCase() === 'AIRBNB')
+          .map(r => ({ code: String(r.confirmation_code || ''), amount: Number(r.guesty_rental_income) })),
+        ...reservations.map(r => ({ code: String(r.confirmation_code || ''), amount: Number(r.rental_income) })),
+      ].filter(r => Number.isFinite(r.amount) && r.amount > 0);
+      // The money, live. Nothing is a candidate on the cached figure.
+      const live: Map<string, LiveFigure> = cached.length > 0
+        ? await checkLiveGuestyCancellation(cached.map(c => c.code))
+        : new Map();
+      const built = buildCancelledCandidates(cached, live, recognizedOn);
+      cancelledCandidates = built.candidates;
+      cancellationCheck = { unchecked: built.unchecked, readFailed: false };
+      if (built.unchecked.length > 0) {
+        console.warn(`cancellation check incomplete for ${propertyId} ${month}: no live answer for ${built.unchecked.join(', ')}`);
+      }
+    } catch (e) {
+      cancellationCheck = { unchecked: [], readFailed: true };
+      console.warn(`cancellation-payout candidates unavailable for ${propertyId}:`, e instanceof Error ? e.message : String(e));
+    }
+    const cancellationCheckComplete = !cancellationCheck.readFailed && cancellationCheck.unchecked.length === 0;
+    // Which deposits are cancellation payouts. Decided once, over every
+    // deposit in the export (a multi-month Chase file carries prior
+    // months' rows section 4 would otherwise reach), keyed by the deposit
+    // object because the matchers splice the array.
+    const cancellationOf = new Map<(typeof deposits)[number], CancellationPayoutMatch>();
+    for (const d of deposits) {
+      const iso = depToISO(d.date);
+      if (!iso) continue;
+      const m = matchCancellationPayout({ amount: d.amount, source: d.source, deposit_date: iso }, cancelledCandidates, recognizedStays);
+      if (m) cancellationOf.set(d, m);
+    }
+
     // 4. Process reservations with channel logic.
     //
     // Revenue reconstruction (post-accounting-overhaul):
@@ -1229,6 +1372,10 @@ export async function POST(request: NextRequest) {
           for (let i = 0; i < deposits.length; i++) {
             const d = deposits[i];
             if (d.source !== 'airbnb' && d.source !== 'other') continue;
+            // A cancellation payout belongs to a cancelled booking that is
+            // on no statement (or on an earlier one). It is not this
+            // stay's money, however close the amounts run.
+            if (cancellationOf.has(d)) continue;
             if (Math.abs(d.amount - targetAmount) >= 5) continue;
             // Parse deposit date (MM/DD/YYYY)
             const parts = d.date.split('/');
@@ -1253,6 +1400,7 @@ export async function POST(request: NextRequest) {
             // unmatched; this is corroboration, never revenue.
             const elig: number[] = [];
             for (let i = 0; i < deposits.length; i++) {
+              if (cancellationOf.has(deposits[i])) continue;
               if (deposits[i].source === 'airbnb' || deposits[i].source === 'other') elig.push(i);
             }
             const pairs: [number, number][] = [];
@@ -1705,14 +1853,6 @@ export async function POST(request: NextRequest) {
     // dismiss them) from the Statements page. `dedupe_key` makes re-uploads
     // idempotent; INSERT ON CONFLICT DO NOTHING preserves prior reviews.
     const monthOnly = month; // YYYY-MM
-    // Inline MM/DD/YYYY -> YYYY-MM-DD here; the file's other `toISO` is
-    // declared further down (cleaning-events section) so it's not visible
-    // from this block.
-    const depToISO = (s: string) => {
-      const parts = s.split('/');
-      if (parts.length !== 3) return '';
-      return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
-    };
     // (code -> {check_out, platform}) -- check_OUT, not check_in, because
     // ancillary deposits (Airbnb pet fees, etc.) land on or right after
     // the guest leaves, so the most recently checked-out stay is the
@@ -1723,6 +1863,13 @@ export async function POST(request: NextRequest) {
     for (const r of processedReservations) {
       if (r.confirmation_code) resByCode.set(r.confirmation_code, { check_out: r.check_out, platform: r.platform });
     }
+
+    // Cancellation payouts were decided above section 4 (cancellationOf):
+    // an exact-cent match to a cancelled Airbnb booking's LIVE retained
+    // figure. Here they get the suggestion and the two texts; an Airbnb
+    // deposit the check could not clear gets no suggestion and a note
+    // saying so, never the nearest-checkout guess.
+
     const reviewRows: Record<string, unknown>[] = [];
     for (const d of deposits) {
       if (d.source === 'stripe') continue;
@@ -1756,6 +1903,11 @@ export async function POST(request: NextRequest) {
           if (dist < bestDist) { bestDist = dist; suggested = code; }
         }
       }
+      // A cancellation payout beats the nearest-checkout guess: it is an
+      // exact match to a specific cancelled booking, and it carries a note
+      // that says what the money is and whether it may be attributed.
+      const cancellation = cancellationOf.get(d) ?? null;
+      const unverified = !cancellation && d.source === 'airbnb' && !cancellationCheckComplete;
       const safeDesc = (d.description || '').slice(0, 60);
       reviewRows.push({
         property_id: propertyId,
@@ -1764,7 +1916,9 @@ export async function POST(request: NextRequest) {
         amount: Math.round(d.amount * 100) / 100,
         description: d.description || null,
         source: d.source,
-        suggested_reservation_code: suggested,
+        suggested_reservation_code: cancellation ? cancellation.code : (unverified ? null : suggested),
+        label: cancellation ? cancellation.label : null,
+        review_note: cancellation ? cancellation.review_note : (unverified ? cancellationCheckNote(cancellationCheck) : null),
         dedupe_key: `${propertyId}|${monthOnly}|${isoDate}|${Math.round(d.amount * 100) / 100}|${safeDesc}`,
       });
     }
@@ -1778,6 +1932,43 @@ export async function POST(request: NextRequest) {
         // Don't fail the whole ingest if the review queue insert errors --
         // log and continue (the statement totals are already correct).
         console.warn('bank_deposit_attributions insert failed:', bdaErr.message);
+      }
+      // A pending Airbnb row an earlier run could not check (Guesty down
+      // at ingest) carries no suggestion and the incomplete note. The
+      // dedupe above keeps it that way, so once a run checks cleanly it
+      // rewrites the pipeline-owned fields on exactly those rows. Rows
+      // the operator has attributed or dismissed are never touched.
+      if (cancellationCheckComplete) {
+        try {
+          const healable = reviewRows.filter(r => r.source === 'airbnb');
+          if (healable.length > 0) {
+            const { data: stale, error: staleErr } = await supabase
+              .from('bank_deposit_attributions')
+              .select('id, dedupe_key')
+              .eq('property_id', propertyId)
+              .eq('month', monthOnly)
+              .eq('status', 'pending')
+              .like('review_note', `${CANCELLATION_CHECK_INCOMPLETE_PREFIX}%`);
+            if (staleErr) throw new Error(staleErr.message);
+            for (const row of stale || []) {
+              const fresh = healable.find(r => r.dedupe_key === row.dedupe_key);
+              if (!fresh) continue;
+              const { error: healErr } = await supabase
+                .from('bank_deposit_attributions')
+                .update({
+                  suggested_reservation_code: fresh.suggested_reservation_code,
+                  label: fresh.label,
+                  review_note: fresh.review_note,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', row.id)
+                .eq('status', 'pending');
+              if (healErr) throw new Error(healErr.message);
+            }
+          }
+        } catch (e) {
+          console.warn('bank_deposit_attributions cancellation re-check failed:', e instanceof Error ? e.message : String(e));
+        }
       }
     }
 

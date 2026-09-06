@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { loadBankDepositReview } from '@/app/statements/actions';
+import { ALREADY_RECOGNIZED_NOTE_PREFIX, CANCELLATION_CHECK_INCOMPLETE_PREFIX } from '@/lib/cancellation-payout-match';
 import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
 import { isFutureStayPrincipal } from '@/lib/extras-markers';
 import { isInternalSweepSource, SWEEP_SOURCE } from '@/lib/internal-transfers';
@@ -30,6 +31,10 @@ type Deposit = {
   status: 'pending' | 'attributed' | 'dismissed';
   attributed_reservation_code: string | null;
   label: string | null;
+  // Pipeline-written, operator-facing (which stay a deposit is, whether it
+  // may be attributed). Never printed on a statement; the undo path does
+  // not clear it, so its guard survives an undo.
+  review_note?: string | null;
 };
 
 type ReservationOption = { confirmation_code: string | null; guest_name: string };
@@ -124,19 +129,32 @@ export function BankDepositReview({
   function draftFor(dep: Deposit) {
     const d = drafts[dep.id];
     if (d) return d;
+    const suggested = dep.suggested_reservation_code;
+    // A suggestion for a stay that is NOT on this statement (a cancellation
+    // payout: the booking was cancelled, so it is on no statement) used to
+    // fall through to the first guest in the dropdown, which is how a
+    // cancellation payout would have been attributed to whoever happened
+    // to be listed first. It now routes through the "other stay" path with
+    // the code filled in, exactly as the operator would type it.
+    const offStatement = !!suggested && !validCodes.includes(suggested);
     const initial = {
-      label: dep.source === 'stripe_charge'
-        ? (dep.direction === 'debit' ? 'Stripe fee on refunded charge' : inferStripeLabel(dep.description))
-        : 'Add-on',
-      code: dep.suggested_reservation_code && validCodes.includes(dep.suggested_reservation_code)
-        ? dep.suggested_reservation_code
-        : (validCodes[0] || ''),
-      manualCode: '',
+      // A label the pipeline prefilled says what the money is; keep it.
+      label: dep.label
+        ? dep.label
+        : dep.source === 'stripe_charge'
+          ? (dep.direction === 'debit' ? 'Stripe fee on refunded charge' : inferStripeLabel(dep.description))
+          : 'Add-on',
+      code: offStatement ? '__other__' : (suggested && validCodes.includes(suggested) ? suggested : (validCodes[0] || '')),
+      manualCode: offStatement ? suggested! : '',
     };
     return initial;
   }
-  function setDraft(id: string, next: { label?: string; code?: string; manualCode?: string }) {
-    setDrafts(prev => ({ ...prev, [id]: { ...draftFor({ id, suggested_reservation_code: null } as Deposit), ...prev[id], ...next } }));
+  // Merge onto the REAL row's initial draft. Building the base from a
+  // stand-in with no suggestion used to re-target a prefilled row to the
+  // first guest, drop its label and unmount the manual-code input on the
+  // operator's first keystroke.
+  function setDraft(dep: Deposit, next: { label?: string; code?: string; manualCode?: string }) {
+    setDrafts(prev => ({ ...prev, [dep.id]: { ...draftFor(dep), ...prev[dep.id], ...next } }));
   }
   // "__other__" in the dropdown = a stay not on this month's statement (e.g.
   // a prior-month reservation whose charge was carried forward). The typed
@@ -150,6 +168,12 @@ export function BankDepositReview({
     const draft = draftFor(dep);
     const label = draft.label;
     const code = effectiveCode(draft);
+    // The pipeline marks a cancellation payout whose stay is ALREADY on a
+    // statement, carried at the retained amount and waiting for this very
+    // deposit. Attributing it as an add-on too pays the owner twice.
+    if ((dep.review_note || '').startsWith(ALREADY_RECOGNIZED_NOTE_PREFIX)) {
+      if (!confirm(`${dep.review_note}\n\nAttribute anyway?`)) return;
+    }
     // Deposits MUST pick a reservation (the credit ties to a specific
     // stay's revenue). Debits don't have to -- the trash-can reimbursement
     // is a property-level expense, not tied to a guest. Also require a
@@ -318,19 +342,31 @@ export function BankDepositReview({
                         {(dep.description || '').slice(0, 60)}
                       </span>
                     </div>
+                    {dep.review_note ? (
+                      // What the pipeline knows about this deposit, in full.
+                      // A "do not attribute" or "could not check" note is the
+                      // whole point of the card, so it reads as a line, not
+                      // as the first 20 characters of a 140px input.
+                      <div style={{
+                        fontSize: 12, lineHeight: 1.45, maxWidth: 640,
+                        color: dep.review_note.startsWith(ALREADY_RECOGNIZED_NOTE_PREFIX) || dep.review_note.startsWith(CANCELLATION_CHECK_INCOMPLETE_PREFIX) ? 'var(--signal)' : 'var(--ink-2)',
+                      }}>
+                        {dep.review_note}
+                      </div>
+                    ) : null}
                     <div className="flex items-center flex-wrap" style={{ gap: 8 }}>
                       <input
                         type="text"
                         value={d.label}
-                        onChange={(e) => setDraft(dep.id, { label: e.target.value })}
+                        onChange={(e) => setDraft(dep, { label: e.target.value })}
                         disabled={busy}
                         placeholder="Add-on label"
-                        style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12, width: 140 }}
+                        style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12, width: dep.label ? 320 : 140 }}
                       />
                       <span style={{ fontSize: 10, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '.14em' }}>to</span>
                       <select
                         value={d.code}
-                        onChange={(e) => setDraft(dep.id, { code: e.target.value })}
+                        onChange={(e) => setDraft(dep, { code: e.target.value })}
                         disabled={busy}
                         style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12 }}
                       >
@@ -343,7 +379,7 @@ export function BankDepositReview({
                         <input
                           type="text"
                           value={d.manualCode || ''}
-                          onChange={(e) => setDraft(dep.id, { manualCode: e.target.value })}
+                          onChange={(e) => setDraft(dep, { manualCode: e.target.value })}
                           disabled={busy}
                           placeholder="BC-XXXXXXX"
                           style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12, width: 120, fontFamily: 'var(--font-mono)' }}
@@ -415,7 +451,7 @@ export function BankDepositReview({
                       <input
                         type="text"
                         value={d.label === 'Add-on' ? '' : d.label}
-                        onChange={(e) => setDraft(dep.id, { label: e.target.value })}
+                        onChange={(e) => setDraft(dep, { label: e.target.value })}
                         disabled={busy}
                         placeholder="e.g. Trash can reimbursement"
                         style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12, width: 220 }}
@@ -493,7 +529,7 @@ export function BankDepositReview({
                       <input
                         type="text"
                         value={d.label === 'Add-on' ? '' : d.label}
-                        onChange={(e) => setDraft(dep.id, { label: e.target.value })}
+                        onChange={(e) => setDraft(dep, { label: e.target.value })}
                         disabled={busy}
                         placeholder="Actually an expense? Name it"
                         style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', padding: '4px 8px', fontSize: 12, width: 220 }}
