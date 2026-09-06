@@ -3,6 +3,7 @@ import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT, parseInternalTransfer, TAX_REMITTANCE_ACCOUNT, RT_OPERATING_ACCOUNT } from '@/lib/bank-charges';
+import { matchCancellationPayout, type CancelledCandidate } from '@/lib/cancellation-payout-match';
 import { classifyCancelledStay, cancelledStayGap } from '@/lib/cancelled-stay';
 import { checkLiveGuestyCancellation } from '@/lib/cancel-check';
 import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-ruling';
@@ -1723,6 +1724,65 @@ export async function POST(request: NextRequest) {
     for (const r of processedReservations) {
       if (r.confirmation_code) resByCode.set(r.confirmation_code, { check_out: r.check_out, platform: r.platform });
     }
+
+    // Cancellation payouts. An Airbnb guest who cancels under a policy that
+    // keeps part of the payment produces a deposit months later, after the
+    // original check-in, with no stay on any statement to match it. The
+    // nearest-checkout suggestion below would hand it to the wrong guest.
+    // Load this property's cancelled Airbnb bookings that retained money
+    // (the cached host_payout is post-cancel whenever the cached status
+    // is cancelled, since the sync writes both together) and which
+    // statement, if any, already carries each code. A failed read leaves
+    // the suggestion as it was and says so in the log: the fallback is the
+    // status quo guess, not a silent pass.
+    let cancelledCandidates: CancelledCandidate[] = [];
+    try {
+      const { data: cancelledRows, error: cancelledErr } = await supabase
+        .from('guesty_reservations')
+        .select('confirmation_code, guest_name, check_in, check_out, host_payout, channel')
+        .eq('property_id', propertyId)
+        .in('status', ['canceled', 'cancelled'])
+        .gt('host_payout', 0);
+      if (cancelledErr) throw new Error(cancelledErr.message);
+      const airbnb = (cancelledRows || []).filter(r => (r.channel || '').toUpperCase() === 'AIRBNB' && r.confirmation_code);
+      // Which statement already carries each code, if any. Three plain
+      // reads rather than a nested embed: property_statements has no month
+      // column, and an embed that silently returned nothing would read as
+      // "on no statement", which is the wrong direction to fail.
+      const recognizedOn = new Map<string, string>();
+      if (airbnb.length > 0) {
+        const { data: onRows, error: onErr } = await supabase
+          .from('reservations')
+          .select('confirmation_code, property_statement_id')
+          .in('confirmation_code', airbnb.map(r => r.confirmation_code as string));
+        if (onErr) throw new Error(onErr.message);
+        const sids = [...new Set((onRows || []).map(r => r.property_statement_id as string).filter(Boolean))];
+        if (sids.length > 0) {
+          const { data: stmts, error: stErr } = await supabase.from('property_statements').select('id, period_id').in('id', sids);
+          if (stErr) throw new Error(stErr.message);
+          const pids = [...new Set((stmts || []).map(st => st.period_id as string).filter(Boolean))];
+          const { data: periods, error: perErr } = await supabase.from('statement_periods').select('id, month').in('id', pids);
+          if (perErr) throw new Error(perErr.message);
+          const monthOfPeriod = new Map((periods || []).map(pp => [pp.id as string, pp.month as string]));
+          const monthOfStmt = new Map((stmts || []).map(st => [st.id as string, monthOfPeriod.get(st.period_id as string) || '']));
+          for (const r of onRows || []) {
+            const m = monthOfStmt.get(r.property_statement_id as string);
+            if (r.confirmation_code && m && !recognizedOn.has(r.confirmation_code as string)) recognizedOn.set(r.confirmation_code as string, m);
+          }
+        }
+      }
+      cancelledCandidates = airbnb.map(r => ({
+        code: r.confirmation_code as string,
+        guest_name: r.guest_name,
+        check_in: String(r.check_in),
+        check_out: String(r.check_out),
+        host_payout: r.host_payout === null ? null : Number(r.host_payout),
+        recognized_on: recognizedOn.get(r.confirmation_code as string) ?? null,
+      }));
+    } catch (e) {
+      console.warn(`cancellation-payout candidates unavailable for ${propertyId}:`, e instanceof Error ? e.message : String(e));
+    }
+
     const reviewRows: Record<string, unknown>[] = [];
     for (const d of deposits) {
       if (d.source === 'stripe') continue;
@@ -1756,6 +1816,13 @@ export async function POST(request: NextRequest) {
           if (dist < bestDist) { bestDist = dist; suggested = code; }
         }
       }
+      // A cancellation payout beats the nearest-checkout guess: it is an
+      // exact match to a specific cancelled booking, and it carries a label
+      // that says what the money is and whether it may be attributed.
+      const cancellation = matchCancellationPayout(
+        { amount: d.amount, source: d.source, deposit_date: isoDate },
+        cancelledCandidates,
+      );
       const safeDesc = (d.description || '').slice(0, 60);
       reviewRows.push({
         property_id: propertyId,
@@ -1764,7 +1831,8 @@ export async function POST(request: NextRequest) {
         amount: Math.round(d.amount * 100) / 100,
         description: d.description || null,
         source: d.source,
-        suggested_reservation_code: suggested,
+        suggested_reservation_code: cancellation ? cancellation.code : suggested,
+        ...(cancellation ? { label: cancellation.label } : {}),
         dedupe_key: `${propertyId}|${monthOnly}|${isoDate}|${Math.round(d.amount * 100) / 100}|${safeDesc}`,
       });
     }

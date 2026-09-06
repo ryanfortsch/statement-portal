@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { loadBankDepositReview } from '@/app/statements/actions';
+import { ALREADY_RECOGNIZED_LABEL_PREFIX } from '@/lib/cancellation-payout-match';
 import { jsonWithFreezeRetry } from '@/lib/freeze-confirm';
 import { isFutureStayPrincipal } from '@/lib/extras-markers';
 import { isInternalSweepSource, SWEEP_SOURCE } from '@/lib/internal-transfers';
@@ -124,14 +125,23 @@ export function BankDepositReview({
   function draftFor(dep: Deposit) {
     const d = drafts[dep.id];
     if (d) return d;
+    const suggested = dep.suggested_reservation_code;
+    // A suggestion for a stay that is NOT on this statement (a cancellation
+    // payout: the booking was cancelled, so it is on no statement) used to
+    // fall through to the first guest in the dropdown, which is how a
+    // cancellation payout would have been attributed to whoever happened
+    // to be listed first. It now routes through the "other stay" path with
+    // the code filled in, exactly as the operator would type it.
+    const offStatement = !!suggested && !validCodes.includes(suggested);
     const initial = {
-      label: dep.source === 'stripe_charge'
-        ? (dep.direction === 'debit' ? 'Stripe fee on refunded charge' : inferStripeLabel(dep.description))
-        : 'Add-on',
-      code: dep.suggested_reservation_code && validCodes.includes(dep.suggested_reservation_code)
-        ? dep.suggested_reservation_code
-        : (validCodes[0] || ''),
-      manualCode: '',
+      // A label the pipeline prefilled says what the money is; keep it.
+      label: dep.label
+        ? dep.label
+        : dep.source === 'stripe_charge'
+          ? (dep.direction === 'debit' ? 'Stripe fee on refunded charge' : inferStripeLabel(dep.description))
+          : 'Add-on',
+      code: offStatement ? '__other__' : (suggested && validCodes.includes(suggested) ? suggested : (validCodes[0] || '')),
+      manualCode: offStatement ? suggested! : '',
     };
     return initial;
   }
@@ -150,6 +160,12 @@ export function BankDepositReview({
     const draft = draftFor(dep);
     const label = draft.label;
     const code = effectiveCode(draft);
+    // The pipeline marks a cancellation payout whose stay is ALREADY on a
+    // statement, carried at the retained amount and waiting for this very
+    // deposit. Attributing it as an add-on too pays the owner twice.
+    if ((dep.label || '').startsWith(ALREADY_RECOGNIZED_LABEL_PREFIX)) {
+      if (!confirm(`${dep.label}.\n\nThis deposit is money a statement already carries. Attributing it again pays the owner twice. Attribute anyway?`)) return;
+    }
     // Deposits MUST pick a reservation (the credit ties to a specific
     // stay's revenue). Debits don't have to -- the trash-can reimbursement
     // is a property-level expense, not tied to a guest. Also require a
