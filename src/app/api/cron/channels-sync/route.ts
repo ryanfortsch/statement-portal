@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { syncAllListings } from '@/lib/ical-sync';
 import { loadGuestyListingMap, syncCalendarDays } from '@/lib/calendar-days';
 import { backfillReservationGaps } from '@/lib/reservation-gap-backfill';
-import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
+import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { authorizeCron } from '@/lib/cron-auth';
 
 export const maxDuration = 300;
@@ -40,7 +40,18 @@ async function syncCalendarWindow(): Promise<Record<string, unknown>> {
     const start = new Date(Date.now() - CALENDAR_DAYS_BACK * 86400_000).toISOString().slice(0, 10);
     const end = new Date(Date.now() + CALENDAR_DAYS_FORWARD * 86400_000).toISOString().slice(0, 10);
     const result = await syncCalendarDays(listingMap, start, end);
-    await recordSyncSuccess('guesty-calendar', result);
+    // A per-property failure is swallowed inside syncCalendarDays (one
+    // property's 404 aborts that property's whole refresh, other listings
+    // included). Stamping unconditional success meant sync_status stayed
+    // 'ok' and the daily brief's age-and-status check never flagged a
+    // mirror that had quietly stopped updating, while every downstream
+    // freshness guard kept trusting it.
+    await recordSyncResult('guesty-calendar', {
+      processed: result.listings_touched,
+      failed: result.properties_failed,
+      firstError: result.errors?.[0],
+      result,
+    });
     const gaps = await backfillReservationGaps({ startDate: start, endDate: end });
     return { ...(result as unknown as Record<string, unknown>), reservation_gaps: gaps };
   } catch (err) {

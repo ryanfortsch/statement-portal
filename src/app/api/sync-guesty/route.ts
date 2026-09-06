@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { recordSyncFailure, recordSyncSuccess } from '@/lib/sync-status';
+import { recordSyncFailure, recordSyncSuccess, recordSyncResult } from '@/lib/sync-status';
 import { syncCalendarDays } from '@/lib/calendar-days';
 import { reconcileStaleReservations } from '@/lib/reservation-reconcile';
 import { cancelGhostBookings } from '@/lib/ghost-booking-reconcile';
@@ -764,8 +764,18 @@ export async function POST(request: NextRequest) {
     };
     try {
       const { startDate, endDate } = calWindow;
-      calendarResult = await syncCalendarDays(listingMap, startDate, endDate);
-      await recordSyncSuccess('guesty-calendar', calendarResult);
+      const cal = await syncCalendarDays(listingMap, startDate, endDate);
+      calendarResult = cal;
+      // A property whose refresh threw is swallowed inside syncCalendarDays.
+      // Stamping unconditional success left sync_status 'ok' on a mirror
+      // that had quietly stopped updating, while every downstream freshness
+      // guard kept trusting it.
+      await recordSyncResult('guesty-calendar', {
+        processed: cal.listings_touched,
+        failed: cal.properties_failed,
+        firstError: cal.errors?.[0],
+        result: cal,
+      });
     } catch (err) {
       calendarResult = { error: err instanceof Error ? err.message : String(err) };
       await recordSyncFailure('guesty-calendar', err);
