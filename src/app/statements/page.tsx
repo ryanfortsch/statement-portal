@@ -736,6 +736,9 @@ function gapFillType(gapType: string): FillGapType | null {
 const PIPELINE_OWNED_GAP_TYPES = new Set([
   'missing_bank_csv', 'unmatched_bank',
   'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
+  // Re-derived by ingest while the statement's amount differs from what the
+  // cancellation retained; it clears itself once the amount is corrected.
+  'cancelled_reservation_retained',
 ]);
 // NOT vendor_refund_unapplied: Fill Gap deliberately no longer deletes and
 // re-derives it (a narrower CSV would lose a real one), so nothing retires
