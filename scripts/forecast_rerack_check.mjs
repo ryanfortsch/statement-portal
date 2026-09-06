@@ -297,6 +297,8 @@ const CARD_CASES = [
   ['FURNISHED FINDER', -199.00, 'Listing platforms'],
   ['SP FIX LINENS', -4031.30, 'Guest supplies'],
   ['GUESTY', -1200.00, 'Software'],
+  ['SEAM IOT API', -179.00, 'Software'],
+  ['MIDJOURNEY INC.', -63.75, 'Software'],
 ];
 for (const [description, amount, want] of CARD_CASES) {
   const got = categorizeOverhead({ account: 'card', description, amount, chaseCategory: 'Professional Services' });

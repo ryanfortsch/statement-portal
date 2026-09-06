@@ -275,7 +275,14 @@ export const BOOKKEEPER_FINAL_AMOUNT = 1800;
  * Insurance. A single annual premium (Phillips, commercial general
  * liability) paid as one lump sum in March — $5,263.92 on 03/02/2026,
  * same March renewal assumed forward. Nothing else is modeled: there is
- * no recurring monthly premium.
+ * no recurring monthly premium (GEICO auto is monthly and rides the card,
+ * see CC_VEHICLE_INSURANCE_MONTHLY).
+ *
+ * OPEN, revisit April 2027: Arbella charged $3,188.57 to the card on
+ * 2026-04-15. Dotti ruled it a one-time hit (2026-09-06), so the ACT row
+ * carries it on the Insurance line and nothing is projected. If Arbella
+ * renews next April, add a second annual constant here rather than letting
+ * it land in the card's monthly run rate.
  */
 export const INSURANCE_ANNUAL = 5264;
 export const INSURANCE_MONTH = 3;
