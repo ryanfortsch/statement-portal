@@ -10,6 +10,7 @@ import {
   type SyncHealthRow, type MonthDataStatus,
 } from './actions';
 import { PROPERTIES, ALWAYS_CC, SEND_FROM } from '@/lib/properties';
+import type { Reconciliation, Lane } from '@/lib/statement-reconciliation';
 import type { RemittanceSheet } from '@/lib/remittance';
 import {
   renderEmail, fmtFundsSentDate, resolveOwnerRequests, ownerRequestsHaveContent,
@@ -164,6 +165,13 @@ type PropertyStatement = {
   gaps_known?: boolean;
   /** Revenue-bearing Guesty rows with no confirmation code: unmatchable. */
   drift_unmatchable?: number;
+  /**
+   * Helm's numbers held against independent sources, every difference
+   * named (src/lib/statement-reconciliation.ts). Undefined means the loader
+   * could not build it, which the strip must show as unknown, never as
+   * reconciled.
+   */
+  reconciliation?: Reconciliation;
 };
 
 type StatementPeriod = {
@@ -1388,6 +1396,79 @@ function SyncMenuItem({
 }
 
 /* ─── Property Card ─── */
+const LANE_GLYPH: Record<Lane['state'], { glyph: string; color: string; word: string }> = {
+  agree: { glyph: '✓', color: 'var(--positive)', word: 'agrees' },
+  differs: { glyph: '✕', color: 'var(--negative)', word: 'differs' },
+  unknown: { glyph: '?', color: 'var(--negative)', word: 'unknown' },
+  not_recorded: { glyph: '–', color: 'var(--ink-4)', word: 'not recorded' },
+  info: { glyph: '·', color: 'var(--ink-4)', word: '' },
+};
+
+/**
+ * One line per lane. A lane that agrees shows only its sentence; a lane that
+ * differs, is unknown, or carries a warning line opens up and names the
+ * rows and amounts, so the operator's time goes to the difference and
+ * nowhere else. That is the whole point: the close used to be verifying
+ * every statement by hand because nothing here said which ones needed it.
+ */
+function ReconciliationStrip({ recon }: { recon?: Reconciliation }) {
+  const fmtAmt = (v: number) => `${v < 0 ? '−' : '+'}$${Math.abs(v).toFixed(2)}`;
+  if (!recon) {
+    return (
+      <div style={{ padding: '10px 0', borderTop: '1px dotted var(--rule)' }}>
+        <span className="eyebrow" style={{ color: 'var(--negative)', marginRight: 10 }}>Reconciliation</span>
+        <span style={{ fontSize: 12, color: 'var(--negative)' }}>could not be computed for this statement</span>
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: '10px 0', borderTop: '1px dotted var(--rule)' }}>
+      <div className="flex items-baseline flex-wrap" style={{ gap: 14, marginBottom: 6 }}>
+        <span className="eyebrow" style={{ color: recon.reconciled ? 'var(--ink-4)' : 'var(--signal)' }}>Reconciliation</span>
+        {recon.reconciled ? (
+          <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
+            Reconciled &middot; every check agrees or has nothing to check against.
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--negative)', fontWeight: 600 }}>
+            Not reconciled &middot; {recon.blocking.length} thing{recon.blocking.length === 1 ? '' : 's'} to look at
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 12, rowGap: 3, fontSize: 12 }}>
+        {recon.lanes.map(l => {
+          const g = LANE_GLYPH[l.state];
+          const open = l.state === 'differs' || l.state === 'unknown' || l.lines.some(x => x.tone === 'warn');
+          return (
+            <div key={l.key} style={{ display: 'contents' }}>
+              <span style={{ color: 'var(--ink-4)', fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', paddingTop: 2, whiteSpace: 'nowrap' }}>
+                <span style={{ color: g.color, fontWeight: 700, marginRight: 6 }}>{g.glyph}</span>{l.title}
+              </span>
+              <div>
+                <span style={{ color: l.state === 'differs' || l.state === 'unknown' ? 'var(--ink)' : 'var(--ink-3)' }}>{l.summary}</span>
+                {open && l.lines.length > 0 && (
+                  <ul style={{ listStyle: 'none', margin: '3px 0 4px', padding: 0 }}>
+                    {l.lines.map((x, i) => (
+                      <li key={i} style={{ color: x.tone === 'warn' ? 'var(--negative)' : 'var(--ink-3)', padding: '1px 0' }}>
+                        {x.label}
+                        {x.count !== undefined && <span className="tabular-nums"> &middot; {x.count}</span>}
+                        {x.amount !== undefined && <span className="tabular-nums"> &middot; {fmtAmt(x.amount)}</span>}
+                        {x.codes && x.codes.length > 0 && (
+                          <span className="font-mono" style={{ fontSize: 10, color: 'var(--ink-4)', marginLeft: 6 }}>{x.codes.join(' ')}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PropertyCard({
   prop,
   month,
@@ -1653,6 +1734,12 @@ function PropertyCard({
               </span>
             )}
           </div>
+
+          {/* Reconciliation: Helm against independent sources, differences named.
+              Sits above the financials because it is the thing that says
+              whether the financials can be trusted. Not a numbered section:
+              it is a status surface, not part of the document. */}
+          <ReconciliationStrip recon={prop.reconciliation} />
 
           {/* Financial summary + performance */}
           <div className="rt-two-col" style={{
@@ -3691,6 +3778,11 @@ function DashboardContent() {
         const platformMissing = monthStatus ? !monthStatus.platform_csv.on_file : false;
         const bookingMissing = monthStatus?.booking_activity.known ? monthStatus.booking_activity.rows === 0 : false;
         const gapsUnknown = props.some(p => p.gaps_known === false);
+        // Reconciliation is the close's real test. A statement whose
+        // reconciliation could not be built is unknown, and unknown blocks:
+        // it is not evidence the numbers are right.
+        const unreconciledIds = props.filter(p => p.reconciliation && !p.reconciliation.reconciled).map(p => p.property_id);
+        const reconUnknown = props.some(p => !p.reconciliation);
         // `unmatchable` is deliberately NOT a term here. Those rows live in
         // Guesty with no confirmation code; nothing the operator does in
         // Helm can drive the count to zero, so gating the all-clear on it
@@ -3698,7 +3790,8 @@ function DashboardContent() {
         // fatigue this audit is trying to cure. It shows as a chip instead.
         const clear = depositCount === 0 && totalGaps === 0 && driftCount === 0 && unsentIds.length === 0
           && depositReviewCounts.known && !driftUnknown && !gapsUnknown
-          && failingSyncs.length === 0 && !platformMissing && !bookingMissing;
+          && failingSyncs.length === 0 && !platformMissing && !bookingMissing
+          && unreconciledIds.length === 0 && !reconUnknown;
         const warnChip = (text: string, title?: string) => (
           <span title={title} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 7 }}>
             <span style={{ fontSize: 12, color: 'var(--negative)', fontWeight: 600 }}>{text}</span>
@@ -3713,7 +3806,7 @@ function DashboardContent() {
               {clear ? (
                 <>
                   <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
-                    Month is clear &middot; inputs on file, every queue empty, every statement sent.
+                    Month is clear &middot; every statement reconciled, inputs on file, every queue empty, every statement sent.
                   </span>
                   {unmatchable > 0 && warnChip(
                     `${unmatchable} Guesty row${unmatchable === 1 ? '' : 's'} with no confirmation code`,
@@ -3731,9 +3824,17 @@ function DashboardContent() {
                   {!depositReviewCounts.known && warnChip('bank review counts unavailable', 'The pending-deposit count failed to load; the queue may not be empty.')}
                   {props.some(p => p.gaps_known === false) && warnChip('gap list unavailable', 'The data-gaps read failed for at least one property, so a statement may be carrying flags this page cannot show.')}
                   {driftUnknown && warnChip('new-booking check unavailable', 'The Guesty drift probe failed for at least one property, so bookings could be missing from a statement without showing here.')}
+                  {reconUnknown && warnChip('reconciliation unavailable', 'At least one statement could not be reconciled against its sources, so its numbers are unverified.')}
                   {unmatchable > 0 && warnChip(
                     `${unmatchable} Guesty row${unmatchable === 1 ? '' : 's'} with no confirmation code`,
                     'These rows carry revenue but have no confirmation code, so nothing can match them to a stay or add them to a statement. Check them in Guesty.',
+                  )}
+                  {unreconciledIds.length > 0 && (
+                    <ReviewSegment
+                      count={unreconciledIds.length}
+                      label={`statement${unreconciledIds.length === 1 ? '' : 's'} not reconciled`}
+                      onOpen={() => focusCards(unreconciledIds)}
+                    />
                   )}
                   {depositCount > 0 && (
                     <ReviewSegment

@@ -6,6 +6,10 @@ import { getCachedPlatformCSV } from '@/lib/platform-csv-cache';
 import { REVENUE_SIGNAL_COLUMNS, REVENUE_SIGNAL_OR, CONFIRMED_STATUS } from '@/lib/guesty-revenue-signal';
 import { buildRemittanceSheet, type RemittanceSheet } from '@/lib/remittance';
 import { isInternalSweepSource } from '@/lib/internal-transfers';
+import { loadInstallmentsForCodes } from '@/lib/installments';
+import { loadStatementInputs } from '@/lib/statement-totals-write';
+import { computeStatementTotals } from '@/lib/statement-totals';
+import { reconcileStatement, type Reconciliation } from '@/lib/statement-reconciliation';
 import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
 import type { OwnerRequestSelections, PropertyRequestCandidates } from '@/lib/email-templates';
 import { auth } from '@/auth';
@@ -163,6 +167,10 @@ export async function loadPeriodData(month: string): Promise<
 
   const { data: props, error: propsError } = await supabaseAdmin
     .from('property_statements').select('*').eq('period_id', periodData.id).order('property_name');
+  // Feed health once for the whole period: the Stripe and invoice lanes
+  // report unknown when their sync is failing, since a silent sync is not
+  // a clean one.
+  const syncMap = await loadLastSyncMap();
   if (propsError) return { error: propsError.message || JSON.stringify(propsError) };
 
   const monthStart = `${month}-01`;
@@ -171,7 +179,15 @@ export async function loadPeriodData(month: string): Promise<
 
   const enriched = await Promise.all(
     (props || []).map(async (prop: { id: string; property_id: string }) => {
-      const [resResult, cleanResult, repairResult, debitResult, gapResult, guestyResResult] = await Promise.all([
+      // The pure payout formula over this statement's rows, through the SAME
+      // loader the write path uses, so the payout lane is literally "what the
+      // write path would write" against what is stored. Never rejects the
+      // batch: a failed load is a null recompute, which the lane reports as
+      // unknown.
+      const recomputePromise = loadStatementInputs(supabaseAdmin, prop.id)
+        .then(loaded => ({ ok: true as const, totals: computeStatementTotals(loaded.inputs) }))
+        .catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+      const [resResult, cleanResult, repairResult, debitResult, gapResult, guestyResResult, recompute] = await Promise.all([
         supabaseAdmin.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
         supabaseAdmin.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
         supabaseAdmin.from('repair_events').select('*').eq('property_statement_id', prop.id).order('bank_charge_date'),
@@ -213,6 +229,7 @@ export async function loadPeriodData(month: string): Promise<
           .gte('check_out', monthStart)
           .lt('check_out', monthEndExclusive)
           .or(REVENUE_SIGNAL_OR),
+        recomputePromise,
       ]);
       // A failed reservations read would empty existingCodes and make every
       // Guesty row look like drift, so both reads must have succeeded before
@@ -265,8 +282,70 @@ export async function loadPeriodData(month: string): Promise<
       // Default 'deposit' matches loadAddOnTotals: the column arrived after
       // the table did, and a null there has always meant a credit.
       const isDebit = (a: AttributionRow) => (a.direction || 'deposit') === 'debit';
+      // Installment splits for this statement's stays: a sliced stay is
+      // allowed to differ from the PDF. A failed read is null, and the Helm
+      // lane reports unknown rather than guessing which stays are sliced.
+      const codes = (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean) as string[];
+      let splitCodes: Set<string> | null = null;
+      try {
+        const byCode = await loadInstallmentsForCodes(supabaseAdmin, codes);
+        splitCodes = new Set([...byCode.entries()].filter(([, rows]) => rows.length > 0).map(([code]) => code));
+      } catch (e) {
+        console.error(`installments read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
+      }
+      if (!recompute.ok) console.error(`recompute failed for ${prop.property_id}:`, recompute.error);
+
+      // Reconciliation needs the rows themselves. Without them there is
+      // nothing to hold against anything, so the result is absent and the
+      // page shows it as unknown, never as reconciled.
+      let reconciliation: Reconciliation | undefined;
+      if (!resResult.error && !cleanResult.error) {
+        const st = prop as unknown as {
+          rental_revenue: number | null; management_fee: number | null; cleaning_total: number | null;
+          repairs_total: number | null; add_ons_revenue: number | null; attributed_debits_total: number | null;
+          reserve_holdback: number | null; owner_payout: number | null; num_stays: number | null;
+          nights_booked: number | null; has_bank_csv: boolean | null;
+          pdf_stay_count: number | null; pdf_rental_income_sum: number | null; pdf_confirmation_codes: string[] | null;
+        };
+        const feedState = (src: string): 'ok' | 'error' | 'unknown' => {
+          const st = syncMap[src]?.last_status;
+          return st === 'ok' ? 'ok' : st === 'error' ? 'error' : 'unknown';
+        };
+        try {
+          reconciliation = reconcileStatement({
+            month,
+            statement: {
+              rental_revenue: st.rental_revenue, management_fee: st.management_fee, cleaning_total: st.cleaning_total,
+              repairs_total: st.repairs_total, add_ons_revenue: st.add_ons_revenue, attributed_debits_total: st.attributed_debits_total,
+              reserve_holdback: st.reserve_holdback, owner_payout: st.owner_payout, num_stays: st.num_stays,
+              nights_booked: st.nights_booked, has_bank_csv: !!st.has_bank_csv,
+              pdf_stay_count: st.pdf_stay_count ?? null,
+              pdf_rental_income_sum: st.pdf_rental_income_sum === null || st.pdf_rental_income_sum === undefined ? null : Number(st.pdf_rental_income_sum),
+              pdf_confirmation_codes: Array.isArray(st.pdf_confirmation_codes) ? st.pdf_confirmation_codes : null,
+            },
+            reservations: resResult.data || [],
+            cleaningEvents: cleanResult.data || [],
+            gaps: (gapResult.data || []) as { gap_type: string; severity: string | null; resolved: boolean | null }[],
+            gapsKnown: !gapResult.error,
+            driftCodes: driftKnown
+              ? driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[]
+              : null,
+            splitCodes,
+            feeds: { stripe: feedState('stripe'), invoices: feedState('gmail-invoices') },
+            recomputed: recompute.ok ? {
+              rental_revenue: recompute.totals.rental_revenue, management_fee: recompute.totals.management_fee,
+              cleaning_total: recompute.totals.cleaning_total, owner_payout: recompute.totals.owner_payout,
+              num_stays: recompute.totals.num_stays, nights_booked: recompute.totals.nights_booked,
+            } : null,
+          });
+        } catch (e) {
+          console.error(`reconciliation failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
+        }
+      }
+
       return {
         ...prop,
+        reconciliation,
         reservations: resResult.data || [],
         cleaning_events: cleanResult.data || [],
         repair_events: repairResult.data || [],

@@ -48,7 +48,15 @@ import { splitFolio } from '@/lib/remittance';
 type ParsedPdf = {
   reservations: { confirmation_code: string; check_in: string; check_out: string; nights: number; rental_income: number }[];
   /** Section headings found in the PDF (empty for single-property PDFs). */
-  sections: { heading: string; property_id: string | null }[];
+  sections: { heading: string; property_id: string | null; count: number }[];
+  /**
+   * How many reservations the PDF says the TARGET property's section(s)
+   * hold, from the "<listing><N> reservations" header. Null when the PDF
+   * has no section header at all (older single-property layouts). This is
+   * the PDF's own claim, kept for reconciliation; `reservations.length` is
+   * how many of them the parser could read.
+   */
+  targetStayCount: number | null;
   /** True when 2+ sections were found and filtering was applied. */
   multiSection: boolean;
   /**
@@ -75,10 +83,10 @@ function parseGuestyPDF(
 
   // Section headers: "<listing name><count> reservations" on its own line.
   const headerRegex = /^(.+?)(\d+)\s*reservations?$/gm;
-  const rawSections: { heading: string; start: number }[] = [];
+  const rawSections: { heading: string; start: number; count: number }[] = [];
   let headerMatch;
   while ((headerMatch = headerRegex.exec(text)) !== null) {
-    rawSections.push({ heading: headerMatch[0].trim(), start: headerMatch.index });
+    rawSections.push({ heading: headerMatch[0].trim(), start: headerMatch.index, count: parseInt(headerMatch[2], 10) });
   }
 
   // Assign each section to a property by longest listing_match contained
@@ -101,6 +109,7 @@ function parseGuestyPDF(
   const sections = rawSections.map((s, i) => ({
     heading: s.heading,
     property_id: assign(s.heading),
+    count: s.count,
     start: s.start,
     end: i + 1 < rawSections.length ? rawSections[i + 1].start : text.length,
   }));
@@ -184,11 +193,23 @@ function parseGuestyPDF(
     }
   }
 
+  // The PDF's own count for what was ingested: the target's sections when
+  // filtering applied, the lone section otherwise, nothing when headerless.
+  // A foreign single section contributes nothing, matching the zero
+  // reservations returned for it.
+  const countedSections = foreignSingleSection
+    ? []
+    : multiSection ? sections.filter(s => s.property_id === sectionFilter!.targetPropertyId) : sections;
+  const targetStayCount = countedSections.length > 0
+    ? countedSections.reduce((n, s) => n + (Number.isFinite(s.count) ? s.count : 0), 0)
+    : null;
+
   return {
     reservations,
-    sections: sections.map(s => ({ heading: s.heading, property_id: s.property_id })),
+    sections: sections.map(s => ({ heading: s.heading, property_id: s.property_id, count: s.count })),
     multiSection,
     foreignSingleSection,
+    targetStayCount,
   };
 }
 
@@ -518,6 +539,7 @@ export async function POST(request: NextRequest) {
     // Carried to step 12, which turns it into a critical gap.
     let foreignPdfSection: { heading: string; listing: string; property_id: string } | null = null;
     let pdfDebug = '';
+    let pdfFacts: { stay_count: number | null; rental_income_sum: number; codes: string[] } | null = null;
 
     if (guestyPDFFile) {
       const pdfBuffer = Buffer.from(await guestyPDFFile.arrayBuffer());
@@ -550,6 +572,14 @@ export async function POST(request: NextRequest) {
       }
       foreignPdfSection = parsed.foreignSingleSection;
       reservations = parsed.reservations.map(r => ({ ...r, guest_name: '' }));
+      // Keep what the PDF said, for reconciliation. Written once on the
+      // statement below and never updated: the point is to hold Helm's
+      // rows up against a record that Helm did not derive.
+      pdfFacts = {
+        stay_count: parsed.targetStayCount,
+        rental_income_sum: Math.round(parsed.reservations.reduce((s, r) => s + (r.rental_income || 0), 0) * 100) / 100,
+        codes: parsed.reservations.map(r => r.confirmation_code).filter(Boolean),
+      };
     }
 
     // 2. Parse platform CSV (maps confirmation codes to platforms + guest names).
@@ -1612,6 +1642,11 @@ export async function POST(request: NextRequest) {
         has_platform_csv: hasPlatform,
         has_bank_csv: hasBank,
         confidence,
+        // The PDF's own claims, for reconciliation (see the migration
+        // statement_pdf_facts). Null when no PDF was part of this upload.
+        pdf_stay_count: pdfFacts?.stay_count ?? null,
+        pdf_rental_income_sum: pdfFacts?.rental_income_sum ?? null,
+        pdf_confirmation_codes: pdfFacts?.codes ?? null,
       })
       .select()
       .single();
