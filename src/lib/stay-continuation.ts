@@ -70,3 +70,95 @@ export function isContinuation(
   if (arriving === undefined) return false;
   return guestNameKey(arriving) === key;
 }
+
+// ─── merging segments into one stay ───────────────────────────────────
+
+export type StaySegment = {
+  propertyId: string;
+  guestName: string | null | undefined;
+  checkIn: string;
+  checkOut: string;
+};
+
+export type StayChain = {
+  /** Index of the head segment (the earliest) in the input. */
+  index: number;
+  /** The chain's real checkout: the last segment's. */
+  checkOut: string;
+  /** Indexes of the rows absorbed into the head: later segments of the same
+   *  stay, plus any twin fully inside the merged span that carries a
+   *  placeholder name or the same guest's name. Drop them. */
+  merged: number[];
+};
+
+/**
+ * The source-side form of the continuation rule, for readers that work
+ * from a list of booking rows (the Turnovers pipeline and its calendar).
+ *
+ * A row whose check-in lands on the checkout of a same-named row at the
+ * same house continues that stay. The earliest row is the head; the rest
+ * are absorbed and the head's checkout moves to the chain's end. Rows come
+ * back in check-in order, one entry per surviving stay.
+ *
+ * Placeholder names never chain, so two "Reservation" rows in a row stay
+ * two rows. A twin sitting fully inside a merged span is absorbed only if
+ * it is a placeholder or the same guest; a different real name that
+ * overlaps is left alone, visible, for a human to notice.
+ */
+export function chainStays<T>(rows: T[], read: (row: T) => StaySegment): StayChain[] {
+  const segs = rows.map(read);
+  const order = segs
+    .map((_, i) => i)
+    .sort((a, b) => {
+      const sa = segs[a];
+      const sb = segs[b];
+      if (sa.propertyId !== sb.propertyId) return sa.propertyId < sb.propertyId ? -1 : 1;
+      if (sa.checkIn !== sb.checkIn) return sa.checkIn < sb.checkIn ? -1 : 1;
+      return a - b;
+    });
+  const byArrival = new Map<string, number[]>();
+  for (const i of order) {
+    const k = `${segs[i].propertyId}|${segs[i].checkIn}`;
+    const list = byArrival.get(k) ?? [];
+    list.push(i);
+    byArrival.set(k, list);
+  }
+
+  const consumed = new Set<number>();
+  const out: StayChain[] = [];
+  for (const i of order) {
+    if (consumed.has(i)) continue;
+    const head = segs[i];
+    const key = guestNameKey(head.guestName);
+    let end = head.checkOut;
+    const merged: number[] = [];
+    if (key) {
+      // Bounded walk: a corrupt pair can never spin.
+      for (let hops = 0; hops < 400; hops++) {
+        const next = (byArrival.get(`${head.propertyId}|${end}`) ?? []).find(
+          (j) => j !== i && !consumed.has(j) && segs[j].checkOut > end && guestNameKey(segs[j].guestName) === key,
+        );
+        if (next === undefined) break;
+        consumed.add(next);
+        merged.push(next);
+        end = segs[next].checkOut;
+      }
+      if (merged.length > 0) {
+        // Twins inside the merged span: the same guest again, or a placeholder.
+        for (const j of order) {
+          if (j === i || consumed.has(j)) continue;
+          const s = segs[j];
+          if (s.propertyId !== head.propertyId) continue;
+          if (s.checkIn < head.checkIn || s.checkOut > end) continue;
+          const k = guestNameKey(s.guestName);
+          if (k === '' || k === key) {
+            consumed.add(j);
+            merged.push(j);
+          }
+        }
+      }
+    }
+    out.push({ index: i, checkOut: end, merged });
+  }
+  return out;
+}

@@ -10,6 +10,7 @@
  * guesty_reservation_id throughout this module and the Operations page).
  */
 import { supabaseAdmin as supabase } from './supabase-admin';
+import { chainStays } from '@/lib/stay-continuation';
 import type { CleaningSession } from './cleaning-sessions';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { isLowBattery, type SeamBatteryStatus } from './seam';
@@ -495,11 +496,40 @@ export async function loadOperationsData(
     (!propertyId || r.property_id === propertyId);
 
   // Guest stays: everything downstream (turnovers, cleaning lifecycle,
-  // presence, stage counts) works off this list, exactly as before.
-  const reservations: ReservationRow[] = rawBookings
+  // presence, stage counts, the calendar) works off this list.
+  const segmentRows: ReservationRow[] = rawBookings
     .filter((b) => b.status !== 'block')
     .map(toReservationRow)
     .filter(keepRow);
+
+  // Same guest, same house, back-to-back rows are one stay. Guesty lets an
+  // owner block their home as a run of one-night reservations under their
+  // own name (Simon Prudenzi, 53 Rocky Neck Downstairs, 09-04 to 09-08:
+  // four rows). Read as rows, that is a turnover every morning, a same-day
+  // flip on the calendar every day, and an inspection the home tile counts
+  // four times, for a house nobody leaves until the last night. The
+  // checkout schedule, the cleanings page and Rosa's digest already apply
+  // this rule (lib/stay-continuation.ts); the pipeline now agrees with
+  // them. The head row keeps its id (packets, prep slips and plans pin to
+  // the arriving row), its checkout moves to the chain's end, nights are
+  // recounted and payout is the sum. Placeholder names never chain.
+  const reservations: ReservationRow[] = chainStays(segmentRows, (r) => ({
+    propertyId: r.property_id,
+    guestName: r.guest_name,
+    checkIn: r.check_in,
+    checkOut: r.check_out,
+  })).map(({ index, checkOut, merged }) => {
+    const head = segmentRows[index];
+    if (merged.length === 0) return head;
+    const parts = [head, ...merged.map((j) => segmentRows[j])];
+    const payouts = parts.map((r) => r.host_payout).filter((v): v is number => typeof v === 'number');
+    return {
+      ...head,
+      check_out: checkOut,
+      nights: Math.max(1, Math.round((Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${head.check_in}T00:00:00Z`)) / 86_400_000)),
+      host_payout: payouts.length > 0 ? payouts.reduce((a, b) => a + b, 0) : null,
+    };
+  });
 
   // Owner / maintenance holds: calendar-only. Kept in a separate list so
   // no turnover, same-day, previous-checkout, or presence logic ever sees
