@@ -25,7 +25,8 @@ import {
   GuestyNotFound,
 } from './guesty-client';
 import { isProxyEmail, type GuestStatus } from './guests-types';
-import { recordSyncFailure, recordSyncSuccess } from './sync-status';
+import { recordSyncFailure, recordSyncResult, recordSyncSuccess } from './sync-status';
+import { selectAllPaged } from './paged-select';
 
 function sb() {
   return supabaseAdmin;
@@ -55,11 +56,38 @@ export type GuestSyncResult = {
   inserted: number;
   updated: number;
   skipped_no_email: number;
+  /** Guests already on the list (matched by guesty_guest_id): tags merged locally, no Guesty call. */
+  known_contacts: number;
+  /** Guests with no contact row whose last stay is older than the recheck window: not fetched. */
+  skipped_stale_no_contact: number;
+  /** Guests left unfetched because the time budget ran out. Zero on a full run. */
+  truncated: number;
   errors: string[];
   duration_ms: number;
 };
 
 const DEFAULT_LOOKBACK_DAYS = 730;
+
+/**
+ * Incremental, because the full pass outgrew the function.
+ *
+ * The sync used to call Guesty once per guest, ~700 sequential requests,
+ * every day, to rediscover ~170 contacts it already had and ~520 guests it
+ * already knew carry no email. On 2026-09-03 that took 5m40s; from 09-04
+ * the cron died at Vercel's 300s ceiling (504) three days running, and
+ * because the run never reached its own bookkeeping, sync_status still
+ * said 'ok' from the 3rd while the brief called the feed stale.
+ *
+ * Now: a guest who is already a contact (guesty_guest_id) gets their tags
+ * merged from our own reservation rows, with no Guesty call. A guest with
+ * no contact row is fetched only if one of their stays ended inside the
+ * recheck window (or lies ahead): a 2025 guest who had no email then will
+ * not have grown one, but a returning guest gets looked at again. And the
+ * loop stops at the time budget and RECORDS that it stopped, so a slow day
+ * shows up as a flagged partial run instead of silence.
+ */
+const RECHECK_WINDOW_DAYS = 60;
+const TIME_BUDGET_MS = 200_000;
 
 export async function syncGuestyGuestsToList(
   options: { sinceCheckOut?: string; maxGuests?: number } = {},
@@ -113,6 +141,32 @@ export async function syncGuestyGuestsToList(
   const cap = options.maxGuests ?? uniqueGuestIds.length;
   const guestIdsToFetch = uniqueGuestIds.slice(0, cap);
 
+  // Who we already have, by Guesty guest id. Paged: a bare select caps at
+  // 1000 rows and the list will pass that.
+  type KnownRow = { id: string; guesty_guest_id: string; tags: string[] | null };
+  const knownByGuestId = new Map<string, { id: string; tags: string[] }>();
+  const knownRows = await selectAllPaged<KnownRow>(
+    (from, to) =>
+      sb()
+        .from('audience_contacts')
+        .select('id, guesty_guest_id, tags')
+        .not('guesty_guest_id', 'is', null)
+        .order('id', { ascending: true })
+        .range(from, to),
+    { label: 'audience_contacts by guesty id' },
+  );
+  for (const r of knownRows) knownByGuestId.set(r.guesty_guest_id, { id: r.id, tags: r.tags ?? [] });
+
+  // Each guest's most recent checkout, for the recheck window.
+  const latestCheckOut = new Map<string, string>();
+  for (const r of reservations) {
+    if (!r.guest_id || !r.check_out) continue;
+    const prev = latestCheckOut.get(r.guest_id);
+    if (!prev || r.check_out > prev) latestCheckOut.set(r.guest_id, r.check_out);
+  }
+  const recheckCutoff = new Date(Date.now() - RECHECK_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const deadline = t0 + TIME_BUDGET_MS;
+
   const token = await getGuestyToken();
 
   let fetched = 0;
@@ -120,8 +174,41 @@ export async function syncGuestyGuestsToList(
   let inserted = 0;
   let updated = 0;
   let skippedNoEmail = 0;
+  let knownContacts = 0;
+  let skippedStale = 0;
+  let truncated = 0;
 
-  for (const guestId of guestIdsToFetch) {
+  for (let i = 0; i < guestIdsToFetch.length; i++) {
+    const guestId = guestIdsToFetch[i];
+
+    // Already on the list: merge any new tags from our own reservations
+    // and move on. No Guesty call.
+    const known = knownByGuestId.get(guestId);
+    if (known) {
+      knownContacts++;
+      const wanted = Array.from(guestPropertyTags.get(guestId) ?? []);
+      const merged = Array.from(new Set([...known.tags, ...wanted]));
+      if (merged.length !== known.tags.length) {
+        const { error } = await sb().from('audience_contacts').update({ tags: merged }).eq('id', known.id);
+        if (error) errors.push(`tags ${guestId}: ${error.message}`);
+        else updated++;
+      }
+      continue;
+    }
+
+    // No contact row and no stay inside the recheck window: nothing new to
+    // learn from Guesty about them.
+    if ((latestCheckOut.get(guestId) ?? '') < recheckCutoff) {
+      skippedStale++;
+      continue;
+    }
+
+    if (Date.now() > deadline) {
+      truncated = guestIdsToFetch.length - i;
+      errors.push(`time budget of ${TIME_BUDGET_MS / 1000}s reached with ${truncated} guests unfetched`);
+      break;
+    }
+
     let guest: GuestyGuest | null = null;
     try {
       guest = await guestyGet<GuestyGuest>(`/v1/guests/${guestId}`, token);
@@ -158,8 +245,10 @@ export async function syncGuestyGuestsToList(
   }
 
   // Log to sync_status so /guests can show "last synced X minutes ago" AND
-  // any error escaping this function lights up the daily brief.
-  await recordSyncSuccess('guesty-guests', {
+  // any error escaping this function lights up the daily brief. A run cut
+  // short by the time budget is recorded as such: last_synced_at stamps the
+  // work that did land, and the error flags the brief until a run finishes.
+  const statusResult = {
     reservations_scanned: reservations.length,
     unique_guests: uniqueGuestIds.length,
     fetched_from_guesty: fetched,
@@ -167,8 +256,21 @@ export async function syncGuestyGuestsToList(
     inserted,
     updated,
     skipped_no_email: skippedNoEmail,
+    known_contacts: knownContacts,
+    skipped_stale_no_contact: skippedStale,
+    truncated,
     errors: errors.slice(0, 20),
-  });
+  };
+  if (truncated > 0) {
+    await recordSyncResult('guesty-guests', {
+      processed: fetched + knownContacts,
+      failed: 1,
+      firstError: errors[errors.length - 1],
+      result: statusResult,
+    });
+  } else {
+    await recordSyncSuccess('guesty-guests', statusResult);
+  }
 
   // Audit event so the /guests timeline shows the import.
   await sb().from('audience_events').insert({
@@ -192,6 +294,9 @@ export async function syncGuestyGuestsToList(
     inserted,
     updated,
     skipped_no_email: skippedNoEmail,
+    known_contacts: knownContacts,
+    skipped_stale_no_contact: skippedStale,
+    truncated,
     errors,
     duration_ms: Date.now() - t0,
   };
