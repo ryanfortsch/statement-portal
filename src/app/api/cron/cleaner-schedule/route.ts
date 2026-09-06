@@ -5,6 +5,7 @@ import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import { upsertDigestDraft, expireStaleDigests, tomorrowET } from '@/lib/cleaner-digest';
 import { ingestVendorAppointments } from '@/lib/vendor-schedule';
+import { mineTurnoverNotes } from '@/lib/turnover-notes';
 
 /**
  * Daily cleaner-schedule digest draft (the day BEFORE, afternoon ET).
@@ -13,7 +14,10 @@ import { ingestVendorAppointments } from '@/lib/vendor-schedule';
  *   1. Mine recent guest threads for agreed checkout changes (late
  *      checkouts, extensions) into checkout_adjustments - the "aware"
  *      layer that keeps the schedule ahead of Guesty.
- *   2. Build tomorrow's schedule from the merged truth and draft the
+ *   2. Mine those same threads for what the guests said about the state
+ *      they are leaving the house in (broken glass in the grass, an
+ *      animal in the trash) into cleaner_turnover_notes, PROPOSED only.
+ *   3. Build tomorrow's schedule from the merged truth and draft the
  *      digest SMS as a pending cleaner_schedule_digests row.
  *
  * NOTHING SENDS FROM HERE. The draft surfaces as a card on
@@ -82,6 +86,17 @@ async function handle(request: NextRequest) {
     }
   }
 
+  // What the guests said about the mess they are leaving. Proposals only:
+  // none of this reaches the crew until the operator taps Add on the card.
+  let notes = null;
+  if (!skipMine && !dry) {
+    try {
+      notes = await mineTurnoverNotes(supabase);
+    } catch (err) {
+      notes = { errors: [err instanceof Error ? err.message : String(err)] };
+    }
+  }
+
   if (dry) {
     const { buildCheckoutSchedule } = await import('@/lib/checkout-schedule');
     const { composeDigestBodyLive } = await import('@/lib/cleaner-digest');
@@ -105,6 +120,7 @@ async function handle(request: NextRequest) {
       vendor,
       holds,
       mine,
+      notes,
     });
   } catch (err) {
     return NextResponse.json({
@@ -115,6 +131,7 @@ async function handle(request: NextRequest) {
       vendor,
       holds,
       mine,
+      notes,
     });
   }
 }
