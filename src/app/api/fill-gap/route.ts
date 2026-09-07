@@ -5,6 +5,7 @@ import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { netVendorCredits, vendorCreditFields, unappliedRefundGap, type VendorCharge, type VendorCredit } from '@/lib/vendor-credit-netting';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { upsertCsvReservations } from '@/lib/guesty-csv-rows';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { splitFolio } from '@/lib/remittance';
@@ -513,21 +514,19 @@ async function fillPlatformGap(args: {
   }
 
   // 4. Upsert the guesty_reservations rows so the upcoming-bookings panel
-  //    has this CSV's future stays too. Don't stomp on rows that came
-  //    from the Guesty API (those are authoritative); the upsert keys on
-  //    guesty_reservation_id, and our CSV rows use a "csv:<code>" id so
-  //    they never collide with API-sourced "<guesty_id>" rows for the
-  //    same confirmation code.
+  //    has this CSV's future stays too.
+  //
+  //    These rows carry a "csv:<code>" id, so for a booking the API already
+  //    supplied they do NOT collide with the authoritative "<guesty_id>" row
+  //    -- and a non-colliding upsert inserts. That is how one booking ends up
+  //    with two rows. upsertCsvReservations is what stops it; see the module
+  //    docs there.
   if (csvRowsSkippedUnmatched > 0) {
     console.warn(
       `[fill-gap] platform CSV: ${csvRowsSkippedUnmatched} row(s) had a LISTING that matched no active property; skipped rather than attributed to ${propertyId}`,
     );
   }
-  if (guestyResUpserts.length > 0) {
-    await supabase
-      .from('guesty_reservations')
-      .upsert(guestyResUpserts, { onConflict: 'guesty_reservation_id' });
-  }
+  await upsertCsvReservations(supabase, guestyResUpserts, '[fill-gap]');
 
   // 5. Recompute the statement totals through the single write path (every
   //    money column derived from the rows just written; fails closed). Then
