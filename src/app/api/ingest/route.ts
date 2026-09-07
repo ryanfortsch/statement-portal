@@ -9,6 +9,7 @@ import {
 } from '@/lib/cancellation-payout-match';
 import { classifyCancelledStay, cancelledStayGap } from '@/lib/cancelled-stay';
 import { checkLiveGuestyCancellation } from '@/lib/cancel-check';
+import { monthGate } from '@/lib/statement-month-gate';
 import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-ruling';
 import { netVendorCredits, vendorChargeNet, unappliedRefundGap, type VendorCharge } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
@@ -835,26 +836,35 @@ export async function POST(request: NextRequest) {
 
     const unresolvedNameCodes: string[] = [];
     for (const res of reservations) {
+      const platformInfo = platformMap[res.confirmation_code];
+      const guestyInfo = guestyLookupMap.get(res.confirmation_code);
+      const rawName = (platformInfo?.guest?.trim() || guestyInfo?.guest_name?.trim() || '');
+      const resolvedName = rawName && !looksLikeConfirmationCode(rawName) ? titleCase(rawName) : '';
       // Recognized-elsewhere guard (effect 3 above): slices exist for this
       // code but none for this month -> the booking's revenue lives entirely
-      // on other statements. Skip before bank matching so it can't consume
-      // a deposit another row needs.
+      // on other statements. The same gate the recognition loop applies
+      // (src/lib/statement-month-gate.ts), so the two passes can never
+      // disagree about a row; this one files the gap, that one holds the
+      // money out. The name is resolved first so the gap can say who.
       const slicesForCode = res.confirmation_code ? (allInstallmentsByCode.get(res.confirmation_code) || []) : [];
-      if (slicesForCode.length > 0 && !installmentByCode.has(res.confirmation_code)) {
+      const verdict = monthGate({
+        checkOutMonth: (res.check_out || '').slice(0, 7),
+        month,
+        hasSliceThisMonth: !!res.confirmation_code && installmentByCode.has(res.confirmation_code),
+        hasSlicesAnywhere: slicesForCode.length > 0,
+      });
+      if (verdict === 'recognized_elsewhere') {
         recognizedElsewhere.push({
           code: res.confirmation_code,
-          guest: res.guest_name,
+          guest: resolvedName || res.guest_name,
           months: slicesForCode.map(s => s.month),
           amount: Math.round(slicesForCode.reduce((s, i) => s + (Number(i.installment_revenue) || 0), 0) * 100) / 100,
         });
         continue;
       }
 
-      const platformInfo = platformMap[res.confirmation_code];
-      const guestyInfo = guestyLookupMap.get(res.confirmation_code);
-      const rawName = (platformInfo?.guest?.trim() || guestyInfo?.guest_name?.trim() || '');
-      if (rawName && !looksLikeConfirmationCode(rawName)) {
-        res.guest_name = titleCase(rawName);
+      if (resolvedName) {
+        res.guest_name = resolvedName;
       } else {
         res.guest_name = '';
         unresolvedNameCodes.push(res.confirmation_code);
@@ -1234,19 +1244,28 @@ export async function POST(request: NextRequest) {
       // Skip the row rather than recognize it, and make the skip loud: a
       // silent drop is how the reverse bug (a stay that vanishes) starts.
       //
-      // Exempt only a code with a slice for THIS month. `installmentByCode`
-      // is month-scoped and that scoping is the whole point: keying on
-      // `allInstallmentsByCode` (slices in ANY month) would exempt the exact
-      // opposite case, a stay whose slices all live in other months and is
-      // therefore already recognized there, and wave it through at full PDF
-      // value. Worth knowing while reading this: the recognized-elsewhere
-      // guard meant to catch that case sits in the guest-name loop above,
-      // not in this one, so it files its gap without ever skipping
-      // recognition. Month-scoping here closes the cross-month half of that
-      // hole instead of widening it.
+      // The gate (src/lib/statement-month-gate.ts) answers one of three
+      // ways. A slice for THIS month: recognize, and the installment fork
+      // below swaps in the in-month share. Slices in other months only:
+      // the booking is already fully recognized on those statements, so
+      // this row is held out entirely. Until 2026-09 that case fell through
+      // to the checkout-month test alone, which a stay checking out on the
+      // 1st passes (its checkout month IS this month), and the PDF's full
+      // value was booked on top of the slices: Kate Bacon, 17 Beach,
+      // $62,464.40 split over June and July and carried again on the
+      // August PDF. The guest-name loop above files the informational gap
+      // for these rows; refresh-statement and fill-gap already skip any
+      // installment-coded booking, so this makes the three doors agree.
       const checkOutMonth = (res.check_out || '').slice(0, 7);
       const hasSliceThisMonth = !!res.confirmation_code && installmentByCode.has(res.confirmation_code);
-      if (checkOutMonth && checkOutMonth !== month && !hasSliceThisMonth) {
+      const gate = monthGate({
+        checkOutMonth,
+        month,
+        hasSliceThisMonth,
+        hasSlicesAnywhere: !!res.confirmation_code && (allInstallmentsByCode.get(res.confirmation_code) || []).length > 0,
+      });
+      if (gate === 'recognized_elsewhere') continue;
+      if (gate === 'out_of_month') {
         outOfMonthRows.push({
           code: res.confirmation_code,
           guest: res.guest_name,
