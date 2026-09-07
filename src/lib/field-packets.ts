@@ -20,6 +20,7 @@ import 'server-only';
 import { getTeamMember } from './team';
 import { fieldDb } from '@/lib/field-db';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
+import { holdOccupiesDay, type HoldDay } from '@/lib/field-stale-hold';
 import { getContractorShootStats } from '@/lib/creative-shoots';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
 import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder, osrmOptimalOrder } from '@/lib/proximity';
@@ -708,8 +709,12 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
 // ── Window re-validation ──────────────────────────────────────────────
 // Who is at the home on the visit date - the inspector-facing version.
 // 'guest' means a paying stay strictly spans the day (check_in < day <
-// check_out): rare, real, worth a loud warning. 'owner' means the owner has
-// the calendar blocked that day, so they may be around: worth one quiet line.
+// check_out): rare, real, worth a loud warning. 'owner' means an owner hold
+// that began BEFORE the visit day still covers it, so they may be around:
+// worth one quiet line. An owner hold that begins ON the visit day is an
+// arrival, and the morning before it is exactly why the inspection is on
+// the packet; flagging it deleted the stop at publish and again at claim
+// (19 Rackliffe 2026-09-07, 53 Rocky Neck 2026-09-08). See holdOccupiesDay.
 // An office / manual hold reports NOTHING - the office built the trip, and
 // warning the inspector about our own hold is noise (Dotti, 2026-09-07:
 // 19 Rackliffe's onboarding hold read "a guest may be at the home, call the
@@ -735,14 +740,23 @@ export async function stopPresence(
     .lt('check_in', visitDate)
     .gt('check_out', visitDate);
   const guest = new Set(((bData ?? []) as { property_id: string }[]).map((r) => r.property_id));
+  // The day before rides along only for the fallback on a mirror row with
+  // no hold start date (an older sync).
+  const dayBefore = addDays(visitDate, -1);
   const { data: dData } = await fieldDb()
     .from('property_calendar_days')
-    .select('property_id')
-    .eq('date', visitDate)
-    .eq('status', 'unavailable')
+    .select('property_id, date, block_type, block_start, block_ref_id')
+    .in('date', [dayBefore, visitDate])
     .eq('block_type', 'o')
     .in('property_id', ids);
-  const owner = new Set(((dData ?? []) as { property_id: string }[]).map((r) => r.property_id));
+  const holdByKey = new Map<string, HoldDay>();
+  for (const r of (dData ?? []) as Array<{ property_id: string; date: string } & HoldDay>) {
+    holdByKey.set(`${r.property_id}|${r.date}`, r);
+  }
+  const owner = new Set<string>();
+  for (const pid of ids) {
+    if (holdOccupiesDay(visitDate, holdByKey.get(`${pid}|${visitDate}`), holdByKey.get(`${pid}|${dayBefore}`))) owner.add(pid);
+  }
   for (const s of testable) {
     const pid = s.property_id as string;
     if (guest.has(pid)) out.set(s.id, 'guest');
@@ -855,9 +869,11 @@ export async function revalidatePacket(
     .select('id, property_id, base_price_cents, work_slip_id')
     .eq('packet_id', packetId);
   const stops = (sData ?? []) as Array<{ id: string; property_id: string | null; base_price_cents: number; work_slip_id: string | null }>;
-  // A guest mid-stay or an owner hold makes the stop unsellable; an office /
-  // manual hold does not - the office holds calendars for this very work.
-  const stale = new Set((await stopPresence(packet.visit_date, stops)).keys());
+  // A guest mid-stay or an owner mid-hold makes the stop unsellable; an
+  // office / manual hold does not - the office holds calendars for this very
+  // work - and neither does an owner arriving that night.
+  const presence = await stopPresence(packet.visit_date, stops);
+  const stale = new Set(presence.keys());
   if (stale.size === 0) return { removed: 0, remaining: stops.length, emptied: false };
 
   await fieldDb().from('packet_stops').delete().in('id', [...stale]);
@@ -872,6 +888,22 @@ export async function revalidatePacket(
       updated_at: new Date().toISOString(),
     })
     .eq('id', packetId);
+  // Never silent again: a stop the office built and then could not find (the
+  // title still said "2 stops") left no trace anywhere. The activity feed
+  // reads this as "stops dropped stale"; the payload names the homes and why.
+  await fieldDb().from('packet_events').insert({
+    packet_id: packetId,
+    event_type: 'stops_dropped_stale',
+    payload: {
+      dropped: stops
+        .filter((s) => stale.has(s.id))
+        .map((s) => ({ property_id: s.property_id, reason: presence.get(s.id) ?? null })),
+      removed: stale.size,
+      remaining: remaining.length,
+      emptied,
+      visit_date: packet.visit_date,
+    },
+  });
   return { removed: stale.size, remaining: remaining.length, emptied };
 }
 
