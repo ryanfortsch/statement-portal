@@ -19,6 +19,7 @@ import { loadInstallmentsForMonth, loadInstallmentsForCode, loadInstallmentsForC
 import { isCancelledStatus } from '@/lib/cancel-check';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
+import { upsertCsvReservations } from '@/lib/guesty-csv-rows';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { detectMissingDirectStays, missingDirectGapRows } from '@/lib/missing-direct-stays';
@@ -707,27 +708,11 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Persist guesty_reservations upserts (don't stomp on rows that came
-      // from /v1/reservations API sync, which is authoritative).
-      if (guestyReservationUpserts.length > 0) {
-        const codesToCheck = guestyReservationUpserts
-          .map(r => r.confirmation_code)
-          .filter(Boolean) as string[];
-        const { data: apiRows } = await supabase
-          .from('guesty_reservations')
-          .select('confirmation_code')
-          .eq('source', 'guesty-api')
-          .in('confirmation_code', codesToCheck);
-        const apiSet = new Set((apiRows || []).map(r => r.confirmation_code));
-        const filtered = guestyReservationUpserts.filter(
-          r => typeof r.confirmation_code === 'string' && !apiSet.has(r.confirmation_code as string),
-        );
-        if (filtered.length > 0) {
-          await supabase
-            .from('guesty_reservations')
-            .upsert(filtered, { onConflict: 'guesty_reservation_id' });
-        }
-      }
+      // Persist guesty_reservations upserts. The shared helper is what keeps
+      // an API-sourced booking from acquiring a CSV twin; this route's own
+      // copy of that guard discarded the read error, so a failed lookup read
+      // as "no API rows exist" and minted every one of them.
+      await upsertCsvReservations(supabase, guestyReservationUpserts, '[ingest]');
     }
 
     // Redundant guest-name + platform resolution. Waterfall through:
