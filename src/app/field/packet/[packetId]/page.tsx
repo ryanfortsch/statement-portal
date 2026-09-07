@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, staleStopIds, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, stopPresence, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , clockLabel, tripWindowLabel } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
@@ -670,11 +670,11 @@ export default async function PacketPage({
     return { label: r.label, lat: r.lat, lng: r.lng, order: r.order, num: r.num, state: isMine ? state : undefined, verified: r.verified, pin: 'pin' in r ? r.pin : undefined };
   });
 
-  // Safety cue: a guest mid-stay (or a calendar block) on the visit date. The
-  // claim-time revalidation only guards inspection packets while still
-  // published; maintenance runs with guests in-house by design, and a booking
-  // can land after a claim. Read-only — warn the contractor, never drop a stop.
-  const occupiedStops = working ? await staleStopIds(packet.visit_date, packet.stops) : new Set<string>();
+  // Presence cue: a guest mid-stay gets a loud warning, an owner hold gets one
+  // quiet line, an office hold gets nothing. The claim-time revalidation only
+  // guards inspection packets while still published; a booking can land after
+  // a claim. Read-only — inform the contractor, never drop a stop.
+  const presence = working ? await stopPresence(packet.visit_date, packet.stops) : new Map<string, 'guest' | 'owner'>();
 
   return (
     <FieldShell contractorName={preview ? null : contractor.full_name} showSignOut={!preview}>
@@ -1095,15 +1095,20 @@ export default async function PacketPage({
                       })()
                     ) : null}
 
-                    {isMine && occupiedStops.has(s.id) && !terminal && (
+                    {isMine && presence.get(s.id) === 'guest' && !terminal && (
                       <div style={{ marginTop: 10, padding: '10px 12px', borderLeft: '3px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13, color: 'var(--signal)', lineHeight: 1.5 }}>
-                        A guest may be in this home today. Call the office to confirm it&apos;s safe to enter.
+                        A guest is staying at this home today. Check with the office before you go in.
                         {/* The safety tap gets a real pill, not 13px inline text. */}
                         <div style={{ marginTop: 8 }}>
                           <a href={`tel:${OFFICE_TEL}`} style={{ ...signalPill, border: '1px solid var(--signal)', fontWeight: 700 }}>
                             Call the office
                           </a>
                         </div>
+                      </div>
+                    )}
+                    {isMine && presence.get(s.id) === 'owner' && !terminal && (
+                      <div style={{ marginTop: 8, fontSize: 13, color: 'var(--ink-2)', fontWeight: 600 }}>
+                        Heads up: the owner may be using this home today.
                       </div>
                     )}
                     {chipsRow}

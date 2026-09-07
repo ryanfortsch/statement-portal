@@ -706,42 +706,49 @@ export async function loadContractorMarketplace(contractor: ContractorRow): Prom
 }
 
 // ── Window re-validation ──────────────────────────────────────────────
-// A stop is STALE for its packet's visit_date if a guest is now mid-stay
-// that day (a booking strictly spans it: check_in < day < check_out) or the
-// day was calendar-blocked since the packet was built. A turnover day
-// (check_in == day or check_out == day) is NOT stale — that's the whole
-// point of the visit window.
-export async function staleStopIds(
+// Who is at the home on the visit date - the inspector-facing version.
+// 'guest' means a paying stay strictly spans the day (check_in < day <
+// check_out): rare, real, worth a loud warning. 'owner' means the owner has
+// the calendar blocked that day, so they may be around: worth one quiet line.
+// An office / manual hold reports NOTHING - the office built the trip, and
+// warning the inspector about our own hold is noise (Dotti, 2026-09-07:
+// 19 Rackliffe's onboarding hold read "a guest may be at the home, call the
+// office"). Turnover days (check_in == day or check_out == day) never flag;
+// that is the whole point of the visit window. Work_slip-backed stops are
+// TASKS, routinely done with people in the house - never flagged. Reads the
+// property_calendar_days mirror, not property_calendar_blocks (that sync has
+// been unreliable since May, #1116).
+export async function stopPresence(
   visitDate: string,
   stops: Array<{ id: string; property_id: string | null; work_slip_id?: string | null }>,
-): Promise<Set<string>> {
-  if (stops.length === 0) return new Set();
-  // A work_slip-backed stop is a TASK (setup / ad hoc / maintenance), routinely
-  // done with a guest in-house, and a location-less errand has no property at
-  // all — the vacancy test applies to neither, so never sweep them.
+): Promise<Map<string, 'guest' | 'owner'>> {
+  const out = new Map<string, 'guest' | 'owner'>();
   const testable = stops.filter((s) => !s.work_slip_id && s.property_id);
-  if (testable.length === 0) return new Set();
+  if (testable.length === 0) return out;
   const ids = [...new Set(testable.map((s) => s.property_id as string))];
   const { data: bData } = await fieldDb()
     .from('bookings')
     .select('property_id')
-    .in('status', OCCUPANCY_STATUSES)
+    .in('status', TURNOVER_STATUSES)
     .is('duplicate_of', null)
     .in('property_id', ids)
     .lt('check_in', visitDate)
     .gt('check_out', visitDate);
-  const occupied = new Set(((bData ?? []) as { property_id: string }[]).map((r) => r.property_id));
-  const { data: blkData } = await fieldDb()
-    .from('property_calendar_blocks')
+  const guest = new Set(((bData ?? []) as { property_id: string }[]).map((r) => r.property_id));
+  const { data: dData } = await fieldDb()
+    .from('property_calendar_days')
     .select('property_id')
     .eq('date', visitDate)
+    .eq('status', 'unavailable')
+    .eq('block_type', 'o')
     .in('property_id', ids);
-  const blocked = new Set(((blkData ?? []) as { property_id: string }[]).map((r) => r.property_id));
-  const stale = new Set<string>();
+  const owner = new Set(((dData ?? []) as { property_id: string }[]).map((r) => r.property_id));
   for (const s of testable) {
-    if (occupied.has(s.property_id as string) || blocked.has(s.property_id as string)) stale.add(s.id);
+    const pid = s.property_id as string;
+    if (guest.has(pid)) out.set(s.id, 'guest');
+    else if (owner.has(pid)) out.set(s.id, 'owner');
   }
-  return stale;
+  return out;
 }
 
 /**
@@ -848,7 +855,9 @@ export async function revalidatePacket(
     .select('id, property_id, base_price_cents, work_slip_id')
     .eq('packet_id', packetId);
   const stops = (sData ?? []) as Array<{ id: string; property_id: string | null; base_price_cents: number; work_slip_id: string | null }>;
-  const stale = await staleStopIds(packet.visit_date, stops);
+  // A guest mid-stay or an owner hold makes the stop unsellable; an office /
+  // manual hold does not - the office holds calendars for this very work.
+  const stale = new Set((await stopPresence(packet.visit_date, stops)).keys());
   if (stale.size === 0) return { removed: 0, remaining: stops.length, emptied: false };
 
   await fieldDb().from('packet_stops').delete().in('id', [...stale]);
