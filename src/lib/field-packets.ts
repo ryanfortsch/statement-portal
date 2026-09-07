@@ -319,6 +319,52 @@ function clusterName(props: FieldProperty[]): string {
   return townsLabel(props.map((p) => p.city)) || cityShort(props[0].city) || props[0].name;
 }
 
+/** Live same-day movement for these properties, straight from bookings, so the
+ *  per-stop timing line can assert "no check-in today" without trusting
+ *  packet_stops.next_checkin (stamped at build, refreshed only by the office's
+ *  Sync-windows click). `guests` = properties with a real guest arrival that
+ *  day; a same-guest back-to-back row (checks out and back in the same day) is
+ *  ONE stay per the coalesceStays doctrine, not an arrival - no door code goes
+ *  out at 3. `holds` = properties where a block starts that day (an owner may
+ *  arrive tonight): not a guest deadline, but not a home to make "no check-in"
+ *  claims about either. Returns null when the query fails, so callers fall
+ *  back to the stored window instead of printing a false absence. */
+export async function arrivalPropertiesForDay(
+  visitDate: string,
+  propertyIds: string[],
+): Promise<{ guests: Set<string>; holds: Set<string> } | null> {
+  const ids = [...new Set(propertyIds.filter(Boolean))];
+  if (ids.length === 0) return { guests: new Set(), holds: new Set() };
+  const { data, error } = await fieldDb()
+    .from('bookings')
+    .select('property_id, status, check_in, check_out, guest_name')
+    .in('status', [...TURNOVER_STATUSES, BLOCK_STATUS])
+    .is('duplicate_of', null)
+    .in('property_id', ids)
+    .or(`check_in.eq.${visitDate},check_out.eq.${visitDate}`);
+  if (error) return null;
+  const rows = (data ?? []) as { property_id: string; status: string; check_in: string; check_out: string; guest_name: string | null }[];
+  const norm = (n: string | null) => (n ?? '').trim().toLowerCase();
+  const departures = new Set(
+    rows
+      .filter((r) => isGuestStay(r) && r.check_out === visitDate && norm(r.guest_name))
+      .map((r) => `${r.property_id}|${r.status}|${norm(r.guest_name)}`),
+  );
+  const guests = new Set<string>();
+  const holds = new Set<string>();
+  for (const r of rows) {
+    if (r.check_in !== visitDate) continue;
+    if (r.status === BLOCK_STATUS) {
+      holds.add(r.property_id);
+      continue;
+    }
+    if (!isGuestStay(r)) continue;
+    if (norm(r.guest_name) && departures.has(`${r.property_id}|${r.status}|${norm(r.guest_name)}`)) continue;
+    guests.add(r.property_id);
+  }
+  return { guests, holds };
+}
+
 /** The right window for a stop, from the property's guest bookings on the visit
  *  day: a checkout that day means go after it; a check-in that day means go
  *  before it; otherwise the home is vacant. Used when a stop is added by hand or
