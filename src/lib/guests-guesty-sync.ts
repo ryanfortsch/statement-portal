@@ -27,6 +27,7 @@ import {
 import { isProxyEmail, type GuestStatus } from './guests-types';
 import { recordSyncFailure, recordSyncResult, recordSyncSuccess } from './sync-status';
 import { selectAllPaged } from './paged-select';
+import { decideGuest } from './guest-sync-policy';
 
 function sb() {
   return supabaseAdmin;
@@ -60,6 +61,8 @@ export type GuestSyncResult = {
   known_contacts: number;
   /** Guests with no contact row whose last stay is older than the recheck window: not fetched. */
   skipped_stale_no_contact: number;
+  /** Guests Guesty had no email for when last asked, inside the no-email recheck window: not fetched. */
+  skipped_recently_checked: number;
   /** Guests left unfetched because the time budget ran out. Zero on a full run. */
   truncated: number;
   errors: string[];
@@ -85,8 +88,15 @@ const DEFAULT_LOOKBACK_DAYS = 730;
  * not have grown one, but a returning guest gets looked at again. And the
  * loop stops at the time budget and RECORDS that it stopped, so a slow day
  * shows up as a flagged partial run instead of silence.
+ *
+ * Second cut: every answer is remembered in guesty_guest_checks, so a
+ * guest Guesty had no email for is not asked again for two weeks. That
+ * was ~400 calls and 2.5 minutes a day; the policy itself lives in
+ * guest-sync-policy.ts and is tested.
  */
 const RECHECK_WINDOW_DAYS = 60;
+/** How long a "no email" answer from Guesty is trusted before asking again. */
+const RECHECK_NO_EMAIL_DAYS = 14;
 const TIME_BUDGET_MS = 200_000;
 
 export async function syncGuestyGuestsToList(
@@ -165,7 +175,34 @@ export async function syncGuestyGuestsToList(
     if (!prev || r.check_out > prev) latestCheckOut.set(r.guest_id, r.check_out);
   }
   const recheckCutoff = new Date(Date.now() - RECHECK_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const noEmailRecheckBefore = new Date(Date.now() - RECHECK_NO_EMAIL_DAYS * 86_400_000).toISOString();
+  const policy = { recheckCutoff, noEmailRecheckBefore };
   const deadline = t0 + TIME_BUDGET_MS;
+
+  // What we already asked Guesty, and got no email for, inside the window.
+  // The table (guesty_guest_checks) is memory, not truth: if it cannot be
+  // read, every guest is simply asked again, as before.
+  const noEmailCheckedAt = new Map<string, string>();
+  try {
+    type CheckRow = { guest_id: string; last_checked_at: string };
+    const checkRows = await selectAllPaged<CheckRow>(
+      (from, to) =>
+        sb()
+          .from('guesty_guest_checks')
+          .select('guest_id, last_checked_at')
+          .eq('had_email', false)
+          .gte('last_checked_at', noEmailRecheckBefore)
+          .order('guest_id', { ascending: true })
+          .range(from, to),
+      { label: 'guesty_guest_checks' },
+    );
+    for (const r of checkRows) noEmailCheckedAt.set(r.guest_id, r.last_checked_at);
+  } catch (err) {
+    errors.push(`guest checks read: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // Every answer this run gets, written back in one batch at the end (and
+  // before the status record, so a budget-truncated run still remembers).
+  const checksToRecord = new Map<string, boolean>();
 
   const token = await getGuestyToken();
 
@@ -176,15 +213,24 @@ export async function syncGuestyGuestsToList(
   let skippedNoEmail = 0;
   let knownContacts = 0;
   let skippedStale = 0;
+  let skippedRecentlyChecked = 0;
   let truncated = 0;
 
   for (let i = 0; i < guestIdsToFetch.length; i++) {
     const guestId = guestIdsToFetch[i];
+    const known = knownByGuestId.get(guestId);
+    const decision = decideGuest(
+      {
+        known: !!known,
+        latestCheckOut: latestCheckOut.get(guestId) ?? null,
+        lastNoEmailCheckAt: noEmailCheckedAt.get(guestId) ?? null,
+      },
+      policy,
+    );
 
     // Already on the list: merge any new tags from our own reservations
     // and move on. No Guesty call.
-    const known = knownByGuestId.get(guestId);
-    if (known) {
+    if (decision === 'known' && known) {
       knownContacts++;
       const wanted = Array.from(guestPropertyTags.get(guestId) ?? []);
       const merged = Array.from(new Set([...known.tags, ...wanted]));
@@ -198,8 +244,14 @@ export async function syncGuestyGuestsToList(
 
     // No contact row and no stay inside the recheck window: nothing new to
     // learn from Guesty about them.
-    if ((latestCheckOut.get(guestId) ?? '') < recheckCutoff) {
+    if (decision === 'stale') {
       skippedStale++;
+      continue;
+    }
+
+    // Asked within the last two weeks, no email then: not again today.
+    if (decision === 'recently_checked') {
+      skippedRecentlyChecked++;
       continue;
     }
 
@@ -221,6 +273,7 @@ export async function syncGuestyGuestsToList(
     if (!guest) continue;
 
     const email = extractEmail(guest);
+    checksToRecord.set(guestId, !!email);
     if (!email) {
       skippedNoEmail++;
       continue;
@@ -244,6 +297,28 @@ export async function syncGuestyGuestsToList(
     else if (upsertResult === 'updated') updated++;
   }
 
+  // Remember every answer, so tomorrow does not ask the same questions.
+  // Chunked, and a failure here is noted but never fails the run: the
+  // table is memory, not truth.
+  if (checksToRecord.size > 0) {
+    const nowIso = new Date().toISOString();
+    const rows = Array.from(checksToRecord, ([guest_id, had_email]) => ({
+      guest_id,
+      had_email,
+      last_checked_at: nowIso,
+      updated_at: nowIso,
+    }));
+    for (let i = 0; i < rows.length; i += 200) {
+      const { error } = await sb()
+        .from('guesty_guest_checks')
+        .upsert(rows.slice(i, i + 200), { onConflict: 'guest_id' });
+      if (error) {
+        errors.push(`guest checks write: ${error.message}`);
+        break;
+      }
+    }
+  }
+
   // Log to sync_status so /guests can show "last synced X minutes ago" AND
   // any error escaping this function lights up the daily brief. A run cut
   // short by the time budget is recorded as such: last_synced_at stamps the
@@ -258,6 +333,7 @@ export async function syncGuestyGuestsToList(
     skipped_no_email: skippedNoEmail,
     known_contacts: knownContacts,
     skipped_stale_no_contact: skippedStale,
+    skipped_recently_checked: skippedRecentlyChecked,
     truncated,
     errors: errors.slice(0, 20),
   };
@@ -296,6 +372,7 @@ export async function syncGuestyGuestsToList(
     skipped_no_email: skippedNoEmail,
     known_contacts: knownContacts,
     skipped_stale_no_contact: skippedStale,
+    skipped_recently_checked: skippedRecentlyChecked,
     truncated,
     errors,
     duration_ms: Date.now() - t0,
