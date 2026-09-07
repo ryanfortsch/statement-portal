@@ -137,6 +137,7 @@ Helm distinguishes four populations and they each have their own table:
 |---|---|---|---|
 | `contacts` | Owners, vendors, leads | CRM module (`/crm`); inbound Quo / Gmail webhooks add unknown numbers | RLS-locked (service role only) since 2026-06-21 |
 | `audience_contacts` | Guests who have booked, signed up, or unsubscribed | `/api/guests/subscribe`, Guesty guests sync, Resend webhook | RLS-locked since 2026-06-21 |
+| `guesty_guest_checks` | Memory for the guests sync: which Guesty guests were asked, when, and whether Guesty had an email. A "no email" answer is trusted for 14 days. Memory, not truth: unreadable means ask everyone again | Guesty guests sync only | RLS on, no policies (service role) |
 | `owners` | Structured ownership graph (property-to-owner) | `/api/owners-sync` (stay-concierge writes) | not anon-readable |
 | `trade_vendors` | Outside trade companies we hire by the job (plumber, electrician, appliance, pest) | Hand-maintained on `/fieldwork/trades`; seeded from `bank-charges.ts` + `books-vendor-hints.ts` | RLS-locked (service role only) |
 
