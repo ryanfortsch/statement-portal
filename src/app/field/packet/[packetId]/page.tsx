@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, stopPresence, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, stopPresence, arrivalPropertiesForDay, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
 import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , clockLabel, tripWindowLabel } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
@@ -77,7 +77,7 @@ function fmtDate(d: string): string {
  *  opens at the 11 AM checkout; the ONLY hard deadline is a guest checking in
  *  THAT day (door code goes out at 3 PM); a same-day checkout means the
  *  the inspector goes after. Vacant homes are open from 11. */
-function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; urgent: boolean; open: boolean } {
+function stopTiming(s: PacketStopDetail, visitDate: string, live: { guests: Set<string>; holds: Set<string> } | null, sayAbsence: boolean): { label: string; urgent: boolean; open: boolean } {
   // Two facts, no coaching: is the home open (and since when), and when's the
   // next check-in. Per Dotti, the per-stop line stays this simple (the old
   // DayPlan banner that coached sequencing was removed at her request).
@@ -91,12 +91,24 @@ function stopTiming(s: PacketStopDetail, visitDate: string): { label: string; ur
   // future check-ins he can't act on.
   const outBy = clockLabel((s.property.default_checkin_time ?? '15:00').slice(0, 5));
   const inAfter = clockLabel((s.property.default_checkout_time ?? '11:00').slice(0, 5));
-  const urgent = s.next_checkin === visitDate;
+  // Live bookings decide whether a guest arrives that day; the stop's stored
+  // next_checkin (stamped at build, refreshed only by Sync windows) is the
+  // fallback when the live read failed. "no check-in today" is a claim of
+  // absence, so it renders ONLY when all of these hold: the live read
+  // succeeded, the visit IS today (sayAbsence - "today" is a lie on a trip
+  // browsed days ahead, and the claim would go stale), the stop has a
+  // property (an errand claims nothing), no block starts that day (an owner
+  // may arrive tonight - stay silent rather than say all-clear), and no
+  // presence cue renders for the stop (sayAbsence again - a green all-clear
+  // above the red guest-in-house banner is a contradiction).
+  const urgent = live ? live.guests.has(s.property_id ?? '') : s.next_checkin === visitDate;
+  const noneOk = sayAbsence && live !== null && !urgent && !!s.property_id && !live.holds.has(s.property_id ?? '');
+  const none = noneOk ? ' · no check-in today' : '';
   const checkoutDay = s.window_basis === 'checkout_day';
   if (urgent && checkoutDay) return { label: `${inAfter} – ${outBy}`, urgent: true, open: false };
   if (urgent) return { label: `Finish by ${outBy}`, urgent: true, open: false };
-  if (checkoutDay) return { label: `Open after ${inAfter}`, urgent: false, open: false };
-  return { label: 'Open now', urgent: false, open: true };
+  if (checkoutDay) return { label: `Open after ${inAfter}${none}`, urgent: false, open: false };
+  return { label: `Open now${none}`, urgent: false, open: true };
 }
 
 /** An ISO instant as a wall clock pinned to Eastern (e.g. "10:08 AM"), so the
@@ -602,8 +614,9 @@ export default async function PacketPage({
   // A published packet whose visit day has passed (a morning SMS link opened
   // after midnight, or before the 1:15 AM sweep drafts it) is view-only: no
   // claim button, a banner instead. claimPacket re-checks server-side.
-  const visitPassed =
-    packet.visit_date < new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const todayET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const visitPassed = packet.visit_date < todayET;
+  const isVisitToday = packet.visit_date === todayET;
   const claimable = !isMine && packet.status === 'published' && !visitPassed && canClaim(contractor);
   // While actively working a claimed packet, show it as a job to finish, not an
   // open-ended errand: a progress bar + live per-stop status.
@@ -674,7 +687,24 @@ export default async function PacketPage({
   // quiet line, an office hold gets nothing. The claim-time revalidation only
   // guards inspection packets while still published; a booking can land after
   // a claim. Read-only — inform the contractor, never drop a stop.
-  const presence = working ? await stopPresence(packet.visit_date, packet.stops) : new Map<string, 'guest' | 'owner'>();
+  const presence = await stopPresence(packet.visit_date, packet.stops);
+  // Live same-day arrivals for the timing line - null means the read failed
+  // and stopTiming falls back to the stored window (never claiming absence).
+  const arrivals = await arrivalPropertiesForDay(packet.visit_date, packet.stops.map((s) => s.property_id ?? '').filter(Boolean));
+  // The header quotes the same window the marketplace card did, but corrected
+  // by the live arrivals read - otherwise a stored "no check-ins that day" can
+  // sit one line above a live "Finish by 3 PM" on the same screen.
+  const headerStops = arrivals
+    ? packet.stops.map((s) => ({
+        ...s,
+        next_checkin:
+          s.property_id && arrivals.guests.has(s.property_id)
+            ? packet.visit_date
+            : s.next_checkin === packet.visit_date
+              ? null
+              : s.next_checkin,
+      }))
+    : packet.stops;
 
   return (
     <FieldShell contractorName={preview ? null : contractor.full_name} showSignOut={!preview}>
@@ -698,7 +728,7 @@ export default async function PacketPage({
           // Same window the marketplace card quoted — the trip page must not
           // disagree with what they claimed.
           const w = !fmtVisitTime(packet.visit_time) && packet.trade === 'inspection' && packet.kind === 'standard'
-            ? tripWindowLabel(packet.visit_date, packet.stops)
+            ? tripWindowLabel(packet.visit_date, headerStops)
             : null;
           return w ? ` · ${w}` : '';
         })()}{packet.complete_by ? ` · done by ${fmtVisitTime(packet.complete_by)}` : ''}
@@ -1062,7 +1092,7 @@ export default async function PacketPage({
                             of the day (a guest can key in at this home from 3 PM) gets
                             its own line instead of hiding at the end of a chain. */}
                         {!terminal && (() => {
-                          const t = stopTiming(s, packet.visit_date);
+                          const t = stopTiming(s, packet.visit_date, arrivals, isVisitToday && !presence.get(s.id));
                           return (
                             <span style={{ color: t.urgent ? 'var(--signal)' : t.open ? 'var(--positive)' : 'var(--ink-4)', fontWeight: t.urgent || t.open ? 600 : 400 }}>
                               {s.status === 'in_progress' ? ' · ' : ''}{t.label}
@@ -1083,7 +1113,7 @@ export default async function PacketPage({
                       </div>
                     ) : !s.workSlip ? (
                       (() => {
-                        const t = stopTiming(s, packet.visit_date);
+                        const t = stopTiming(s, packet.visit_date, arrivals, isVisitToday && !presence.get(s.id));
                         return (
                           <div style={{ fontSize: 13, marginTop: 2, color: t.urgent ? 'var(--signal)' : 'var(--ink-3)', fontWeight: t.urgent ? 600 : 400 }}>
                             {/* The town is the drive-time signal a browser needs before
