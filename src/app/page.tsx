@@ -30,9 +30,15 @@ type DashboardStats = {
   statementsCount: number;
   /** Actual booked-so-far owner payout for the CURRENT month, recognized
    *  at checkout from bookings already on the books. No pacing projection
-   *  (matches the /revenue page's default "Actuals" view). null when
-   *  Guesty data isn't available. */
-  currentMonthActualPayout: number | null;
+   *  (matches the /revenue page's default "Actuals" view).
+   *
+   *  A discriminated result, not a bare number, because the three ways this
+   *  can come back empty are not the same fact. A read that FAILED used to
+   *  arrive as null alongside "not configured", and the tile answered both by
+   *  quietly showing the last closed month's payout under a different label:
+   *  a real, plausible number for the wrong month, with nothing saying the
+   *  live figure never loaded. */
+  currentMonthActualPayout: CurrentPayout;
   // Operational signals
   activeSlips: number | null;
   highPrioritySlips: number | null;
@@ -72,6 +78,16 @@ async function loadHomeOps(): Promise<HomeOps> {
   }
 }
 
+/**
+ * Why a union and not `number | null`: see the field docs on DashboardStats.
+ * 'unconfigured' is a legitimate reason to fall back to the last closed
+ * period; 'failed' is not, and must be visible.
+ */
+type CurrentPayout =
+  | { status: 'ok'; payout: number }
+  | { status: 'unconfigured' }
+  | { status: 'failed' };
+
 async function getDashboardStats(ops: HomeOps): Promise<DashboardStats> {
   const [propertyStats, helmStats, opsStats, actualPayout, reviews] = await Promise.all([
     getPropertyStats(),
@@ -98,16 +114,19 @@ async function getDashboardStats(ops: HomeOps): Promise<DashboardStats> {
  * same "Actuals" the /revenue page defaults to. (Pacing is available there
  * via the view toggle.)
  */
-async function getCurrentMonthActualPayout(): Promise<number | null> {
-  if (!isHelmConfigured) return null;
+async function getCurrentMonthActualPayout(): Promise<CurrentPayout> {
+  if (!isHelmConfigured) return { status: 'unconfigured' };
   try {
     const { rangeStart, rangeEnd } = computeDateRange('this_month');
     const { portfolio } = await computeRevenueSnapshot(rangeStart, rangeEnd, {
       applyPacing: false,
     });
-    return portfolio.totalPayout;
-  } catch {
-    return null;
+    return { status: 'ok', payout: portfolio.totalPayout };
+  } catch (err) {
+    // Loud in the logs, and visible on the tile. Swallowing this is how a
+    // stale month's payout got to stand in for a live one.
+    console.error('[home] current-month payout read failed:', err);
+    return { status: 'failed' };
   }
 }
 
@@ -342,29 +361,36 @@ export default async function HelmHome() {
           />
           <Stat
             label={(() => {
-              // Headline the current month's booked-so-far payout. Falls
-              // back to the latest closed period when there's no Guesty
-              // data yet.
-              if (stats.currentMonthActualPayout != null) {
-                return `${currentMonthShortName()} payout`;
-              }
+              // Headline the current month's booked-so-far payout. A failed
+              // read says so; only an unconfigured Helm falls back to the
+              // latest closed period, because that is a real answer rather
+              // than a missing one.
+              const p = stats.currentMonthActualPayout;
+              if (p.status === 'ok') return `${currentMonthShortName()} payout`;
+              if (p.status === 'failed') return `${currentMonthShortName()} payout`;
               return stats.latestMonth ? `${formatMonth(stats.latestMonth)} payout` : 'Owner payouts';
             })()}
             value={(() => {
-              const actual = stats.currentMonthActualPayout;
-              if (actual != null) return actual > 0 ? formatCurrency(actual) : '—';
+              const p = stats.currentMonthActualPayout;
+              if (p.status === 'ok') return p.payout > 0 ? formatCurrency(p.payout) : '—';
+              if (p.status === 'failed') return '—';
               return stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—';
             })()}
             sub={(() => {
-              const actual = stats.currentMonthActualPayout;
-              if (actual != null) {
+              const p = stats.currentMonthActualPayout;
+              if (p.status === 'failed') return 'could not load — retry, or open Revenue';
+              if (p.status === 'ok') {
                 return stats.latestMonth && stats.totalPayout > 0
                   ? `booked so far · ${formatMonth(stats.latestMonth)} closed ${formatCurrency(stats.totalPayout)}`
                   : 'booked so far';
               }
               return stats.latestMonth ? 'latest period total' : 'no statements yet';
             })()}
-            href={stats.currentMonthActualPayout != null ? '/revenue?range=this_month' : '/statements'}
+            href={
+              stats.currentMonthActualPayout.status === 'unconfigured'
+                ? '/statements'
+                : '/revenue?range=this_month'
+            }
             size="hero"
             last
             accent
