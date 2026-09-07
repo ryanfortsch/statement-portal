@@ -20,6 +20,7 @@ import {
   nightsBetween,
 } from './revenue-date-range';
 import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
+import { pacedMonthLift, projectOccupancy } from './revenue-pacing';
 import { loadInstallmentsForCodes, type Installment } from './installments';
 import {
   allocateStayByNights,
@@ -96,18 +97,39 @@ function addToMix(
   mix[ch].stays += stays;
 }
 
-/** Add src into target. revenueFactor scales revenue only (pacing multiplies
- * revenue, never stays/nights -- mirrors the headline metric treatment). */
-function mergeMix(target: ChannelMix, src: ChannelMix, revenueFactor = 1): void {
+/**
+ * Add src into target. `revenueFactor` scales revenue; `countFactor` scales
+ * nights and stays.
+ *
+ * The two differ in exactly one caller. A statement month rescales the
+ * guesty-derived mix so its revenue matches the statement total while the
+ * night/stay split underneath stays as booked, so it passes a revenue factor
+ * alone. A pacing month projects the whole booking forward and passes the
+ * multiplier for both: lifting revenue without lifting nights would book the
+ * extra dollars as rate instead of as occupancy, and the strip's per-channel
+ * ADR (revenue / nights) would read high by the multiplier.
+ */
+function mergeMix(
+  target: ChannelMix,
+  src: ChannelMix,
+  revenueFactor = 1,
+  countFactor = 1,
+): void {
   for (const ch of CHANNELS) {
     target[ch].revenue += src[ch].revenue * revenueFactor;
-    target[ch].nights += src[ch].nights;
-    target[ch].stays += src[ch].stays;
+    target[ch].nights += src[ch].nights * countFactor;
+    target[ch].stays += src[ch].stays * countFactor;
   }
 }
 
 function roundMix(mix: ChannelMix): ChannelMix {
-  for (const ch of CHANNELS) mix[ch].revenue = round2(mix[ch].revenue);
+  for (const ch of CHANNELS) {
+    mix[ch].revenue = round2(mix[ch].revenue);
+    // Pacing scales counts by a fractional multiplier and the strip prints
+    // them raw ("14 stays · 39 nights"), so land them on whole numbers.
+    mix[ch].nights = Math.round(mix[ch].nights);
+    mix[ch].stays = Math.round(mix[ch].stays);
+  }
   return mix;
 }
 
@@ -365,6 +387,13 @@ type PropertyMonthBuckets = {
    * denominator of occupancy and pacing, not just ignored.
    */
   blockedNightsByMonth: Map<string, number>;
+  /**
+   * Bookable nights for this property across the whole range (calendar
+   * nights from its activation date, less owner blocks). The denominator
+   * behind occupancyPct, carried here so the pacing post-pass can reproject
+   * occupancy without recomputing the property's activation window.
+   */
+  bookableNights: number;
   /**
    * Channel split of the checkout-attributed money metrics, per month.
    * Mirrors revenueByMonth / nightsByMonth / staysByMonth so the post-pass
@@ -965,6 +994,13 @@ export async function computeRevenueSnapshot(
       }
     }
 
+    const propTotalNights = nightsBetween(propStart, periodEndExclusive);
+    // Subtract owner-block nights so per-property occupancy reads against
+    // bookable inventory, not raw calendar days.
+    let propBlockedNights = 0;
+    for (const v of blockedNightsByMonth.values()) propBlockedNights += v;
+    const propBookableNights = Math.max(0, propTotalNights - propBlockedNights);
+
     // Stash the per-month buckets on the snapshot so the post-pass layer
     // can do per-month Statement + pacing adjustments. calendarNightsByMonth
     // stays separate because pacing % requires calendar (physical) nights.
@@ -976,18 +1012,13 @@ export async function computeRevenueSnapshot(
       calendarNightsByMonth,
       calendarNightsInRange,
       blockedNightsByMonth,
+      bookableNights: propBookableNights,
       channelByMonth,
     });
 
     const managementFee = totalRevenue * mgmtFeeFraction;
     const ownerPayout = totalRevenue - cleaningCost - managementFee;
     const ADR = nightsSold > 0 && totalRevenue > 0 ? totalRevenue / nightsSold : null;
-    const propTotalNights = nightsBetween(propStart, periodEndExclusive);
-    // Subtract owner-block nights so per-property occupancy reads against
-    // bookable inventory, not raw calendar days.
-    let propBlockedNights = 0;
-    for (const v of blockedNightsByMonth.values()) propBlockedNights += v;
-    const propBookableNights = Math.max(0, propTotalNights - propBlockedNights);
     // Physical calendar occupancy (nights occupied in range), NOT the
     // checkout-attributed nightsSold — a stay straddling month-end counts
     // its in-range nights here while its money belongs to the checkout
@@ -1032,7 +1063,11 @@ export async function computeRevenueSnapshot(
   //     that month's portfolio pacing multiplier to its revenue contribution.
   //   - Partial months at the edge of a range keep their pro-rated values
   //     (Statement doesn't divide cleanly across days).
-  const { snapshots, pacing } = await applyStatementsAndPacing(
+  const {
+    snapshots,
+    pacing,
+    calendarNightsDelta: pacedCalendarNights,
+  } = await applyStatementsAndPacing(
     baseSnapshots,
     rangeStart,
     rangeEnd,
@@ -1094,6 +1129,10 @@ export async function computeRevenueSnapshot(
     for (const v of buckets.blockedNightsByMonth.values()) totalBlockedNights += v;
     totalCalendarNights += buckets.calendarNightsInRange;
   }
+  // Pacing projects occupancy on every card, so the portfolio figure has to
+  // move with them. The delta is already capped per property, so this cannot
+  // push the rollup past what the cards add up to.
+  totalCalendarNights += pacedCalendarNights;
   totalPossibleNights = Math.max(0, totalPossibleNights - totalBlockedNights);
   const avgOccupancy =
     totalPossibleNights > 0
@@ -1147,9 +1186,21 @@ async function applyStatementsAndPacing(
   applyPacing: boolean,
   monthBucketsByProperty: Map<string, PropertyMonthBuckets>,
   basis: RevenueBasis,
-): Promise<{ snapshots: PropertySnapshot[]; pacing: PacingInfo | null }> {
+): Promise<{
+  snapshots: PropertySnapshot[];
+  pacing: PacingInfo | null;
+  /**
+   * Calendar nights the pacing projection adds portfolio-wide. The portfolio
+   * occupancy rollup builds its numerator from the raw buckets, so without
+   * this it would keep reporting booked-so-far while every property card
+   * showed a projected figure.
+   */
+  calendarNightsDelta: number;
+}> {
   const segments = monthSegments(rangeStart, rangeEnd);
-  if (segments.length === 0) return { snapshots: base, pacing: null };
+  if (segments.length === 0) {
+    return { snapshots: base, pacing: null, calendarNightsDelta: 0 };
+  }
 
   const now = new Date();
   const todayYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -1344,6 +1395,8 @@ async function applyStatementsAndPacing(
     }
   }
 
+  let portfolioCalendarNightsDelta = 0;
+
   const snapshots = base.map((s): PropertySnapshot => {
     const buckets = monthBucketsByProperty.get(s.propertyId);
     if (!buckets) return s;
@@ -1356,6 +1409,10 @@ async function applyStatementsAndPacing(
     let nightsDelta = 0;
     let staysDelta = 0;
     let cleaningDelta = 0;
+    // Physical nights the pacing projection adds. Tracked apart from
+    // nightsDelta because occupancy is a calendar question and nightsSold is
+    // checkout-attributed; the two disagree for any stay crossing month-end.
+    let calendarNightsDelta = 0;
     // Repairs + tax come straight off the Statement and reduce payout only.
     // PropertyRevenueMetrics has no field for them, so accumulate here and
     // subtract from the recomputed payout. Stays 0 for non-Statement months.
@@ -1419,14 +1476,35 @@ async function applyStatementsAndPacing(
         }
       }
 
-      // (b) Full current/future month with Pacing mode on -> multiply this
-      //     month's contribution by the pacing multiplier.
+      // (b) Full current/future month with Pacing mode on -> project this
+      //     month's whole contribution by the pacing multiplier.
+      //
+      //     Everything the month contributes moves together: the dollars, the
+      //     nights and stays that earn them, the cleaning those stays cost,
+      //     and the calendar nights behind occupancy. The multiplier IS an
+      //     occupancy ratio (historical benchmark / booked-so-far), so a
+      //     projection that lifted revenue alone contradicted its own premise:
+      //     ADR (revenue / nights) read high by the multiplier while stays and
+      //     occupancy sat frozen at booked-so-far.
       const mp = pacingByMonth.get(seg.monthKey);
       if (seg.fullMonth && isCurrentOrFuture && applyPacing && mp && mp.multiplier > 1) {
-        const monthRevenue = buckets.revenueByMonth.get(seg.monthKey) ?? 0;
-        revenueDelta += monthRevenue * (mp.multiplier - 1);
+        const lift = pacedMonthLift(
+          {
+            revenue: buckets.revenueByMonth.get(seg.monthKey) ?? 0,
+            nights: buckets.nightsByMonth.get(seg.monthKey) ?? 0,
+            stays: buckets.staysByMonth.get(seg.monthKey) ?? 0,
+            cleaning: buckets.cleaningByMonth.get(seg.monthKey) ?? 0,
+            calendarNights: buckets.calendarNightsByMonth.get(seg.monthKey) ?? 0,
+          },
+          mp.multiplier,
+        );
+        revenueDelta += lift.revenue;
+        nightsDelta += lift.nights;
+        staysDelta += lift.stays;
+        cleaningDelta += lift.cleaning;
+        calendarNightsDelta += lift.calendarNights;
         usedPacing = true;
-        if (monthMix) mergeMix(channelMix, monthMix, mp.multiplier);
+        if (monthMix) mergeMix(channelMix, monthMix, mp.multiplier, mp.multiplier);
         continue;
       }
 
@@ -1447,8 +1525,31 @@ async function applyStatementsAndPacing(
     const baseM = s.metrics;
     const newRevenue =
       baseM.totalRevenue != null ? Math.max(0, baseM.totalRevenue + revenueDelta) : null;
+    // Pacing scales by a fractional multiplier. Stays is printed raw and half
+    // a stay is not a thing, so it rounds. Nights is never displayed from this
+    // field -- it is the denominator under ADR -- so it stays exact: rounding
+    // it per property would drift ADR off booked by a few tenths of a percent
+    // for no gain. Statement and booked months carry integer deltas either
+    // way, so this is a no-op for them.
     const newNights = Math.max(0, baseM.nightsSold + nightsDelta);
-    const newStays = Math.max(0, baseM.staysCount + staysDelta);
+    const newStays = Math.round(Math.max(0, baseM.staysCount + staysDelta));
+
+    // Occupancy is physical calendar occupancy, so it follows the pacing
+    // projection onto the benchmark the multiplier is chasing, capped at 100
+    // exactly like the base pass: a home already near full cannot absorb a
+    // portfolio-wide lift. Statement swaps still leave it alone, because
+    // restating a closed month's money does not change which nights were
+    // slept in.
+    const { occupancyPct: newOccupancy, nightsUsed } = projectOccupancy({
+      bookedCalendarNights: buckets.calendarNightsInRange,
+      calendarNightsDelta,
+      bookableNights: buckets.bookableNights,
+      bookedOccupancyPct: baseM.occupancyPct,
+    });
+    // Accumulate the same capped figure the card will show, so portfolio
+    // occupancy stays the aggregate of the cards rather than drifting past
+    // them on homes that hit the cap. Zero when nothing was projected.
+    portfolioCalendarNightsDelta += nightsUsed - buckets.calendarNightsInRange;
     const newCleaning =
       baseM.cleaningCost != null
         ? Math.max(0, baseM.cleaningCost + cleaningDelta)
@@ -1486,10 +1587,7 @@ async function applyStatementsAndPacing(
         nightsSold: newNights,
         totalRevenue: newRevenue != null && newRevenue > 0 ? round2(newRevenue) : null,
         ADR: newADR !== null ? round2(newADR) : null,
-        // Occupancy is physical calendar occupancy from the base pass.
-        // Statement swaps and pacing multipliers move money and
-        // checkout-attributed nights, not what nights were slept in.
-        occupancyPct: baseM.occupancyPct,
+        occupancyPct: newOccupancy !== null ? round1(newOccupancy) : null,
         managementFee: newMgmtFee && newMgmtFee > 0 ? round2(newMgmtFee) : (newRevenue ? 0 : null),
         cleaningCost: newCleaning && newCleaning > 0 ? round2(newCleaning) : null,
         projectedOwnerPayout: newPayout && newPayout > 0 ? round2(newPayout) : null,
@@ -1497,7 +1595,11 @@ async function applyStatementsAndPacing(
     };
   });
 
-  return { snapshots, pacing: headline };
+  return {
+    snapshots,
+    pacing: headline,
+    calendarNightsDelta: portfolioCalendarNightsDelta,
+  };
 }
 
 type StatementRow = {
