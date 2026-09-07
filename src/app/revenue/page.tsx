@@ -239,8 +239,8 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 Gloucester historical for {formatPacingMonth(pacing.month)} is{' '}
                 {pacing.historicalAvgPct.toFixed(0)}%.
                 {view === 'pacing'
-                  ? ` Revenue projects booked × ${pacing.multiplier.toFixed(2)} on current/future full months in range.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
-                  : ` Revenue shows booked-so-far actuals only.${basis === 'nights' ? ' Split by night.' : ''}`}
+                  ? ` Every figure projects booked × ${pacing.multiplier.toFixed(2)} on current/future full months in range. Revenue, nights, stays, cleaning and occupancy move together, so ADR holds steady and occupancy carries toward the benchmark.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
+                  : ` All figures show booked-so-far actuals only.${basis === 'nights' ? ' Split by night.' : ''}`}
               </p>
             )}
           </>
