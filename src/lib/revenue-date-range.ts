@@ -3,9 +3,18 @@
  * `dateRangeUtils.ts` and adapted for server-side use (no em dashes in labels;
  * pure functions with no React).
  *
- * Range semantics: rangeStart and rangeEnd are inclusive YYYY-MM-DD strings,
- * both in local time. The snapshot logic treats reservations whose stays
- * overlap [rangeStart, rangeEnd] as eligible.
+ * Range semantics: rangeStart and rangeEnd are inclusive YYYY-MM-DD strings.
+ * The snapshot logic treats reservations whose stays overlap
+ * [rangeStart, rangeEnd] as eligible.
+ *
+ * WHAT "TODAY" MEANS HERE. Every preset that depends on the current date
+ * resolves it in America/New_York, not on the server clock. Vercel runs in
+ * UTC, so from 8pm ET onward the server has already rolled to tomorrow. At a
+ * month boundary that silently switched "This Month" to the next one four or
+ * five hours early, on exactly the evening someone is closing the month. The
+ * calendar arithmetic underneath is UTC-anchored for the same reason the
+ * nightsBetween helper below is: a date string is a calendar fact and should
+ * not shift with a server's zone.
  */
 
 export type RangePreset =
@@ -36,49 +45,59 @@ export type CustomRange = {
   endDate: string;
 };
 
-function todayLocal(): string {
-  const today = new Date();
-  const tz = today.getTimezoneOffset();
-  return new Date(today.getTime() - tz * 60_000).toISOString().split('T')[0];
+const EASTERN_DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
+
+/**
+ * The calendar date in Gloucester at a given instant, YYYY-MM-DD.
+ *
+ * Exported because it is the whole fix: an instant is not a date until you
+ * name a zone, and the zone that matters is the one the operator is standing
+ * in. 2026-09-01T02:00:00Z is September 1st to the server and still
+ * August 31st, 10pm, to Dotti.
+ */
+export function easternDateStr(instant: Date): string {
+  return EASTERN_DATE_FMT.format(instant);
 }
 
-function fmt(date: Date): string {
-  const tz = date.getTimezoneOffset();
-  return new Date(date.getTime() - tz * 60_000).toISOString().split('T')[0];
+/** Shift a YYYY-MM-DD calendar date by whole days. UTC-anchored, so it cannot
+ *  drift across a DST boundary the way local-time arithmetic does. */
+export function shiftDays(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
-function firstOfMonth(year: number, month: number): string {
-  return fmt(new Date(year, month, 1));
+export function firstOfMonth(year: number, month: number): string {
+  return `${year}-${String(month + 1).padStart(2, '0')}-01`;
 }
 
-function lastOfMonth(year: number, month: number): string {
-  return fmt(new Date(year, month + 1, 0));
+export function lastOfMonth(year: number, month: number): string {
+  // Day 0 of the following month is the last day of this one.
+  return new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
 }
 
 export function computeDateRange(
   preset: RangePreset,
   customMonth?: CustomMonth,
   customRange?: CustomRange,
+  /** The instant to resolve "today" from. Injected by tests; production never
+   *  passes it, and must not: the default is what makes the date Eastern. */
+  now: Date = new Date(),
 ): DateRange {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
+  const today = easternDateStr(now);
+  const [y, m1] = today.split('-').map(Number);
+  const m = m1 - 1; // 0-indexed, matching CustomMonth and the helpers above
+  const todayLocal = () => today;
 
   switch (preset) {
     case 'mtd':
       return { rangeStart: firstOfMonth(y, m), rangeEnd: todayLocal() };
 
-    case 'last_30': {
-      const start = new Date(now);
-      start.setDate(start.getDate() - 30);
-      return { rangeStart: fmt(start), rangeEnd: todayLocal() };
-    }
+    case 'last_30':
+      return { rangeStart: shiftDays(today, -30), rangeEnd: todayLocal() };
 
-    case 'last_90': {
-      const start = new Date(now);
-      start.setDate(start.getDate() - 90);
-      return { rangeStart: fmt(start), rangeEnd: todayLocal() };
-    }
+    case 'last_90':
+      return { rangeStart: shiftDays(today, -90), rangeEnd: todayLocal() };
 
     case 'this_month':
       return { rangeStart: firstOfMonth(y, m), rangeEnd: lastOfMonth(y, m) };
@@ -95,11 +114,8 @@ export function computeDateRange(
       return { rangeStart: firstOfMonth(ny, nm), rangeEnd: lastOfMonth(ny, nm) };
     }
 
-    case 'next_90': {
-      const end = new Date(now);
-      end.setDate(end.getDate() + 90);
-      return { rangeStart: todayLocal(), rangeEnd: fmt(end) };
-    }
+    case 'next_90':
+      return { rangeStart: todayLocal(), rangeEnd: shiftDays(today, 90) };
 
     case 'ytd':
       return { rangeStart: `${y}-01-01`, rangeEnd: todayLocal() };
@@ -118,7 +134,7 @@ export function computeDateRange(
         : { rangeStart: firstOfMonth(y, m), rangeEnd: lastOfMonth(y, m) };
 
     default:
-      return computeDateRange('mtd');
+      return computeDateRange('mtd', undefined, undefined, now);
   }
 }
 
@@ -132,7 +148,7 @@ export function presetLabel(preset: RangePreset, customMonth?: CustomMonth): str
     case 'next_month': return 'Next Month';
     case 'next_90': return 'Next 90 Days';
     case 'ytd': return 'Year to Date';
-    case 'full_year': return `Full Year ${new Date().getFullYear()}`;
+    case 'full_year': return `Full Year ${easternDateStr(new Date()).slice(0, 4)}`;
     case 'custom_month':
       if (customMonth) {
         const d = new Date(customMonth.year, customMonth.month, 1);
@@ -145,9 +161,13 @@ export function presetLabel(preset: RangePreset, customMonth?: CustomMonth): str
 }
 
 export function formatRangeLabel(rangeStart: string, rangeEnd: string): string {
-  const s = new Date(rangeStart + 'T00:00:00');
-  const e = new Date(rangeEnd + 'T00:00:00');
-  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
+  // UTC anchor + UTC formatting: the strings are calendar dates already, and
+  // reading them back through a server zone is how "Sep 1" prints as "Aug 31".
+  const s = new Date(rangeStart + 'T00:00:00Z');
+  const e = new Date(rangeEnd + 'T00:00:00Z');
+  const opts: Intl.DateTimeFormatOptions = {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  };
   return `${s.toLocaleDateString('en-US', opts)} to ${e.toLocaleDateString('en-US', opts)}`;
 }
 

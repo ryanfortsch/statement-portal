@@ -299,6 +299,8 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   // Rental Rev -- a refund is not revenue -- and they no longer ride the
   // Repairs line either. See debitLines at the Financials table below.
   const debitLines: { label: string; amount: number }[] = [];
+  /** Attributed credits with no reservation code. See the branch below. */
+  const codelessAddOns: { label: string; amount: number }[] = [];
   if (!addOnErr || (addOnErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(addOnErr.message || ''))) {
     for (const a of addOnRows || []) {
       if (a.direction === 'debit') {
@@ -306,7 +308,16 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
         continue;
       }
       const code = a.attributed_reservation_code;
-      if (!code) continue;
+      if (!code) {
+        // An attribution the operator tied to the property-month but not to a
+        // particular stay. It IS in prop.add_ons_revenue, and therefore in the
+        // Financials Rental Revenue line, so dropping it here left the
+        // Reservations column summing to less than the total printed two
+        // inches below it, with nothing to explain the difference. It gets a
+        // standalone row instead, the same as a carried add-on.
+        codelessAddOns.push({ label: a.label || 'Add-on', amount: Number(a.amount) || 0 });
+        continue;
+      }
       const list = addOnsByCode.get(code) || [];
       list.push({ label: a.label || 'Add-on', amount: Number(a.amount) || 0 });
       addOnsByCode.set(code, list);
@@ -649,6 +660,26 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
     if (!onStatementCodes.has(code)) carriedAddOns.push(...list);
   }
 
+  // Everything in add_ons_revenue that is not folded into a guest's row has to
+  // appear on its own line, or the Reservations column stops summing to the
+  // Rental Revenue line. Two kinds reach here: an add-on carried from a stay
+  // that is not on this statement, and one the operator never tied to a stay
+  // at all.
+  const standaloneAddOns = [...carriedAddOns, ...codelessAddOns];
+
+  // Backstop. The rows above are rebuilt from bank_deposit_attributions while
+  // the Financials line reads the stored add_ons_revenue scalar, and the two
+  // can drift (a re-ingest between the attribution and the statement, say).
+  // Rather than print a column that does not add up, name the difference.
+  const shownAddOns = [...addOnsByCode.values()]
+    .flat()
+    .reduce((sum, a) => sum + (Number(a.amount) || 0), 0)
+    + codelessAddOns.reduce((sum, a) => sum + a.amount, 0);
+  const addOnResidual = Number(prop.add_ons_revenue || 0) - shownAddOns;
+  if (Math.abs(addOnResidual) >= 0.005) {
+    standaloneAddOns.push({ label: 'Other add-ons', amount: addOnResidual });
+  }
+
   // Guest-facing (grossed-up) ADR. DISPLAY-ONLY -- reconstructs what the guest
   // paid per night from RT's net deposit, using the SAME nightsBooked
   // denominator as the legacy net ADR. Payout math is untouched. See the
@@ -847,14 +878,22 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
                         </tr>
                       );
                     })}
-                    {carriedAddOns.map((a, j) => (
-                      <tr key={`carried-addon-${j}`} className="addon-row">
-                        <td><div className="addon-label">+ {a.label}</div></td>
-                        <td></td>
-                        <td></td>
-                        <td className="num addon-amt">+${fmt(a.amount)}</td>
-                      </tr>
-                    ))}
+                    {standaloneAddOns.map((a, j) => {
+                      // Sign-aware: the residual row can be negative when the
+                      // stored scalar sits below the attributions, and "+$-50"
+                      // is not something to hand an owner.
+                      const neg = a.amount < 0;
+                      return (
+                        <tr key={`standalone-addon-${j}`} className="addon-row">
+                          <td><div className="addon-label">{neg ? '\u2212' : '+'} {a.label}</div></td>
+                          <td></td>
+                          <td></td>
+                          <td className="num addon-amt">
+                            {neg ? '\u2212' : '+'}${fmt(Math.abs(a.amount))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </section>
