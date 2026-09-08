@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
+import { QUO_LINES } from '@/lib/quo-lines';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
 import type { LastTouch } from './page';
@@ -233,6 +234,23 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                     <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
                       {formatPhone(u.phone)}
                     </span>
+                    {/* Which of our three numbers they texted. A GUESTS-line
+                        text is a guest; 24/7 is crew or a vendor; OWNERS is
+                        an owner or a prospect. */}
+                    {u.quo_line && (
+                      <span
+                        className="eyebrow"
+                        style={{
+                          fontSize: 10,
+                          padding: '2px 7px',
+                          border: '1px solid var(--rule)',
+                          color: u.quo_line === 'guests' ? 'var(--signal)' : 'var(--ink-3)',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {QUO_LINES[u.quo_line].label}
+                      </span>
+                    )}
                     <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--ink-3)' }}>
                       {u.last_body ? `“${truncate(u.last_body, 90)}”` : 'Reached out'}
                       {u.last_message_at && (

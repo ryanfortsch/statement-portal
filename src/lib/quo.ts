@@ -268,8 +268,8 @@ export type SendMessageParams = {
 };
 
 // POST /v1/messages: Quo's outbound SMS endpoint. `from` is the E.164
-// of one of our Quo numbers (use the env-pinned QUO_FROM_NUMBER or pick
-// the first from listPhoneNumbers()); `to` is the recipient E.164.
+// of one of our Quo numbers: always `quoFromNumber(<audience>)`, never a
+// number picked off listPhoneNumbers(). `to` is the recipient E.164.
 export async function sendMessage(p: SendMessageParams): Promise<QuoMessage> {
   const res = await fetch(`${API_HOST}/messages`, {
     method: 'POST',
@@ -293,8 +293,26 @@ export async function sendMessage(p: SendMessageParams): Promise<QuoMessage> {
 //   hmac;1;<timestamp-ms>;<base64-hmac-sha256-digest>
 // signed string is `<timestamp>.<JSON.stringify(parsedBody)>`,
 // secret is base64-encoded.
+//
+// Every Quo webhook has its own signing key. The original Helm webhook was
+// made in the Quo app and its key is QUO_WEBHOOK_SECRET; webhooks created
+// through the API (one per line added later) each mint a new key, which
+// ride in QUO_WEBHOOK_SECRETS as a comma list. A delivery is valid if any
+// configured key signs it.
 
 const REPLAY_WINDOW_MS = 5 * 60 * 1000;
+
+/** Every signing key Helm accepts, in env order. Empty when none is set. */
+export function webhookSecrets(): string[] {
+  const out: string[] = [];
+  const primary = (process.env.QUO_WEBHOOK_SECRET || '').trim();
+  if (primary) out.push(primary);
+  for (const k of (process.env.QUO_WEBHOOK_SECRETS || '').split(',')) {
+    const t = k.trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
 
 export type SignatureCheck =
   | { ok: true }
@@ -303,11 +321,12 @@ export type SignatureCheck =
 export function verifyWebhookSignature(
   parsedBody: unknown,
   headerValue: string | null,
-  secret: string,
+  secret: string | string[],
   now: number = Date.now(),
 ): SignatureCheck {
   if (!headerValue) return { ok: false, reason: 'missing openphone-signature header' };
-  if (!secret) return { ok: false, reason: 'QUO_WEBHOOK_SECRET not set' };
+  const secrets = (Array.isArray(secret) ? secret : [secret]).filter(Boolean);
+  if (secrets.length === 0) return { ok: false, reason: 'QUO_WEBHOOK_SECRET not set' };
 
   const parts = headerValue.split(';');
   if (parts.length !== 4) return { ok: false, reason: 'malformed signature header' };
@@ -323,41 +342,36 @@ export function verifyWebhookSignature(
   }
 
   const signedData = `${timestampStr}.${JSON.stringify(parsedBody)}`;
-  const keyBinary = Buffer.from(secret, 'base64');
-  const computed = crypto
-    .createHmac('sha256', keyBinary)
-    .update(signedData, 'utf8')
-    .digest('base64');
+  for (const s of secrets) {
+    const keyBinary = Buffer.from(s, 'base64');
+    const computed = crypto
+      .createHmac('sha256', keyBinary)
+      .update(signedData, 'utf8')
+      .digest('base64');
 
-  // Timing-safe compare. Bail early on length mismatch since
-  // timingSafeEqual throws on mismatched lengths, and that throw
-  // distinguishes itself from a genuine digest mismatch.
-  if (computed.length !== providedDigest.length) {
-    return { ok: false, reason: 'digest length mismatch' };
+    // Timing-safe compare. Skip on length mismatch since timingSafeEqual
+    // throws on mismatched lengths, and that throw distinguishes itself
+    // from a genuine digest mismatch.
+    if (computed.length !== providedDigest.length) continue;
+    const same = crypto.timingSafeEqual(
+      Buffer.from(computed, 'utf8'),
+      Buffer.from(providedDigest, 'utf8'),
+    );
+    if (same) return { ok: true };
   }
-  const same = crypto.timingSafeEqual(
-    Buffer.from(computed, 'utf8'),
-    Buffer.from(providedDigest, 'utf8'),
-  );
-  return same ? { ok: true } : { ok: false, reason: 'digest mismatch' };
+  return { ok: false, reason: 'digest mismatch' };
 }
 
-// ── Phone normalization ────────────────────────────────────────────
-// Inbound webhooks give phones in E.164 already (`+15551234567`); local
-// records (cleaner_phones, contacts.phone) may not be normalized. Make
-// matching tolerant by stripping non-digits and right-anchoring on the
-// last 10 digits (US/CA assumption, fine for Rising Tide).
-
-export function normalizePhone(raw: string | null | undefined): string {
-  if (!raw) return '';
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1);
-  if (digits.length === 10) return digits;
-  return digits;
-}
-
-export function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
-  const na = normalizePhone(a);
-  const nb = normalizePhone(b);
-  return na.length > 0 && na === nb;
-}
+// ── Phone normalization + the three lines ──────────────────────────
+// Live in quo-lines.ts (no Node imports) so client components can read the
+// line registry without dragging node:crypto into the browser bundle.
+export {
+  normalizePhone,
+  phonesMatch,
+  QUO_LINES,
+  quoFromNumber,
+  quoLineFor,
+  quoLineOfInbound,
+  type QuoLine,
+  type QuoLineInfo,
+} from './quo-lines';

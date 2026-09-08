@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { normalizePhone } from '@/lib/quo';
+import { normalizePhone, quoLineOfInbound, type QuoLine } from '@/lib/quo';
 import { matchPropertyFromCleanerText } from '@/lib/properties';
 import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 import { ingestVendorAppointments, isVendorReminderSender } from '@/lib/vendor-schedule';
@@ -39,6 +39,8 @@ type WebhookMessage = {
   id: string;
   from?: string | null;
   to?: string | string[] | null;
+  /** Which of our numbers the text arrived on. Names the line. */
+  phoneNumberId?: string | null;
   body?: string | null;
   text?: string | null; // tolerate REST-shaped payloads too
   direction?: 'incoming' | 'outgoing';
@@ -49,6 +51,7 @@ type WebhookCall = {
   id: string;
   from?: string | null;
   to?: string | string[] | null;
+  phoneNumberId?: string | null;
   participants?: string[];
   direction?: 'incoming' | 'outgoing';
   duration?: number | null;
@@ -230,8 +233,11 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
   }
 
   // 3. Unknown-number path. Not a cleaner, not a contact — capture it in
-  // the triage queue so prospect/owner/vendor texts aren't dropped.
-  await captureUnknownInbound(fromPhone, msg.createdAt, body || null);
+  // the triage queue so prospect/owner/vendor texts aren't dropped. The
+  // line it arrived on rides along: a number texting the GUESTS line is a
+  // guest, the 24/7 line is a vendor or crew, OWNERS is an owner or a
+  // prospect. That is the whole point of having three numbers.
+  await captureUnknownInbound(fromPhone, msg.createdAt, body || null, quoLineOfInbound(msg));
 }
 
 async function handleOutboundMessage(msg: WebhookMessage): Promise<void> {
@@ -276,7 +282,7 @@ async function handleCall(call: WebhookCall): Promise<void> {
     // cleaners, who are recognized vendors, not CRM leads to triage.
     if (call.direction === 'incoming') {
       const cleaner = await matchCleanerPhone(otherParty);
-      if (!cleaner) await captureUnknownInbound(otherParty, at, 'Inbound call');
+      if (!cleaner) await captureUnknownInbound(otherParty, at, 'Inbound call', quoLineOfInbound(call));
     }
     return;
   }
@@ -464,17 +470,26 @@ async function captureUnknownInbound(
   phone: string,
   at: string,
   body: string | null,
+  line: QuoLine | null = null,
 ): Promise<void> {
   if (!phone) return;
+  const row: Record<string, unknown> = {
+    phone,
+    last_message_at: at,
+    last_body: body,
+    last_direction: 'inbound',
+    last_seen_at: at,
+  };
+  // Only stamp a line we could name, so a replay of an old event (no
+  // phoneNumberId) never blanks a line a later message already set.
+  if (line) row.quo_line = line;
   await supabase
     .from('quo_unknown_numbers')
-    .upsert(
-      { phone, last_message_at: at, last_body: body, last_direction: 'inbound', last_seen_at: at },
-      { onConflict: 'phone' },
-    )
+    .upsert(row, { onConflict: 'phone' })
     .then((r) => {
-      // 42P01 = undefined_table (pre-migration); 23505 = race on unique.
-      if (r.error && r.error.code !== '23505' && r.error.code !== '42P01') throw r.error;
+      // 42P01 = undefined_table (pre-migration); 23505 = race on unique;
+      // 42703 = quo_line column not migrated yet.
+      if (r.error && !['23505', '42P01', '42703'].includes(r.error.code)) throw r.error;
     });
 }
 

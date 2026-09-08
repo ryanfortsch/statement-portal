@@ -29,7 +29,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { listPhoneNumbers, sendMessage } from '@/lib/quo';
+import { quoFromNumber, sendMessage } from '@/lib/quo';
 import {
   buildCheckoutSchedule,
   ScheduleUnavailableError,
@@ -345,18 +345,11 @@ export function portalLink(token: string, serviceDate?: string): string {
 
 // ─── send ─────────────────────────────────────────────────────────────
 
+// Cleaners are back office: the digest goes out on the RISING TIDE 24/7
+// line, so Rosa's reply lands where the team works, not in a guest inbox.
 async function resolveQuoFrom(): Promise<string | null> {
   if (!process.env.QUO_API_KEY) return null;
-  let from = process.env.QUO_FROM_NUMBER;
-  if (!from) {
-    try {
-      from = (await listPhoneNumbers())[0]?.number;
-    } catch {
-      return null;
-    }
-  }
-  if (!from) return null;
-  return from.startsWith('+') ? from : `+1${from.replace(/\D/g, '').slice(-10)}`;
+  return quoFromNumber('ops');
 }
 
 export type SendDigestResult =

@@ -88,4 +88,8 @@ export type UnknownNumberRow = {
   status: 'pending' | 'added' | 'dismissed';
   contact_id: string | null;
   created_at: string;
+  /** Which Rising Tide line the last inbound arrived on: 'guests' |
+   *  'ops' | 'owners'. Null before the line column existed or when the
+   *  event carried no phoneNumberId. See QUO_LINES in lib/quo.ts. */
+  quo_line?: 'guests' | 'ops' | 'owners' | null;
 };

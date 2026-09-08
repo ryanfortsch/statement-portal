@@ -465,6 +465,24 @@ which is the first thing to check when statement reservations vanish.
 Rebranded OpenPhone. Cross-cutting: cleaning completion pings, CRM contact timeline, owner
 last-contacted stamping, and outbound SMS.
 
+**Three lines, three audiences** (Dotti, 2026-09-08). `QUO_LINES` in `src/lib/quo-lines.ts` is the
+registry; `quoFromNumber(<audience>)` is the only way to pick a sending number. There is no
+"first number Quo lists" fallback any more: that fallback put contractor texts on the GUESTS line
+the afternoon it was created.
+
+| Line | Number | Quo id | Who |
+|---|---|---|---|
+| GUESTS | (978) 865-2575 | `PNTSICOAAA` | anyone staying with us: Stay Cape Ann, OTA guests, add-on links |
+| RISING TIDE 24/7 | (978) 865-2500 | `PNq253fFrk` | the back office: cleaners, contractors, vendors, staff, internal pings |
+| OWNERS | (978) 865-2387 | `PNpVESxsNW` | homeowners and prospects |
+
+If it came in on the GUESTS line it is a guest. Helm sends only to the back office (cleaner digest,
+Field texts, the AirDNA nudge), all on 2500. Guest and owner texts go out from stay-concierge, which
+carries the same split (`QUO_GUEST_PHONE_NUMBER_ID`, `QUO_OPS_PHONE_NUMBER_ID`, default id = OWNERS).
+The webhook ingest stamps `quo_unknown_numbers.quo_line` from the event's `phoneNumberId`, and the
+/crm triage card badges it. Every Quo webhook has its own signing key: the app-made original is
+`QUO_WEBHOOK_SECRET`, API-made ones ride in `QUO_WEBHOOK_SECRETS` (comma list); any may sign.
+
 - **Live path**: `POST /api/webhooks/quo` verifies the `openphone-signature` HMAC
   (`hmac;1;<timestamp>;<base64-digest>`, signed payload `<timestamp>.<JSON.stringify(body)>`, secret
   base64-decoded), persists into `quo_events` (unique on `quo_event_id`, so replays 200), and
@@ -548,7 +566,8 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
   mailbox), plus `_DOTTI` / `_RYAN` / `_ALLIE` variants for identity-specific sends. These are
   **not** the SSO credentials.
 - **Email out**: `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_AUDIENCE_ID`, `RESEND_WEBHOOK_SECRET`
-- **Quo**: `QUO_API_KEY`, `QUO_WEBHOOK_SECRET`, `QUO_FROM_NUMBER`
+- **Quo**: `QUO_API_KEY`, `QUO_WEBHOOK_SECRET`, `QUO_WEBHOOK_SECRETS`, `QUO_FROM_NUMBER` (24/7 line
+  override), `QUO_GUEST_FROM_NUMBER`, `QUO_OWNER_FROM_NUMBER`
 - **Seam**: `SEAM_API_KEY`, `SEAM_WEBHOOK_SECRET`, `SEAM_CLEANER_CODE`, `SEAM_INSPECTION_CODE`,
   `SEAM_MAINTENANCE_CODE`, `SEAM_CREATIVE_CODE`
 - **Bridge**: `STAY_CONCIERGE_KEY`, `STAY_CONCIERGE_URL`
