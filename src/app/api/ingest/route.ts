@@ -10,6 +10,8 @@ import {
 import { classifyCancelledStay, cancelledStayGap } from '@/lib/cancelled-stay';
 import { checkLiveGuestyCancellation } from '@/lib/cancel-check';
 import { monthGate } from '@/lib/statement-month-gate';
+import { applyCreditOverrides, creditOverrideGaps, creditOverridesUnavailableGap, type CreditOverrideGap } from '@/lib/cleaning-credit-overrides';
+import { loadCreditOverrides } from '@/lib/cleaning-credit-overrides-db';
 import { applyOffStripeRulings, OFF_STRIPE_STATUS } from '@/lib/off-stripe-ruling';
 import { netVendorCredits, vendorChargeNet, unappliedRefundGap, type VendorCharge } from '@/lib/vendor-credit-netting';
 import { classifyInternalTransfers, remittanceMonthFor, type SweepExpectations, type SweepVerdict, type TransferCandidate } from '@/lib/internal-transfers';
@@ -958,6 +960,28 @@ export async function POST(request: NextRequest) {
       vendorCredits,
       'ingest',
     );
+    // Hand-applied credits survive the rebuild. The operator's ruling is a
+    // durable row keyed on the charge's bank identity (family, posting
+    // date, amount), re-applied HERE, after the auto-netter and before any
+    // total is computed, so the pre-check, the statement insert and the
+    // cleaning_events rows (which spread these same charge objects) all
+    // see it. A charge carries one credit: an override whose only twin
+    // already carries a netted refund is reported, not stacked; one with
+    // no such charge is reported, not inferred. A read failure is a
+    // critical notice, because the alternative is billing the gross
+    // silently, which is the bug this replaces. Same rule in fill-gap.
+    const creditOverrideNotices: CreditOverrideGap[] = [];
+    try {
+      const overrides = await loadCreditOverrides(supabase, propertyId, month);
+      if (overrides.length > 0) {
+        creditOverrideNotices.push(...creditOverrideGaps(applyCreditOverrides(
+          { cleaning: cleaningCharges, linen: linenCharges, laundry: laundryCharges },
+          overrides,
+        )));
+      }
+    } catch (e) {
+      creditOverrideNotices.push(creditOverridesUnavailableGap(e instanceof Error ? e.message : String(e)));
+    }
     const chargeNet = vendorChargeNet;
 
     // cleaning_total folds cleaning + linens into one number (owner-facing
@@ -1763,11 +1787,10 @@ export async function POST(request: NextRequest) {
     const preservedReserveHoldback = Number((existingStmt as { reserve_holdback?: number } | null)?.reserve_holdback ?? 0);
     const ownerPayout = Math.round((ownerPayoutBeforeReserve - preservedReserveHoldback) * 100) / 100;
 
-    // NOTE: hand-applied cleaning credits are still LOST by this wipe. The
-    // preservation that briefly lived here matched a stored credit back to a
-    // rebuilt charge on (date, amount, family), which is unsound -- see the
-    // note in src/lib/vendor-credit-netting.ts. It is being replaced by a
-    // durable override row rather than patched further.
+    // Hand-applied cleaning credits survive this wipe: they live in
+    // cleaning_credit_overrides and were re-applied to the charge pools
+    // above (see src/lib/cleaning-credit-overrides.ts), never matched back
+    // by heuristics.
 
     if (existingStmt) {
       await supabase.from('reservations').delete().eq('property_statement_id', existingStmt.id);
@@ -2278,6 +2301,7 @@ export async function POST(request: NextRequest) {
 
     // 12. Data gap flags
     const gaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
+    gaps.push(...creditOverrideNotices);
     // `foreignPdfSection` also lands here as !hasGuesty (it books zero
     // reservations, which is what drives confidence to red -- and red keeps
     // it out of Draft All). Skip the vague "none provided" gap in that case;

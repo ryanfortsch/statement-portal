@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { overrideIdFromExpectedData, CREDIT_OVERRIDE_UNAPPLIED, CREDIT_OVERRIDE_COLLISION } from '@/lib/cleaning-credit-overrides';
+import { CREDIT_OVERRIDES_TABLE } from '@/lib/cleaning-credit-overrides-db';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
@@ -74,6 +76,35 @@ export async function POST(request: NextRequest) {
         .eq('id', gapId);
       if (ackErr) return NextResponse.json({ error: `could not resolve the flag: ${ackErr.message}` }, { status: 500 });
       return NextResponse.json({ ok: true, resolution: 'acknowledge', gap_id: gapId });
+    }
+
+    // Removing a durable hand credit the rebuild could not honor. The
+    // override was not applied, so no row and no total changes: the gap is
+    // retired and the next rebuild has nothing to report. Not gated on the
+    // freeze for the same reason acknowledge is not.
+    if (resolution === 'remove_credit_override') {
+      if (gap.gap_type !== CREDIT_OVERRIDE_UNAPPLIED && gap.gap_type !== CREDIT_OVERRIDE_COLLISION) {
+        return NextResponse.json(
+          { error: `resolution 'remove_credit_override' only applies to hand-credit notices (got ${gap.gap_type})` },
+          { status: 400 },
+        );
+      }
+      const overrideId = overrideIdFromExpectedData(gap.expected_data as string | null);
+      if (!overrideId) return NextResponse.json({ error: 'This flag does not name an override' }, { status: 400 });
+      const session = await auth();
+      const { error: delErr } = await supabase.from(CREDIT_OVERRIDES_TABLE).delete().eq('id', overrideId);
+      if (delErr) return NextResponse.json({ error: `could not remove the hand credit: ${delErr.message}` }, { status: 500 });
+      const { error: ackErr } = await supabase
+        .from('data_gaps')
+        .update({
+          resolved: true,
+          resolved_at: new Date().toISOString(),
+          resolved_by: session?.user?.email || 'unknown',
+          resolution_note: `Removed hand credit override ${overrideId}`,
+        })
+        .eq('id', gapId);
+      if (ackErr) return NextResponse.json({ error: `the hand credit was removed but the flag could not be resolved: ${ackErr.message}` }, { status: 500 });
+      return NextResponse.json({ ok: true, resolution: 'remove_credit_override', gap_id: gapId, override_id: overrideId });
     }
 
     let finalityGate: FreezeReceipt | undefined;
