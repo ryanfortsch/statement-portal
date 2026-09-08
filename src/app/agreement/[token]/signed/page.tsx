@@ -88,7 +88,7 @@ export default async function AgreementSignedPage({ params }: { params: Promise<
             <div className="sca-th-line">
               <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a>
               <span>&middot;</span>
-              <span>978-387-1573</span>
+              <span>(978) 865-2575</span>
             </div>
           </div>
         </section>
