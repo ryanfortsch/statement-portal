@@ -44,7 +44,7 @@ function shell(body: string): string {
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;margin:0 auto;color:#1e2e34;line-height:1.6;">
     <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#c85a3a;font-weight:600;margin-bottom:8px;">Rising Tide Field</div>
     ${body}
-    <p style="font-size:12px;color:#7a8a90;margin-top:28px;border-top:1px solid #e6ded2;padding-top:14px;">Rising Tide STR · Gloucester, MA · Questions? Reply to this email or call (978) 865-2387.</p>
+    <p style="font-size:12px;color:#7a8a90;margin-top:28px;border-top:1px solid #e6ded2;padding-top:14px;">Rising Tide STR · Gloucester, MA · Questions? Reply to this email or call (978) 865-2500.</p>
   </div>`;
 }
 

@@ -669,7 +669,9 @@ export const LOCAL_CONTACTS_24HR = {
   operator: {
     name: 'Allie O\'Brien',
     role: 'Operations',
-    phone: '(978) 865-2387',
+    // The Information Note hangs in the home and a guest reads it, so this
+    // is the GUESTS line, not OWNERS. See QUO_LINES in lib/quo-lines.ts.
+    phone: '(978) 865-2575',
     email: 'allie@risingtidestr.com',
   },
   backup: {
