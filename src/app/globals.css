@@ -441,6 +441,19 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-helm-stat-strip > .rt-helm-stat:nth-last-child(-n+2) {
     border-bottom: none;
   }
+  /* The Cleanings strip is three DAYS, not KPI tiles, and each day carries
+     a time plus a property name plus a nowrap status flag. Two columns on a
+     phone leaves roughly 60px for the name, so the name overflowed straight
+     through the flag and the third day was orphaned onto its own row. One
+     full-width day per screen, divided by rules instead of columns. */
+  .rt-cleanings-strip { grid-template-columns: 1fr !important; }
+  .rt-cleanings-day {
+    border-right: none !important;
+    border-bottom: 1px solid var(--rule);
+    padding: 14px 16px !important;
+  }
+  .rt-cleanings-day:last-child { border-bottom: none; }
+
   .rt-helm-stat { padding: 14px 12px !important; }
   .rt-helm-stat-value { font-size: 22px !important; }
 

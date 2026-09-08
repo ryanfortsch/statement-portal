@@ -45,7 +45,7 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
   const quiet: React.CSSProperties = { fontSize: 13, color: 'var(--ink-4)' };
   return (
     <div
-      className="rt-helm-stat"
+      className="rt-cleanings-day"
       style={{ padding: '18px 20px', borderRight: last ? 'none' : '1px solid var(--rule)', minWidth: 0 }}
     >
       <div className="eyebrow" style={{ marginBottom: 10 }}>
@@ -72,34 +72,61 @@ function DayColumn({ day, today, last }: { day: CleaningDay; today: string; last
                     fontFamily: 'var(--font-mono), monospace',
                     fontSize: 12,
                     fontWeight: 600,
+                    // Never shrink the time: it is the column's spine, and a
+                    // squeezed time is unreadable.
+                    flex: '0 0 auto',
                     minWidth: 62,
                     color: item.cleaningTime ? 'var(--ink)' : 'var(--signal)',
                   }}
                 >
                   {item.cleaningTime ? formatTime12(item.cleaningTime) : '—'}
                 </span>
-                <span style={{ fontWeight: 600, color: flagged ? 'var(--signal)' : 'var(--ink)', minWidth: 0 }}>
-                  {item.propertyName}
-                </span>
-                {item.sameDayTurnover && (
+                {/* The name and its flags share one wrapping box so a flag
+                    drops to its OWN line under the name instead of colliding
+                    with it. Both flags are deliberately nowrap ("same day
+                    3 PM" must not break across lines), which in a plain row
+                    left them unshrinkable: the name was squeezed toward zero
+                    and its text overflowed straight through them. */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'baseline',
+                    gap: '2px 8px',
+                    flex: '1 1 auto',
+                    minWidth: 0,
+                  }}
+                >
                   <span
                     style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      letterSpacing: '.06em',
-                      textTransform: 'uppercase',
-                      color: 'var(--signal)',
-                      whiteSpace: 'nowrap',
+                      fontWeight: 600,
+                      color: flagged ? 'var(--signal)' : 'var(--ink)',
+                      minWidth: 0,
+                      overflowWrap: 'anywhere',
                     }}
                   >
-                    same day{item.nextCheckinTime ? ` ${formatTime12(item.nextCheckinTime)}` : ''}
+                    {item.propertyName}
                   </span>
-                )}
-                {flagged && (
-                  <span style={{ fontSize: 11, color: 'var(--signal)', whiteSpace: 'nowrap' }}>
-                    {SHORT_REASON[item.status]}
-                  </span>
-                )}
+                  {item.sameDayTurnover && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '.06em',
+                        textTransform: 'uppercase',
+                        color: 'var(--signal)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      same day{item.nextCheckinTime ? ` ${formatTime12(item.nextCheckinTime)}` : ''}
+                    </span>
+                  )}
+                  {flagged && (
+                    <span style={{ fontSize: 11, color: 'var(--signal)', whiteSpace: 'nowrap' }}>
+                      {SHORT_REASON[item.status]}
+                    </span>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -138,8 +165,13 @@ export async function CleaningsStrip() {
           Full schedule →
         </Link>
       </div>
+      {/* Deliberately NOT rt-helm-stat-strip. That class exists only as a
+          mobile hook for the two-up KPI tiles, and its phone rule forces
+          two columns, which split a THREE-day strip across an orphaned
+          second row. This strip stacks to one full-width day per phone
+          screen instead; see .rt-cleanings-strip in globals.css. */}
       <div
-        className="rt-helm-stat-strip"
+        className="rt-cleanings-strip"
         style={{
           borderTop: '1px solid var(--ink)',
           borderBottom: '1px solid var(--ink)',
