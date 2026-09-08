@@ -4,6 +4,8 @@ import { syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/l
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { classifyBankRow, insertCleaningEvents, LINEN_VENDOR_NAME, LAUNDRY_VENDOR_NAME, CLEANING_VENDOR_DEFAULT } from '@/lib/bank-charges';
 import { netVendorCredits, vendorCreditFields, unappliedRefundGap, type VendorCharge, type VendorCredit } from '@/lib/vendor-credit-netting';
+import { applyCreditOverrides, creditOverrideGaps, creditOverridesUnavailableGap, CREDIT_OVERRIDE_UNAPPLIED, CREDIT_OVERRIDE_COLLISION, CREDIT_OVERRIDES_UNAVAILABLE, type CreditOverrideGap } from '@/lib/cleaning-credit-overrides';
+import { loadCreditOverrides } from '@/lib/cleaning-credit-overrides-db';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { upsertCsvReservations } from '@/lib/guesty-csv-rows';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
@@ -778,6 +780,21 @@ export async function POST(request: NextRequest) {
       vendorCredits,
       'bank re-upload',
     );
+    // Hand-applied credits survive this rebuild too: the same durable
+    // override rows /api/ingest re-applies, applied at the same point
+    // (after the netter, before the rows are built). See the note there.
+    const creditOverrideNotices: CreditOverrideGap[] = [];
+    try {
+      const overrides = await loadCreditOverrides(supabase, propertyId, month);
+      if (overrides.length > 0) {
+        creditOverrideNotices.push(...creditOverrideGaps(applyCreditOverrides(
+          { cleaning: cleaningCharges, linen: linenCharges, laundry: laundryCharges },
+          overrides,
+        )));
+      }
+    } catch (e) {
+      creditOverrideNotices.push(creditOverridesUnavailableGap(e instanceof Error ? e.message : String(e)));
+    }
     // No local cleaning total is computed here on purpose: the single write
     // path derives cleaning_total from the rows this handler inserts, and a
     // second figure computed from the CSV alongside it is exactly the kind
@@ -899,9 +916,8 @@ export async function POST(request: NextRequest) {
     // 6. Rebuild cleaning_events + repair_events: the old ones were sourced
     //    from (probably absent) prior bank data. Wipe and re-insert from the
     //    fresh CSV.
-    // NOTE: like /api/ingest, this wipe still LOSES a hand-applied cleaning
-    // credit. Preserving one by matching it back to a rebuilt charge is
-    // unsound; see the note in src/lib/vendor-credit-netting.ts.
+    // Hand-applied cleaning credits survive this wipe: they were re-applied
+    // to the charge pools above from cleaning_credit_overrides.
     await supabase.from('cleaning_events').delete().eq('property_statement_id', stmt.id);
     // repair_events table may not exist if the migration hasn't run.
     const { error: repDelErr } = await supabase.from('repair_events').delete().eq('property_statement_id', stmt.id);
@@ -1068,9 +1084,11 @@ export async function POST(request: NextRequest) {
       // export. Money notices are not re-derivable from a narrower source:
       // duplicates are prevented below instead, and the Resolve button
       // retires one the operator has dealt with.
-      .in('gap_type', ['missing_bank_csv', 'unmatched_bank']);
+      .in('gap_type', ['missing_bank_csv', 'unmatched_bank', CREDIT_OVERRIDE_UNAPPLIED, CREDIT_OVERRIDE_COLLISION, CREDIT_OVERRIDES_UNAVAILABLE]);
 
     const newGaps: { gap_type: string; description: string; severity: string; expected_data: string }[] = [];
+    // Override notices are re-derived from this rebuild, like unmatched_bank.
+    newGaps.push(...creditOverrideNotices);
     // Vendor refunds this CSV could not net: critical, because each leaves
     // the owner billed gross until a human decides. (This path does not
     // park the refund in the review queue; the gap is the notice.) Since

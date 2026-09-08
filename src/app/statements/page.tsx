@@ -734,6 +734,11 @@ function gapFillType(gapType: string): FillGapType | null {
  * else is a standing judgement that only a person can retire.
  */
 const PIPELINE_OWNED_GAP_TYPES = new Set([
+  // Hand-credit notices are re-derived by every rebuild; the two the
+  // operator can act on carry a Remove button of their own below.
+  'cleaning_credit_override_unapplied',
+  'cleaning_credit_override_collision',
+  'cleaning_credit_overrides_unavailable',
   'missing_bank_csv', 'unmatched_bank',
   'no_platform_match', 'unresolved_guest_names', 'missing_direct_reservation',
 ]);
@@ -2188,6 +2193,41 @@ function PropertyCard({
                             }}
                           >
                             {resolvingGapId === gap.id ? 'Working…' : 'Paid Off-Stripe'}
+                          </button>
+                        )}
+                        {(gap.gap_type === 'cleaning_credit_override_unapplied' || gap.gap_type === 'cleaning_credit_override_collision') && (
+                          <button
+                            disabled={resolvingGapId === gap.id}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (!confirm('Remove this hand-applied credit?\n\nIt was not applied on the last rebuild, so nothing on the statement changes. If the charge is real, apply the credit again on its row afterward.')) return;
+                              setResolvingGapId(gap.id);
+                              try {
+                                const res = await fetch('/api/resolve-gap', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ gap_id: gap.id, resolution: 'remove_credit_override' }),
+                                });
+                                const data = await res.json();
+                                if (!res.ok) alert(`Failed: ${data.error || 'unknown error'}`);
+                                else onRefresh();
+                              } catch (err) {
+                                alert(`Failed: ${err instanceof Error ? err.message : err}`);
+                              } finally {
+                                setResolvingGapId(null);
+                              }
+                            }}
+                            style={{
+                              border: '1px solid var(--ink)',
+                              background: 'transparent',
+                              color: 'var(--ink)',
+                              fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                              padding: '6px 10px',
+                              cursor: resolvingGapId === gap.id ? 'wait' : 'pointer',
+                              opacity: resolvingGapId === gap.id ? 0.5 : 1,
+                            }}
+                          >
+                            {resolvingGapId === gap.id ? 'Working…' : 'Remove hand credit'}
                           </button>
                         )}
                         {gap.gap_type === 'cancelled_reservation' && (

@@ -118,7 +118,8 @@ export const vendorCreditFields = (
 // The replacement is a durable operator-override row that survives the wipe
 // and is re-applied every run, so a charge has exactly one credit and an
 // override that cannot find its charge stays visible instead of being
-// inferred. See the follow-up PR; do not re-add heuristic matching here.
+// inferred: src/lib/cleaning-credit-overrides.ts, applied by both rebuild
+// paths right after this netter runs. Do not re-add heuristic matching here.
 // ---------------------------------------------------------------------------
 
 export type VendorGap = { gap_type: string; description: string; severity: string; expected_data: string };
