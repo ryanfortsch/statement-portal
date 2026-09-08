@@ -87,7 +87,7 @@ function SignForm({ token, prefillName }: { token: string; prefillName: string }
 
         <p className="sca-sign-foot">
           Questions before signing? Email <a href="mailto:allie@risingtidestr.com">allie@risingtidestr.com</a> or
-          call 978-387-1573.
+          call (978) 865-2575.
         </p>
       </form>
     </>

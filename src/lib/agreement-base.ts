@@ -50,7 +50,8 @@ export const SCA_AFFILIATION_LINE =
 export const AGREEMENT_HOST_NAME = "Allie O'Brien";
 export const AGREEMENT_HOST_ORG = 'Rising Tide';
 export const AGREEMENT_HOST_EMAIL = 'allie@risingtidestr.com';
-export const AGREEMENT_HOST_PHONE = '978-387-1573';
+// The guest line. Guests never get a personal cell (Dotti, 2026-09-08).
+export const AGREEMENT_HOST_PHONE = '(978) 865-2575';
 
 /** Document heading under the cover, e.g. "MID-TERM RENTAL AGREEMENT". */
 export function agreementHeading(a: Pick<GuestAgreementRow, 'kind'>): string {
