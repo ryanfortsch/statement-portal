@@ -88,7 +88,7 @@ export async function sendAgreementLinkEmail(args: {
       <p>Please review and sign it online. It takes about two minutes:</p>
       <p><a href="${signUrl}" style="color: #c85a3a; font-weight: 600;">Review &amp; sign your rental agreement</a></p>
       <p>Once you sign, you'll receive a copy for your records, and we'll countersign and send the final version.</p>
-      <p>Questions? Just reply to this email or call ${'978-387-1573'}.</p>
+      <p>Questions? Just reply to this email or call (978) 865-2575.</p>
       <p style="margin-top: 28px;">Allie O&rsquo;Brien<br/>Stay Cape Ann &middot; Rising Tide</p>
       ${AFFILIATION_FOOT_HTML}
     </div>
@@ -98,7 +98,7 @@ export async function sendAgreementLinkEmail(args: {
     `Here is the rental agreement for your stay at ${a.property_address}, ${a.property_city} (${stayLine}).\n\n` +
     `Please review and sign it online:\n${signUrl}\n\n` +
     `Once you sign, you'll receive a copy for your records, and we'll countersign and send the final version.\n\n` +
-    `Questions? Just reply to this email or call 978-387-1573.\n\n` +
+    `Questions? Just reply to this email or call (978) 865-2575.\n\n` +
     `Allie O'Brien\nStay Cape Ann · Rising Tide\n\n` +
     `${AFFILIATION_FOOT_TEXT}\n`;
 
