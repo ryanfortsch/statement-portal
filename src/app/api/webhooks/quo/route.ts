@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyWebhookSignature } from '@/lib/quo';
+import { verifyWebhookSignature, webhookSecrets } from '@/lib/quo';
 import { dispatchQuoEvent, type QuoEventEnvelope } from '@/lib/quo-ingest';
 
 // Service role bypasses RLS so the raw-event audit insert works even with
@@ -13,8 +13,6 @@ const supabaseKey =
   '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const WEBHOOK_SECRET = process.env.QUO_WEBHOOK_SECRET || '';
-
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get('openphone-signature');
@@ -26,7 +24,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
   }
 
-  const sig = verifyWebhookSignature(parsedBody, signature, WEBHOOK_SECRET);
+  // One key per Quo webhook (the app-made original plus one per line added
+  // through the API); any of them may sign a delivery.
+  const sig = verifyWebhookSignature(parsedBody, signature, webhookSecrets());
 
   // Persist the event regardless of signature validity. Invalid events
   // are evidence of misconfiguration or attempted spoofing and we want a

@@ -6,7 +6,7 @@ import {
   readLatestMonthByMarket,
 } from "@/lib/market-metrics";
 import { helmBaseUrl } from "@/lib/daily-brief";
-import { listPhoneNumbers, normalizePhone, sendMessage } from "@/lib/quo";
+import { normalizePhone, quoFromNumber, sendMessage } from "@/lib/quo";
 import { authorizeCron } from '@/lib/cron-auth';
 
 export const runtime = "nodejs";
@@ -27,7 +27,8 @@ export const maxDuration = 30;
  *
  * Env:
  *   DOTTI_PHONE     - E.164 recipient. Required.
- *   QUO_FROM_NUMBER - E.164 of the Quo line to send from. Optional.
+ *   QUO_FROM_NUMBER - override for the RISING TIDE 24/7 line. Optional;
+ *                     an internal reminder always rides the back-office line.
  *   CRON_SECRET     - Optional bearer token check.
  *
  * Manual smoke test:
@@ -90,23 +91,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let from = process.env.QUO_FROM_NUMBER;
-    if (!from) {
-      const phones = await listPhoneNumbers();
-      if (!phones.length) {
-        return NextResponse.json(
-          {
-            error:
-              "No Quo phone numbers available; set QUO_FROM_NUMBER or check Quo config",
-          },
-          { status: 500 },
-        );
-      }
-      from = phones[0].number;
-    }
-
+    // Internal nudge: back-office line.
+    const fromNorm = quoFromNumber("ops");
     const toNorm = to.startsWith("+") ? to : `+1${normalizePhone(to)}`;
-    const fromNorm = from.startsWith("+") ? from : `+1${normalizePhone(from)}`;
 
     const sent = await sendMessage({
       from: fromNorm,

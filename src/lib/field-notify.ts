@@ -5,7 +5,7 @@
  */
 import 'server-only';
 import { sendTransactionalViaResend as baseTransactional } from '@/lib/resend';
-import { sendMessage, listPhoneNumbers, normalizePhone } from '@/lib/quo';
+import { sendMessage, normalizePhone, quoFromNumber } from '@/lib/quo';
 import { haversineMiles } from '@/lib/proximity';
 import { loadPacketDetail, getContractorReliability } from '@/lib/field-packets';
 import { fieldDb } from '@/lib/field-db';
@@ -321,19 +321,12 @@ export async function sendPaidEmail(
   });
 }
 
+// Contractors are back office: every Field text goes out on the RISING
+// TIDE 24/7 line. (This used to fall back to the first number Quo listed,
+// which became the GUESTS line the day it was created.)
 async function resolveQuoFrom(): Promise<string | null> {
   if (!process.env.QUO_API_KEY) return null;
-  let from = process.env.QUO_FROM_NUMBER;
-  if (!from) {
-    try {
-      const phones = await listPhoneNumbers();
-      from = phones[0]?.number;
-    } catch {
-      return null;
-    }
-  }
-  if (!from) return null;
-  return from.startsWith('+') ? from : `+1${normalizePhone(from)}`;
+  return quoFromNumber('ops');
 }
 
 /**
