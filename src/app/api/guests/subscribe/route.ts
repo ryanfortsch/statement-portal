@@ -4,10 +4,16 @@
  *
  * Request shape:
  *   { email: string, first_name?: string, last_name?: string,
- *     source?: string, tags?: string[], hp?: string }
+ *     source?: string, tags?: string[], hp?: string,
+ *     skip_welcome?: boolean, marketing_consent?: boolean }
  *
  * `hp` is a honeypot field; if it's set, we 200 silently and drop the
  * submission. Real signup forms should leave it empty (CSS-hide it).
+ *
+ * `skip_welcome` suppresses the generic welcome email for surfaces that
+ * send their own confirmation (the New England Wins entry page sends
+ * "You're in" from staycapeann.com, so a second welcome would read as
+ * noise). The contact is still inserted, tagged and mirrored to Resend.
  *
  * The endpoint is idempotent on email:
  *   - new email → insert as 'subscribed', push to Resend, fire welcome
@@ -51,6 +57,8 @@ type Body = {
   source?: string;
   tags?: string[];
   hp?: string;
+  skip_welcome?: boolean;
+  marketing_consent?: boolean;
 };
 
 export async function POST(req: NextRequest) {
@@ -136,7 +144,7 @@ export async function POST(req: NextRequest) {
         source: sourceLabel.startsWith('staycapeann') ? 'staycapeann_signup' : 'manual',
         source_detail: sourceLabel,
         tags,
-        marketing_consent: true,
+        marketing_consent: body.marketing_consent !== false,
       })
       .select('id')
       .single();
@@ -171,7 +179,7 @@ export async function POST(req: NextRequest) {
   });
 
   // Welcome email on fresh signup. Skip on resubscribe (they know us).
-  if (action === 'inserted' && !isProxyEmail(email)) {
+  if (action === 'inserted' && !isProxyEmail(email) && body.skip_welcome !== true) {
     try {
       await sendTransactionalViaResend({
         to: email,
