@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadOperationsData, type Range } from '@/lib/operations';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
+import { todayET } from '@/lib/checkout-schedule';
 
 export type AskSource = { label: string; href: string };
 
@@ -424,6 +425,168 @@ export function createAskTools() {
         }
         if ((slips ?? []).length > 0 || tasks.length > 0) addSource('Work board', '/work');
         return { workSlips: slips ?? [], tasks };
+      },
+    }),
+
+    get_site_visit_brief: tool({
+      description:
+        'Everything needed to plan an in-person visit to one or more properties, in one call: whether a guest is in the house right now and the next check-in / check-out, every open work slip with its FULL description and location (list_work only returns titles), the last inspection and the supplies it flagged low, the last cleaning session and whether the cleaner confirmed finishing, smart-lock battery levels, and private feedback from recent guest reviews. Use for "I am going to X today", "plan my trip / visit / route to X and Y", "what should I bring to X", "what needs doing at X", "punch list for X", or any errand / site-visit question. Pass every property mentioned in one call. Resolve names to ids with list_properties or search_helm first.',
+      inputSchema: z.object({
+        propertyIds: z
+          .array(z.string())
+          .min(1)
+          .max(6)
+          .describe('Property ids to brief, e.g. ["3_locust","84_thatcher"].'),
+      }),
+      execute: async ({ propertyIds }: { propertyIds: string[] }) => {
+        const today = todayET();
+        const plus14 = new Date(`${today}T12:00:00Z`);
+        plus14.setUTCDate(plus14.getUTCDate() + 14);
+        const horizon = plus14.toISOString().slice(0, 10);
+        const minus14 = new Date(`${today}T12:00:00Z`);
+        minus14.setUTCDate(minus14.getUTCDate() - 14);
+        const recentFloor = minus14.toISOString().slice(0, 10);
+        const minus60 = new Date(`${today}T12:00:00Z`);
+        minus60.setUTCDate(minus60.getUTCDate() - 60);
+        const reviewFloor = minus60.toISOString().slice(0, 10);
+
+        const [propsRes, slipsRes, bookingsRes, inspRes, cleanRes, lockRes, reviewRes] = await Promise.all([
+          supabase.from('properties').select('id, name, address').in('id', propertyIds),
+          supabase
+            .from('work_slips')
+            .select(
+              'id, property_id, title, description, action_summary, location, category, priority, status, owner_action_required, assigned_to_label, scheduled_date, snoozed_until, created_at',
+            )
+            .in('property_id', propertyIds)
+            .in('status', ACTIVE_WORK_SLIP_STATUSES)
+            .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
+            .order('created_at', { ascending: true }),
+          supabase
+            .from('bookings')
+            .select('property_id, check_in, check_out, guest_name, status, source')
+            .in('property_id', propertyIds)
+            .is('duplicate_of', null)
+            .gte('check_out', today)
+            .lte('check_in', horizon)
+            .order('check_in', { ascending: true }),
+          supabase
+            .from('inspections')
+            .select('property_id, started_at, completed_at, inspector_name, total_items, issue_count, supplies_low')
+            .in('property_id', propertyIds)
+            .order('started_at', { ascending: false })
+            .limit(propertyIds.length * 3),
+          supabase
+            .from('cleaning_sessions')
+            .select('property_id, checkout_date, entered_at, finished_at, entry_source, finish_source')
+            .in('property_id', propertyIds)
+            .gte('checkout_date', recentFloor)
+            .order('checkout_date', { ascending: false }),
+          supabase
+            .from('lock_battery_status')
+            .select('device_id, property_id, battery_pct, battery_status, is_online, checked_at')
+            .in('property_id', propertyIds),
+          supabase
+            .from('reviews')
+            .select('property_id, guest_name, channel, overall_rating, review_created_at, private_feedback, public_review')
+            .in('property_id', propertyIds)
+            .gte('review_created_at', reviewFloor)
+            .order('review_created_at', { ascending: false }),
+        ]);
+
+        const lockIds = (lockRes.data ?? []).map((l) => l.device_id as string);
+        const { data: lockDevices } = lockIds.length
+          ? await supabase.from('lock_devices').select('device_id, display_name').in('device_id', lockIds)
+          : { data: [] as Array<{ device_id: string; display_name: string | null }> };
+        const lockName = new Map((lockDevices ?? []).map((d) => [d.device_id as string, d.display_name as string | null]));
+
+        type Row = Record<string, unknown>;
+        const by = <T extends Row>(rows: T[] | null | undefined, pid: string) =>
+          (rows ?? []).filter((r) => r.property_id === pid);
+
+        const properties = propertyIds.map((pid) => {
+          const prop = (propsRes.data ?? []).find((p) => p.id === pid);
+          const bookings = by(bookingsRes.data as Row[], pid).filter((b) => b.status !== 'cancelled');
+          const inHouse = bookings.find((b) => (b.check_in as string) <= today && (b.check_out as string) > today) ?? null;
+          const checkingOutToday = bookings.find((b) => b.check_out === today) ?? null;
+          const nextCheckIn = bookings.find((b) => (b.check_in as string) > today) ?? null;
+          const slips = by(slipsRes.data as Row[], pid).map((s) => ({
+            id: s.id,
+            title: s.title,
+            detail: (s.action_summary as string | null) || (s.description as string | null) || null,
+            location: s.location,
+            category: s.category,
+            priority: s.priority,
+            status: s.status,
+            ownerActionRequired: s.owner_action_required,
+            assignedTo: s.assigned_to_label,
+            scheduledDate: s.scheduled_date,
+            opened: String(s.created_at ?? '').slice(0, 10),
+          }));
+          const lastInspection = by(inspRes.data as Row[], pid)[0] ?? null;
+          const cleanings = by(cleanRes.data as Row[], pid).slice(0, 2).map((c) => ({
+            checkoutDate: c.checkout_date,
+            enteredAt: c.entered_at,
+            finishedAt: c.finished_at,
+            entrySource: c.entry_source,
+            finishSource: c.finish_source,
+            cleanerConfirmed: c.finish_source === 'quo' || c.finish_source === 'operator',
+          }));
+          const locks = by(lockRes.data as Row[], pid).map((l) => ({
+            name: lockName.get(l.device_id as string) ?? (l.device_id as string),
+            batteryPct: l.battery_pct,
+            batteryStatus: l.battery_status,
+            online: l.is_online,
+            lastChecked: l.checked_at,
+            needsBatteries: typeof l.battery_pct === 'number' && l.battery_pct <= 20,
+          }));
+          const reviews = by(reviewRes.data as Row[], pid)
+            .filter((r) => (r.private_feedback && String(r.private_feedback).trim()) || Number(r.overall_rating) < 5)
+            .slice(0, 6)
+            .map((r) => ({
+              guest: r.guest_name,
+              channel: r.channel,
+              rating: r.overall_rating,
+              date: String(r.review_created_at ?? '').slice(0, 10),
+              privateFeedback: r.private_feedback,
+              publicReview: Number(r.overall_rating) < 5 ? r.public_review : undefined,
+            }));
+
+          addSource(`${prop?.name ?? pid} work slips`, `/work?property=${pid}`);
+          addSource(`${prop?.name ?? pid}`, `/properties/${pid}`);
+
+          return {
+            propertyId: pid,
+            name: prop?.name ?? pid,
+            address: prop?.address ?? null,
+            occupancy: {
+              guestInHouseNow: inHouse
+                ? { guest: inHouse.guest_name, checkIn: inHouse.check_in, checkOut: inHouse.check_out }
+                : null,
+              checkingOutToday: checkingOutToday
+                ? { guest: checkingOutToday.guest_name, checkOut: checkingOutToday.check_out }
+                : null,
+              nextCheckIn: nextCheckIn
+                ? { guest: nextCheckIn.guest_name, checkIn: nextCheckIn.check_in, checkOut: nextCheckIn.check_out }
+                : null,
+              emptyNow: !inHouse,
+            },
+            openWorkSlips: slips,
+            lastInspection: lastInspection
+              ? {
+                  date: String(lastInspection.started_at ?? '').slice(0, 10),
+                  inspector: lastInspection.inspector_name,
+                  completed: lastInspection.completed_at !== null,
+                  issues: lastInspection.issue_count,
+                  suppliesLow: lastInspection.supplies_low ?? [],
+                }
+              : null,
+            recentCleanings: cleanings,
+            locks,
+            recentReviewFeedback: reviews,
+          };
+        });
+
+        return { today, properties };
       },
     }),
 

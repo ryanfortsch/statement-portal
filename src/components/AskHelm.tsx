@@ -22,6 +22,7 @@ const SUGGESTIONS = [
   'Which prospects haven’t signed their contract yet?',
   'What has high-priority work right now?',
   'What’s checking in over the next 7 days?',
+  'I’m going to 3 Locust and 84 Thatcher today with 90 minutes. Plan my trip.',
 ];
 
 export function AskHelm({
