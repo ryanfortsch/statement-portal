@@ -28,7 +28,7 @@ import { mineTurnoverNotes } from '@/lib/turnover-notes';
  * Also expires pending digests whose day already passed (never approved
  * means never sent - the card should not offer yesterday).
  *
- * Scheduled at BOTH 20:00 and 21:00 UTC, the same trick as the send cron.
+ * Scheduled at BOTH 18:00 and 19:00 UTC, the same trick as the send cron.
  * Eastern is UTC-4 in summer and UTC-5 in winter, so exactly one of those
  * lands on DRAFT_HOUR_ET on any given date; the other sees the wrong local
  * hour and no-ops. Before this the single 20:00 UTC slot drafted at 4 PM
@@ -45,9 +45,10 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
-/** Local hour the draft lands, 24h Eastern. 4 PM: after the day's
- *  checkouts have cleared, before the 6 PM auto-send. */
-const DRAFT_HOUR_ET = 16;
+/** Local hour the draft lands, 24h Eastern. 2 PM: the morning's
+ *  checkouts have cleared and there are four hours before the 6 PM
+ *  auto-send to review it. (Dotti, 2026-09-14: moved up from 4 PM.) */
+const DRAFT_HOUR_ET = 14;
 
 async function handle(request: NextRequest) {
   const denied = await authorizeCron(request);
