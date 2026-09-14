@@ -1007,6 +1007,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-stop-action button {
     width: 100%;
   }
+  /* The stop's work list (pinned tasks + every open slip at the home) is a
+     checklist with its own circles, so on a phone it takes the full width
+     instead of living in the sliver right of the stop's number pin. */
+  .rt-stop-work {
+    margin-left: -40px;
+  }
 }
 
 /* Field home — narrow-phone fitting. The JourneyRail's long stage labels wrap

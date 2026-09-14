@@ -240,6 +240,13 @@ export function StopAttachments({
             <span style={eyebrow}>At this stop</span>
             <SaveState pending={pending} />
           </div>
+          {/* Since 2026-09-14 the inspector's stop lists EVERY open slip at
+              the home by default, with a tap-open detail on each. Pinning is
+              for the ones this trip is really about: it leads the list and
+              carries a note for this visit. */}
+          <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45, marginTop: -4 }}>
+            The inspector already sees every open slip at this home on the stop. Pin one here to put it first, with a note for this trip.
+          </div>
 
           {/* The stop's OWN task (one-off / setup / maintenance): editable, so
               the office can fix or expand the job after creation. Saves on

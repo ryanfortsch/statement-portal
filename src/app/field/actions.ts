@@ -809,6 +809,10 @@ async function applyAttachedSlipCompletion(args: {
   photoUrls: string[];
   /** Optional receipt reimbursement in cents (capped at $500). */
   expenseCents?: number | null;
+  /** Audit event to log. Default is the plain completion; the stop's
+   *  "already handled" path names itself so the office can tell work done
+   *  from work found done. */
+  eventType?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data: pData } = await fieldDb()
     .from('inspection_packets')
@@ -857,7 +861,7 @@ async function applyAttachedSlipCompletion(args: {
     packetId: args.packetId,
     contractorId: args.contractor.id,
     actorEmail: args.contractor.email,
-    eventType: 'attached_slip_completed',
+    eventType: args.eventType ?? 'attached_slip_completed',
     propertyId: att.packet_stops.property_id,
     payload: { attachment_id: args.attachmentId, work_slip_id: att.work_slip_id },
   });
@@ -909,6 +913,156 @@ export async function completeAttachedSlipInFlow(input: {
   });
   if (res.ok) revalidatePath(`/field/packet/${input.packetId}`);
   return res;
+}
+
+// ── Work slips at a stop: any open slip at the home, not just the pinned ones ──
+// The packet page lists every open slip at a stop's home by default (Ryan,
+// 2026-09-14). These are the verbs on that list. A slip joins the packet the
+// moment the inspector acts on it (a packet_stop_work_slips row, created by
+// them), so the office's approve closes it and request-changes reopens it
+// exactly like a task the office pinned, and the packet review shows the
+// work this trip actually touched.
+
+type StopSlipContext =
+  | { ok: true; propertyId: string; slip: { id: string; title: string; description: string | null; status: string } }
+  | { ok: false; error: string };
+
+/** Ownership + liveness for anything an inspector does to a slip from a stop:
+ *  the packet is theirs and still being worked, the stop is on that packet,
+ *  and the slip belongs to the stop's home. Every id is client-supplied, so
+ *  each hop is checked (IDOR). */
+async function stopSlipContext(args: { contractorId: string; packetId: string; stopId: string; workSlipId: string }): Promise<StopSlipContext> {
+  const { data: pData } = await fieldDb()
+    .from('inspection_packets')
+    .select('id, status, awarded_contractor_id')
+    .eq('id', args.packetId)
+    .maybeSingle();
+  const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
+  if (!packet || packet.awarded_contractor_id !== args.contractorId) return { ok: false, error: 'not-your-packet' };
+  if (!isWorkingStatus(packet.status)) return { ok: false, error: 'packet-not-live' };
+  const { data: sData } = await fieldDb()
+    .from('packet_stops')
+    .select('id, property_id')
+    .eq('id', args.stopId)
+    .eq('packet_id', args.packetId)
+    .maybeSingle();
+  const stop = sData as { id: string; property_id: string } | null;
+  if (!stop) return { ok: false, error: 'bad-stop' };
+  const { data: wData } = await fieldDb()
+    .from('work_slips')
+    .select('id, property_id, title, description, status')
+    .eq('id', args.workSlipId)
+    .maybeSingle();
+  const slip = wData as { id: string; property_id: string | null; title: string; description: string | null; status: string } | null;
+  if (!slip || slip.property_id !== stop.property_id) return { ok: false, error: 'bad-slip' };
+  return { ok: true, propertyId: stop.property_id, slip: { id: slip.id, title: slip.title, description: slip.description, status: slip.status } };
+}
+
+export type StopSlipOutcome = 'done' | 'already_handled';
+
+/** Close out a slip from a stop, pinned or not. `done` = the inspector did
+ *  the work (optional note, photos, receipt). `already_handled` = they got
+ *  there and it was already taken care of, or no longer applies; the note
+ *  says so in the office's words so nobody is credited with work they did
+ *  not do, and the slip leaves every list the same way. Idempotent: a slip
+ *  already closed, or already stamped on this stop, is a no-op. */
+export async function resolveSlipFromStop(input: {
+  packetId: string;
+  stopId: string;
+  workSlipId: string;
+  outcome: StopSlipOutcome;
+  note: string;
+  photoUrls: string[];
+  expenseCents?: number | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'not-signed-in' };
+  const ctx = await stopSlipContext({ contractorId: contractor.id, packetId: input.packetId, stopId: input.stopId, workSlipId: input.workSlipId });
+  if (!ctx.ok) return ctx;
+  if (ctx.slip.status === 'done' || ctx.slip.status === 'dismissed') return { ok: true };
+
+  // Find-or-create the attachment. ignoreDuplicates keeps an office note and
+  // ordering intact on a slip the office had already pinned here.
+  await fieldDb()
+    .from('packet_stop_work_slips')
+    .upsert({ stop_id: input.stopId, work_slip_id: input.workSlipId, created_by_email: contractor.email }, { onConflict: 'stop_id,work_slip_id', ignoreDuplicates: true });
+  const { data: aData } = await fieldDb()
+    .from('packet_stop_work_slips')
+    .select('id')
+    .eq('stop_id', input.stopId)
+    .eq('work_slip_id', input.workSlipId)
+    .maybeSingle();
+  const attachmentId = (aData as { id: string } | null)?.id;
+  if (!attachmentId) return { ok: false, error: 'attach-failed' };
+
+  const trimmed = (input.note || '').trim().slice(0, 2000);
+  const handled = input.outcome === 'already_handled';
+  const note = handled
+    ? `Already handled by the time ${contractor.full_name} arrived (Field)${trimmed ? `: ${trimmed}` : ''}`
+    : trimmed;
+  const res = await applyAttachedSlipCompletion({
+    contractor: { id: contractor.id, email: contractor.email },
+    packetId: input.packetId,
+    attachmentId,
+    note,
+    photoUrls: Array.isArray(input.photoUrls) ? input.photoUrls.filter((x): x is string => typeof x === 'string') : [],
+    // Nothing was bought for work that was already done.
+    expenseCents: handled ? null : input.expenseCents,
+    eventType: handled ? 'slip_already_handled' : 'attached_slip_completed',
+  });
+  if (res.ok) {
+    revalidatePath(`/field/packet/${input.packetId}`);
+    revalidatePath('/work');
+  }
+  return res;
+}
+
+/** Fix a slip's wording from the door: a typo, a vague title, a detail only
+ *  someone standing in the room can add. Title + details only; category,
+ *  priority and status stay the office's. The slip's thread gets a line so
+ *  the office sees what changed and who changed it. */
+export async function updateSlipFromStop(input: {
+  packetId: string;
+  stopId: string;
+  workSlipId: string;
+  title: string;
+  description: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'not-signed-in' };
+  const ctx = await stopSlipContext({ contractorId: contractor.id, packetId: input.packetId, stopId: input.stopId, workSlipId: input.workSlipId });
+  if (!ctx.ok) return ctx;
+  if (ctx.slip.status === 'done' || ctx.slip.status === 'dismissed') return { ok: false, error: 'slip-closed' };
+  const title = (input.title || '').trim().slice(0, 200);
+  if (title.length < 3) return { ok: false, error: 'title-too-short' };
+  const description = (input.description || '').trim().slice(0, 4000) || null;
+  const titleChanged = title !== ctx.slip.title;
+  const detailsChanged = (description ?? '') !== (ctx.slip.description ?? '');
+  if (!titleChanged && !detailsChanged) return { ok: true };
+
+  const nowIso = new Date().toISOString();
+  const { error } = await fieldDb()
+    .from('work_slips')
+    .update({ title, description, updated_at: nowIso })
+    .eq('id', input.workSlipId)
+    .eq('property_id', ctx.propertyId);
+  if (error) return { ok: false, error: error.message };
+  const what = [titleChanged ? `title was "${ctx.slip.title}"` : null, detailsChanged ? 'details updated' : null].filter(Boolean).join('; ');
+  await fieldDb()
+    .from('work_slip_comments')
+    .insert({ work_slip_id: input.workSlipId, author_email: contractor.email, body: `Edited from the field by ${contractor.full_name} (${what}).` });
+  await logEvent({
+    packetId: input.packetId,
+    contractorId: contractor.id,
+    actorEmail: contractor.email,
+    propertyId: ctx.propertyId,
+    eventType: 'slip_edited_in_field',
+    payload: { work_slip_id: input.workSlipId, from_title: ctx.slip.title, to_title: title, details_changed: detailsChanged },
+  });
+  revalidatePath(`/field/packet/${input.packetId}`);
+  revalidatePath('/work');
+  revalidatePath(`/work/${input.workSlipId}`);
+  return { ok: true };
 }
 
 /** Submit the whole packet for office review once every stop is complete. */

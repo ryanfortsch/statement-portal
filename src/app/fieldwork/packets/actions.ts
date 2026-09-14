@@ -7,7 +7,7 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay } from '@/lib/vendor-schedule';
 import { newPortalToken } from '@/lib/field-auth';
-import { suggestPackets, persistSuggestions, revalidatePacket, pruneClosedSlipStops, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle, resyncPacketStopBookings } from '@/lib/field-packets';
+import { suggestPackets, persistSuggestions, revalidatePacket, pruneClosedSlipStops, createPacketFromProperties, createMaintenancePacket, createSetupPacket, createAdHocPacket, autoAttachInventorySlips, deriveStopWindow, regeneratePacketTitle, resyncPacketStopBookings, type PacketCreateResult, type PacketDroppedProperty } from '@/lib/field-packets';
 import { revokePacketCodes, programPacketCodes, revokePacketPropertyCode } from '@/lib/field-locks';
 import { revealTin } from '@/lib/field-w9';
 import { revealPayment } from '@/lib/field-pay';
@@ -377,9 +377,54 @@ export async function runSuggest(formData: FormData): Promise<void> {
   revalidatePath('/fieldwork/packets');
 }
 
+/** The result a bundle hands back to the calendar when nothing went out.
+ *  Success never returns (it redirects to the board with a one-shot flash);
+ *  failure stays on the page, where the operator's pick is still on screen,
+ *  and names each home and the reason. It used to ride a ?sent=0 URL param,
+ *  which replayed the same "already covered" banner on every refresh and
+ *  every visit to the tab, whether or not anything had just failed
+ *  (2026-09-14). */
+export type BundleFailure = { ok: false; message: string };
+
+function fmtBundleDay(d: string): string {
+  try {
+    return new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return d;
+  }
+}
+
+/** One clause per home left off the bundle, in the operator's words. */
+function describeDrops(dropped: PacketDroppedProperty[]): string {
+  return dropped
+    .map((d) => {
+      switch (d.reason) {
+        case 'blocked':
+          return `${d.name} is blocked in Guesty that day`;
+        case 'occupied':
+          return `${d.name} has a guest in house that day`;
+        case 'covered':
+          return `${d.name}'s next turnover is already on a packet or assigned`;
+        case 'no_coords':
+          return `${d.name} has no map coordinates yet`;
+        default:
+          return `${d.name} isn't in the property registry`;
+      }
+    })
+    .join('; ');
+}
+
+function bundleFailure(visitDate: string, res: Extract<PacketCreateResult, { ok: false }>): BundleFailure {
+  if (res.error) return { ok: false, message: `Couldn't save the packet: ${res.error}. Try again in a moment.` };
+  return {
+    ok: false,
+    message: `Nothing to bundle for ${fmtBundleDay(visitDate)}: ${describeDrops(res.dropped)}. Refresh the board to see the real openings.`,
+  };
+}
+
 /** Work-first board: bundle the operator's hand-picked inspections for a day
  *  into one packet and publish it to contractors in a single step. */
-export async function bundleAndSend(formData: FormData): Promise<void> {
+export async function bundleAndSend(formData: FormData): Promise<BundleFailure> {
   const email = await staffEmail();
   const visitDate = String(formData.get('visit_date') || '');
   const ids = String(formData.get('property_ids') || '')
@@ -387,7 +432,7 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
   const priceDollars = Number(formData.get('price_dollars') || 0);
-  if (!visitDate || ids.length === 0) redirect('/fieldwork/packets?sent=0');
+  if (!visitDate || ids.length === 0) return { ok: false, message: 'Pick a day and at least one home, then send again.' };
 
   // Optional: OFFER the trip to specific inspectors instead of the whole
   // roster. This changes who SEES and gets texted about it — the claim itself
@@ -403,11 +448,13 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
     const eligible = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'inspection');
     // Validate BEFORE creating anything: a stale pick must not silently widen
     // the offer to the whole roster.
-    if (eligible.length !== offeredTo.length) redirect('/fieldwork/packets?sent=0');
+    if (eligible.length !== offeredTo.length) {
+      return { ok: false, message: "One of the inspectors you picked can't claim right now. Refresh the board and pick again." };
+    }
     offerNames = eligible.map((c) => c.full_name.split(' ')[0]);
   }
 
-  const packetId = await createPacketFromProperties({
+  const res = await createPacketFromProperties({
     propertyIds: ids,
     visitDate,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
@@ -415,33 +462,34 @@ export async function bundleAndSend(formData: FormData): Promise<void> {
     publish: true,
     offeredTo,
   });
-  if (packetId) {
-    await fieldDb().from('packet_events').insert({
-      packet_id: packetId,
-      actor_email: email,
-      event_type: 'published',
-      payload: offeredTo.length ? { offered_to: offeredTo } : null,
-    });
-    // Texts only the offered inspectors when the offer is restricted.
-    notifyContractorsOfPacket(packetId).catch(() => {});
+  if (!res.ok) {
+    // Nothing got bundled. Tell the operator which home and why, on the
+    // page, with her pick still selected.
     revalidatePath('/fieldwork/packets');
-    redirect(
-      offerNames.length
-        ? `/fieldwork/packets?sent=1&who=${encodeURIComponent(offerNames.join(' & '))}`
-        : '/fieldwork/packets?sent=1',
-    );
+    return bundleFailure(visitDate, res);
   }
-  // Nothing got bundled — every picked day is now covered/occupied. Tell the
-  // operator instead of silently doing nothing.
+  await fieldDb().from('packet_events').insert({
+    packet_id: res.packetId,
+    actor_email: email,
+    event_type: 'published',
+    payload: offeredTo.length ? { offered_to: offeredTo } : null,
+  });
+  // Texts only the offered inspectors when the offer is restricted.
+  notifyContractorsOfPacket(res.packetId).catch(() => {});
   revalidatePath('/fieldwork/packets');
-  redirect('/fieldwork/packets?sent=0');
+  const q = new URLSearchParams({ sent: '1' });
+  if (offerNames.length) q.set('who', offerNames.join(' & '));
+  // A partial bundle says which home stayed behind instead of shrinking
+  // silently from four picked stops to three.
+  if (res.dropped.length) q.set('skipped', describeDrops(res.dropped));
+  redirect(`/fieldwork/packets?${q.toString()}`);
 }
 
 /** Bundle the selected properties into a DRAFT (not published) and open the
  *  packet, so the operator can add a property-setup or one-off job stop before
  *  sending. Same clustering + pricing as bundleAndSend; publishing happens
  *  later from the packet page. */
-export async function bundleAsDraft(formData: FormData): Promise<void> {
+export async function bundleAsDraft(formData: FormData): Promise<BundleFailure> {
   const email = await staffEmail();
   const visitDate = String(formData.get('visit_date') || '');
   const ids = String(formData.get('property_ids') || '')
@@ -449,20 +497,17 @@ export async function bundleAsDraft(formData: FormData): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
   const priceDollars = Number(formData.get('price_dollars') || 0);
-  if (!visitDate || ids.length === 0) redirect('/fieldwork/packets?sent=0');
-  const packetId = await createPacketFromProperties({
+  if (!visitDate || ids.length === 0) return { ok: false, message: 'Pick a day and at least one home, then try again.' };
+  const res = await createPacketFromProperties({
     propertyIds: ids,
     visitDate,
     priceCentsOverride: priceDollars > 0 ? Math.round(priceDollars * 100) : undefined,
     createdByEmail: email,
     publish: false,
   });
-  if (packetId) {
-    revalidatePath('/fieldwork/packets');
-    redirect(`/fieldwork/packets/${packetId}`);
-  }
   revalidatePath('/fieldwork/packets');
-  redirect('/fieldwork/packets?sent=0');
+  if (!res.ok) return bundleFailure(visitDate, res);
+  redirect(`/fieldwork/packets/${res.packetId}`);
 }
 
 /** Bundle selected open maintenance work slips into a published maintenance

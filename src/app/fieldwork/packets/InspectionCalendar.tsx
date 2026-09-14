@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { centroid, maxPairwiseMiles } from '@/lib/proximity';
 import { PROXIMITY_MILES, MAX_STOPS, priceCents, isRushVisit } from '@/lib/field-pricing';
 import type { CalRow, InspectionCalendarData } from '@/lib/field-packets';
@@ -79,6 +80,11 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
   const [selProps, setSelProps] = useState<string[]>([]);
   const [priceStr, setPriceStr] = useState('');
   const [sending, setSending] = useState(false);
+  // Why the last bundle went nowhere, from the server, in the operator's
+  // words ("3 Locust has a guest in house that day"). Stays beside her pick
+  // until she changes it; never rides the URL, so a refresh can't replay it.
+  const [error, setError] = useState<string | null>(null);
+  const softRefresh = useSoftRefresh();
   // Empty = post to everyone of this trade. Tick names and the packet is shown
   // and texted to only those inspectors — they still claim it themselves,
   // first come, exactly like any other packet.
@@ -90,6 +96,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
 
   function toggle(propertyId: string, day: string) {
     setPriceStr('');
+    setError(null);
     if (selDay !== day) {
       setSelDay(day);
       setSelProps([propertyId]);
@@ -106,6 +113,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
     setSelDay(day);
     setSelProps(propIds);
     setPriceStr('');
+    setError(null);
   }
 
   // Column-click picks the largest NEARBY cluster that day, not everyone open
@@ -226,24 +234,45 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
         </div>
       )}
 
+      {error && selectedRows.length > 0 && (
+        <div
+          role="alert"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 16, border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}
+        >
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              softRefresh();
+            }}
+            style={{ font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--signal)', background: 'var(--paper-2, #fff)', border: '1px solid var(--signal)', borderRadius: 999, padding: '6px 12px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            Refresh the board
+          </button>
+        </div>
+      )}
+
       {selectedRows.length > 0 && selDay && (
         <form
           action={async (fd: FormData) => {
             setSending(true);
+            setError(null);
             try {
-              if (fd.get('mode') === 'draft') {
-                // Save a draft and jump to the packet page to add a setup /
-                // one-off before publishing (bundleAsDraft redirects there).
-                await bundleAsDraft(fd);
-              } else {
-                await bundleAndSend(fd);
-                // Clear the picked day/properties so the board shows the fresh
-                // packet under "Out to contractors" instead of staying stuck.
-                setSelProps([]);
-                setSelDay(null);
-                setPriceStr('');
-                setOfferTo([]);
+              // Both redirect on success (the board with a one-shot flash, or
+              // the new draft's page) and hand back a reason on failure, with
+              // the pick left in place so she can see what was refused.
+              const res = fd.get('mode') === 'draft' ? await bundleAsDraft(fd) : await bundleAndSend(fd);
+              if (res && !res.ok) {
+                setError(res.message);
+                return;
               }
+              // Clear the picked day/properties so the board shows the fresh
+              // packet under "Out to contractors" instead of staying stuck.
+              setSelProps([]);
+              setSelDay(null);
+              setPriceStr('');
+              setOfferTo([]);
             } finally {
               setSending(false);
             }

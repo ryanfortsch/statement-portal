@@ -19,6 +19,8 @@
 import 'server-only';
 import { getTeamMember } from './team';
 import { fieldDb } from '@/lib/field-db';
+import { selectAllPaged } from '@/lib/paged-select';
+import { slipIdsOnLivePackets } from '@/lib/field-work-board';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { holdOccupiesDay, type HoldDay } from '@/lib/field-stale-hold';
 import { getContractorShootStats } from '@/lib/creative-shoots';
@@ -617,7 +619,7 @@ async function stopsWithProperties(
   if (stopIds.length) {
     const { data: att } = await fieldDb()
       .from('packet_stop_work_slips')
-      .select('id, stop_id, office_note, completed_at, ordering, created_at, work_slips(id, title, description, action_summary, bring_list, location, priority, category, photo_urls)')
+      .select(`id, stop_id, office_note, completed_at, ordering, created_at, work_slips(${SLIP_DETAIL_COLS})`)
       .in('stop_id', stopIds)
       .order('ordering', { ascending: true })
       .order('created_at', { ascending: true });
@@ -645,6 +647,14 @@ async function stopsWithProperties(
       };
     });
 }
+
+/** The slip columns the contractor's tap-open info panel reads (what, where,
+ *  who opened it and when, triage flags), shared by the attachment embed and
+ *  the open-at-this-home loader so both lists carry the same detail. */
+const SLIP_DETAIL_COLS =
+  'id, title, description, action_summary, bring_list, location, priority, category, status, photo_urls, ' +
+  'created_at, scheduled_date, created_by_email, reported_by_contractor_id, inspection_id, run_scope, ' +
+  'owner_action_required, last_verified_open_at, last_verified_open_by';
 
 /** Raw shape of a packet_stop_work_slips row joined to its work slip. */
 type AttachmentRow = {
@@ -1550,21 +1560,42 @@ export async function loadInspectionWorkItems(
  * bundling a normal open day ahead of a future stay works, not just check-in
  * days.
  */
+/** Why a picked home could NOT be inspected on a day. candidatesForDay fills
+ *  this in for every property it drops, so the operator hears the real
+ *  reason ("guest in house", "blocked in Guesty") instead of a generic
+ *  "already covered" that sends her hunting. */
+export type DayDropReason = 'blocked' | 'occupied';
+
 async function candidatesForDay(
   properties: FieldProperty[],
   day: string,
+  dropped?: Map<string, DayDropReason>,
 ): Promise<Map<string, DayCandidate>> {
   const propIds = new Set(properties.map((p) => p.id));
-  const { data: bData } = await fieldDb()
-    .from('bookings')
-    .select('id, property_id, check_in, check_out, status, guest_name')
-    .in('status', OCCUPANCY_STATUSES)
-    .is('duplicate_of', null)
-    .lte('check_in', addDays(day, 365))
-    .gte('check_out', addDays(day, -30));
-  const bookings = ((bData ?? []) as BookingRaw[]).filter(
-    (b) => propIds.has(b.property_id) && b.check_in && b.check_out,
-  );
+  const out = new Map<string, DayCandidate>();
+  if (propIds.size === 0) return out;
+  // Scoped to the picked homes and paged: the old fleet-wide 365-day read
+  // sailed past PostgREST's silent 1000-row cap in season, and a truncated
+  // set can drop the very arrival a stop must link to (a stop with no
+  // booking never reads as covering its turnover, so the board offers the
+  // same home again the next morning).
+  const bookings = (
+    await selectAllPaged<BookingRaw>(
+      (from, to) =>
+        fieldDb()
+          .from('bookings')
+          .select('id, property_id, check_in, check_out, status, guest_name')
+          .in('status', OCCUPANCY_STATUSES)
+          .is('duplicate_of', null)
+          .in('property_id', [...propIds])
+          .lte('check_in', addDays(day, 365))
+          .gte('check_out', addDays(day, -30))
+          .order('check_in', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'candidatesForDay bookings' },
+    )
+  ).filter((b) => propIds.has(b.property_id) && b.check_in && b.check_out);
   const { data: blkData } = await fieldDb()
     .from('property_calendar_blocks')
     .select('property_id, date')
@@ -1579,18 +1610,30 @@ async function candidatesForDay(
   }
   for (const [k, v] of byProp) byProp.set(k, coalesceStays(v));
 
-  const out = new Map<string, DayCandidate>();
   for (const p of properties) {
-    if (blocked.has(p.id)) continue;
     const pb = (byProp.get(p.id) ?? []).slice().sort((a, b) => a.check_in.localeCompare(b.check_in));
     // Next GUEST arrival to prep for — a 4 PM arrival TODAY counts (that's the
     // same-day turnover, the most urgent inspection there is).
     const next = pb.find((b) => isGuestStay(b) && b.check_in >= day) ?? null;
+    const arrivalDay = !!next && next.check_in === day;
+    // A Guesty hold closes the day EXCEPT on a real guest's arrival day. The
+    // inspection calendar lets an arrival outrank a block (an owner who books
+    // their own home also blocks the dates, 16 Waterman; Guesty shadows a
+    // direct reservation with a block, 21 Horton), so the bundle must agree
+    // or the board paints a day green that the bundle then refuses with
+    // "those days are already covered" (2026-09-14).
+    if (blocked.has(p.id) && !arrivalDay) {
+      dropped?.set(p.id, 'blocked');
+      continue;
+    }
     // An occupied night kills the day, EXCEPT the prepped stay's own check-in
     // day (the tight pre-arrival window) — the same rule deriveDayCandidates
     // uses. The old unconditional `check_in <= day` test made every same-day
     // turnover invisible here: never bundleable, never booking-linked.
-    if (pb.some((b) => b.check_in <= day && day < b.check_out) && !(next && next.check_in === day)) continue;
+    if (pb.some((b) => b.check_in <= day && day < b.check_out) && !arrivalDay) {
+      dropped?.set(p.id, 'occupied');
+      continue;
+    }
     // Guest checkouts only (mirrors deriveDayCandidates): a block ending on
     // the visit day must not fake a "Checkout today" turn.
     const priorCheckout = pb.filter((b) => isGuestStay(b) && b.check_out <= day).map((b) => b.check_out).sort().at(-1) ?? null;
@@ -1609,6 +1652,20 @@ async function candidatesForDay(
   return out;
 }
 
+/** Why a picked home was left off a bundle. `blocked` / `occupied` come from
+ *  candidatesForDay; `covered` means its next turnover is already on a live
+ *  packet or staffed on the Turnovers rail; `no_coords` means it can't be
+ *  routed; `unknown` is an id the registry doesn't know. */
+export type PacketDropReason = DayDropReason | 'covered' | 'no_coords' | 'unknown';
+export type PacketDroppedProperty = { propertyId: string; name: string; reason: PacketDropReason };
+/** The outcome of a bundle, drops included EITHER way: a packet that went out
+ *  with three of the four picked homes must say which one stayed behind and
+ *  why, and a bundle that produced nothing must say so per home. The old
+ *  `string | null` collapsed both into a silent shrink or a generic banner. */
+export type PacketCreateResult =
+  | { ok: true; packetId: string; dropped: PacketDroppedProperty[] }
+  | { ok: false; packetId: null; dropped: PacketDroppedProperty[]; error: string | null };
+
 export async function createPacketFromProperties(args: {
   propertyIds: string[];
   visitDate: string;
@@ -1618,15 +1675,28 @@ export async function createPacketFromProperties(args: {
   /** Show + offer this only to these contractors (they still claim it
    *  normally). Empty/undefined = the whole trade, as always. */
   offeredTo?: string[];
-}): Promise<string | null> {
+}): Promise<PacketCreateResult> {
   const properties = await loadFieldProperties();
   const propById = new Map(properties.map((p) => [p.id, p]));
-  const sel = args.propertyIds
-    .map((id) => propById.get(id))
-    .filter((p): p is FieldProperty => !!p && p.latitude != null && p.longitude != null);
-  if (sel.length === 0) return null;
+  const dropped: PacketDroppedProperty[] = [];
+  const sel: FieldProperty[] = [];
+  for (const id of args.propertyIds) {
+    const p = propById.get(id);
+    if (!p) dropped.push({ propertyId: id, name: id, reason: 'unknown' });
+    else if (p.latitude == null || p.longitude == null) dropped.push({ propertyId: id, name: p.name, reason: 'no_coords' });
+    else sel.push(p);
+  }
+  if (sel.length === 0) return { ok: false, packetId: null, dropped, error: null };
 
-  const candByProp = await candidatesForDay(sel, args.visitDate);
+  const dayDrops = new Map<string, DayDropReason>();
+  let candByProp: Map<string, DayCandidate>;
+  try {
+    candByProp = await candidatesForDay(sel, args.visitDate, dayDrops);
+  } catch (err) {
+    // A failed calendar read must never turn into a packet with no booking
+    // links (that home would read as uncovered forever). Say so instead.
+    return { ok: false, packetId: null, dropped, error: err instanceof Error ? err.message : String(err) };
+  }
 
   // Guard against double-booking a turnover: drop any selected property whose
   // booking is already in a live packet (a bundle race / double-submit beyond
@@ -1634,9 +1704,17 @@ export async function createPacketFromProperties(args: {
   const coveredBookings = await coveredBookingIds();
   const usable = sel.filter((p) => {
     const c = candByProp.get(p.id);
-    return c && (!c.bookingId || !isCoveredStay(coveredBookings, c.propertyId, c.bookingId, c.nextCheckin));
+    if (!c) {
+      dropped.push({ propertyId: p.id, name: p.name, reason: dayDrops.get(p.id) ?? 'occupied' });
+      return false;
+    }
+    if (c.bookingId && isCoveredStay(coveredBookings, c.propertyId, c.bookingId, c.nextCheckin)) {
+      dropped.push({ propertyId: p.id, name: p.name, reason: 'covered' });
+      return false;
+    }
+    return true;
   });
-  if (usable.length === 0) return null;
+  if (usable.length === 0) return { ok: false, packetId: null, dropped, error: null };
 
   const pts = usable.map((p) => ({ lat: p.latitude!, lng: p.longitude! }));
   // Walk order = readiness first, drive time second. An already-cleaned home
@@ -1702,7 +1780,7 @@ export async function createPacketFromProperties(args: {
     })
     .select('id')
     .single();
-  if (error || !packet) return null;
+  if (error || !packet) return { ok: false, packetId: null, dropped, error: error?.message ?? 'packet insert returned no row' };
   const packetId = (packet as { id: string }).id;
   await fieldDb()
     .from('packet_stops')
@@ -1723,7 +1801,7 @@ export async function createPacketFromProperties(args: {
     );
   // Restock slips ride along automatically — see autoAttachInventorySlips.
   await autoAttachInventorySlips(packetId);
-  return packetId;
+  return { ok: true, packetId, dropped };
 }
 
 /**
@@ -2017,6 +2095,63 @@ export async function loadAttachableSlips(propertyId: string): Promise<WorkSlipL
     .neq('status', 'done')
     .order('created_at', { ascending: false });
   return (data ?? []) as WorkSlipLite[];
+}
+
+/** What a stop shows beneath the office's pinned tasks. */
+export type StopOpenSlips = {
+  /** Open slips at this home the inspector can act on from the stop. */
+  slips: WorkSlipLite[];
+  /** Open slips at this home that another live packet already carries. They
+   *  close through that trip, so they are counted here, never listed. */
+  onOtherTrip: number;
+};
+
+/**
+ * Everything ELSE open at each stop's home: the inspector's default view, so
+ * a known issue never hides behind an attach the office forgot (Ryan,
+ * 2026-09-14: "include all open work slips"). Per stop, the active slips at
+ * that property that are not already riding this stop (attached, or the
+ * stop's own job), not synthetic packet-backing slips (setup / one-off are
+ * packets in their own right), not snoozed by the office, not scheduled for
+ * a later visit (the guest-gear rule autoAttachInventorySlips applies), and
+ * not spoken for by another live packet.
+ *
+ * Read-only: nothing here attaches. A slip joins the packet only when the
+ * inspector acts on it (resolveSlipFromStop), so the office's packet review
+ * lists exactly the work that was touched on this trip.
+ */
+export async function loadOpenSlipsForStops(
+  stops: Array<{ id: string; property_id: string; work_slip_id: string | null; attachedSlips: Array<{ id: string }> }>,
+  visitDate: string,
+): Promise<Map<string, StopOpenSlips>> {
+  const out = new Map<string, StopOpenSlips>();
+  const propIds = [...new Set(stops.map((s) => s.property_id).filter(Boolean))];
+  if (propIds.length === 0) return out;
+  const [{ data }, taken] = await Promise.all([
+    fieldDb()
+      .from('work_slips')
+      .select(`property_id, snoozed_until, ${SLIP_DETAIL_COLS}`)
+      .in('property_id', propIds)
+      .in('status', ['open', 'in_progress', 'scheduled'])
+      .not('category', 'in', '(rising_tide,ad_hoc)')
+      .order('created_at', { ascending: true })
+      .limit(200),
+    slipIdsOnLivePackets().catch(() => new Set<string>()),
+  ]);
+  const dayAfterVisit = addDays(visitDate, 1);
+  const nowIso = new Date().toISOString();
+  type Row = WorkSlipLite & { property_id: string; snoozed_until: string | null };
+  const rows = ((data ?? []) as Row[]).filter(
+    (w) => (!w.scheduled_date || w.scheduled_date <= dayAfterVisit) && (!w.snoozed_until || w.snoozed_until <= nowIso),
+  );
+  for (const s of stops) {
+    const riding = new Set<string>(s.attachedSlips.map((a) => a.id));
+    if (s.work_slip_id) riding.add(s.work_slip_id);
+    const here = rows.filter((w) => w.property_id === s.property_id && !riding.has(w.id));
+    const slips = here.filter((w) => !taken.has(w.id));
+    out.set(s.id, { slips, onOtherTrip: here.length - slips.length });
+  }
+  return out;
 }
 
 /** Bundle selected work slips into a maintenance packet (trade='maintenance').
