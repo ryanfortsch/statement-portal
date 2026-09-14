@@ -10,6 +10,7 @@ import { isStayConciergeConfigured, listConversations, explainError } from '@/li
 import { todayET } from '@/lib/checkout-schedule';
 import { RemindersSection } from '../RemindersSection';
 import { SendPanel } from './SendPanel';
+import { PaymentLinksLedger } from './PaymentLinksLedger';
 
 /**
  * /messaging/send - the Send lens of the Guests tab.
@@ -87,6 +88,12 @@ export default function MessagingSendPage() {
     <Shell>
       <Suspense fallback={<SendSkeleton />}>
         <SendSection />
+      </Suspense>
+      {/* Every payment link from the last month and whether it was paid.
+          Reads Supabase, not the concierge, so it renders even when the
+          Mac Mini is unreachable. */}
+      <Suspense fallback={null}>
+        <PaymentLinksLedger />
       </Suspense>
       {/* Scheduled + repeating messages moved here with the compose surface:
           both are "things we start", so they belong on the same lens. */}

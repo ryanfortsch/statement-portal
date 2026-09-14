@@ -91,6 +91,10 @@
     {
       "path": "/api/cron/cleaner-digest-send",
       "schedule": "0 22,23 * * *"
+    },
+    {
+      "path": "/api/cron/payment-links",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
