@@ -192,7 +192,7 @@ export const UNPAID_AFTER_HOURS = 24;
  *  concierge sweep's lookback. */
 export const LINK_LOOKBACK_DAYS = 45;
 
-export type PaymentLinkStatus = 'paid' | 'cancelled' | 'unsent' | 'waiting' | 'overdue';
+export type PaymentLinkStatus = 'paid' | 'cancelled' | 'unsent' | 'unverified' | 'waiting' | 'overdue';
 
 export type PaymentLinkStatusInput = {
   source: string;
@@ -201,18 +201,39 @@ export type PaymentLinkStatusInput = {
   sent_via: string;
   paid_at: string | null;
   deactivated_at: string | null;
+  /** Why the last Stripe poll could not read the link's sessions. */
+  paid_check_error?: string;
 };
 
 /** One word for where a link stands. `unsent` is a Helm-minted link nobody
  *  texted or copied yet; concierge links are assumed delivered (the
- *  concierge texts them itself). */
+ *  concierge texts them itself). `unverified` is a link Helm cannot read
+ *  from Stripe (the property's restricted key lacks Checkout Sessions
+ *  read): it is NOT called unpaid, because it may well be paid. */
 export function paymentLinkStatus(row: PaymentLinkStatusInput, nowMs = Date.now()): PaymentLinkStatus {
   if (row.paid_at) return 'paid';
   if (row.deactivated_at) return 'cancelled';
   if (row.source === 'helm' && !row.sent_via) return 'unsent';
+  if (row.paid_check_error) return 'unverified';
   const since = new Date(row.sent_at || row.created_at).getTime();
   const hours = (nowMs - since) / 3_600_000;
   return hours >= UNPAID_AFTER_HOURS ? 'overdue' : 'waiting';
+}
+
+/** The key-edit URL Stripe puts in its 403 text, so a "can't check" row
+ *  links straight to the fix. '' when the error carries none. */
+export function stripeKeyFixUrl(error: string): string {
+  const m = (error || '').match(/https:\/\/dashboard\.stripe\.com\/\S+/);
+  return m ? m[0].replace(/[.,;)]+$/, '') : '';
+}
+
+/** Plain words for a paid-check failure. */
+export function explainPaidCheckError(error: string): string {
+  if (/checkout_session_read|Checkout Sessions Read/i.test(error)) {
+    return "the property's Stripe key needs Checkout Sessions read";
+  }
+  if (/^no Stripe key/i.test(error)) return 'Helm has no Stripe key for this property';
+  return `Stripe refused the check (${(error || '').slice(0, 80)})`;
 }
 
 /** "just now" / "3h ago" / "2d ago". */

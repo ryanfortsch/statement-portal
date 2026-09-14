@@ -9,7 +9,7 @@ import { dollars } from '@/lib/field-types';
 import { FeedClearButton } from '@/components/FeedClearButton';
 import { SubmitButton } from '@/components/SubmitButton';
 import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links';
-import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus } from '@/lib/payment-links-text';
+import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl } from '@/lib/payment-links-text';
 import { cancelPaymentLinkForm, nudgePaymentLinkForm } from '@/app/messaging/send/payment-link-actions';
 
 type MyWork = {
@@ -102,7 +102,10 @@ export async function ForMeFeed() {
   // still open past a day (the "they haven't" answer). Both clear with ×.
   const paidLinks = paymentCards.paid.filter((c) => !dismissed.has(`plink-paid:${c.row.request_key}`));
   const overdueLinks = paymentCards.overdue.filter((c) => !dismissed.has(`plink-unpaid:${c.row.request_key}`));
-  const hasPayments = paidLinks.length + overdueLinks.length > 0;
+  // A property whose Stripe key will not let Helm read payments: one card,
+  // no ×, clears itself once the key is fixed and the next sweep reads it.
+  const keyProblems = paymentCards.keyProblems;
+  const hasPayments = paidLinks.length + overdueLinks.length + keyProblems.length > 0;
 
   // Drop cleared items, then pick the window (tasks first, slips spread
   // across properties) so clearing one reveals the next.
@@ -206,7 +209,7 @@ export async function ForMeFeed() {
               <SectionHeaderLink
                 href="/messaging/send#payment-links"
                 title="Payments"
-                eyebrow={paymentsEyebrow(paidLinks.length, overdueLinks.length)}
+                eyebrow={paymentsEyebrow(paidLinks.length, overdueLinks.length, keyProblems.length)}
               />
               <div style={{ borderTop: '1px solid var(--ink)' }}>
                 {paidLinks.map((c) => (
@@ -214,6 +217,9 @@ export async function ForMeFeed() {
                 ))}
                 {overdueLinks.map((c) => (
                   <PaymentLinkFeedRow key={c.row.request_key} card={c} />
+                ))}
+                {keyProblems.map((k) => (
+                  <PaymentKeyProblemRow key={k.propertyId} problem={k} />
                 ))}
               </div>
             </div>
@@ -966,41 +972,103 @@ const openBriefLinkStyle: React.CSSProperties = {
 
 type PaymentCard = { row: PaymentLinkRow; propertyName: string; status: 'paid' | 'overdue' };
 
+/** A property whose restricted Stripe key refuses the checkout-sessions
+ *  read, so none of its open links can be called paid or unpaid. */
+type PaymentKeyProblem = { propertyId: string; propertyName: string; openLinks: number; fixUrl: string };
+
 /** A paid link stays on the feed this long; an unpaid one is called out
  *  from a day after it was sent until it is this old, then it is a dead
  *  deal that only the ledger still lists. */
 const PAID_SHOW_DAYS = 7;
 const OVERDUE_SHOW_DAYS = 14;
 
-async function loadPaymentLinkCards(): Promise<{ paid: PaymentCard[]; overdue: PaymentCard[] }> {
+type PaymentCards = { paid: PaymentCard[]; overdue: PaymentCard[]; keyProblems: PaymentKeyProblem[] };
+
+async function loadPaymentLinkCards(): Promise<PaymentCards> {
+  const empty: PaymentCards = { paid: [], overdue: [], keyProblems: [] };
   try {
     const rows = await listRecentPaymentLinks({ days: LINK_LOOKBACK_DAYS, limit: 60 });
-    if (rows.length === 0) return { paid: [], overdue: [] };
+    if (rows.length === 0) return empty;
     const names = await loadPropertyNames();
     const now = Date.now();
     const paidCutoff = now - PAID_SHOW_DAYS * 86_400_000;
     const overdueCutoff = now - OVERDUE_SHOW_DAYS * 86_400_000;
     const paid: PaymentCard[] = [];
     const overdue: PaymentCard[] = [];
+    const problems = new Map<string, PaymentKeyProblem>();
     for (const row of rows) {
       const status = paymentLinkStatus(row, now);
-      const propertyName = names.get(row.property_id) ?? '';
+      const propertyName = names.get(row.property_id) ?? row.property_id;
       if (status === 'paid' && row.paid_at && new Date(row.paid_at).getTime() >= paidCutoff) {
         paid.push({ row, propertyName, status: 'paid' });
       } else if (status === 'overdue' && new Date(row.sent_at || row.created_at).getTime() >= overdueCutoff) {
         overdue.push({ row, propertyName, status: 'overdue' });
+      } else if (status === 'unverified') {
+        const existing = problems.get(row.property_id);
+        if (existing) existing.openLinks++;
+        else {
+          problems.set(row.property_id, {
+            propertyId: row.property_id,
+            propertyName,
+            openLinks: 1,
+            fixUrl: stripeKeyFixUrl(row.paid_check_error),
+          });
+        }
       }
     }
-    return { paid, overdue };
+    return { paid, overdue, keyProblems: [...problems.values()] };
   } catch {
-    return { paid: [], overdue: [] };
+    return empty;
   }
 }
 
-function paymentsEyebrow(paid: number, overdue: number): string {
-  return [paid > 0 ? `${paid} paid` : null, overdue > 0 ? `${overdue} unpaid` : null]
+function paymentsEyebrow(paid: number, overdue: number, cantCheck: number): string {
+  return [
+    paid > 0 ? `${paid} paid` : null,
+    overdue > 0 ? `${overdue} unpaid` : null,
+    cantCheck > 0 ? `${cantCheck} can't check` : null,
+  ]
     .filter(Boolean)
     .join(' · ');
+}
+
+function PaymentKeyProblemRow({ problem }: { problem: PaymentKeyProblem }) {
+  const links = `${problem.openLinks} open link${problem.openLinks === 1 ? '' : 's'}`;
+  return (
+    <div style={feedRowStyle}>
+      <span aria-hidden style={{ ...dotStyle, background: 'var(--signal)' }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>
+            Can&apos;t see payments at {problem.propertyName}
+          </span>
+          <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--signal)' }}>{links}</span>
+        </div>
+        <div style={{ marginTop: 3, fontSize: 11, fontWeight: 500, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+          Its restricted Stripe key needs Checkout Sessions read. Fix it in Stripe; nothing changes in Vercel, and
+          the next sweep reads these links.
+        </div>
+        <div style={{ display: 'flex', gap: 14, marginTop: 6 }}>
+          {problem.fixUrl ? (
+            <a
+              href={problem.fixUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--signal)', textDecoration: 'none' }}
+            >
+              Fix the key in Stripe →
+            </a>
+          ) : null}
+          <Link
+            href="/messaging/send#payment-links"
+            style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ink-3)', textDecoration: 'none' }}
+          >
+            See the links →
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PaymentLinkFeedRow({ card }: { card: PaymentCard }) {
@@ -1010,7 +1078,7 @@ function PaymentLinkFeedRow({ card }: { card: PaymentCard }) {
   const headline = paid
     ? `${who} paid ${money(row.amount_cents)}`
     : `${who} hasn't paid ${money(row.amount_cents)} yet`;
-  const when = paid ? ageLabel(row.paid_at) : `sent ${ageLabel(row.sent_at || row.created_at)}`;
+  const when = paid ? ageLabel(row.paid_at) : `${row.sent_at ? 'sent' : 'made'} ${ageLabel(row.sent_at || row.created_at)}`;
   const sublineBits = [row.label, card.propertyName].filter(Boolean);
   if (paid) sublineBits.push('lands on the statement through the extras queue');
   else if (row.nudge_count > 0) sublineBits.push(`nudged ${row.nudge_count}x`);

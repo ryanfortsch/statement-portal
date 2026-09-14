@@ -1,14 +1,23 @@
 import { Section } from '@/components/Section';
 import { SubmitButton } from '@/components/SubmitButton';
 import { listRecentPaymentLinks, loadPropertyNameMap, type PaymentLinkRow } from '@/lib/payment-links';
-import { ageLabel, money, paymentLinkStatus, prettyPhone, type PaymentLinkStatus } from '@/lib/payment-links-text';
+import {
+  ageLabel,
+  explainPaidCheckError,
+  money,
+  paymentLinkStatus,
+  prettyPhone,
+  stripeKeyFixUrl,
+  type PaymentLinkStatus,
+} from '@/lib/payment-links-text';
 import { CopyLinkButton } from './CopyLinkButton';
 import { cancelPaymentLinkForm, checkPaymentLinkForm, nudgePaymentLinkForm } from './payment-link-actions';
 
 /**
  * Every guest payment link from the last 30 days, whichever side minted it
  * (the concierge's reactive add-on cards or the panel above), with where it
- * stands: not sent, waiting, unpaid past a day, paid, cancelled. This is the
+ * stands: not sent, waiting, unpaid past a day, can't check (the property's
+ * Stripe key lacks Checkout Sessions read), paid, cancelled. This is the
  * answer to "did they pay?", read from payment_link_requests, which the paid
  * sweep stamps every 15 minutes. Check now asks Stripe this second.
  */
@@ -65,8 +74,9 @@ function LedgerRow({
   if (row.sent_via === 'sms') meta.push(`texted ${prettyPhone(row.guest_phone)}`);
   else if (row.sent_via === 'copied') meta.push('copied to send by hand');
   if (row.nudge_count > 0) meta.push(`nudged ${row.nudge_count}x, last ${ageLabel(row.nudged_at)}`);
-  if (row.paid_check_error) meta.push(`can't check Stripe: ${row.paid_check_error}`);
+  if (row.paid_check_error && !closed) meta.push(`can't check: ${explainPaidCheckError(row.paid_check_error)}`);
   else if (row.paid_checked_at && !closed) meta.push(`checked ${ageLabel(row.paid_checked_at)}`);
+  const fixUrl = row.paid_check_error && !closed ? stripeKeyFixUrl(row.paid_check_error) : '';
 
   return (
     <div
@@ -91,6 +101,20 @@ function LedgerRow({
         </div>
         <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.02em' }}>
           {meta.join(' · ')}
+          {fixUrl && (
+            <>
+              {' · '}
+              <a
+                href={fixUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={row.paid_check_error}
+                style={{ color: 'var(--signal)', textDecoration: 'none', fontWeight: 600 }}
+              >
+                Fix the key in Stripe →
+              </a>
+            </>
+          )}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
@@ -128,7 +152,7 @@ function StatusChip({ status, row }: { status: PaymentLinkStatus; row: PaymentLi
   const tone =
     status === 'paid'
       ? 'var(--go, #2e7d32)'
-      : status === 'overdue' || status === 'unsent'
+      : status === 'overdue' || status === 'unsent' || status === 'unverified'
         ? 'var(--signal)'
         : status === 'cancelled'
           ? 'var(--ink-4)'
@@ -137,12 +161,14 @@ function StatusChip({ status, row }: { status: PaymentLinkStatus; row: PaymentLi
     status === 'paid'
       ? `Paid ${ageLabel(row.paid_at)}`
       : status === 'overdue'
-        ? `Unpaid · sent ${ageLabel(row.sent_at || row.created_at)}`
-        : status === 'waiting'
-          ? 'Sent · waiting'
-          : status === 'unsent'
-            ? 'Not sent yet'
-            : 'Cancelled';
+        ? `Unpaid · ${row.sent_at ? 'sent' : 'made'} ${ageLabel(row.sent_at || row.created_at)}`
+        : status === 'unverified'
+          ? "Can't check"
+          : status === 'waiting'
+            ? 'Sent · waiting'
+            : status === 'unsent'
+              ? 'Not sent yet'
+              : 'Cancelled';
   return (
     <span
       title={status === 'paid' && row.paid_at ? `Paid ${new Date(row.paid_at).toLocaleString()}` : undefined}
