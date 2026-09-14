@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '@/lib/supabase-admin';
-import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 
 /**
@@ -21,10 +20,15 @@ import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
  * Idempotency: `request_key` maps to work_slips.from_guest_request_key
  * (partial unique index). A replay or a second gear message on the same
  * reservation MERGES into the existing slip: appends the new ask to the
- * description, and reopens a DONE slip when the ask is genuinely new (the
- * guest asked again, so someone has to act again). Dismissed and blocked
- * slips keep their status; byte-identical replays change nothing. Never
- * duplicates.
+ * description, and reopens a DONE slip only when the ASK itself changed
+ * (a different title or action summary: the guest asked for something
+ * more, so someone has to act again). The description alone is not the
+ * test: the concierge rebuilds it from the latest thread on every approved
+ * reply, so a done gear slip kept coming back to life each time we
+ * answered that guest about anything else, carrying the inspector's
+ * completion photos from the earlier trip (16 Waterman, 2026-09-14).
+ * Dismissed and blocked slips keep their status; a replay of the same ask
+ * against a closed slip changes nothing. Never duplicates.
  *
  *   POST /api/work-slips?key=K
  *   { property_id, title, request_key, description?, action_summary?,
@@ -125,29 +129,44 @@ export async function POST(req: Request) {
   const propertyName = (prop.name as string | null) ?? propertyId;
 
   // Merge path: one slip per request_key, ever. A second ask on the same
-  // stay lands as an update note; a closed slip reopens.
+  // stay lands as an update note; a closed slip reopens only for a changed ask.
+  const fullTitle = `${propertyName}: ${title}`;
   const { data: existingRows } = await supabase
     .from('work_slips')
-    .select('id, status, description')
+    .select('id, status, description, title, action_summary')
     .eq('from_guest_request_key', requestKey)
     .limit(1);
   const existing = existingRows?.[0] as
-    | { id: string; status: string; description: string | null }
+    | { id: string; status: string; description: string | null; title: string; action_summary: string | null }
     | undefined;
 
   if (existing) {
+    const norm = (v: string | null | undefined) => (v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    // The ask is the title plus the action summary, not the description:
+    // the description carries the guest's latest message and our reply,
+    // which change every time the thread moves.
+    const sameAsk =
+      norm(existing.title) === norm(fullTitle) &&
+      (!actionSummary || norm(existing.action_summary) === norm(actionSummary));
     const alreadyNoted =
       !!description && !!existing.description && existing.description.includes(description);
-    // Reopen ONLY a completed slip, and only when the ask carries genuinely
-    // new content — the gear needs doing again. 'dismissed' is an explicit
-    // operator "we're not doing this" and must stick (SlipClosePanel:
-    // "a dismissed slip stays dismissed"); 'blocked' is active work waiting
-    // on something and must not be silently flipped. A byte-identical
-    // replay never changes anything.
-    const reopen = existing.status === 'done' && !alreadyNoted;
     if (alreadyNoted) {
       return NextResponse.json({ ok: true, id: existing.id, deduped: true });
     }
+    // A closed slip (done, dismissed, or parked as blocked) only stirs for a
+    // changed ask. The same promise arriving again because we answered the
+    // guest about something else is a replay: nothing to do, and no note to
+    // append to a slip nobody is working. 'dismissed' is an explicit
+    // operator "we're not doing this" and must stick (SlipClosePanel: "a
+    // dismissed slip stays dismissed"); 'blocked' is active work waiting on
+    // something and must not be silently flipped.
+    const closed = existing.status === 'done' || existing.status === 'dismissed' || existing.status === 'blocked';
+    if (closed && sameAsk) {
+      return NextResponse.json({ ok: true, id: existing.id, deduped: true, reopened: false });
+    }
+    // Reopen ONLY a completed slip, and only for a genuinely new ask — the
+    // gear needs doing again.
+    const reopen = existing.status === 'done' && !sameAsk;
     const mergedDescription =
       [existing.description, description ? `--- Follow-up request ---\n${description}` : null]
         .filter(Boolean)
@@ -159,6 +178,10 @@ export async function POST(req: Request) {
       update.closed_at = null;
       update.closed_by_email = null;
       update.snoozed_until = null;
+      // The earlier completion's write-up belongs to the earlier ask. The
+      // photos stay: they are evidence of that setup, and the office's own
+      // reopen keeps them too.
+      update.resolution_notes = null;
     }
     const { error: updateError } = await supabase
       .from('work_slips')
@@ -176,7 +199,7 @@ export async function POST(req: Request) {
     .from('work_slips')
     .insert({
       property_id: propertyId,
-      title: `${propertyName}: ${title}`,
+      title: fullTitle,
       description,
       action_summary: actionSummary,
       location: (body.location ?? '').trim() || null,

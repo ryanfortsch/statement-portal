@@ -172,20 +172,23 @@ export default async function FieldInspectPage({
   // load, so a task completed mid-deck never reappears on resume.
   const { data: attachRows } = await fieldDb()
     .from('packet_stop_work_slips')
-    .select('id, office_note, created_at, work_slips(id, title, description, bring_list, location, photo_urls)')
+    .select('id, office_note, created_at, work_slips(id, title, description, action_summary, bring_list, location, photo_urls)')
     .eq('stop_id', stop.id)
     .is('completed_at', null)
     .order('created_at');
   const trailingTasks: TrailingTask[] = ((attachRows ?? []) as unknown as Array<{
     id: string;
     office_note: string | null;
-    work_slips: { id: string; title: string; description: string | null; bring_list: string | null; location: string | null; photo_urls: string[] | null } | null;
+    work_slips: { id: string; title: string; description: string | null; action_summary: string | null; bring_list: string | null; location: string | null; photo_urls: string[] | null } | null;
   }>)
     .filter((r) => r.work_slips)
     .map((r) => ({
       attachmentId: r.id,
       title: r.work_slips!.title,
-      description: r.work_slips!.description,
+      // The concrete ask first. A concierge-minted slip's description is the
+      // guest's message and our reply in full; the inspector at the door
+      // needs "pack 'n play + high chair", not the thread.
+      description: r.work_slips!.action_summary || r.work_slips!.description,
       location: r.work_slips!.location,
       bringList: r.work_slips!.bring_list,
       officeNote: r.office_note,
