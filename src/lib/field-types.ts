@@ -278,6 +278,17 @@ export type WorkSlipLite = {
    *  check-in). Null = whenever. Drives the attach picker's timing labels and
    *  the auto-attach date gate. */
   scheduled_date?: string | null;
+  /** Provenance + triage detail for the contractor's tap-open info panel on
+   *  the packet page. Optional so the lighter loaders (a maintenance stop's
+   *  own slip, the office attach picker) need not select them. */
+  status?: string;
+  created_by_email?: string | null;
+  reported_by_contractor_id?: string | null;
+  inspection_id?: string | null;
+  run_scope?: string | null;
+  owner_action_required?: boolean;
+  last_verified_open_at?: string | null;
+  last_verified_open_by?: string | null;
 };
 
 /** A work slip ATTACHED to a stop (extra task riding on the visit), as opposed

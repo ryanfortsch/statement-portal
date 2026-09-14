@@ -4,13 +4,15 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { fieldDb } from '@/lib/field-db';
-import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, stopPresence, arrivalPropertiesForDay, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
-import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail , clockLabel, tripWindowLabel } from '@/lib/field-types';
+import { loadPacketDetail, loadPacketSupplyRun, loadCleaningStatusForStops, loadLockEquippedPropertyIds, loadOpenSlipsForStops, stopPresence, arrivalPropertiesForDay, SUPPLY_CLOSET, SUPPLY_CLOSET_COORDS, SUPPLY_CLOSET_CODE, type SupplyRun, type CleaningStatus, type StopOpenSlips , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
+import { canClaim, cityShort, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, totalPayoutCents, type AccessBundle, type ContractorRow, type PacketStopDetail, type WorkSlipLite , clockLabel, tripWindowLabel } from '@/lib/field-types';
+import { getTeamMember } from '@/lib/team';
+import { WORK_SLIP_CATEGORY_LABELS, type WorkSlipCategory } from '@/lib/work-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
 import { MaintenanceComplete } from './MaintenanceComplete';
-import { StopWorkList } from './StopWorkList';
+import { StopWorkList, type StopWorkItem } from './StopWorkList';
 import { StartStop } from './StartStop';
 import { OnSite } from './OnSite';
 import { FieldShell } from '../../FieldShell';
@@ -133,6 +135,104 @@ function fmtDateET(iso: string): string {
 /** Whole days from `from` to `to` (both YYYY-MM-DD). */
 function dayGap(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00`) - Date.parse(`${from}T00:00:00`)) / 86_400_000);
+}
+
+/** A date-only value (scheduled_date) as a short ET day, pinned to noon UTC
+ *  so the render can't slip a calendar day. */
+function fmtShortDay(d: string): string {
+  return fmtDateET(`${d}T12:00:00Z`);
+}
+
+/** "today" / "yesterday" / "4 days ago" / "on Sep 1" for a slip's age. */
+function ageLabel(iso: string): string {
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 14) return `${days} days ago`;
+  return `on ${fmtDateET(iso)}`;
+}
+
+/** A slip filed as "30 Woodward: Replace missing carafe" reads as "Replace
+ *  missing carafe" on 30 Woodward's own stop. Only a leading home name or
+ *  address followed by a separator is stripped; "30 Woodward Ave gutter" is
+ *  left alone. */
+function cleanSlipTitle(title: string, property: { name: string; address: string }): string {
+  const t = title.trim();
+  for (const key of [property.name, property.address].map((v) => (v || '').trim()).filter(Boolean)) {
+    if (!t.toLowerCase().startsWith(key.toLowerCase())) continue;
+    const tail = t.slice(key.length);
+    const rest = tail.replace(/^\s*[:\-\u2013\u2014]\s*/, '');
+    if (rest && rest !== tail) return rest;
+  }
+  return t;
+}
+
+/** Who opened a slip, in words an inspector can use: "you", another
+ *  contractor's first name, "an inspection", "the office", or "Helm" for the
+ *  automatic ones. Staff addresses are never shown. One round trip for the
+ *  whole packet. */
+async function slipOpenerLabeler(slips: WorkSlipLite[], meId: string): Promise<(w: WorkSlipLite) => string> {
+  const emails = new Set<string>();
+  const ids = new Set<string>();
+  for (const w of slips) {
+    const e = (w.created_by_email ?? '').trim().toLowerCase();
+    if (e && e !== 'helm-auto' && !getTeamMember(e)) emails.add(e);
+    if (w.reported_by_contractor_id) ids.add(w.reported_by_contractor_id);
+  }
+  const byEmail = new Map<string, string>();
+  const byId = new Map<string, string>();
+  if (emails.size || ids.size) {
+    const filters = [...(emails.size ? [`email.in.(${[...emails].map((e) => `"${e}"`).join(',')})`] : []), ...(ids.size ? [`id.in.(${[...ids].join(',')})`] : [])];
+    const { data } = await fieldDb().from('contractors').select('id, email, full_name').or(filters.join(','));
+    for (const c of (data ?? []) as Array<{ id: string; email: string | null; full_name: string | null }>) {
+      const first = (c.full_name ?? '').trim().split(/\s+/)[0] || 'a contractor';
+      byId.set(c.id, first);
+      if (c.email) byEmail.set(c.email.trim().toLowerCase(), first);
+    }
+  }
+  return (w) => {
+    const e = (w.created_by_email ?? '').trim().toLowerCase();
+    if (w.reported_by_contractor_id === meId) return 'you';
+    if (w.reported_by_contractor_id) return byId.get(w.reported_by_contractor_id) ?? 'a contractor';
+    if (byEmail.has(e)) return byEmail.get(e)!;
+    if (w.inspection_id) return 'an inspection';
+    if (!e || e === 'helm-auto') return 'Helm';
+    return 'the office';
+  };
+}
+
+/** One StopWorkList row from a slip: the title without the home's own name
+ *  in front of it, the provenance line, and the triage chips. */
+function slipItem(
+  w: WorkSlipLite,
+  group: 'stop' | 'home',
+  property: { name: string; address: string },
+  extra: { note: string | null; done: boolean },
+  openedBy: (w: WorkSlipLite) => string,
+): StopWorkItem {
+  const restock = w.category === 'inventory';
+  const flags: string[] = [];
+  if (w.run_scope === 'pro') flags.push('Needs a licensed pro');
+  if (w.owner_action_required) flags.push('Waiting on the owner');
+  if (w.status === 'in_progress' && !extra.done) flags.push('Started, not finished');
+  if (w.scheduled_date) flags.push(`For ${fmtShortDay(w.scheduled_date)}`);
+  if (w.last_verified_open_at) flags.push(`Still open as of ${fmtDateET(w.last_verified_open_at)}`);
+  return {
+    slipId: w.id,
+    group,
+    title: cleanSlipTitle(restock ? w.title.replace(/^restock:\s*/i, '') : w.title, property),
+    sub: w.location,
+    description: w.action_summary || w.description || null,
+    bring: w.bring_list,
+    note: extra.note,
+    thumbs: w.photo_urls ?? [],
+    done: extra.done,
+    kind: restock ? 'restock' : 'task',
+    priority: w.priority,
+    categoryLabel: WORK_SLIP_CATEGORY_LABELS[w.category as WorkSlipCategory] ?? w.category,
+    opened: w.created_at ? `opened ${ageLabel(w.created_at)} by ${openedBy(w)}` : `opened by ${openedBy(w)}`,
+    flags,
+  };
 }
 
 // A checkout within this many days of the visit is a live turnover worth
@@ -607,6 +707,20 @@ export default async function PacketPage({
     );
   }
 
+  // Every open slip at each home, beneath what the office pinned: the
+  // inspector's default work list (Ryan, 2026-09-14). Assigned inspector only;
+  // the list names what is wrong inside a specific house.
+  const openByStop: Map<string, StopOpenSlips> = isMine
+    ? await loadOpenSlipsForStops(
+        packet.stops.map((s) => ({ id: s.id, property_id: s.property_id, work_slip_id: s.work_slip_id, attachedSlips: s.attachedSlips })),
+        packet.visit_date,
+      ).catch(() => new Map<string, StopOpenSlips>())
+    : new Map<string, StopOpenSlips>();
+  const openedBy = await slipOpenerLabeler(
+    isMine ? [...packet.stops.flatMap((s) => s.attachedSlips), ...[...openByStop.values()].flatMap((o) => o.slips)] : [],
+    contractor.id,
+  ).catch(() => () => 'the office');
+
   const doneCount = packet.stops.filter((s) => s.status === 'complete' || s.status === 'skipped').length;
   const allComplete = packet.stops.length > 0 && doneCount === packet.stops.length;
   // Office bounced the packet back: the verdict every signal must agree with.
@@ -969,22 +1083,18 @@ export default async function PacketPage({
             </div>
           ) : null;
 
+          // Pinned tasks first (the office's asks for this trip), then every
+          // other open slip at the home. Both act the same way from the list.
+          const openHere = openByStop.get(s.id);
+          const workItems: StopWorkItem[] = isMine
+            ? [
+                ...s.attachedSlips.map((a) => slipItem(a, 'stop', s.property, { note: a.officeNote, done: !!a.completedAt }, openedBy)),
+                ...(openHere?.slips ?? []).map((w) => slipItem(w, 'home', s.property, { note: null, done: false }, openedBy)),
+              ]
+            : [];
           const workList =
-            isMine && s.attachedSlips.length > 0 ? (
-              <StopWorkList
-                packetId={packet.id}
-                readOnly={!working}
-                items={s.attachedSlips.map((a) => ({
-                  attachmentId: a.attachmentId,
-                  title: a.category === 'inventory' ? a.title.replace(/^restock:\s*/i, '') : a.title,
-                  sub: a.location,
-                  bring: a.bring_list,
-                  note: a.officeNote,
-                  thumbs: a.photo_urls ?? [],
-                  done: !!a.completedAt,
-                  kind: a.category === 'inventory' ? ('restock' as const) : ('task' as const),
-                }))}
-              />
+            isMine && (workItems.length > 0 || (openHere?.onOtherTrip ?? 0) > 0) ? (
+              <StopWorkList packetId={packet.id} stopId={s.id} readOnly={!working} items={workItems} onOtherTrip={openHere?.onOtherTrip ?? 0} />
             ) : null;
 
           const reopenForm =
