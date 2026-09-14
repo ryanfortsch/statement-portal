@@ -29,6 +29,7 @@ import { sendThreadMessage } from '../thread-actions';
 import { polishProactiveAction } from '../reminders-actions';
 import { formatStayDates, channelTone, prettifySlug } from '../format';
 import { StayPicker } from './StayPicker';
+import { PaymentLinkPanel } from './PaymentLinkPanel';
 
 // Matches the documented deploy-skew signature: the DB write lands but the
 // button keeps spinning. After this long, say so instead of spinning forever.
@@ -379,6 +380,10 @@ export function SendPanel({
               then, and comes back for review if the guest writes first.
             </p>
           )}
+
+          {/* The other way to reach this guest: a bill. Keyed on the stay so
+              switching guests resets the form. */}
+          <PaymentLinkPanel key={picked.conversation_id} picked={picked} />
         </div>
       )}
     </Section>

@@ -279,6 +279,26 @@ Per-property restricted Stripe keys resolve through `getStripeKeysMap()`, mergin
 (legacy blob), `STRIPE_KEYS_JSON_EXTRA` (overlay), and `STRIPE_KEY_<PROPERTY_ID>` (one key per
 property, the standard for new ones). Adding a property never means reopening an existing var.
 
+## Guest payment links
+
+Add-on charges (late checkout, pet, extra night, replacement cost) are Stripe Payment Links minted
+in the property's OWN Stripe account, so the paid charge reaches the statement through the extras
+queue (`bank_deposit_attributions`) via stripe-sync's `helm_request_key` metadata check. Two doors
+mint them and both run through `src/lib/payment-links.ts`:
+
+- **Reactive**: stay-concierge detects a fee commitment in a reply draft (or a composer send) and
+  calls the bridge `POST /api/payment-links`; the concierge texts the link itself.
+- **Proactive**: the Payment link panel on `/messaging/send`. The operator picks the stay, types
+  what for and how much (pre-tax; occupancy tax is added per `src/lib/addon-tax.ts`), and Helm
+  mints the link and texts it from the GUESTS line (`quoFromNumber('guests')`). Typing "make a
+  payment link" into the Send composer does NOT do this: the composer sends that text to the guest.
+
+`payment_link_requests` is the ledger for both doors. `/api/cron/payment-links` (every 15 minutes)
+and the bridge's `?status_key=` lookup stamp `paid_at` from the link's Stripe checkout sessions (a
+poll, not a webhook: the accounts are the owners'). The ledger on `/messaging/send` and the home
+For Me feed's Payments cards (paid this week; unpaid after 24 hours, with Nudge and Cancel) are the
+alert surface. Nothing texts or emails the team, per the team-notification policy.
+
 ## Channel edge cases
 
 ### staycapeann.com (SCA) direct bookings

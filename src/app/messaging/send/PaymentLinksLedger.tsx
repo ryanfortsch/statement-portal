@@ -1,0 +1,174 @@
+import { Section } from '@/components/Section';
+import { SubmitButton } from '@/components/SubmitButton';
+import { listRecentPaymentLinks, loadPropertyNameMap, type PaymentLinkRow } from '@/lib/payment-links';
+import { ageLabel, money, paymentLinkStatus, prettyPhone, type PaymentLinkStatus } from '@/lib/payment-links-text';
+import { CopyLinkButton } from './CopyLinkButton';
+import { cancelPaymentLinkForm, checkPaymentLinkForm, nudgePaymentLinkForm } from './payment-link-actions';
+
+/**
+ * Every guest payment link from the last 30 days, whichever side minted it
+ * (the concierge's reactive add-on cards or the panel above), with where it
+ * stands: not sent, waiting, unpaid past a day, paid, cancelled. This is the
+ * answer to "did they pay?", read from payment_link_requests, which the paid
+ * sweep stamps every 15 minutes. Check now asks Stripe this second.
+ */
+export async function PaymentLinksLedger() {
+  const [rows, names] = await Promise.all([
+    listRecentPaymentLinks({ days: 30, limit: 40 }),
+    loadPropertyNameMap(),
+  ]);
+  const open = rows.filter((r) => !r.paid_at && !r.deactivated_at).length;
+  const paid = rows.filter((r) => !!r.paid_at).length;
+  const bits = [open > 0 ? `${open} open` : null, paid > 0 ? `${paid} paid` : null].filter(Boolean);
+  const eyebrow = bits.length > 0 ? bits.join(' · ') : 'last 30 days';
+
+  return (
+    <Section id="payment-links" title="Payment links" eyebrow={eyebrow} paddingTop={36}>
+      {rows.length === 0 ? (
+        <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)' }}>
+          No payment links in the last 30 days. Pick a stay above and open <b>Payment link</b> to charge a guest
+          for a late checkout, a pet, or an extra night. Links the AI mints from guest asks show here too.
+        </div>
+      ) : (
+        <div style={{ borderTop: '1px solid var(--ink)' }}>
+          {rows.map((r) => (
+            <LedgerRow
+              key={r.request_key}
+              row={r}
+              propertyName={names.get(r.property_id) ?? r.property_id}
+              status={paymentLinkStatus(r)}
+            />
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function LedgerRow({
+  row,
+  propertyName,
+  status,
+}: {
+  row: PaymentLinkRow;
+  propertyName: string;
+  status: PaymentLinkStatus;
+}) {
+  const closed = status === 'paid' || status === 'cancelled';
+  const who = row.guest_name || 'Guest';
+  const meta: string[] = [];
+  meta.push(
+    row.source === 'helm'
+      ? `made ${ageLabel(row.created_at)}${row.created_by ? ` by ${row.created_by.split('@')[0]}` : ''}`
+      : `from a guest ask ${ageLabel(row.created_at)}`,
+  );
+  if (row.sent_via === 'sms') meta.push(`texted ${prettyPhone(row.guest_phone)}`);
+  else if (row.sent_via === 'copied') meta.push('copied to send by hand');
+  if (row.nudge_count > 0) meta.push(`nudged ${row.nudge_count}x, last ${ageLabel(row.nudged_at)}`);
+  if (row.paid_check_error) meta.push(`can't check Stripe: ${row.paid_check_error}`);
+  else if (row.paid_checked_at && !closed) meta.push(`checked ${ageLabel(row.paid_checked_at)}`);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 14,
+        padding: '14px 0',
+        borderBottom: '1px solid var(--rule)',
+        alignItems: 'flex-start',
+        opacity: status === 'cancelled' ? 0.55 : 1,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          <span className="font-serif" style={{ fontSize: 16, fontWeight: 500, letterSpacing: '-0.01em' }}>
+            {who}
+          </span>
+          <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>{row.label}</span>
+          <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{propertyName}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{money(row.amount_cents)}</span>
+          <StatusChip status={status} row={row} />
+        </div>
+        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.02em' }}>
+          {meta.join(' · ')}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
+        {!closed && (
+          <form action={nudgePaymentLinkForm.bind(null, row.request_key)}>
+            <SubmitButton label="Nudge by text" busyLabel="Texting" spinnerTone="ink" style={actionStyle} />
+          </form>
+        )}
+        {!closed && (
+          <form action={checkPaymentLinkForm.bind(null, row.request_key)}>
+            <SubmitButton label="Check now" busyLabel="Checking" spinnerTone="ink" style={actionStyle} />
+          </form>
+        )}
+        <CopyLinkButton
+          url={row.url}
+          requestKey={row.source === 'helm' && !row.sent_via ? row.request_key : undefined}
+          style={actionStyle}
+        />
+        {!closed && (
+          <form action={cancelPaymentLinkForm.bind(null, row.request_key)}>
+            <SubmitButton
+              label="Cancel link"
+              busyLabel="Cancelling"
+              spinnerTone="ink"
+              style={{ ...actionStyle, color: 'var(--signal)', borderColor: 'var(--signal)' }}
+            />
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusChip({ status, row }: { status: PaymentLinkStatus; row: PaymentLinkRow }) {
+  const tone =
+    status === 'paid'
+      ? 'var(--go, #2e7d32)'
+      : status === 'overdue' || status === 'unsent'
+        ? 'var(--signal)'
+        : status === 'cancelled'
+          ? 'var(--ink-4)'
+          : 'var(--ink-3)';
+  const text =
+    status === 'paid'
+      ? `Paid ${ageLabel(row.paid_at)}`
+      : status === 'overdue'
+        ? `Unpaid · sent ${ageLabel(row.sent_at || row.created_at)}`
+        : status === 'waiting'
+          ? 'Sent · waiting'
+          : status === 'unsent'
+            ? 'Not sent yet'
+            : 'Cancelled';
+  return (
+    <span
+      title={status === 'paid' && row.paid_at ? `Paid ${new Date(row.paid_at).toLocaleString()}` : undefined}
+      style={{
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        border: `1px solid ${tone}`,
+        color: tone,
+        padding: '1px 7px',
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
+const actionStyle: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '0.14em',
+  textTransform: 'uppercase',
+  fontWeight: 600,
+  color: 'var(--ink)',
+  background: 'transparent',
+  border: '1px solid var(--rule)',
+  padding: '4px 9px',
+  cursor: 'pointer',
+};

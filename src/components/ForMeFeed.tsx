@@ -7,6 +7,10 @@ import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
 import { FeedClearButton } from '@/components/FeedClearButton';
+import { SubmitButton } from '@/components/SubmitButton';
+import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links';
+import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus } from '@/lib/payment-links-text';
+import { cancelPaymentLinkForm, nudgePaymentLinkForm } from '@/app/messaging/send/payment-link-actions';
 
 type MyWork = {
   id: string;
@@ -86,12 +90,19 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
     loadQueueCards(),
+    loadPaymentLinkCards(),
   ]);
+
+  // Guest payment links: paid this week (the "did they pay?" answer) and
+  // still open past a day (the "they haven't" answer). Both clear with ×.
+  const paidLinks = paymentCards.paid.filter((c) => !dismissed.has(`plink-paid:${c.row.request_key}`));
+  const overdueLinks = paymentCards.overdue.filter((c) => !dismissed.has(`plink-unpaid:${c.row.request_key}`));
+  const hasPayments = paidLinks.length + overdueLinks.length > 0;
 
   // Drop cleared items, then pick the window (tasks first, slips spread
   // across properties) so clearing one reveals the next.
@@ -114,7 +125,8 @@ export async function ForMeFeed() {
     glance.length === 0 &&
     !hasWalks &&
     queueCards.length === 0 &&
-    cleaningFlags.length === 0;
+    cleaningFlags.length === 0 &&
+    !hasPayments;
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
@@ -177,6 +189,31 @@ export async function ForMeFeed() {
               <div style={{ borderTop: '1px solid var(--ink)' }}>
                 {queueCards.map((c) => (
                   <QueueRow key={c.id} card={c} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* PAYMENTS — guest payment links (late checkouts, pets, extra
+              nights, deposits) that just got paid, and ones still open after a
+              day. This is the alert for a link, per the team-notification
+              policy: Helm is the surface, nothing texts or emails the team.
+              Paid rows say so and clear with ×; unpaid rows carry Nudge
+              (re-text the link from the GUESTS line) and Cancel (turn it off
+              in Stripe). */}
+          {hasPayments && (
+            <div style={{ marginBottom: 36 }}>
+              <SectionHeaderLink
+                href="/messaging/send#payment-links"
+                title="Payments"
+                eyebrow={paymentsEyebrow(paidLinks.length, overdueLinks.length)}
+              />
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {paidLinks.map((c) => (
+                  <PaymentLinkFeedRow key={c.row.request_key} card={c} />
+                ))}
+                {overdueLinks.map((c) => (
+                  <PaymentLinkFeedRow key={c.row.request_key} card={c} />
                 ))}
               </div>
             </div>
@@ -923,4 +960,100 @@ const openBriefLinkStyle: React.CSSProperties = {
   color: 'var(--tide-deep)',
   textDecoration: 'none',
   fontWeight: 600,
+};
+
+// ── Payments ──────────────────────────────────────────────────────
+
+type PaymentCard = { row: PaymentLinkRow; propertyName: string; status: 'paid' | 'overdue' };
+
+/** A paid link stays on the feed this long; an unpaid one is called out
+ *  from a day after it was sent until it is this old, then it is a dead
+ *  deal that only the ledger still lists. */
+const PAID_SHOW_DAYS = 7;
+const OVERDUE_SHOW_DAYS = 14;
+
+async function loadPaymentLinkCards(): Promise<{ paid: PaymentCard[]; overdue: PaymentCard[] }> {
+  try {
+    const rows = await listRecentPaymentLinks({ days: LINK_LOOKBACK_DAYS, limit: 60 });
+    if (rows.length === 0) return { paid: [], overdue: [] };
+    const names = await loadPropertyNames();
+    const now = Date.now();
+    const paidCutoff = now - PAID_SHOW_DAYS * 86_400_000;
+    const overdueCutoff = now - OVERDUE_SHOW_DAYS * 86_400_000;
+    const paid: PaymentCard[] = [];
+    const overdue: PaymentCard[] = [];
+    for (const row of rows) {
+      const status = paymentLinkStatus(row, now);
+      const propertyName = names.get(row.property_id) ?? '';
+      if (status === 'paid' && row.paid_at && new Date(row.paid_at).getTime() >= paidCutoff) {
+        paid.push({ row, propertyName, status: 'paid' });
+      } else if (status === 'overdue' && new Date(row.sent_at || row.created_at).getTime() >= overdueCutoff) {
+        overdue.push({ row, propertyName, status: 'overdue' });
+      }
+    }
+    return { paid, overdue };
+  } catch {
+    return { paid: [], overdue: [] };
+  }
+}
+
+function paymentsEyebrow(paid: number, overdue: number): string {
+  return [paid > 0 ? `${paid} paid` : null, overdue > 0 ? `${overdue} unpaid` : null]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function PaymentLinkFeedRow({ card }: { card: PaymentCard }) {
+  const { row } = card;
+  const paid = card.status === 'paid';
+  const who = row.guest_name || 'Guest';
+  const headline = paid
+    ? `${who} paid ${money(row.amount_cents)}`
+    : `${who} hasn't paid ${money(row.amount_cents)} yet`;
+  const when = paid ? ageLabel(row.paid_at) : `sent ${ageLabel(row.sent_at || row.created_at)}`;
+  const sublineBits = [row.label, card.propertyName].filter(Boolean);
+  if (paid) sublineBits.push('lands on the statement through the extras queue');
+  else if (row.nudge_count > 0) sublineBits.push(`nudged ${row.nudge_count}x`);
+  return (
+    <div style={feedRowStyle}>
+      <span aria-hidden style={{ ...dotStyle, background: paid ? 'var(--tide-deep)' : 'var(--signal)' }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
+          <Link
+            href="/messaging/send#payment-links"
+            style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', textDecoration: 'none' }}
+          >
+            {headline}
+          </Link>
+          <span style={{ flexShrink: 0, fontSize: 11, color: paid ? 'var(--ink-4)' : 'var(--signal)' }}>{when}</span>
+        </div>
+        <div style={{ marginTop: 3, fontSize: 11, fontWeight: 500, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+          {sublineBits.join(' · ')}
+        </div>
+        {!paid && (
+          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <form action={nudgePaymentLinkForm.bind(null, row.request_key)}>
+              <SubmitButton label="Nudge by text" busyLabel="Texting" spinnerTone="ink" style={feedActionStyle} />
+            </form>
+            <form action={cancelPaymentLinkForm.bind(null, row.request_key)}>
+              <SubmitButton label="Cancel link" busyLabel="Cancelling" spinnerTone="ink" style={feedActionStyle} />
+            </form>
+          </div>
+        )}
+      </div>
+      <FeedClearButton itemType={paid ? 'plink-paid' : 'plink-unpaid'} itemId={row.request_key} />
+    </div>
+  );
+}
+
+const feedActionStyle: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '0.14em',
+  textTransform: 'uppercase',
+  fontWeight: 600,
+  color: 'var(--ink)',
+  background: 'transparent',
+  border: '1px solid var(--rule)',
+  padding: '4px 9px',
+  cursor: 'pointer',
 };

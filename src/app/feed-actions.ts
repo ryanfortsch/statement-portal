@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 
-const DISMISSIBLE_TYPES = new Set(['slip', 'task', 'email', 'inbound']);
+const DISMISSIBLE_TYPES = new Set(['slip', 'task', 'email', 'inbound', 'plink-paid', 'plink-unpaid']);
 
 /**
  * Clear an item off the signed-in user's home "For Me" feed. Records a
