@@ -11,6 +11,8 @@ import {
   reservationIdFromRequestKey,
   paymentLinkStatus,
   money,
+  stripeKeyFixUrl,
+  explainPaidCheckError,
 } from '../payment-links-text.ts';
 
 const IDS = ['3_south_st', '21_horton', '53_rocky_neck', '53_rocky_neck_2', '17_beach_rd', '3_windward', '4_brier_neck'];
@@ -93,6 +95,20 @@ test('status: paid wins, then cancelled, unsent only for helm links, overdue aft
   // Concierge links are delivered by the concierge: never "unsent".
   assert.equal(paymentLinkStatus({ ...base, source: 'concierge' }, now), 'waiting');
   assert.equal(paymentLinkStatus({ ...base, source: 'concierge', created_at: '2026-09-12T11:00:00Z' }, now), 'overdue');
+  // A link Stripe would not let us read is never called unpaid.
+  assert.equal(
+    paymentLinkStatus({ ...base, source: 'concierge', created_at: '2026-09-12T11:00:00Z', paid_check_error: '403 Permission denied' }, now),
+    'unverified',
+  );
+  assert.equal(paymentLinkStatus({ ...base, paid_at: '2026-09-14T11:30:00Z', paid_check_error: 'stale' }, now), 'paid');
+});
+
+test('paid-check errors: the fix link and the plain-words reason', () => {
+  const err = "403 Permission denied. The provided key 'rk_live_...SYT3' does not have the required permissions for this endpoint on account 'acct_1'. Enabling Checkout Sessions Read ('checkout_session_read') permissions on this key would allow this request to continue. You can edit permissions at https://dashboard.stripe.com/b/acct_1?destination=%2Fapikeys%2Fmk_1%2Fedit";
+  assert.equal(stripeKeyFixUrl(err), 'https://dashboard.stripe.com/b/acct_1?destination=%2Fapikeys%2Fmk_1%2Fedit');
+  assert.equal(stripeKeyFixUrl('nothing here'), '');
+  assert.equal(explainPaidCheckError(err), "the property's Stripe key needs Checkout Sessions read");
+  assert.equal(explainPaidCheckError('no Stripe key for this property'), 'Helm has no Stripe key for this property');
 });
 
 test('money', () => {
