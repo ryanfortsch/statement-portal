@@ -19,7 +19,7 @@ import {
   listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { MessagingQueue } from './MessagingQueue';
 import { ConversationsBrowser } from './Conversations';
 import { PerformanceDropdown } from './PerformanceDropdown';
@@ -104,7 +104,7 @@ async function ConversationsSection() {
   );
 }
 
-// Helm's own property list (anon-readable id + name) for the target selector
+// Helm's own property list (service-role read; properties is RLS-locked) for the target selector
 // on each proposed update. Independent of the stay-concierge service; a
 // failure here just yields an empty list (operator can still dismiss).
 async function loadProperties(): Promise<{ id: string; name: string }[]> {
