@@ -9,6 +9,7 @@ import {
   portalLink,
   digestBaseUrl,
   composeDigestBodyLive,
+  tomorrowET,
   type DigestRow,
   type ScheduleRecipient,
 } from '@/lib/cleaner-digest';
@@ -664,6 +665,23 @@ export async function ScheduleDigestCard({
                 />
                 <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
                   Schedule changed since? This texts the fresh version, marked as an update.
+                </span>
+              </form>
+            )}
+            {digest.service_date < tomorrowET() && (
+              // The card is showing a day that has already gone out and
+              // tomorrow has no draft yet. Before this the only way to move
+              // the card forward ahead of the 2 PM cron was to hit the cron
+              // URL by hand (Dotti, 2026-09-14).
+              <form action={ensureTomorrowDraft} style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--rule)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <SubmitButton
+                  label="Draft tomorrow's schedule now"
+                  busyLabel="Drafting..."
+                  spinnerTone="paper"
+                  style={{ fontSize: 12, padding: '8px 14px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                  The cron drafts it at 2 PM. This does the same thing now and moves the card to tomorrow.
                 </span>
               </form>
             )}
