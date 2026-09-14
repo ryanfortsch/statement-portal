@@ -3,7 +3,7 @@ import { authorizeCron } from '@/lib/cron-auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
-import { upsertDigestDraft, expireStaleDigests, tomorrowET } from '@/lib/cleaner-digest';
+import { upsertDigestDraft, expireStaleDigests, tomorrowET, hourET } from '@/lib/cleaner-digest';
 import { ingestVendorAppointments } from '@/lib/vendor-schedule';
 import { mineTurnoverNotes } from '@/lib/turnover-notes';
 
@@ -28,14 +28,26 @@ import { mineTurnoverNotes } from '@/lib/turnover-notes';
  * Also expires pending digests whose day already passed (never approved
  * means never sent - the card should not offer yesterday).
  *
+ * Scheduled at BOTH 20:00 and 21:00 UTC, the same trick as the send cron.
+ * Eastern is UTC-4 in summer and UTC-5 in winter, so exactly one of those
+ * lands on DRAFT_HOUR_ET on any given date; the other sees the wrong local
+ * hour and no-ops. Before this the single 20:00 UTC slot drafted at 4 PM
+ * all summer and silently slid to 3 PM every November.
+ *
  * Manual params:
  *   ?date=YYYY-MM-DD  draft a specific service date (default tomorrow ET)
  *   ?skip_mine=1      skip the AI thread pass (holds + draft only, fast)
  *   ?dry=1            report what would be drafted without writing
+ *   ?force=1          ignore the hour gate (any explicit ?date or ?dry
+ *                     run is treated as manual and skips the gate too)
  */
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
+
+/** Local hour the draft lands, 24h Eastern. 4 PM: after the day's
+ *  checkouts have cleared, before the 6 PM auto-send. */
+const DRAFT_HOUR_ET = 16;
 
 async function handle(request: NextRequest) {
   const denied = await authorizeCron(request);
@@ -44,9 +56,20 @@ async function handle(request: NextRequest) {
   const url = new URL(request.url);
   const dry = url.searchParams.get('dry') === '1';
   const skipMine = url.searchParams.get('skip_mine') === '1';
-  const serviceDate = url.searchParams.get('date') || tomorrowET();
+  const force = url.searchParams.get('force') === '1';
+  const explicitDate = url.searchParams.get('date');
+  const serviceDate = explicitDate || tomorrowET();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
     return NextResponse.json({ error: 'bad date' }, { status: 400 });
+  }
+
+  // The DST gate. Only the unattended daily run is subject to it: an
+  // operator asking for a specific date, a dry run, or ?force=1 is a
+  // manual call and runs whenever it is made.
+  const hour = hourET();
+  const manual = force || dry || Boolean(explicitDate);
+  if (!manual && hour !== DRAFT_HOUR_ET) {
+    return NextResponse.json({ ok: true, skipped: 'wrong_hour', hourET: hour, draftHourET: DRAFT_HOUR_ET, serviceDate });
   }
 
   const expired = dry ? 0 : await expireStaleDigests(supabase);

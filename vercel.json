@@ -86,7 +86,7 @@
     },
     {
       "path": "/api/cron/cleaner-schedule",
-      "schedule": "0 20 * * *"
+      "schedule": "0 20,21 * * *"
     },
     {
       "path": "/api/cron/cleaner-digest-send",

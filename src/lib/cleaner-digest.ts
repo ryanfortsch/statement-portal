@@ -499,7 +499,7 @@ export async function setAutosend(
 }
 
 /** The current hour in Gloucester, 0-23. */
-function hourET(): number {
+export function hourET(): number {
   return Number(
     new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York',
