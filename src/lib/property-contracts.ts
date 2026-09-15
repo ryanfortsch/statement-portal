@@ -179,3 +179,66 @@ export function renewalSummary(c: PropertyContractRow): string {
   }
   return 'Fixed term — no renewal clause';
 }
+
+export type UpcomingNotice = {
+  /** The next non-renewal deadline on or after today. */
+  deadline: string;
+  /** Days from today to that deadline. */
+  days: number;
+  /** The calendar year that locks in if the deadline passes quietly. */
+  locksYear: number;
+  /**
+   * Set once the CURRENT term's own deadline has already passed: that
+   * following year is renewed already and `deadline` belongs to the term
+   * after it. Null while this term's deadline is still ahead.
+   */
+  renewedFor: number | null;
+};
+
+/**
+ * The next non-renewal deadline still ahead of today. `noticeDeadline`
+ * answers for the current term only, so from the day its window closes
+ * until Dec 31 it returns a date in the past; this rolls forward to the
+ * following term's deadline (which uses the stepped-up renewal notice) so
+ * a fleet view can say "renewed for 2027, next notice by Sep 2, 2027"
+ * instead of showing a passed date as if it were pending.
+ */
+export function upcomingNoticeDeadline(c: PropertyContractRow, todayIso: string): UpcomingNotice | null {
+  if (c.renewal_type !== 'auto_renew') return null;
+  const thisTerm = noticeDeadline(c, todayIso);
+  if (!thisTerm) return null;
+  const termEnd = currentTermEnd(c, todayIso);
+  const termYear = Number(termEnd.slice(0, 4));
+  if (thisTerm >= todayIso) {
+    return { deadline: thisTerm, days: daysUntil(thisTerm, todayIso), locksYear: termYear + 1, renewedFor: null };
+  }
+  const days = c.notice_days_renewal ?? c.notice_days_initial;
+  if (!days) return null;
+  const nextEnd = `${termYear + 1}${termEnd.slice(4)}`;
+  const nextDeadline = new Date(isoToUtc(nextEnd) - days * DAY_MS).toISOString().slice(0, 10);
+  if (nextDeadline < todayIso) return null;
+  return {
+    deadline: nextDeadline,
+    days: daysUntil(nextDeadline, todayIso),
+    locksYear: termYear + 2,
+    renewedFor: termYear + 1,
+  };
+}
+
+/**
+ * The next date the operator has to act on a live contract by: the
+ * upcoming non-renewal deadline of an auto-renew agreement, or the term
+ * end of a fixed / mutual-agreement one (a new signature is due by then).
+ * Null when nothing is ahead: a fixed term that already lapsed, or no
+ * notice mechanic on file.
+ */
+export function nextDecisionDate(
+  c: PropertyContractRow,
+  todayIso: string,
+): { date: string; kind: 'notice' | 'term_end' } | null {
+  if (c.renewal_type === 'auto_renew') {
+    const u = upcomingNoticeDeadline(c, todayIso);
+    return u ? { date: u.deadline, kind: 'notice' } : null;
+  }
+  return c.term_end >= todayIso ? { date: c.term_end, kind: 'term_end' } : null;
+}
