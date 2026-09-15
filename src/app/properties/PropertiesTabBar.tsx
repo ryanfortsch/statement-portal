@@ -1,14 +1,16 @@
 import Link from 'next/link';
 
 /** Tab switch over the Properties index: the managed roster at
- *  /properties, the prospect funnel at /properties/prospects, and the
- *  management-contract register at /properties/contracts.
+ *  /properties, the prospect funnel at /properties/prospects, the fleet
+ *  onboarding board at /properties/onboarding, and the management-contract
+ *  register at /properties/contracts.
  *  Server-rendered Links (no client JS) so each tab is a plain
  *  deep-linkable URL. Styled to match the property detail tab bar. */
-export function PropertiesTabBar({ active }: { active: 'properties' | 'prospects' | 'contracts' }) {
+export function PropertiesTabBar({ active }: { active: 'properties' | 'prospects' | 'onboarding' | 'contracts' }) {
   const tabs = [
     { id: 'properties' as const, label: 'Properties', href: '/properties' },
     { id: 'prospects' as const, label: 'Prospects', href: '/properties/prospects' },
+    { id: 'onboarding' as const, label: 'Onboarding', href: '/properties/onboarding' },
     { id: 'contracts' as const, label: 'Contracts', href: '/properties/contracts' },
   ];
   return (

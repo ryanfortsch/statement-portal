@@ -9,7 +9,7 @@ import {
   type QuoCall,
   type QuoPhoneNumber,
 } from '@/lib/quo';
-import { matchPropertyFromCleanerText } from '@/lib/properties';
+import { matchPropertyFromCleanerText, PROPERTIES, type CleanerTextRosterEntry } from '@/lib/properties';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
@@ -294,7 +294,7 @@ async function ingestInboundMessage(
   target: Target,
 ): Promise<{ touch: boolean; cleaning: boolean }> {
   if (target.cleaner) {
-    const propertyId = attributeCleaningProperty(msg.text ?? '', target.cleaner.property_ids);
+    const propertyId = await attributeCleaningProperty(msg.text ?? '', target.cleaner.property_ids);
     if (propertyId) {
       const checkoutDate = await mostRecentCheckout(propertyId);
       const r = await supabase
@@ -372,8 +372,30 @@ async function ingestCall(call: QuoCall, target: Target): Promise<boolean> {
 // ── Helpers shared with webhook (kept inline to avoid coupling the
 //    webhook handlers to a sync-only persistence path). ─────────────
 
-function attributeCleaningProperty(body: string, whitelist: string[]): string | null {
-  const fromBody = matchPropertyFromCleanerText(body)?.id ?? null;
+/** Live-table roster for cleaner-text matching, code map as the fallback
+ *  (same rule as the webhook path in src/lib/quo-ingest.ts). */
+async function loadCleanerTextRoster(): Promise<ReadonlyArray<CleanerTextRosterEntry>> {
+  const fallback = Object.values(PROPERTIES);
+  try {
+    const { data, error } = await supabase
+      .from('properties')
+      .select('id, name, listing_match')
+      .eq('is_active', true)
+      .limit(500);
+    if (error || !data || data.length === 0) return fallback;
+    return (data as Array<{ id: string; name: string | null; listing_match: string | null }>).map((r) => ({
+      id: r.id,
+      name: r.name ?? '',
+      listing_match: (r.listing_match ?? '').toLowerCase(),
+    }));
+  } catch {
+    return fallback;
+  }
+}
+
+async function attributeCleaningProperty(body: string, whitelist: string[]): Promise<string | null> {
+  const roster = await loadCleanerTextRoster();
+  const fromBody = matchPropertyFromCleanerText(body, roster)?.id ?? null;
   if (fromBody) {
     if (whitelist.length === 0 || whitelist.includes(fromBody)) return fromBody;
   }

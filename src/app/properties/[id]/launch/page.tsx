@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
@@ -6,11 +7,10 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import {
   LAUNCH_STEPS,
   LAUNCH_PHASES,
-  isStepResolved,
-  deriveStepResolved,
+  LAUNCH_WHO_LABELS,
   type LaunchStepRow,
-  type LaunchDerivationContext,
 } from '@/lib/launch-checklist';
+import { loadLaunchForProperty } from '@/lib/launch-context';
 import { ensureLaunchStepsSeeded } from './actions';
 import { LaunchStepCard } from './LaunchStepCard';
 import { StripeAccountCheck } from './StripeAccountCheck';
@@ -28,67 +28,13 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   return (data as HelmPropertyRow) ?? null;
 }
 
-async function getLaunchSteps(propertyId: string): Promise<LaunchStepRow[]> {
-  if (!isHelmConfigured) return [];
-  try {
-    const { data, error } = await supabase
-      .from('property_launch_steps')
-      .select('*')
-      .eq('property_id', propertyId);
-    if (error) throw error;
-    return (data ?? []) as LaunchStepRow[];
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Latest sca_launches status for this property. Drives auto-resolution of
- * the "stay-cape-ann.com page live" step.
- */
-async function getScaLaunchStatus(propertyId: string): Promise<string | null> {
-  if (!isHelmConfigured) return null;
-  try {
-    const { data } = await supabase
-      .from('sca_launches')
-      .select('status')
-      .eq('property_id', propertyId)
-      .maybeSingle();
-    return (data?.status as string | undefined) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * True if any cleaner_phones row maps to this property, either explicitly
- * via property_ids or as a catch-all (empty array). Drives auto-resolution
- * of the "Cleaner phone mapped in Quo" step.
- */
-async function hasQuoCleanerMapping(propertyId: string): Promise<boolean> {
-  if (!isHelmConfigured) return false;
-  try {
-    const { data } = await supabase
-      .from('cleaner_phones')
-      .select('property_ids');
-    if (!data) return false;
-    return (data as Array<{ property_ids: string[] | null }>).some((r) => {
-      const ids = r.property_ids ?? [];
-      // Empty array = catch-all cleaner that serves all properties.
-      return ids.length === 0 || ids.includes(propertyId);
-    });
-  } catch {
-    return false;
-  }
-}
-
 type Params = { id: string };
 
 /**
  * Per-property launch checklist. The post-promotion staging area where every
- * integration the property needs (Quo cleaner, Seam lock, Guesty match, bank
- * last4, listing copy, Airbnb live, etc.) gets wired before the property is
- * truly operational.
+ * integration the property needs (Quo cleaner, Guesty cleaning automation,
+ * Seam lock, Guesty match, PriceLabs, bank last4, listing copy, Airbnb live,
+ * the code roster) gets wired before the property is truly operational.
  *
  * The canonical step list lives in src/lib/launch-checklist.ts. Rows in
  * property_launch_steps persist status + audit per (property_id, step_key).
@@ -96,10 +42,9 @@ type Params = { id: string };
  * a backstop so a property whose seed was skipped (or whose step list grew)
  * still shows every step.
  *
- * PR 1 (this) renders the checklist with manual status + notes. PR 2 adds
- * the AI listing-copy generator. PR 3 adds the deep-link actions (inline
- * editors for listing_match / bank_last4, jump links to Quo + Seam, the
- * activation gate that flips is_active).
+ * Derived state comes from src/lib/launch-context.ts, the one loader the
+ * property-page chip and the fleet onboarding board share, so every surface
+ * shows the same count and the same "next up".
  */
 export default async function PropertyLaunchPage({ params }: { params: Promise<Params> }) {
   const { id } = await params;
@@ -110,62 +55,15 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
   // existed, or if new steps have been added to LAUNCH_STEPS since the
   // initial seed, fill in any missing rows. Idempotent — never overwrites.
   await ensureLaunchStepsSeeded(p.id);
-  const [rows, scaLaunchStatus, cleanerMapped] = await Promise.all([
-    getLaunchSteps(p.id),
-    getScaLaunchStatus(p.id),
-    hasQuoCleanerMapping(p.id),
-  ]);
-
+  const load = await loadLaunchForProperty(p);
+  const { effective, summary, facts } = load;
   const byKey = new Map<string, LaunchStepRow>();
-  for (const row of rows) byKey.set(row.step_key, row);
+  for (const row of load.rows) byKey.set(row.step_key, row);
+  const effectiveByKey = new Map(effective.map((e) => [e.step.key, e]));
 
-  // Derivation context — lets each step ask "does the property already
-  // have what I'm asking for?" and auto-resolve when yes. Prevents the
-  // checklist from nagging the operator about work that was demonstrably
-  // done at promotion time (fee, owner contact) or on a sibling surface
-  // (bank last4 on the edit page, SCA page live, Quo cleaner mapped).
-  const derivCtx: LaunchDerivationContext = {
-    property: {
-      title: p.title ?? null,
-      owner_full: p.owner_full ?? null,
-      owner_emails: p.owner_emails ?? null,
-      owner_phone: p.owner_phone ?? null,
-      management_fee_pct: p.management_fee_pct ?? null,
-      bank_last4: p.bank_last4 ?? null,
-      tax_cert_id: p.tax_cert_id ?? null,
-      guesty_listing_id: (p as { guesty_listing_id?: string | null }).guesty_listing_id ?? null,
-      is_active: !!p.is_active,
-    },
-    scaLaunchStatus,
-    hasQuoCleanerMapping: cleanerMapped,
-  };
-
-  // Effective status: manual operator-set status always wins; only fall
-  // through to derivation when the row's still in todo (or missing).
-  // Build a derived map so the cards + counts agree.
-  const autoResolvedKeys = new Set<string>();
-  function effectivelyResolved(stepKey: string): boolean {
-    const row = byKey.get(stepKey);
-    if (isStepResolved(row?.status)) return true;
-    const manual = row?.status ?? 'todo';
-    if (manual === 'todo' && deriveStepResolved(stepKey, derivCtx)) {
-      autoResolvedKeys.add(stepKey);
-      return true;
-    }
-    return false;
-  }
-
-  // Progress count: any resolved (manual or derived) step counts. Required
-  // remaining drives the headline "X required still to go" copy.
-  let done = 0;
-  let requiredRemaining = 0;
-  for (const step of LAUNCH_STEPS) {
-    const resolved = effectivelyResolved(step.key);
-    if (resolved) done += 1;
-    if (step.required && !step.gate && !resolved) requiredRemaining += 1;
-  }
-  const total = LAUNCH_STEPS.length;
+  const { done, total, requiredRemaining, next, live, canActivate } = summary;
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+  const nextPhase = next ? LAUNCH_PHASES.find((ph) => ph.key === next.phase) : null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -173,6 +71,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
 
       <HelmBreadcrumb
         trail={[
+          { label: 'Onboarding', href: '/properties/onboarding' },
           { label: p.name, href: `/properties/${p.id}` },
           { label: 'Launch checklist' },
         ]}
@@ -187,10 +86,19 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
           Bring {p.name} online
         </h1>
         <p style={{ marginTop: 12, fontSize: 14, color: 'var(--ink-3)', maxWidth: 620, lineHeight: 1.6 }}>
-          The post-promotion checklist. Every integration the property needs to operate, in one
-          place. Mark each step done as you wire it, skip what does not apply, and leave a note
-          when something needs follow-up.
+          Every integration the property needs to operate, in one place, in order. Each step says who
+          does it: Ops works the tools, Systems is a Helm change to ask for. Steps Helm can see for
+          itself tick on their own; the rest are yours to mark. Skip what does not apply and leave a
+          note when something needs follow-up.
         </p>
+        <div style={{ marginTop: 10 }}>
+          <Link
+            href="/properties/onboarding"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
+          >
+            All homes onboarding →
+          </Link>
+        </div>
 
         {/* Progress strip */}
         <div style={{ marginTop: 22, padding: '16px 18px', border: '1px solid var(--rule)', background: 'var(--paper-2, #f5f1e7)' }}>
@@ -241,6 +149,42 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
               }}
             />
           </div>
+
+          {/* Next up: the one thing to do now. The first open required step in
+              checklist order; the gate once everything else is resolved. */}
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
+            <div style={{ fontSize: 11, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
+              Next up
+            </div>
+            {next ? (
+              <div style={{ marginTop: 6, display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <a
+                  href={`#step-${next.key}`}
+                  className="font-serif"
+                  style={{ fontSize: 20, color: 'var(--ink)', textDecoration: 'none' }}
+                >
+                  {next.title} ↓
+                </a>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                  {nextPhase?.label ?? ''} · {LAUNCH_WHO_LABELS[next.who]}
+                </span>
+              </div>
+            ) : (
+              <div className="font-serif" style={{ marginTop: 6, fontSize: 20, color: 'var(--positive)' }}>
+                {live ? 'Live. Nothing required is open.' : 'Everything required is resolved.'}
+              </div>
+            )}
+            {live && p.activated_at && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
+                Went live {fmtDate(p.activated_at)}.
+              </div>
+            )}
+            {live && !p.activated_at && facts.firstStayCheckIn && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
+                First guest checked in {fmtDate(facts.firstStayCheckIn)}; press Activate below to put the go-live date on record.
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -248,7 +192,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
         {LAUNCH_PHASES.map((phase, i) => {
           const phaseSteps = LAUNCH_STEPS.filter((s) => s.phase === phase.key);
           if (phaseSteps.length === 0) return null;
-          const phaseDone = phaseSteps.filter((s) => effectivelyResolved(s.key)).length;
+          const phaseDone = phaseSteps.filter((s) => effectiveByKey.get(s.key)?.resolved).length;
           return (
             <PhaseSection
               key={phase.key}
@@ -262,10 +206,14 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                 <LaunchStepCard
                   key={step.key}
                   propertyId={p.id}
+                  propertyName={p.name}
                   step={step}
                   row={byKey.get(step.key) ?? null}
-                  autoResolved={autoResolvedKeys.has(step.key)}
+                  autoResolved={effectiveByKey.get(step.key)?.auto ?? false}
                   fieldValue={launchFieldValue(step.action, p)}
+                  nextUp={next?.key === step.key}
+                  canActivate={step.gate ? canActivate : undefined}
+                  activatedAt={step.gate ? (p.activated_at ?? null) : undefined}
                 />
               ))}
               {/* Stripe account-identity check rides the Financial phase:
@@ -279,6 +227,12 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
       </section>
     </div>
   );
+}
+
+/** "2026-07-01" or an ISO timestamp -> "Jul 1, 2026" (UTC so the day never shifts). */
+function fmtDate(iso: string): string {
+  const d = iso.length <= 10 ? new Date(`${iso}T12:00:00Z`) : new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
 /** Current value of the property column a `set_*` step writes through to,
@@ -401,4 +355,3 @@ function PhaseSection({
     </section>
   );
 }
-

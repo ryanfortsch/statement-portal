@@ -725,10 +725,19 @@ export function propertyFromListing(listing: string): Property | undefined {
  * matches, or two properties could plausibly match, returns undefined —
  * we never want to mis-attribute a cleaning to the wrong owner.
  */
-export function matchPropertyFromCleanerText(body: string): Property | undefined {
+export type CleanerTextRosterEntry = Pick<Property, 'id' | 'name' | 'listing_match'>;
+
+export function matchPropertyFromCleanerText(
+  body: string,
+  // The roster to match against. Defaults to the code-side PROPERTIES map;
+  // the Quo ingest paths pass the live properties table so a home promoted
+  // in Helm attributes cleaner texts without a code change (36 Granite,
+  // 16 Waterman, 79 Main and 4 Middle went live with no roster entry).
+  roster: ReadonlyArray<CleanerTextRosterEntry> = Object.values(PROPERTIES),
+): CleanerTextRosterEntry | undefined {
   if (!body) return undefined;
   const text = ` ${body.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()} `;
-  const all = Object.values(PROPERTIES);
+  const all = roster;
 
   // How many properties share each leading street number (ambiguity guard
   // for "20" = Hammond or Enon, "3" = South or Locust).
