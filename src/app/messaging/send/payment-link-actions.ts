@@ -297,19 +297,3 @@ export async function checkPaymentLinkAction(
   if (!r.ok) return { ok: false, error: r.detail || r.error };
   return { ok: true, paid: r.paid };
 }
-
-// Form-shaped twins for server components (<form action={fn.bind(null, key)}>):
-// the ledger rows and the home-feed Payments cards. Outcomes land on the
-// re-rendered row, so these return nothing.
-
-export async function nudgePaymentLinkForm(requestKey: string): Promise<void> {
-  await nudgePaymentLinkAction(requestKey);
-}
-
-export async function cancelPaymentLinkForm(requestKey: string): Promise<void> {
-  await cancelPaymentLinkAction(requestKey);
-}
-
-export async function checkPaymentLinkForm(requestKey: string): Promise<void> {
-  await checkPaymentLinkAction(requestKey);
-}
