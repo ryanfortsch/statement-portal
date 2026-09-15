@@ -7,10 +7,9 @@ import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
 import { dollars } from '@/lib/field-types';
 import { FeedClearButton } from '@/components/FeedClearButton';
-import { SubmitButton } from '@/components/SubmitButton';
 import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links';
 import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl } from '@/lib/payment-links-text';
-import { cancelPaymentLinkForm, nudgePaymentLinkForm } from '@/app/messaging/send/payment-link-actions';
+import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 
 type MyWork = {
   id: string;
@@ -1099,13 +1098,8 @@ function PaymentLinkFeedRow({ card }: { card: PaymentCard }) {
           {sublineBits.join(' · ')}
         </div>
         {!paid && (
-          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <form action={nudgePaymentLinkForm.bind(null, row.request_key)}>
-              <SubmitButton label="Nudge by text" busyLabel="Texting" spinnerTone="ink" style={feedActionStyle} />
-            </form>
-            <form action={cancelPaymentLinkForm.bind(null, row.request_key)}>
-              <SubmitButton label="Cancel link" busyLabel="Cancelling" spinnerTone="ink" style={feedActionStyle} />
-            </form>
+          <div style={{ marginTop: 8 }}>
+            <PaymentLinkActions requestKey={row.request_key} url={row.url} closed={false} compact />
           </div>
         )}
       </div>
@@ -1113,15 +1107,3 @@ function PaymentLinkFeedRow({ card }: { card: PaymentCard }) {
     </div>
   );
 }
-
-const feedActionStyle: React.CSSProperties = {
-  fontSize: 10,
-  letterSpacing: '0.14em',
-  textTransform: 'uppercase',
-  fontWeight: 600,
-  color: 'var(--ink)',
-  background: 'transparent',
-  border: '1px solid var(--rule)',
-  padding: '4px 9px',
-  cursor: 'pointer',
-};

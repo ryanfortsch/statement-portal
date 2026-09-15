@@ -1,5 +1,4 @@
 import { Section } from '@/components/Section';
-import { SubmitButton } from '@/components/SubmitButton';
 import { listRecentPaymentLinks, loadPropertyNameMap, type PaymentLinkRow } from '@/lib/payment-links';
 import {
   ageLabel,
@@ -10,8 +9,7 @@ import {
   stripeKeyFixUrl,
   type PaymentLinkStatus,
 } from '@/lib/payment-links-text';
-import { CopyLinkButton } from './CopyLinkButton';
-import { cancelPaymentLinkForm, checkPaymentLinkForm, nudgePaymentLinkForm } from './payment-link-actions';
+import { PaymentLinkActions } from './PaymentLinkActions';
 
 /**
  * Every guest payment link from the last 30 days, whichever side minted it
@@ -117,32 +115,13 @@ function LedgerRow({
           )}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
-        {!closed && (
-          <form action={nudgePaymentLinkForm.bind(null, row.request_key)}>
-            <SubmitButton label="Nudge by text" busyLabel="Texting" spinnerTone="ink" style={actionStyle} />
-          </form>
-        )}
-        {!closed && (
-          <form action={checkPaymentLinkForm.bind(null, row.request_key)}>
-            <SubmitButton label="Check now" busyLabel="Checking" spinnerTone="ink" style={actionStyle} />
-          </form>
-        )}
-        <CopyLinkButton
+      <div style={{ flexShrink: 0 }}>
+        <PaymentLinkActions
+          requestKey={row.request_key}
           url={row.url}
-          requestKey={row.source === 'helm' && !row.sent_via ? row.request_key : undefined}
-          style={actionStyle}
+          closed={closed}
+          markCopied={row.source === 'helm' && !row.sent_via}
         />
-        {!closed && (
-          <form action={cancelPaymentLinkForm.bind(null, row.request_key)}>
-            <SubmitButton
-              label="Cancel link"
-              busyLabel="Cancelling"
-              spinnerTone="ink"
-              style={{ ...actionStyle, color: 'var(--signal)', borderColor: 'var(--signal)' }}
-            />
-          </form>
-        )}
       </div>
     </div>
   );
@@ -186,15 +165,3 @@ function StatusChip({ status, row }: { status: PaymentLinkStatus; row: PaymentLi
     </span>
   );
 }
-
-const actionStyle: React.CSSProperties = {
-  fontSize: 10,
-  letterSpacing: '0.14em',
-  textTransform: 'uppercase',
-  fontWeight: 600,
-  color: 'var(--ink)',
-  background: 'transparent',
-  border: '1px solid var(--rule)',
-  padding: '4px 9px',
-  cursor: 'pointer',
-};
