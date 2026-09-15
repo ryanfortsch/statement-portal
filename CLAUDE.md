@@ -92,7 +92,7 @@ Load-bearing `src/lib` modules by import count: `supabase-admin` (144), `propert
 | `/owner-messaging` | Owner reply drafts (SMS + email) |
 | `/cleaner-messaging` | Bilingual cleaner drafts, Portuguese with English side-by-side |
 | `/contractor-messaging` | Contractor reply drafts |
-| `/guests` | Subscriber list, segments, campaigns. `/guests/agreements` for SCA rental agreements |
+| `/guests` | Subscriber list, segments, campaigns. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com) |
 | `/crm` | Contacts and touch timeline |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings |
 | `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps |
@@ -314,6 +314,35 @@ charge by the amount and date-range stages above. Treat this as the standard pat
 with a quote-side twin in stay-cape-ann's `lib/occupancyTax.ts` keyed by **Guesty listing id**. The
 Guesty listing's own tax config is what live quotes actually charge, so all three must agree when a
 rate changes, and the two lookups are keyed differently.
+
+### Custom quotes (Helm-issued, paid on staycapeann.com)
+
+`/guests/quotes` composes a custom quote or booking request for a named guest: property, dates,
+guests, a negotiated nightly rate or total, cleaning, extra fees, a discount, tax (owed rate, auto,
+exempt over 31 nights), pay-in-full or a deposit now with the balance by a date, a note, an expiry,
+and the cancellation wording. Helm sends it by email (Resend, as Allie) and/or SMS (Quo GUESTS
+line) with a link to `https://staycapeann.com/quote/<token>`. Table `sca_quotes` (service-role
+only); pure math and the wire types in `src/lib/sca-quotes-types.ts`, with a byte-compatible copy
+in stay-cape-ann `lib/helmQuotes.ts`. Change one, change both.
+
+**Helm owns the record; staycapeann.com owns the payment.** The guest page reads the quote through
+`GET /api/sca-quotes/<token>` (bridge, `x-stay-concierge-key`) and, on accept, SCA's
+`/api/quote/accept` authorizes the card on the property's own Stripe account, creates the Guesty
+reservation at the negotiated price (`POST /v1/reservations-v3` with `accommodationFare` and
+`cleaningFee`; `ignoreCalendar` / `ignoreTerms` only when the operator ticked the overrides, and
+never over a booked night), captures, posts the payment to Guesty, files the rental agreement, and
+reports back through `POST /api/sca-quotes/<token>/events`. Helm never touches a Stripe secret.
+
+**Statements see it as an ordinary SCA booking.** The charge is a plain PaymentIntent described
+`<title> - <check_in> to <check_out>` with NO `helm_request_key`, so stripe-sync's date-range
+matcher pairs it (and a split deposit + balance pair, summed) to the reservation as stay principal.
+Never mint quote money through `/api/payment-links`; that would classify it as an add-on. The
+Guesty reservation's own total is read back after creation into `guesty_total_cents`; the detail
+page flags a mismatch against what the guest paid so the operator can check the listing's tax config.
+
+A daily cron (`/api/cron/sca-quotes`) expires stale quotes and sends balance reminders. This flow is
+the durable fix for the 2027 pre-release gap where approved requests never got their payment link:
+the composer accepts prefill from a Guests-queue card and the guest pays on the page.
 
 ### Legacy "Stay Collections" (Guesty Payments) charges
 

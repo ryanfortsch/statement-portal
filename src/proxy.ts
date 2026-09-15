@@ -123,6 +123,11 @@ const PUBLIC_API_PREFIXES = [
   // off-session charge from /statements/balance-charges). Self-guards via
   // STAY_CONCIERGE_KEY.
   "/api/balance-charges",
+  // Bridge: staycapeann.com reads a custom quote when the guest opens
+  // /quote/<token> and reports back what they did (viewed, declined,
+  // accepted, balance paid). Self-guards via STAY_CONCIERGE_KEY (header
+  // only); voided and never-sent quotes are 404 so the link reads as dead.
+  "/api/sca-quotes/",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",
