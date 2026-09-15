@@ -190,6 +190,12 @@ function fmtStamp(ts: string): string {
   return fmtDate(dayOf(ts));
 }
 
+/** "Sep 2": for a narrow cell where the year is said elsewhere. */
+function fmtStampShort(ts: string): string {
+  const [, m, d] = dayOf(ts).split('-').map(Number);
+  return `${MONTHS[m - 1]} ${d}`;
+}
+
 function plural(n: number, one: string, many = `${one}s`): string {
   return n === 1 ? one : many;
 }
@@ -737,14 +743,14 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
             <Cell main="Signed in Helm" sub="not registered yet" color="var(--signal)" bold />
           ) : flight?.stage === 'awaiting_countersign' ? (
             <Cell
-              main={`Owner signed${flight.signedAt ? ` ${fmtStamp(flight.signedAt)}` : ''}`}
-              sub="awaiting Rising Tide countersign"
+              main={`Owner signed${flight.signedAt ? ` ${fmtStampShort(flight.signedAt)}` : ''}`}
+              sub="awaiting countersign"
               color="var(--signal)"
               bold
             />
           ) : flight?.stage === 'awaiting_owner' ? (
             <Cell
-              main={`Sent${flight.ownerEmailedAt ? ` ${fmtStamp(flight.ownerEmailedAt)}` : ''}`}
+              main={`Sent${flight.ownerEmailedAt ? ` ${fmtStampShort(flight.ownerEmailedAt)}` : ''}`}
               sub="awaiting owner signature"
               color="var(--signal)"
               bold
