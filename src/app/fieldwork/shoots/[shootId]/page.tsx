@@ -7,7 +7,7 @@ import { loadShootDetail, shootPaySummary, setShortLabel } from '@/lib/creative-
 import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
-import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payDeliveryBase, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder, resendShootBrief } from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payDeliveryBase, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder, resendShootBrief, textShootAllClear } from '../actions';
 import { dayClearReport, type DayClearInfo } from '@/lib/maintenance-runs';
 import { shootAccessReadiness, type CreativeAccessReadiness } from '@/lib/creative-brief';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
@@ -560,8 +560,9 @@ export default async function ShootDetail({
 
 /** The shoot day, checked against the home's real calendar (same day-clear
  *  report the maintenance planner trusts), plus the contributor's brief:
- *  preview it as they see it, or send it again. History (past dates) skips
- *  the calendar verdict — the day already happened. */
+ *  preview it as they see it, send it again, or text them the all-clear once
+ *  the office knows the home is free. History (past dates) skips the
+ *  calendar verdict: the day already happened. */
 function todayEtIso(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 }
@@ -620,13 +621,19 @@ async function ShootDayCard({
             <input type="hidden" name="shoot_id" value={shootId} />
             <PendingButton label="Send brief" busyLabel="Sending…" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 12, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }} spinnerTone="ink" />
           </form>
+          {propertyId && (
+            <form action={textShootAllClear} style={{ margin: 0 }}>
+              <input type="hidden" name="shoot_id" value={shootId} />
+              <PendingButton label={`Text ${contractorFirst} the all-clear`} busyLabel="Texting…" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tide-deep)', fontSize: 12, fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }} spinnerTone="ink" />
+            </form>
+          )}
         </div>
       </div>
       {verdict && (
         <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, color: verdict.clear ? 'var(--ink-3)' : 'var(--signal)' }}>
           {verdict.clear
-            ? `Clear — the home is empty ${fmtShort(shootDate)}${verdict.priorGuestCheckout === shootDate ? ' after the ~11 AM checkout' : ''}${verdict.nextCheckin ? `; next guests ${fmtShort(verdict.nextCheckin)}` : ''}.`
-            : `Not clear — ${verdict.reason}. The 8 AM day-of check will tell ${contractorFirst} to hold and email you.`}
+            ? `Clear: the home is empty ${fmtShort(shootDate)}${verdict.priorGuestCheckout === shootDate ? ' after the ~11 AM checkout' : ''}${verdict.nextCheckin ? `; next guests ${fmtShort(verdict.nextCheckin)}` : ''}.`
+            : `Not clear: ${verdict.reason}. The 8 AM day-of check texts ${contractorFirst} to hold and emails you. Once you know the home is free, text ${contractorFirst} the all-clear here.`}
         </div>
       )}
       {ready && (
