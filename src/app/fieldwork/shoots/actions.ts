@@ -7,7 +7,7 @@ import { fieldDb } from '@/lib/field-db';
 import type { RateCard } from '@/lib/creative-rates';
 import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { syncCreativeDrive } from '@/lib/creative-drive';
-import { sendPaidEmail, sendShootBrief } from '@/lib/field-notify';
+import { sendPaidEmail, sendShootBrief, sendShootAllClear } from '@/lib/field-notify';
 import { newPortalToken } from '@/lib/field-auth';
 import type { ContractorRow } from '@/lib/field-types';
 
@@ -146,6 +146,40 @@ export async function resendShootBrief(formData: FormData): Promise<void> {
         : sent.texted
           ? 'ok:brief texted (no email went out)'
           : 'err:brief did NOT send — nothing went out (check their contact info)';
+  revalidatePath(`/fieldwork/shoots/${shootId}`);
+  redirect(`/fieldwork/shoots/${shootId}?brief=${encodeURIComponent(note)}`);
+}
+
+/** The office confirmed the home is free: text the contributor the all-clear
+ *  from the shoot page. Closes the loop the 8 AM hold text opens ("the office
+ *  will text you"), which until 2026-09-15 had no button behind it. */
+export async function textShootAllClear(formData: FormData): Promise<void> {
+  await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) return;
+  const { data: s } = await fieldDb()
+    .from('creative_shoots')
+    .select('id, title, shoot_date, property_id, contractor_id, status, brief_token')
+    .eq('id', shootId)
+    .maybeSingle();
+  const shoot = s as { id: string; title: string; shoot_date: string; property_id: string | null; contractor_id: string; status: string; brief_token: string | null } | null;
+  if (!shoot || shoot.status === 'cancelled') return;
+  const [{ data: c }, propertyName] = await Promise.all([
+    fieldDb().from('contractors').select('full_name, email, phone, portal_token').eq('id', shoot.contractor_id).maybeSingle(),
+    shoot.property_id
+      ? fieldDb().from('properties').select('name').eq('id', shoot.property_id).maybeSingle().then((r) => (r.data as { name: string } | null)?.name ?? null)
+      : Promise.resolve(null),
+  ]);
+  const contractor = c as Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'> | null;
+  const first = contractor?.full_name.split(' ')[0] ?? 'the contributor';
+  const sent = contractor
+    ? await sendShootAllClear(contractor, shoot, propertyName).catch(() => ({ texted: false, emailed: false }))
+    : { texted: false, emailed: false };
+  const note = sent.texted
+    ? `ok:all-clear texted to ${first}`
+    : sent.emailed
+      ? `ok:all-clear emailed to ${first} (no phone on file, so no text)`
+      : `err:all-clear did NOT send to ${first} (check their contact info)`;
   revalidatePath(`/fieldwork/shoots/${shootId}`);
   redirect(`/fieldwork/shoots/${shootId}?brief=${encodeURIComponent(note)}`);
 }

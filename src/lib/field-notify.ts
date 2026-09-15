@@ -696,17 +696,59 @@ export async function sendShootBrief(
   return { emailed, texted };
 }
 
+/** Property names for shoot texts. A creator is told the HOME, never the
+ *  office's typed shoot title: a title can carry the wrong date ("3 Locust
+ *  Lane - Sep 14 2026" for a Sep 15 shoot), and two shoots on one day have
+ *  to read as two different doors. The title is the fallback only when the
+ *  registry has no name. */
+async function shootHomeNames(propertyIds: string[]): Promise<Map<string, string>> {
+  if (propertyIds.length === 0) return new Map();
+  const { data } = await fieldDb().from('properties').select('id, name').in('id', propertyIds);
+  const out = new Map<string, string>();
+  for (const p of (data ?? []) as Array<{ id: string; name: string | null }>) {
+    if (p.name?.trim()) out.set(p.id, p.name.trim());
+  }
+  return out;
+}
+
+function shootTodayEt(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
+function shootDayLong(iso: string): string {
+  try {
+    return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
+
+function contractorSmsTo(phone: string): string {
+  return phone.startsWith('+') ? phone : `+1${normalizePhone(phone)}`;
+}
+
+/** The one all-clear wording, whether the 8 AM check or the office sends it. */
+function shootGoText(dayLabel: string, home: string, link: string): string {
+  return `Rising Tide Field: you're a go for ${dayLabel} at ${home}. Entry details are on your brief: ${link}`;
+}
+
 /**
  * Day-of go / no-go for creative shoots: for every active shoot dated today
  * with a home attached, re-run the same day-clear check the maintenance
- * planner trusts. Clear → text the contributor the all-clear (with the brief
- * link, which now shows entry details). Not clear → text them to hold AND
- * email Dotti the conflict so she can re-book the day before anyone drives.
+ * planner trusts. Clear: text the contributor the all-clear (with the brief
+ * link, which now shows entry details). Not clear: text them to hold AND
+ * email Dotti the conflict, so she can re-book or send the all-clear from
+ * the shoot page once she knows the home is free.
+ *
+ * "Not clear" means a person: a guest in the house, a check-in that day, or
+ * a deliberate hold. Guesty's advance-notice artifact (tonight blocked on
+ * every empty listing with the rule) is filtered out inside dayClearReport;
+ * on 2026-09-15 it told Cooper to hold on an empty 21 Horton.
  */
 export async function sendCreativeDayOfChecks(): Promise<{ go: number; hold: number }> {
   const out = { go: 0, hold: 0 };
   if (inQuietHoursET()) return out;
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const today = shootTodayEt();
   const { data: sData } = await fieldDb()
     .from('creative_shoots')
     .select('id, title, shoot_date, property_id, contractor_id, brief_token')
@@ -717,8 +759,12 @@ export async function sendCreativeDayOfChecks(): Promise<{ go: number; hold: num
   if (shoots.length === 0) return out;
 
   const { dayClearReport } = await import('@/lib/maintenance-runs');
-  const clearMap = await dayClearReport([...new Set(shoots.map((s) => s.property_id))], today);
-  const from = await resolveQuoFrom();
+  const propertyIds = [...new Set(shoots.map((s) => s.property_id))];
+  const [clearMap, homeNames, from] = await Promise.all([
+    dayClearReport(propertyIds, today),
+    shootHomeNames(propertyIds),
+    resolveQuoFrom(),
+  ]);
 
   for (const s of shoots) {
     const verdict = clearMap.get(s.property_id);
@@ -730,45 +776,94 @@ export async function sendCreativeDayOfChecks(): Promise<{ go: number; hold: num
     const cc = c as Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'> | null;
     if (!cc) continue;
     const link = shootBriefLink(cc.portal_token, s.id, s.brief_token);
+    const home = homeNames.get(s.property_id) ?? s.title;
     const clear = verdict?.clear !== false; // missing verdict = don't cry wolf
 
     if (clear) {
       out.go++;
       if (cc.phone && from) {
-        const to = cc.phone.startsWith('+') ? cc.phone : `+1${normalizePhone(cc.phone)}`;
-        await sendMessage({ from, to, content: `Rising Tide Field: you're a go for today's shoot — ${s.title}. Entry details are on your brief: ${link}` }).catch(() => {});
+        await sendMessage({ from, to: contractorSmsTo(cc.phone), content: shootGoText("today's shoot", home, link) }).catch(() => {});
       }
     } else {
       out.hold++;
       let holdTexted = false;
       if (cc.phone && from) {
-        const to = cc.phone.startsWith('+') ? cc.phone : `+1${normalizePhone(cc.phone)}`;
         try {
-          await sendMessage({ from, to, content: `Rising Tide Field: hold on today's shoot (${s.title}) — the home may not be free. The office will confirm before you head over.` });
+          await sendMessage({
+            from,
+            to: contractorSmsTo(cc.phone),
+            content: `Rising Tide Field: hold on today's shoot at ${home}. The home may not be free. Don't head over until the office texts you the all-clear.`,
+          });
           holdTexted = true;
         } catch {
           // the conflict email below says so
         }
       }
       const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const first = esc(cc.full_name.split(' ')[0]);
+      const first = cc.full_name.split(' ')[0];
+      const why = verdict?.reason ?? 'the calendar could not be checked';
       const toldLine = holdTexted
-        ? `${first} was told to hold for your word.`
-        : `${first} could NOT be texted — reach them directly before they drive over.`;
+        ? `${esc(first)} was told to hold for your word. Once you know the home is free, text the all-clear from the shoot page.`
+        : `${esc(first)} could NOT be texted. Reach them directly before they drive over.`;
       await sendTransactionalViaResend({
         to: 'dotti@risingtidestr.com',
-        subject: `Shoot conflict today: ${s.title}`,
+        subject: `Shoot conflict today: ${home}`,
         fromName: FROM_NAME,
         html: shell(`
           <h1 style="font-family:Georgia,serif;font-weight:400;font-size:22px;margin:0 0 12px;">Today's shoot may not be a go</h1>
-          <p><strong>${esc(s.title)}</strong> is scheduled today, but ${esc(verdict?.reason ?? 'the calendar could not be checked')}. ${toldLine}</p>
+          <p><strong>${esc(home)}</strong>${s.title !== home ? ` (${esc(s.title)})` : ''} is scheduled today, but ${esc(why)}. ${toldLine}</p>
           ${btn(`${fieldBaseUrl()}/fieldwork/shoots/${s.id}`, 'Open the shoot')}
         `),
-        text: `${s.title} is scheduled today but ${verdict?.reason ?? 'the calendar could not be checked'}. ${holdTexted ? `${cc.full_name.split(' ')[0]} was told to hold.` : `${cc.full_name.split(' ')[0]} could NOT be texted — reach them directly.`}`,
+        text: `${home} is scheduled today but ${why}. ${holdTexted ? `${first} was told to hold. Text the all-clear from the shoot page once the home is free.` : `${first} could NOT be texted. Reach them directly.`}`,
       }).catch(() => false);
     }
   }
   return out;
+}
+
+/**
+ * The office's own all-clear for a shoot, sent from the shoot page once
+ * someone has confirmed the home is free (the 8 AM check texted a hold, or
+ * never ran). Same wording as the automatic go text, so the contributor
+ * hears one voice. Texts when a phone is on file and falls back to email, so
+ * the word always reaches them. Operator-triggered, so not quiet-hours gated.
+ */
+export async function sendShootAllClear(
+  contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'>,
+  shoot: { id: string; title: string; shoot_date: string; brief_token?: string | null },
+  propertyName: string | null,
+): Promise<{ texted: boolean; emailed: boolean }> {
+  const link = shootBriefLink(contractor.portal_token, shoot.id, shoot.brief_token);
+  const home = propertyName?.trim() || shoot.title;
+  const dayLabel = shoot.shoot_date === shootTodayEt() ? "today's shoot" : `your shoot ${shootDayLong(shoot.shoot_date)}`;
+  const content = shootGoText(dayLabel, home, link);
+
+  let texted = false;
+  if (contractor.phone) {
+    const from = await resolveQuoFrom();
+    if (from) {
+      texted = await sendMessage({ from, to: contractorSmsTo(contractor.phone), content })
+        .then(() => true)
+        .catch(() => false);
+    }
+  }
+  let emailed = false;
+  if (!texted && contractor.email) {
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const first = esc(contractor.full_name.split(' ')[0]);
+    emailed = await sendTransactionalViaResend({
+      to: contractor.email,
+      subject: `You're a go: ${home}, ${shootDayLong(shoot.shoot_date)}`,
+      fromName: FROM_NAME,
+      html: shell(`
+        <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">You're a go</h1>
+        <p>Hi ${first}, ${esc(dayLabel)} at <strong>${esc(home)}</strong> is on. Entry details are on your brief.</p>
+        ${btn(link, 'Open the shoot brief')}
+      `),
+      text: content,
+    }).catch(() => false);
+  }
+  return { texted, emailed };
 }
 
 /** A contractor tapped "Send a note" in the portal. Goes to Ryan (cc office),

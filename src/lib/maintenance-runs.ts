@@ -50,6 +50,7 @@ import { fieldDb } from '@/lib/field-db';
 import { createMaintenancePacket, loadFieldProperties } from '@/lib/field-packets';
 import { getProperty } from '@/lib/properties';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
+import { heldNightReason, isGuestyRuleArtifactUid, type MirrorDayLite } from './calendar-holds';
 import type {
   MaintenanceRunCard,
   RunsBoardData,
@@ -426,7 +427,7 @@ export async function dayClearReport(
   const [{ data: bData }, { data: mirrorData }] = await Promise.all([
     fieldDb()
       .from('bookings')
-      .select('property_id, check_in, check_out, status')
+      .select('property_id, check_in, check_out, status, ical_uid')
       .in('status', OCCUPANCY_STATUSES)
       .is('duplicate_of', null)
       .in('property_id', propertyIds)
@@ -434,13 +435,20 @@ export async function dayClearReport(
       .gte('check_out', addDays(day, -14)),
     fieldDb()
       .from('property_calendar_days')
-      .select('property_id, status')
+      .select('property_id, status, block_type, block_note')
       .in('property_id', propertyIds)
       .eq('date', day),
   ]);
-  const bookings = ((bData ?? []) as BookingLite[]).filter((b) => b.check_in && b.check_out);
+  // Guesty's advance-notice and booking-window rules ride the iCal feed as
+  // "Blocked by Guesty" rows that look exactly like a hold. They are not a
+  // person in the house, so they never count as one here (2026-09-15: the
+  // advance-notice artifact told a creator to hold on an empty 21 Horton).
+  // See calendar-holds.ts for the tells.
+  const bookings = ((bData ?? []) as Array<BookingLite & { ical_uid: string | null }>).filter(
+    (b) => b.check_in && b.check_out && !(b.status === 'block' && isGuestyRuleArtifactUid(b.ical_uid)),
+  );
   const mirror = new Map(
-    ((mirrorData ?? []) as Array<{ property_id: string; status: string }>).map((m) => [m.property_id, m.status]),
+    ((mirrorData ?? []) as Array<{ property_id: string } & MirrorDayLite>).map((m) => [m.property_id, m]),
   );
 
   for (const pid of propertyIds) {
@@ -452,12 +460,13 @@ export async function dayClearReport(
     // is in the house" about one sends the office chasing a guest who does not
     // exist (3 South, 2026-08-26).
     const guestNight = guestStays.some((b) => b.check_in <= day && day < b.check_out);
-    const blockedNight = propBookings.some(
+    const blocksTonight = propBookings.filter(
       (b) => b.status === 'block' && b.check_in <= day && day < b.check_out,
     );
     const checkInToday = guestStays.some((b) => b.check_in === day);
-    const mirrorStatus = mirror.get(pid);
-    const mirrorClosed = mirrorStatus !== undefined && mirrorStatus !== 'available';
+    // A deliberate hold from either source, or a mirror-only booking. The
+    // mirror's unavailable-with-no-ref days (the rule artifacts) do not count.
+    const heldReason = heldNightReason(mirror.get(pid), blocksTonight);
 
     const priorCheckout =
       propBookings
@@ -480,8 +489,7 @@ export async function dayClearReport(
     let reason: string | null = null;
     if (guestNight) reason = 'a guest is in the house that night';
     else if (checkInToday) reason = 'a guest checks in that day (~3 PM)';
-    else if (blockedNight) reason = 'the calendar is blocked that night';
-    else if (mirrorClosed) reason = `the Guesty calendar shows the day as ${mirrorStatus}`;
+    else if (heldReason) reason = heldReason;
 
     out.set(pid, { clear: !reason, reason, priorCheckout, priorGuestCheckout, nextCheckin });
   }

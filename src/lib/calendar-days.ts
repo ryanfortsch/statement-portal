@@ -31,12 +31,10 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { getGuestyToken, guestyGet, sleep, GuestyNotFound } from './guesty-client';
+import { REAL_HOLD_TYPES } from './calendar-holds';
 
-/** Guesty block-ref types that represent a deliberate hold on the calendar
- *  (vs an availability-rule artifact). 'm' manual and 'o' owner-portal are
- *  the ones observed in Rising Tide's account; 'sr'/'abl'/'pt' are rare but
- *  deliberate, so they count too. */
-const REAL_HOLD_TYPES = new Set(['m', 'o', 'sr', 'abl', 'pt']);
+// The deliberate-hold types (vs Guesty's availability-rule artifacts) live in
+// calendar-holds.ts so this sync and the day-clear check agree on them.
 
 type GuestyBlockRef = {
   _id?: string;
