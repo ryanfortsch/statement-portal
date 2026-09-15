@@ -568,7 +568,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
       </Link>
       <div style={{ marginTop: 3, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.4 }}>
         {owner}
-        {note && <span style={{ color: 'var(--ink-4)' }}> · {note}</span>}
+        {note && <span style={{ color: 'var(--ink-4)', whiteSpace: 'nowrap' }}> · {note}</span>}
       </div>
     </div>
   );
@@ -751,8 +751,8 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
           {c.min_availability && <Fact label="Availability">{c.min_availability}</Fact>}
           {saleClause && <Fact label="Sale clause">{saleClause}</Fact>}
           {terms.length > 0 && (
-            <Fact label="Negotiated">
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
+            <Fact label="Negotiated terms">
+              <ul style={{ margin: 0, paddingLeft: 18, listStyle: 'disc', display: 'grid', gap: 4 }}>
                 {terms.map((t) => (
                   <li key={t}>{t}</li>
                 ))}
