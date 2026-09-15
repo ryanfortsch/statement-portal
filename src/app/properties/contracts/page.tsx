@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -63,40 +63,78 @@ async function getManagedProperties(): Promise<PropertyLite[]> {
   }
 }
 
-type UnregisteredSigned = { propertyId: string; projectionId: string; countersignedAt: string | null };
+type ProjectionContract = {
+  propertyId: string;
+  projectionId: string;
+  ownerEmailedAt: string | null;
+  signedAt: string | null;
+  signedName: string | null;
+  countersignedAt: string | null;
+  /**
+   * awaiting_owner: sent for signature, unsigned.
+   * awaiting_countersign: the owner signed; not in force until Rising Tide
+   *   countersigns on the prospect page.
+   * countersigned: executed in Helm. Normal once the register row exists;
+   *   a gap when it does not.
+   */
+  stage: 'awaiting_owner' | 'awaiting_countersign' | 'countersigned';
+};
 
 /**
- * Helm-signed contracts that never got a registry row: the projection has a
- * countersigned contract but property_contracts has no active row for the
- * property. Keeps the register honest as new prospects sign, without
- * dual-writing from the signing pipeline.
+ * Where each managed home's linked projection contract stands. Helm's
+ * e-sign pipeline (a prospect's first agreement, or a renewal drafted by
+ * startContractRenewal) lives on projections, not in the register: the
+ * register row is written when Rising Tide countersigns. Until then the
+ * only record that an owner has signed, or that a draft is out for
+ * signature, is the projection, so the page reads it. 20 Enon sat for two
+ * weeks as "no live contract" with Kathleen Snyder's signature on file
+ * before this did. Contracts marked done outside Helm (Docusign, paper)
+ * are not in flight.
  */
-async function getUnregisteredSigned(
-  properties: PropertyLite[],
-  contracts: PropertyContractRow[],
-): Promise<UnregisteredSigned[]> {
+async function getProjectionContracts(properties: PropertyLite[]): Promise<ProjectionContract[]> {
   if (!isHelmConfigured) return [];
-  const covered = new Set(contracts.filter((c) => c.status === 'active').map((c) => c.property_id));
-  const candidates = properties.filter((p) => p.projection_id && !covered.has(p.id));
-  if (candidates.length === 0) return [];
+  const linked = properties.filter((p) => p.projection_id);
+  if (linked.length === 0) return [];
   try {
     const { data, error } = await supabase
       .from('projections')
-      .select('id, contract_countersigned_at')
-      .in('id', candidates.map((p) => p.projection_id as string));
+      .select('id, contract_owner_email_sent_at, contract_signed_at, contract_signed_name, contract_countersigned_at, contract_marked_done_at')
+      .in('id', linked.map((p) => p.projection_id as string));
     if (error) throw error;
-    const signed = new Map(
-      ((data ?? []) as Array<{ id: string; contract_countersigned_at: string | null }>)
-        .filter((r) => r.contract_countersigned_at)
-        .map((r) => [r.id, r.contract_countersigned_at]),
-    );
-    return candidates
-      .filter((p) => signed.has(p.projection_id as string))
-      .map((p) => ({
+    type Row = {
+      id: string;
+      contract_owner_email_sent_at: string | null;
+      contract_signed_at: string | null;
+      contract_signed_name: string | null;
+      contract_countersigned_at: string | null;
+      contract_marked_done_at: string | null;
+    };
+    const byId = new Map(((data ?? []) as Row[]).map((r) => [r.id, r]));
+    const out: ProjectionContract[] = [];
+    for (const p of linked) {
+      const r = byId.get(p.projection_id as string);
+      if (!r) continue;
+      const stage: ProjectionContract['stage'] | null = r.contract_countersigned_at
+        ? 'countersigned'
+        : r.contract_marked_done_at
+          ? null
+          : r.contract_signed_at
+            ? 'awaiting_countersign'
+            : r.contract_owner_email_sent_at
+              ? 'awaiting_owner'
+              : null;
+      if (!stage) continue;
+      out.push({
         propertyId: p.id,
-        projectionId: p.projection_id as string,
-        countersignedAt: signed.get(p.projection_id as string) ?? null,
-      }));
+        projectionId: r.id,
+        ownerEmailedAt: r.contract_owner_email_sent_at,
+        signedAt: r.contract_signed_at,
+        signedName: r.contract_signed_name,
+        countersignedAt: r.contract_countersigned_at,
+        stage,
+      });
+    }
+    return out;
   } catch {
     return [];
   }
@@ -143,6 +181,15 @@ function yearOf(iso: string): number {
   return Number(iso.slice(0, 4));
 }
 
+/** Calendar date of a timestamp as the office sees it (Eastern), as ISO. */
+function dayOf(ts: string): string {
+  return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+function fmtStamp(ts: string): string {
+  return fmtDate(dayOf(ts));
+}
+
 function plural(n: number, one: string, many = `${one}s`): string {
   return n === 1 ? one : many;
 }
@@ -184,7 +231,13 @@ type RegisterRow = {
   live: PropertyContractRow | null;
   /** Expired / superseded rows for the home, newest first. */
   history: PropertyContractRow[];
-  pending: UnregisteredSigned | null;
+  /**
+   * The home's Helm e-sign contract when it is mid-flight (out for
+   * signature, or owner-signed and waiting on Rising Tide), or executed
+   * but missing from the register. Null when the register already tells
+   * the whole story.
+   */
+  flight: ProjectionContract | null;
 };
 
 const css = `
@@ -222,7 +275,7 @@ export default async function PropertyContractsPage() {
     getAllPropertyContracts(),
     getDriveOrphans(),
   ]);
-  const unregistered = await getUnregisteredSigned(properties, contracts);
+  const projectionContracts = await getProjectionContracts(properties);
 
   const byProperty = new Map(properties.map((p) => [p.id, p]));
   const live = contracts.filter((c) => c.status === 'active');
@@ -232,7 +285,15 @@ export default async function PropertyContractsPage() {
     if (c.status === 'active') continue;
     historyByProperty.set(c.property_id, [...(historyByProperty.get(c.property_id) ?? []), c]);
   }
-  const pendingByProperty = new Map(unregistered.map((u) => [u.propertyId, u]));
+  // A projection contract matters here while it is mid-flight, or once
+  // executed with no register row to show for it.
+  const flightByProperty = new Map<string, ProjectionContract>();
+  for (const f of projectionContracts) {
+    if (f.stage !== 'countersigned' || !liveByProperty.has(f.propertyId)) flightByProperty.set(f.propertyId, f);
+  }
+  const unregistered = projectionContracts.filter((f) => f.stage === 'countersigned' && !liveByProperty.has(f.propertyId));
+  const awaitingCountersign = projectionContracts.filter((f) => f.stage === 'awaiting_countersign');
+  const awaitingOwner = projectionContracts.filter((f) => f.stage === 'awaiting_owner');
 
   // One register row per managed home, in roster order. A live contract
   // whose home has left the managed roster still gets a row at the end so
@@ -241,7 +302,7 @@ export default async function PropertyContractsPage() {
     property: p,
     live: liveByProperty.get(p.id) ?? null,
     history: historyByProperty.get(p.id) ?? [],
-    pending: pendingByProperty.get(p.id) ?? null,
+    flight: flightByProperty.get(p.id) ?? null,
   }));
   for (const c of live) {
     if (byProperty.has(c.property_id)) continue;
@@ -258,11 +319,11 @@ export default async function PropertyContractsPage() {
       },
       live: c,
       history: historyByProperty.get(c.property_id) ?? [],
-      pending: null,
+      flight: null,
     });
   }
 
-  const uncovered = rows.filter((r) => !r.live && !r.pending && byProperty.has(r.property.id));
+  const uncovered = rows.filter((r) => !r.live && r.flight?.stage !== 'countersigned' && byProperty.has(r.property.id));
 
   /* ----- the numbers ----- */
   const ahead = live
@@ -298,11 +359,11 @@ export default async function PropertyContractsPage() {
     }
   }
 
-  const decisions: Decision[] = [];
+  const dated: Decision[] = [];
   for (const [date, g] of noticeGroups) {
     const n = g.contracts.length;
     const days = daysUntil(date, todayIso);
-    decisions.push({
+    dated.push({
       key: `notice:${date}`,
       date,
       heading: fmtDate(date),
@@ -316,7 +377,7 @@ export default async function PropertyContractsPage() {
     const n = cs.length;
     const days = daysUntil(date, todayIso);
     const only = n === 1 ? cs[0] : null;
-    decisions.push({
+    dated.push({
       key: `term:${date}`,
       date,
       heading: fmtDate(date),
@@ -329,7 +390,7 @@ export default async function PropertyContractsPage() {
     });
   }
   for (const [date, cs] of lapsedGroups) {
-    decisions.push({
+    dated.push({
       key: `lapsed:${date}`,
       date,
       heading: fmtDate(date),
@@ -339,10 +400,59 @@ export default async function PropertyContractsPage() {
       chips: cs.map(propertyChip).sort(byLabel),
     });
   }
-  decisions.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+  dated.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
 
+  const nameOf = (propertyId: string) => byProperty.get(propertyId)?.name ?? propertyId;
+
+  // Rising Tide's own move comes first: an owner has signed and the
+  // agreement is not in force until someone here countersigns.
+  const head: Decision[] = [];
+  if (awaitingCountersign.length > 0) {
+    const n = awaitingCountersign.length;
+    const only = n === 1 ? awaitingCountersign[0] : null;
+    const signedDays = only?.signedAt ? daysUntil(dayOf(only.signedAt), todayIso) : null;
+    head.push({
+      key: 'countersign',
+      date: null,
+      heading: 'Countersign',
+      sub: only ? (signedDays != null ? `owner signed ${relDays(signedDays)}` : 'owner signed') : `${n} waiting on Rising Tide`,
+      tone: 'signal',
+      sentence: only
+        ? `${only.signedName ?? 'The owner'} signed ${nameOf(only.propertyId)}'s new agreement${only.signedAt ? ` on ${fmtStamp(only.signedAt)}` : ''}. It is not in force until Rising Tide countersigns.`
+        : `Owners have signed ${n} new agreements. None is in force until Rising Tide countersigns.`,
+      chips: awaitingCountersign
+        .map((f) => ({
+          key: f.propertyId,
+          label: nameOf(f.propertyId),
+          href: `/prospects/${f.projectionId}`,
+          sub: f.signedAt ? `signed ${fmtStamp(f.signedAt)}` : undefined,
+        }))
+        .sort(byLabel),
+    });
+  }
+
+  const tail: Decision[] = [];
+  if (awaitingOwner.length > 0) {
+    const n = awaitingOwner.length;
+    tail.push({
+      key: 'awaiting_owner',
+      date: null,
+      heading: 'Awaiting owner',
+      sub: `${n} out for signature`,
+      tone: 'signal',
+      sentence: 'Sent for signature and not signed yet.',
+      chips: awaitingOwner
+        .map((f) => ({
+          key: f.propertyId,
+          label: nameOf(f.propertyId),
+          href: `/prospects/${f.projectionId}`,
+          sub: f.ownerEmailedAt ? `sent ${fmtStamp(f.ownerEmailedAt)}` : undefined,
+        }))
+        .sort(byLabel),
+    });
+  }
   if (uncovered.length > 0) {
-    decisions.push({
+    tail.push({
       key: 'uncovered',
       date: null,
       heading: 'No live contract',
@@ -355,13 +465,20 @@ export default async function PropertyContractsPage() {
           key: r.property.id,
           label: r.property.name,
           href: recordsHref(r.property.id),
-          sub: last ? `ended ${fmtDate(last.term_end)}` : 'nothing on file',
+          sub:
+            r.flight?.stage === 'awaiting_countersign'
+              ? `owner signed${r.flight.signedAt ? ` ${fmtStamp(r.flight.signedAt)}` : ''}, awaiting countersign`
+              : r.flight?.stage === 'awaiting_owner'
+                ? 'renewal out for signature'
+                : last
+                  ? `ended ${fmtDate(last.term_end)}`
+                  : 'nothing on file',
         };
       }),
     });
   }
   if (unregistered.length > 0) {
-    decisions.push({
+    tail.push({
       key: 'register',
       date: null,
       heading: 'Not registered',
@@ -373,13 +490,13 @@ export default async function PropertyContractsPage() {
           key: u.propertyId,
           label: byProperty.get(u.propertyId)?.name ?? u.propertyId,
           href: `/projections/${u.projectionId}/contract`,
-          sub: u.countersignedAt ? `signed ${fmtDate(u.countersignedAt)}` : undefined,
+          sub: u.countersignedAt ? `signed ${fmtStamp(u.countersignedAt)}` : undefined,
         }))
         .sort(byLabel),
     });
   }
   if (driveOrphans.length > 0) {
-    decisions.push({
+    tail.push({
       key: 'drive',
       date: null,
       heading: 'In Drive',
@@ -395,6 +512,7 @@ export default async function PropertyContractsPage() {
       })),
     });
   }
+  const decisions: Decision[] = [...head, ...dated, ...tail];
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -531,6 +649,39 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+const flightLinkStyle: CSSProperties = { color: 'var(--tide-deep)', textDecoration: 'none', fontSize: 11.5, whiteSpace: 'nowrap' };
+
+/** The expanded-row line for a Helm e-sign contract that the register does not yet carry. */
+function FlightFact({ flight }: { flight: ProjectionContract }) {
+  const link = (href: string, label: string) => (
+    <Link href={href} style={{ color: 'var(--tide-deep)' }}>
+      {label}
+    </Link>
+  );
+  if (flight.stage === 'countersigned') {
+    return (
+      <Fact label="Signed">
+        Countersigned in Helm{flight.countersignedAt ? ` on ${fmtStamp(flight.countersignedAt)}` : ''}.{' '}
+        {link(`/projections/${flight.projectionId}/contract`, 'Open the signed contract')}. It joins this register once its terms are entered.
+      </Fact>
+    );
+  }
+  if (flight.stage === 'awaiting_countersign') {
+    return (
+      <Fact label="In flight">
+        {flight.signedName ?? 'The owner'} signed{flight.signedAt ? ` on ${fmtStamp(flight.signedAt)}` : ''}. Not in force until Rising Tide countersigns.{' '}
+        {link(`/prospects/${flight.projectionId}`, 'Countersign on the prospect page')}; the register row is written on execution.
+      </Fact>
+    );
+  }
+  return (
+    <Fact label="In flight">
+      Sent for signature{flight.ownerEmailedAt ? ` on ${fmtStamp(flight.ownerEmailedAt)}` : ''}, not signed yet.{' '}
+      {link(`/prospects/${flight.projectionId}`, 'Open the draft')}.
+    </Fact>
+  );
+}
+
 function PdfLink({ href, label = 'PDF ↗' }: { href: string; label?: string }) {
   return (
     <a href={href} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontSize: 11.5, whiteSpace: 'nowrap' }}>
@@ -556,7 +707,7 @@ function historyLine(h: PropertyContractRow): ReactNode {
 }
 
 function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) {
-  const { property: p, live: c, history, pending } = row;
+  const { property: p, live: c, history, flight } = row;
   const nameCell = (owner: string | null, note?: ReactNode) => (
     <div style={{ minWidth: 0 }}>
       <Link
@@ -582,8 +733,22 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
         <summary>
           {nameCell(last?.owner_party ?? p.owner_last)}
           <Cell main="—" color="var(--ink-4)" />
-          {pending ? (
+          {flight?.stage === 'countersigned' ? (
             <Cell main="Signed in Helm" sub="not registered yet" color="var(--signal)" bold />
+          ) : flight?.stage === 'awaiting_countersign' ? (
+            <Cell
+              main={`Owner signed${flight.signedAt ? ` ${fmtStamp(flight.signedAt)}` : ''}`}
+              sub="awaiting Rising Tide countersign"
+              color="var(--signal)"
+              bold
+            />
+          ) : flight?.stage === 'awaiting_owner' ? (
+            <Cell
+              main={`Sent${flight.ownerEmailedAt ? ` ${fmtStamp(flight.ownerEmailedAt)}` : ''}`}
+              sub="awaiting owner signature"
+              color="var(--signal)"
+              bold
+            />
           ) : (
             <Cell
               main="No live contract"
@@ -595,12 +760,17 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
           <Cell main="—" color="var(--ink-4)" />
           <Cell main="—" color="var(--ink-4)" />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, alignItems: 'baseline' }}>
-            {pending ? (
-              <Link
-                href={`/projections/${pending.projectionId}/contract`}
-                style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontSize: 11.5, whiteSpace: 'nowrap' }}
-              >
+            {flight?.stage === 'countersigned' ? (
+              <Link href={`/projections/${flight.projectionId}/contract`} style={flightLinkStyle}>
                 Signed ↗
+              </Link>
+            ) : flight?.stage === 'awaiting_countersign' ? (
+              <Link href={`/prospects/${flight.projectionId}`} style={flightLinkStyle}>
+                Countersign →
+              </Link>
+            ) : flight?.stage === 'awaiting_owner' ? (
+              <Link href={`/prospects/${flight.projectionId}`} style={flightLinkStyle}>
+                Draft →
               </Link>
             ) : last?.drive_url ? (
               <PdfLink href={last.drive_url} />
@@ -610,15 +780,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
         </summary>
         <div className="rt-contract-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '9px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
-            {pending && (
-              <Fact label="Signed">
-                Countersigned in Helm{pending.countersignedAt ? ` on ${fmtDate(pending.countersignedAt)}` : ''}.{' '}
-                <Link href={`/projections/${pending.projectionId}/contract`} style={{ color: 'var(--tide-deep)' }}>
-                  Open the signed contract
-                </Link>
-                . It joins this register once its terms are entered.
-              </Fact>
-            )}
+            {flight && <FlightFact flight={flight} />}
             {last ? (
               <Fact label="Last agreement">
                 {last.owner_party} · {SIGNED_VIA[last.signed_via]}
@@ -627,7 +789,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
                 {historyLine(last)}
               </Fact>
             ) : (
-              !pending && <Fact label="On file">Nothing.</Fact>
+              !flight && <Fact label="On file">Nothing.</Fact>
             )}
             {history.slice(1).map((h) => (
               <Fact key={h.id} label="Earlier">
@@ -649,6 +811,15 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
   const feeMismatch = fee != null && helmFee != null && fee !== helmFee;
   const terms = c.special_terms ?? [];
   const negotiated = terms.length + (c.fee_notes ? 1 : 0);
+  // A renewal mid-flight outranks the term count on the name line.
+  const flightNote =
+    flight?.stage === 'awaiting_countersign' ? (
+      <span style={{ color: 'var(--signal)' }}>renewal signed by owner, awaiting countersign</span>
+    ) : flight?.stage === 'awaiting_owner' ? (
+      <span style={{ color: 'var(--signal)' }}>renewal out for signature</span>
+    ) : negotiated > 0 ? (
+      `${negotiated} negotiated ${plural(negotiated, 'term')}`
+    ) : undefined;
 
   const renewalMain = c.renewal_type === 'auto_renew' ? 'Auto-renews' : c.renewal_type === 'mutual_agreement' ? 'Mutual agreement' : 'Fixed term';
   let renewalSub: string;
@@ -715,7 +886,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
   return (
     <details className="rt-contract" id={`contract-${p.id}`}>
       <summary>
-        {nameCell(c.owner_party, negotiated > 0 ? `${negotiated} negotiated ${plural(negotiated, 'term')}` : undefined)}
+        {nameCell(c.owner_party, flightNote)}
         <Cell
           main={fee != null ? `${fee}%` : '—'}
           sub={feeMismatch ? `Helm bills ${helmFee}%` : c.fee_notes ? 'conditional' : undefined}
@@ -732,6 +903,7 @@ function ContractRow({ row, todayIso }: { row: RegisterRow; todayIso: string }) 
       </summary>
       <div className="rt-contract-body">
         <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '9px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
+          {flight && <FlightFact flight={flight} />}
           <Fact label="Signed">
             {SIGNED_VIA[c.signed_via]}
             {c.executed_on ? `, executed ${fmtDate(c.executed_on)}` : ', copy on file is undated'}
