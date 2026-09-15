@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   resolvePropertyIdFromSlug,
+  resolvePropertyIdFromName,
   buildPaymentLinkSms,
   buildPaymentLinkNudgeSms,
   fillLinkPlaceholder,
@@ -27,6 +28,19 @@ test('slug resolution: exact, alias, suffix-stripped stem, ambiguity', () => {
   assert.equal(resolvePropertyIdFromSlug('53_rocky_neck', IDS), '53_rocky_neck');
   assert.equal(resolvePropertyIdFromSlug('marina', IDS), null);
   assert.equal(resolvePropertyIdFromSlug('', IDS), null);
+});
+
+test('name fallback: the Send lens display name finds the property', () => {
+  const props = [
+    { id: '3_south_st', name: '3 South' },
+    { id: '53_rocky_neck', name: '53 Rocky Neck' },
+    { id: '53_rocky_neck_2', name: '53 Rocky Neck, Downstairs' },
+  ];
+  assert.equal(resolvePropertyIdFromName('3 South', props), '3_south_st');
+  assert.equal(resolvePropertyIdFromName('3 south st', props), '3_south_st');
+  assert.equal(resolvePropertyIdFromName('53 Rocky Neck', props), '53_rocky_neck');
+  assert.equal(resolvePropertyIdFromName('53 Rocky Neck (DOWN)', props), null);
+  assert.equal(resolvePropertyIdFromName('', props), null);
 });
 
 test('sms wording carries the tax split and the reply-here closer', () => {

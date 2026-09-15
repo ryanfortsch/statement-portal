@@ -19,6 +19,7 @@ import {
   buildPaymentLinkSms,
   fillLinkPlaceholder,
   firstName,
+  resolvePropertyIdFromName,
   resolvePropertyIdFromSlug,
   toE164,
 } from '@/lib/payment-links-text';
@@ -68,6 +69,9 @@ export type PreparedLink = {
 export async function preparePaymentLinkAction(input: {
   listingSlug: string;
   reservationId: string;
+  /** The stay's display name from the picker ("3 South"), tried when the
+   *  slug matches nothing. */
+  propertyName?: string;
 }): Promise<PreparedLink | { ok: false; error: string }> {
   if (!(await requireEmail())) return { ok: false, error: 'Not signed in' };
   const today = new Date().toISOString().slice(0, 10);
@@ -82,7 +86,9 @@ export async function preparePaymentLinkAction(input: {
     hasKey: p.hasKey,
     taxRate: owedOccupancyTaxRate(p.id, today),
   }));
-  const propertyId = resolvePropertyIdFromSlug(input.listingSlug, all.map((p) => p.id));
+  const propertyId =
+    resolvePropertyIdFromSlug(input.listingSlug, all.map((p) => p.id)) ??
+    resolvePropertyIdFromName(input.propertyName || '', all);
   const match = propertyId ? all.find((p) => p.id === propertyId) : undefined;
   return {
     ok: true,

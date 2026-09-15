@@ -50,6 +50,25 @@ export function resolvePropertyIdFromSlug(slug: string, knownIds: string[]): str
   return hits.length === 1 ? hits[0] : null;
 }
 
+/**
+ * Second try when the slug gave nothing: the display name the Send lens
+ * shows ("3 South") against properties.name, exact first, then by stem.
+ * Jimmy Alburquerque's 3 South stay (2026-09-14) came through with a slug
+ * that matched nothing and the panel made Dotti pick from a dropdown.
+ */
+export function resolvePropertyIdFromName(
+  name: string,
+  props: Array<{ id: string; name: string }>,
+): string | null {
+  const n = (name || '').trim().toLowerCase();
+  if (!n) return null;
+  const exact = props.filter((p) => (p.name || '').trim().toLowerCase() === n);
+  if (exact.length === 1) return exact[0].id;
+  const stem = slugStem(n);
+  const hits = props.filter((p) => slugStem(p.name || '') === stem || slugStem(p.id) === stem);
+  return hits.length === 1 ? hits[0].id : null;
+}
+
 /** "$200" / "$223.40": whole dollars drop the cents, like the concierge SMS. */
 export function money(cents: number): string {
   const amount = cents / 100;
