@@ -62,7 +62,11 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
     if (loadingPrep) return;
     setLoadingPrep(true);
     setPrepError(null);
-    preparePaymentLinkAction({ listingSlug: picked.listing_id, reservationId: picked.reservation_id || '' })
+    preparePaymentLinkAction({
+      listingSlug: picked.listing_id,
+      reservationId: picked.reservation_id || '',
+      propertyName: picked.property_name || '',
+    })
       .then((r) => {
         if (!r.ok) {
           setPrepError(r.error);
