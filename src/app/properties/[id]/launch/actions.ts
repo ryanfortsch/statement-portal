@@ -9,6 +9,7 @@ import {
   buildInitialLaunchSteps,
   type LaunchStepStatus,
 } from '@/lib/launch-checklist';
+import { loadLaunchForProperty, type LaunchPropertyLite } from '@/lib/launch-context';
 
 /** Service-role client for writes to the RLS-protected `properties`
  *  table (same posture as src/app/properties/actions.ts — the anon
@@ -213,4 +214,83 @@ export async function ensureLaunchStepsSeeded(propertyId: string): Promise<void>
   } catch {
     // Best-effort: a failed backstop seed shouldn't take the page down.
   }
+}
+
+/**
+ * The activation gate. Stamps the go-live date the revenue and forecast
+ * models read (properties.activated_at), confirms is_active, and marks the
+ * `activated` step done. Refuses while any required non-gate step is still
+ * open, using the same resolver the page renders with, so the button and
+ * the server agree about readiness.
+ *
+ * The date stamped is the honest go-live: an existing activated_at is
+ * never moved; otherwise the earliest confirmed stay that has already
+ * begun (a home whose first guest arrived before anyone pressed the
+ * button went live that day), else today. Noon UTC so the calendar day
+ * survives any timezone rendering.
+ */
+export async function activateProperty(
+  propertyId: string,
+): Promise<{ ok: true; activatedAt: string } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const sb = getServiceClient();
+  const { data: p, error: pErr } = await sb
+    .from('properties')
+    .select(
+      'id, title, owner_full, owner_emails, owner_phone, management_fee_pct, bank_last4, tax_cert_id, guesty_listing_id, is_active, activated_at',
+    )
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (pErr || !p) return { ok: false, error: pErr?.message || `Property ${propertyId} not found.` };
+
+  const lite = p as LaunchPropertyLite;
+  const load = await loadLaunchForProperty(lite);
+  if (!load.summary.canActivate) {
+    const open = load.effective
+      .filter((e) => e.step.required && !e.step.gate && !e.resolved)
+      .map((e) => e.step.title);
+    return { ok: false, error: `Still open: ${open.join('; ')}.` };
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const first = load.facts.firstStayCheckIn;
+  const goLiveDay = first && first < today ? first : today;
+  const activatedAt = lite.activated_at ?? `${goLiveDay}T12:00:00.000Z`;
+
+  const { error: upErr } = await sb
+    .from('properties')
+    .update({ activated_at: activatedAt, is_active: true })
+    .eq('id', propertyId);
+  if (upErr) return { ok: false, error: `Save failed: ${upErr.message}` };
+
+  const now = new Date().toISOString();
+  const { data: row } = await supabase
+    .from('property_launch_steps')
+    .select('id')
+    .eq('property_id', propertyId)
+    .eq('step_key', 'activated')
+    .maybeSingle();
+  if (row) {
+    await supabase
+      .from('property_launch_steps')
+      .update({ status: 'done', completed_at: now, completed_by: session.user.email })
+      .eq('property_id', propertyId)
+      .eq('step_key', 'activated');
+  } else {
+    await supabase.from('property_launch_steps').insert({
+      property_id: propertyId,
+      step_key: 'activated',
+      status: 'done',
+      completed_at: now,
+      completed_by: session.user.email,
+    });
+  }
+
+  revalidatePath(`/properties/${propertyId}/launch`);
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath('/properties');
+  revalidatePath('/properties/onboarding');
+  return { ok: true, activatedAt };
 }

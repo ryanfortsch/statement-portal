@@ -5,8 +5,9 @@ import {
   setLaunchStepStatus,
   setLaunchStepNotes,
   setLaunchStepField,
+  activateProperty,
 } from './actions';
-import type { LaunchStep, LaunchStepRow, LaunchStepStatus } from '@/lib/launch-checklist';
+import { LAUNCH_WHO_LABELS, type LaunchStep, type LaunchStepRow, type LaunchStepStatus } from '@/lib/launch-checklist';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type Props = {
@@ -24,6 +25,14 @@ type Props = {
    *  (title / tax_cert_id / bank_last4 / listing_match). Only passed for
    *  the four `set_*` field steps; prefills the inline editor. */
   fieldValue?: string | null;
+  /** This is the first open required step: the one to do now. */
+  nextUp?: boolean;
+  /** Gate card only: every required step is resolved, the button is live. */
+  canActivate?: boolean;
+  /** Gate card only: the stamped go-live date, if any. */
+  activatedAt?: string | null;
+  /** Gate card only: label for the Activate button. */
+  propertyName?: string;
 };
 
 /** The four steps whose action maps to a real property column. For these
@@ -71,6 +80,16 @@ function deepLinkFor(
       return { href: 'https://my.openphone.com/', label: 'Open Quo', external: true };
     case 'open_seam':
       return { href: 'https://console.seam.co/', label: 'Open Seam', external: true };
+    case 'open_guesty_automations':
+      // Guesty's message-automation list (Operations > Front desk > Message
+      // automation). "Cleaning updates - Rosa" lives here; there is no API
+      // for it, so the operator adds the listing by hand.
+      return { href: 'https://app.guesty.com/workflows/messages', label: 'Open Guesty automations', external: true };
+    case 'open_pricelabs':
+      return { href: 'https://app.pricelabs.co/', label: 'Open PriceLabs', external: true };
+    case 'send_welcome':
+      // The intake invite (and its preview) lives on the property page.
+      return { href: `/properties/${propertyId}`, label: 'Open property', external: false };
     default:
       return null;
   }
@@ -96,9 +115,20 @@ const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
  * so live work pops by comparison. Auto-completed steps lose the
  * change affordance entirely and gain a small "Auto" badge.
  */
-export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue }: Props) {
+export function LaunchStepCard({
+  propertyId,
+  step,
+  row,
+  autoResolved,
+  fieldValue,
+  nextUp,
+  canActivate,
+  activatedAt,
+  propertyName,
+}: Props) {
   const softRefresh = useSoftRefresh();
   const [pending, startTransition] = useTransition();
+  const [activatePending, setActivatePending] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesDraft, setNotesDraft] = useState<string>(row?.notes ?? '');
   const [notesPending, setNotesPending] = useState(false);
@@ -149,6 +179,18 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue
     });
   }
 
+  async function runActivate() {
+    setActivatePending(true);
+    setError(null);
+    const res = await activateProperty(propertyId);
+    setActivatePending(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    softRefresh();
+  }
+
   async function saveNotes() {
     setNotesPending(true);
     setError(null);
@@ -165,9 +207,11 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue
     <>
       <style>{rowCss}</style>
       <div
+        id={`step-${step.key}`}
         className="rt-launch-row"
         data-state={status}
         data-pending={pending || undefined}
+        data-next={nextUp || undefined}
       >
         <div className="rt-launch-row-inner">
           {/* Left: status dot */}
@@ -187,9 +231,11 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue
               >
                 {step.title}
               </span>
-              {step.required && !isResolved && <Tag tone="signal">Required</Tag>}
+              {nextUp && <Tag tone="signal">Next up</Tag>}
+              {step.required && !isResolved && !nextUp && <Tag tone="signal">Required</Tag>}
               {step.gate && <Tag tone="ink">Activation gate</Tag>}
               {isAuto && <Tag tone="muted">Auto</Tag>}
+              <Tag tone="muted">{LAUNCH_WHO_LABELS[step.who]}</Tag>
             </div>
 
             {step.description && (
@@ -256,6 +302,33 @@ export function LaunchStepCard({ propertyId, step, row, autoResolved, fieldValue
                 >
                   {link.label} {link.external ? '↗' : '→'}
                 </a>
+              </div>
+            )}
+
+            {/* The activation gate: a real button, not a checkbox. It stays
+                available until activated_at is stamped, even on a home
+                whose first guest already arrived (the step then reads as
+                auto-resolved but the date is still worth recording). */}
+            {step.action === 'activate' && !activatedAt && (
+              <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={runActivate}
+                  disabled={!canActivate || activatePending}
+                  className="rt-launch-row-btn rt-launch-row-btn-primary"
+                >
+                  {activatePending ? 'Activating…' : `Activate ${propertyName ?? 'property'}`}
+                </button>
+                {!canActivate && (
+                  <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>
+                    Unlocks once every required step above is resolved.
+                  </span>
+                )}
+              </div>
+            )}
+            {step.action === 'activate' && activatedAt && (
+              <div className="rt-launch-row-stamp">
+                Go-live date on record: {new Date(activatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}
               </div>
             )}
 
@@ -480,6 +553,11 @@ const rowCss = `
   }
   .rt-launch-row[data-pending] {
     opacity: 0.55;
+  }
+  /* The one step to do now: a quiet signal rail on the left edge, matching
+     the "Next up" tag and the strip at the top of the page. */
+  .rt-launch-row[data-next] {
+    box-shadow: inset 3px 0 0 var(--signal, #c85a3a);
   }
   .rt-launch-row[data-state="done"],
   .rt-launch-row[data-state="skipped"],

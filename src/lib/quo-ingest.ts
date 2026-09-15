@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { normalizePhone, quoLineOfInbound, type QuoLine } from '@/lib/quo';
-import { matchPropertyFromCleanerText } from '@/lib/properties';
+import { matchPropertyFromCleanerText, PROPERTIES, type CleanerTextRosterEntry } from '@/lib/properties';
 import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 import { ingestVendorAppointments, isVendorReminderSender } from '@/lib/vendor-schedule';
 
@@ -415,11 +415,38 @@ async function findContactByPhone(phone: string): Promise<ContactRow | null> {
   return null;
 }
 
+/**
+ * The roster cleaner texts are matched against: every active property in
+ * the live table, so a home promoted in Helm attributes "4 middle all set"
+ * the day it exists. Falls back to the code-side PROPERTIES map when the
+ * read fails or comes back empty (a read that returned nothing is not an
+ * empty fleet).
+ */
+async function loadCleanerTextRoster(): Promise<ReadonlyArray<CleanerTextRosterEntry>> {
+  const fallback = Object.values(PROPERTIES);
+  try {
+    const { data, error } = await supabase
+      .from('properties')
+      .select('id, name, listing_match')
+      .eq('is_active', true)
+      .limit(500);
+    if (error || !data || data.length === 0) return fallback;
+    return (data as Array<{ id: string; name: string | null; listing_match: string | null }>).map((r) => ({
+      id: r.id,
+      name: r.name ?? '',
+      listing_match: (r.listing_match ?? '').toLowerCase(),
+    }));
+  } catch {
+    return fallback;
+  }
+}
+
 async function attributeCleaningProperty(
   body: string,
   cleanerWhitelist: string[],
 ): Promise<string | null> {
-  const fromBody = matchPropertyFromCleanerText(body)?.id ?? null;
+  const roster = await loadCleanerTextRoster();
+  const fromBody = matchPropertyFromCleanerText(body, roster)?.id ?? null;
   if (fromBody) {
     if (cleanerWhitelist.length === 0 || cleanerWhitelist.includes(fromBody)) {
       return fromBody;

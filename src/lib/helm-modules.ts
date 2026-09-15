@@ -314,6 +314,18 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
     section: 'properties',
   },
+  {
+    id: 'property-onboarding',
+    href: '/properties/onboarding',
+    number: '05d',
+    title: 'Onboarding board',
+    description: 'Every home in flight: launch-checklist progress, what is next and who owns it, and the live homes still carrying open go-live steps (Guesty cleaning automation, PriceLabs, the code roster).',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'properties',
+  },
   // Prospects is now a TAB inside Properties (the Prospects tab at
   // /properties/prospects), same pattern as Statements / Revenue under
   // Financials. Hidden from the nav lists so it doesn't duplicate the

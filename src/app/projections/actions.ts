@@ -910,7 +910,11 @@ export async function promoteToProperty(projectionId: string) {
 
   const propertyPayload = {
     id: propertyId,
-    name: String(projRow.property_address),
+    // Internal name = the street address without its suffix ("4 Middle",
+    // not "4 Middle Road"). That is what staff say and what every internal
+    // surface shows; 225 Washington shipped as its full address and had to
+    // be fixed by hand.
+    name: internalNameFromAddress(String(projRow.property_address)),
     address: String(projRow.property_address),
     city: projRow.property_city || '',
     type_of_unit: projRow.property_type || null,
@@ -942,6 +946,16 @@ export async function promoteToProperty(projectionId: string) {
     // Guest-guide answers from the intake seed the printed Welcome Home
     // guide the moment the property exists (fresh row, nothing to merge).
     home_guide_overrides: mergeGuideAnswers(ob, null),
+
+    // The Guesty listing-match needle, stamped at birth. Every Guesty sync
+    // matches listings to properties by this lowercase substring; 4 Middle
+    // Road and 225 Washington were invisible to all of Helm for weeks
+    // because nothing stamped it. The id already carries the suffix-free
+    // form, so "4_middle" becomes "4 middle". A collision-suffixed id
+    // ("21_horton_2") yields a needle that matches nothing rather than the
+    // wrong home; the launch checklist's listing-match step is where the
+    // operator corrects it.
+    listing_match: propertyId.replace(/_/g, ' '),
 
     projection_id: projectionId,
   };
@@ -1060,6 +1074,23 @@ async function pickPropertyId(address: string, sb: SupabaseClient): Promise<stri
     if (!taken.has(candidate)) return candidate;
   }
   throw new Error(`Couldn't find a free property id for ${base}`);
+}
+
+/**
+ * Internal name from a street address: drop the city/state tail, the
+ * punctuation and the street-type suffix, keep the original casing.
+ * "4 Middle Road, Rockport" -> "4 Middle"; "225 Washington St" -> "225
+ * Washington". Falls back to the trimmed address when stripping would
+ * leave nothing.
+ */
+function internalNameFromAddress(addr: string): string {
+  const cleaned = addr
+    .replace(/,.*$/, '')
+    .replace(/[.'']/g, '')
+    .replace(/\b(st|rd|ave|lane|ln|way|road|street|avenue|drive|dr|circle|cir|court|ct|place|pl|terrace|ter|boulevard|blvd)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || addr.trim();
 }
 
 function slugifyAddress(addr: string): string {
