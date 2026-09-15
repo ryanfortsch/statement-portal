@@ -12,7 +12,7 @@ import { SectionTabs } from '@/components/SectionTabs';
  * on any /guests/* descendant such as /guests/[id] or /guests/campaigns,
  * so each lens page names its own tab instead.
  */
-export function GuestsTabBar({ active }: { active: 'contacts' | 'reviews' | 'agreements' }) {
+export function GuestsTabBar({ active }: { active: 'contacts' | 'reviews' | 'agreements' | 'quotes' }) {
   // Reviews is the default lens (bare /guests); the others are click-ins.
   return (
     <SectionTabs
@@ -21,6 +21,7 @@ export function GuestsTabBar({ active }: { active: 'contacts' | 'reviews' | 'agr
         { id: 'reviews', label: 'Reviews', href: '/guests' },
         { id: 'contacts', label: 'Contacts', href: '/guests/contacts' },
         { id: 'agreements', label: 'Agreements', href: '/guests/agreements' },
+        { id: 'quotes', label: 'Quotes', href: '/guests/quotes' },
       ]}
     />
   );

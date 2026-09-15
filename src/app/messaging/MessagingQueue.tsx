@@ -615,6 +615,24 @@ function ApprovalCard({
               {topicLabel}
             </span>
           )}
+          {/* A 2027 pre-release request is a quote waiting to be written:
+              hand the property, dates and first name to the composer so the
+              operator does not retype them. The composer folds slug aliases. */}
+          {approval.topic === 'prerelease_request' && (
+            <a
+              className="eyebrow"
+              href={
+                `/guests/quotes/new?property=${encodeURIComponent(approval.listing_id || '')}` +
+                `&check_in=${encodeURIComponent(approval.check_in || '')}` +
+                `&check_out=${encodeURIComponent(approval.check_out || '')}` +
+                `&first=${encodeURIComponent(approval.guest_first || '')}` +
+                `&source=prerelease&source_ref=${encodeURIComponent(approval.guesty_message_id || '')}`
+              }
+              style={{ color: 'var(--signal)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Draft a quote
+            </a>
+          )}
         </div>
         {/* Queued cards suppress the "drafted X ago" cue (the countdown is the
             one time readout) and instead offer a Hide control to collapse back

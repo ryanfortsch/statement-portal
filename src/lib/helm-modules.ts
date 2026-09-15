@@ -533,6 +533,18 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'growth',
     section: 'marketing',
   },
+  {
+    id: 'quotes',
+    href: '/guests/quotes',
+    number: '13c',
+    title: 'Custom Quotes',
+    description: 'Stay Cape Ann custom quotes and booking requests. Compose the price in Helm; the guest accepts and pays on staycapeann.com.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'growth',
+    section: 'marketing',
+  },
   // Reviews is not a module of its own - it's the "Reviews" tab inside
   // the Guests section (/guests?tab=reviews). /reviews redirects there.
   // Competitors is surfaced as a tab of the Growth strip, so it's hidden
