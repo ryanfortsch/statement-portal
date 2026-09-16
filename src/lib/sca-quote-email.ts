@@ -25,6 +25,13 @@ import { displayTitle, fmtCents, fmtLongDate, fmtShortDate, todayInEastern, type
 const FROM_NAME = 'Stay Cape Ann';
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'allie@risingtidestr.com';
 const ALLIE_CC = 'allie@risingtidestr.com';
+// Guest replies must land at hello@staycapeann.com: that is the address the
+// stay-concierge email intake watches, so a reply joins the guest's existing
+// thread and becomes a Guests card. The From stays RESEND_FROM_EMAIL (shared
+// with Field and onboarding mail, a staff Google Group in production), which
+// is exactly where a reply must NOT go. Found 2026-09-16 on the first quote
+// sent to a guest mid-negotiation.
+const GUEST_REPLY_TO = 'hello@staycapeann.com';
 const GUEST_PHONE = '(978) 865-2575';
 
 const STAFF_NOTIFY = (process.env.STAFF_NOTIFY_EMAILS || 'allie@risingtidestr.com,dotti@risingtidestr.com')
@@ -160,6 +167,7 @@ export async function sendQuoteLinkEmail(args: { quote: ScaQuoteRow }): Promise<
   const ok = await sendTransactionalViaResend({
     to: q.guest_email,
     cc: ALLIE_CC,
+    replyTo: GUEST_REPLY_TO,
     fromName: FROM_NAME,
     fromEmail: FROM_EMAIL,
     subject: `Your quote for ${title}, ${datesLine(q)}`,
@@ -226,6 +234,7 @@ export async function sendBalanceReminderEmail(args: { quote: ScaQuoteRow }): Pr
   const ok = await sendTransactionalViaResend({
     to: q.guest_email,
     cc: ALLIE_CC,
+    replyTo: GUEST_REPLY_TO,
     fromName: FROM_NAME,
     fromEmail: FROM_EMAIL,
     subject: `Balance due ${due}: ${title}, ${datesLine(q)}`,
