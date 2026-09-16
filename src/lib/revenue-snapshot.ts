@@ -20,7 +20,8 @@ import {
   nightsBetween,
 } from './revenue-date-range';
 import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
-import { pacedMonthLift, projectOccupancy } from './revenue-pacing';
+import { pacedMonthLift, projectOccupancy, type PacingPricing } from './revenue-pacing';
+import { achievedRateIndex, meanMarketRate } from './market-rate-by-day';
 import { loadInstallmentsForCodes, type Installment } from './installments';
 import {
   allocateStayByNights,
@@ -101,24 +102,27 @@ function addToMix(
  * Add src into target. `revenueFactor` scales revenue; `countFactor` scales
  * nights and stays.
  *
- * The two differ in exactly one caller. A statement month rescales the
+ * The factors differ by caller. A statement month rescales the
  * guesty-derived mix so its revenue matches the statement total while the
  * night/stay split underneath stays as booked, so it passes a revenue factor
- * alone. A pacing month projects the whole booking forward and passes the
- * multiplier for both: lifting revenue without lifting nights would book the
- * extra dollars as rate instead of as occupancy, and the strip's per-channel
- * ADR (revenue / nights) would read high by the multiplier.
+ * alone. A pacing month passes three: its added nights are priced at the
+ * open-night rate rather than the booked ADR and its added stays follow the
+ * home's length of stay, so revenue, nights and stays each grow by their own
+ * ratio. Lifting revenue without lifting nights would book the extra dollars
+ * as rate instead of as occupancy, and the strip's per-channel ADR
+ * (revenue / nights) would read high by the multiplier.
  */
 function mergeMix(
   target: ChannelMix,
   src: ChannelMix,
   revenueFactor = 1,
   countFactor = 1,
+  staysFactor = countFactor,
 ): void {
   for (const ch of CHANNELS) {
     target[ch].revenue += src[ch].revenue * revenueFactor;
     target[ch].nights += src[ch].nights * countFactor;
-    target[ch].stays += src[ch].stays * countFactor;
+    target[ch].stays += src[ch].stays * staysFactor;
   }
 }
 
@@ -171,10 +175,22 @@ export type PacingInfo = {
   pacingPct: number;
   /** Historical Gloucester avg for this month-of-year as 0-100. */
   historicalAvgPct: number;
-  /** historicalAvgPct / pacingPct, floored at 1. Applied to revenue. */
+  /** historicalAvgPct / pacingPct, floored at 1. Carries booked nights toward the benchmark. */
   multiplier: number;
   /** YYYY-MM key the pacing applies to. */
   month: string;
+  /**
+   * Mean market rate (last year's Gloucester rate for the same weekday and
+   * holiday, unscaled) across the fleet's open nights in `month`. Null when
+   * the market series covers none of them.
+   */
+  openNightMarketRate: number | null;
+  /**
+   * Fleet revenue per booked night over the market rate on the same nights,
+   * trailing year. What a market night is scaled by before it becomes one of
+   * ours. Null with no history.
+   */
+  fleetRateIndex: number | null;
 };
 
 export type PropertySnapshot = {
@@ -400,6 +416,16 @@ type PropertyMonthBuckets = {
    * can swap closed statement months and scale pacing months per channel.
    */
   channelByMonth: Map<string, ChannelMix>;
+  /**
+   * Every night in range this property is spoken for: booked, owner-held,
+   * or calendar-blocked. The pacing post-pass prices the month's OPEN nights
+   * off the market series, and open is the complement of this set.
+   */
+  occupiedDates: Set<string>;
+  /** Per-stay cleaning estimate, so projected stays can carry a cleaning cost. */
+  cleaningPerStay: number;
+  /** First day this property counts in range (activation-clipped). */
+  propStart: string;
 };
 
 /**
@@ -678,6 +704,9 @@ export async function computeRevenueSnapshot(
     blockData = []; // non-fatal: blocks only refine the denominator
   }
   const calendarBlocksByProperty = new Map<string, Map<string, number>>();
+  // The same blocks by date, so the pacing post-pass can tell an open night
+  // from a blocked one.
+  const calendarBlockDatesByProperty = new Map<string, Set<string>>();
   for (const row of (blockData ?? []) as { property_id: string | null; date: string | null }[]) {
     if (!row.property_id || !row.date) continue;
     const mKey = row.date.slice(0, 7); // YYYY-MM
@@ -687,6 +716,12 @@ export async function computeRevenueSnapshot(
       calendarBlocksByProperty.set(row.property_id, m);
     }
     m.set(mKey, (m.get(mKey) ?? 0) + 1);
+    let dates = calendarBlockDatesByProperty.get(row.property_id);
+    if (!dates) {
+      dates = new Set();
+      calendarBlockDatesByProperty.set(row.property_id, dates);
+    }
+    dates.add(row.date.slice(0, 10));
   }
 
   // 5. Per-property pro-rated math. Each property also accumulates per-month
@@ -782,6 +817,10 @@ export async function computeRevenueSnapshot(
         blockedNightsByMonth.set(mKey, (blockedNightsByMonth.get(mKey) ?? 0) + count);
       }
     }
+    // Nights spoken for, by date. Seeded with the calendar blocks; the
+    // reservation loop adds booked and owner-held nights. The pacing
+    // post-pass prices what is left open.
+    const occupiedDates = new Set<string>(calendarBlockDatesByProperty.get(prop.id) ?? []);
 
     for (const r of propReservations) {
       const checkIn = r.check_in!;
@@ -804,6 +843,7 @@ export async function computeRevenueSnapshot(
       if (fullPayout <= 0 && !hasInstallments) {
         const blockedStart = checkIn > propStart ? checkIn : propStart;
         const blockedEnd = checkOut < periodEndExclusive ? checkOut : periodEndExclusive;
+        for (let d = blockedStart; d < blockedEnd; d = dayAfter(d)) occupiedDates.add(d);
         let cursor = blockedStart;
         while (cursor < blockedEnd) {
           const cy = parseInt(cursor.slice(0, 4), 10);
@@ -859,6 +899,7 @@ export async function computeRevenueSnapshot(
         const inRangeEnd = physicalEnd < periodEndExclusive ? physicalEnd : periodEndExclusive;
         if (physicalStart < inRangeEnd) {
           calendarNightsInRange += nightsBetween(physicalStart, inRangeEnd);
+          for (let d = physicalStart; d < inRangeEnd; d = dayAfter(d)) occupiedDates.add(d);
         }
         let cursor = physicalStart;
         while (cursor < physicalEnd) {
@@ -1014,6 +1055,9 @@ export async function computeRevenueSnapshot(
       blockedNightsByMonth,
       bookableNights: propBookableNights,
       channelByMonth,
+      occupiedDates,
+      cleaningPerStay,
+      propStart,
     });
 
     const managementFee = totalRevenue * mgmtFeeFraction;
@@ -1316,7 +1360,16 @@ async function applyStatementsAndPacing(
   // current/future months that are FULLY inside the range — partial months
   // don't get multipliers (the headline number on the card is mostly
   // computed-from-guesty for those edges).
-  type MonthPacing = { pacingPct: number; historicalAvgPct: number; multiplier: number };
+  type MonthPacing = {
+    pacingPct: number;
+    historicalAvgPct: number;
+    multiplier: number;
+    /**
+     * Portfolio nights per stay checking out this month: the length of stay
+     * a home with calendar nights but no checkout of its own projects at.
+     */
+    avgStayNights: number | null;
+  };
   const pacingByMonth = new Map<string, MonthPacing>();
   for (const seg of segments) {
     const isCurrentOrFuture = seg.monthKey >= todayYM;
@@ -1329,6 +1382,8 @@ async function applyStatementsAndPacing(
     );
     let portfolioNightsBooked = 0;
     let portfolioBlockedNights = 0;
+    let portfolioStayNights = 0;
+    let portfolioStays = 0;
     const mgmtIds = new Set(mgmtProps.map((p) => p.id));
     for (const [propId, buckets] of monthBucketsByProperty.entries()) {
       if (!mgmtIds.has(propId)) continue;
@@ -1336,6 +1391,8 @@ async function applyStatementsAndPacing(
       // checkout-attributed nights the dashboard displays.
       portfolioNightsBooked += buckets.calendarNightsByMonth.get(seg.monthKey) ?? 0;
       portfolioBlockedNights += buckets.blockedNightsByMonth.get(seg.monthKey) ?? 0;
+      portfolioStayNights += buckets.nightsByMonth.get(seg.monthKey) ?? 0;
+      portfolioStays += buckets.staysByMonth.get(seg.monthKey) ?? 0;
     }
     const daysThisMonth = daysInMonth(seg.year, seg.month + 1);
     // Subtract owner blocks from possible nights so pacing % reads against
@@ -1375,7 +1432,12 @@ async function applyStatementsAndPacing(
       multiplier = Math.max(1, Math.min(rawMultiplier, cappedMultiplier));
     }
 
-    pacingByMonth.set(seg.monthKey, { pacingPct, historicalAvgPct, multiplier });
+    pacingByMonth.set(seg.monthKey, {
+      pacingPct,
+      historicalAvgPct,
+      multiplier,
+      avgStayNights: portfolioStays > 0 ? portfolioStayNights / portfolioStays : null,
+    });
   }
 
   // Headline pacing for the UI: pick the month with the largest multiplier
@@ -1391,9 +1453,23 @@ async function applyStatementsAndPacing(
         historicalAvgPct: round1(mp.historicalAvgPct),
         multiplier: mp.multiplier,
         month: seg.monthKey,
+        openNightMarketRate: null,
+        fleetRateIndex: null,
       };
     }
   }
+
+  // What a projected night is worth. Loaded only when some month actually
+  // projects, so the Actuals view and every past range never pay for it.
+  const anyPaced =
+    applyPacing && Array.from(pacingByMonth.values()).some((mp) => mp.multiplier > 1);
+  const rateIndex = anyPaced
+    ? await loadAchievedRateIndex(properties, now)
+    : { byProperty: new Map<string, number>(), fleet: null as number | null };
+  const today = ymd(now);
+  // Fleet-wide mean of the unscaled market analog over open nights, per
+  // month, for the hero line. Filled inside the per-property loop.
+  const openRateByMonth = new Map<string, { sum: number; n: number }>();
 
   let portfolioCalendarNightsDelta = 0;
 
@@ -1424,6 +1500,14 @@ async function applyStatementsAndPacing(
     // Rebuilt per-month with the same three branches as the money deltas,
     // so the mix always sums (approximately) to the displayed revenue.
     const channelMix = emptyChannelMix();
+
+    // This home's length of stay across the range: the fallback stay length
+    // for a paced month it has calendar nights in but no checkout of its own.
+    let propStayNights = 0;
+    let propStays = 0;
+    for (const v of buckets.nightsByMonth.values()) propStayNights += v;
+    for (const v of buckets.staysByMonth.values()) propStays += v;
+    const propAvgStayNights = propStays > 0 ? propStayNights / propStays : null;
 
     for (const seg of segments) {
       const isClosed = seg.monthKey < todayYM;
@@ -1488,23 +1572,58 @@ async function applyStatementsAndPacing(
       //     occupancy sat frozen at booked-so-far.
       const mp = pacingByMonth.get(seg.monthKey);
       if (seg.fullMonth && isCurrentOrFuture && applyPacing && mp && mp.multiplier > 1) {
-        const lift = pacedMonthLift(
-          {
-            revenue: buckets.revenueByMonth.get(seg.monthKey) ?? 0,
-            nights: buckets.nightsByMonth.get(seg.monthKey) ?? 0,
-            stays: buckets.staysByMonth.get(seg.monthKey) ?? 0,
-            cleaning: buckets.cleaningByMonth.get(seg.monthKey) ?? 0,
-            calendarNights: buckets.calendarNightsByMonth.get(seg.monthKey) ?? 0,
-          },
-          mp.multiplier,
-        );
+        const booked = {
+          revenue: buckets.revenueByMonth.get(seg.monthKey) ?? 0,
+          nights: buckets.nightsByMonth.get(seg.monthKey) ?? 0,
+          stays: buckets.staysByMonth.get(seg.monthKey) ?? 0,
+          cleaning: buckets.cleaningByMonth.get(seg.monthKey) ?? 0,
+          calendarNights: buckets.calendarNightsByMonth.get(seg.monthKey) ?? 0,
+        };
+        // The nights still open: from today (a night already slept through
+        // unsold cannot fill) or the month's first day, whichever is later,
+        // less everything booked, held or blocked.
+        const openDates: string[] = [];
+        let openFrom = seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart;
+        if (today > openFrom) openFrom = today;
+        for (let d = openFrom; d < seg.segEndExclusive; d = dayAfter(d)) {
+          if (!buckets.occupiedDates.has(d)) openDates.push(d);
+        }
+        // Priced at last year's market rate for the same weekday and
+        // holiday, scaled by this home's achieved premium over market (the
+        // fleet's when the home is too new to have one of its own).
+        const market = meanMarketRate(openDates);
+        const index = rateIndex.byProperty.get(s.propertyId) ?? rateIndex.fleet;
+        const pricing: PacingPricing = {
+          openNightRate: market.rate != null && index != null ? market.rate * index : null,
+          avgStayNights:
+            booked.stays > 0
+              ? booked.nights / booked.stays
+              : propAvgStayNights ?? mp.avgStayNights ?? 0,
+          cleaningPerStay: buckets.cleaningPerStay,
+          openNights: openDates.length,
+        };
+        if (market.rate != null && !prop?.is_rising_tide_owned) {
+          const acc = openRateByMonth.get(seg.monthKey) ?? { sum: 0, n: 0 };
+          acc.sum += market.rate * market.covered;
+          acc.n += market.covered;
+          openRateByMonth.set(seg.monthKey, acc);
+        }
+        const lift = pacedMonthLift(booked, mp.multiplier, pricing);
         revenueDelta += lift.revenue;
         nightsDelta += lift.nights;
         staysDelta += lift.stays;
         cleaningDelta += lift.cleaning;
         calendarNightsDelta += lift.calendarNights;
         usedPacing = true;
-        if (monthMix) mergeMix(channelMix, monthMix, mp.multiplier, mp.multiplier);
+        if (monthMix) {
+          mergeMix(
+            channelMix,
+            monthMix,
+            booked.revenue > 0 ? (booked.revenue + lift.revenue) / booked.revenue : 1,
+            booked.nights > 0 ? (booked.nights + lift.nights) / booked.nights : 1,
+            booked.stays > 0 ? (booked.stays + lift.stays) / booked.stays : 1,
+          );
+        }
         continue;
       }
 
@@ -1595,11 +1714,86 @@ async function applyStatementsAndPacing(
     };
   });
 
+  if (headline) {
+    const acc = openRateByMonth.get(headline.month);
+    headline.openNightMarketRate = acc && acc.n > 0 ? round2(acc.sum / acc.n) : null;
+    headline.fleetRateIndex =
+      rateIndex.fleet != null ? Math.round(rateIndex.fleet * 100) / 100 : null;
+  }
+
   return {
     snapshots,
     pacing: headline,
     calendarNightsDelta: portfolioCalendarNightsDelta,
   };
+}
+
+/**
+ * How each home's revenue per booked night has run against the Gloucester
+ * market rate on the same nights over the trailing year, plus the fleet's
+ * own figure. This is the scale a market night is multiplied by before the
+ * pacing projection books it as one of ours, so a home that clears twice the
+ * market in August projects at twice the market in November too. That is a
+ * summer-weighted premium applied to winter, and it is the honest choice
+ * until a winter is on record: the fleet has no November of its own yet.
+ *
+ * Non-fatal by design. A failed read leaves both empty and every paced month
+ * prices its open nights at booked ADR, which is what the page did before.
+ */
+async function loadAchievedRateIndex(
+  properties: PropertyRow[],
+  now: Date,
+): Promise<{ byProperty: Map<string, number>; fleet: number | null }> {
+  const today = ymd(now);
+  const yearAgo = ymd(new Date(now.getTime() - 365 * 86_400_000));
+  let rows: ReservationRow[] = [];
+  try {
+    rows = await selectAllPaged<ReservationRow>(
+      (from, to) =>
+        supabase
+          .from('guesty_reservations')
+          .select('property_id, listing_id, confirmation_code, check_in, check_out, status, channel, host_payout, owner_net_revenue_guesty, total_paid')
+          .gt('check_out', yearAgo)
+          .lt('check_in', today)
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'revenue snapshot achieved-rate index' },
+    );
+  } catch {
+    return { byProperty: new Map(), fleet: null };
+  }
+  const propById = new Map(properties.map((p) => [p.id, p]));
+  const nightsByProperty = new Map<string, Array<{ date: string; nightly: number }>>();
+  const fleetNights: Array<{ date: string; nightly: number }> = [];
+  const usable = dedupeReservations(
+    rows.filter((r) => r.check_in && r.check_out && isAllowed(r.status)),
+  );
+  for (const r of usable) {
+    const prop = r.property_id ? propById.get(r.property_id) : undefined;
+    if (!prop) continue;
+    const checkIn = r.check_in!;
+    const checkOut = r.check_out!;
+    const total = nightsBetween(checkIn, checkOut);
+    if (total <= 0) continue;
+    const mgmt = prop.is_rising_tide_owned ? 0 : Number(prop.management_fee_pct) / 100;
+    const gross = resolveGrossPayout(r, mgmt);
+    if (gross <= 0) continue;
+    const nightly = gross / total;
+    // Only nights already slept: a stay in progress counts what it has earned so far.
+    const end = checkOut < today ? checkOut : today;
+    const mine = nightsByProperty.get(prop.id) ?? [];
+    for (let d = checkIn; d < end; d = dayAfter(d)) {
+      mine.push({ date: d, nightly });
+      fleetNights.push({ date: d, nightly });
+    }
+    nightsByProperty.set(prop.id, mine);
+  }
+  const byProperty = new Map<string, number>();
+  for (const [id, nights] of nightsByProperty) {
+    const idx = achievedRateIndex(nights);
+    if (idx != null) byProperty.set(id, idx);
+  }
+  return { byProperty, fleet: achievedRateIndex(fleetNights) };
 }
 
 type StatementRow = {
