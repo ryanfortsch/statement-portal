@@ -286,7 +286,7 @@ export function QuoteComposer({
     });
   }
 
-  const canPreview = !!property?.guesty_listing_id && stayValid && guests >= 1 && !isPending;
+  const canPreview = !!property?.guesty_listing_id && !!property?.on_sca && stayValid && guests >= 1 && !isPending;
   const showCalendarOverride =
     !!preview && !previewStale && (preview.availability.blocked_dates.length > 0 || preview.availability.unreleased_dates.length > 0);
   const showTermsOverride = !!preview && !previewStale && !!preview.terms_violation;
@@ -300,10 +300,10 @@ export function QuoteComposer({
             <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} style={inputStyle}>
               <option value="">Pick a property</option>
               {properties.map((p) => (
-                <option key={p.id} value={p.id} disabled={!p.guesty_listing_id}>
+                <option key={p.id} value={p.id} disabled={!p.guesty_listing_id || !p.on_sca}>
                   {p.name}
                   {p.title ? ` (${displayTitle(p.title)})` : ''}
-                  {!p.guesty_listing_id ? ', not on Stay Cape Ann yet' : ''}
+                  {!p.guesty_listing_id ? ', not on Stay Cape Ann yet' : !p.on_sca ? ', Guesty listing not sold on Stay Cape Ann' : ''}
                 </option>
               ))}
             </select>
@@ -539,12 +539,12 @@ export function QuoteComposer({
           </div>
         </FormBlock>
 
-        <FormBlock title="Message to the guest" hint="Shown on the quote page and in the email, as a note from Allie.">
+        <FormBlock title="Message to the guest" hint="Shown on the quote page and in the email as a note from Allie. The email and text already open with the guest's first name, so start with the substance; if you greet them yourself, use their own name.">
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             rows={4}
-            placeholder="Hi Emily, so glad you reached out. Here is what the week would look like."
+            placeholder="So glad you reached out. Here is what the week would look like."
             style={{ ...inputStyle, resize: 'vertical' }}
           />
         </FormBlock>

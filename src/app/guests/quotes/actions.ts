@@ -6,6 +6,15 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { greetingMismatch } from '@/lib/quote-message';
+
+/** The property resolved to a Guesty listing staycapeann.com cannot sell (no Stripe key, no page). */
+function unsellableListingError(property: { name: string; guesty_listing_id: string }): string {
+  return (
+    `${property.name}'s Guesty listing ${property.guesty_listing_id} is not one staycapeann.com sells, ` +
+    'so the guest would see no pay form. Set the live listing id on the property in the registry first.'
+  );
+}
 import { owedOccupancyTaxRate } from '@/lib/occupancy-tax';
 import {
   achievedNightlyLastYear,
@@ -199,6 +208,7 @@ export async function previewQuoteContext(args: {
   const property = (await listQuotableProperties()).find((p) => p.id === args.property_id);
   if (!property) return { ok: false, error: 'Pick a property.' };
   if (!property.guesty_listing_id) return { ok: false, error: 'This property is not on Stay Cape Ann yet.' };
+  if (!property.on_sca) return { ok: false, error: unsellableListingError(property) };
 
   const nights = nightsBetween(args.check_in, args.check_out);
   const listingId = property.guesty_listing_id;
@@ -326,6 +336,12 @@ export async function saveQuote(input: QuoteFormInput): Promise<{ ok: true; id: 
   const property = (await listQuotableProperties()).find((p) => p.id === input.property_id);
   if (!property) return { ok: false, error: 'Pick a property.' };
   if (!property.guesty_listing_id) return { ok: false, error: 'This property is not on Stay Cape Ann yet.' };
+  if (!property.on_sca) return { ok: false, error: unsellableListingError(property) };
+
+  // The email and text open with the guest's own first name; a note that
+  // greets someone else goes straight to the guest. 2026-09-16.
+  const greetingError = greetingMismatch(String(input.message ?? ''), String(input.guest_first_name ?? ''));
+  if (greetingError) return { ok: false, error: greetingError };
 
   const accommodation = cents(input.accommodation_cents);
   if (!(Number(input.accommodation_cents) >= 0)) return { ok: false, error: 'Accommodation cannot be negative.' };
