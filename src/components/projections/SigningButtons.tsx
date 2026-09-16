@@ -121,7 +121,7 @@ export function ScrollToSignButton() {
       }}
       style={{
         position: 'fixed',
-        bottom: 24,
+        bottom: 'calc(24px + env(safe-area-inset-bottom))',
         right: 24,
         zIndex: 100,
         background: 'var(--signal)',
