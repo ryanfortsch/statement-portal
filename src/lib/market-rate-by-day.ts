@@ -467,6 +467,35 @@ export function meanMarketRate(
 }
 
 /**
+ * The index a paced month prices its open nights with.
+ *
+ * A home's own bookings in that month are the best evidence of the premium
+ * it commands that season, so when it has them, its achieved ADR in the month
+ * over the market analog of the nights it has booked leads, weighted by how
+ * many nights that rests on (full weight at MIN_INDEX_NIGHTS). The
+ * trailing-year index fills the rest: it is summer-weighted for a fleet that
+ * has no winter on record, and a waterfront home that clears 3x market in
+ * August does not clear 3x in December. With no month evidence the year
+ * index stands alone; with neither, null.
+ */
+export function blendRateIndex(args: {
+  yearIndex: number | null;
+  monthAdr: number | null;
+  monthMarketRate: number | null;
+  monthNights: number;
+}): number | null {
+  const { yearIndex, monthAdr, monthMarketRate, monthNights } = args;
+  const monthIndex =
+    monthAdr != null && monthAdr > 0 && monthMarketRate != null && monthMarketRate > 0
+      ? Math.min(INDEX_CEILING, Math.max(INDEX_FLOOR, monthAdr / monthMarketRate))
+      : null;
+  if (monthIndex == null) return yearIndex;
+  if (yearIndex == null) return monthIndex;
+  const w = Math.min(1, Math.max(0, monthNights) / MIN_INDEX_NIGHTS);
+  return w * monthIndex + (1 - w) * yearIndex;
+}
+
+/**
  * A home's achieved revenue per booked night over the market rate on the
  * same nights: the scale that turns a market night into one of this home's.
  * Revenue-weighted (sum over sum), so a $1,200 Saturday counts for what it
