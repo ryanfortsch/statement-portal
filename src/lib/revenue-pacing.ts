@@ -6,20 +6,26 @@
  * Pure. No I/O, no imports. Unit-tested in
  * src/lib/__tests__/revenue-pacing.test.ts.
  *
- * The multiplier is an OCCUPANCY RATIO, built in revenue-snapshot.ts as
- * historical-benchmark-% / booked-so-far-%, floored at 1 and capped late in
- * the current month by what the remaining days can absorb. It answers one
- * question, how many more nights will fill, and everything else here derives
- * from those added nights:
+ * A paced month fills each open home toward a TARGET occupancy, and
+ * everything else here derives from the nights that fill:
  *
- *   added nights   = booked calendar nights × (multiplier − 1), never more
- *                    than the nights still open
+ *   added nights   = target nights − nights already booked, never negative
+ *                    and never more than the nights still open
  *   added revenue  = added nights × the open-night rate. revenue-snapshot
  *                    builds that from market-rate-by-day: last year's market
  *                    rate for the same weekday and holiday, scaled by the
  *                    home's achieved premium over market
  *   added stays    = added nights / the home's length of stay
  *   added cleaning = added stays × cleaning per stay
+ *
+ * The target is the calibrated benchmark: Gloucester's occupancy for that
+ * month of year pulled to the rate Rising Tide actually captures, taken
+ * against the nights the home is OPEN for rental (src/lib/rental-periods.ts).
+ * That last clause is what lets a home with nothing booked project at all.
+ * The earlier model scaled each home's booked nights by a portfolio
+ * multiplier, so a home at zero stayed at zero however far out the month was,
+ * and December's whole projection rested on the two homes that happened to
+ * have a booking.
  *
  * Two earlier shapes of this projection are why it is written this way. The
  * first lifted revenue alone, so ADR read high by the multiplier. The second
@@ -52,6 +58,18 @@ export type MonthContribution = {
   calendarNights: number;
 };
 
+/**
+ * How full the month is projected to end for this home.
+ *
+ * `targetNights` is the home's own bookable-and-open nights times the
+ * calibrated benchmark. A home already past its target adds nothing: the
+ * projection is a floor toward the market, never a ceiling on a home
+ * outperforming it.
+ */
+export type PacingFill = {
+  targetNights: number;
+};
+
 /** What a projected night is worth and what it drags along. */
 export type PacingPricing = {
   /**
@@ -81,18 +99,20 @@ const NOTHING: MonthContribution = { revenue: 0, nights: 0, stays: 0, cleaning: 
  * because the caller layers three kinds of month (statement, paced, booked)
  * onto one base snapshot.
  *
- * A multiplier at or below 1 adds nothing. That is what keeps the Actuals
- * view, every past month and every unpaced month byte-identical to booked.
+ * A target at or below what is already booked adds nothing, and so does a
+ * month with no open nights left. That is what keeps the Actuals view, every
+ * past month and every unpaced month byte-identical to booked.
  */
 export function pacedMonthLift(
   booked: MonthContribution,
-  multiplier: number,
+  fill: PacingFill,
   pricing: PacingPricing,
 ): MonthContribution {
-  const lift = multiplier > 1 ? multiplier - 1 : 0;
-  if (lift === 0 || booked.calendarNights <= 0) return { ...NOTHING };
-
-  let addedNights = booked.calendarNights * lift;
+  // A home with nothing booked still projects: its shortfall is the whole
+  // target. That is the entire reason this takes a target rather than a
+  // multiplier, and it is what lets the projection reach a home that has not
+  // sold a night yet.
+  let addedNights = fill.targetNights - booked.calendarNights;
   if (pricing.openNights != null) addedNights = Math.min(addedNights, Math.max(0, pricing.openNights));
   if (addedNights <= 0) return { ...NOTHING };
 
