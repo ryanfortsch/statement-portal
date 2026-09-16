@@ -20,6 +20,7 @@
 import { sendTransactionalViaResend } from '@/lib/resend';
 import { normalizePhone, quoFromNumber, sendMessage } from '@/lib/quo';
 import { quoteGuestUrl } from '@/lib/sca-quotes';
+import { startsWithGreeting } from '@/lib/quote-message';
 import { displayTitle, fmtCents, fmtLongDate, fmtShortDate, todayInEastern, type ScaQuoteRow } from '@/lib/sca-quotes-types';
 
 const FROM_NAME = 'Stay Cape Ann';
@@ -144,7 +145,9 @@ export async function sendQuoteLinkEmail(args: { quote: ScaQuoteRow }): Promise<
 
   const html =
     HTML_WRAP_OPEN +
-    `<p>Hi ${escapeHtml(greeting)},</p>` +
+    // A note that opens with its own greeting replaces ours; otherwise the
+    // guest reads "Hi Kaitlin, Hi Kaitlin,".
+    (startsWithGreeting(q.message) ? '' : `<p>Hi ${escapeHtml(greeting)},</p>`) +
     (q.message ? paragraphsHtml(q.message) : `<p>Here is your quote for a stay at <strong>${escapeHtml(title)}</strong>.</p>`) +
     summaryHtml +
     `<p><a href="${url}" style="color: #c85a3a; font-weight: 600;">Review and reserve</a></p>` +
@@ -155,7 +158,7 @@ export async function sendQuoteLinkEmail(args: { quote: ScaQuoteRow }): Promise<
     HTML_WRAP_CLOSE;
 
   const text =
-    `Hi ${greeting},\n\n` +
+    (startsWithGreeting(q.message) ? '' : `Hi ${greeting},\n\n`) +
     (q.message ? `${q.message.trim()}\n\n` : `Here is your quote for a stay at ${title}.\n\n`) +
     `${summaryText}\n\n` +
     `Review and reserve:\n${url}\n\n` +

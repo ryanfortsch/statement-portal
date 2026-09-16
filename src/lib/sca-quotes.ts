@@ -97,6 +97,8 @@ export type QuotableProperty = {
   /** '' when the property has no Guesty listing anywhere (not on Stay Cape Ann yet). */
   guesty_listing_id: string;
   is_rising_tide_owned: boolean;
+  /** The resolved listing is one staycapeann.com can sell: in Helm's SCA snapshot, or launched through Helm. */
+  on_sca: boolean;
 };
 
 /**
@@ -119,15 +121,24 @@ export async function listQuotableProperties(): Promise<QuotableProperty[]> {
     supabaseAdmin.from('sca_launches').select('property_id, guesty_listing_id, status'),
   ]);
 
-  const synced = new Map<string, string>();
+  // A property can carry more than one synced listing (17 Beach has the
+  // whole house and a retired front-unit listing). Prefer the one
+  // staycapeann.com actually sells: a quote on the other one renders with
+  // no pay form and would book the wrong listing. 2026-09-16.
+  const syncedAll = new Map<string, string[]>();
   for (const l of (listings ?? []) as { listing_id: string | null; property_id: string | null }[]) {
     const id = l.listing_id?.trim();
-    if (id && l.property_id && !synced.has(l.property_id)) synced.set(l.property_id, id);
+    if (id && l.property_id) syncedAll.set(l.property_id, [...(syncedAll.get(l.property_id) ?? []), id]);
   }
+  const synced = new Map<string, string>();
+  for (const [pid, ids] of syncedAll) synced.set(pid, ids.find((id) => !!findScaListingByGuestyId(id)) ?? ids[0]);
   const launched = new Map<string, string>();
+  const launchedIds = new Set<string>();
   for (const l of (launches ?? []) as { property_id: string | null; guesty_listing_id: string | null }[]) {
     const id = l.guesty_listing_id?.trim();
-    if (id && l.property_id && !launched.has(l.property_id)) launched.set(l.property_id, id);
+    if (!id) continue;
+    launchedIds.add(id);
+    if (l.property_id && !launched.has(l.property_id)) launched.set(l.property_id, id);
   }
 
   type PropRow = {
@@ -150,6 +161,7 @@ export async function listQuotableProperties(): Promise<QuotableProperty[]> {
       city: p.city ?? '',
       guesty_listing_id: listingId,
       is_rising_tide_owned: !!p.is_rising_tide_owned,
+      on_sca: !!listingId && (!!findScaListingByGuestyId(listingId) || launchedIds.has(listingId)),
     };
   });
 }
