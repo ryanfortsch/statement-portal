@@ -2282,6 +2282,9 @@ export async function createSetupPacket(args: {
   supplyRun?: boolean;
   createdByEmail: string;
   publish: boolean;
+  /** Show + offer this only to these contractors (they still claim it
+   *  themselves). Empty/undefined = the whole inspection roster, as always. */
+  offeredTo?: string[];
   /** RECORD mode: the visit already happened (a forgotten past day). The
    *  contractor id who did the work. Creates the packet directly SUBMITTED and
    *  awarded to them, stop complete, never published - no marketplace listing,
@@ -2350,6 +2353,7 @@ export async function createSetupPacket(args: {
       suggestion_key: null,
       created_by_email: args.createdByEmail,
       published_at: !record && args.publish ? new Date().toISOString() : null,
+      offered_to_contractor_ids: !record && args.offeredTo?.length ? args.offeredTo : null,
       ...(record
         ? { awarded_contractor_id: args.recordDoneBy, claimed_at: recordClaimedAt, submitted_at: recordSubmittedAt }
         : {}),
