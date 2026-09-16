@@ -239,7 +239,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 Gloucester historical for {formatPacingMonth(pacing.month)} is{' '}
                 {pacing.historicalAvgPct.toFixed(0)}%.
                 {view === 'pacing'
-                  ? ` Booked nights carry × ${pacing.multiplier.toFixed(2)} toward that benchmark on current/future full months in range. The nights still open are priced at last year\u2019s Gloucester rate for the same weekday and holiday${pacing.openNightMarketRate != null ? ` (about $${Math.round(pacing.openNightMarketRate)} a night for ${formatPacingMonth(pacing.month)})` : ''}, times each home\u2019s achieved premium over market${pacing.fleetRateIndex != null ? ` (fleet ${pacing.fleetRateIndex.toFixed(2)}×)` : ''}, never at the booked ADR. Stays and cleaning follow the added nights.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
+                  ? ` Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that in ${formatPacingMonth(pacing.month)}, so every home open for rental is projected toward ${pacing.targetPct.toFixed(0)}% on current/future full months in range, whether or not it has a booking yet. The nights still open are priced at last year\u2019s Gloucester rate for the same weekday and holiday${pacing.openNightMarketRate != null ? ` (about $${Math.round(pacing.openNightMarketRate)} a night)` : ''}, times each home\u2019s achieved premium over market${pacing.fleetRateIndex != null ? ` (fleet ${pacing.fleetRateIndex.toFixed(2)}×)` : ''}, never at the booked ADR. Stays and cleaning follow the added nights.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
                   : ` All figures show booked-so-far actuals only.${basis === 'nights' ? ' Split by night.' : ''}`}
               </p>
             )}
@@ -780,7 +780,7 @@ const SOURCE_LABEL_NIGHTS: Partial<Record<PropertySnapshot['source'], string>> =
 
 const SOURCE_TITLE: Record<PropertySnapshot['source'], string> = {
   statement: 'From the monthly owner statement (canonical for closed months)',
-  pacing: 'Booked so far, plus the open nights carried toward historical occupancy and priced at last year\u2019s market rate × this home\u2019s achieved premium (projected)',
+  pacing: 'Booked so far, plus the nights this home is open for rental carried toward Rising Tide\u2019s own occupancy benchmark and priced at last year\u2019s market rate × this home\u2019s achieved premium (projected)',
   booked: 'Booked-so-far actuals only, no projection',
   computed: '',
 };

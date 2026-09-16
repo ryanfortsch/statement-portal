@@ -21,6 +21,12 @@ import {
 } from './revenue-date-range';
 import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
 import { pacedMonthLift, projectOccupancy, type PacingPricing } from './revenue-pacing';
+import { countOpenNights, isOpenOn, normalizePeriod, type RentalPeriod } from './rental-periods';
+import {
+  calibratedBenchmarkFrom,
+  closedMonthsOf,
+  computeRealizedCalibration,
+} from './forecast-calibration';
 import { achievedRateIndex, blendRateIndex, meanMarketRate } from './market-rate-by-day';
 import { loadInstallmentsForCodes, type Installment } from './installments';
 import {
@@ -175,7 +181,18 @@ export type PacingInfo = {
   pacingPct: number;
   /** Historical Gloucester avg for this month-of-year as 0-100. */
   historicalAvgPct: number;
-  /** historicalAvgPct / pacingPct, floored at 1. Carries booked nights toward the benchmark. */
+  /**
+   * The occupancy every open home is projected toward: `historicalAvgPct`
+   * pulled to the rate Rising Tide actually captures in this month of year.
+   */
+  targetPct: number;
+  /**
+   * targetPct / historicalAvgPct: how much of the Gloucester market Rising
+   * Tide captures in this month of year, measured on its own closed months.
+   * 1 when there is not enough history to calibrate.
+   */
+  captureRatio: number;
+  /** targetPct / pacingPct, floored at 1. The portfolio-level gate and headline. */
   multiplier: number;
   /** YYYY-MM key the pacing applies to. */
   month: string;
@@ -1370,6 +1387,22 @@ async function applyStatementsAndPacing(
     }
   }
 
+  // When each home is open for rental, and what a projected night is worth.
+  // Both are needed before the per-month pass: the rental periods size every
+  // occupancy denominator, and the calibration sets the target the projection
+  // aims at. Only the trailing-year read is gated on Pacing, so the Actuals
+  // view and the home dashboard never pay for it.
+  // Periods load either way: they size the occupancy denominator, and the
+  // pacing % must read the same in Actuals as it does in Pacing.
+  const periodsByProperty = await loadRentalPeriods();
+  const pacingInputs = applyPacing
+    ? await loadPacingInputs(properties, now)
+    : {
+        rateIndex: { byProperty: new Map<string, number>(), fleet: null as number | null },
+        calibratedBenchmark: HISTORICAL_AVG_RECENT,
+      };
+  const { rateIndex, calibratedBenchmark } = pacingInputs;
+
   // Per-month pacing multipliers, keyed by monthKey. Only computed for
   // current/future months that are FULLY inside the range — partial months
   // don't get multipliers (the headline number on the card is mostly
@@ -1377,6 +1410,9 @@ async function applyStatementsAndPacing(
   type MonthPacing = {
     pacingPct: number;
     historicalAvgPct: number;
+    /** The calibrated occupancy each open home is projected toward. */
+    targetPct: number;
+    captureRatio: number;
     multiplier: number;
     /**
      * Portfolio nights per stay checking out this month: the length of stay
@@ -1408,47 +1444,40 @@ async function applyStatementsAndPacing(
       portfolioStayNights += buckets.nightsByMonth.get(seg.monthKey) ?? 0;
       portfolioStays += buckets.staysByMonth.get(seg.monthKey) ?? 0;
     }
-    const daysThisMonth = daysInMonth(seg.year, seg.month + 1);
-    // Subtract owner blocks from possible nights so pacing % reads against
-    // bookable inventory (not raw days × props).
-    const portfolioNightsPossible = Math.max(
-      0,
-      daysThisMonth * mgmtProps.length - portfolioBlockedNights,
-    );
+    // Possible nights count only inventory that is actually sellable: the
+    // nights each home is OPEN for rental, less owner blocks. A home shut for
+    // the winter is not unsold inventory, and counting its dark nights in the
+    // denominator understated the shoulder months' pacing %.
+    let portfolioOpenNights = 0;
+    for (const p of mgmtProps) {
+      portfolioOpenNights += countOpenNights(
+        periodsByProperty.get(p.id) ?? [],
+        seg.segStart,
+        seg.segEndExclusive,
+      );
+    }
+    const portfolioNightsPossible = Math.max(0, portfolioOpenNights - portfolioBlockedNights);
     const pacingPct =
       portfolioNightsPossible > 0
         ? (portfolioNightsBooked / portfolioNightsPossible) * 100
         : 0;
     const historicalAvgPct = HISTORICAL_AVG_RECENT[seg.month] ?? 0;
-    const rawMultiplier =
-      pacingPct > 0 && historicalAvgPct > pacingPct ? historicalAvgPct / pacingPct : 1;
-
-    // When the segment is the *current* calendar month, the raw multiplier
-    // assumes the whole month is still bookable up to the historical
-    // benchmark. That's wrong late in the month: only the days remaining
-    // can absorb new bookings. Cap the multiplier by what last-minute
-    // supply can plausibly add (remaining_days × mgmt_props × historical
-    // fill rate). For future months we leave the raw multiplier alone —
-    // the whole month is ahead of us.
-    let multiplier = rawMultiplier;
-    const isCurrentMonthSeg = seg.monthKey === todayYM;
-    if (isCurrentMonthSeg && rawMultiplier > 1 && pacingPct > 0) {
-      const dayOfMonth = now.getDate();
-      const daysRemaining = Math.max(0, daysThisMonth - dayOfMonth);
-      const maxAdditionalNights =
-        daysRemaining * mgmtProps.length * (historicalAvgPct / 100);
-      const cappedExpectedNights = portfolioNightsBooked + maxAdditionalNights;
-      const cappedPct =
-        portfolioNightsPossible > 0
-          ? (cappedExpectedNights / portfolioNightsPossible) * 100
-          : 0;
-      const cappedMultiplier = cappedPct / pacingPct;
-      multiplier = Math.max(1, Math.min(rawMultiplier, cappedMultiplier));
-    }
+    // Rising Tide does not trade at the market: it runs near it in season and
+    // under it in the shoulders. The target is the market shape pulled to the
+    // capture rate measured on this year's own closed months, the same
+    // calibration the forecast uses. Falls back to the raw market curve.
+    const targetPct = calibratedBenchmark[seg.month] ?? historicalAvgPct;
+    const captureRatio = historicalAvgPct > 0 ? targetPct / historicalAvgPct : 1;
+    // The gate is portfolio-level and stays that way: when the fleet as a
+    // whole is already at or past its target, individual variation is real
+    // performance, not a deficit for the projection to fill in.
+    const multiplier = pacingPct > 0 && targetPct > pacingPct ? targetPct / pacingPct : 1;
 
     pacingByMonth.set(seg.monthKey, {
       pacingPct,
       historicalAvgPct,
+      targetPct,
+      captureRatio,
       multiplier,
       avgStayNights: portfolioStays > 0 ? portfolioStayNights / portfolioStays : null,
     });
@@ -1465,6 +1494,8 @@ async function applyStatementsAndPacing(
       headline = {
         pacingPct: round1(mp.pacingPct),
         historicalAvgPct: round1(mp.historicalAvgPct),
+        targetPct: round1(mp.targetPct),
+        captureRatio: Math.round(mp.captureRatio * 100) / 100,
         multiplier: mp.multiplier,
         month: seg.monthKey,
         openNightMarketRate: null,
@@ -1473,13 +1504,6 @@ async function applyStatementsAndPacing(
     }
   }
 
-  // What a projected night is worth. Loaded only when some month actually
-  // projects, so the Actuals view and every past range never pay for it.
-  const anyPaced =
-    applyPacing && Array.from(pacingByMonth.values()).some((mp) => mp.multiplier > 1);
-  const rateIndex = anyPaced
-    ? await loadAchievedRateIndex(properties, now)
-    : { byProperty: new Map<string, number>(), fleet: null as number | null };
   const today = ymd(now);
   // Fleet-wide mean of the unscaled market analog over open nights, per
   // month, for the hero line. Filled inside the per-property loop.
@@ -1595,13 +1619,26 @@ async function applyStatementsAndPacing(
         };
         // The nights still open: from today (a night already slept through
         // unsold cannot fill) or the month's first day, whichever is later,
-        // less everything booked, held or blocked.
+        // less everything booked, held or blocked, and only nights this home
+        // is actually open for rental.
+        const periods = periodsByProperty.get(s.propertyId) ?? [];
         const openDates: string[] = [];
         let openFrom = seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart;
         if (today > openFrom) openFrom = today;
         for (let d = openFrom; d < seg.segEndExclusive; d = dayAfter(d)) {
-          if (!buckets.occupiedDates.has(d)) openDates.push(d);
+          if (!buckets.occupiedDates.has(d) && isOpenOn(periods, d)) openDates.push(d);
         }
+        // How full this home is projected to end the month: its own sellable
+        // inventory (nights open for rental, less owner blocks) at the
+        // calibrated benchmark. Taken against the home's OWN nights, so a
+        // home with nothing booked still has a target to fill toward, and a
+        // home shut for half the month targets only the half it is open.
+        const sellableNights = Math.max(
+          0,
+          countOpenNights(periods, seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart, seg.segEndExclusive) -
+            (buckets.blockedNightsByMonth.get(seg.monthKey) ?? 0),
+        );
+        const targetNights = sellableNights * (mp.targetPct / 100);
         // Priced at last year's market rate for the same weekday and
         // holiday, scaled by this home's achieved premium over market (the
         // fleet's when the home is too new to have one of its own).
@@ -1631,7 +1668,7 @@ async function applyStatementsAndPacing(
           acc.n += market.covered;
           openRateByMonth.set(seg.monthKey, acc);
         }
-        const lift = pacedMonthLift(booked, mp.multiplier, pricing);
+        const lift = pacedMonthLift(booked, { targetNights }, pricing);
         revenueDelta += lift.revenue;
         nightsDelta += lift.nights;
         staysDelta += lift.stays;
@@ -1752,20 +1789,78 @@ async function applyStatementsAndPacing(
 }
 
 /**
- * How each home's revenue per booked night has run against the Gloucester
- * market rate on the same nights over the trailing year, plus the fleet's
- * own figure. This is the scale a market night is multiplied by before the
- * pacing projection books it as one of ours. It is summer-weighted, since the
- * fleet has no winter on record, which is why blendRateIndex lets a home's
- * own bookings in the paced month lead once it has them.
+ * When each property is open for rental. A property with no rows is open
+ * year-round, which is the default for every home, so this read changes no
+ * projection until an operator stamps one on /properties/[id].
+ *
+ * Non-fatal: a failed read leaves every home year-round, which is exactly
+ * how the page behaved before rental periods existed.
+ */
+async function loadRentalPeriods(): Promise<Map<string, RentalPeriod[]>> {
+  const out = new Map<string, RentalPeriod[]>();
+  try {
+    const rows = await selectAllPaged<{
+      property_id: string | null;
+      start_month: number | null;
+      start_day: number | null;
+      end_month: number | null;
+      end_day: number | null;
+      note: string | null;
+    }>(
+      (from, to) =>
+        supabase
+          .from('property_rental_periods')
+          .select('property_id, start_month, start_day, end_month, end_day, note')
+          .order('property_id', { ascending: true })
+          .order('start_month', { ascending: true })
+          .range(from, to),
+      { label: 'revenue snapshot rental periods' },
+    );
+    for (const r of rows) {
+      if (!r.property_id) continue;
+      const period = normalizePeriod({
+        startMonth: r.start_month,
+        startDay: r.start_day,
+        endMonth: r.end_month,
+        endDay: r.end_day,
+        note: r.note,
+      });
+      const arr = out.get(r.property_id);
+      if (arr) arr.push(period);
+      else out.set(r.property_id, [period]);
+    }
+  } catch {
+    return new Map();
+  }
+  return out;
+}
+
+/**
+ * The two things a paced month needs from history, off one read of the
+ * trailing year.
+ *
+ * `rateIndex` is how each home's revenue per booked night has run against the
+ * Gloucester market rate on the same nights, plus the fleet's own figure: the
+ * scale a market night is multiplied by before the projection books it as one
+ * of ours. It is summer-weighted, since the fleet has no winter on record,
+ * which is why blendRateIndex lets a home's own bookings in the paced month
+ * lead once it has them.
+ *
+ * `calibratedBenchmark` is the occupancy target itself: the Gloucester market
+ * curve pulled to the rate Rising Tide actually captured in this year's closed
+ * months (0.82 to 0.96 through the 2026 season). The same calibration the
+ * forecast scales toward, so the two modules cannot drift apart.
  *
  * Non-fatal by design. A failed read leaves both empty and every paced month
  * prices its open nights at booked ADR, which is what the page did before.
  */
-async function loadAchievedRateIndex(
+async function loadPacingInputs(
   properties: PropertyRow[],
   now: Date,
-): Promise<{ byProperty: Map<string, number>; fleet: number | null }> {
+): Promise<{
+  rateIndex: { byProperty: Map<string, number>; fleet: number | null };
+  calibratedBenchmark: number[];
+}> {
   const today = ymd(now);
   const yearAgo = ymd(new Date(now.getTime() - 365 * 86_400_000));
   let rows: ReservationRow[] = [];
@@ -1782,7 +1877,10 @@ async function loadAchievedRateIndex(
       { label: 'revenue snapshot achieved-rate index' },
     );
   } catch {
-    return { byProperty: new Map(), fleet: null };
+    return {
+      rateIndex: { byProperty: new Map(), fleet: null },
+      calibratedBenchmark: HISTORICAL_AVG_RECENT,
+    };
   }
   const propById = new Map(properties.map((p) => [p.id, p]));
   const nightsByProperty = new Map<string, Array<{ date: string; nightly: number }>>();
@@ -1815,7 +1913,29 @@ async function loadAchievedRateIndex(
     const idx = achievedRateIndex(nights);
     if (idx != null) byProperty.set(id, idx);
   }
-  return { byProperty, fleet: achievedRateIndex(fleetNights) };
+
+  // Rising Tide's own capture of the market, measured on this year's closed
+  // months. `rows` spans the trailing year, so every closed month of the
+  // current year is covered. Guards inside computeRealizedCalibration discard
+  // a month too thin to trust, and an unmeasurable year falls through to the
+  // raw market curve.
+  const calibration = computeRealizedCalibration(
+    rows.map((r) => ({
+      property_id: r.property_id,
+      check_in: r.check_in,
+      check_out: r.check_out,
+    })),
+    closedMonthsOf(now.getFullYear(), now),
+    HISTORICAL_AVG_RECENT,
+  );
+
+  return {
+    rateIndex: { byProperty, fleet: achievedRateIndex(fleetNights) },
+    calibratedBenchmark:
+      calibration.byMonth.size > 0
+        ? calibratedBenchmarkFrom(calibration, HISTORICAL_AVG_RECENT)
+        : HISTORICAL_AVG_RECENT,
+  };
 }
 
 type StatementRow = {
