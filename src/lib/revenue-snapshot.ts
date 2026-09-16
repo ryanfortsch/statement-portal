@@ -1885,6 +1885,17 @@ async function loadPacingInputs(
   const propById = new Map(properties.map((p) => [p.id, p]));
   const nightsByProperty = new Map<string, Array<{ date: string; nightly: number }>>();
   const fleetNights: Array<{ date: string; nightly: number }> = [];
+  // Stays the calibration is allowed to measure. Same three filters the
+  // forecast's own loader applies (getClosedMonthStays in forecast-smart.ts),
+  // because the two must measure the same thing: MANAGED homes only, real
+  // bookings only, and only rows carrying actual money. Deduped as well --
+  // guesty_reservations holds twin rows per stay, and counting a stay's
+  // nights twice reports an occupancy the fleet never achieved.
+  const calibrationStays: Array<{
+    property_id: string | null;
+    check_in: string | null;
+    check_out: string | null;
+  }> = [];
   const usable = dedupeReservations(
     rows.filter((r) => r.check_in && r.check_out && isAllowed(r.status)),
   );
@@ -1898,6 +1909,9 @@ async function loadPacingInputs(
     const mgmt = prop.is_rising_tide_owned ? 0 : Number(prop.management_fee_pct) / 100;
     const gross = resolveGrossPayout(r, mgmt);
     if (gross <= 0) continue;
+    if (!prop.is_rising_tide_owned) {
+      calibrationStays.push({ property_id: prop.id, check_in: checkIn, check_out: checkOut });
+    }
     const nightly = gross / total;
     // Only nights already slept: a stay in progress counts what it has earned so far.
     const end = checkOut < today ? checkOut : today;
@@ -1915,16 +1929,11 @@ async function loadPacingInputs(
   }
 
   // Rising Tide's own capture of the market, measured on this year's closed
-  // months. `rows` spans the trailing year, so every closed month of the
-  // current year is covered. Guards inside computeRealizedCalibration discard
-  // a month too thin to trust, and an unmeasurable year falls through to the
-  // raw market curve.
+  // months. The trailing-year read covers every closed month of the current
+  // year. Guards inside computeRealizedCalibration discard a month too thin
+  // to trust, and an unmeasurable year falls through to the raw market curve.
   const calibration = computeRealizedCalibration(
-    rows.map((r) => ({
-      property_id: r.property_id,
-      check_in: r.check_in,
-      check_out: r.check_out,
-    })),
+    calibrationStays,
     closedMonthsOf(now.getFullYear(), now),
     HISTORICAL_AVG_RECENT,
   );
