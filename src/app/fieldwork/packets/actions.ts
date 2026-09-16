@@ -372,6 +372,24 @@ export async function createAdHocPacketAction(_prev: AdhocState, formData: FormD
   if (!visitDate) return { error: 'Pick the day.' };
   if (!Number.isFinite(priceDollars) || priceDollars <= 0) return { error: 'Set the pay - a dollar amount above zero.' };
 
+  // Optional: aim the job at specific specialists instead of the whole
+  // inspection roster, same rails as the board's bundle offer and the setup
+  // form. It changes who SEES it and gets texted; the claim is untouched, they
+  // still tap Claim. Validated BEFORE anything is created so a stale pick
+  // can't silently widen the offer back to everyone.
+  const picked = formData
+    .getAll('offer_to')
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  let offeredTo: string[] = [];
+  if (picked.length) {
+    const { data: cs } = await fieldDb().from('contractors').select('*').in('id', picked);
+    offeredTo = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'inspection').map((c) => c.id);
+    if (offeredTo.length !== picked.length) {
+      return { error: "One of the specialists you picked can't claim right now. Refresh the page and pick again." };
+    }
+  }
+
   const packetId = await createAdHocPacket({
     propertyId,
     visitDate,
@@ -383,10 +401,16 @@ export async function createAdHocPacketAction(_prev: AdhocState, formData: FormD
     supplyRun,
     createdByEmail: email,
     publish,
+    offeredTo,
   });
   if (!packetId) return { error: 'Saving failed and nothing was created. Try again, and flag it if it keeps happening.' };
   if (publish) {
-    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      actor_email: email,
+      event_type: 'published',
+      payload: offeredTo.length ? { offered_to: offeredTo } : null,
+    });
     notifyContractorsOfPacket(packetId).catch(() => {});
   }
   revalidatePath('/fieldwork/packets');

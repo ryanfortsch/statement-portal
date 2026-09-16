@@ -2404,6 +2404,9 @@ export async function createAdHocPacket(args: {
   supplyRun?: boolean;
   createdByEmail: string;
   publish: boolean;
+  /** Show + offer this only to these contractors (they still claim it
+   *  themselves). Empty/undefined = the whole inspection roster, as always. */
+  offeredTo?: string[];
 }): Promise<string | null> {
   const properties = await loadFieldProperties();
   const prop = properties.find((p) => p.id === args.propertyId);
@@ -2452,6 +2455,7 @@ export async function createAdHocPacket(args: {
       suggestion_key: null,
       created_by_email: args.createdByEmail,
       published_at: args.publish ? new Date().toISOString() : null,
+      offered_to_contractor_ids: args.offeredTo?.length ? args.offeredTo : null,
     })
     .select('id')
     .single();
