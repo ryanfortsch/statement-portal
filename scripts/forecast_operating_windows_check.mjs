@@ -33,15 +33,22 @@ const EXPECT = [
   ['4_brier_neck', '2027-08', 0, 'August 2027 off: not renewed'],
   ['4_brier_neck', '2027-09', 0, 'September stays off (recurring season)'],
 
-  // 73 Rocky Neck picked up September and October.
+  // 73 Rocky Neck: the sale was called off on 2026-09-16, so it has no end
+  // date any more and runs every month like any unrestricted home.
   ['73_rocky_neck', '2026-09', 1, 'rents in September'],
   ['73_rocky_neck', '2026-10', 1, 'rents in October'],
-  ['73_rocky_neck', '2026-11', 0, 'off from November'],
+  ['73_rocky_neck', '2026-11', 1, 'sale off: still renting in November'],
+  ['73_rocky_neck', '2026-12', 1, 'sale off: still renting in December'],
+  ['73_rocky_neck', '2027-03', 1, 'sale off: no end date at all'],
 
-  // 79 Main ends 21 October.
+  // 79 Main is seasonal: June 1 through October 20, every year.
+  ['79_main', '2026-06', 1, 'season opens in June'],
   ['79_main', '2026-09', 1, 'full month in September'],
-  ['79_main', '2026-11', 0, 'gone from November'],
-  ['79_main', '2026-12', 0, 'still gone in December'],
+  ['79_main', '2026-11', 0, 'shut after the season'],
+  ['79_main', '2026-12', 0, 'still shut in December'],
+  ['79_main', '2027-05', 0, 'still shut the following May'],
+  ['79_main', '2027-06', 1, 'season returns the following June'],
+  ['79_main', '2027-07', 1, 'open through the summer'],
 ];
 
 for (const [id, ym, want, msg] of EXPECT) {
@@ -49,9 +56,12 @@ for (const [id, ym, want, msg] of EXPECT) {
   if (!near(got, want)) fail(`${id} ${ym}: ${msg} — factor ${got.toFixed(4)}, expected ${want}`);
 }
 
-// 79 Main's final month is pro-rated across the days it was available.
-const oct = operatingFactor('79_main', '2026-10');
-if (!near(oct, 21 / 31)) fail(`79 Main October pro-rate ${oct.toFixed(4)}, expected ${(21 / 31).toFixed(4)} (21 of 31 days)`);
+// 79 Main's closing month is pro-rated across the days it is open, and it
+// pro-rates the SAME way every year because the season recurs.
+for (const y of [2026, 2027, 2028]) {
+  const oct = operatingFactor('79_main', `${y}-10`);
+  if (!near(oct, 20 / 31)) fail(`79 Main October ${y} pro-rate ${oct.toFixed(4)}, expected ${(20 / 31).toFixed(4)} (20 of 31 days)`);
+}
 // A partial month is still an operating month: it must project, not vanish.
 if (!isOperating('79_main', '2026-10')) fail('79 Main October must count as operating so it still projects');
 
@@ -64,8 +74,8 @@ const ROSTER = [
   ['16_waterman', 2027, true, 'seasonal, open May to October'],
   ['4_brier_neck', 2027, false, 'not renewed for 2027'],
   ['4_brier_neck', 2026, true, 'still ran in summer 2026'],
-  ['73_rocky_neck', 2027, false, 'offline from November 2026'],
-  ['79_main', 2027, false, 'offline from 21 October 2026'],
+  ['73_rocky_neck', 2027, true, 'sale called off, no end date'],
+  ['79_main', 2027, true, 'seasonal: returns each June'],
   ['79_main', 2026, true, 'operated in 2026'],
   ['3_south_st', 2028, true, 'no window, always open'],
 ];
@@ -80,7 +90,8 @@ const MONTHLY = [
   ['4_brier_neck', 2026, 8, true, 'August 2026: last operating month'],
   ['4_brier_neck', 2026, 9, false, 'September 2026: closed'],
   ['79_main', 2026, 10, true, 'October 2026: partial month still counts as operating'],
-  ['79_main', 2026, 11, false, 'November 2026: gone'],
+  ['79_main', 2026, 11, false, 'November 2026: out of season'],
+  ['79_main', 2027, 6, true, 'June 2027: season returns'],
   ['3_south_st', 2026, 2, true, 'no window, open'],
 ];
 for (const [id, year, month, want, msg] of MONTHLY) {
@@ -89,6 +100,6 @@ for (const [id, year, month, want, msg] of MONTHLY) {
 if (opensIn('4_brier_neck', 2027) !== false) fail('opensIn without a month must behave as opensInYear');
 
 console.log(failures === 0
-  ? `PASS - all ${EXPECT.length + 3 + ROSTER.length + MONTHLY.length + 1} operating-window assertions hold; 79 Main's October pro-rates to ${(21 / 31).toFixed(4)}.`
+  ? `PASS - all ${EXPECT.length + 5 + ROSTER.length + MONTHLY.length + 1} operating-window assertions hold; 79 Main's October pro-rates to ${(20 / 31).toFixed(4)} every year.`
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

@@ -9,6 +9,7 @@ import {
   openDatesOf,
   type RentalPeriod,
 } from '../rental-periods.ts';
+import { isOperatingOnDate, opensInYear } from '../forecast-operating-windows.ts';
 
 /** A summer home: open Memorial Day weekend through the end of October. */
 const summer: RentalPeriod[] = [{ startMonth: 5, startDay: 1, endMonth: 10, endDay: 31 }];
@@ -113,4 +114,44 @@ test('the description reads the way an operator would say it', () => {
     ]),
     'May 1 to Oct 31, Dec 20 to Dec 31',
   );
+});
+
+// ── The code-maintained windows the revenue projection also honours ──────
+// (src/lib/forecast-operating-windows.ts; see its header for why there are
+// two sources and why a home is open only when both agree.)
+
+test('79 Main is seasonal, June 1 through October 20, and returns every year', () => {
+  assert.equal(isOperatingOnDate('79_main', '2026-06-01'), true);
+  assert.equal(isOperatingOnDate('79_main', '2026-10-20'), true, 'the 20th is the last day');
+  assert.equal(isOperatingOnDate('79_main', '2026-10-21'), false);
+  assert.equal(isOperatingOnDate('79_main', '2026-12-25'), false);
+  assert.equal(isOperatingOnDate('79_main', '2027-05-31'), false);
+  assert.equal(isOperatingOnDate('79_main', '2027-06-01'), true, 'the season comes back');
+  assert.equal(opensInYear('79_main', 2027), true);
+  assert.equal(opensInYear('79_main', 2030), true);
+});
+
+test('73 Rocky Neck has no end date: the sale was called off', () => {
+  assert.equal(isOperatingOnDate('73_rocky_neck', '2026-11-15'), true);
+  assert.equal(isOperatingOnDate('73_rocky_neck', '2026-12-25'), true);
+  assert.equal(opensInYear('73_rocky_neck', 2027), true);
+  assert.equal(opensInYear('73_rocky_neck', 2028), true);
+});
+
+test('an offboarded home is shut for good, so nothing projects it a November', () => {
+  // 4 Brier Neck: notice given 2026-08-31, not renewed for 2027.
+  assert.equal(isOperatingOnDate('4_brier_neck', '2026-08-15'), true);
+  assert.equal(isOperatingOnDate('4_brier_neck', '2026-11-15'), false);
+  assert.equal(isOperatingOnDate('4_brier_neck', '2027-07-15'), false);
+  assert.equal(opensInYear('4_brier_neck', 2027), false);
+});
+
+test('16 Waterman runs May to October', () => {
+  assert.equal(isOperatingOnDate('16_waterman', '2026-10-31'), true);
+  assert.equal(isOperatingOnDate('16_waterman', '2026-11-01'), false);
+  assert.equal(isOperatingOnDate('16_waterman', '2027-05-01'), true);
+});
+
+test('a home with no window is open every day', () => {
+  assert.equal(isOperatingOnDate('3_south_st', '2028-02-29'), true);
 });

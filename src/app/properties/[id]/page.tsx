@@ -44,6 +44,7 @@ import {
 import { getClimateProfile, listSeamThermostatsSafe } from '@/lib/climate';
 import { getRentalPeriods } from '@/lib/property-rental-periods';
 import { describePeriods } from '@/lib/rental-periods';
+import { describeOperatingWindow } from '@/lib/forecast-operating-windows';
 import { getGuestCodeView } from '@/lib/guest-locks';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
@@ -1068,9 +1069,13 @@ export default async function PropertyDetailPage({
 
       <CollapsibleSection
         title="Rental season"
-        summary={describePeriods(rentalPeriods)}
+        summary={describeOperatingWindow(p.id) ?? describePeriods(rentalPeriods)}
       >
-        <RentalSeasonPanel propertyId={p.id} periods={rentalPeriods} />
+        <RentalSeasonPanel
+          propertyId={p.id}
+          periods={rentalPeriods}
+          codeWindow={describeOperatingWindow(p.id)}
+        />
       </CollapsibleSection>
 
       <CollapsibleSection

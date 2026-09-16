@@ -36,9 +36,17 @@ type Draft = {
 export function RentalSeasonPanel({
   propertyId,
   periods,
+  codeWindow,
 }: {
   propertyId: string;
   periods: RentalPeriodRow[];
+  /**
+   * This home's code-maintained window, when it has one. Those carry the
+   * facts a form cannot express (a non-renewal, a permanent exit) and the
+   * seasons the forecast already knew, so they are shown here rather than
+   * silently overriding a panel that reads "open year-round".
+   */
+  codeWindow?: string | null;
 }) {
   const action = saveRentalPeriods.bind(null, propertyId);
   const [state, formAction, pending] = useActionState<SaveRentalPeriodsState, FormData>(action, {
@@ -88,6 +96,15 @@ export function RentalSeasonPanel({
       <div style={statusStyle}>
         Currently <strong style={{ color: 'var(--ink)' }}>{current}</strong>.
       </div>
+
+      {codeWindow && (
+        <div style={noteStyle}>
+          The forecast also carries a schedule for this home in code:{' '}
+          <strong style={{ color: 'var(--ink)' }}>{codeWindow}</strong>. Both apply, so the home
+          is open only on nights they agree on. Editing that one means editing{' '}
+          <code>src/lib/forecast-operating-windows.ts</code>.
+        </div>
+      )}
 
       <form action={formAction} style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 16 }}>

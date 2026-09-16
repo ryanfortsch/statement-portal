@@ -21,7 +21,8 @@ import {
 } from './revenue-date-range';
 import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
 import { pacedMonthLift, projectOccupancy, type PacingPricing } from './revenue-pacing';
-import { countOpenNights, isOpenOn, normalizePeriod, type RentalPeriod } from './rental-periods';
+import { isOpenOn, normalizePeriod, type RentalPeriod } from './rental-periods';
+import { isOperatingOnDate } from './forecast-operating-windows';
 import {
   calibratedBenchmarkFrom,
   closedMonthsOf,
@@ -1281,6 +1282,32 @@ async function applyStatementsAndPacing(
   const todayYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const propById = new Map(properties.map((p) => [p.id, p]));
 
+  /**
+   * Whether a home can sell this night at all. TWO sources have to agree, and
+   * they carry different facts. `property_rental_periods` is the
+   * operator-editable recurring season, set on the property page.
+   * forecast-operating-windows.ts is code-maintained and holds what a form
+   * cannot express: a non-renewal, a permanent exit, a season the forecast
+   * already knows. Without the second, the projection would forecast a
+   * November for 4 Brier Neck, whose agreement was not renewed.
+   */
+  const sellableOn = (propertyId: string, periods: readonly RentalPeriod[], iso: string): boolean =>
+    isOpenOn(periods, iso) && isOperatingOnDate(propertyId, iso);
+
+  /** Nights in [start, endExclusive) the home could sell. */
+  const sellableBetween = (
+    propertyId: string,
+    periods: readonly RentalPeriod[],
+    startIso: string,
+    endExclusiveIso: string,
+  ): number => {
+    let n = 0;
+    for (let d = startIso; d < endExclusiveIso; d = dayAfter(d)) {
+      if (sellableOn(propertyId, periods, d)) n += 1;
+    }
+    return n;
+  };
+
   // Fetch all Statements for months touched by the range. `month` lives on
   // statement_periods (joined via period_id), NOT on property_statements, so
   // resolve the periods first, then pull their statements and re-key by month
@@ -1450,7 +1477,8 @@ async function applyStatementsAndPacing(
     // denominator understated the shoulder months' pacing %.
     let portfolioOpenNights = 0;
     for (const p of mgmtProps) {
-      portfolioOpenNights += countOpenNights(
+      portfolioOpenNights += sellableBetween(
+        p.id,
         periodsByProperty.get(p.id) ?? [],
         seg.segStart,
         seg.segEndExclusive,
@@ -1626,7 +1654,9 @@ async function applyStatementsAndPacing(
         let openFrom = seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart;
         if (today > openFrom) openFrom = today;
         for (let d = openFrom; d < seg.segEndExclusive; d = dayAfter(d)) {
-          if (!buckets.occupiedDates.has(d) && isOpenOn(periods, d)) openDates.push(d);
+          if (!buckets.occupiedDates.has(d) && sellableOn(s.propertyId, periods, d)) {
+            openDates.push(d);
+          }
         }
         // How full this home is projected to end the month: its own sellable
         // inventory (nights open for rental, less owner blocks) at the
@@ -1635,8 +1665,12 @@ async function applyStatementsAndPacing(
         // home shut for half the month targets only the half it is open.
         const sellableNights = Math.max(
           0,
-          countOpenNights(periods, seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart, seg.segEndExclusive) -
-            (buckets.blockedNightsByMonth.get(seg.monthKey) ?? 0),
+          sellableBetween(
+            s.propertyId,
+            periods,
+            seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart,
+            seg.segEndExclusive,
+          ) - (buckets.blockedNightsByMonth.get(seg.monthKey) ?? 0),
         );
         const targetNights = sellableNights * (mp.targetPct / 100);
         // Priced at last year's market rate for the same weekday and

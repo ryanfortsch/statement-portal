@@ -8,7 +8,16 @@
  *
  * Deliberately dependency-free so the rules stay pure and directly
  * runnable: `scripts/forecast_operating_windows_check.mjs` imports this
- * module on its own. `forecast-smart.ts` is the consumer.
+ * module on its own. `forecast-smart.ts` is the consumer, and so is
+ * `revenue-snapshot.ts`: /revenue's Pacing view will not project a home this
+ * module says is shut, or it would forecast a month for an offboarded home.
+ *
+ * There are TWO seasonality sources and they are not rivals. This one is
+ * code-maintained and carries the facts an operator cannot express in a
+ * form: permanent exits and non-renewals. `property_rental_periods` (see
+ * src/lib/rental-periods.ts) is the operator-editable one, edited on the
+ * property page, for recurring open windows. A home is open only when BOTH
+ * agree it is.
  */
 
 /**
@@ -26,6 +35,10 @@ function daysInMonth(year: number, monthOneBased: number): number {
  *
  *   seasonMonths    months-of-year (1-12) the property is open. Recurring:
  *                   applies to every year in the horizon.
+ *   seasonLastDay   'MM-DD', the last operating day of a RECURRING season
+ *                   that ends mid-month. That month pro-rates by the share
+ *                   of days before it; the season still returns next year.
+ *                   Distinct from offlineFromDate, which never returns.
  *   closedMonths    specific YYYY-MM the property is shut. Use for a
  *                   one-off gap that is not part of a recurring season.
  *   offlineFrom     first YYYY-MM the property is permanently offline.
@@ -39,6 +52,7 @@ function daysInMonth(year: number, monthOneBased: number): number {
  */
 export type OperatingWindow = {
   seasonMonths?: number[];
+  seasonLastDay?: string;
   closedMonths?: string[];
   offlineFrom?: string;
   offlineFromDate?: string;
@@ -51,14 +65,17 @@ export const OPERATING_WINDOWS: Record<string, OperatingWindow> = {
   // is not renewed for 2027, so nothing projects after August 2026.
   '4_brier_neck': { seasonMonths: [6, 7, 8], offlineFrom: '2026-09' },
   // 73 Rocky Neck was slated for decommissioning after Aug 2026, then picked
-  // up September and October. Last operating month is now Oct 2026.
-  '73_rocky_neck': { offlineFrom: '2026-11' },
+  // up September and October, and was then carried to a sale. Dotti called
+  // the sale off on 2026-09-16, so the home has no end date again and is
+  // deliberately absent from this table: no window means open every month.
   // 16 Waterman shuts down after 31 October and reopens in May, so it is a
   // May-October property.
   '16_waterman': { seasonMonths: [5, 6, 7, 8, 9, 10] },
-  // 79 Main comes off the program partway through October 2026. October
-  // projects pro-rated across its first 21 days; November onward is zero.
-  '79_main': { offlineFromDate: '2026-10-21' },
+  // 79 Main is SEASONAL, not leaving: June 1 through October 20 every year
+  // (Dotti, 2026-09-16). It was previously recorded as offlineFromDate
+  // '2026-10-21', which read the end of its 2026 season as a permanent exit
+  // and zeroed every month after it, 2027's summer included.
+  '79_main': { seasonMonths: [6, 7, 8, 9, 10], seasonLastDay: '10-20' },
 };
 
 /**
@@ -74,8 +91,17 @@ export function operatingFactor(propertyId: string, ym: string): number {
   if (!w) return 1;
 
   if (w.closedMonths?.includes(ym)) return 0;
-  if (w.seasonMonths && !w.seasonMonths.includes(parseInt(ym.slice(5, 7), 10))) {
+  const monthOfYear = parseInt(ym.slice(5, 7), 10);
+  if (w.seasonMonths && !w.seasonMonths.includes(monthOfYear)) {
     return 0;
+  }
+  // A recurring season that ends mid-month: that month pro-rates, and unlike
+  // offlineFromDate the season comes back the following year.
+  if (w.seasonLastDay && parseInt(w.seasonLastDay.slice(0, 2), 10) === monthOfYear) {
+    const [y, m] = ym.split('-').map((n) => parseInt(n, 10));
+    const dim = daysInMonth(y, m);
+    const lastDay = parseInt(w.seasonLastDay.slice(3, 5), 10);
+    if (dim && lastDay) return Math.min(1, Math.max(0, lastDay / dim));
   }
 
   if (w.offlineFromDate) {
@@ -104,17 +130,75 @@ export function isOperating(propertyId: string, ym: string): boolean {
 }
 
 /**
+ * Whether a property is open on one specific YYYY-MM-DD.
+ *
+ * The month-granular `operatingFactor` is what the forecast needs, because it
+ * works in whole months. /revenue prices individual nights, so it needs to
+ * know that 79 Main's October 21st is shut while its October 20th is open.
+ * Same windows, finer resolution.
+ */
+export function isOperatingOnDate(propertyId: string, iso: string): boolean {
+  const ym = iso.slice(0, 7);
+  const w = OPERATING_WINDOWS[propertyId];
+  if (!w) return true;
+  if (operatingFactor(propertyId, ym) <= 0) return false;
+
+  const day = parseInt(iso.slice(8, 10), 10);
+  const monthOfYear = parseInt(iso.slice(5, 7), 10);
+
+  // Recurring season that ends mid-month: shut after its last day, and open
+  // again when the season comes back next year.
+  if (w.seasonLastDay && parseInt(w.seasonLastDay.slice(0, 2), 10) === monthOfYear) {
+    if (day > parseInt(w.seasonLastDay.slice(3, 5), 10)) return false;
+  }
+  // Permanent exit mid-month: shut from the day after the last operating one.
+  if (w.offlineFromDate && ym === w.offlineFromDate.slice(0, 7)) {
+    if (day > parseInt(w.offlineFromDate.slice(8, 10), 10)) return false;
+  }
+  return true;
+}
+
+/**
  * Whether a property is open for at least one month of `year`. A seasonal
- * home (16 Waterman, May to October) is; a home offline before the year
- * (4 Brier Neck non-renewed, 73 Rocky Neck from November 2026, 79 Main from
- * 21 October 2026) is not. forecast-model.ts takes this as its OpenInYear
- * predicate so the yearly roster agrees with the smart layer.
+ * home is (16 Waterman May to October, 79 Main June to 20 October); a home
+ * offline before the year is not (4 Brier Neck, non-renewed).
+ * forecast-model.ts takes this as its OpenInYear predicate so the yearly
+ * roster agrees with the smart layer.
  */
 export function opensInYear(propertyId: string, year: number): boolean {
   for (let m = 1; m <= 12; m++) {
     if (operatingFactor(propertyId, `${year}-${String(m).padStart(2, '0')}`) > 0) return true;
   }
   return false;
+}
+
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/**
+ * A one-line description of a property's code-maintained window, or null
+ * when it has none. The Rental season panel prints it so an operator can see
+ * why a home reads as closed when its own season list is empty.
+ */
+export function describeOperatingWindow(propertyId: string): string | null {
+  const w = OPERATING_WINDOWS[propertyId];
+  if (!w) return null;
+  const parts: string[] = [];
+  if (w.seasonMonths?.length) {
+    const first = MONTH_NAMES[w.seasonMonths[0] - 1];
+    const lastMonth = w.seasonMonths[w.seasonMonths.length - 1];
+    const last =
+      w.seasonLastDay && parseInt(w.seasonLastDay.slice(0, 2), 10) === lastMonth
+        ? `${MONTH_NAMES[lastMonth - 1]} ${parseInt(w.seasonLastDay.slice(3, 5), 10)}`
+        : MONTH_NAMES[lastMonth - 1];
+    parts.push(`open ${first} to ${last} each year`);
+  }
+  if (w.offlineFromDate) parts.push(`offline after ${w.offlineFromDate}`);
+  else if (w.offlineFrom) parts.push(`offline from ${w.offlineFrom}`);
+  if (w.closedMonths?.length) parts.push(`shut ${w.closedMonths.join(', ')}`);
+  return parts.length > 0 ? parts.join('; ') : null;
 }
 
 /**
