@@ -1702,8 +1702,18 @@ async function applyStatementsAndPacing(
     }
 
     const baseM = s.metrics;
+    // A home with no bookings in range carries a null totalRevenue, and the
+    // projection can now give it one: under the target model an empty home
+    // still fills toward the benchmark. Falling through to null here kept its
+    // projected nights in the occupancy rollup while throwing the matching
+    // dollars away, so December read 31% occupied on $16.7k. Mirrors how
+    // newCleaning below already handles the same case.
     const newRevenue =
-      baseM.totalRevenue != null ? Math.max(0, baseM.totalRevenue + revenueDelta) : null;
+      baseM.totalRevenue != null
+        ? Math.max(0, baseM.totalRevenue + revenueDelta)
+        : revenueDelta > 0
+        ? revenueDelta
+        : null;
     // Pacing scales by a fractional multiplier. Stays is printed raw and half
     // a stay is not a thing, so it rounds. Nights is never displayed from this
     // field -- it is the denominator under ADR -- so it stays exact: rounding
