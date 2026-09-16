@@ -293,9 +293,19 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
           </div>
         </div>
 
-        {offeredNames.length > 0 && packet.status === 'published' && (
+        {offeredNames.length > 0 && (packet.status === 'published' || packet.status === 'draft') && (
           <div style={{ marginTop: 18, border: '1px solid var(--tide-deep)', borderRadius: 10, padding: '10px 16px', background: 'rgba(58,107,138,0.06)', fontSize: 13.5, color: 'var(--ink)' }}>
-            Offered to <strong>{offeredNames.join(' & ')}</strong> only — nobody else sees it on their board, and they still claim it themselves.
+            {packet.status === 'draft' ? (
+              <>
+                Aimed at <strong>{offeredNames.join(' & ')}</strong> only - when you publish, nobody else will see it on their
+                board or get the text, and they still claim it themselves.
+              </>
+            ) : (
+              <>
+                Offered to <strong>{offeredNames.join(' & ')}</strong> only - nobody else sees it on their board, and they
+                still claim it themselves.
+              </>
+            )}
           </div>
         )}
         {showCoverage && (
