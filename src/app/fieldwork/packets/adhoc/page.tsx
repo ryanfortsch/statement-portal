@@ -1,8 +1,9 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
-import { isFieldConfigured } from '@/lib/field-db';
+import { isFieldConfigured, fieldDb } from '@/lib/field-db';
 import { loadFieldProperties } from '@/lib/field-packets';
+import { canClaim, type ContractorRow } from '@/lib/field-types';
 import { AdhocForm } from './AdhocForm';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,19 @@ export default async function AdhocPacketPage() {
   const properties = (await loadFieldProperties())
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((p) => ({ id: p.id, name: p.name, city: p.city }));
+  // For the offer picker: only specialists who could claim it today, so a job
+  // is never aimed at someone the claim guard would turn away.
+  const { data: cData } = await fieldDb()
+    .from('contractors')
+    .select('id, full_name, status, agreement_signed_at, w9_on_file, background_check_status')
+    .eq('trade', 'inspection')
+    .eq('status', 'active')
+    .order('full_name');
+  const offerable = ((cData ?? []) as Array<
+    Pick<ContractorRow, 'id' | 'full_name' | 'status' | 'agreement_signed_at' | 'w9_on_file' | 'background_check_status'>
+  >)
+    .filter((c) => canClaim(c))
+    .map((c) => ({ id: c.id, name: c.full_name }));
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -39,7 +53,7 @@ export default async function AdhocPacketPage() {
           specialists, on its own claim → do → approve → pay. Set the pay now; you can adjust it after the visit from
           the packet page. To add a one-off onto an inspector&apos;s existing run instead, use the packet page.
         </p>
-        <AdhocForm properties={properties} />
+        <AdhocForm properties={properties} offerable={offerable} />
       </section>
       <HelmFooter module="Field" right="One-off job" />
     </div>
