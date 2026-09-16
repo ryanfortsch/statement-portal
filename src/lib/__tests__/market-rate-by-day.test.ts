@@ -5,6 +5,7 @@ import {
   MARKET_RATE_FIRST_DAY,
   MARKET_RATE_LAST_DAY,
   achievedRateIndex,
+  blendRateIndex,
   marketAnalogDate,
   marketRateFor,
   meanMarketRate,
@@ -119,4 +120,33 @@ test('the index is clamped to a sane band', () => {
   }
   assert.equal(achievedRateIndex(high, series), 4);
   assert.equal(achievedRateIndex(low, series), 0.4);
+});
+
+// ── Blending the month's own evidence with the trailing year ────────────
+
+test('with no bookings in the month, the trailing-year index stands alone', () => {
+  assert.equal(blendRateIndex({ yearIndex: 1.5, monthAdr: null, monthMarketRate: null, monthNights: 0 }), 1.5);
+  assert.equal(blendRateIndex({ yearIndex: null, monthAdr: null, monthMarketRate: null, monthNights: 0 }), null);
+});
+
+test('with no year on record, the month\'s own bookings set the index', () => {
+  assert.equal(blendRateIndex({ yearIndex: null, monthAdr: 900, monthMarketRate: 450, monthNights: 3 }), 2);
+});
+
+test('the December case: a waterfront home that clears 3x market in summer prices its open winter nights off what it actually books in December', () => {
+  // Trailing-year index 2.99; December bookings at $747 a night against a
+  // $450 Christmas-week market analog, 19 nights on record.
+  const idx = blendRateIndex({ yearIndex: 2.99, monthAdr: 747, monthMarketRate: 450, monthNights: 19 });
+  assert.ok(Math.abs(idx! - 747 / 450) < 1e-9);
+  assert.ok(idx! < 1.7);
+});
+
+test('a thin month only partly overrides the year: seven nights weigh half', () => {
+  const idx = blendRateIndex({ yearIndex: 3, monthAdr: 500, monthMarketRate: 500, monthNights: 7 });
+  assert.ok(Math.abs(idx! - 2) < 1e-9);
+});
+
+test('the month index is clamped like the year index', () => {
+  assert.equal(blendRateIndex({ yearIndex: null, monthAdr: 50_000, monthMarketRate: 400, monthNights: 20 }), 4);
+  assert.equal(blendRateIndex({ yearIndex: null, monthAdr: 1, monthMarketRate: 400, monthNights: 20 }), 0.4);
 });

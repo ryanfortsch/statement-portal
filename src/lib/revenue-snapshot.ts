@@ -21,7 +21,7 @@ import {
 } from './revenue-date-range';
 import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
 import { pacedMonthLift, projectOccupancy, type PacingPricing } from './revenue-pacing';
-import { achievedRateIndex, meanMarketRate } from './market-rate-by-day';
+import { achievedRateIndex, blendRateIndex, meanMarketRate } from './market-rate-by-day';
 import { loadInstallmentsForCodes, type Installment } from './installments';
 import {
   allocateStayByNights,
@@ -422,6 +422,12 @@ type PropertyMonthBuckets = {
    * off the market series, and open is the complement of this set.
    */
   occupiedDates: Set<string>;
+  /**
+   * Nights with a paying guest, by the YYYY-MM they fall in. The pacing
+   * post-pass reads the month's own bookings as evidence of the premium the
+   * home commands that season.
+   */
+  bookedDatesByMonth: Map<string, string[]>;
   /** Per-stay cleaning estimate, so projected stays can carry a cleaning cost. */
   cleaningPerStay: number;
   /** First day this property counts in range (activation-clipped). */
@@ -802,6 +808,7 @@ export async function computeRevenueSnapshot(
     // are booked"), so they stay calendar-based even though the money
     // metrics use checkout attribution.
     const calendarNightsByMonth = new Map<string, number>();
+    const bookedDatesByMonth = new Map<string, string[]>();
     let calendarNightsInRange = 0;
     // Unavailable nights bucketed by month. Sources:
     //   (1) Calendar-driven blocks (Guesty calendar status='blocked'):
@@ -899,7 +906,13 @@ export async function computeRevenueSnapshot(
         const inRangeEnd = physicalEnd < periodEndExclusive ? physicalEnd : periodEndExclusive;
         if (physicalStart < inRangeEnd) {
           calendarNightsInRange += nightsBetween(physicalStart, inRangeEnd);
-          for (let d = physicalStart; d < inRangeEnd; d = dayAfter(d)) occupiedDates.add(d);
+          for (let d = physicalStart; d < inRangeEnd; d = dayAfter(d)) {
+            occupiedDates.add(d);
+            const k = d.slice(0, 7);
+            const arr = bookedDatesByMonth.get(k);
+            if (arr) arr.push(d);
+            else bookedDatesByMonth.set(k, [d]);
+          }
         }
         let cursor = physicalStart;
         while (cursor < physicalEnd) {
@@ -1056,6 +1069,7 @@ export async function computeRevenueSnapshot(
       bookableNights: propBookableNights,
       channelByMonth,
       occupiedDates,
+      bookedDatesByMonth,
       cleaningPerStay,
       propStart,
     });
@@ -1592,7 +1606,16 @@ async function applyStatementsAndPacing(
         // holiday, scaled by this home's achieved premium over market (the
         // fleet's when the home is too new to have one of its own).
         const market = meanMarketRate(openDates);
-        const index = rateIndex.byProperty.get(s.propertyId) ?? rateIndex.fleet;
+        // The premium this home commands: its own bookings in this month
+        // lead when it has them (the season's own evidence), the trailing
+        // year fills in, and the fleet stands in for a home with neither.
+        const bookedMarket = meanMarketRate(buckets.bookedDatesByMonth.get(seg.monthKey) ?? []);
+        const index = blendRateIndex({
+          yearIndex: rateIndex.byProperty.get(s.propertyId) ?? rateIndex.fleet,
+          monthAdr: booked.nights > 0 && booked.revenue > 0 ? booked.revenue / booked.nights : null,
+          monthMarketRate: bookedMarket.rate,
+          monthNights: bookedMarket.covered,
+        });
         const pricing: PacingPricing = {
           openNightRate: market.rate != null && index != null ? market.rate * index : null,
           avgStayNights:
@@ -1732,10 +1755,9 @@ async function applyStatementsAndPacing(
  * How each home's revenue per booked night has run against the Gloucester
  * market rate on the same nights over the trailing year, plus the fleet's
  * own figure. This is the scale a market night is multiplied by before the
- * pacing projection books it as one of ours, so a home that clears twice the
- * market in August projects at twice the market in November too. That is a
- * summer-weighted premium applied to winter, and it is the honest choice
- * until a winter is on record: the fleet has no November of its own yet.
+ * pacing projection books it as one of ours. It is summer-weighted, since the
+ * fleet has no winter on record, which is why blendRateIndex lets a home's
+ * own bookings in the paced month lead once it has them.
  *
  * Non-fatal by design. A failed read leaves both empty and every paced month
  * prices its open nights at booked ADR, which is what the page did before.
