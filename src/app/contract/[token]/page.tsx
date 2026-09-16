@@ -189,4 +189,16 @@ const signFormCss = `
   }
   .rt-sign-foot a { color: var(--signal); text-decoration: none; }
   .rt-sign-foot a:hover { text-decoration: underline; }
+
+  /* Phones: the form rides inside the reflowed signature sheet (see
+     ContractDocument's mobile block), so its own chrome tightens and
+     the submit button becomes a full-width thumb target. The 24px
+     name input stays above iOS's 16px auto-zoom threshold. */
+  @media screen and (max-width: 880px) {
+    .rt-sign-form { padding: 28px 20px; }
+    .rt-sign-h { font-size: 28px; }
+    .rt-sign-field { max-width: none; }
+    .rt-sign-field input { font-size: 22px; }
+    .rt-sign-btn { align-self: stretch; text-align: center; padding: 18px 20px; }
+  }
 `;

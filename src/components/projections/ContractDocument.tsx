@@ -1168,4 +1168,46 @@ const contractCss = `
     background: var(--paper);
     box-shadow: 0 12px 40px rgba(0,0,0,0.18);
   }
+
+  /* Mobile: owners sign on their phones. The fixed 816px paper sheet
+     is flex-centered, so on a narrow screen the left half of every
+     page slid off the viewport where no scroll can reach it and the
+     right half needed side-scrolling (Jim Montagnino, 7 Sumac Lane,
+     2026-09-15). Below tablet width the sheet reflows to full width:
+     tightened margins, no hanging indent, the two-column signature
+     grid and the key-value rows stack, defined terms may wrap, and
+     the cover keeps its navy but sizes to its copy. Screen-only:
+     print/PDF geometry (816px, Letter) is untouched. Mirrors the
+     guest AgreementDocument's block. MUST stay the last block in this
+     stylesheet: the overrides tie the base rules on specificity, so
+     they only win by source order. */
+  @media screen and (max-width: 880px) {
+    .rt-doc { padding: 0; gap: 10px; }
+    .rt-doc-page {
+      width: 100%;
+      min-height: 0;
+      padding: 28px 20px 40px;
+      box-shadow: none;
+    }
+    .rt-c-skipped, .rt-c-signing-slot { width: 100%; }
+    .rt-cover { padding: 56px 20px 40px; gap: 48px; }
+    .rt-cover-h1 { font-size: 44px; }
+    .rt-cover-tag { font-size: 16px; }
+    /* Label over value: "Property Owner:" no longer wraps inside a
+       narrow label column next to the date and name. */
+    .rt-cover-foot-row { grid-template-columns: 1fr; gap: 2px; padding: 10px 0; }
+    .rt-c-body { padding-left: 0; }
+    .rt-c-bullets { padding-left: 22px; }
+    .rt-c-kv > div { grid-template-columns: 120px 1fr; gap: 10px; }
+    .rt-c-term { white-space: normal; }
+    .rt-c-blank { width: 90px; }
+    .rt-c-sig-page { padding-top: 40px; }
+    .rt-c-sig-lede { margin-bottom: 32px; }
+    .rt-c-sig-grid { grid-template-columns: 1fr; gap: 36px; }
+    .rt-c-cert-page { padding: 40px 20px 48px; }
+    .rt-c-cert-kv { grid-template-columns: 104px 1fr; }
+    /* The document UUID is one unbroken token; let it wrap instead of
+       pushing the certificate grid past the viewport. */
+    .rt-c-cert-mono { word-break: break-all; }
+  }
 `;
