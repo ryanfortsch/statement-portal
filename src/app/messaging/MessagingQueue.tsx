@@ -258,12 +258,18 @@ function ApprovalCard({
     'Guest';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
   const isPrereleaseRequest = approval.topic === 'prerelease_request';
-  // The composer, prefilled from the request, so nothing is retyped.
+  // The composer, prefilled from the request, so nothing is retyped. Party
+  // size, email and phone ride the card in `prerelease`; without them the
+  // form opened half-empty and the operator retyped them by hand.
+  const pre = approval.prerelease;
   const quoteHref =
-    `/guests/quotes/new?property=${encodeURIComponent(approval.listing_id || '')}` +
+    `/guests/quotes/new?property=${encodeURIComponent(pre?.helm_property_id || approval.listing_id || '')}` +
     `&check_in=${encodeURIComponent(approval.check_in || '')}` +
     `&check_out=${encodeURIComponent(approval.check_out || '')}` +
     `&first=${encodeURIComponent(approval.guest_first || '')}` +
+    (pre?.guests ? `&guests=${encodeURIComponent(String(pre.guests))}` : '') +
+    (pre?.guest_email ? `&email=${encodeURIComponent(pre.guest_email)}` : '') +
+    (pre?.guest_phone ? `&phone=${encodeURIComponent(pre.guest_phone)}` : '') +
     `&source=prerelease&source_ref=${encodeURIComponent(approval.guesty_message_id || '')}`;
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
   const kind = proactiveKind(approval.guesty_message_id, approval.topic);
