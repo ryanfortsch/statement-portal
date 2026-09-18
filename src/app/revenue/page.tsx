@@ -145,7 +145,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
   const [{ lastSyncedAt, isStale }, current, priorFull, projectionBaselines] = await Promise.all([
     readSyncStatus(),
-    computeRevenueSnapshot(rangeStart, rangeEnd, { applyPacing: view === 'pacing', basis }),
+    computeRevenueSnapshot(rangeStart, rangeEnd, { applyPacing: view === 'pacing', calibrate: true, basis }),
     // The comparison period must use the SAME basis, or every "vs prior"
     // chip silently compares accrual against checkout.
     prior
@@ -206,7 +206,9 @@ export default async function RevenuePage({ searchParams }: PageProps) {
               <div className="flex items-baseline" style={{ gap: 14, flexWrap: 'wrap' }}>
                 <TimeRangePicker value={rangeValue} />
                 <BasisToggle value={basis} />
-                {pacing && pacing.multiplier > 1 && <ViewToggle value={view} />}
+                {((pacing && pacing.multiplier > 1) || view === 'pacing') && (
+                  <ViewToggle value={view} />
+                )}
               </div>
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
             </div>
@@ -226,7 +228,16 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 will not tie to a statement.
               </p>
             )}
-            {pacing && pacing.multiplier > 1 && (
+            {/*
+              The pacing line renders whenever there is a month to describe,
+              NOT only when a projection is available. It used to share the
+              toggle's `multiplier > 1` gate, so a month already past its
+              target printed nothing at all: no toggle, no sentence, no
+              explanation. Blank space reads as a broken feature, and the one
+              fact worth having (the fleet is ahead of its benchmark) was the
+              one the page withheld.
+            */}
+            {pacing && (
               <p
                 style={{
                   marginTop: 12,
@@ -238,7 +249,11 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 Pacing {pacing.pacingPct.toFixed(0)}% so far in {formatPacingMonth(pacing.month)}.
                 Gloucester historical for {formatPacingMonth(pacing.month)} is{' '}
                 {pacing.historicalAvgPct.toFixed(0)}%.
-                {view === 'pacing'
+                {pacing.multiplier <= 1
+                  ? pacing.pacingPct <= 0
+                    ? ` No sellable night in ${formatPacingMonth(pacing.month)} is booked yet, so there is no pace to carry forward and no projection is applied.${basis === 'nights' ? ' Split by night.' : ''}`
+                    : ` Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that, putting the target at ${pacing.targetPct.toFixed(0)}%, and the fleet is at or past it. No projection is applied, so these are booked-so-far actuals.${basis === 'nights' ? ' Split by night.' : ''}`
+                  : view === 'pacing'
                   ? ` Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that in ${formatPacingMonth(pacing.month)}, so every home open for rental is projected toward ${pacing.targetPct.toFixed(0)}% on current/future full months in range, whether or not it has a booking yet. The nights still open are priced at last year\u2019s Gloucester rate for the same weekday and holiday${pacing.openNightMarketRate != null ? ` (about $${Math.round(pacing.openNightMarketRate)} a night)` : ''}, times each home\u2019s achieved premium over market${pacing.fleetRateIndex != null ? ` (fleet ${pacing.fleetRateIndex.toFixed(2)}×)` : ''}, never at the booked ADR. Stays and cleaning follow the added nights.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
                   : ` All figures show booked-so-far actuals only.${basis === 'nights' ? ' Split by night.' : ''}`}
               </p>
