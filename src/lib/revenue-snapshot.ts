@@ -415,12 +415,22 @@ type PropertyMonthBuckets = {
    */
   calendarNightsInRange: number;
   /**
-   * Nights blocked by zero-payout reservations (owner stays, holds,
-   * cancelled-but-not-deleted rows). These represent inventory that's
-   * unavailable to guests, so they should be subtracted from the
-   * denominator of occupancy and pacing, not just ignored.
+   * Unavailable nights per YYYY-MM: the DATE-DEDUPED union of Guesty calendar
+   * blocks and zero-payout reservations (owner stays, holds,
+   * cancelled-but-not-deleted rows). This is inventory unavailable to guests,
+   * so it comes out of the denominator of occupancy rather than reading as
+   * unsold. An owner hold is normally both a reservation and a calendar
+   * block, which is why the two sources are unioned by date and not summed.
    */
   blockedNightsByMonth: Map<string, number>;
+  /**
+   * The same unavailable nights as DATES. The count above is taken against
+   * RAW calendar days (per-property occupancy); the pacing pass works in
+   * SELLABLE nights and so needs to know which blocked nights were ever
+   * sellable in the first place. Subtracting the count from a sellable-night
+   * total removed a home's dark-season blocks from inventory it never had.
+   */
+  blockedDates: Set<string>;
   /**
    * Bookable nights for this property across the whole range (calendar
    * nights from its activation date, less owner blocks). The denominator
@@ -506,6 +516,22 @@ export type SnapshotOptions = {
    */
   applyPacing?: boolean;
   /**
+   * Whether to measure Rising Tide's own capture rate and report the
+   * calibrated target, even when the projection itself is not being applied.
+   *
+   * The target a month is judged against is a property of the MONTH, not of
+   * the view you happen to be looking at. Without this, `applyPacing: false`
+   * skipped the calibration and left `targetPct` at the raw Gloucester curve,
+   * so the same month was measured against two different bars: October 2026
+   * read 59% against 65% in Actuals (projection available) and 59% against
+   * 56% in Pacing (projection not needed). The toggle appeared, and deleted
+   * itself the moment it was used.
+   *
+   * Defaults to `applyPacing`, so the home dashboard does not pay for a
+   * trailing-year read it never looks at. /revenue sets it true always.
+   */
+  calibrate?: boolean;
+  /**
    * Which month a dollar is recognized in. 'checkout' (the default, and the
    * owner-statement methodology) puts a stay's whole value in its checkout
    * month. 'nights' spreads it across the months its nights fall in.
@@ -521,6 +547,7 @@ export async function computeRevenueSnapshot(
   options: SnapshotOptions = {},
 ): Promise<SnapshotsResponse> {
   const applyPacing = options.applyPacing !== false;
+  const calibrate = options.calibrate ?? applyPacing;
   const basis: RevenueBasis = options.basis === 'nights' ? 'nights' : 'checkout';
   // 1. Properties (active only, with the fields we need for the math).
   const { data: propsData, error: propsErr } = await supabase
@@ -698,10 +725,10 @@ export async function computeRevenueSnapshot(
   }
 
   // 4b. Calendar-driven blocks (seasonal closures, manual date blocks in
-  //     Guesty). Bucketed by property + YYYY-MM so the per-property loop
-  //     can seed blockedNightsByMonth with them alongside owner-stay
-  //     reservations. Synced into property_calendar_blocks by
-  //     /api/sync-guesty.
+  //     Guesty). Collected per property as a set of DATES, so the
+  //     per-property loop can union them with owner-stay reservations
+  //     without counting a night that is both twice. Synced into
+  //     property_calendar_blocks by /api/sync-guesty.
   // Paged for the same reason. One row per blocked DAY, so a seasonal
   // closure is ~180 rows a year on its own: 16 Waterman going dark every
   // November through April puts this on the same path as the reservation
@@ -727,19 +754,12 @@ export async function computeRevenueSnapshot(
   } catch {
     blockData = []; // non-fatal: blocks only refine the denominator
   }
-  const calendarBlocksByProperty = new Map<string, Map<string, number>>();
-  // The same blocks by date, so the pacing post-pass can tell an open night
-  // from a blocked one.
+  // Blocks by DATE. There used to be a parallel per-month count map beside
+  // this one; it became dead the moment blocked nights started deduping by
+  // date, because a count cannot tell whether a night is already spoken for.
   const calendarBlockDatesByProperty = new Map<string, Set<string>>();
   for (const row of (blockData ?? []) as { property_id: string | null; date: string | null }[]) {
     if (!row.property_id || !row.date) continue;
-    const mKey = row.date.slice(0, 7); // YYYY-MM
-    let m = calendarBlocksByProperty.get(row.property_id);
-    if (!m) {
-      m = new Map();
-      calendarBlocksByProperty.set(row.property_id, m);
-    }
-    m.set(mKey, (m.get(mKey) ?? 0) + 1);
     let dates = calendarBlockDatesByProperty.get(row.property_id);
     if (!dates) {
       dates = new Set();
@@ -828,20 +848,20 @@ export async function computeRevenueSnapshot(
     const calendarNightsByMonth = new Map<string, number>();
     const bookedDatesByMonth = new Map<string, string[]>();
     let calendarNightsInRange = 0;
-    // Unavailable nights bucketed by month. Sources:
+    // Unavailable nights, held as a SET OF DATES rather than a running
+    // count. Two sources feed it and they overlap constantly:
     //   (1) Calendar-driven blocks (Guesty calendar status='blocked'):
     //       seasonal closures, manual date blocks. Seeded here.
     //   (2) Zero-payout reservations (owner stays, holds): added below
     //       inside the reservation loop.
-    // Used to reduce the denominator of occupancy and pacing — these
-    // nights aren't unsold inventory, they're unavailable.
-    const blockedNightsByMonth = new Map<string, number>();
-    const calBlocks = calendarBlocksByProperty.get(prop.id);
-    if (calBlocks) {
-      for (const [mKey, count] of calBlocks.entries()) {
-        blockedNightsByMonth.set(mKey, (blockedNightsByMonth.get(mKey) ?? 0) + count);
-      }
-    }
+    // An owner hold is usually BOTH -- the hold exists as a reservation and
+    // Guesty also marks those days blocked on the calendar. Counting each
+    // source into a per-month total double-counted every such night, which
+    // shrank the denominator of occupancy and pacing and flattered both. In
+    // September 2026 all twelve zero-payout nights were also calendar-block
+    // rows, overstating portfolio pacing by about 1.5 points. Deduping by
+    // date is what makes the two sources safe to add together.
+    const blockedDates = new Set<string>(calendarBlockDatesByProperty.get(prop.id) ?? []);
     // Nights spoken for, by date. Seeded with the calendar blocks; the
     // reservation loop adds booked and owner-held nights. The pacing
     // post-pass prices what is left open.
@@ -868,19 +888,9 @@ export async function computeRevenueSnapshot(
       if (fullPayout <= 0 && !hasInstallments) {
         const blockedStart = checkIn > propStart ? checkIn : propStart;
         const blockedEnd = checkOut < periodEndExclusive ? checkOut : periodEndExclusive;
-        for (let d = blockedStart; d < blockedEnd; d = dayAfter(d)) occupiedDates.add(d);
-        let cursor = blockedStart;
-        while (cursor < blockedEnd) {
-          const cy = parseInt(cursor.slice(0, 4), 10);
-          const cm = parseInt(cursor.slice(5, 7), 10) - 1;
-          const monthEndExclusive = ymd(new Date(Date.UTC(cy, cm + 1, 1)));
-          const segEnd = monthEndExclusive < blockedEnd ? monthEndExclusive : blockedEnd;
-          const segNights = nightsBetween(cursor, segEnd);
-          if (segNights > 0) {
-            const k = monthKey(cy, cm);
-            blockedNightsByMonth.set(k, (blockedNightsByMonth.get(k) ?? 0) + segNights);
-          }
-          cursor = monthEndExclusive;
+        for (let d = blockedStart; d < blockedEnd; d = dayAfter(d)) {
+          occupiedDates.add(d);
+          blockedDates.add(d);
         }
         // Nights basis only: a zero-payout Guesty row can still carry real
         // statement money. This is the standard SCA-direct path, where the
@@ -1066,6 +1076,15 @@ export async function computeRevenueSnapshot(
       }
     }
 
+    // Roll the deduped block dates up per month. Built here, after the
+    // reservation loop has contributed its owner holds, so a night present in
+    // both sources is counted exactly once.
+    const blockedNightsByMonth = new Map<string, number>();
+    for (const d of blockedDates) {
+      const k = d.slice(0, 7);
+      blockedNightsByMonth.set(k, (blockedNightsByMonth.get(k) ?? 0) + 1);
+    }
+
     const propTotalNights = nightsBetween(propStart, periodEndExclusive);
     // Subtract owner-block nights so per-property occupancy reads against
     // bookable inventory, not raw calendar days.
@@ -1084,6 +1103,7 @@ export async function computeRevenueSnapshot(
       calendarNightsByMonth,
       calendarNightsInRange,
       blockedNightsByMonth,
+      blockedDates,
       bookableNights: propBookableNights,
       channelByMonth,
       occupiedDates,
@@ -1149,6 +1169,7 @@ export async function computeRevenueSnapshot(
     rangeEnd,
     properties,
     applyPacing,
+    calibrate,
     monthBucketsByProperty,
     basis,
   );
@@ -1260,6 +1281,7 @@ async function applyStatementsAndPacing(
   rangeEnd: string,
   properties: PropertyRow[],
   applyPacing: boolean,
+  calibrate: boolean,
   monthBucketsByProperty: Map<string, PropertyMonthBuckets>,
   basis: RevenueBasis,
 ): Promise<{
@@ -1294,15 +1316,30 @@ async function applyStatementsAndPacing(
   const sellableOn = (propertyId: string, periods: readonly RentalPeriod[], iso: string): boolean =>
     isOpenOn(periods, iso) && isOperatingOnDate(propertyId, iso);
 
-  /** Nights in [start, endExclusive) the home could sell. */
+  /**
+   * Nights in [start, endExclusive) the home could actually sell: open for
+   * rental, operating, and not already held.
+   *
+   * Blocked nights are excluded HERE rather than subtracted by the caller.
+   * Both callers used to take a whole-month blocked COUNT off a
+   * sellable-only total, which subtracts the same night twice whenever a
+   * block falls on a night the home was already shut for. 79 Main is the
+   * clean example: open to October 20, so October offers 20 sellable nights,
+   * and the eleven manual blocks covering October 21-31 took it to 9. The
+   * portfolio denominator had it worse, because its clamp is pooled rather
+   * than per home, so a home shut all month still removed its dark-day
+   * blocks from every other home's inventory.
+   */
   const sellableBetween = (
     propertyId: string,
     periods: readonly RentalPeriod[],
     startIso: string,
     endExclusiveIso: string,
+    blocked?: ReadonlySet<string>,
   ): number => {
     let n = 0;
     for (let d = startIso; d < endExclusiveIso; d = dayAfter(d)) {
+      if (blocked?.has(d)) continue;
       if (sellableOn(propertyId, periods, d)) n += 1;
     }
     return n;
@@ -1417,12 +1454,18 @@ async function applyStatementsAndPacing(
   // When each home is open for rental, and what a projected night is worth.
   // Both are needed before the per-month pass: the rental periods size every
   // occupancy denominator, and the calibration sets the target the projection
-  // aims at. Only the trailing-year read is gated on Pacing, so the Actuals
-  // view and the home dashboard never pay for it.
+  // aims at. The trailing-year read is gated on `calibrate`, which /revenue
+  // sets in BOTH views so a month is judged against one bar, and which the
+  // home dashboard leaves off because it never reads the pacing headline.
   // Periods load either way: they size the occupancy denominator, and the
   // pacing % must read the same in Actuals as it does in Pacing.
   const periodsByProperty = await loadRentalPeriods();
-  const pacingInputs = applyPacing
+  // Every consumer of rateIndex and calibratedBenchmark sits inside the
+  // per-month pacing pass, which only runs for a full current-or-future
+  // month. A range of closed months reads neither, so it must not pay for
+  // the trailing-year query.
+  const anyPaceableSegment = segments.some((seg) => seg.fullMonth && seg.monthKey >= todayYM);
+  const pacingInputs = anyPaceableSegment && (applyPacing || calibrate)
     ? await loadPacingInputs(properties, now)
     : {
         rateIndex: { byProperty: new Map<string, number>(), fleet: null as number | null },
@@ -1458,7 +1501,6 @@ async function applyStatementsAndPacing(
         (!p.activated_at || p.activated_at.slice(0, 10) <= `${seg.monthKey}-01`),
     );
     let portfolioNightsBooked = 0;
-    let portfolioBlockedNights = 0;
     let portfolioStayNights = 0;
     let portfolioStays = 0;
     const mgmtIds = new Set(mgmtProps.map((p) => p.id));
@@ -1467,24 +1509,23 @@ async function applyStatementsAndPacing(
       // Pacing % needs calendar (physical-occupancy) nights, not the
       // checkout-attributed nights the dashboard displays.
       portfolioNightsBooked += buckets.calendarNightsByMonth.get(seg.monthKey) ?? 0;
-      portfolioBlockedNights += buckets.blockedNightsByMonth.get(seg.monthKey) ?? 0;
       portfolioStayNights += buckets.nightsByMonth.get(seg.monthKey) ?? 0;
       portfolioStays += buckets.staysByMonth.get(seg.monthKey) ?? 0;
     }
     // Possible nights count only inventory that is actually sellable: the
-    // nights each home is OPEN for rental, less owner blocks. A home shut for
-    // the winter is not unsold inventory, and counting its dark nights in the
-    // denominator understated the shoulder months' pacing %.
-    let portfolioOpenNights = 0;
+    // nights each home is OPEN for rental and not already held. A home shut
+    // for the winter is not unsold inventory, and counting its dark nights in
+    // the denominator understated the shoulder months' pacing %.
+    let portfolioNightsPossible = 0;
     for (const p of mgmtProps) {
-      portfolioOpenNights += sellableBetween(
+      portfolioNightsPossible += sellableBetween(
         p.id,
         periodsByProperty.get(p.id) ?? [],
         seg.segStart,
         seg.segEndExclusive,
+        monthBucketsByProperty.get(p.id)?.blockedDates,
       );
     }
-    const portfolioNightsPossible = Math.max(0, portfolioOpenNights - portfolioBlockedNights);
     const pacingPct =
       portfolioNightsPossible > 0
         ? (portfolioNightsBooked / portfolioNightsPossible) * 100
@@ -1511,9 +1552,12 @@ async function applyStatementsAndPacing(
     });
   }
 
-  // Headline pacing for the UI: pick the month with the largest multiplier
-  // (the one driving the biggest projection). Falls back to the latest month
-  // if no month has a multiplier > 1.
+  // Headline pacing for the UI: the month with the largest multiplier, the
+  // one driving the biggest projection. The comparison is strict, so a tie
+  // keeps the EARLIEST eligible month, which is the current one whenever the
+  // range includes it. Every eligible month sets a headline, so a range with
+  // no projection anywhere still reports its pacing rather than nothing --
+  // the page now prints that case instead of falling silent.
   let headline: PacingInfo | null = null;
   for (const seg of segments) {
     const mp = pacingByMonth.get(seg.monthKey);
@@ -1663,14 +1707,12 @@ async function applyStatementsAndPacing(
         // calibrated benchmark. Taken against the home's OWN nights, so a
         // home with nothing booked still has a target to fill toward, and a
         // home shut for half the month targets only the half it is open.
-        const sellableNights = Math.max(
-          0,
-          sellableBetween(
-            s.propertyId,
-            periods,
-            seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart,
-            seg.segEndExclusive,
-          ) - (buckets.blockedNightsByMonth.get(seg.monthKey) ?? 0),
+        const sellableNights = sellableBetween(
+          s.propertyId,
+          periods,
+          seg.segStart > buckets.propStart ? seg.segStart : buckets.propStart,
+          seg.segEndExclusive,
+          buckets.blockedDates,
         );
         const targetNights = sellableNights * (mp.targetPct / 100);
         // Priced at last year's market rate for the same weekday and
