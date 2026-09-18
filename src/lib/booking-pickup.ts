@@ -150,6 +150,18 @@ export function measureBookingCurve(
    * preferred and everything else is only a fallback.
    */
   targetMonthOfYear?: number,
+  /**
+   * First date the caller's stay list actually covers (YYYY-MM-DD).
+   *
+   * A month that starts before this is only PARTLY in the data, so its
+   * `finalNights` is truncated and its share is measured on whatever survived
+   * the cutoff rather than on the month. That is dangerous rather than merely
+   * noisy: the boundary month is, by construction, the same month-of-year as
+   * the one being projected, so it is exactly the month `targetMonthOfYear`
+   * would promote over the sound pooled ones. Months starting before this are
+   * discarded outright.
+   */
+  coveredFrom?: string,
 ): BookingCurve {
   const months: PickupMonth[] = [];
   const discarded: Array<{ month: string; reason: string }> = [];
@@ -158,6 +170,10 @@ export function measureBookingCurve(
     const [y, m] = ym.split('-').map((n) => parseInt(n, 10));
     if (!y || !m) continue;
     const monthStart = `${ym}-01`;
+    if (coveredFrom && monthStart < coveredFrom) {
+      discarded.push({ month: ym, reason: `starts before the data window opens at ${coveredFrom}` });
+      continue;
+    }
     const cutoff = `${ym}-${String(Math.min(dayOfMonth, daysInMonth(y, m))).padStart(2, '0')}`;
 
     let finalNights = 0;
