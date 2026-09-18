@@ -179,3 +179,42 @@ test('the real September case: 58% booked at day 18 is on pace for about 62%', (
   assert.equal(Math.round(projected * 10) / 10, 62.4);
   assert.ok(projected > 58.4, 'the month does not stop where it stands');
 });
+
+// ── The data window ─────────────────────────────────────────────────────
+
+test('a month only partly inside the data window is discarded, not measured', () => {
+  // The read starts 2026-07-10, so July is truncated: the stays that checked
+  // out earlier are simply absent, and its share would be measured on the
+  // remainder rather than on July.
+  const c = measureBookingCurve(
+    [...month('2026-07', 9, 1), ...month('2026-08', 9, 1), ...month('2026-09', 9, 1)],
+    ['2026-07', '2026-08', '2026-09'],
+    18,
+    undefined,
+    '2026-07-10',
+  );
+  assert.ok(!c.months.some((m) => m.month === '2026-07'));
+  assert.match(c.discarded.find((d) => d.month === '2026-07')!.reason, /before the data window/);
+  assert.deepEqual(c.months.map((m) => m.month), ['2026-08', '2026-09']);
+});
+
+test('the window guard fires before the same-month preference can promote a truncated month', () => {
+  // September is the month being projected AND the boundary month. Without
+  // the guard its truncated share would be preferred over the sound pooled
+  // months, which is the worst case rather than a harmless one.
+  const stays = [
+    ...month('2025-09', 2, 8), // truncated remnant, share 0.2
+    ...month('2026-07', 10, 0),
+    ...month('2026-08', 10, 0),
+    ...month('2026-09', 10, 0),
+  ];
+  const c = measureBookingCurve(stays, ['2025-09', '2026-07', '2026-08', '2026-09'], 18, 9, '2025-09-18');
+  assert.ok(!c.months.some((m) => m.month === '2025-09'), 'the truncated September is out');
+  assert.equal(c.basis, 'pooled', 'one sound September is not enough to prefer');
+  assert.equal(c.share, 1);
+});
+
+test('with no window given every month is measured, as before', () => {
+  const c = measureBookingCurve([...month('2026-07', 9, 1), ...month('2026-08', 9, 1)], ['2026-07', '2026-08'], 18);
+  assert.equal(c.months.length, 2);
+});

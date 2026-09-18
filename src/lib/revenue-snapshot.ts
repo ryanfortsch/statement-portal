@@ -2134,6 +2134,13 @@ async function loadPacingInputs(
     trailingClosedMonths(now, 18),
     now.getDate(),
     now.getMonth() + 1,
+    // The stay list above starts at `yearAgo`, so anything older is partly
+    // or wholly missing. Handing the window in lets the curve throw those
+    // months out itself rather than trusting the month count to stay in step
+    // with the query. The list is deliberately longer than the window: widen
+    // the read and the extra months start qualifying on their own, which is
+    // what will eventually supply a same-month-of-year sample.
+    yearAgo,
   );
 
   return {
