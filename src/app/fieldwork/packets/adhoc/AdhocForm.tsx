@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from 'react';
 import { SubmitButton } from '@/components/SubmitButton';
 import { createAdHocPacketAction, type AdhocState } from '../actions';
+import { OfferToPicker, type OfferableContractor } from '../OfferToPicker';
 
 /**
  * The one-off job form, as a client component with useActionState (same
@@ -32,7 +33,13 @@ function InlineError({ error }: { error: string }) {
   );
 }
 
-export function AdhocForm({ properties }: { properties: { id: string; name: string; city: string | null }[] }) {
+export function AdhocForm({
+  properties,
+  offerable,
+}: {
+  properties: { id: string; name: string; city: string | null }[];
+  offerable: OfferableContractor[];
+}) {
   const [state, formAction] = useActionState<AdhocState, FormData>(createAdHocPacketAction, { error: '' });
 
   return (
@@ -85,6 +92,7 @@ export function AdhocForm({ properties }: { properties: { id: string; name: stri
         Bring <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(optional; folds into the supply-run pick list)</span>
         <input type="text" name="bring_list" maxLength={2000} placeholder="e.g. a spare furnace filter" style={inp} />
       </label>
+      <OfferToPicker contractors={offerable} />
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-3)', margin: '2px 0 4px' }}>
         <input type="checkbox" name="supply_run" />
         Start with a supply-closet bag pickup at 85 Eastern Ave

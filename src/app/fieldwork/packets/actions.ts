@@ -287,12 +287,29 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
     redirect(`/fieldwork/packets/${packetId}`);
   }
 
+  // Optional: aim the setup at specific specialists instead of the whole
+  // inspection roster, same rails as the board's bundle offer. It changes who
+  // SEES it and gets texted; the claim is untouched, they still tap Claim.
+  const picked = formData
+    .getAll('offer_to')
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  let offeredTo: string[] = [];
+  if (picked.length) {
+    const { data: cs } = await fieldDb().from('contractors').select('*').in('id', picked);
+    offeredTo = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'inspection').map((c) => c.id);
+  }
+  // A pick gone stale (deactivated since the form loaded) must never widen the
+  // offer back to the whole roster. Same landing as the date guard below: hold
+  // it as a draft so the office can re-aim it.
+  const offerWentStale = picked.length > 0 && offeredTo.length === 0;
+
   // Fat-finger guard on the normal path: publishing a PAST date would list an
   // already-gone day on the marketplace and SMS-blast inspectors about it (and
   // the morning cron would re-text them daily until someone cancels). Land it
   // as a draft instead - the office sees it pinned in Drafts and can fix the
   // date or use Record.
-  const publish = mode !== 'draft' && visitDate >= today;
+  const publish = mode !== 'draft' && visitDate >= today && !offerWentStale;
 
   const packetId = await createSetupPacket({
     propertyId,
@@ -303,11 +320,26 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
     supplyRun,
     createdByEmail: email,
     publish,
+    offeredTo,
   });
   if (!packetId) return;
   if (publish) {
-    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      actor_email: email,
+      event_type: 'published',
+      payload: offeredTo.length ? { offered_to: offeredTo } : null,
+    });
     notifyContractorsOfPacket(packetId).catch(() => {});
+  } else if (offerWentStale) {
+    // Leaves a trail in Activity for the one confusing case: she hit Publish
+    // and got a draft.
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      actor_email: email,
+      event_type: 'offer_pick_unavailable_held_as_draft',
+      payload: { picked },
+    });
   }
   revalidatePath('/fieldwork/packets');
   redirect(`/fieldwork/packets/${packetId}`);
@@ -340,6 +372,24 @@ export async function createAdHocPacketAction(_prev: AdhocState, formData: FormD
   if (!visitDate) return { error: 'Pick the day.' };
   if (!Number.isFinite(priceDollars) || priceDollars <= 0) return { error: 'Set the pay - a dollar amount above zero.' };
 
+  // Optional: aim the job at specific specialists instead of the whole
+  // inspection roster, same rails as the board's bundle offer and the setup
+  // form. It changes who SEES it and gets texted; the claim is untouched, they
+  // still tap Claim. Validated BEFORE anything is created so a stale pick
+  // can't silently widen the offer back to everyone.
+  const picked = formData
+    .getAll('offer_to')
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  let offeredTo: string[] = [];
+  if (picked.length) {
+    const { data: cs } = await fieldDb().from('contractors').select('*').in('id', picked);
+    offeredTo = ((cs ?? []) as ContractorRow[]).filter((c) => canClaim(c) && c.trade === 'inspection').map((c) => c.id);
+    if (offeredTo.length !== picked.length) {
+      return { error: "One of the specialists you picked can't claim right now. Refresh the page and pick again." };
+    }
+  }
+
   const packetId = await createAdHocPacket({
     propertyId,
     visitDate,
@@ -351,10 +401,16 @@ export async function createAdHocPacketAction(_prev: AdhocState, formData: FormD
     supplyRun,
     createdByEmail: email,
     publish,
+    offeredTo,
   });
   if (!packetId) return { error: 'Saving failed and nothing was created. Try again, and flag it if it keeps happening.' };
   if (publish) {
-    await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
+    await fieldDb().from('packet_events').insert({
+      packet_id: packetId,
+      actor_email: email,
+      event_type: 'published',
+      payload: offeredTo.length ? { offered_to: offeredTo } : null,
+    });
     notifyContractorsOfPacket(packetId).catch(() => {});
   }
   revalidatePath('/fieldwork/packets');

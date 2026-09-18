@@ -5,6 +5,8 @@ import { isFieldConfigured, fieldDb } from '@/lib/field-db';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { setupPriceCents, setupMinutes } from '@/lib/field-pricing';
 import { createSetupPacketAction } from '../actions';
+import { OfferToPicker } from '../OfferToPicker';
+import { canClaim, type ContractorRow } from '@/lib/field-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,11 +29,16 @@ export default async function SetupPacketPage() {
   // For the record-a-past-visit mode: who could have done the work.
   const { data: cData } = await fieldDb()
     .from('contractors')
-    .select('id, full_name')
+    .select('id, full_name, status, agreement_signed_at, w9_on_file, background_check_status')
     .eq('trade', 'inspection')
     .eq('status', 'active')
     .order('full_name');
-  const contractors = (cData ?? []) as { id: string; full_name: string }[];
+  const contractors = (cData ?? []) as Array<
+    Pick<ContractorRow, 'id' | 'full_name' | 'status' | 'agreement_signed_at' | 'w9_on_file' | 'background_check_status'>
+  >;
+  // For the offer picker: only specialists who could claim it today, so a
+  // packet is never aimed at someone the claim guard would turn away.
+  const offerable = contractors.filter((c) => canClaim(c)).map((c) => ({ id: c.id, name: c.full_name }));
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -81,6 +88,7 @@ export default async function SetupPacketPage() {
               style={{ ...inp, resize: 'vertical' }}
             />
           </label>
+          <OfferToPicker contractors={offerable} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-3)', margin: '2px 0 4px' }}>
             <input type="checkbox" name="supply_run" />
             Include a supply-closet bag pickup at 85 Eastern Ave as stop 1
