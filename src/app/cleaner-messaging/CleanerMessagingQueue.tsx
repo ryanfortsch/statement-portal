@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
+import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { CleanerApproval } from '@/lib/stay-concierge';
 import {
   approveCleanerDraft,
@@ -29,28 +30,42 @@ type Props = {
   properties: PropertyOption[];
 };
 
-const REFRESH_MS = 15_000;
+// How often the REST of the page re-renders. The cards no longer ride this:
+// they poll their own feed every 15s (see useApprovalQueue), so a coached
+// draft appears as soon as the service has it instead of waiting on whatever
+// else the page is fetching.
+const PAGE_REFRESH_MS = 60_000;
 
 // Teal for the work-slip-on-approval block: an operational side effect,
 // distinct from both the draft (ink) and error/stale (signal) tones.
 const SLIP_TONE = '#1f5e6b';
 
 export function CleanerMessagingQueue({ initialPending, properties }: Props) {
+  // The cards come from the queue's own feed. Seeded by the server render.
+  const { approvals, updatedTick, refresh, watchRegen, stalledId } =
+    useApprovalQueue(initialPending, 'cleaners');
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
-  // stampede fix, which this queue never got), plus a tick the header chip
-  // resets its "Updated Xs ago" timer on.
-  const { softRefresh, refreshTick } = useQueueRefresh(REFRESH_MS);
+  // stampede fix, which this queue never got). Now only the sections below
+  // the queue depend on it.
+  const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
+
+  // A card action changes both: the queue feed answers in ~60ms and drops the
+  // card, the page catches up with what sits underneath in its own time.
+  const onResolved = useCallback(() => {
+    refresh();
+    softRefresh();
+  }, [refresh, softRefresh]);
 
   // Queued (scheduled) cards float to the top, ordered by when they fire;
   // pending drafts stay in newest-first order below (guest-queue pattern).
-  const queued = initialPending
+  const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
-  const pending = initialPending.filter((a) => a.status !== 'scheduled');
+  const pending = approvals.filter((a) => a.status !== 'scheduled');
   const ordered = [...queued, ...pending];
   const title =
-    initialPending.length === 0
+    approvals.length === 0
       ? 'Inbox zero'
       : pending.length === 0
         ? `Queued (${queued.length})`
@@ -59,8 +74,8 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
   return (
     <Section
       title={title}
-      right={<QueueRefreshControl onRefresh={softRefresh} refreshTick={refreshTick} />}
-      empty={initialPending.length === 0}
+      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+      empty={approvals.length === 0}
       emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -69,7 +84,9 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
             key={approval.id}
             approval={approval}
             properties={properties}
-            onResolved={softRefresh}
+            onResolved={onResolved}
+            onRegenerating={watchRegen}
+            regenStalled={stalledId === approval.id}
           />
         ))}
       </div>
@@ -91,16 +108,25 @@ function CleanerApprovalCard({
   approval,
   properties,
   onResolved,
+  onRegenerating,
+  regenStalled,
 }: {
   approval: CleanerApproval;
   properties: PropertyOption[];
   onResolved: () => void;
+  /** Coaching accepted upstream: watch closely for the rewritten card. */
+  onRegenerating: (id: string) => void;
+  /** The rewrite never came back. */
+  regenStalled: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // In-flight for card purposes: a coached card stays locked past its own
+  // request, until the rewrite replaces it (see runCoach).
+  const busy = isPending || pendingAction === 'coach';
   // Send-later drawer + collapsed state for queued cards (guest pattern).
   const [showSchedule, setShowSchedule] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -168,6 +194,34 @@ function CleanerApprovalCard({
     });
   };
 
+  // Coaching is the one action whose work outlives its request: the service
+  // answers 202 and rewrites in the background, so the transition ends while
+  // this card is already doomed. Hand the id to the queue, which watches for
+  // the replacement every 2s, and keep the card locked meanwhile so nobody
+  // approves a draft about to be superseded out from under them.
+  const runCoach = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
+    setError(null);
+    setPendingAction('coach');
+    startTransition(async () => {
+      const res = await fn();
+      if (!res.ok) {
+        setError(res.error);
+        setPendingAction(null);
+        return;
+      }
+      onRegenerating(approval.id);
+    });
+  };
+
+  // The watch gave up: the regen failed upstream, leaving this card pending.
+  // Stop claiming to be working on it and hand the note back.
+  useEffect(() => {
+    if (!regenStalled || pendingAction !== 'coach') return;
+    setPendingAction(null);
+    setShowCoach(true);
+    setError("The rewrite hasn't come back. Send the note again.");
+  }, [regenStalled, pendingAction]);
+
   // If inbound was English, don't double-render English under it.
   const showInboundEnglish =
     approval.inbound_language === 'pt' || approval.inbound_language === 'mixed';
@@ -226,10 +280,10 @@ function CleanerApprovalCard({
           >
             Show ▾
           </button>
-          <SecondaryButton onClick={doSendNow} disabled={isPending}>
+          <SecondaryButton onClick={doSendNow} disabled={busy}>
             {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
           </SecondaryButton>
-          <SecondaryButton onClick={doCancelSchedule} disabled={isPending}>
+          <SecondaryButton onClick={doCancelSchedule} disabled={busy}>
             {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
           </SecondaryButton>
         </div>
@@ -408,14 +462,14 @@ function CleanerApprovalCard({
           <>
             <SecondaryButton
               onClick={doSendNow}
-              disabled={isPending}
+              disabled={busy}
               title="Send this reply right now instead of waiting."
             >
               {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
             </SecondaryButton>
             <SecondaryButton
               onClick={doCancelSchedule}
-              disabled={isPending}
+              disabled={busy}
               title="Stop the scheduled send and return this draft to the queue."
             >
               {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
@@ -438,7 +492,7 @@ function CleanerApprovalCard({
                 )
               }
               onToggle={() => setShowSchedule((v) => !v)}
-              disabled={isPending || slipBlocked}
+              disabled={busy || slipBlocked}
               // A queued send would file the slip with mined defaults, silently
               // dropping the operator's untick / property pick — so slip cards
               // send immediately only.
@@ -454,7 +508,7 @@ function CleanerApprovalCard({
             {/* Proactive reminders are the operator's own composed message, not an
                 AI draft of an inbound, so there is nothing to coach/regenerate. */}
             {approval.topic !== 'proactive_reminder' && (
-              <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={isPending}>
+              <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={busy}>
                 {pendingAction === 'coach'
                   ? 'Regenerating…'
                   : showCoach
@@ -464,14 +518,14 @@ function CleanerApprovalCard({
             )}
             <SecondaryButton
               onClick={() => run('mark-handled', () => markCleanerHandled(approval.id))}
-              disabled={isPending}
+              disabled={busy}
               title="Already replied directly. Clears the queue without sending."
             >
               {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
             </SecondaryButton>
             <SecondaryButton
               onClick={() => run('reject', () => rejectCleanerDraft(approval.id))}
-              disabled={isPending}
+              disabled={busy}
               title="This message doesn't need a reply. Drops the draft."
             >
               {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
@@ -481,7 +535,7 @@ function CleanerApprovalCard({
       </footer>
 
       {showSchedule && !isScheduled && (
-        <SchedulePopover onSchedule={doSchedule} disabled={isPending} />
+        <SchedulePopover onSchedule={doSchedule} disabled={busy} />
       )}
 
       {pendingAction === 'coach' && (
@@ -527,17 +581,16 @@ function CleanerApprovalCard({
                 // Collapse immediately so the in-flight status above reads
                 // for the whole regeneration; reopen on failure to revise.
                 setShowCoach(false);
-                run(
-                  'coach',
-                  async () => {
-                    const res = await coachCleanerDraft(approval.id, feedback);
-                    if (res.ok) setFeedback('');
-                    else setShowCoach(true);
-                    return res;
-                  },
-                );
+                // The note stays in the textarea until this card is actually
+                // replaced: if the rewrite never lands, the operator gets
+                // their own words back rather than having to retype them.
+                runCoach(async () => {
+                  const res = await coachCleanerDraft(approval.id, feedback);
+                  if (!res.ok) setShowCoach(true);
+                  return res;
+                });
               }}
-              disabled={isPending || !feedback.trim()}
+              disabled={busy || !feedback.trim()}
             >
               {pendingAction === 'coach' ? 'Regenerating…' : 'Regenerate with this note'}
             </PrimaryButton>
@@ -546,7 +599,7 @@ function CleanerApprovalCard({
                 setShowCoach(false);
                 setFeedback('');
               }}
-              disabled={isPending}
+              disabled={busy}
             >
               Cancel
             </SecondaryButton>

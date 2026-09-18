@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'r
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
+import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { OwnerApproval } from '@/lib/stay-concierge';
 import {
   approveOwnerDraft,
@@ -30,24 +31,38 @@ import { splitOwnerText, parseTapback } from './conversation';
 
 type Props = { initialPending: OwnerApproval[] };
 
-const REFRESH_MS = 15_000;
+// How often the REST of the page re-renders. The cards no longer ride this:
+// they poll their own feed every 15s (see useApprovalQueue), so a coached
+// draft appears as soon as the service has it instead of waiting on whatever
+// else the page is fetching.
+const PAGE_REFRESH_MS = 60_000;
 
 export function OwnerMessagingQueue({ initialPending }: Props) {
+  // The cards come from the queue's own feed. Seeded by the server render.
+  const { approvals, updatedTick, refresh, watchRegen, stalledId } =
+    useApprovalQueue(initialPending, 'owners');
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
-  // stampede fix, which this queue never got), plus a tick the header chip
-  // resets its "Updated Xs ago" timer on.
-  const { softRefresh, refreshTick } = useQueueRefresh(REFRESH_MS);
+  // stampede fix, which this queue never got). Now only the sections below
+  // the queue depend on it.
+  const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
+
+  // A card action changes both: the queue feed answers in ~60ms and drops the
+  // card, the page catches up with what sits underneath in its own time.
+  const onResolved = useCallback(() => {
+    refresh();
+    softRefresh();
+  }, [refresh, softRefresh]);
 
   // Queued (scheduled) cards float to the top, ordered by when they fire;
   // pending drafts stay in newest-first order below (guest-queue pattern).
-  const queued = initialPending
+  const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
-  const pending = initialPending.filter((a) => a.status !== 'scheduled');
+  const pending = approvals.filter((a) => a.status !== 'scheduled');
   const ordered = [...queued, ...pending];
   const title =
-    initialPending.length === 0
+    approvals.length === 0
       ? 'Inbox zero'
       : pending.length === 0
         ? `Queued (${queued.length})`
@@ -56,8 +71,8 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
   return (
     <Section
       title={title}
-      right={<QueueRefreshControl onRefresh={softRefresh} refreshTick={refreshTick} />}
-      empty={initialPending.length === 0}
+      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+      empty={approvals.length === 0}
       emptyMessage="No owner drafts waiting. New owner messages will show up here automatically when the AI drafts a reply."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -65,7 +80,9 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
           <OwnerApprovalCard
             key={approval.id}
             approval={approval}
-            onResolved={softRefresh}
+            onResolved={onResolved}
+            onRegenerating={watchRegen}
+            regenStalled={stalledId === approval.id}
           />
         ))}
       </div>
@@ -86,15 +103,24 @@ type PendingAction =
 const OwnerApprovalCard = memo(function OwnerApprovalCard({
   approval,
   onResolved,
+  onRegenerating,
+  regenStalled,
 }: {
   approval: OwnerApproval;
   onResolved: () => void;
+  /** Coaching accepted upstream: watch closely for the rewritten card. */
+  onRegenerating: (id: string) => void;
+  /** The rewrite never came back. */
+  regenStalled: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // In-flight for card purposes: a coached card stays locked past its own
+  // request, until the rewrite replaces it (see runCoach).
+  const busy = isPending || pendingAction === 'coach';
   // The draft is a live editable field. draftText is what actually sends;
   // `edited` flags that the operator changed it from the AI's original.
   const [draftText, setDraftText] = useState(approval.draft ?? '');
@@ -153,6 +179,34 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
     });
   };
 
+  // Coaching is the one action whose work outlives its request: the service
+  // answers 202 and rewrites in the background, so the transition ends while
+  // this card is already doomed. Hand the id to the queue, which watches for
+  // the replacement every 2s, and keep the card locked meanwhile so nobody
+  // approves a draft about to be superseded out from under them.
+  const runCoach = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
+    setError(null);
+    setPendingAction('coach');
+    startTransition(async () => {
+      const res = await fn();
+      if (!res.ok) {
+        setError(res.error);
+        setPendingAction(null);
+        return;
+      }
+      onRegenerating(approval.id);
+    });
+  };
+
+  // The watch gave up: the regen failed upstream, leaving this card pending.
+  // Stop claiming to be working on it and hand the note back.
+  useEffect(() => {
+    if (!regenStalled || pendingAction !== 'coach') return;
+    setPendingAction(null);
+    setShowCoach(true);
+    setError("The rewrite hasn't come back. Send the note again.");
+  }, [regenStalled, pendingAction]);
+
   // Split the stacked owner_text into individual messages; drop pure tapbacks
   // (reactions to our earlier replies, not new asks). If every segment is a
   // reaction, the card collapses to a one-line notice + a single Dismiss.
@@ -167,7 +221,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   const ownerSaid = realSegments.length > 0 ? realSegments : [approval.owner_text || '(empty)'];
   const firstName = (approval.owner_name || '').trim().split(/\s+/)[0] || 'They';
 
-  const canApprove = draftText.trim().length > 0 && !isPending;
+  const canApprove = draftText.trim().length > 0 && !busy;
 
   const doApprove = () => {
     if (!canApprove) return;
@@ -192,14 +246,13 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
     // without it the only signal is a tiny button label and the coach
     // looks like it did nothing).
     setShowCoach(false);
-    run('coach', async () => {
+    runCoach(async () => {
       const res = await coachOwnerDraft(approval.id, feedback, edited ? draftText : undefined);
-      if (res.ok) {
-        setFeedback('');
-      } else {
-        // Reopen so the note can be revised instead of retyped.
-        setShowCoach(true);
-      }
+      // The note stays in the textarea until this card is actually replaced:
+      // if the rewrite never lands, the operator gets their own words back
+      // rather than having to retype them. Reopen the drawer on a failure so
+      // the note can be revised instead.
+      if (!res.ok) setShowCoach(true);
       return res;
     });
   };
@@ -224,7 +277,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
       doApprove();
       return;
     }
-    if (inTextarea || isPending) return;
+    if (inTextarea || busy) return;
     const k = e.key.toLowerCase();
     if (k === 'a') {
       e.preventDefault();
@@ -296,10 +349,10 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
           >
             Show ▾
           </button>
-          <SecondaryButton onClick={doSendNow} disabled={isPending}>
+          <SecondaryButton onClick={doSendNow} disabled={busy}>
             {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
           </SecondaryButton>
-          <SecondaryButton onClick={doCancelSchedule} disabled={isPending}>
+          <SecondaryButton onClick={doCancelSchedule} disabled={busy}>
             {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
           </SecondaryButton>
         </div>
@@ -399,7 +452,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
           <footer style={{ display: 'flex', gap: 10 }}>
             <SecondaryButton
               onClick={doReject}
-              disabled={isPending}
+              disabled={busy}
               title="A reaction, not a message. Clears it from the queue."
             >
               {pendingAction === 'reject' ? 'Dismissing…' : 'Dismiss'}
@@ -473,14 +526,14 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
               <>
                 <SecondaryButton
                   onClick={doSendNow}
-                  disabled={isPending}
+                  disabled={busy}
                   title="Send this reply right now instead of waiting."
                 >
                   {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
                 </SecondaryButton>
                 <SecondaryButton
                   onClick={doCancelSchedule}
-                  disabled={isPending}
+                  disabled={busy}
                   title="Stop the scheduled send and return this draft to the queue."
                 >
                   {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
@@ -499,7 +552,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                   loading={pendingAction === 'approve'}
                   open={showSchedule}
                 />
-                <SecondaryButton onClick={toggleCoach} disabled={isPending}>
+                <SecondaryButton onClick={toggleCoach} disabled={busy}>
                   {pendingAction === 'coach'
                     ? 'Regenerating…'
                     : showCoach
@@ -508,14 +561,14 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                 </SecondaryButton>
                 <SecondaryButton
                   onClick={doHandled}
-                  disabled={isPending}
+                  disabled={busy}
                   title="Already replied to the owner directly. Clears the queue without sending."
                 >
                   {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
                 </SecondaryButton>
                 <SecondaryButton
                   onClick={doReject}
-                  disabled={isPending}
+                  disabled={busy}
                   title="This owner message doesn't need a reply. Drops the draft."
                 >
                   {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
@@ -525,7 +578,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
           </footer>
 
           {showSchedule && !isScheduled && (
-            <SchedulePopover onSchedule={doSchedule} disabled={isPending} />
+            <SchedulePopover onSchedule={doSchedule} disabled={busy} />
           )}
 
           {pendingAction === 'schedule' && (
@@ -582,7 +635,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                 }}
               />
               <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-                <PrimaryButton onClick={doCoach} disabled={isPending || !feedback.trim()}>
+                <PrimaryButton onClick={doCoach} disabled={busy || !feedback.trim()}>
                   {pendingAction === 'coach' ? 'Regenerating…' : 'Regenerate with this note'}
                 </PrimaryButton>
                 <SecondaryButton
@@ -590,7 +643,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                     setShowCoach(false);
                     setFeedback('');
                   }}
-                  disabled={isPending}
+                  disabled={busy}
                 >
                   Cancel
                 </SecondaryButton>

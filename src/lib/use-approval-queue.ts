@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Approval } from '@/lib/stay-concierge';
 
-/** Normal cadence: the same 15s the page used to refresh on. */
+/** Which queue this hook is feeding. Mirrors the four messaging surfaces. */
+export type QueueAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
+
+/** Normal cadence: the same 15s the pages used to refresh on. */
 const POLL_MS = 15_000;
 /** While a coached card is being rewritten upstream, watch for its
- * replacement closely. The regen itself takes ~6s (Guesty context + the
+ * replacement closely. The regen itself takes ~6s (context gather + the
  * model); a 15s poll turned that into a 15-30s stare at "Regenerating". */
 const WATCH_POLL_MS = 2_000;
 /** Stop waiting on a rewrite that never arrives. A regen that throws upstream
@@ -17,10 +19,15 @@ const WATCH_POLL_MS = 2_000;
  * still picks up a late arrival on the normal cadence. */
 const WATCH_GIVE_UP_MS = 240_000;
 
-type QueueState = {
+type QueueState<T, C> = {
   /** The cards to render. Seeded from the server render, owned by this hook
    * after its first successful poll. */
-  approvals: Approval[];
+  approvals: T[];
+  /** Audience sidecar the feed carries beside the cards: the contractor queue
+   * ships each card's Field context (the run that narrows its property
+   * dropdown), which is keyed by approval id and so has to travel with a
+   * rewritten card rather than wait for the next page render. */
+  context: C | undefined;
   /** Bumps on every successful load, so "Updated Xs ago" counts from data
    * that actually arrived rather than from a refresh we merely dispatched. */
   updatedTick: number;
@@ -33,14 +40,27 @@ type QueueState = {
 };
 
 /**
- * The guest queue's own data loop, polling /api/messaging/queue instead of
- * re-rendering the whole /messaging route.
+ * A messaging queue's own data loop, polling /api/messaging/queue instead of
+ * re-rendering the whole route it sits on.
+ *
+ * The four queue pages each render several sections, and a card used to clear
+ * only when a full router.refresh brought the list back down. That tied the
+ * cards to the slowest thing on the page (on /messaging, a conversations
+ * rebuild that runs ~35s cold), so a coached card could read "Regenerating"
+ * minutes after the service had finished. Coaching is the sharp edge because
+ * the service answers 202 and rewrites in the background: nothing is different
+ * until the replacement card exists under a new id.
  *
  * Hidden tabs skip ticks and the period is jittered, same as the page-level
  * refresh it replaces (#1236): several open tabs must not poll in lockstep.
  */
-export function useApprovalQueue(initial: Approval[]): QueueState {
-  const [approvals, setApprovals] = useState<Approval[]>(initial);
+export function useApprovalQueue<T extends { id: string }, C = undefined>(
+  initial: T[],
+  audience: QueueAudience,
+  initialContext?: C,
+): QueueState<T, C> {
+  const [approvals, setApprovals] = useState<T[]>(initial);
+  const [context, setContext] = useState<C | undefined>(initialContext);
   const [updatedTick, setUpdatedTick] = useState(0);
   const [stalledId, setStalledId] = useState<string | null>(null);
   // Bumping this restarts the polling loop, which is how a fresh watch gets
@@ -53,17 +73,20 @@ export function useApprovalQueue(initial: Approval[]): QueueState {
   const ownsDataRef = useRef(false);
 
   useEffect(() => {
-    if (!ownsDataRef.current) setApprovals(initial);
-  }, [initial]);
+    if (ownsDataRef.current) return;
+    setApprovals(initial);
+    setContext(initialContext);
+  }, [initial, initialContext]);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/messaging/queue', { cache: 'no-store' });
+      const res = await fetch(`/api/messaging/queue?audience=${audience}`, { cache: 'no-store' });
       if (!res.ok) return;
-      const data = (await res.json()) as { approvals?: Approval[] };
+      const data = (await res.json()) as { approvals?: T[]; context?: C };
       if (!Array.isArray(data.approvals)) return;
       ownsDataRef.current = true;
       setApprovals(data.approvals);
+      if (data.context !== undefined) setContext(data.context);
       setUpdatedTick((t) => t + 1);
       const watch = watchRef.current;
       // The coached card is gone: its rewrite is live under a new id, and the
@@ -76,7 +99,7 @@ export function useApprovalQueue(initial: Approval[]): QueueState {
       // counting, so a feed that has gone quiet reads as stale rather than
       // blanking the operator's work.
     }
-  }, []);
+  }, [audience]);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,5 +143,5 @@ export function useApprovalQueue(initial: Approval[]): QueueState {
     setWatchSeq((n) => n + 1);
   }, []);
 
-  return { approvals, updatedTick, refresh, watchRegen, stalledId };
+  return { approvals, context, updatedTick, refresh, watchRegen, stalledId };
 }

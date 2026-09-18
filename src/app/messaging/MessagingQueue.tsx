@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
-import { useApprovalQueue } from './use-approval-queue';
+import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { Approval } from '@/lib/stay-concierge';
 import {
   approveDraft,
@@ -83,7 +83,7 @@ export function MessagingQueue({ initialPending }: Props) {
   // The cards come from the queue's own feed, so a slow page render can never
   // hold a finished draft back. Seeded by the server render above.
   const { approvals, updatedTick, refresh, watchRegen, stalledId } =
-    useApprovalQueue(initialPending);
+    useApprovalQueue(initialPending, 'guests');
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
   // stampede fix). Now only the strips below the queue depend on it. The
