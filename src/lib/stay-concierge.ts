@@ -59,6 +59,7 @@ export type PrereleaseRequestDetails = {
   guest_email: string;
   guest_phone: string;
   helm_property_id: string;
+  guest_last: string;
 };
 
 /** An add-on fee the AI detected in the conversation, with the Stripe

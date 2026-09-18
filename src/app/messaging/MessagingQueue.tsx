@@ -269,6 +269,7 @@ function ApprovalCard({
     `&first=${encodeURIComponent(approval.guest_first || '')}` +
     (pre?.guests ? `&guests=${encodeURIComponent(String(pre.guests))}` : '') +
     (pre?.guest_email ? `&email=${encodeURIComponent(pre.guest_email)}` : '') +
+    (pre?.guest_last ? `&last=${encodeURIComponent(pre.guest_last)}` : '') +
     (pre?.guest_phone ? `&phone=${encodeURIComponent(pre.guest_phone)}` : '') +
     `&source=prerelease&source_ref=${encodeURIComponent(approval.guesty_message_id || '')}`;
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
@@ -955,6 +956,10 @@ function ApprovalCard({
       >
         {isScheduled ? (
           <>
+            {/* A queued holding reply must not hide the pricing action: this
+                branch runs before the pre-release branch below, and the header
+                link it replaced used to render here. */}
+            {isPrereleaseRequest && <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>}
             <SecondaryButton
               onClick={handleSendNow}
               disabled={isPending}
@@ -1010,6 +1015,7 @@ function ApprovalCard({
             <button
               type="button"
               onClick={() => setShowMore(true)}
+              aria-expanded={false}
               className="eyebrow"
               style={{
                 background: 'none',
@@ -1027,20 +1033,37 @@ function ApprovalCard({
           </>
         ) : (
           <>
-            {isPrereleaseRequest && <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>}
-            <SplitSendButton
-              onApprove={handleApprove}
-              onToggle={toggleSchedule}
-              disabled={isPending}
-              loading={pendingAction === 'approve'}
-              open={showSchedule}
-              label={isPrereleaseRequest ? 'Send holding reply' : undefined}
-              title={
-                isPrereleaseRequest
-                  ? 'Sends the drafted note saying 2027 is not on sale yet and a quote will follow. It does NOT send a price.'
-                  : undefined
-              }
-            />
+            {isPrereleaseRequest ? (
+              <>
+                <PrimaryLink href={quoteHref} disabled={isPending}>
+                  Send a price
+                </PrimaryLink>
+                {/* Not a second dark button: only one action on this card is the
+                    likely one, and the difference between them has to be legible
+                    without hovering. */}
+                <SecondaryButton
+                  onClick={handleApprove}
+                  disabled={isPending}
+                  loading={pendingAction === 'approve'}
+                  loadingLabel="Sending"
+                  title="Sends the drafted note saying 2027 is not on sale yet and a quote will follow."
+                >
+                  Send holding reply
+                </SecondaryButton>
+                <span className="eyebrow" style={{ color: 'var(--ink-3)', flexBasis: '100%' }}>
+                  Send a price opens the quote form. The holding reply only says 2027 is not on
+                  sale yet, and sends no price.
+                </span>
+              </>
+            ) : (
+              <SplitSendButton
+                onApprove={handleApprove}
+                onToggle={toggleSchedule}
+                disabled={isPending}
+                loading={pendingAction === 'approve'}
+                open={showSchedule}
+              />
+            )}
             <SecondaryButton
               onClick={toggleCoach}
               disabled={isPending}
@@ -1067,6 +1090,26 @@ function ApprovalCard({
             >
               Reject
             </SecondaryButton>
+            {isPrereleaseRequest && showMore && (
+              <button
+                type="button"
+                onClick={() => setShowMore(false)}
+                aria-expanded
+                className="eyebrow"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  color: 'var(--ink-3)',
+                  textDecoration: 'underline',
+                  textUnderlineOffset: 3,
+                  cursor: 'pointer',
+                  marginLeft: 'auto',
+                }}
+              >
+                Fewer options
+              </button>
+            )}
           </>
         )}
       </footer>
@@ -1500,11 +1543,26 @@ function PrimaryButton({
 
 /** Looks like PrimaryButton, but navigates. Used where the card's main action
  *  is "go to this form" rather than "send this now". */
-function PrimaryLink({ href, children }: { href: string; children: React.ReactNode }) {
+function PrimaryLink({
+  href,
+  children,
+  disabled,
+}: {
+  href: string;
+  children: React.ReactNode;
+  /** Another action on the card is in flight. Navigating away mid-send would
+   *  abandon it, so the link greys out and stops responding, matching the
+   *  buttons beside it. */
+  disabled?: boolean;
+}) {
   return (
     <a
-      href={href}
+      href={disabled ? undefined : href}
+      aria-disabled={disabled || undefined}
+      onClick={disabled ? (e) => e.preventDefault() : undefined}
       style={{
+        pointerEvents: disabled ? 'none' : undefined,
+        opacity: disabled ? 0.5 : 1,
         background: 'var(--ink)',
         color: 'var(--paper)',
         border: '2px solid var(--ink)',
