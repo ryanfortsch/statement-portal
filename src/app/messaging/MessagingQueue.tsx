@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
+import { useApprovalQueue } from './use-approval-queue';
 import type { Approval } from '@/lib/stay-concierge';
 import {
   approveDraft,
@@ -33,7 +34,14 @@ type Props = {
   initialPending: Approval[];
 };
 
-const REFRESH_MS = 15_000;
+// How often the REST of the page (recent strip, conversations, performance)
+// re-renders. The queue no longer rides this: it polls its own feed every 15s
+// (see useApprovalQueue), which is what keeps a coached card from waiting on
+// the conversations rebuild: a 16-page Guesty burst that runs ~35s cold every
+// 90 seconds and used to supersede the refresh carrying the new draft. Those
+// strips are below the fold and none of them are urgent, so a minute is plenty
+// and it takes the upstream load down with it.
+const PAGE_REFRESH_MS = 60_000;
 
 // Muted bronze for the queued (scheduled) state. Reused from the proactive
 // 'scheduled'/'reminder' badge tone on purpose, and deliberately NOT
@@ -72,22 +80,33 @@ function nextQuarterHour(): string {
 }
 
 export function MessagingQueue({ initialPending }: Props) {
+  // The cards come from the queue's own feed, so a slow page render can never
+  // hold a finished draft back. Seeded by the server render above.
+  const { approvals, updatedTick, refresh, watchRegen, stalledId } =
+    useApprovalQueue(initialPending);
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
-  // stampede fix), plus a tick the header chip resets its "Updated Xs ago"
-  // timer on. The transition keeps the current UI (and any half-typed
-  // proactive-message form) mounted while the new payload streams.
-  const { softRefresh, refreshTick } = useQueueRefresh(REFRESH_MS);
+  // stampede fix). Now only the strips below the queue depend on it. The
+  // transition keeps the current UI (and any half-typed proactive-message
+  // form) mounted while the new payload streams.
+  const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
+
+  // A card action changes both: the queue feed answers in ~60ms and drops the
+  // card, the page catches up with the strips underneath in its own time.
+  const onResolved = useCallback(() => {
+    refresh();
+    softRefresh();
+  }, [refresh, softRefresh]);
 
   // Queued cards firing within the next 24h float to the top, ordered by
   // when they actually fire, so the last chance to cancel stays in view.
   // Sends parked further out sink BELOW the pending drafts instead -- a
   // note scheduled two weeks ahead shouldn't occupy the top slot of the
   // dashboard for two weeks. Pending drafts stay newest-first in between.
-  const queued = initialPending
+  const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
-  const pending = initialPending.filter((a) => a.status !== 'scheduled');
+  const pending = approvals.filter((a) => a.status !== 'scheduled');
   const soonCutoff = Date.now() + 24 * 60 * 60 * 1000;
   const firesSoon = (a: Approval) => {
     if (!a.send_at) return true; // no timestamp: keep it visible up top
@@ -102,7 +121,7 @@ export function MessagingQueue({ initialPending }: Props) {
   const queuedCount = queued.length;
   const pendingCount = pending.length;
   const title =
-    initialPending.length === 0
+    approvals.length === 0
       ? 'Inbox zero'
       : pendingCount === 0
         ? `Queued (${queuedCount})`
@@ -111,13 +130,19 @@ export function MessagingQueue({ initialPending }: Props) {
   return (
     <Section
       title={title}
-      right={<QueueRefreshControl onRefresh={softRefresh} refreshTick={refreshTick} />}
-      empty={initialPending.length === 0}
+      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+      empty={approvals.length === 0}
       emptyMessage="No drafts waiting. New guest messages will show up here automatically when the AI drafts a reply."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {ordered.map((approval) => (
-          <ApprovalCard key={approval.id} approval={approval} onResolved={softRefresh} />
+          <ApprovalCard
+            key={approval.id}
+            approval={approval}
+            onResolved={onResolved}
+            onRegenerating={watchRegen}
+            regenStalled={stalledId === approval.id}
+          />
         ))}
       </div>
     </Section>
@@ -143,15 +168,27 @@ type PendingAction =
 function ApprovalCard({
   approval,
   onResolved,
+  onRegenerating,
+  regenStalled,
 }: {
   approval: Approval;
   onResolved: () => void;
+  /** Coaching accepted upstream: watch closely for the rewritten card. */
+  onRegenerating: (id: string) => void;
+  /** The rewrite never came back. */
+  regenStalled: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  // Coaching is the one action whose work outlives its request: the service
+  // answers 202 and rewrites in the background, so the transition ends while
+  // this card is already doomed. Keep the card locked until its replacement
+  // lands (or the watch gives up) so nobody approves a draft that is about to
+  // be superseded out from under them.
+  const busy = isPending || pendingAction === 'coach';
   // Copy-to-send cards: transient "Copied" confirmation on the Copy button.
   const [copied, setCopied] = useState(false);
   // Inline edit + schedule UI. Mutually exclusive (opening one closes the
@@ -397,14 +434,25 @@ function ApprovalCard({
         setShowCoach(true);
         return;
       }
-      setFeedback('');
-      // Refresh immediately. The previous 1500ms hold was there so the
-      // "Regenerating" message had time to be seen, but that message
-      // already showed for the full duration of the await above (driven
-      // by pendingAction === 'coach'), so we no longer need the buffer.
-      onResolved();
+      // The note stays in the textarea until this card is actually replaced:
+      // if the rewrite never lands (regenStalled below) the operator gets
+      // their own words back rather than having to retype them.
+      //
+      // The service answers 202 and rewrites in the background, so there is
+      // nothing new to show yet. Hand the id to the queue, which watches for
+      // the replacement every 2s and drops this card the moment it exists.
+      onRegenerating(approval.id);
     });
   };
+
+  // The watch gave up: the regen failed upstream (the service logs a traceback
+  // and returns, leaving this card pending). Stop claiming to be working on it.
+  useEffect(() => {
+    if (!regenStalled || pendingAction !== 'coach') return;
+    setPendingAction(null);
+    setShowCoach(true);
+    setError("The rewrite hasn't come back. Send the note again.");
+  }, [regenStalled, pendingAction]);
 
   // Shared transition runner for the new actions: same stale/error/refresh
   // contract as the handlers above.
@@ -555,7 +603,7 @@ function ApprovalCard({
           </button>
           <SecondaryButton
             onClick={handleSendNow}
-            disabled={isPending}
+            disabled={busy}
             loading={pendingAction === 'send-now'}
             loadingLabel="Sending"
           >
@@ -563,7 +611,7 @@ function ApprovalCard({
           </SecondaryButton>
           <SecondaryButton
             onClick={handleCancelSchedule}
-            disabled={isPending}
+            disabled={busy}
             loading={pendingAction === 'cancel-schedule'}
             loadingLabel="Cancelling"
           >
@@ -689,14 +737,14 @@ function ApprovalCard({
               <button
                 type="button"
                 onClick={startEdit}
-                disabled={isPending}
+                disabled={busy}
                 className="eyebrow"
                 style={{
                   color: 'var(--ink-4)',
                   background: 'transparent',
                   border: 'none',
                   padding: 0,
-                  cursor: isPending ? 'not-allowed' : 'pointer',
+                  cursor: busy ? 'not-allowed' : 'pointer',
                 }}
                 title="Edit the reply text yourself (the AI will not rewrite it)"
               >
@@ -757,13 +805,13 @@ function ApprovalCard({
               <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
                 <PrimaryButton
                   onClick={handleSaveEdit}
-                  disabled={isPending || !draftText.trim()}
+                  disabled={busy || !draftText.trim()}
                   loading={pendingAction === 'save-edit'}
                   loadingLabel="Saving"
                 >
                   Save
                 </PrimaryButton>
-                <SecondaryButton onClick={() => setEditing(false)} disabled={isPending}>
+                <SecondaryButton onClick={() => setEditing(false)} disabled={busy}>
                   Cancel
                 </SecondaryButton>
               </div>
@@ -962,7 +1010,7 @@ function ApprovalCard({
             {isPrereleaseRequest && <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>}
             <SecondaryButton
               onClick={handleSendNow}
-              disabled={isPending}
+              disabled={busy}
               loading={pendingAction === 'send-now'}
               loadingLabel="Sending"
               title="Send this draft right now instead of waiting."
@@ -971,7 +1019,7 @@ function ApprovalCard({
             </SecondaryButton>
             <SecondaryButton
               onClick={handleCancelSchedule}
-              disabled={isPending}
+              disabled={busy}
               loading={pendingAction === 'cancel-schedule'}
               loadingLabel="Cancelling"
               title="Stop the scheduled send and return this draft to the queue."
@@ -984,12 +1032,12 @@ function ApprovalCard({
           </>
         ) : manual ? (
           <>
-            <PrimaryButton onClick={handleCopy} disabled={isPending}>
+            <PrimaryButton onClick={handleCopy} disabled={busy}>
               {copied ? 'Copied ✓' : 'Copy message'}
             </PrimaryButton>
             <SecondaryButton
               onClick={handleMarkHandled}
-              disabled={isPending}
+              disabled={busy}
               loading={pendingAction === 'mark-handled'}
               loadingLabel="Marking"
               title="You've pasted and sent this in Guesty's WhatsApp inbox. Clears it from the queue."
@@ -998,7 +1046,7 @@ function ApprovalCard({
             </SecondaryButton>
             <SecondaryButton
               onClick={handleReject}
-              disabled={isPending}
+              disabled={busy}
               loading={pendingAction === 'reject'}
               loadingLabel="Dismissing"
               title="Skip this trash reminder. Drops the card."
@@ -1035,7 +1083,7 @@ function ApprovalCard({
           <>
             {isPrereleaseRequest ? (
               <>
-                <PrimaryLink href={quoteHref} disabled={isPending}>
+                <PrimaryLink href={quoteHref} disabled={busy}>
                   Send a price
                 </PrimaryLink>
                 {/* Not a second dark button: only one action on this card is the
@@ -1043,7 +1091,7 @@ function ApprovalCard({
                     without hovering. */}
                 <SecondaryButton
                   onClick={handleApprove}
-                  disabled={isPending}
+                  disabled={busy}
                   loading={pendingAction === 'approve'}
                   loadingLabel="Sending"
                   title="Sends the drafted note saying 2027 is not on sale yet and a quote will follow."
@@ -1059,14 +1107,14 @@ function ApprovalCard({
               <SplitSendButton
                 onApprove={handleApprove}
                 onToggle={toggleSchedule}
-                disabled={isPending}
+                disabled={busy}
                 loading={pendingAction === 'approve'}
                 open={showSchedule}
               />
             )}
             <SecondaryButton
               onClick={toggleCoach}
-              disabled={isPending}
+              disabled={busy}
               loading={pendingAction === 'coach'}
               loadingLabel="Regenerating"
             >
@@ -1074,7 +1122,7 @@ function ApprovalCard({
             </SecondaryButton>
             <SecondaryButton
               onClick={handleMarkHandled}
-              disabled={isPending}
+              disabled={busy}
               loading={pendingAction === 'mark-handled'}
               loadingLabel="Marking"
               title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
@@ -1083,7 +1131,7 @@ function ApprovalCard({
             </SecondaryButton>
             <SecondaryButton
               onClick={handleReject}
-              disabled={isPending}
+              disabled={busy}
               loading={pendingAction === 'reject'}
               loadingLabel="Rejecting"
               title="This guest message doesn't need a reply. Drops the draft."
@@ -1124,7 +1172,7 @@ function ApprovalCard({
           customTime={customTime}
           setCustomTime={setCustomTime}
           onConfirmCustom={() => handleSchedule(isoFromDayTime(customDay, customTime))}
-          disabled={isPending}
+          disabled={busy}
         />
       )}
 
@@ -1157,7 +1205,7 @@ function ApprovalCard({
           <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
             <PrimaryButton
               onClick={handleCoach}
-              disabled={isPending || !feedback.trim()}
+              disabled={busy || !feedback.trim()}
               loading={pendingAction === 'coach'}
               loadingLabel="Regenerating"
             >
@@ -1168,7 +1216,7 @@ function ApprovalCard({
                 setShowCoach(false);
                 setFeedback('');
               }}
-              disabled={isPending}
+              disabled={busy}
             >
               Cancel
             </SecondaryButton>
