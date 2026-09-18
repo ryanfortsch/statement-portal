@@ -28,6 +28,12 @@ import {
   closedMonthsOf,
   computeRealizedCalibration,
 } from './forecast-calibration';
+import {
+  measureBookingCurve,
+  projectedFinalPct,
+  type BookingCurve,
+  type PickupStay,
+} from './booking-pickup';
 import { achievedRateIndex, blendRateIndex, meanMarketRate } from './market-rate-by-day';
 import { loadInstallmentsForCodes, type Installment } from './installments';
 import {
@@ -193,6 +199,31 @@ export type PacingInfo = {
    * 1 when there is not enough history to calibrate.
    */
   captureRatio: number;
+  /**
+   * Where the month is on pace to FINISH, given what is booked now and how
+   * much of a month Rising Tide normally has on the books by this day. Equal
+   * to `pacingPct` for a future month (nothing to extrapolate from yet) and
+   * whenever there is too little closed history to measure a curve.
+   */
+  projectedFinalPct: number;
+  /**
+   * The share of a month's final nights normally booked by this day of the
+   * month, measured on closed months. Null when unmeasurable.
+   */
+  pickupShare: number | null;
+  /**
+   * The market floor on its own: the Gloucester curve times Rising Tide's
+   * capture rate. `targetPct` is the HIGHER of this and `projectedFinalPct`,
+   * so the two are not interchangeable and the copy explaining the capture
+   * arithmetic has to print this one.
+   */
+  benchmarkPct: number;
+  /**
+   * Which floor actually set `targetPct`. Decided on the unrounded values
+   * here, because reconstructing it from rounded fields on the page picks the
+   * wrong one whenever the two floors land close together.
+   */
+  targetSource: 'benchmark' | 'pickup';
   /** targetPct / pacingPct, floored at 1. The portfolio-level gate and headline. */
   multiplier: number;
   /** YYYY-MM key the pacing applies to. */
@@ -277,6 +308,8 @@ type ReservationRow = {
   host_payout: number | null;
   owner_net_revenue_guesty: number | null;
   total_paid: number | null;
+  /** When the reservation was made. Only selected by loadPacingInputs. */
+  booked_at?: string | null;
 };
 
 /**
@@ -1470,8 +1503,15 @@ async function applyStatementsAndPacing(
     : {
         rateIndex: { byProperty: new Map<string, number>(), fleet: null as number | null },
         calibratedBenchmark: HISTORICAL_AVG_RECENT,
+        bookingCurve: {
+          share: null,
+          dayOfMonth: now.getDate(),
+          months: [],
+          discarded: [],
+          basis: 'pooled',
+        } as BookingCurve,
       };
-  const { rateIndex, calibratedBenchmark } = pacingInputs;
+  const { rateIndex, calibratedBenchmark, bookingCurve } = pacingInputs;
 
   // Per-month pacing multipliers, keyed by monthKey. Only computed for
   // current/future months that are FULLY inside the range — partial months
@@ -1483,6 +1523,16 @@ async function applyStatementsAndPacing(
     /** The calibrated occupancy each open home is projected toward. */
     targetPct: number;
     captureRatio: number;
+    /** Where the month is on pace to finish on its own booking curve. */
+    projectedFinalPct: number;
+    benchmarkPct: number;
+    targetSource: 'benchmark' | 'pickup';
+    /**
+     * The curve's share, set ONLY for a month the pickup floor was actually
+     * evaluated for. A future month gets null, so nothing downstream can
+     * claim a booking curve was consulted for a month it never touched.
+     */
+    pickupShare: number | null;
     multiplier: number;
     /**
      * Portfolio nights per stay checking out this month: the length of stay
@@ -1535,8 +1585,22 @@ async function applyStatementsAndPacing(
     // under it in the shoulders. The target is the market shape pulled to the
     // capture rate measured on this year's own closed months, the same
     // calibration the forecast uses. Falls back to the raw market curve.
-    const targetPct = calibratedBenchmark[seg.month] ?? historicalAvgPct;
-    const captureRatio = historicalAvgPct > 0 ? targetPct / historicalAvgPct : 1;
+    const benchmarkPct = calibratedBenchmark[seg.month] ?? historicalAvgPct;
+    const captureRatio = historicalAvgPct > 0 ? benchmarkPct / historicalAvgPct : 1;
+    // Second floor, independent of the market: Rising Tide books late, so a
+    // month in progress is not finished just because it is past its
+    // benchmark. Only the CURRENT month has a day-of-month to measure
+    // against; a future month has no in-month pace to extrapolate and keeps
+    // the benchmark alone.
+    const isCurrentMonthSeg = seg.monthKey === todayYM;
+    const finalPct = isCurrentMonthSeg ? projectedFinalPct(pacingPct, bookingCurve) : pacingPct;
+    // The two floors answer different questions, so the projection takes the
+    // higher: a month can be behind the market and still picking up, or ahead
+    // of the market and still picking up. September 2026 was the second case,
+    // and with the benchmark alone it forecast itself to stop dead with
+    // twelve days left to sell.
+    const targetPct = Math.max(benchmarkPct, finalPct);
+    const targetSource: 'benchmark' | 'pickup' = finalPct > benchmarkPct ? 'pickup' : 'benchmark';
     // The gate is portfolio-level and stays that way: when the fleet as a
     // whole is already at or past its target, individual variation is real
     // performance, not a deficit for the projection to fill in.
@@ -1547,6 +1611,11 @@ async function applyStatementsAndPacing(
       historicalAvgPct,
       targetPct,
       captureRatio,
+      projectedFinalPct: finalPct,
+      benchmarkPct,
+      targetSource,
+      // Null unless the pickup floor was actually evaluated for THIS month.
+      pickupShare: isCurrentMonthSeg ? bookingCurve.share : null,
       multiplier,
       avgStayNights: portfolioStays > 0 ? portfolioStayNights / portfolioStays : null,
     });
@@ -1568,6 +1637,11 @@ async function applyStatementsAndPacing(
         historicalAvgPct: round1(mp.historicalAvgPct),
         targetPct: round1(mp.targetPct),
         captureRatio: Math.round(mp.captureRatio * 100) / 100,
+        projectedFinalPct: round1(mp.projectedFinalPct),
+        benchmarkPct: round1(mp.benchmarkPct),
+        targetSource: mp.targetSource,
+        pickupShare:
+          mp.pickupShare != null ? Math.round(mp.pickupShare * 1000) / 1000 : null,
         multiplier: mp.multiplier,
         month: seg.monthKey,
         openNightMarketRate: null,
@@ -1946,6 +2020,7 @@ async function loadPacingInputs(
 ): Promise<{
   rateIndex: { byProperty: Map<string, number>; fleet: number | null };
   calibratedBenchmark: number[];
+  bookingCurve: BookingCurve;
 }> {
   const today = ymd(now);
   const yearAgo = ymd(new Date(now.getTime() - 365 * 86_400_000));
@@ -1955,7 +2030,7 @@ async function loadPacingInputs(
       (from, to) =>
         supabase
           .from('guesty_reservations')
-          .select('property_id, listing_id, confirmation_code, check_in, check_out, status, channel, host_payout, owner_net_revenue_guesty, total_paid')
+          .select('property_id, listing_id, confirmation_code, check_in, check_out, status, channel, host_payout, owner_net_revenue_guesty, total_paid, booked_at')
           .gt('check_out', yearAgo)
           .lt('check_in', today)
           .order('id', { ascending: true })
@@ -1966,6 +2041,13 @@ async function loadPacingInputs(
     return {
       rateIndex: { byProperty: new Map(), fleet: null },
       calibratedBenchmark: HISTORICAL_AVG_RECENT,
+      bookingCurve: {
+        share: null,
+        dayOfMonth: now.getDate(),
+        months: [],
+        discarded: [],
+        basis: 'pooled',
+      },
     };
   }
   const propById = new Map(properties.map((p) => [p.id, p]));
@@ -1982,6 +2064,14 @@ async function loadPacingInputs(
     check_in: string | null;
     check_out: string | null;
   }> = [];
+  // The same population, carrying the date each reservation was made, for the
+  // late-booking curve. Same filters on purpose: the curve has to be measured
+  // in the night-space the pacing % is measured in, or the two cannot be
+  // divided into one another. One known divergence, too small to chase: a
+  // zero-payout row carrying installment slices is real revenue and reaches
+  // the pacing numerator, but resolveGrossPayout returns 0 for it so it never
+  // reaches this list.
+  const pickupStays: PickupStay[] = [];
   const usable = dedupeReservations(
     rows.filter((r) => r.check_in && r.check_out && isAllowed(r.status)),
   );
@@ -1997,6 +2087,12 @@ async function loadPacingInputs(
     if (gross <= 0) continue;
     if (!prop.is_rising_tide_owned) {
       calibrationStays.push({ property_id: prop.id, check_in: checkIn, check_out: checkOut });
+      pickupStays.push({
+        checkIn,
+        checkOut,
+        bookedAt: r.booked_at ? r.booked_at.slice(0, 10) : null,
+        activatedAt: prop.activated_at,
+      });
     }
     const nightly = gross / total;
     // Only nights already slept: a stay in progress counts what it has earned so far.
@@ -2024,12 +2120,29 @@ async function loadPacingInputs(
     HISTORICAL_AVG_RECENT,
   );
 
+  // How much of a month is normally on the books by today's day of the month.
+  // Deliberately NOT closedMonthsOf: that restarts at January, so on the 5th
+  // of January it returns nothing and on the 5th of February one month, and
+  // the pickup floor would go dark for the first two months of every year
+  // with no signal that it had. A trailing window crosses the year boundary
+  // and, once a year of booked_at exists, starts supplying same-month-of-year
+  // measurements to prefer over pooled ones. booked_at is populated from June
+  // 2026 onward; earlier months fail the coverage guard rather than reading
+  // as never-booked.
+  const bookingCurve = measureBookingCurve(
+    pickupStays,
+    trailingClosedMonths(now, 18),
+    now.getDate(),
+    now.getMonth() + 1,
+  );
+
   return {
     rateIndex: { byProperty, fleet: achievedRateIndex(fleetNights) },
     calibratedBenchmark:
       calibration.byMonth.size > 0
         ? calibratedBenchmarkFrom(calibration, HISTORICAL_AVG_RECENT)
         : HISTORICAL_AVG_RECENT,
+    bookingCurve,
   };
 }
 
@@ -2046,6 +2159,26 @@ type StatementRow = {
   tax_remittance: number | null;
   owner_payout: number | null;
 };
+
+/**
+ * The last `count` FULLY CLOSED calendar months, oldest first, crossing year
+ * boundaries. closedMonthsOf is year-scoped by design for the calibration;
+ * a booking curve needs a window that does not reset every January.
+ */
+function trailingClosedMonths(now: Date, count: number): string[] {
+  const out: string[] = [];
+  let y = now.getFullYear();
+  let m = now.getMonth() + 1;
+  for (let i = 0; i < count; i++) {
+    m -= 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
+    }
+    out.push(`${y}-${String(m).padStart(2, '0')}`);
+  }
+  return out.reverse();
+}
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;

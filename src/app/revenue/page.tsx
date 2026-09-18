@@ -155,6 +155,13 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   ]);
 
   const { snapshots, portfolio, pacing } = current;
+
+  // The target is the higher of two floors: the market benchmark, and where
+  // the month is on pace to finish on Rising Tide's own late-booking curve.
+  // The sentence names whichever bound, and the snapshot decides that on the
+  // unrounded values -- rebuilding the benchmark here from rounded fields
+  // picked the wrong floor whenever the two landed close together.
+  const paceDrivenTarget = !!pacing && pacing.targetSource === 'pickup' && pacing.pickupShare != null;
   const priorPortfolio = priorFull?.portfolio ?? null;
 
   // Against-projection: the proposal each owner was shown, prorated to this
@@ -252,10 +259,16 @@ export default async function RevenuePage({ searchParams }: PageProps) {
                 {pacing.multiplier <= 1
                   ? pacing.pacingPct <= 0
                     ? ` No sellable night in ${formatPacingMonth(pacing.month)} is booked yet, so there is no pace to carry forward and no projection is applied.${basis === 'nights' ? ' Split by night.' : ''}`
-                    : ` Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that, putting the target at ${pacing.targetPct.toFixed(0)}%, and the fleet is at or past it. No projection is applied, so these are booked-so-far actuals.${basis === 'nights' ? ' Split by night.' : ''}`
-                  : view === 'pacing'
-                  ? ` Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that in ${formatPacingMonth(pacing.month)}, so every home open for rental is projected toward ${pacing.targetPct.toFixed(0)}% on current/future full months in range, whether or not it has a booking yet. The nights still open are priced at last year\u2019s Gloucester rate for the same weekday and holiday${pacing.openNightMarketRate != null ? ` (about $${Math.round(pacing.openNightMarketRate)} a night)` : ''}, times each home\u2019s achieved premium over market${pacing.fleetRateIndex != null ? ` (fleet ${pacing.fleetRateIndex.toFixed(2)}×)` : ''}, never at the booked ADR. Stays and cleaning follow the added nights.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
-                  : ` All figures show booked-so-far actuals only.${basis === 'nights' ? ' Split by night.' : ''}`}
+                    : ` Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that, putting the target at ${pacing.benchmarkPct.toFixed(0)}%, and the fleet is at or past it${pacing.pickupShare != null ? ' with nothing further due on its normal booking curve' : ''}. No projection is applied, so these are booked-so-far actuals.${basis === 'nights' ? ' Split by night.' : ''}`
+                  : ` ${
+                      paceDrivenTarget
+                        ? `By this day of the month Rising Tide has normally booked ${(pacing.pickupShare! * 100).toFixed(0)}% of the nights a month ends up selling, so ${formatPacingMonth(pacing.month)} is on pace to finish near ${pacing.targetPct.toFixed(0)}% rather than stopping where it stands.`
+                        : `Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that in ${formatPacingMonth(pacing.month)}, putting the target at ${pacing.targetPct.toFixed(0)}%.`
+                    }${
+                      view === 'pacing'
+                        ? ` Every home open for rental is projected toward that on current/future full months in range, whether or not it has a booking yet. The nights still open are priced at last year\u2019s Gloucester rate for the same weekday and holiday${pacing.openNightMarketRate != null ? ` (about $${Math.round(pacing.openNightMarketRate)} a night)` : ''}, times each home\u2019s achieved premium over market${pacing.fleetRateIndex != null ? ` (fleet ${pacing.fleetRateIndex.toFixed(2)}×)` : ''}, never at the booked ADR. Stays and cleaning follow the added nights.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
+                        : ` These figures are booked-so-far actuals. Switch to Pacing to see that projected.${basis === 'nights' ? ' Split by night.' : ''}`
+                    }`}
               </p>
             )}
           </>
