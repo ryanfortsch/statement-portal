@@ -46,6 +46,20 @@ export type Approval = {
   /** Mined add-on charge (Tesla charger, pet fee, early check-in fee) with
    * its Stripe payment link. Null/absent for ordinary cards. */
   addon?: AddonCharge | null;
+  /** A 2027 pre-release request's own details (party size, email, phone), so
+   * the quote composer can be opened complete rather than half-filled.
+   * Null/absent on every other card. */
+  prerelease?: PrereleaseRequestDetails | null;
+};
+
+/** The parts of a staycapeann.com 2027 request that live in the concierge's
+ * sidecar rather than on the approval row. Card-only; nothing here is sent. */
+export type PrereleaseRequestDetails = {
+  guests: number | null;
+  guest_email: string;
+  guest_phone: string;
+  helm_property_id: string;
+  guest_last: string;
 };
 
 /** An add-on fee the AI detected in the conversation, with the Stripe

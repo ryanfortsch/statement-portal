@@ -81,7 +81,20 @@ export function QuoteComposer({
   const [propertyId, setPropertyId] = useState(initial?.property_id ?? prefill?.property_id ?? '');
   const [checkIn, setCheckIn] = useState(initial?.check_in ?? prefill?.check_in ?? '');
   const [checkOut, setCheckOut] = useState(initial?.check_out ?? prefill?.check_out ?? '');
-  const [guestsStr, setGuestsStr] = useState(String(initial?.guests ?? prefill?.guests ?? 2));
+  // A form opened FROM a request (source_kind set) must never invent a party
+  // size: the operator is told the form arrives filled in, so a fabricated 2
+  // reads as the guest's own number, is saved to the quote, drives the Guesty
+  // reference fare, and ends up as the occupancy on the real reservation.
+  // Blank forces a decision. A blank composer opened by hand keeps its 2.
+  const [guestsStr, setGuestsStr] = useState(
+    initial?.guests != null
+      ? String(initial.guests)
+      : prefill?.guests != null
+        ? String(prefill.guests)
+        : prefill?.source_kind
+          ? ''
+          : '2',
+  );
 
   // ── Price ──
   const [anchor, setAnchor] = useState<'nightly' | 'total'>(initial && initial.nightly_cents == null ? 'total' : 'nightly');
