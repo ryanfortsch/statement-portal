@@ -136,6 +136,14 @@ export type OnboardingDeriveContext = {
    */
   stripeKeyConfigured: boolean;
   /**
+   * stay-concierge's fleet coverage for this property (crosswalk entry +
+   * knowledge base + remaining _TODO_ blanks), or null when the concierge
+   * was unreachable or has never heard of the home. Guest drafts for a
+   * home with no KB run on the generic "Unknown property" fallback and
+   * add-on payment links fail; 4 Middle did that for eleven weeks (2026).
+   */
+  conciergeCoverage: { kb: boolean; crosswalk: boolean; todos: number } | null;
+  /**
    * Distinct non-null nightly prices over the next 60 days of the Guesty
    * calendar mirror (property_calendar_days). 0 = no priced days synced
    * yet; 1 = flat base rate on every night, the listing-live-on-defaults
@@ -1011,6 +1019,20 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     href: '/properties/{id}/edit',
     hrefLabel: 'Edit field',
     derive: ({ p }) => has(p.trash_day),
+  },
+  {
+    key: 'guest_experience.concierge_knows_home',
+    stage: 'guest_experience',
+    title: 'Guest messaging knows this home',
+    description: 'The concierge has a crosswalk entry and a knowledge base for this Guesty listing.',
+    why:
+      'Without them every guest draft runs on the generic fallback KB and add-on payment links fail ' +
+      '(4 Middle, June to September 2026). The concierge fleet watch scaffolds a new listing within ' +
+      'six hours of it going live and opens a work slip for the blanks; this resolves on its own once ' +
+      'the KB exists.',
+    href: '/messaging',
+    hrefLabel: 'Open messaging',
+    derive: (ctx) => !!ctx.conciergeCoverage?.kb && !!ctx.conciergeCoverage?.crosswalk,
   },
   {
     key: 'guest_experience.guest_kb_seeded',

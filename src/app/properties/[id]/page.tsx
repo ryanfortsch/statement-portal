@@ -9,6 +9,7 @@ import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { getStripeKeysMap } from '@/lib/stripe-sync';
+import { getFleetCoverage } from '@/lib/stay-concierge';
 import { formatUsPhone, telHref } from '@/lib/phone';
 import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { getPropertyAccess } from '@/lib/property-access';
@@ -429,7 +430,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices, propertyContracts, orderChecklistTouched, rentalPeriods] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -468,6 +469,10 @@ export default async function PropertyDetailPage({
     getPropertyContracts(p.id),
     hasOrderChecklistState(p.id),
     getRentalPeriods(p.id),
+    // Guest messaging's own view of this home (crosswalk + KB + blanks),
+    // bounded to 3s and null on any failure so the page never waits on the
+    // Mac Mini. Feeds the "Guest messaging knows this home" onboarding item.
+    getFleetCoverage().then((r) => (r.ok ? r.data : null)).catch(() => null),
   ]);
   const myEmail = session?.user?.email ?? '';
 
@@ -508,6 +513,10 @@ export default async function PropertyDetailPage({
     contractTermStart: contractFacts.termStart,
     contractTermEnd: contractFacts.termEnd,
     stripeKeyConfigured: !!getStripeKeysMap()[p.id],
+    conciergeCoverage: (() => {
+      const c = fleetCoverage?.properties?.[p.id];
+      return c ? { kb: !!c.kb, crosswalk: !!c.crosswalk, todos: Number(c.todos) || 0 } : null;
+    })(),
     forwardDistinctPrices,
     orderChecklistTouched,
   };
