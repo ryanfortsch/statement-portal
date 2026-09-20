@@ -96,6 +96,19 @@ export const HELM_MODULES: HelmModule[] = [
   // but hidden from the nav lists so they don't duplicate the Financials
   // entry. section: 'financials' lights the Money tab on all four pages.
   {
+    id: 'payments',
+    href: '/payments',
+    number: '01',
+    title: 'Payments',
+    description:
+      "What each guest actually paid, read live from the property's own Stripe account. Guesty reports $0 on every direct booking because the money never passes through it, so this is the only honest answer. Read-only.",
+    status: 'active',
+    primary: false,
+    hidden: true,
+    section: 'financials',
+    group: 'money',
+  },
+  {
     id: 'statements',
     href: '/statements',
     number: '01',
