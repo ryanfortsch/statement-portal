@@ -84,27 +84,28 @@ async function findOrCreateFolder(
 }
 
 /**
- * Upload a PDF into a Drive folder via multipart upload. Returns the
- * file's webViewLink (a normal Drive URL anyone with folder access can
- * open).
+ * Upload any file into a Drive folder via multipart upload. Returns the
+ * file id and its webViewLink (a normal Drive URL anyone with folder
+ * access can open). Used for PDFs here and for the review-story videos
+ * that /api/review-stories/drive copies in from Vercel Blob.
  */
-async function uploadPdf(
+export async function uploadFileToDrive(
   token: string,
-  args: { filename: string; pdf: Buffer; parentId: string },
-): Promise<string> {
+  args: { filename: string; mime: string; bytes: Buffer; parentId: string },
+): Promise<{ id: string; url: string }> {
   const boundary = `helm${Date.now().toString(36)}`;
   const metadata = JSON.stringify({ name: args.filename, parents: [args.parentId] });
 
-  // multipart/related body: JSON metadata part, then the PDF bytes part.
+  // multipart/related body: JSON metadata part, then the file bytes part.
   const body = Buffer.concat([
     Buffer.from(
       `--${boundary}\r\n` +
         `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
         `${metadata}\r\n` +
         `--${boundary}\r\n` +
-        `Content-Type: application/pdf\r\n\r\n`,
+        `Content-Type: ${args.mime}\r\n\r\n`,
     ),
-    args.pdf,
+    args.bytes,
     Buffer.from(`\r\n--${boundary}--`),
   ]);
 
@@ -123,7 +124,21 @@ async function uploadPdf(
     throw new Error(`Drive upload failed: ${res.status} ${await res.text()}`);
   }
   const data = (await res.json()) as { id: string; webViewLink?: string };
-  return data.webViewLink || `https://drive.google.com/file/d/${data.id}/view`;
+  return { id: data.id, url: data.webViewLink || `https://drive.google.com/file/d/${data.id}/view` };
+}
+
+/** Upload a PDF into a Drive folder. Returns the file's webViewLink. */
+async function uploadPdf(
+  token: string,
+  args: { filename: string; pdf: Buffer; parentId: string },
+): Promise<string> {
+  const { url } = await uploadFileToDrive(token, {
+    filename: args.filename,
+    mime: 'application/pdf',
+    bytes: args.pdf,
+    parentId: args.parentId,
+  });
+  return url;
 }
 
 /**
