@@ -1158,3 +1158,28 @@ export async function setBlurbStatus(id: string, action: 'approve' | 'unapprove'
     method: 'POST',
   });
 }
+
+/**
+ * Which homes guest messaging actually knows: a crosswalk entry (Guesty
+ * listing id -> KB slug) and a knowledge base, plus how many operator
+ * blanks (_TODO_) the KB still carries. Keyed by Helm property id. Feeds
+ * the onboarding item "Guest messaging knows this home" (2026-09-19, after
+ * 4 Middle ran eleven weeks on the generic fallback KB).
+ */
+export type FleetCoverageEntry = {
+  slug: string;
+  guesty_listing_id: string;
+  crosswalk: boolean;
+  kb: boolean;
+  todos: number;
+};
+
+export type FleetCoverage = {
+  properties: Record<string, FleetCoverageEntry>;
+  generated_at: string;
+};
+
+export async function getFleetCoverage() {
+  // A property page must not wait on the Mac Mini: 3s, then the item stays manual.
+  return request<FleetCoverage>('/api/fleet/coverage', { method: 'GET', timeoutMs: 3000 });
+}

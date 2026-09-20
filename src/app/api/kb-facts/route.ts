@@ -42,6 +42,7 @@ type PropertyRow = {
   has_pack_n_play: boolean | null;
   has_high_chair: boolean | null;
   default_checkout_time: string | null;
+  guesty_listing_id: string | null;
 };
 
 type NoteRow = { property_id: string; title: string | null; body: string | null };
@@ -56,7 +57,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time',
+      'id, name, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id',
     )
     .eq('is_active', true);
   if (error) {
@@ -91,6 +92,9 @@ export async function GET(req: Request) {
     return {
       property_id: p.id,
       name: p.name,
+      // The concierge's fleet watch joins a new Guesty listing to its Helm
+      // property on this id before scaffolding its knowledge base (2026-09-19).
+      guesty_listing_id: p.guesty_listing_id ?? '',
       wifi_name: clean(p.wifi_name),
       wifi_password: clean(acc?.wifi_password),
       wifi_label: clean(p.wifi_label),
