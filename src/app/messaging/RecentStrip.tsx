@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import type { Approval } from '@/lib/stay-concierge';
 import { prettifySlug, guestFirstFromDraft, statusToneColor, relativeTimeShort } from './format';
+import { UndoButton } from './UndoButton';
 
 const STATUS_LABELS: Record<string, string> = {
   approved: 'Sent',
@@ -101,14 +102,21 @@ export function RecentList({ recent }: { recent: Approval[] }) {
                 {relTime}
               </span>
               <span
-                className="eyebrow"
                 style={{
-                  color: statusColor,
-                  textAlign: 'right',
-                  fontWeight: 600,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 10,
                 }}
               >
-                {statusLabel}
+                <span
+                  className="eyebrow"
+                  style={{ color: statusColor, textAlign: 'right', fontWeight: 600 }}
+                  title={row.decided_by ? `by ${row.decided_by}` : undefined}
+                >
+                  {statusLabel}
+                </span>
+                {row.reversible && <UndoButton approvalId={row.id} />}
               </span>
             </li>
           );

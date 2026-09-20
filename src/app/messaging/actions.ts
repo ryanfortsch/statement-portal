@@ -7,6 +7,8 @@ import {
   rejectApproval,
   coachApproval,
   markHandledApproval,
+  undoApproval,
+  explainUndoRefusal,
   scheduleApproval,
   cancelScheduleApproval,
   editApproval,
@@ -34,10 +36,10 @@ function mapResult(result: ClientResult): ActionResult {
   return { ok: false, error: explainError(result.error), stale };
 }
 
-async function requireSession(): Promise<{ ok: true } | { ok: false; error: string }> {
+async function requireSession(): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
-  return { ok: true };
+  return { ok: true, email: session.user.email };
 }
 
 export async function approveDraft(
@@ -46,19 +48,34 @@ export async function approveDraft(
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await approveApproval(approvalId, opts));
+  return mapResult(await approveApproval(approvalId, { ...(opts ?? {}), actor: sess.email }));
 }
 
 export async function rejectDraft(approvalId: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await rejectApproval(approvalId));
+  return mapResult(await rejectApproval(approvalId, sess.email));
 }
 
 export async function markHandled(approvalId: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await markHandledApproval(approvalId));
+  return mapResult(await markHandledApproval(approvalId, sess.email));
+}
+
+/** Reverse a reject or a mark-handled: the card returns to the queue exactly
+ *  as it was. A sent reply cannot be reversed; the error says so plainly. */
+export async function undoDecision(approvalId: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const result = await undoApproval(approvalId, sess.email);
+  if (result.ok) {
+    revalidatePath('/messaging');
+    return { ok: true };
+  }
+  const e = result.error;
+  if (e.kind === 'http' && e.status === 409) return { ok: false, error: explainUndoRefusal(e.detail) };
+  return { ok: false, error: explainError(e) };
 }
 
 export async function coachDraft(approvalId: string, feedback: string): Promise<ActionResult> {

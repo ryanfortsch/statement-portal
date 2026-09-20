@@ -21,6 +21,7 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { MessagingQueue } from './MessagingQueue';
+import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
 import { PerformanceDropdown } from './PerformanceDropdown';
 import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
@@ -77,6 +78,17 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
       {retry && <RetryRefresh />}
     </Section>
   );
+}
+
+// Reversible decisions from the last hours (rejects, mark-handleds), shown
+// right above the queue with an Undo. Renders nothing when there are none,
+// and nothing when the service is unreachable (the queue shows that).
+async function RecentDecisionsSection() {
+  const recent = await listRecentApprovals(12);
+  if (!recent.ok) return null;
+  const items = recent.data.approvals.filter((a) => a.reversible);
+  if (items.length === 0) return null;
+  return <RecentDecisions items={items} />;
 }
 
 // Urgent boundary: the pending-approval queue + reminders. Awaits ONLY the
@@ -181,6 +193,9 @@ export default function MessagingPage() {
 
   return (
     <Shell>
+      <Suspense fallback={null}>
+        <RecentDecisionsSection />
+      </Suspense>
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
       </Suspense>

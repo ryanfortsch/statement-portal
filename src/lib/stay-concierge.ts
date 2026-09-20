@@ -16,6 +16,11 @@
 export type Approval = {
   id: string;
   short_id: string;
+  /** Undo rail (2026-09-20), on /approvals/recent rows only: a rejected or
+   *  hand-cleared card can go back to the queue; a sent one cannot. */
+  reversible?: boolean;
+  reversible_reason?: string;
+  decided_by?: string;
   conversation_id: string;
   guesty_message_id: string;
   listing_id: string;
@@ -145,7 +150,7 @@ export function isStayConciergeConfigured(): boolean {
 
 async function request<T>(
   path: string,
-  init: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown; timeoutMs?: number } = {
+  init: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: unknown; timeoutMs?: number; actor?: string } = {
     method: 'GET',
   },
 ): Promise<{ ok: true; data: T } | { ok: false; error: StayConciergeError }> {
@@ -158,6 +163,8 @@ async function request<T>(
       method: init.method,
       headers: {
         'X-Dashboard-Key': env.key,
+        // The signed-in operator, so the concierge's decision log says who.
+        ...(init.actor ? { 'X-Helm-User': init.actor } : {}),
         ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
@@ -371,9 +378,10 @@ export async function listRecentApprovals(hours = 24) {
   return request<ApprovalsResponse>(`/api/approvals/recent?hours=${hours}`);
 }
 
-export async function approveApproval(id: string, opts?: { sendAddonSms?: boolean }) {
+export async function approveApproval(id: string, opts?: { sendAddonSms?: boolean; actor?: string }) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/approve`, {
     method: 'POST',
+    actor: opts?.actor,
     // Only travels when the card carries an addon; ordinary approvals keep
     // their empty-body shape. Pass the RAW object: request() stringifies,
     // and pre-stringifying here double-encoded the body into a JSON string,
@@ -386,12 +394,36 @@ export async function approveApproval(id: string, opts?: { sendAddonSms?: boolea
   });
 }
 
-export async function rejectApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/approvals/${id}/reject`, { method: 'POST' });
+export async function rejectApproval(id: string, actor?: string) {
+  return request<{ status: string; id: string }>(`/api/approvals/${id}/reject`, { method: 'POST', actor });
 }
 
-export async function markHandledApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/approvals/${id}/mark_handled`, { method: 'POST' });
+export async function markHandledApproval(id: string, actor?: string) {
+  return request<{ status: string; id: string }>(`/api/approvals/${id}/mark_handled`, { method: 'POST', actor });
+}
+
+/** Put a rejected or hand-cleared card back in the queue. 409 detail names
+ *  why it cannot: sent, still_pending, superseded_by_newer, host_replied. */
+export async function undoApproval(id: string, actor?: string) {
+  return request<{ status: string; id: string; from_status: string; host_reply_check: string }>(
+    `/api/approvals/${id}/undo`,
+    { method: 'POST', actor },
+  );
+}
+
+export function explainUndoRefusal(detail: string): string {
+  switch (detail) {
+    case 'sent':
+      return 'That reply already went to the guest, so there is nothing to take back. Follow up in the thread.';
+    case 'still_pending':
+      return 'It is already back in the queue.';
+    case 'superseded_by_newer':
+      return 'A newer draft exists for this message. Look for it in the queue.';
+    case 'host_replied':
+      return 'Someone already answered this guest on the thread since the decision.';
+    default:
+      return `That decision cannot be reversed (${detail || 'unknown reason'}).`;
+  }
 }
 
 /** Queue an approved draft to send later. sendAtUtc is a UTC ISO string. */
