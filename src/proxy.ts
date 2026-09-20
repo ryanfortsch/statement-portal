@@ -102,6 +102,8 @@ const PUBLIC_API_PREFIXES = [
   "/api/archive-onboarding",
   "/api/owner-outbound-quo",
   "/api/notify-dotti",
+  // Review Stories -> Drive copier: same STORY_FACTORY_SECRET gate, fail-closed.
+  "/api/review-stories/drive",
   "/api/owners-sync",
   "/api/kb-facts",
   "/api/backfill-owner-phones",
