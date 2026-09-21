@@ -20,6 +20,7 @@ import type {
   TopicRollup,
   Approval,
   FactAudit,
+  CourtesyRollup,
 } from '@/lib/stay-concierge';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
@@ -35,6 +36,9 @@ type Props = {
   /** Weekly fact-base audit for the Learning tab. */
   audit: FactAudit | null;
   auditError: string | null;
+  /** Why auto-send is being held back, and how much of her own judgment the
+   *  system is capturing. Null on an older concierge build. */
+  rollup: CourtesyRollup | null;
 };
 
 type Window = { label: string; hours: number };
@@ -72,6 +76,7 @@ export function PerformanceDropdown({
   initialRecent,
   audit,
   auditError,
+  rollup,
 }: Props) {
   // Default open. The user came to /messaging to see this; the dropdown
   // chip was too easy to miss. Keeping the open/close affordance for
@@ -171,6 +176,7 @@ export function PerformanceDropdown({
                   loading={isPending}
                   timeseries={initialTimeseries}
                   availableTopics={initialAvailableTopics}
+                  rollup={rollup}
                 />
               ))}
             {tab === 'recent' && <RecentList recent={initialRecent} />}
@@ -234,6 +240,64 @@ function TabBar({ current, onChange }: { current: Tab; onChange: (t: Tab) => voi
   );
 }
 
+/** Two numbers the dashboard had no way to show before: which guard is
+ *  holding auto-sends back, and how much of what she does instead is being
+ *  recorded. Both were invisible, and one of them (AUTO-SENT) rendered a
+ *  confident 0 for seven weeks. */
+function RollupStrip({ rollup }: { rollup: CourtesyRollup }) {
+  const cap = rollup.bypass_capture;
+  const capPct = cap.rate == null ? null : Math.round(cap.rate * 100);
+  const branches = rollup.suppressions_by_branch.slice(0, 4);
+  if (!branches.length && !cap.total) return null;
+  return (
+    <div
+      style={{
+        padding: '0 0 20px',
+        borderBottom: '1px solid var(--rule)',
+        marginBottom: 20,
+        display: 'flex',
+        gap: 32,
+        flexWrap: 'wrap',
+        alignItems: 'flex-start',
+      }}
+    >
+      {cap.total > 0 && (
+        <div>
+          <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 4 }}>
+            Your replies captured
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>
+            <b style={{ color: capPct != null && capPct < 50 ? 'var(--signal)' : 'var(--ink)' }}>
+              {capPct == null ? '—' : `${capPct}%`}
+            </b>{' '}
+            of {cap.total} you handled yourself
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3, maxWidth: 300, lineHeight: 1.5 }}>
+            When you clear a card without using the draft, the AI only learns from it if it
+            knows what you sent instead.
+          </div>
+        </div>
+      )}
+      {branches.length > 0 && (
+        <div>
+          <div className="eyebrow" style={{ color: 'var(--ink-4)', marginBottom: 4 }}>
+            Auto-sends held back · {rollup.days}d
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+            {branches.map((b, i) => (
+              <span key={b.branch}>
+                {i > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+                <b style={{ color: 'var(--ink)' }}>{b.count}</b>{' '}
+                {b.branch.replace(/_/g, ' ')}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ErrorState({ message }: { message: string }) {
   return (
     <div
@@ -270,6 +334,7 @@ function StatsBody({
   loading,
   timeseries,
   availableTopics,
+  rollup,
 }: {
   stats: MessagingStats;
   window: Window;
@@ -278,6 +343,7 @@ function StatsBody({
   loading: boolean;
   timeseries: TimeseriesPoint[];
   availableTopics: TopicRollup[];
+  rollup: CourtesyRollup | null;
 }) {
   const oneShotPct =
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
@@ -358,6 +424,8 @@ function StatsBody({
           of {stats.approved_total + stats.escalated}
         </div>
       )}
+
+      {rollup && <RollupStrip rollup={rollup} />}
 
       {/* Trend: rolling one-shot rate over the last 30 days. Sits between
           the hero and the KPI grid so the "is it getting better?" answer

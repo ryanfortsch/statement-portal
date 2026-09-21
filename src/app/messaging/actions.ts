@@ -7,6 +7,7 @@ import {
   rejectApproval,
   coachApproval,
   markHandledApproval,
+  type MarkHandledCapture,
   undoApproval,
   explainUndoRefusal,
   scheduleApproval,
@@ -57,10 +58,13 @@ export async function rejectDraft(approvalId: string): Promise<ActionResult> {
   return mapResult(await rejectApproval(approvalId, sess.email));
 }
 
-export async function markHandled(approvalId: string): Promise<ActionResult> {
+export async function markHandled(
+  approvalId: string,
+  capture?: MarkHandledCapture,
+): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await markHandledApproval(approvalId, sess.email));
+  return mapResult(await markHandledApproval(approvalId, sess.email, capture));
 }
 
 /** Reverse a reject or a mark-handled: the card returns to the queue exactly

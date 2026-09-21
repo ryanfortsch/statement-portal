@@ -418,8 +418,28 @@ export async function rejectApproval(id: string, actor?: string) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/reject`, { method: 'POST', actor });
 }
 
-export async function markHandledApproval(id: string, actor?: string) {
-  return request<{ status: string; id: string }>(`/api/approvals/${id}/mark_handled`, { method: 'POST', actor });
+/** What the operator did instead of using the draft.
+ *
+ *  `sent_text` is the reply she actually sent elsewhere (Guesty, phone, text).
+ *  It becomes ground truth the responder learns voice from, and the service
+ *  floors it at 25 characters. `reason` is why no reply was needed and stays
+ *  on the decision log, never in the sent-text field.
+ *
+ *  Both optional: an empty body is the old behavior. Until 2026-09-21 this
+ *  call sent no body at all, which is why 376 of 377 hand-cleared cards stored
+ *  a blank and both learning consumers, which gate on that field being
+ *  non-empty, skipped every one of them. */
+export type MarkHandledCapture = { sent_text?: string; reason?: string };
+
+export async function markHandledApproval(
+  id: string,
+  actor?: string,
+  capture?: MarkHandledCapture,
+) {
+  return request<{ status: string; id: string }>(
+    `/api/approvals/${id}/mark_handled`,
+    { method: 'POST', actor, body: capture ?? {} },
+  );
 }
 
 /** Put a rejected or hand-cleared card back in the queue. 409 detail names
@@ -1072,6 +1092,23 @@ export type TopicRollup = {
   escalated: number;
   rate: number | null;
 };
+
+/** Why auto-send is not firing, and whether the operator agrees.
+ *
+ *  Ships WITH the mark-handled chip on purpose. `approval_decisions.note` was
+ *  a write-only column and AUTO-SENT rendered 0 for seven weeks off a key
+ *  nobody read; a new field with no reader would repeat that exactly. */
+export type CourtesyRollup = {
+  days: number;
+  suppressions_by_branch: { branch: string; count: number }[];
+  suppressions_total: number;
+  operator_verdicts: { note: string; topic: string; n: number }[];
+  bypass_capture: { captured: number; total: number; rate: number | null };
+};
+
+export async function getCourtesyRollup(days = 28) {
+  return request<CourtesyRollup>(`/api/stats/courtesy-rollup?days=${days}`);
+}
 
 export type TimeseriesResponse = {
   days: number;
