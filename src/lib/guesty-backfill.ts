@@ -16,6 +16,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { dedupeAllBookings } from '@/lib/ical-sync';
 import { selectAllPaged } from '@/lib/paged-select';
 import type { BookingChannel, BookingStatus } from '@/lib/channels-types';
+import { mapGuestyStatus } from '@/lib/guesty-legacy-status';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -144,6 +145,10 @@ export async function backfillGuestyToBookings(
     payout: number | null;
   };
 
+  // Property-local date, as ghost-booking-reconcile reads it: a `closed`
+  // reservation is a cancellation only while its check-in is still ahead.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+
   const toInsert: Row[] = [];
   const toUpdate: Array<{ external_booking_id: string; patch: Partial<Row> }> = [];
   let skippedInvalid = 0;
@@ -158,15 +163,17 @@ export async function backfillGuestyToBookings(
     // null means Guesty said nothing we recognise. A NEW row still defaults
     // to confirmed (a stay we know nothing about is more safely cleaned
     // than skipped); an EXISTING row keeps whatever it has. See the status
-    // patch below.
-    const mappedStatus = mapStatus(r.status as string | null);
+    // patch below. `closed` depends on the date: before arrival it is a
+    // cancellation, after it is unknown (guesty-legacy-status.ts).
+    const checkIn = (r.check_in as string).slice(0, 10);
+    const mappedStatus = mapGuestyStatus(r.status as string | null, { checkIn, today });
     const desired: Row = {
       property_id: r.property_id as string,
       channel: mapChannel(r.channel as string | null),
       source: 'guesty_legacy',
       external_booking_id: id,
       external_confirmation_code: (r.confirmation_code as string | null) ?? null,
-      check_in: (r.check_in as string).slice(0, 10),
+      check_in: checkIn,
       check_out: (r.check_out as string).slice(0, 10),
       nights: (r.nights as number | null) ?? null,
       status: mappedStatus ?? 'confirmed',
@@ -296,30 +303,4 @@ function mapChannel(raw: string | null): BookingChannel {
   if (c.includes('booking')) return 'booking_com';
   if (c.includes('manual') || c.includes('direct')) return 'direct';
   return 'other';
-}
-
-/**
- * Guesty status -> bookings status.
- *
- * `declined` and `expired` are recognised explicitly: both mean the stay
- * never happened, and the old catch-all mirrored them into bookings as
- * `confirmed`, which is a checkout the cleaner schedule then sends someone
- * to. `closed` deliberately does NOT map to cancelled: proven on this
- * account, 12 of 14 closed reservations were real stays, so closed is
- * retirement, not cancellation, and it keeps falling through.
- *
- * An unrecognised or absent status returns null, meaning "Guesty did not
- * tell us". A new row still defaults to confirmed on null, because a stay
- * we know nothing about is more safely cleaned than skipped, but an
- * EXISTING row is left alone; see the status patch in the mirror loop.
- */
-function mapStatus(raw: string | null): BookingStatus | null {
-  if (!raw) return null;
-  const s = raw.toLowerCase();
-  if (s.includes('cancel') || s.includes('declined') || s.includes('expired')) return 'cancelled';
-  if (s.includes('inquiry')) return 'inquiry';
-  if (s.includes('pending')) return 'pending';
-  if (s.includes('completed')) return 'completed';
-  if (s.includes('confirmed') || s.includes('reserved')) return 'confirmed';
-  return null;
 }

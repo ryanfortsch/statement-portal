@@ -271,9 +271,11 @@ const POSITIVE_STATUS_ORDER = ['completed', 'confirmed', 'pending', 'inquiry', '
  * Guesty per-listing AGGREGATE feed is excluded -- it has been observed to drop
  * a still-confirmed reservation (the direct Airbnb feed and the Guesty API both
  * kept showing it), so an aggregate-only disappearance must not hide a real
- * stay. When nothing trustworthy says cancelled, the most-live positive status
- * present wins; a cluster of nothing but aggregate cancellations is treated as
- * cancelled because there's no positive signal left.
+ * stay. An unnamed Guesty record's cancel is excluded too (isUnnamedRecord):
+ * it retires that record, not the stay. When nothing trustworthy says
+ * cancelled, the most-live positive status present wins; a cluster of nothing
+ * but untrusted cancellations is treated as cancelled because there's no
+ * positive signal left.
  */
 /**
  * A "cancellation" dated after the guest left is not a cancellation.
@@ -305,17 +307,58 @@ function isPostStayCancel(r: DedupRow): boolean {
   return r.cancelled_at.slice(0, 10) > r.check_out;
 }
 
-/** A cancellation worth believing: not the aggregate feed's, not a feed
- *  dropping a stay that already happened. */
-function isTrustedCancel(r: DedupRow, isFromAggregateFeed: (r: DedupRow) => boolean): boolean {
-  return r.status === 'cancelled' && !isFromAggregateFeed(r) && !isPostStayCancel(r);
+/**
+ * A Guesty record that never named its guest: from the backfill, with no
+ * channel code and no real name.
+ *
+ * Booking.com hands Guesty a reservation before the guest is identified.
+ * Guesty records it as "Guest to be announced" with no BC- code and its own
+ * reservation id, and when the guest is named a SECOND record arrives with
+ * the code; the placeholder is then retired as `closed`, which the backfill
+ * mirrors as cancelled when the stay is still ahead (guesty-legacy-status.ts).
+ * A placeholder never followed by a named record is a booking that fell
+ * through.
+ *
+ * The placeholder has nothing but its dates, so it clusters with the named
+ * record by dates: 20 Hammond 2026-09-02 to 09-07 held two beside Carola
+ * Raggl's BC-Wz2rvkB8x, and 3 Locust 2027-06-01 to 06-08 one beside Gary
+ * Heathcote's BC-l0PnOpEkV. Its cancel must therefore speak for its own
+ * record only. Trusted, it made Gary's cluster cancelled and elected itself
+ * canonical, and his live stay vanished from every schedule surface. When
+ * such records are ALL a cluster has, the cluster is cancelled anyway, since
+ * nothing positive is left: that is how the closed placeholders of
+ * 2026-09-21 (five at 3 Locust, one at 73 Rocky Neck, booked 2025-08 to
+ * 2026-07, each overlapping another guest's confirmed stay) leave the
+ * double-booking list and the cleaner schedule.
+ *
+ * Scoped to the Guesty backfill on purpose. A direct OTA feed row is the
+ * channel's own calendar, and its cancel is trusted with or without a code.
+ */
+function isUnnamedRecord(r: DedupRow, isPlaceholder: Placeholder): boolean {
+  return (
+    r.source === 'guesty_legacy' &&
+    normId(r.external_confirmation_code) === null &&
+    realGuestName(r.guest_name, isPlaceholder) === null
+  );
 }
 
-function clusterEffectiveStatus(
-  cluster: DedupRow[],
+/** A cancellation worth believing: not the aggregate feed's, not a feed
+ *  dropping a stay that already happened, not an unnamed record's. */
+function isTrustedCancel(
+  r: DedupRow,
   isFromAggregateFeed: (r: DedupRow) => boolean,
-): string {
-  const trustedCancel = cluster.some((r) => isTrustedCancel(r, isFromAggregateFeed));
+  isPlaceholder: Placeholder,
+): boolean {
+  return (
+    r.status === 'cancelled' &&
+    !isFromAggregateFeed(r) &&
+    !isPostStayCancel(r) &&
+    !isUnnamedRecord(r, isPlaceholder)
+  );
+}
+
+function clusterEffectiveStatus(cluster: DedupRow[], trusted: (r: DedupRow) => boolean): string {
+  const trustedCancel = cluster.some(trusted);
   if (trustedCancel) return 'cancelled';
   for (const s of POSITIVE_STATUS_ORDER) {
     if (cluster.some((r) => r.status === s)) return s;
@@ -398,6 +441,7 @@ function createdGap(a: DedupRow, b: DedupRow): number {
  */
 export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
   const { isFromAggregateFeed, isPlaceholderGuestName: isPlaceholder } = opts;
+  const trusted = (r: DedupRow): boolean => isTrustedCancel(r, isFromAggregateFeed, isPlaceholder);
 
   const byProperty = new Map<string, DedupRow[]>();
   for (const r of rows) {
@@ -428,7 +472,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       const name = realGuestName(r.guest_name, isPlaceholder);
       codes.set(r.id, new Set(code ? [code] : []));
       names.set(r.id, new Set(name ? [name] : []));
-      dead.set(r.id, isTrustedCancel(r, isFromAggregateFeed));
+      dead.set(r.id, trusted(r));
       hasEvidence.set(r.id, !!(code || name));
     }
     const find = (x: string): string => {
@@ -529,7 +573,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
           const twins = members.filter((m) => sameStayByDates(r, m));
           if (twins.length === 0) continue;
           const agrees =
-            (clusterEffectiveStatus(members, isFromAggregateFeed) === 'cancelled') === saysCancelled(r);
+            (clusterEffectiveStatus(members, trusted) === 'cancelled') === saysCancelled(r);
           const knows = clusterHasEvidence(root);
           const gap = Math.min(...twins.map((m) => createdGap(r, m)));
           const better =
@@ -564,7 +608,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
         continue;
       }
       clusterCount += 1;
-      const effective = clusterEffectiveStatus(cluster, isFromAggregateFeed);
+      const effective = clusterEffectiveStatus(cluster, trusted);
       const canonical = pickCanonical(cluster, effective);
       for (const r of cluster) {
         if (r.id === canonical.id) {
