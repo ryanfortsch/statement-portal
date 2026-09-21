@@ -13,7 +13,7 @@ import {
   listOpenInquiries,
   type BookingConflict,
 } from '@/lib/channels';
-import { CHANNEL_LABELS, type Booking } from '@/lib/channels-types';
+import { CHANNEL_LABELS, STATUS_LABELS, type Booking, type BookingSource } from '@/lib/channels-types';
 import { setBookingStatus } from './inquiry-actions';
 import { SyncNowButton, BackfillButton } from './SyncButtons';
 import { PROPERTIES } from '@/lib/properties';
@@ -457,21 +457,30 @@ const chipGhost: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+const SOURCE_LABELS: Record<BookingSource, string> = {
+  ical_import: 'iCal feed',
+  direct_booking: 'Direct booking',
+  manual: 'Manual',
+  email_parse: 'Email',
+  guesty_legacy: 'Guesty backfill',
+};
+
 function ConflictsBlock({ conflicts }: { conflicts: BookingConflict[] }) {
+  const shown = conflicts.slice(0, 10);
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
       <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--negative)' }}>
-        Conflicts · {conflicts.length} overlap{conflicts.length === 1 ? '' : 's'}
+        Double-bookings · {conflicts.length}
       </div>
       <div style={{ borderTop: '2px solid var(--negative)', borderBottom: '1px solid var(--rule)' }}>
-        {conflicts.slice(0, 10).map((c, i) => {
+        {shown.map((c, i) => {
           const p = PROPERTIES[c.property_id];
           return (
             <div
               key={`${c.a.id}-${c.b.id}`}
               style={{
                 padding: '14px 0',
-                borderBottom: i === conflicts.length - 1 ? 'none' : '1px solid var(--rule)',
+                borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--rule)',
                 display: 'grid',
                 gridTemplateColumns: '160px 1fr',
                 gap: 16,
@@ -485,27 +494,33 @@ function ConflictsBlock({ conflicts }: { conflicts: BookingConflict[] }) {
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 12, color: 'var(--ink)' }}>
-                  <span style={{ fontWeight: 600 }}>{CHANNEL_LABELS[c.a.channel] ?? c.a.channel}</span>
-                  <span className="font-mono" style={{ marginLeft: 8, color: 'var(--ink-3)' }}>{c.a.check_in} → {c.a.check_out}</span>
-                  {c.a.guest_name && <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>· {c.a.guest_name}</span>}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 4 }}>
-                  <span style={{ fontWeight: 600 }}>{CHANNEL_LABELS[c.b.channel] ?? c.b.channel}</span>
-                  <span className="font-mono" style={{ marginLeft: 8, color: 'var(--ink-3)' }}>{c.b.check_in} → {c.b.check_out}</span>
-                  {c.b.guest_name && <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>· {c.b.guest_name}</span>}
-                </div>
+                <ConflictStay b={c.a} />
+                <ConflictStay b={c.b} second />
               </div>
             </div>
           );
         })}
       </div>
       <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 12, lineHeight: 1.5, maxWidth: 720 }}>
-        These overlaps may be benign (a manual block over a confirmed stay, or a cancelled-but-still-imported row that
-        hasn&apos;t resyncted yet) — or they may be a real double-booking that needs cancellation on one side. Open the
-        property to inspect.
+        {conflicts.length > shown.length && <>Showing the first {shown.length}. </>}
+        Two stays on the books for the same nights. Inquiries, pending requests and blocks are not counted: an
+        inquiry is decided above, and a block over a stay is the same occupant seen twice (Guesty&apos;s nightly
+        advance-notice block, or a hold placed for the owner&apos;s own dates). Open the property to inspect.
       </p>
     </section>
+  );
+}
+
+function ConflictStay({ b, second }: { b: Booking; second?: boolean }) {
+  return (
+    <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: second ? 4 : 0 }}>
+      <span style={{ fontWeight: 600 }}>{CHANNEL_LABELS[b.channel] ?? b.channel}</span>
+      <span className="font-mono" style={{ marginLeft: 8, color: 'var(--ink-3)' }}>{b.check_in} → {b.check_out}</span>
+      {b.guest_name && <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>· {b.guest_name}</span>}
+      <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>
+        · {STATUS_LABELS[b.status] ?? b.status} · {SOURCE_LABELS[b.source] ?? b.source}
+      </span>
+    </div>
   );
 }
 
