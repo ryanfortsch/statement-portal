@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { cartoTileUrl, CARTO_TILE_OPTIONS } from '@/lib/map-tiles';
 
 /**
  * Compact live route map for a packet: numbered pins in walk order joined by a
@@ -84,7 +85,7 @@ export function PacketRouteMap({ stops }: { stops: Stop[] }) {
         // pills do real navigation). Pinch zoom stays available.
         dragging: !('ontouchstart' in window),
       });
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(map);
+      L.tileLayer(cartoTileUrl('light_all'), { ...CARTO_TILE_OPTIONS, maxZoom: 18 }).addTo(map);
 
       const latlngs = valid.map((p) => [p.lat, p.lng] as [number, number]);
       valid.forEach((p, i) => {
