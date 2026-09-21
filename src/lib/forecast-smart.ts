@@ -348,18 +348,37 @@ export async function getBookedByPropertyByMonth(
   }));
 
   // Reservations that overlap any forward month.
-  const { data: resData, error: resErr } = await supabase
-    .from('guesty_reservations')
-    .select('property_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
-    .lt('check_in', windowEndExclusive)
-    .gte('check_out', windowStart);
-  if (resErr) throw new Error(`Failed to load reservations: ${resErr.message}`);
+  //
+  // Paged. A bare .select() is capped at 1000 rows by PostgREST and says
+  // nothing about it, and this drives every projected figure in the table, so
+  // a short read would quietly forecast a smaller fleet than exists. The
+  // window is currently 320 rows, but it grows with both the fleet and the
+  // booking horizon. `.range()` is paired with `.order('id')` because an
+  // unordered OFFSET window is not stable between pages.
+  let resData: ReservationRow[];
+  try {
+    resData = await selectAllPaged<ReservationRow>(
+      (from, to) =>
+        supabase
+          .from('guesty_reservations')
+          .select('property_id, check_in, check_out, status, host_payout, owner_net_revenue_guesty, total_paid')
+          .lt('check_in', windowEndExclusive)
+          .gte('check_out', windowStart)
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'smart forecast forward reservations' },
+    );
+  } catch (err) {
+    throw new Error(
+      `Failed to load reservations: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   const bookedByPropMonth = new Map<string, Map<string, { nights: number; revenue: number }>>();
 
   const propById = new Map(properties.map((p) => [p.id, p]));
 
-  for (const r of (resData ?? []) as ReservationRow[]) {
+  for (const r of resData) {
     if (!r.property_id || !r.check_in || !r.check_out) continue;
     if (!isActiveBooking(r.status)) continue;
     const prop = propById.get(r.property_id);
