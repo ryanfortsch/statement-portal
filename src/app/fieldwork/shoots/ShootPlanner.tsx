@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { ShootCalCell, ShootCalRow } from '@/lib/creative-calendar';
+import { weatherLine, type DayWeather } from '@/lib/weather-types';
+import { WeatherGlyph, GRADE_TINT, GRADE_WORD } from '@/components/WeatherGlyph';
 import { sendCreative } from './actions';
 
 /**
@@ -15,6 +17,13 @@ import { sendCreative } from './actions';
  * carries the contributor's initials and opens that shoot.
  *
  * One pick, one send: a shoot is one contributor at one home on one day.
+ *
+ * The forecast rides above the grid as its own row, one mark per day. It
+ * is advisory and only advisory: a poor sky never greys out a day or
+ * blocks a send, because shooting in the rain is the operator's call, not
+ * the software's. Past the National Weather Service's seven days the row
+ * is simply blank -- an empty column means nobody knows yet, and must
+ * never be read as fair weather.
  */
 
 const OPEN_BG = 'rgba(63,153,34,0.22)';
@@ -59,6 +68,7 @@ export function ShootPlanner({
   rows,
   contributors,
   today,
+  weather,
 }: {
   days: string[];
   rows: ShootCalRow[];
@@ -66,6 +76,9 @@ export function ShootPlanner({
   /** Today in ET, from the server, so the TODAY column can't drift on a
    *  browser in another zone. */
   today: string;
+  /** Forecast by date. Missing days (past the 7-day horizon, or a forecast
+   *  we couldn't reach) simply have no entry. */
+  weather: Record<string, DayWeather>;
 }) {
   const [sel, setSel] = useState<{ propertyId: string; date: string } | null>(null);
   // One contributor to send. Pre-picked when there's exactly one on the crew.
@@ -82,6 +95,7 @@ export function ShootPlanner({
 
   const selRow = sel ? (rows.find((r) => r.propertyId === sel.propertyId) ?? null) : null;
   const selCell = sel && selRow ? (selRow.cells.find((c) => c.date === sel.date) ?? null) : null;
+  const selWeather = sel ? (weather[sel.date] ?? null) : null;
   const who = contributors.find((c) => c.id === contractorId) ?? null;
 
   function pick(row: ShootCalRow, cell: ShootCalCell) {
@@ -133,6 +147,45 @@ export function ShootPlanner({
             );
           })}
 
+          {/* The forecast band. Inside the same grid as the day headers, so
+              a column's weather is always over that column's days. */}
+          <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', borderBottom: '1px solid var(--rule)', minHeight: 40 }}>
+            Forecast
+          </div>
+          {days.map((d) => {
+            const w = weather[d];
+            const isSel = sel?.date === d;
+            return (
+              <div
+                key={d}
+                title={w ? `${fmtDay(d)}: ${weatherLine(w)} \u00b7 ${GRADE_WORD[w.grade]}` : `No forecast for ${fmtDay(d)} yet`}
+                style={{
+                  minHeight: 40,
+                  borderBottom: '1px solid var(--rule)',
+                  borderLeft: '1px solid var(--rule)',
+                  background: isSel ? 'rgba(200,90,58,0.08)' : 'transparent',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 1,
+                  color: w ? GRADE_TINT[w.grade] : 'var(--ink-4)',
+                }}
+              >
+                {w ? (
+                  <>
+                    <WeatherGlyph sky={w.sky} size={14} />
+                    {w.highF != null && (
+                      <span className="font-mono" style={{ fontSize: 10, lineHeight: 1 }}>{w.highF}&deg;</span>
+                    )}
+                  </>
+                ) : (
+                  <span style={{ fontSize: 11, opacity: 0.45 }}>&middot;</span>
+                )}
+              </div>
+            );
+          })}
+
           {rows.map((r) => (
             <PlannerRow key={r.propertyId} row={r} sel={sel} today={today} onPick={pick} />
           ))}
@@ -150,6 +203,13 @@ export function ShootPlanner({
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
         <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
         A red left edge is the day a guest checks in (~3 PM). The 8 AM day-of check calls that day a hold, so it isn&apos;t offered.
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
+        <span>Forecast, National Weather Service, seven days out:</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: GRADE_TINT.good }}><WeatherGlyph sky="clear" size={13} /> good light</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: GRADE_TINT.fair }}><WeatherGlyph sky="cloudy" size={13} /> workable</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: GRADE_TINT.poor }}><WeatherGlyph sky="rain" size={13} /> poor for filming</span>
+        <span>A blank column is a day past the forecast, not a fair one. It never stops you sending.</span>
       </div>
 
       {error && selCell && (
@@ -213,6 +273,19 @@ export function ShootPlanner({
               {selRow.propertyName} · {fmtDay(sel.date)}
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>{availabilityLine(selCell)}</div>
+            {/* The sky, where the decision is actually made. Advisory: a
+                poor forecast is said plainly and the Send button still
+                works, because shooting it anyway is a real choice. */}
+            <div style={{ fontSize: 12, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6, color: selWeather ? GRADE_TINT[selWeather.grade] : 'var(--ink-4)' }}>
+              {selWeather ? (
+                <>
+                  <WeatherGlyph sky={selWeather.sky} size={14} />
+                  <span>{weatherLine(selWeather)} · {GRADE_WORD[selWeather.grade]}</span>
+                </>
+              ) : (
+                <span>No forecast that far out yet.</span>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
               <input
                 name="title"
