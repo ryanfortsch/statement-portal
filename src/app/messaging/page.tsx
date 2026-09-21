@@ -20,6 +20,7 @@ import {
   explainError,
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
@@ -101,7 +102,11 @@ async function QueueSection() {
   // Proactive scheduling moved to the Send lens (/messaging/send): the Inbox
   // is for reacting to what came in, Send is for starting something. Keeping
   // both here made the queue page a junk drawer.
-  return <MessagingQueue initialPending={pending.data.approvals} />;
+  // A guest's Stay Cape Ann quotes, so the card can say what has already been
+  // priced instead of leaving the operator to go and look. Degrades to {}:
+  // the queue is the point of this page and must render without it.
+  const quotes = await loadGuestQuoteContext(pending.data.approvals).catch(() => ({}));
+  return <MessagingQueue initialPending={pending.data.approvals} initialQuotes={quotes} />;
 }
 
 // The Guesty-inbox replacement: every recent guest conversation, expandable

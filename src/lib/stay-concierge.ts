@@ -51,6 +51,11 @@ export type Approval = {
   /** Mined add-on charge (Tesla charger, pet fee, early check-in fee) with
    * its Stripe payment link. Null/absent for ordinary cards. */
   addon?: AddonCharge | null;
+  /** The guest's email, when the card's channel knows it: a 2027 request
+   * carries it in its own sidecar, an email card IS an address. Empty on OTA
+   * chat. Helm uses it to open the quote composer complete and to find this
+   * guest's existing quotes; both were blind on email cards until 2026-09-21. */
+  guest_email?: string;
   /** A 2027 pre-release request's own details (party size, email, phone), so
    * the quote composer can be opened complete rather than half-filled.
    * Null/absent on every other card. */
