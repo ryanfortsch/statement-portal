@@ -447,6 +447,24 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
     return MONTH_LABELS[parseInt(m, 10) - 1];
   };
 
+  // The totals column sums the months BESIDE it, which on the current-year
+  // tab is only the months still ahead: forwardMonths() starts at the current
+  // month because closed months are carried by the Monthly Detail table
+  // instead. Calling that "FY total" was false on exactly the tab an operator
+  // reads most. On 2026-09-21 it covered four months of twelve and showed
+  // $144.5k of a year tracking near $339k, and 4 Brier Neck, whose whole year
+  // is behind the left edge, read as a dash. Future-year tabs really do cover
+  // twelve months, so they keep the honest label.
+  const wholeYear = data.months.length === 12;
+  const spanLabel = wholeYear
+    ? 'FY total'
+    : data.months.length === 1
+    ? fmtMonth(data.months[0])
+    : `${fmtMonth(data.months[0])}-${fmtMonth(data.months[data.months.length - 1])}`;
+  const spanTitle = wholeYear
+    ? 'Total across all twelve months of the year.'
+    : `Total across the months shown, ${fmtMonth(data.months[0])} to ${fmtMonth(data.months[data.months.length - 1])}. This panel projects the months still ahead, so closed months are not included here. Their actuals are in Monthly Detail below.`;
+
   return (
     <div
       style={{
@@ -471,7 +489,9 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
             {data.months.map((m) => (
               <Th key={m}>{fmtMonth(m)}</Th>
             ))}
-            <Th totals>FY total</Th>
+            <Th totals title={spanTitle}>
+              {spanLabel}
+            </Th>
           </tr>
         </thead>
         <tbody>
@@ -560,6 +580,11 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
                 </td>
               ))}
               <td
+                title={
+                  p.totals.projectedMgmtFee === 0 && !wholeYear
+                    ? `${p.property.name} has no operating month in this range. Anything it earned in closed months is not counted here. See Monthly Detail.`
+                    : spanTitle
+                }
                 style={cellStyle({
                   fontWeight: 700,
                   color: 'var(--positive)',
@@ -610,6 +635,7 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
               );
             })}
             <td
+              title={spanTitle}
               style={cellStyle({
                 background: 'var(--ink-2)',
                 color: '#9bd1ad',
@@ -1611,14 +1637,17 @@ function Th({
   first,
   totals,
   actual,
+  title,
 }: {
   children: React.ReactNode;
   first?: boolean;
   totals?: boolean;
   actual?: boolean;
+  title?: string;
 }) {
   return (
     <th
+      title={title}
       style={{
         background: totals ? 'var(--ink-2)' : 'var(--ink)',
         color: 'var(--paper)',
