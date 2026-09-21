@@ -476,7 +476,8 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     if (setErr) throw new Error(`dedupe set: ${setErr.message}`);
   }
 
-  // Apply enrichment patches (one update per canonical that gained fields).
+  // Apply enrichment patches (one update per canonical whose pooled fields
+  // change: filled from a twin, or a borrowed booking id corrected or cleared).
   let enriched = 0;
   for (const [canonicalId, patch] of enrichPatches) {
     const { error: enrichErr } = await sb
