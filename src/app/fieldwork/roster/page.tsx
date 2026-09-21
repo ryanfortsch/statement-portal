@@ -15,7 +15,7 @@ import { CopyCode } from '@/app/field/CopyCode';
 import { SubmitButton } from '@/components/SubmitButton';
 import { RevealW9 } from './RevealW9';
 import { RevealPay } from './RevealPay';
-import { RateCardPanel, TalentRateStrip } from './RateCardPanel';
+import { RateCardPanel, TalentRateStrip, rateCardSummary } from './RateCardPanel';
 import {
   inviteContractor,
   setContractorW9, setContractorWorkBoard,
@@ -180,15 +180,37 @@ export default async function ContractorsPage({
             </Link>
           </div>
         </div>
-        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20 }}>
-          Invite {trade === 'creative' ? 'a contributor' : `a ${meta.singular}`} and we email them a personal portal
-          link. They set up their account (W-9 + agreement) before they can {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
+        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 18 }}>
+          {trade === 'creative'
+            ? 'Everyone who shoots for us: standing, pay to date, W-9. To send someone to a home, use Shoots & pay.'
+            : `Everyone on the ${meta.label.toLowerCase()} roster: standing, reliability, pay to date, W-9.`}
         </p>
 
-        {trade === 'creative' && <RateCardPanel card={rateCards.def} base={base} />}
+        {/* The rate card and the invite form fold away: both are set-up
+            chores, and open they pushed the people below the fold on every
+            visit (Dotti, 2026-09-21: "simplify overall"). The fold summary
+            still carries the ladder, so the numbers stay one glance away.
+            The panel keeps its #rate-card anchor for the save redirect; a
+            fragment landing inside a closed details opens it. */}
+        {trade === 'creative' && (
+          <details style={{ marginBottom: 10 }}>
+            <summary style={foldSummary}>
+              Reel rate card <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>· {rateCardSummary(rateCards.def)}</span> ▾
+            </summary>
+            <div style={{ marginTop: 10 }}>
+              <RateCardPanel card={rateCards.def} base={base} />
+            </div>
+          </details>
+        )}
 
-        {/* Invite form */}
-        <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 26 }}>
+        <details style={{ marginBottom: 26 }}>
+          <summary style={foldSummary}>+ Invite {trade === 'creative' ? 'a contributor' : `a ${meta.singular}`} ▾</summary>
+          <p style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '8px 0 10px', lineHeight: 1.5 }}>
+            We email them a personal portal link. They set up their account (W-9 + agreement) before they can{' '}
+            {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
+          </p>
+          {/* Invite form */}
+          <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={lbl}>
             Name
             <input name="full_name" required placeholder="Marcus Reed" style={inp} />
@@ -211,7 +233,8 @@ export default async function ContractorsPage({
             </select>
           </label>
           <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
-        </form>
+          </form>
+        </details>
 
         {/* W-9 workspace: clear the recurring pre-1099 chore in one place. */}
         {needsW9.length > 0 && (
@@ -570,6 +593,15 @@ function ContractorCard({
   );
 }
 
+const foldSummary: React.CSSProperties = {
+  fontSize: 13,
+  color: 'var(--tide-deep)',
+  fontWeight: 600,
+  cursor: 'pointer',
+  listStyle: 'none',
+  userSelect: 'none',
+  padding: '6px 0',
+};
 const lbl: React.CSSProperties = { fontSize: 11, color: 'var(--ink-4)', display: 'flex', flexDirection: 'column', gap: 4 };
 const inp: React.CSSProperties = {
   font: 'inherit',

@@ -5,10 +5,13 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, loadCreativeContractors, shootPaySummary, setShortLabel, type ShootSummary } from '@/lib/creative-shoots';
 import { loadDriveFilesByShoots, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured } from '@/lib/creative-drive';
+import { loadShootCalendar, todayET, addDays } from '@/lib/creative-calendar';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { dollars } from '@/lib/field-types';
 import { createShoot, syncDriveNow } from './actions';
-import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
+import { SubmitButton } from '@/components/SubmitButton';
+import { ShootPlanner } from './ShootPlanner';
+import { ShootSentFlash } from './ShootSentFlash';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +77,7 @@ function payLine(s: ShootSummary): { text: string; tone: string; sub: string | n
 export default async function CreativeBoard({
   searchParams,
 }: {
-  searchParams: Promise<{ drive?: string; err?: string }>;
+  searchParams: Promise<{ drive?: string; err?: string; sent?: string; shoot?: string; from?: string; to?: string }>;
 }) {
   if (!isFieldConfigured) {
     return (
@@ -89,11 +92,20 @@ export default async function CreativeBoard({
   }
 
   const sp = await searchParams;
+  // The planner window: two weeks from today, or the ?from/?to the pager
+  // asked for (capped at a month so the grid stays readable).
+  const today = todayET();
+  const isIso = (v: string | undefined): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const from = isIso(sp.from) ? sp.from : today;
+  let to = isIso(sp.to) ? sp.to : addDays(from, 13);
+  if (to < from || to > addDays(from, 30)) to = addDays(from, 13);
+  const span = Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1;
   const [board, contributors, properties] = await Promise.all([
     loadShootBoard(),
     loadCreativeContractors(),
     loadFieldProperties(),
   ]);
+  const calendar = await loadShootCalendar(from, to, properties);
   const driveFiles = await loadDriveFilesByShoots(board.map((s) => s.shoot.id));
   // Per-shoot Drive chip: package progress while the finals gate is open
   // (nothing paid yet), plain file count once money has moved.
@@ -143,7 +155,7 @@ export default async function CreativeBoard({
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Creative</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
-              Social shoots and the pay that follows the views. {board.length} {board.length === 1 ? 'shoot' : 'shoots'}.
+              Send contributors to empty homes; pay follows delivery and views. {board.length} {board.length === 1 ? 'shoot' : 'shoots'}.
             </div>
           </div>
           <div style={{ display: 'flex', gap: 18, alignItems: 'baseline' }}>
@@ -156,7 +168,7 @@ export default async function CreativeBoard({
             {isCreativeDriveConfigured() && (
               <div style={{ textAlign: 'right' }}>
                 <form action={syncDriveNow} style={{ margin: 0 }}>
-                  <PendingButton label="Sync Drive" busyLabel="Checking Drive…" style={btnGhost} spinnerTone="ink" />
+                  <SubmitButton label="Sync Drive" busyLabel="Checking Drive…" style={btnGhost} spinnerTone="ink" />
                 </form>
                 <div style={{ fontSize: 10.5, color: 'var(--ink-4)', marginTop: 4 }}>
                   {lastSynced
@@ -167,6 +179,8 @@ export default async function CreativeBoard({
             )}
           </div>
         </div>
+
+        <ShootSentFlash note={sp.sent} shootId={sp.shoot} />
 
         {driveNote && (
           <div
@@ -201,9 +215,37 @@ export default async function CreativeBoard({
           </div>
         )}
 
-        {/* Log a shoot — the office records what was shot; views come later. */}
+        {/* The planner: which homes are empty on which day, and one click to
+            send a contributor there with a brief. Sits first because sending
+            people to homes is the board's daily job; the ledger follows. */}
+        <div style={{ marginTop: 26 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div>
+              <span style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600 }}>Send a contributor to a home</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-4)', marginLeft: 10 }}>
+                Click an empty day. We log the shoot and text + email the brief: address, arrival, and the door code on the day.
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 14, fontSize: 12, whiteSpace: 'nowrap' }}>
+              <Link href={`/fieldwork/shoots?from=${addDays(from, -span)}&to=${addDays(from, -1)}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>
+                ‹ earlier
+              </Link>
+              {from !== today && (
+                <Link href="/fieldwork/shoots" style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>today</Link>
+              )}
+              <Link href={`/fieldwork/shoots?from=${addDays(to, 1)}&to=${addDays(to, span)}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>
+                later ›
+              </Link>
+            </div>
+          </div>
+          <ShootPlanner days={calendar.days} rows={calendar.rows} contributors={contributors.map((c) => ({ id: c.id, name: c.full_name }))} today={today} />
+        </div>
+
+        {/* Log a shoot by hand: a past date (the after-the-fact ledger flow) or
+            a b-roll / town day with no home. Folded, since the grid above is
+            the usual door. Opens itself when the last log was refused. */}
         <details style={{ marginTop: 18 }} open={!!errNote}>
-          <summary style={{ ...quietSummary, fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }}>+ Log a shoot ▾</summary>
+          <summary style={{ ...quietSummary, fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }}>+ Log a past shoot or a b-roll day ▾</summary>
           <form action={createShoot} autoComplete="off" style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 620, border: '1px solid var(--rule)', borderRadius: 10, padding: 16, background: 'var(--paper-2, #fff)' }}>
             <label style={fieldLabel}>
               Contributor
@@ -245,7 +287,7 @@ export default async function CreativeBoard({
                   No active contributors yet. <Link href="/fieldwork/roster" style={{ color: 'var(--signal)' }}>Invite one from the roster</Link> first.
                 </div>
               ) : (
-                <PendingButton label="Log shoot" busyLabel="Logging…" style={btnDark} />
+                <SubmitButton label="Log shoot" busyLabel="Logging…" style={btnDark} />
               )}
             </div>
           </form>

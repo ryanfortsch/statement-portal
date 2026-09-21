@@ -226,7 +226,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/fieldwork/shoots',
     number: '03c',
     title: 'Creative Shoots & Pay',
-    description: 'The creative pay ledger. Log shoots and assets, review deliverables, approve and pay the crew.',
+    description: 'Send a contributor to an empty home from the planner grid, and the creative pay ledger: shoots and assets, deliverables, approve and pay the crew.',
     status: 'active',
     primary: false,
     hidden: true,

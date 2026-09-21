@@ -9,6 +9,7 @@ import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
 import { syncCreativeDrive } from '@/lib/creative-drive';
 import { sendPaidEmail, sendShootBrief, sendShootAllClear } from '@/lib/field-notify';
 import { newPortalToken } from '@/lib/field-auth';
+import { dayClearReport } from '@/lib/maintenance-runs';
 import type { ContractorRow } from '@/lib/field-types';
 
 async function staffEmail(): Promise<string> {
@@ -41,6 +42,41 @@ function titlePropertyConflict(
   return named;
 }
 
+/** Everything a shoot row needs at creation. Shared by the ledger's Log-a-
+ *  shoot form (createShoot) and the planner grid's Send (sendCreative), so
+ *  the two doors write the same row. */
+type NewShoot = {
+  email: string;
+  contractorId: string;
+  propertyId: string | null;
+  title: string;
+  shootDate: string;
+  locationNote: string | null;
+  notes: string | null;
+};
+
+async function insertShoot(s: NewShoot): Promise<string | null> {
+  const { data } = await fieldDb()
+    .from('creative_shoots')
+    .insert({
+      contractor_id: s.contractorId,
+      property_id: s.propertyId,
+      location_note: s.locationNote,
+      shoot_date: s.shootDate,
+      title: s.title,
+      notes: s.notes,
+      status: 'shot',
+      created_by_email: s.email,
+    })
+    .select('id')
+    .single();
+  return (data as { id: string } | null)?.id ?? null;
+}
+
+function todayEtIso(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
 /** Log a shoot. property_id optional — b-roll and town days have no home. */
 export async function createShoot(formData: FormData): Promise<void> {
   const email = await staffEmail();
@@ -65,32 +101,126 @@ export async function createShoot(formData: FormData): Promise<void> {
     );
   }
 
-  const { data } = await fieldDb()
-    .from('creative_shoots')
-    .insert({
-      contractor_id: contractorId,
-      property_id: propertyId,
-      location_note: String(formData.get('location_note') || '').trim().slice(0, 300) || null,
-      shoot_date: shootDate,
-      title,
-      notes: String(formData.get('notes') || '').trim().slice(0, 4000) || null,
-      status: 'shot',
-      created_by_email: email,
-    })
-    .select('id')
-    .single();
-  const id = (data as { id: string } | null)?.id;
+  const id = await insertShoot({
+    email,
+    contractorId,
+    propertyId,
+    title,
+    shootDate,
+    locationNote: String(formData.get('location_note') || '').trim().slice(0, 300) || null,
+    notes: String(formData.get('notes') || '').trim().slice(0, 4000) || null,
+  });
   // Logging an UPCOMING shoot BRIEFS the contributor: email + text with the
   // portal brief link (address, arrival, entry, the listing to study).
   // Logging after the fact (a past date — the ledger's usual flow) sends
   // nothing: there is no day left to brief. Failures never block the log —
   // the shoot page has a Send-brief control.
-  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
-  if (id && shootDate >= todayEt) {
+  if (id && shootDate >= todayEtIso()) {
     await notifyShootBrief(id, contractorId, title, shootDate, propertyId).catch(() => {});
   }
   revalidatePath('/fieldwork/shoots');
   if (id) redirect(`/fieldwork/shoots/${id}`);
+}
+
+export type SendCreativeFailure = { ok: false; message: string };
+
+function fmtSendDay(iso: string): string {
+  try {
+    return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
+
+/**
+ * The planner grid's Send: book a contributor at a home on a day the grid
+ * showed as empty, and brief them. Same row and same brief as createShoot;
+ * the differences are where it lands (back on the board with a one-line
+ * result, the picked cell now blue) and that every refusal comes back as a
+ * message beside her pick instead of a redirect, the way the packets board's
+ * bundleAndSend does. The day is re-checked fresh here: the grid she clicked
+ * may be minutes old, and a wrong "clear" sends someone into a full house.
+ */
+export async function sendCreative(formData: FormData): Promise<SendCreativeFailure> {
+  const email = await staffEmail();
+  const contractorId = String(formData.get('contractor_id') || '').trim();
+  const propertyId = String(formData.get('property_id') || '').trim();
+  const shootDate = String(formData.get('shoot_date') || '').trim();
+  if (!contractorId || !propertyId || !/^\d{4}-\d{2}-\d{2}$/.test(shootDate)) {
+    return { ok: false, message: 'Pick a home, a day and a contributor, then send again.' };
+  }
+  if (shootDate < todayEtIso()) return { ok: false, message: 'That day has passed. Pick today or later.' };
+
+  const [{ data: cRow }, { data: propRows }] = await Promise.all([
+    fieldDb().from('contractors').select('id, full_name, trade, status').eq('id', contractorId).maybeSingle(),
+    fieldDb().from('properties').select('id, name'),
+  ]);
+  const c = cRow as { id: string; full_name: string; trade: string | null; status: string } | null;
+  const properties = (propRows ?? []) as Array<{ id: string; name: string }>;
+  const prop = properties.find((p) => p.id === propertyId);
+  if (!c || c.trade !== 'creative' || c.status !== 'active') {
+    return {
+      ok: false,
+      message: "That contributor can't take a shoot right now (not active on the roster). Refresh the board and pick again.",
+    };
+  }
+  if (!prop) return { ok: false, message: 'That home is not in the registry any more. Refresh the board.' };
+  const first = c.full_name.split(' ')[0];
+
+  const title = String(formData.get('title') || '').trim().slice(0, 200) || prop.name;
+  const conflict = titlePropertyConflict(title, propertyId, properties);
+  if (conflict) {
+    return {
+      ok: false,
+      message: `That title says ${conflict.name} but you picked ${prop.name}. The home drives the address and door code on the brief - fix the title and send again.`,
+    };
+  }
+
+  const verdict = (await dayClearReport([propertyId], shootDate)).get(propertyId);
+  if (verdict && !verdict.clear) {
+    return {
+      ok: false,
+      message: `${prop.name} isn't free ${fmtSendDay(shootDate)}: ${verdict.reason}. Refresh the board and pick another day.`,
+    };
+  }
+
+  // One shoot per contributor per home per day: a double-click must not book
+  // (and brief) twice.
+  const { data: dup } = await fieldDb()
+    .from('creative_shoots')
+    .select('id')
+    .eq('contractor_id', contractorId)
+    .eq('property_id', propertyId)
+    .eq('shoot_date', shootDate)
+    .neq('status', 'cancelled')
+    .limit(1)
+    .maybeSingle();
+  if (dup) {
+    return { ok: false, message: `${first} is already booked for ${prop.name} ${fmtSendDay(shootDate)}. Open that shoot to resend the brief.` };
+  }
+
+  const id = await insertShoot({
+    email,
+    contractorId,
+    propertyId,
+    title,
+    shootDate,
+    locationNote: null,
+    notes: String(formData.get('notes') || '').trim().slice(0, 4000) || null,
+  });
+  if (!id) return { ok: false, message: "Couldn't save the shoot. Try again in a moment." };
+  const sent = await notifyShootBrief(id, contractorId, title, shootDate, propertyId).catch(() => ({ emailed: false, texted: false }));
+  const brief =
+    sent.emailed && sent.texted
+      ? 'Brief texted and emailed.'
+      : sent.emailed
+        ? 'Brief emailed (no text went out).'
+        : sent.texted
+          ? 'Brief texted (no email went out).'
+          : 'The brief did NOT send (check their contact info) - open the shoot and use Send brief.';
+  const note = `${first} is booked for ${prop.name} on ${fmtSendDay(shootDate)}. ${brief}`;
+  revalidatePath('/fieldwork/shoots');
+  redirect(`/fieldwork/shoots?sent=${encodeURIComponent(note)}&shoot=${id}`);
 }
 
 async function notifyShootBrief(

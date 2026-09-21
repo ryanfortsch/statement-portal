@@ -28,6 +28,11 @@ function summaryParts(card: RateCard): string[] {
   return parts;
 }
 
+/** The card in one breath, for the roster's folded summary line. */
+export function rateCardSummary(card: RateCard): string {
+  return summaryParts(card).join(' · ');
+}
+
 function termsLine(card: RateCard): string {
   const bits = [
     `${card.minSeconds}s minimum`,
