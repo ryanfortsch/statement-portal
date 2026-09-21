@@ -13,6 +13,8 @@ import type {
   IcalSyncRun,
   BookingChannel,
 } from '@/lib/channels-types';
+import { selectAllPaged } from '@/lib/paged-select';
+import { STAY_STATUSES, findDoubleBookings, type DoubleBooking } from '@/lib/booking-conflicts';
 
 export type ListingWithRecentRuns = ChannelListing & {
   recent_runs: IcalSyncRun[];
@@ -124,63 +126,45 @@ export async function listOpenInquiries(): Promise<Booking[]> {
   return (data ?? []) as Booking[];
 }
 
-export type BookingConflict = {
-  property_id: string;
-  a: Booking;
-  b: Booking;
-  /** Number of nights both bookings cover. */
-  overlap_nights: number;
-};
+export type BookingConflict = DoubleBooking<Booking>;
 
 /**
- * Find pairs of non-cancelled bookings on the same property whose date
- * ranges overlap. The classic double-booking detector. Runs in-memory
- * because there are at most a few hundred future bookings across the
- * portfolio at any time — well under what would warrant a SQL query
- * with self-join.
+ * Pairs of stays on the same property whose nights overlap: the
+ * double-booking detector. Only stays that actually happen take part
+ * (confirmed or completed); inquiries, pending requests and blocks are not
+ * parties to a double-booking, and booking-conflicts.ts says why. The pair
+ * logic is pure and unit-tested there; this is the fetch. It runs in memory
+ * because there are at most a few hundred canonical stays in the window,
+ * and it pages so a growing fleet never trips PostgREST's silent 1000-row
+ * cap.
  */
 export async function findBookingConflicts(daysAhead = 365): Promise<BookingConflict[]> {
   if (!isConfigured) return [];
   const today = new Date().toISOString().slice(0, 10);
   const end = new Date(Date.now() + daysAhead * 86400_000).toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from('bookings')
-    .select('*')
-    .gte('check_out', today)
-    .lte('check_in', end)
-    .neq('status', 'cancelled')
-    // Duplicates are the same physical stay, not a double-booking -- exclude
-    // them so the dedup pass and the conflict detector never disagree.
-    .is('duplicate_of', null)
-    .order('property_id')
-    .order('check_in');
-  if (error) return [];
-
-  const conflicts: BookingConflict[] = [];
-  const all = (data ?? []) as Booking[];
-  // Group by property
-  const byProperty = new Map<string, Booking[]>();
-  for (const b of all) {
-    (byProperty.get(b.property_id) ?? byProperty.set(b.property_id, []).get(b.property_id))!.push(b);
+  let rows: Booking[];
+  try {
+    rows = await selectAllPaged<Booking>(
+      (from, to) =>
+        supabase
+          .from('bookings')
+          .select('*')
+          .gte('check_out', today)
+          .lte('check_in', end)
+          .in('status', [...STAY_STATUSES])
+          // Duplicates are the same physical stay, not a double-booking -- exclude
+          // them so the dedup pass and the conflict detector never disagree.
+          .is('duplicate_of', null)
+          .order('property_id', { ascending: true })
+          .order('check_in', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'double-bookings' },
+    );
+  } catch {
+    return [];
   }
-
-  for (const [propertyId, list] of byProperty) {
-    // Already sorted by check_in; check each pair until non-overlap is guaranteed.
-    for (let i = 0; i < list.length; i++) {
-      for (let j = i + 1; j < list.length; j++) {
-        const a = list[i];
-        const b = list[j];
-        // Sorted by check_in, so once b.check_in >= a.check_out we can skip.
-        if (b.check_in >= a.check_out) break;
-        // a.check_in <= b.check_in < a.check_out — overlap
-        const overlapStart = a.check_in > b.check_in ? a.check_in : b.check_in;
-        const overlapEnd = a.check_out < b.check_out ? a.check_out : b.check_out;
-        const nights = Math.max(0, Math.round((Date.parse(`${overlapEnd}T00:00:00Z`) - Date.parse(`${overlapStart}T00:00:00Z`)) / 86400_000));
-        conflicts.push({ property_id: propertyId, a, b, overlap_nights: nights });
-      }
-    }
-  }
-  return conflicts;
+  return findDoubleBookings(rows);
 }
 
 export type ChannelStats = {
