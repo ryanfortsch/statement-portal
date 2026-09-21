@@ -7,6 +7,7 @@ import {
   deactivatePaymentLinkById,
   loadPaymentLinkLite,
   mintPaymentLink,
+  recordLinkDelivery,
   stripeGetJson,
 } from '@/lib/payment-links';
 
@@ -187,11 +188,30 @@ export async function POST(req: Request) {
     deactivate_request_key?: string;
     save_card?: boolean;
     taxable?: boolean;
+    delivered_request_key?: string;
+    delivered_via?: string;
+    delivered_phone?: string;
   };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+
+  // Delivery mode: the concierge texted a link it minted. Without this the
+  // row keeps an empty sent_at forever, and Helm cannot tell a link that
+  // reached the guest from one still attached to an unapproved draft. That
+  // gap had the feed reporting guests as not having paid for links nobody
+  // ever sent them (2026-09-21).
+  if (body.delivered_request_key) {
+    const key = body.delivered_request_key.trim();
+    if (!key) return NextResponse.json({ error: 'delivered_request_key required' }, { status: 400 });
+    const via = body.delivered_via === 'copied' ? 'copied' : 'sms';
+    await recordLinkDelivery(key, {
+      via,
+      phone: (body.delivered_phone || '').trim() || undefined,
+    });
+    return NextResponse.json({ ok: true, recorded: key });
   }
 
   // Deactivate mode: turn an existing link off (guest can no longer pay it).

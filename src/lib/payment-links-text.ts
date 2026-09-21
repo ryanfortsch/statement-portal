@@ -224,15 +224,22 @@ export type PaymentLinkStatusInput = {
   paid_check_error?: string;
 };
 
-/** One word for where a link stands. `unsent` is a Helm-minted link nobody
- *  texted or copied yet; concierge links are assumed delivered (the
- *  concierge texts them itself). `unverified` is a link Helm cannot read
- *  from Stripe (the property's restricted key lacks Checkout Sessions
- *  read): it is NOT called unpaid, because it may well be paid. */
+/** One word for where a link stands. `unsent` is a link nobody texted or
+ *  copied yet. `unverified` is a link Helm cannot read from Stripe (the
+ *  property's restricted key lacks Checkout Sessions read): it is NOT called
+ *  unpaid, because it may well be paid.
+ *
+ *  Concierge links used to be ASSUMED delivered, on the reasoning that the
+ *  concierge texts them itself. It only texts them when the operator
+ *  APPROVES the draft, and it mints them when the draft is written, so a
+ *  link attached to a card still sitting in the queue has reached nobody.
+ *  The feed called those "hasn't paid yet" and named a guest who had never
+ *  been asked: on 2026-09-21 it was accusing two people whose reservations
+ *  did not exist. Evidence of delivery now decides, not who minted it. */
 export function paymentLinkStatus(row: PaymentLinkStatusInput, nowMs = Date.now()): PaymentLinkStatus {
   if (row.paid_at) return 'paid';
   if (row.deactivated_at) return 'cancelled';
-  if (row.source === 'helm' && !row.sent_via) return 'unsent';
+  if (!row.sent_via && !row.sent_at) return 'unsent';
   if (row.paid_check_error) return 'unverified';
   const since = new Date(row.sent_at || row.created_at).getTime();
   const hours = (nowMs - since) / 3_600_000;
