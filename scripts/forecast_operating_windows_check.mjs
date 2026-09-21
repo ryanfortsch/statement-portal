@@ -41,6 +41,15 @@ const EXPECT = [
   ['73_rocky_neck', '2026-12', 1, 'sale off: still renting in December'],
   ['73_rocky_neck', '2027-03', 1, 'sale off: no end date at all'],
 
+  // 30 Woodward is shut once November ends and reopens in May: the house is
+  // not fully insulated, so the closure recurs every year.
+  ['30_woodward', '2026-11', 1, 'open through November'],
+  ['30_woodward', '2026-12', 0, 'shut for the winter'],
+  ['30_woodward', '2027-01', 0, 'still shut in January'],
+  ['30_woodward', '2027-04', 0, 'still shut in April'],
+  ['30_woodward', '2027-05', 1, 'reopens in May'],
+  ['30_woodward', '2027-11', 1, 'and runs to the end of November again'],
+
   // 79 Main is seasonal: June 1 through October 20, every year.
   ['79_main', '2026-06', 1, 'season opens in June'],
   ['79_main', '2026-09', 1, 'full month in September'],
@@ -72,6 +81,7 @@ if (operatingFactor('3_south_st', '2027-02') !== 1) fail('a property with no win
 // offline before it are not, and a home with no window is open.
 const ROSTER = [
   ['16_waterman', 2027, true, 'seasonal, open May to October'],
+  ['30_woodward', 2027, true, 'seasonal, open May to November'],
   ['4_brier_neck', 2027, false, 'not renewed for 2027'],
   ['4_brier_neck', 2026, true, 'still ran in summer 2026'],
   ['73_rocky_neck', 2027, true, 'sale called off, no end date'],
@@ -86,6 +96,8 @@ for (const [id, year, want, msg] of ROSTER) {
 // The month form of the same predicate: what the card and the bench scale on.
 const MONTHLY = [
   ['16_waterman', 2027, 1, false, 'January: closed for the season'],
+  ['30_woodward', 2027, 2, false, 'February: closed, the house is not insulated'],
+  ['30_woodward', 2027, 9, true, 'September: open'],
   ['16_waterman', 2027, 7, true, 'July: open'],
   ['4_brier_neck', 2026, 8, true, 'August 2026: last operating month'],
   ['4_brier_neck', 2026, 9, false, 'September 2026: closed'],
