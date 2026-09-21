@@ -46,8 +46,8 @@ const EXPECT = [
   ['30_woodward', '2026-11', 1, 'open through November'],
   ['30_woodward', '2026-12', 0, 'shut for the winter'],
   ['30_woodward', '2027-01', 0, 'still shut in January'],
-  ['30_woodward', '2027-04', 0, 'still shut in April'],
-  ['30_woodward', '2027-05', 1, 'reopens in May'],
+  ['30_woodward', '2027-03', 0, 'still shut in March'],
+  ['30_woodward', '2027-05', 1, 'fully open in May'],
   ['30_woodward', '2027-11', 1, 'and runs to the end of November again'],
 
   // 79 Main is seasonal: June 1 through October 20, every year.
@@ -64,6 +64,16 @@ for (const [id, ym, want, msg] of EXPECT) {
   const got = operatingFactor(id, ym);
   if (!near(got, want)) fail(`${id} ${ym}: ${msg} — factor ${got.toFixed(4)}, expected ${want}`);
 }
+
+// 30 Woodward reopens on 25 April, so April earns its last six days and does
+// so every year. A partial month must still count as operating, or the home
+// vanishes from the month it comes back in.
+for (const y of [2027, 2028]) {
+  const apr = operatingFactor('30_woodward', `${y}-04`);
+  if (!near(apr, 6 / 30)) fail(`30 Woodward April ${y} pro-rate ${apr.toFixed(4)}, expected ${(6 / 30).toFixed(4)} (25th-30th)`);
+}
+if (!isOperating('30_woodward', '2027-04')) fail('30 Woodward April must count as operating so it still projects');
+if (!near(operatingFactor('30_woodward', '2027-11'), 1)) fail('30 Woodward November is a whole month');
 
 // 79 Main's closing month is pro-rated across the days it is open, and it
 // pro-rates the SAME way every year because the season recurs.
@@ -97,6 +107,7 @@ for (const [id, year, want, msg] of ROSTER) {
 const MONTHLY = [
   ['16_waterman', 2027, 1, false, 'January: closed for the season'],
   ['30_woodward', 2027, 2, false, 'February: closed, the house is not insulated'],
+  ['30_woodward', 2027, 4, true, 'April: partial month still counts as operating'],
   ['30_woodward', 2027, 9, true, 'September: open'],
   ['16_waterman', 2027, 7, true, 'July: open'],
   ['4_brier_neck', 2026, 8, true, 'August 2026: last operating month'],
@@ -112,6 +123,6 @@ for (const [id, year, month, want, msg] of MONTHLY) {
 if (opensIn('4_brier_neck', 2027) !== false) fail('opensIn without a month must behave as opensInYear');
 
 console.log(failures === 0
-  ? `PASS - all ${EXPECT.length + 5 + ROSTER.length + MONTHLY.length + 1} operating-window assertions hold; 79 Main's October pro-rates to ${(20 / 31).toFixed(4)} every year.`
+  ? `PASS - all ${EXPECT.length + 9 + ROSTER.length + MONTHLY.length + 1} operating-window assertions hold; 79 Main's October pro-rates to ${(20 / 31).toFixed(4)} every year.`
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);
