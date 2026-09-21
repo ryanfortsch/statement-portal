@@ -98,20 +98,39 @@ test('request keys: anchor, suffix, and the reservation id read back', () => {
   assert.equal(reservationIdFromRequestKey('ffdeposit:x'), '');
 });
 
-test('status: paid wins, then cancelled, unsent only for helm links, overdue after a day', () => {
+test('status: paid wins, then cancelled, then delivery evidence, then age', () => {
   const now = Date.parse('2026-09-14T12:00:00Z');
   const base = { source: 'helm', created_at: '2026-09-14T11:00:00Z', sent_at: null, sent_via: '', paid_at: null, deactivated_at: null };
+  const sent = { sent_via: 'sms', sent_at: '2026-09-14T11:05:00Z' };
   assert.equal(paymentLinkStatus({ ...base, paid_at: '2026-09-14T11:30:00Z', deactivated_at: '2026-09-14T11:40:00Z' }, now), 'paid');
   assert.equal(paymentLinkStatus({ ...base, deactivated_at: '2026-09-14T11:40:00Z' }, now), 'cancelled');
   assert.equal(paymentLinkStatus(base, now), 'unsent');
-  assert.equal(paymentLinkStatus({ ...base, sent_via: 'sms', sent_at: '2026-09-14T11:05:00Z' }, now), 'waiting');
+  assert.equal(paymentLinkStatus({ ...base, ...sent }, now), 'waiting');
   assert.equal(paymentLinkStatus({ ...base, sent_via: 'sms', sent_at: '2026-09-13T11:00:00Z' }, now), 'overdue');
-  // Concierge links are delivered by the concierge: never "unsent".
-  assert.equal(paymentLinkStatus({ ...base, source: 'concierge' }, now), 'waiting');
-  assert.equal(paymentLinkStatus({ ...base, source: 'concierge', created_at: '2026-09-12T11:00:00Z' }, now), 'overdue');
-  // A link Stripe would not let us read is never called unpaid.
+
+  // A concierge link used to be ASSUMED delivered. It only texts on approval
+  // and mints at draft time, so one hanging off a card still in the queue has
+  // reached nobody. Calling that "hasn't paid" named guests who were never
+  // asked, for reservations that did not exist (2026-09-21).
+  assert.equal(paymentLinkStatus({ ...base, source: 'concierge' }, now), 'unsent');
   assert.equal(
-    paymentLinkStatus({ ...base, source: 'concierge', created_at: '2026-09-12T11:00:00Z', paid_check_error: '403 Permission denied' }, now),
+    paymentLinkStatus({ ...base, source: 'concierge', created_at: '2026-09-12T11:00:00Z' }, now),
+    'unsent',
+    'age alone must never turn a link nobody sent into an accusation',
+  );
+  // Once the concierge reports the delivery, age decides again.
+  assert.equal(paymentLinkStatus({ ...base, source: 'concierge', ...sent }, now), 'waiting');
+  assert.equal(
+    paymentLinkStatus({ ...base, source: 'concierge', sent_via: 'sms', sent_at: '2026-09-12T11:00:00Z' }, now),
+    'overdue',
+  );
+  // Either half of the evidence counts: a row stamped before sent_via existed.
+  assert.equal(paymentLinkStatus({ ...base, sent_at: '2026-09-14T11:05:00Z' }, now), 'waiting');
+  assert.equal(paymentLinkStatus({ ...base, sent_via: 'copied' }, now), 'waiting');
+
+  // A sent link Stripe would not let us read is never called unpaid.
+  assert.equal(
+    paymentLinkStatus({ ...base, source: 'concierge', sent_via: 'sms', sent_at: '2026-09-12T11:00:00Z', paid_check_error: '403 Permission denied' }, now),
     'unverified',
   );
   assert.equal(paymentLinkStatus({ ...base, paid_at: '2026-09-14T11:30:00Z', paid_check_error: 'stale' }, now), 'paid');
