@@ -6,10 +6,16 @@ import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
  * text the inspection walk shows for both.
  *
  * Six homes sleep extra guests on a pullout sofa. The sheets for it are
- * never in the linen closet -- 3 South keeps them in the drawers under the
- * TV, 16 Waterman in the second-floor closet on the way out to the deck --
- * so whoever preps the home has to already know, or the guest who asked
- * for the pullout finds a bare mattress.
+ * never in the main linen closet -- 3 South keeps them in a drawer unit
+ * inside the lower-level closet, 16 Waterman in the second-floor closet on
+ * the way out to the deck -- so whoever preps the home has to already know,
+ * or the guest who asked for the pullout finds a bare mattress.
+ *
+ * That 3 South example is also the standing warning about this field: it
+ * read "drawers under the TV" until 2026-09-21, when an inspector standing
+ * in the house found no linens there and photographed the real closet. The
+ * location is a physical fact that moves, and nothing re-checks it, so the
+ * registry text is only ever as good as the last person who corrected it.
  *
  * Two halves:
  *
