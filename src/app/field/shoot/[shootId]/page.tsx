@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
 import { loadShootBrief, dayStatusLine, type EntryPlan } from '@/lib/creative-brief';
+import { AnswerPanel } from './AnswerPanel';
 
 const OFFICE_TEL = '+19788652500';
 
@@ -41,7 +42,7 @@ export default async function ShootBriefPage({
   searchParams,
 }: {
   params: Promise<{ shootId: string }>;
-  searchParams: Promise<{ office?: string }>;
+  searchParams: Promise<{ office?: string; answer?: string }>;
 }) {
   const [{ shootId }, sp] = await Promise.all([params, searchParams]);
   // Preview is checked FIRST (same reasoning as /field home): a staffer who
@@ -63,6 +64,15 @@ export default async function ShootBriefPage({
 
   // The brief belongs to the shoot's contributor alone (or the office preview).
   if (!preview && contractor && shoot.contractor_id !== contractor.id) redirect('/field');
+
+  // Consent state. An OFFER is a question, not a booking: until they answer,
+  // this page is the question, and the parts that only make sense once they
+  // have said yes (the way in, the day-of promise) stay off it.
+  const isOffer = shoot.status === 'offered';
+  const isDeclined = shoot.status === 'declined';
+  const isWithdrawn = shoot.status === 'cancelled';
+  const answered = sp.answer ?? null;
+  const homeOrTitle = property?.name ?? shoot.title;
 
   const dayLine = dayStatusLine(brief);
   // Extras BEYOND the way in — gate, garage, alarm. The door itself is the
@@ -107,6 +117,34 @@ export default async function ShootBriefPage({
         )}
         {shoot.location_note && <div style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 4 }}>{shoot.location_note}</div>}
 
+        {/* What just happened, when they land back here from their answer. */}
+        {answered === 'accepted' && (
+          <Banner tone="go">You&apos;re on for {fmtLongDate(shoot.shoot_date)}. We&apos;ve sent your brief, and we re-check the home the morning of.</Banner>
+        )}
+        {answered === 'declined' && (
+          <Banner tone="quiet">Thanks for letting us know. We&apos;ve told the office and we&apos;ll find another day.</Banner>
+        )}
+        {answered === 'expired' && (
+          <Banner tone="warn">That day has already passed, so there&apos;s nothing to accept. The office will offer another.</Banner>
+        )}
+
+        {/* The ask itself. Office preview shows it read-only: a staffer must
+            never be able to answer on the contributor's behalf from here. */}
+        {isOffer && !preview && (
+          <AnswerPanel shootId={shoot.id} when={fmtLongDate(shoot.shoot_date)} what={homeOrTitle} />
+        )}
+        {isOffer && preview && (
+          <Banner tone="warn">
+            Offered, not yet answered. {detail.contractorName.split(' ')[0]} sees Accept and Can&apos;t-make-it buttons here; you can&apos;t answer for them.
+          </Banner>
+        )}
+        {isDeclined && (
+          <Banner tone="quiet">
+            You passed on this one{shoot.decline_reason ? `: "${shoot.decline_reason}"` : ''}. Nothing more to do.
+          </Banner>
+        )}
+        {isWithdrawn && <Banner tone="quiet">The office withdrew this day. Nothing is booked.</Banner>}
+
         {/* Is the day actually a go — same check the maintenance planner trusts. */}
         {dayLine && (
           <div
@@ -120,7 +158,7 @@ export default async function ShootBriefPage({
             }}
           >
             {dayLine}
-            {!dayStatus?.clear && ' The office will confirm before you head over.'}
+            {!dayStatus?.clear && !isOffer && ' The office will confirm before you head over.'}
           </div>
         )}
 
@@ -149,7 +187,15 @@ export default async function ShootBriefPage({
           </Section>
         )}
 
-        {property && entry && (
+        {property && isOffer && (
+          <Section title="Getting in">
+            <p style={sectionText}>
+              We&apos;ll send the way in as soon as you accept.
+            </p>
+          </Section>
+        )}
+
+        {property && entry && !isOffer && !isDeclined && (
         <Section title="Getting in">
           <EntryLines entry={entry} />
           {extraRows.length > 0 && (
@@ -236,6 +282,16 @@ function EntryLines({ entry }: { entry: EntryPlan }) {
     );
   }
   return <p style={sectionText}>Call the office to get in: {office}.</p>;
+}
+
+function Banner({ tone, children }: { tone: 'go' | 'warn' | 'quiet'; children: React.ReactNode }) {
+  const ink = tone === 'go' ? 'var(--positive)' : tone === 'warn' ? 'var(--signal)' : 'var(--ink-3)';
+  const bg = tone === 'go' ? 'rgba(46,125,80,0.07)' : tone === 'warn' ? 'rgba(200,90,58,0.07)' : 'rgba(30,46,52,0.04)';
+  return (
+    <div style={{ marginTop: 16, borderLeft: `3px solid ${ink}`, background: bg, padding: '10px 14px', fontSize: 13.5, lineHeight: 1.55, color: 'var(--ink)' }}>
+      {children}
+    </div>
+  );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

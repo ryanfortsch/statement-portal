@@ -639,6 +639,108 @@ export function shootBriefLink(portalToken: string, shootId: string, briefToken?
  * office logs a shoot, and again from the shoot page's Resend control.
  * Operator-triggered, so deliberately not quiet-hours gated.
  */
+/**
+ * OFFER a shoot day. An invitation, not an assignment.
+ *
+ * The distinction is the whole point: the office proposes a day and the
+ * contributor takes it or turns it down from the brief page. So this asks
+ * ("can you shoot it?"), names the deadline to answer by, and says plainly
+ * that nothing is booked until they do. sendShootBrief below is the other
+ * half, sent once they have accepted.
+ *
+ * No sign-off, per the crew-facing rule: this is a work notice, not a note
+ * from Allie or Ryan.
+ */
+export async function sendShootOffer(
+  contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'>,
+  shoot: { id: string; title: string; shoot_date: string; brief_token?: string | null },
+  propertyName: string | null,
+): Promise<{ emailed: boolean; texted: boolean }> {
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const link = shootBriefLink(contractor.portal_token, shoot.id, shoot.brief_token);
+  const first = contractor.full_name.split(' ')[0];
+  const when = (() => {
+    try {
+      return new Date(`${shoot.shoot_date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    } catch {
+      return shoot.shoot_date;
+    }
+  })();
+  // The HOME, never the office's typed title: a title can carry the wrong
+  // date, and two offers in a day have to read as two different doors.
+  const what = propertyName ?? shoot.title;
+
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Can you shoot ${esc(what)} on ${when}?</h1>
+    <p>Hi ${esc(first)}, we have a shoot day open at <strong>${esc(what)}</strong> on ${when}. Have a look at what is involved, then let us know either way.</p>
+    ${btn(link, 'See it and answer')}
+    <p style="font-size:12px;color:#7a8a90;margin:12px 0 0;">Nothing is booked until you accept. If the day does not work, turning it down is one tap and we will find another day.</p>
+  `);
+  const emailed = contractor.email
+    ? await sendTransactionalViaResend({
+        to: contractor.email,
+        subject: `Shoot day open: ${what}, ${when}`,
+        fromName: FROM_NAME,
+        html,
+        text: `Can you shoot ${what} on ${when}? Have a look and answer either way: ${link} (nothing is booked until you accept)`,
+      }).catch(() => false)
+    : false;
+
+  let texted = false;
+  if (contractor.phone) {
+    const from = await resolveQuoFrom();
+    if (from) {
+      const to = contractor.phone.startsWith('+') ? contractor.phone : `+1${normalizePhone(contractor.phone)}`;
+      try {
+        await sendMessage({
+          from,
+          to,
+          content: `Rising Tide Field: can you shoot ${what} on ${when}? Take a look and accept or pass: ${link} (nothing is booked until you accept)`,
+        });
+        texted = true;
+      } catch {
+        // the email is the durable copy
+      }
+    }
+  }
+  return { emailed, texted };
+}
+
+/**
+ * Tell the office a contributor answered. The office is the party that has
+ * to act on a no, so a decline emails Dotti; an accept is quiet (the board
+ * shows it) per the team-notification policy.
+ */
+export async function notifyOfficeShootDeclined(
+  contractorName: string,
+  shoot: { id: string; title: string; shoot_date: string },
+  propertyName: string | null,
+  reason: string | null,
+): Promise<boolean> {
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const when = (() => {
+    try {
+      return new Date(`${shoot.shoot_date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    } catch {
+      return shoot.shoot_date;
+    }
+  })();
+  const what = propertyName ?? shoot.title;
+  const html = shell(`
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:22px;margin:0 0 14px;">${esc(contractorName)} passed on ${esc(what)}, ${when}</h1>
+    <p>The day is free again. Offer it to someone else, or pick another day from the planner.</p>
+    ${reason ? `<p style="font-size:13px;color:#4a5a60;"><strong>They said:</strong> ${esc(reason)}</p>` : ''}
+    ${btn(`${fieldBaseUrl()}/fieldwork/shoots`, 'Open the planner')}
+  `);
+  return sendTransactionalViaResend({
+    to: 'dotti@risingtidestr.com',
+    subject: `Shoot passed: ${what}, ${when}`,
+    fromName: FROM_NAME,
+    html,
+    text: `${contractorName} passed on ${what}, ${when}.${reason ? ` They said: ${reason}` : ''}`,
+  }).catch(() => false);
+}
+
 export async function sendShootBrief(
   contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'>,
   shoot: { id: string; title: string; shoot_date: string; brief_token?: string | null },

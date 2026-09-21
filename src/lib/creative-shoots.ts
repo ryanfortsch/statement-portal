@@ -16,7 +16,34 @@ import { computeShootPay, cardFromSnapshot, type ShootAsset, type ShootPay } fro
  * ignored on any unapproved shoot.
  */
 
-export type ShootStatus = 'scheduled' | 'shot' | 'delivered' | 'approved' | 'settled' | 'cancelled';
+/**
+ * A shoot's life. The first three are about CONSENT, not work:
+ *
+ *   offered    the office proposed this day to the contributor. Not a
+ *              booking: no door codes, no Drive scan, no 8 AM go text, no
+ *              money. It becomes real only if they say yes.
+ *   scheduled  they accepted. On the calendar, and the day-of rails cover it.
+ *   declined   they said no. Kept so the office can offer the day elsewhere.
+ *
+ * The rest are about the work: shot -> delivered -> approved -> settled, with
+ * cancelled for an office withdrawal. A hand-logged past shoot skips straight
+ * to 'shot' -- it already happened, so there is nothing to opt into.
+ */
+export type ShootStatus =
+  | 'offered'
+  | 'scheduled'
+  | 'declined'
+  | 'shot'
+  | 'delivered'
+  | 'approved'
+  | 'settled'
+  | 'cancelled';
+
+/** An offer the contributor has not answered yet. Never work, never money. */
+export const isOffer = (s: ShootStatus): boolean => s === 'offered';
+/** Rows that are not work: an unanswered offer or a refused one. They carry
+ *  no assets and no pay, so every money rollup must skip them. */
+export const isPreWork = (s: ShootStatus): boolean => s === 'offered' || s === 'declined';
 
 export type ShootRow = {
   id: string;
@@ -27,6 +54,12 @@ export type ShootRow = {
   title: string;
   notes: string | null;
   status: ShootStatus;
+  /** When the office offered the day. Null on a hand-logged past shoot. */
+  offered_at: string | null;
+  /** When the contributor accepted or declined. */
+  responded_at: string | null;
+  /** Their own words on why not. Optional, and theirs. */
+  decline_reason: string | null;
   card_snapshot: unknown;
   card_snapshot_at: string | null;
   posted_price_cents: number;
@@ -406,6 +439,12 @@ export function creativeProfileStats(shoots: ShootSummary[], today: string = tod
   const upNext: ShootSummary[] = [];
 
   for (const sm of shoots) {
+    // An offer nobody answered is not a shoot, and a day they turned down is
+    // certainly not one. Left in, an unanswered offer whose date slipped past
+    // counted as a COMPLETED shoot on the contributor's own profile (the
+    // `happened` test below reads any past-dated row as done), and a future
+    // one sat in "Up next" as though it were booked.
+    if (isPreWork(sm.shoot.status)) continue;
     const sum = shootPaySummary(sm.assets, sm.pay, sm.shoot, sm.card);
     paidCents += sum.paidCents;
     owedCents += sum.owedCents;

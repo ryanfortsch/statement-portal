@@ -7,8 +7,9 @@ import { loadShootDetail, shootPaySummary, setShortLabel } from '@/lib/creative-
 import { loadShootDriveFiles, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured, type DriveFileRow } from '@/lib/creative-drive';
 import { dollars } from '@/lib/field-types';
 import type { RateCard } from '@/lib/creative-rates';
-import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payDeliveryBase, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder, resendShootBrief, textShootAllClear } from '../actions';
+import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payDeliveryBase, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder, resendShootBrief, textShootAllClear, nudgeShootOffer, withdrawShootOffer } from '../actions';
 import { dayClearReport, type DayClearInfo } from '@/lib/maintenance-runs';
+import { daysSinceIso } from '@/lib/creative-calendar';
 import { shootAccessReadiness, type CreativeAccessReadiness } from '@/lib/creative-brief';
 import { loadFleetForecast } from '@/lib/weather';
 import { weatherLine, type DayWeather } from '@/lib/weather-types';
@@ -55,7 +56,7 @@ export default async function ShootDetail({
   const { shoot, pay, card } = detail;
   const payByAsset = new Map(pay.assets.map((p) => [p.assetId, p]));
   const sum = shootPaySummary(detail.assets, pay, shoot, card);
-  const active = shoot.status !== 'cancelled';
+  const active = shoot.status !== 'cancelled' && shoot.status !== 'declined';
   const paidAdjusted = (shoot.paid_adjustment_cents ?? 0) !== 0;
 
   // A posted reel mid-count keeps the shoot "In flight" even while its
@@ -67,8 +68,14 @@ export default async function ShootDetail({
   // means every reel posted AND its count locked.
   const toPost = pay.assets.some((p) => p.counts && p.kind === 'reel' && p.stalled);
   // A partial package outranks "In flight": the story is what's still missing.
+  // Consent outranks money in the headline: an unanswered offer is not
+  // "Awaiting delivery", it is a question nobody has answered.
+  const isOffer = shoot.status === 'offered';
+  const isDeclined = shoot.status === 'declined';
   const statusTag =
     shoot.status === 'cancelled' ? 'Cancelled'
+      : isOffer ? 'Offered, no answer yet'
+      : isDeclined ? 'Passed on'
       : sum.fullySettled ? 'Settled'
         : sum.owedCents > 0 ? 'To pay'
           : sum.awaitingSet ? 'Awaiting the set'
@@ -141,7 +148,31 @@ export default async function ShootDetail({
         {/* The shoot's DAY: is the home actually free, and the contributor's
             brief (the portal page the log-time email/text points at). Only for
             days still ahead — a settled July shoot needs no briefing controls. */}
-        {active && shoot.shoot_date >= todayEtIso() && (
+        {isOffer && (
+          <OfferCard
+            shootId={shoot.id}
+            contractorFirst={detail.contractorName.split(' ')[0]}
+            shootDate={shoot.shoot_date}
+            offeredAt={shoot.offered_at}
+            note={briefNote}
+          />
+        )}
+
+        {isDeclined && (
+          <div style={{ marginTop: 14, border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
+            <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Passed on</div>
+            <p style={{ fontSize: 13.5, lineHeight: 1.55, margin: '6px 0 0', color: 'var(--ink-3)' }}>
+              {detail.contractorName.split(' ')[0]} turned this day down
+              {shoot.responded_at ? ` on ${fmtShort(shoot.responded_at)}` : ''}.
+              {shoot.decline_reason ? ` They said: "${shoot.decline_reason}"` : ''}{' '}
+              The day is free again on the planner.
+            </p>
+          </div>
+        )}
+
+        {/* Only a shoot they ACCEPTED gets the briefing controls: there is no
+            all-clear to text about a day nobody has agreed to. */}
+        {active && !isOffer && shoot.shoot_date >= todayEtIso() && (
           <ShootDayCard
             shootId={shoot.id}
             propertyId={shoot.property_id}
@@ -569,6 +600,78 @@ export default async function ShootDetail({
 function todayEtIso(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 }
+
+/**
+ * An offer the contributor has not answered. The office's two moves are to
+ * nudge them or to take the day back; there is deliberately no "accept for
+ * them" button, because the whole point is that the yes is theirs.
+ */
+function OfferCard({
+  shootId,
+  contractorFirst,
+  shootDate,
+  offeredAt,
+  note,
+}: {
+  shootId: string;
+  contractorFirst: string;
+  shootDate: string;
+  offeredAt: string | null;
+  note: string | null;
+}) {
+  const past = shootDate < todayEtIso();
+  const waitingDays = daysSinceIso(offeredAt);
+  return (
+    <div style={{ marginTop: 14, border: '1px dashed var(--tide-deep)', borderRadius: 10, padding: '12px 16px', background: 'rgba(58,107,138,0.05)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600 }}>
+          Waiting on {contractorFirst}
+        </div>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
+          <a
+            href={`/field/shoot/${shootId}?office=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}
+          >
+            See what they see &#8599;
+          </a>
+          {!past && (
+            <form action={nudgeShootOffer} style={{ margin: 0 }}>
+              <input type="hidden" name="shoot_id" value={shootId} />
+              <PendingButton label="Ask again" busyLabel="Sending…" style={quietBtn} spinnerTone="ink" />
+            </form>
+          )}
+          <form action={withdrawShootOffer} style={{ margin: 0 }} title="Take the day back. Their link stops working and the planner shows the day free.">
+            <input type="hidden" name="shoot_id" value={shootId} />
+            <PendingButton label="Withdraw" busyLabel="Withdrawing…" style={{ ...quietBtn, color: 'var(--signal)' }} spinnerTone="ink" />
+          </form>
+        </div>
+      </div>
+      <p style={{ fontSize: 13, lineHeight: 1.55, margin: '8px 0 0', color: past ? 'var(--signal)' : 'var(--ink-3)' }}>
+        {past
+          ? `This day has passed with no answer. Withdraw it and offer another day.`
+          : `Offered${waitingDays != null && waitingDays > 0 ? ` ${waitingDays} day${waitingDays === 1 ? '' : 's'} ago` : ' just now'}. Nothing is booked, no door code has gone out, and the morning go/no-go check skips it until ${contractorFirst} accepts.`}
+      </p>
+      {note && (
+        <div style={{ marginTop: 8, fontSize: 12.5, color: note.startsWith('err:') ? 'var(--signal)' : 'var(--ink-3)' }}>
+          {note.replace(/^(ok|err):/, '')}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const quietBtn: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--ink-4)',
+  fontSize: 12,
+  textDecoration: 'underline',
+  textUnderlineOffset: 3,
+  padding: 0,
+};
 
 async function ShootDayCard({
   shootId,

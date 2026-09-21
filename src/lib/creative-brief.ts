@@ -96,6 +96,16 @@ export function codesWindowOpen(shootDate: string, today: string = todayET()): b
   return today >= addDaysIso(shootDate, -1) && today <= shootDate;
 }
 
+/**
+ * Statuses that may reveal a home's own secrets (door code, lockbox).
+ *
+ * 'offered' is DELIBERATELY absent. An offer is a question the contributor
+ * has not answered, and a property secret is not the office's to hand over
+ * on the strength of a maybe. The brief still renders for an offer -- they
+ * have to see the day, the home and the work to decide -- it just says the
+ * way in follows once they accept. Do not add 'offered' here to "fix" a
+ * missing code on an offer page; that is the feature.
+ */
 const ACTIVE_SHOOT_STATUSES = new Set(['scheduled', 'shot', 'delivered', 'approved']);
 
 type PropertyLite = {

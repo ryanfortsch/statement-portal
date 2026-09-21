@@ -371,6 +371,10 @@ function fmtShootDate(d: string | null): string {
 }
 
 function contributorPay(s: ShootSummary): { text: string; sub: string; tone: string } {
+  // An offer is a question, so the card asks it instead of quoting money for
+  // a day they have not agreed to.
+  if (s.shoot.status === 'offered') return { text: 'Answer', sub: 'can you take it?', tone: 'var(--signal)' };
+  if (s.shoot.status === 'declined') return { text: 'Passed', sub: 'no longer on', tone: 'var(--ink-4)' };
   // Per-post rollup: the delivery slug pays once the full set is in, then a
   // reel's view bonus once its count locks. Contributor voice — never the
   // office's "owed".
@@ -389,6 +393,7 @@ function contributorPay(s: ShootSummary): { text: string; sub: string; tone: str
 }
 
 function CreativeShootCard({ s }: { s: ShootSummary }) {
+  const isOffer = s.shoot.status === 'offered';
   const reels = s.assets.filter((a) => a.kind === 'reel').length;
   const carousels = s.assets.filter((a) => a.kind === 'carousel').length;
   const assetLine = s.assets.length
@@ -407,15 +412,17 @@ function CreativeShootCard({ s }: { s: ShootSummary }) {
         alignItems: 'flex-start',
         background: 'var(--paper-2)',
         boxShadow: '0 1px 0 var(--rule), 0 6px 16px rgba(11,37,69,0.06)',
+        border: isOffer ? '1px dashed var(--signal)' : undefined,
         padding: '16px 20px',
         marginBottom: 14,
         textDecoration: 'none',
         color: 'inherit',
+        opacity: s.shoot.status === 'declined' ? 0.6 : 1,
       }}
     >
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.16em', color: 'var(--signal)', fontWeight: 600, marginBottom: 6 }}>
-          {fmtShootDate(s.shoot.shoot_date).toUpperCase()}
+          {isOffer ? `NEW OFFER \u00b7 ${fmtShootDate(s.shoot.shoot_date).toUpperCase()}` : fmtShootDate(s.shoot.shoot_date).toUpperCase()}
         </div>
         <div className="font-serif" style={{ fontSize: 19, fontWeight: 400, lineHeight: 1.15 }}>{s.shoot.title}</div>
         <div style={{ fontSize: 13, color: 'var(--ink-4)', marginTop: 6 }}>
@@ -531,7 +538,11 @@ export default async function FieldHome({
           <section>
             <SectionHeader title="Your shoots" count={shoots.length} />
             {shoots.length > 0 ? (
-              shoots.map((s) => <CreativeShootCard key={s.shoot.id} s={s} />)
+              // An unanswered offer is the one thing here that needs them to
+              // act, so it leads whatever its date.
+              [...shoots]
+                .sort((a, b) => Number(b.shoot.status === 'offered') - Number(a.shoot.status === 'offered'))
+                .map((s) => <CreativeShootCard key={s.shoot.id} s={s} />)
             ) : (
               <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.6, margin: 0 }}>
                 Nothing logged yet. Once Rising Tide films with you, each reel and carousel shows up here with its pay as the views come in.

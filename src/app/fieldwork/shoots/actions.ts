@@ -5,9 +5,9 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import type { RateCard } from '@/lib/creative-rates';
-import { loadShootDetail, shootPaySummary } from '@/lib/creative-shoots';
+import { loadShootDetail, shootPaySummary, isPreWork } from '@/lib/creative-shoots';
 import { syncCreativeDrive } from '@/lib/creative-drive';
-import { sendPaidEmail, sendShootBrief, sendShootAllClear } from '@/lib/field-notify';
+import { sendPaidEmail, sendShootBrief, sendShootOffer, sendShootAllClear } from '@/lib/field-notify';
 import { newPortalToken } from '@/lib/field-auth';
 import { dayClearReport } from '@/lib/maintenance-runs';
 import type { ContractorRow } from '@/lib/field-types';
@@ -43,7 +43,7 @@ function titlePropertyConflict(
 }
 
 /** Everything a shoot row needs at creation. Shared by the ledger's Log-a-
- *  shoot form (createShoot) and the planner grid's Send (sendCreative), so
+ *  shoot form (createShoot) and the planner grid's offer (offerShootDay), so
  *  the two doors write the same row. */
 type NewShoot = {
   email: string;
@@ -53,6 +53,8 @@ type NewShoot = {
   shootDate: string;
   locationNote: string | null;
   notes: string | null;
+  /** Defaults to 'shot' (a past day being logged after the fact). */
+  status?: 'shot' | 'offered';
 };
 
 async function insertShoot(s: NewShoot): Promise<string | null> {
@@ -65,7 +67,11 @@ async function insertShoot(s: NewShoot): Promise<string | null> {
       shoot_date: s.shootDate,
       title: s.title,
       notes: s.notes,
-      status: 'shot',
+      // 'shot' means the shoot HAPPENED, which is true of a hand-logged past
+      // day and never of a future one. An offer goes in as 'offered' and only
+      // the contributor's own yes moves it on.
+      status: s.status ?? 'shot',
+      offered_at: s.status === 'offered' ? new Date().toISOString() : null,
       created_by_email: s.email,
     })
     .select('id')
@@ -122,7 +128,23 @@ export async function createShoot(formData: FormData): Promise<void> {
   if (id) redirect(`/fieldwork/shoots/${id}`);
 }
 
-export type SendCreativeFailure = { ok: false; message: string };
+/** The shoot's own short-link token (/b/<token>). Minted by the migration for
+ *  every row; generated here for anything created before it landed, so an
+ *  invitation or a brief never falls back to the 130-character magic link. */
+async function ensureBriefToken(shootId: string): Promise<string | null> {
+  const existing = await fieldDb()
+    .from('creative_shoots')
+    .select('brief_token')
+    .eq('id', shootId)
+    .maybeSingle()
+    .then((r) => (r.data as { brief_token: string | null } | null)?.brief_token ?? null);
+  if (existing) return existing;
+  const minted = newPortalToken().slice(0, 16);
+  await fieldDb().from('creative_shoots').update({ brief_token: minted }).eq('id', shootId);
+  return minted;
+}
+
+export type OfferFailure = { ok: false; message: string };
 
 function fmtSendDay(iso: string): string {
   try {
@@ -133,15 +155,23 @@ function fmtSendDay(iso: string): string {
 }
 
 /**
- * The planner grid's Send: book a contributor at a home on a day the grid
- * showed as empty, and brief them. Same row and same brief as createShoot;
- * the differences are where it lands (back on the board with a one-line
- * result, the picked cell now blue) and that every refusal comes back as a
- * message beside her pick instead of a redirect, the way the packets board's
- * bundleAndSend does. The day is re-checked fresh here: the grid she clicked
- * may be minutes old, and a wrong "clear" sends someone into a full house.
+ * OFFER a day to a contributor from the planner grid.
+ *
+ * It offers; it does not book. A 1099 contributor picks up work or passes on
+ * it, so this writes an `offered` row and sends an invitation with the brief
+ * to read and two buttons to answer. Nothing is on the calendar, no door code
+ * is revealed, no day-of text fires and no money moves until they accept on
+ * their own page (see acceptShoot / declineShoot in src/app/field/actions.ts).
+ *
+ * Dotti, 2026-09-21: "you can't just book him, he has to opt in." The first
+ * cut of this action wrote a committed shoot and texted "it's on for
+ * Wednesday", which is both wrong about the work and wrong about what a 1099
+ * contractor is.
+ *
+ * Failures come back as a message beside her pick rather than a redirect,
+ * matching the packets board's bundleAndSend.
  */
-export async function sendCreative(formData: FormData): Promise<SendCreativeFailure> {
+export async function offerShootDay(formData: FormData): Promise<OfferFailure> {
   const email = await staffEmail();
   const contractorId = String(formData.get('contractor_id') || '').trim();
   const propertyId = String(formData.get('property_id') || '').trim();
@@ -184,19 +214,27 @@ export async function sendCreative(formData: FormData): Promise<SendCreativeFail
     };
   }
 
-  // One shoot per contributor per home per day: a double-click must not book
-  // (and brief) twice.
+  // One live offer or booking per contributor per home per day, so a double
+  // click can't invite twice. A DECLINED row is not live: once they pass, the
+  // office is free to ask again (a later change of plan, a different brief).
   const { data: dup } = await fieldDb()
     .from('creative_shoots')
-    .select('id')
+    .select('id, status')
     .eq('contractor_id', contractorId)
     .eq('property_id', propertyId)
     .eq('shoot_date', shootDate)
-    .neq('status', 'cancelled')
+    .not('status', 'in', '(cancelled,declined)')
     .limit(1)
     .maybeSingle();
   if (dup) {
-    return { ok: false, message: `${first} is already booked for ${prop.name} ${fmtSendDay(shootDate)}. Open that shoot to resend the brief.` };
+    const d = dup as { id: string; status: string };
+    return {
+      ok: false,
+      message:
+        d.status === 'offered'
+          ? `${first} already has an unanswered offer for ${prop.name} ${fmtSendDay(shootDate)}. Open it to nudge or withdraw.`
+          : `${first} is already on ${prop.name} ${fmtSendDay(shootDate)}. Open that shoot instead.`,
+    };
   }
 
   const id = await insertShoot({
@@ -207,20 +245,80 @@ export async function sendCreative(formData: FormData): Promise<SendCreativeFail
     shootDate,
     locationNote: null,
     notes: String(formData.get('notes') || '').trim().slice(0, 4000) || null,
+    status: 'offered',
   });
-  if (!id) return { ok: false, message: "Couldn't save the shoot. Try again in a moment." };
-  const sent = await notifyShootBrief(id, contractorId, title, shootDate, propertyId).catch(() => ({ emailed: false, texted: false }));
-  const brief =
+  if (!id) return { ok: false, message: "Couldn't save the offer. Try again in a moment." };
+  const sent = await notifyShootOffer(id, contractorId, title, shootDate, propertyId).catch(() => ({ emailed: false, texted: false }));
+  // Say what actually went out. An offer nobody received is not an offer, so
+  // a total failure reads as one rather than as a cheerful "sent".
+  const how =
     sent.emailed && sent.texted
-      ? 'Brief texted and emailed.'
+      ? 'Texted and emailed.'
       : sent.emailed
-        ? 'Brief emailed (no text went out).'
+        ? 'Emailed (no text went out).'
         : sent.texted
-          ? 'Brief texted (no email went out).'
-          : 'The brief did NOT send (check their contact info) - open the shoot and use Send brief.';
-  const note = `${first} is booked for ${prop.name} on ${fmtSendDay(shootDate)}. ${brief}`;
+          ? 'Texted (no email went out).'
+          : 'NOTHING went out (check their contact info) - open it and send again.';
+  const note = `Offered ${prop.name} on ${fmtSendDay(shootDate)} to ${first}. ${how} Nothing is booked until ${first} accepts.`;
   revalidatePath('/fieldwork/shoots');
   redirect(`/fieldwork/shoots?sent=${encodeURIComponent(note)}&shoot=${id}`);
+}
+
+/** Send (or re-send) the invitation for an offered shoot. */
+async function notifyShootOffer(
+  shootId: string,
+  contractorId: string,
+  title: string,
+  shootDate: string,
+  propertyId: string | null,
+): Promise<{ emailed: boolean; texted: boolean }> {
+  const briefToken = await ensureBriefToken(shootId);
+  const [{ data: c }, propertyName] = await Promise.all([
+    fieldDb().from('contractors').select('full_name, email, phone, portal_token').eq('id', contractorId).maybeSingle(),
+    propertyId
+      ? fieldDb().from('properties').select('name').eq('id', propertyId).maybeSingle().then((r) => (r.data as { name: string } | null)?.name ?? null)
+      : Promise.resolve(null),
+  ]);
+  const contractor = c as Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'> | null;
+  if (!contractor) return { emailed: false, texted: false };
+  return sendShootOffer(contractor, { id: shootId, title, shoot_date: shootDate, brief_token: briefToken }, propertyName);
+}
+
+/**
+ * Withdraw an offer the contributor has not answered. Their invitation link
+ * stops working (the brief refuses a cancelled shoot), and the day frees up.
+ */
+export async function withdrawShootOffer(formData: FormData): Promise<void> {
+  await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) return;
+  await fieldDb()
+    .from('creative_shoots')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', shootId)
+    .eq('status', 'offered');
+  revalidatePath('/fieldwork/shoots');
+  redirect(`/fieldwork/shoots?sent=${encodeURIComponent('Offer withdrawn. The day is free again.')}`);
+}
+
+/** Nudge a contributor who has not answered an offer yet. */
+export async function nudgeShootOffer(formData: FormData): Promise<void> {
+  await staffEmail();
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) return;
+  const { data: s } = await fieldDb()
+    .from('creative_shoots')
+    .select('id, title, shoot_date, property_id, contractor_id, status')
+    .eq('id', shootId)
+    .maybeSingle();
+  const shoot = s as { id: string; title: string; shoot_date: string; property_id: string | null; contractor_id: string; status: string } | null;
+  if (!shoot || shoot.status !== 'offered') return;
+  const sent = await notifyShootOffer(shoot.id, shoot.contractor_id, shoot.title, shoot.shoot_date, shoot.property_id).catch(
+    () => ({ emailed: false, texted: false }),
+  );
+  const note = sent.emailed || sent.texted ? 'Offer sent again.' : 'Nothing went out - check their contact info.';
+  revalidatePath(`/fieldwork/shoots/${shootId}`);
+  redirect(`/fieldwork/shoots/${shootId}?brief=${encodeURIComponent(sent.emailed || sent.texted ? `ok:${note}` : `err:${note}`)}`);
 }
 
 async function notifyShootBrief(
@@ -230,19 +328,7 @@ async function notifyShootBrief(
   shootDate: string,
   propertyId: string | null,
 ): Promise<{ emailed: boolean; texted: boolean }> {
-  // The shoot's own short-link token (/b/<token>). Minted by the migration for
-  // every row; generated here for anything created before it landed, so a
-  // brief never falls back to the 130-character magic link.
-  let briefToken = await fieldDb()
-    .from('creative_shoots')
-    .select('brief_token')
-    .eq('id', shootId)
-    .maybeSingle()
-    .then((r) => (r.data as { brief_token: string | null } | null)?.brief_token ?? null);
-  if (!briefToken) {
-    briefToken = newPortalToken().slice(0, 16);
-    await fieldDb().from('creative_shoots').update({ brief_token: briefToken }).eq('id', shootId);
-  }
+  const briefToken = await ensureBriefToken(shootId);
   const [{ data: c }, propertyName] = await Promise.all([
     fieldDb().from('contractors').select('full_name, email, phone, portal_token').eq('id', contractorId).maybeSingle(),
     propertyId
@@ -418,7 +504,10 @@ async function freezeCardIfNeeded(shoot: { id: string; card_snapshot: unknown },
 // shoot's paid_at is the "fully settled" marker the board + history read.
 async function refreshShootSettlement(shootId: string): Promise<void> {
   const detail = await loadShootDetail(shootId);
-  if (!detail || detail.shoot.status === 'cancelled') return;
+  // Never rewrite a row that is not work: a cancelled shoot, an offer nobody
+  // answered, or a day they turned down must not be flipped to 'shot' by a
+  // stray payment path.
+  if (!detail || detail.shoot.status === 'cancelled' || isPreWork(detail.shoot.status)) return;
   const sum = shootPaySummary(detail.assets, detail.pay, detail.shoot, detail.card);
   const status = sum.fullySettled ? 'settled' : 'shot';
   if (detail.shoot.status !== status || !!detail.shoot.paid_at !== sum.fullySettled) {
@@ -426,7 +515,7 @@ async function refreshShootSettlement(shootId: string): Promise<void> {
       .from('creative_shoots')
       .update({ status, paid_at: sum.fullySettled ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
       .eq('id', shootId)
-      .neq('status', 'cancelled');
+      .not('status', 'in', '(cancelled,offered,declined)');
   }
 }
 
@@ -735,7 +824,9 @@ export async function cancelShoot(formData: FormData): Promise<void> {
     .from('creative_shoots')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', shootId)
-    .in('status', ['scheduled', 'shot', 'delivered']);
+    // An unanswered offer can be cancelled too: that is the office taking
+    // the day back before anyone committed to it.
+    .in('status', ['offered', 'scheduled', 'shot', 'delivered']);
   revalidatePath('/fieldwork/shoots');
   redirect('/fieldwork/shoots');
 }

@@ -12,7 +12,8 @@
  *   checkin   empty, but a guest arrives ~3 PM (not clear, per the day-of check)
  *   occupied  a guest sleeps there
  *   held      owner / manual / mirror hold
- * plus, on any of those, a shoot already booked there that day.
+ * plus, on any of those, a shoot already booked there that day, or an offer
+ * out and unanswered.
  *
  * Managed rentals only: HQ and prospect homes never carry bookings, so they
  * would be permanent green lanes with no listing to shoot.
@@ -32,6 +33,9 @@ export type ShootCalBooking = {
   /** Contributor initials, for the cell. */
   who: string;
   contractorName: string;
+  /** An offer they have not answered yet is NOT a booking: the cell says
+   *  pending, and nothing downstream treats the day as covered. */
+  pending: boolean;
 };
 
 export type ShootCalCell = {
@@ -61,10 +65,25 @@ type ShootLite = {
   shoot_date: string;
   title: string;
   contractor_id: string;
+  status: string;
 };
 
 export function todayET(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+}
+
+/**
+ * Whole days since an ISO timestamp, or null if there isn't one.
+ *
+ * Lives here rather than inline in a page because reading the clock inside
+ * a component is an impure render (react-hooks/purity), and the rest of
+ * Helm gets "now" from a lib helper for the same reason.
+ */
+export function daysSinceIso(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
 }
 
 export function addDays(iso: string, days: number): string {
@@ -115,8 +134,11 @@ export async function loadShootCalendar(
     dayClearRange(ids, windowStart, windowEnd),
     fieldDb()
       .from('creative_shoots')
-      .select('id, property_id, shoot_date, title, contractor_id')
-      .neq('status', 'cancelled')
+      .select('id, property_id, shoot_date, title, contractor_id, status')
+      // A withdrawn offer and a declined one both free the day: the grid
+      // shows it green again so the office can offer it to someone else.
+      // Only a live offer or a real booking occupies a cell.
+      .not('status', 'in', '(cancelled,declined)')
       .in('property_id', ids)
       .order('shoot_date', { ascending: false }),
   ]);
@@ -137,13 +159,21 @@ export async function loadShootCalendar(
     const key = `${s.property_id}:${s.shoot_date}`;
     if (booked.has(key)) continue;
     const contractorName = names.get(s.contractor_id) ?? 'Contributor';
-    booked.set(key, { id: s.id, title: s.title, who: initialsOf(contractorName) ?? '?', contractorName });
+    booked.set(key, {
+      id: s.id,
+      title: s.title,
+      who: initialsOf(contractorName) ?? '?',
+      contractorName,
+      pending: s.status === 'offered',
+    });
   }
 
   const today = todayET();
   const lastShot = new Map<string, string>();
   for (const s of shoots) {
-    if (!s.property_id || s.shoot_date > today) continue;
+    // "last shoot here" means a day someone actually shot. An offer that was
+    // never answered is not a visit, however old it is.
+    if (!s.property_id || s.shoot_date > today || s.status === 'offered') continue;
     const cur = lastShot.get(s.property_id);
     if (!cur || s.shoot_date > cur) lastShot.set(s.property_id, s.shoot_date);
   }
