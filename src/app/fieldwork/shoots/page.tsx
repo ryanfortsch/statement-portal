@@ -3,9 +3,9 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
-import { loadShootBoard, loadCreativeContractors, shootPaySummary, setShortLabel, type ShootSummary } from '@/lib/creative-shoots';
+import { loadShootBoard, loadCreativeContractors, shootPaySummary, setShortLabel, isPreWork, type ShootSummary } from '@/lib/creative-shoots';
 import { loadDriveFilesByShoots, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured } from '@/lib/creative-drive';
-import { loadShootCalendar, todayET, addDays } from '@/lib/creative-calendar';
+import { loadShootCalendar, todayET, addDays, daysSinceIso } from '@/lib/creative-calendar';
 import { loadFleetForecast } from '@/lib/weather';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { dollars } from '@/lib/field-types';
@@ -141,17 +141,28 @@ export default async function CreativeBoard({
   const driveNote = sp.drive ?? null;
   const errNote = sp.err ?? null;
 
-  const sums = new Map(board.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay, s.shoot, s.card)]));
-  const attention = board.filter((s) => s.pay.needsAttention);
-  const owed = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.owedCents > 0);
-  const done = board.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.fullySettled);
-  const live = board.filter((s) => {
+  // Consent first, money second. An OFFERED day is a question nobody has
+  // answered and a DECLINED one is a no: neither is work, so both stay out
+  // of the pay groups entirely. Left in, an unanswered offer sat under "In
+  // flight" and read as a shoot that had already happened.
+  const offers = board.filter((s) => s.shoot.status === 'offered').sort((a, b) => a.shoot.shoot_date.localeCompare(b.shoot.shoot_date));
+  const declined = board
+    .filter((s) => s.shoot.status === 'declined')
+    .sort((a, b) => (b.shoot.responded_at ?? b.shoot.shoot_date).localeCompare(a.shoot.responded_at ?? a.shoot.shoot_date));
+  const work = board.filter((s) => !isPreWork(s.shoot.status));
+
+  const sums = new Map(work.map((s) => [s.shoot.id, shootPaySummary(s.assets, s.pay, s.shoot, s.card)]));
+  const attention = work.filter((s) => s.pay.needsAttention);
+  const owed = work.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.owedCents > 0);
+  const done = work.filter((s) => !s.pay.needsAttention && sums.get(s.shoot.id)!.fullySettled);
+  const live = work.filter((s) => {
     const su = sums.get(s.shoot.id)!;
     return !s.pay.needsAttention && su.owedCents === 0 && !su.fullySettled;
   });
 
-  // "Owed now" = every base + view bonus ready to send, across all shoots.
-  const owedTotal = board.reduce((t, s) => t + sums.get(s.shoot.id)!.owedCents, 0);
+  // "Owed now" = every base + view bonus ready to send, across real shoots.
+  const owedTotal = work.reduce((t, s) => t + sums.get(s.shoot.id)!.owedCents, 0);
+  const todayIso = today;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -162,7 +173,8 @@ export default async function CreativeBoard({
           <div>
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Creative</div>
             <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
-              Send contributors to empty homes; pay follows delivery and views. {board.length} {board.length === 1 ? 'shoot' : 'shoots'}.
+              Offer days to contributors; pay follows delivery and views. {work.length} {work.length === 1 ? 'shoot' : 'shoots'}
+              {offers.length > 0 ? `, ${offers.length} offer${offers.length === 1 ? '' : 's'} out` : ''}.
             </div>
           </div>
           <div style={{ display: 'flex', gap: 18, alignItems: 'baseline' }}>
@@ -306,12 +318,14 @@ export default async function CreativeBoard({
           </form>
         </details>
 
-        {board.length === 0 ? (
+        {work.length === 0 && offers.length === 0 && declined.length === 0 ? (
           <div style={{ marginTop: 40, textAlign: 'center', color: 'var(--ink-4)', fontSize: 14 }}>
             No shoots yet. Log one above once a contributor has filmed.
           </div>
         ) : (
           <>
+            <OfferGroup offers={offers} today={todayIso} />
+            <DeclinedGroup declined={declined} />
             <ShootGroup title="Needs attention" hint="Views overdue to read, or nothing posted yet" shoots={attention} driveChips={driveChips} accent />
             <ShootGroup title="Ready to pay" hint="Payout locked, awaiting send" shoots={owed} driveChips={driveChips} />
             <ShootGroup title="In flight" hint="Shot, posted, or counting views" shoots={live} driveChips={driveChips} />
@@ -321,6 +335,80 @@ export default async function CreativeBoard({
       </section>
       <HelmFooter module="Field" right="Creative" />
     </div>
+  );
+}
+
+/**
+ * Offers out and unanswered. The top of the board on purpose: a day nobody
+ * has answered is the office's open loop, and it expires quietly when the
+ * date passes. A shoot only leaves here when the contributor answers.
+ */
+function OfferGroup({ offers, today }: { offers: ShootSummary[]; today: string }) {
+  if (offers.length === 0) return null;
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600 }}>
+          Offered, waiting on an answer
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Nothing is booked until they accept</span>
+      </div>
+      <div style={{ border: '1px dashed var(--tide-deep)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
+        {offers.map((s, i) => {
+          const past = s.shoot.shoot_date < today;
+          const waitingDays = daysSinceIso(s.shoot.offered_at);
+          return (
+            <Link
+              key={s.shoot.id}
+              href={`/fieldwork/shoots/${s.shoot.id}`}
+              style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '13px 16px', borderTop: i ? '1px solid var(--rule)' : 'none', textDecoration: 'none', color: 'var(--ink)', alignItems: 'center' }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div className="font-serif" style={{ fontSize: 16, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {s.propertyName ?? s.shoot.title}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
+                  {s.contractorName} &middot; {fmtDate(s.shoot.shoot_date)}
+                  {waitingDays != null && waitingDays > 0 ? ` \u00b7 asked ${waitingDays}d ago` : ''}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 13, color: past ? 'var(--signal)' : 'var(--tide-deep)', fontWeight: 600 }}>
+                  {past ? 'Never answered' : 'Awaiting answer'}
+                </div>
+                <div style={{ fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>
+                  {past ? 'the day has passed' : 'nudge or withdraw'}
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Days a contributor turned down. Folded: it is a log, not a to-do, but the
+ *  reason is worth keeping where the office can read it. */
+function DeclinedGroup({ declined }: { declined: ShootSummary[] }) {
+  if (declined.length === 0) return null;
+  return (
+    <details style={{ marginTop: 24 }}>
+      <summary style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', cursor: 'pointer', listStyle: 'none', padding: '4px 0' }}>
+        Passed on &middot; {declined.length} &#9662;
+      </summary>
+      <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)', marginTop: 8, opacity: 0.8 }}>
+        {declined.slice(0, 15).map((s, i) => (
+          <div key={s.shoot.id} style={{ padding: '11px 16px', borderTop: i ? '1px solid var(--rule)' : 'none', fontSize: 13 }}>
+            <span style={{ color: 'var(--ink)' }}>{s.contractorName}</span>
+            <span style={{ color: 'var(--ink-4)' }}> passed on {s.propertyName ?? s.shoot.title}, {fmtDate(s.shoot.shoot_date)}</span>
+            {s.shoot.decline_reason && (
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 3, fontStyle: 'italic' }}>&ldquo;{s.shoot.decline_reason}&rdquo;</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 

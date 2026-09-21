@@ -6,7 +6,7 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { ShootCalCell, ShootCalRow } from '@/lib/creative-calendar';
 import { weatherLine, type DayWeather } from '@/lib/weather-types';
 import { WeatherGlyph, GRADE_TINT, GRADE_WORD } from '@/components/WeatherGlyph';
-import { sendCreative } from './actions';
+import { offerShootDay } from './actions';
 
 /**
  * The property x day grid for sending a contributor to a home, in the
@@ -16,19 +16,28 @@ import { sendCreative } from './actions';
  * go/no-go text); clicking one opens the send bar underneath. A booked cell
  * carries the contributor's initials and opens that shoot.
  *
- * One pick, one send: a shoot is one contributor at one home on one day.
+ * One pick, one offer: a shoot is one contributor at one home on one day.
+ *
+ * The grid OFFERS; it does not book. Picking a cell and sending invites the
+ * contributor, who accepts or passes from their own brief. A cell with an
+ * unanswered offer reads "pending" and is not clickable: to give the day to
+ * someone else, withdraw the offer first, so two people are never sent to
+ * one door. A declined day goes back to green on its own.
  *
  * The forecast rides above the grid as its own row, one mark per day. It
  * is advisory and only advisory: a poor sky never greys out a day or
- * blocks a send, because shooting in the rain is the operator's call, not
- * the software's. Past the National Weather Service's seven days the row
- * is simply blank -- an empty column means nobody knows yet, and must
- * never be read as fair weather.
+ * blocks an offer, because shooting in the rain is the operator's call (and
+ * then the contributor's), not the software's. Past the National Weather
+ * Service's seven days the row is simply blank -- an empty column means
+ * nobody knows yet, and must never be read as fair weather.
  */
 
 const OPEN_BG = 'rgba(63,153,34,0.22)';
 const CHECKOUT_BG = 'rgba(63,153,34,0.10)';
 const BOOKED_BG = 'rgba(58,107,138,0.34)';
+/** An offer out and unanswered: the same blue, hollowed out, because it is
+ *  not yet a booking. */
+const PENDING_BG = 'rgba(58,107,138,0.10)';
 const OCCUPIED_BG = 'rgba(30,46,52,0.10)';
 const HELD_BG = 'repeating-linear-gradient(45deg, rgba(30,46,52,0.16) 0 4px, rgba(30,46,52,0.05) 4px 8px)';
 
@@ -196,6 +205,7 @@ export function ShootPlanner({
         <Swatch bg={OPEN_BG} label="empty all day" />
         <Swatch bg={CHECKOUT_BG} label="empty after the 11 AM checkout" />
         <Swatch bg={BOOKED_BG} label="shoot booked (initials)" />
+        <Swatch bg={PENDING_BG} label="offered, waiting on their answer (CN?)" />
         <Swatch bg={OCCUPIED_BG} label="guest in house" />
         <Swatch bg={HELD_BG} label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
@@ -240,7 +250,7 @@ export function ShootPlanner({
               // Redirects to the board with a one-line result on success;
               // hands back a reason on failure, with the pick left in place
               // so she can see what was refused.
-              const res = await sendCreative(fd);
+              const res = await offerShootDay(fd);
               if (res && !res.ok) {
                 setError(res.message);
                 return;
@@ -315,7 +325,7 @@ export function ShootPlanner({
               </span>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Who to send">
-                <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>Send</span>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>Ask</span>
                 {contributors.map((c) => {
                   const on = c.id === contractorId;
                   return (
@@ -324,7 +334,7 @@ export function ShootPlanner({
                       type="button"
                       onClick={() => setContractorId(c.id)}
                       aria-pressed={on}
-                      title={`Send ${c.name} to ${selRow.propertyName}`}
+                      title={`Offer ${selRow.propertyName} to ${c.name}`}
                       style={{
                         font: 'inherit',
                         fontSize: 12.5,
@@ -362,7 +372,7 @@ export function ShootPlanner({
                 whiteSpace: 'nowrap',
               }}
             >
-              {sending ? 'Sending…' : who ? `Send ${who.name.split(' ')[0]} →` : 'Pick who to send'}
+              {sending ? 'Sending…' : who ? `Offer to ${who.name.split(' ')[0]} →` : 'Pick who to ask'}
             </button>
           </div>
         </form>
@@ -421,17 +431,32 @@ function PlannerRow({
           textDecoration: 'none',
         };
         if (c.shoot) {
-          // Booked: the office's own record, so the cell opens the shoot
-          // whatever the calendar says underneath (a hold that landed after
-          // the booking is exactly what she needs to see).
+          // Booked or offered: the office's own record, so the cell opens the
+          // shoot whatever the calendar says underneath (a hold that landed
+          // after the booking is exactly what she needs to see). A pending
+          // offer is drawn hollow and dashed: nobody has agreed to it yet.
+          const pending = c.shoot.pending;
           return (
             <Link
               key={c.date}
               href={`/fieldwork/shoots/${c.shoot.id}`}
-              title={`${c.shoot.contractorName} · ${c.shoot.title} · open the shoot`}
-              style={{ ...base, background: BOOKED_BG, color: 'var(--tide-deep)', fontWeight: 700, fontSize: 10, letterSpacing: '0.04em' }}
+              title={
+                pending
+                  ? `Offered to ${c.shoot.contractorName}, no answer yet · open to nudge or withdraw`
+                  : `${c.shoot.contractorName} · ${c.shoot.title} · open the shoot`
+              }
+              style={{
+                ...base,
+                background: pending ? PENDING_BG : BOOKED_BG,
+                border: pending ? '1px dashed var(--tide-deep)' : undefined,
+                color: 'var(--tide-deep)',
+                fontWeight: 700,
+                fontSize: 10,
+                letterSpacing: '0.04em',
+                opacity: pending ? 0.9 : 1,
+              }}
             >
-              {c.shoot.who}
+              {pending ? `${c.shoot.who}?` : c.shoot.who}
             </Link>
           );
         }

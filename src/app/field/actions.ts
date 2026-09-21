@@ -8,7 +8,7 @@ import { maybeAwardStreakBonus } from '@/lib/field-streaks';
 import { geocodeAddress } from '@/lib/geocode';
 import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
-import { canClaim, type PacketRow, type PacketStopRow } from '@/lib/field-types';
+import { canClaim, type ContractorRow, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { recomputePacketExpenses, revalidatePacket, getContractorReliability } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
@@ -18,7 +18,7 @@ import { saveW9 } from '@/lib/field-w9';
 import { savePayment } from '@/lib/field-pay';
 import { HELM_CORE_TEMPLATE_ID } from '@/lib/inspections-types';
 import { generateDeck } from '@/lib/inspection-deck';
-import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail, sendStreakBonusOfficeEmail } from '@/lib/field-notify';
+import { sendClaimConfirmation, sendPacketSubmittedEmail, sendContractorOnboardedEmail, sendContractorQuestionEmail, sendStreakBonusOfficeEmail, sendShootBrief, notifyOfficeShootDeclined } from '@/lib/field-notify';
 
 /** "Send a note" from the portal's Reach-out affordance. Auth'd by the
  *  contractor cookie so we know who is asking; emails Ryan with reply-to set to
@@ -1129,4 +1129,110 @@ export async function submitPacket(formData: FormData) {
 export async function signOutField() {
   await endContractorSession();
   redirect('/field');
+}
+
+/* ── Shoot offers: the contributor's own yes or no ──────────────────────
+ *
+ * A shoot day is OFFERED, never assigned. The office proposes a day from the
+ * planner grid and the contributor answers here, from the brief they were
+ * sent. Until they accept, the shoot is not on any calendar: no door code is
+ * revealed, no Drive folder is scanned, the 8 AM go/no-go text skips it, and
+ * it earns nothing.
+ *
+ * Both writes are guarded `.eq('status', 'offered')`, so an answer only ever
+ * lands once. A second tap, a back button, or the office withdrawing the
+ * offer first all resolve to "nothing to answer" rather than flipping a
+ * settled shoot back into play.
+ */
+
+/** Which offer is this, and is it really theirs to answer? */
+async function resolveOwnOffer(shootId: string) {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { contractor: null, shoot: null } as const;
+  const { data } = await fieldDb()
+    .from('creative_shoots')
+    .select('id, title, shoot_date, property_id, contractor_id, status')
+    .eq('id', shootId)
+    .maybeSingle();
+  const shoot = data as
+    | { id: string; title: string; shoot_date: string; property_id: string | null; contractor_id: string; status: string }
+    | null;
+  // The brief link is short and guessable enough that ownership is re-checked
+  // on the write, not just on the page that rendered the buttons.
+  if (!shoot || shoot.contractor_id !== contractor.id) return { contractor, shoot: null } as const;
+  return { contractor, shoot } as const;
+}
+
+async function shootPropertyName(propertyId: string | null): Promise<string | null> {
+  if (!propertyId) return null;
+  const { data } = await fieldDb().from('properties').select('name').eq('id', propertyId).maybeSingle();
+  return (data as { name: string | null } | null)?.name ?? null;
+}
+
+/** Yes: the offer becomes a real, scheduled shoot and they get the full brief. */
+export async function acceptShoot(formData: FormData) {
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) redirect('/field');
+  const { contractor, shoot } = await resolveOwnOffer(shootId);
+  if (!contractor) redirect('/field');
+  if (!shoot) redirect('/field');
+  // A day that has already passed cannot be accepted: it would put a shoot on
+  // a dead date and start rails (door codes, the morning check) that can never
+  // fire. The office re-offers another day.
+  const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  if (shoot.shoot_date < todayEt) redirect(`/field/shoot/${shootId}?answer=expired`);
+
+  const { data: updated } = await fieldDb()
+    .from('creative_shoots')
+    .update({ status: 'scheduled', responded_at: new Date().toISOString(), decline_reason: null, updated_at: new Date().toISOString() })
+    .eq('id', shootId)
+    .eq('status', 'offered')
+    .select('id')
+    .maybeSingle();
+  // Only a real transition sends the confirmation, so a double tap cannot
+  // text them the same brief twice.
+  if (updated) {
+    const [{ data: c }, propertyName] = await Promise.all([
+      fieldDb().from('contractors').select('full_name, email, phone, portal_token').eq('id', contractor.id).maybeSingle(),
+      shootPropertyName(shoot.property_id),
+    ]);
+    const { data: tok } = await fieldDb().from('creative_shoots').select('brief_token').eq('id', shootId).maybeSingle();
+    const who = c as Pick<ContractorRow, 'full_name' | 'email' | 'phone' | 'portal_token'> | null;
+    if (who) {
+      await sendShootBrief(
+        who,
+        { id: shootId, title: shoot.title, shoot_date: shoot.shoot_date, brief_token: (tok as { brief_token: string | null } | null)?.brief_token ?? null },
+        propertyName,
+      ).catch(() => {});
+    }
+  }
+  revalidatePath(`/field/shoot/${shootId}`);
+  revalidatePath('/fieldwork/shoots');
+  redirect(`/field/shoot/${shootId}?answer=accepted`);
+}
+
+/** No: the day goes back to the office, with their reason if they gave one. */
+export async function declineShoot(formData: FormData) {
+  const shootId = String(formData.get('shoot_id') || '');
+  if (!shootId) redirect('/field');
+  const reason = String(formData.get('reason') || '').trim().slice(0, 500) || null;
+  const { contractor, shoot } = await resolveOwnOffer(shootId);
+  if (!contractor) redirect('/field');
+  if (!shoot) redirect('/field');
+
+  const { data: updated } = await fieldDb()
+    .from('creative_shoots')
+    .update({ status: 'declined', responded_at: new Date().toISOString(), decline_reason: reason, updated_at: new Date().toISOString() })
+    .eq('id', shootId)
+    .eq('status', 'offered')
+    .select('id')
+    .maybeSingle();
+  if (updated) {
+    // The office is the party who has to act on a no, so this one does email.
+    const propertyName = await shootPropertyName(shoot.property_id);
+    await notifyOfficeShootDeclined(contractor.full_name, shoot, propertyName, reason).catch(() => {});
+  }
+  revalidatePath(`/field/shoot/${shootId}`);
+  revalidatePath('/fieldwork/shoots');
+  redirect(`/field/shoot/${shootId}?answer=declined`);
 }
