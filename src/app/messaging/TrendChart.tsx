@@ -22,7 +22,7 @@ type Props = {
 const AUTO_SEND_THRESHOLD = 97;
 
 /**
- * Rolling 7-day one-shot rate over the last 30 days, with optional
+ * Rolling 14-day one-shot rate over the last 30 days, with optional
  * per-topic filtering.
  *
  * The dashed reference line at 97% is the auto-send eligibility
@@ -106,7 +106,7 @@ export function TrendChart({ initialSeries, initialAvailableTopics }: Props) {
           className="eyebrow"
           style={{ color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 8 }}
         >
-          AI quality · trailing 7-day · approved + escalated only
+          AI quality · trailing 14-day · thank-yous and auto-sends excluded
           {isPending && (
             <span style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>loading…</span>
           )}
@@ -291,7 +291,8 @@ function TrendTooltip({
         Rolling rate: <b style={{ color: 'var(--ink)' }}>{d.rate_pct.toFixed(1)}%</b>
       </div>
       <div style={{ color: 'var(--ink-4)' }}>
-        {d.rolling_first_pass_clean} of {d.rolling_engaged} over trailing 7 days
+        {d.rolling_first_pass_clean} of {d.rolling_engaged} over trailing{' '}
+        {d.rolling_days ?? 14} days
       </div>
       <div style={{ marginTop: 6, color: 'var(--ink-3)' }}>
         This day: {d.first_pass_clean} first-pass, {d.engaged} engaged

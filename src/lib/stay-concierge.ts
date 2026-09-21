@@ -114,6 +114,21 @@ export type MessagingStats = {
   escalated: number;
   auto_sent: number;
   no_reply_needed: number;
+  /** The one-shot rate on work that actually costs the operator time.
+   *  Drops courtesy acks and review requests (39% of the denominator at
+   *  ~95%, so the headline mostly counted guests saying thank you) and
+   *  drops auto-sent cards (which file an approved row with no superseded
+   *  sibling, so the machine scored its own homework as a perfect first
+   *  try). Absent on an older concierge build, in which case the UI falls
+   *  back to the headline alone. */
+  substantive?: {
+    one_shot_rate: number | null;
+    first_pass_clean: number;
+    approved: number;
+    escalated: number;
+    engaged: number;
+    excluded_topics: string[];
+  } | null;
   tier_breakdown: { '1': number; '2': number; '3': number };
   learning: {
     qa_pairs_total: number;
@@ -1039,6 +1054,14 @@ export type TimeseriesPoint = {
   rolling_one_shot_rate: number | null;
   rolling_engaged: number;
   rolling_first_pass_clean: number;
+  /** How many days this point actually averages over. Points with an
+   *  incomplete window are no longer returned at all; before 2026-09-21 the
+   *  first six were 1-to-6-day averages drawn as if they were 7-day ones,
+   *  which is most of the apparent climb at the end of August. */
+  rolling_days?: number;
+  /** Standard error of this point's rate, so the chart can draw a band and a
+   *  wiggle inside it reads as noise rather than as a plateau. */
+  rolling_stderr?: number | null;
 };
 
 export type TopicRollup = {
@@ -1053,15 +1076,26 @@ export type TopicRollup = {
 export type TimeseriesResponse = {
   days: number;
   topic: string | null;
+  /** Days each rolling point averages over (14 since 2026-09-21). */
+  window_days?: number;
+  scope?: 'all' | 'substantive';
   series: TimeseriesPoint[];
   available_topics: TopicRollup[];
 };
 
-export async function getStatsTimeseries(days = 30, topic?: string) {
-  const q = topic
-    ? `?days=${days}&topic=${encodeURIComponent(topic)}`
-    : `?days=${days}`;
-  return request<TimeseriesResponse>(`/api/stats/timeseries${q}`);
+/** `scope: 'substantive'` charts the same slice as the substantive tile:
+ *  courtesy acks and review requests dropped. The window defaults to 14 days
+ *  server-side (7 carried a ~4-point standard error at this volume, which is
+ *  as wide as the band that was being read as a plateau). */
+export async function getStatsTimeseries(
+  days = 30,
+  topic?: string,
+  scope?: 'all' | 'substantive',
+) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (topic) params.set('topic', topic);
+  if (scope && scope !== 'all') params.set('scope', scope);
+  return request<TimeseriesResponse>(`/api/stats/timeseries?${params.toString()}`);
 }
 
 export type LearningEntry = {
