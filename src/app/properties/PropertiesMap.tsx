@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { cartoTileUrl, CARTO_TILE_OPTIONS } from '@/lib/map-tiles';
 
 // Fallback view for the first paint before fitBounds runs.
 const FALLBACK_CENTER: [number, number] = [42.605, -70.690];
@@ -154,8 +155,10 @@ export default function PropertiesMap({ properties, workCounts }: Props) {
       });
 
       // CARTO light tiles - muted greyscale that lets pins read as the
-      // primary visual element.
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      // primary visual element. The URL carries CARTO's API key (see
+      // src/lib/map-tiles.ts); without it every tile is watermarked.
+      L.tileLayer(cartoTileUrl('light_all'), {
+        ...CARTO_TILE_OPTIONS,
         maxZoom: 18,
       }).addTo(map);
 

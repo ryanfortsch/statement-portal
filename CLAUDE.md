@@ -626,6 +626,9 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 - **Seam**: `SEAM_API_KEY`, `SEAM_WEBHOOK_SECRET`, `SEAM_CLEANER_CODE`, `SEAM_INSPECTION_CODE`,
   `SEAM_MAINTENANCE_CODE`, `SEAM_CREATIVE_CODE`
 - **Bridge**: `STAY_CONCIERGE_KEY`, `STAY_CONCIERGE_URL`
+- **Maps**: `NEXT_PUBLIC_CARTO_API_KEY`, optional. CARTO basemap tiles need a key since September
+  2026 or they render watermarked. `src/lib/map-tiles.ts` carries Rising Tide's key (public by
+  nature, shared with staycapeann.com) as the fallback, so the var only matters for an override.
 - **Other**: `GITHUB_TOKEN`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_KEY`,
   `CHROME_EXECUTABLE_PATH` (local PDF), `VERCEL_PROTECTION_BYPASS`
 
