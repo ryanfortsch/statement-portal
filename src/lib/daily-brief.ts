@@ -26,6 +26,7 @@ import {
 } from '@/lib/work-types';
 import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
+import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
 
 let _serviceSupabase: SupabaseClient | null = null;
 function serviceSupabase(): SupabaseClient {
@@ -308,31 +309,43 @@ async function fetchUnreadInbox(): Promise<FetchedEmail[]> {
   const emails = detailed.filter((e): e is FetchedEmail => e !== null);
   emails.sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
 
-  // Three reply-detection passes, each a different surface area:
-  //   1. Same Gmail thread has a Rising Tide sent message after the inbound
-  //   2. Any Gmail sent message after the inbound addressed to this sender (fresh-compose)
-  //   3. Any outbound contact_touches row (Quo SMS, phone, manual log) to a
-  //      contact whose emails array includes this sender, after the inbound
-  // If any of these hit, the email is considered already-handled and drops
-  // before it ever reaches triage classification or /today.
-  const recentSentTo = await loadRecentSentRecipients(token);
-  const recentTouchTo = await loadRecentOutboundTouchByEmail();
-
+  // Three reply-detection passes (see detectReply). If any hit, the email
+  // is already handled and drops before it reaches triage or /today. The
+  // same passes run again every sync against cached needs_reply rows
+  // (retireAnsweredNeedsReply), so a reply that lands after first sight
+  // still clears the email.
+  const signals = await loadReplySignals(token);
   const filtered = await Promise.all(
-    emails.map(async e => {
-      const inboundMs = new Date(e.receivedAt).getTime();
-      if (e.fromEmail) {
-        const lower = e.fromEmail.toLowerCase();
-        const lastSent = recentSentTo.get(lower);
-        if (lastSent && lastSent > inboundMs) return null;
-        const lastTouch = recentTouchTo.get(lower);
-        if (lastTouch && lastTouch > inboundMs) return null;
-      }
-      const inThread = await hasOutboundReplyAfter(token, e.threadId, e.receivedAt);
-      return inThread ? null : e;
-    }),
+    emails.map(async e => ((await detectReply(token, signals, e)) ? null : e)),
   );
   return filtered.filter((e): e is FetchedEmail => e !== null);
+}
+
+// The two cross-thread reply signals, loaded once per sync.
+async function loadReplySignals(token: string): Promise<ReplySignals> {
+  const [recentSentTo, recentTouchTo] = await Promise.all([
+    loadRecentSentRecipients(token),
+    loadRecentOutboundTouchByEmail(),
+  ]);
+  return { recentSentTo, recentTouchTo };
+}
+
+// Three reply-detection passes, each a different surface area:
+//   1. Any Gmail sent message after the inbound addressed to this sender (fresh-compose)
+//   2. Any outbound contact_touches row (Quo SMS, phone, manual log, or
+//      stay-concierge's owner-messaging send) to a contact whose emails
+//      array includes this sender, after the inbound
+//   3. Same Gmail thread has a Rising Tide message after the inbound
+// Returns how the reply was found, or null when nothing shows we answered.
+async function detectReply(
+  token: string,
+  signals: ReplySignals,
+  e: { fromEmail: string | null; threadId: string; receivedAt: string },
+): Promise<HandledVia | null> {
+  const viaSignal = replySignalFor(signals, e.fromEmail, e.receivedAt);
+  if (viaSignal) return viaSignal;
+  const inThread = await hasOutboundReplyAfter(token, e.threadId, e.receivedAt);
+  return inThread ? 'reply_thread' : null;
 }
 
 // Cross-channel reply detection: Dotti often handles a Bethany or owner
@@ -594,6 +607,8 @@ type EmailTriageRow = {
   is_unread: boolean;
   draft_id?: string | null;
   draft_created_at?: string | null;
+  handled_at?: string | null;
+  handled_via?: HandledVia | null;
 };
 
 
@@ -603,6 +618,8 @@ export type SyncEmailsSummary = {
   alreadyCached: number;
   markedRead: number;
   draftsCreated: number;
+  /** cached needs_reply rows retired this sync because a reply was found */
+  retired: number;
 };
 
 // Cron-side. Pulls the current unread inbox, classifies any messages
@@ -611,7 +628,7 @@ export type SyncEmailsSummary = {
 // and never calls Gmail or the LLM itself.
 export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
   if (!gmailConfigured()) {
-    return { fetched: 0, classifiedNew: 0, alreadyCached: 0, markedRead: 0, draftsCreated: 0 };
+    return { fetched: 0, classifiedNew: 0, alreadyCached: 0, markedRead: 0, draftsCreated: 0, retired: 0 };
   }
   const sb = serviceSupabase();
   const fetched = await fetchUnreadInbox();
@@ -773,25 +790,97 @@ export async function syncUnreadEmails(): Promise<SyncEmailsSummary> {
       .in('gmail_message_id', toMarkRead);
   }
 
+  // Re-run reply detection against every cached needs_reply row still
+  // open. Before this, detection ran once at first sight and never again,
+  // so an email answered an hour later (Marci Bailey, 9/18: the reply was
+  // logged 46 seconds after the cron cached the row) stayed under "Needs
+  // your reply" until someone clicked X. Best-effort; the rest of the
+  // sync stands if it fails.
+  let retired = 0;
+  if (token) {
+    try {
+      retired = await retireAnsweredNeedsReply(sb, token);
+    } catch (err) {
+      console.error('[syncUnreadEmails] retire pass failed', err);
+    }
+  }
+
   return {
     fetched: fetched.length,
     classifiedNew: triaged.length,
     alreadyCached: fetched.length - triaged.length,
     markedRead: toMarkRead.length,
     draftsCreated,
+    retired,
   };
+}
+
+// Cached needs_reply rows that have since been answered. Same three
+// passes as first sight; a hit stamps handled_at / handled_via and
+// deletes the AI draft we queued (the operator replied their own way, so
+// the unsent draft is clutter). Classification is left alone, so nothing
+// is re-paid if the email ever shows up again.
+async function retireAnsweredNeedsReply(sb: SupabaseClient, token: string): Promise<number> {
+  const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const { data } = await sb
+    .from('email_triage')
+    .select('gmail_message_id, thread_id, from_email, received_at, draft_id')
+    .eq('triage', 'needs_reply')
+    .is('handled_at', null)
+    .gte('received_at', since30)
+    .order('received_at', { ascending: false })
+    .limit(80);
+  type OpenRow = Pick<EmailTriageRow, 'gmail_message_id' | 'thread_id' | 'from_email' | 'received_at' | 'draft_id'>;
+  const open = (data ?? []) as OpenRow[];
+  if (!open.length) return 0;
+
+  const signals = await loadReplySignals(token);
+  const nowIso = new Date().toISOString();
+  let retired = 0;
+  const CHUNK = 10; // one Gmail threads.get per row; keep the burst modest
+  for (let i = 0; i < open.length; i += CHUNK) {
+    const chunk = open.slice(i, i + CHUNK);
+    const vias = await Promise.all(
+      chunk.map(row =>
+        detectReply(token, signals, {
+          fromEmail: row.from_email,
+          threadId: row.thread_id,
+          receivedAt: row.received_at,
+        }),
+      ),
+    );
+    for (let j = 0; j < chunk.length; j++) {
+      const via = vias[j];
+      if (!via) continue;
+      const row = chunk[j];
+      if (row.draft_id) await deleteDraft(row.draft_id);
+      const { error } = await sb
+        .from('email_triage')
+        .update({ handled_at: nowIso, handled_via: via, draft_id: null, last_seen_at: nowIso })
+        .eq('gmail_message_id', row.gmail_message_id)
+        .is('handled_at', null);
+      if (error) {
+        console.error('[retireAnsweredNeedsReply] update failed', row.gmail_message_id, error.message);
+        continue;
+      }
+      retired++;
+    }
+  }
+  return retired;
 }
 
 // Page-side. Pure read from the cache; one Supabase round-trip.
 async function loadUnreadEmailsFromCache(): Promise<BriefEmail[]> {
   // Show unread mail AND any needs_reply (read or not) so a needs-reply
-  // email doesn't vanish the moment it's opened on a phone — it stays until
-  // it's replied (reply-detection drops it next sync) or cleared. 30d floor.
+  // email doesn't vanish the moment it's opened on a phone. It stays until
+  // a reply is detected or the operator marks it handled, both of which
+  // stamp handled_at (retireAnsweredNeedsReply / markEmailHandled). 30d floor.
   const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const { data } = await supabase
     .from('email_triage')
     .select('gmail_message_id, thread_id, from_name, from_email, subject, snippet, received_at, triage, triage_summary, draft_id')
     .or('is_unread.eq.true,triage.eq.needs_reply')
+    .is('handled_at', null)
     .neq('triage', 'notification')
     .gte('received_at', since30)
     .order('received_at', { ascending: false })
@@ -821,14 +910,15 @@ async function loadEmailTriageTotals(): Promise<{ needsReply: number; fyi: numbe
   const since30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const { data } = await supabase
     .from('email_triage')
-    .select('triage, is_unread')
+    .select('triage, is_unread, handled_at')
     .gte('received_at', since30);
-  type RowPick = { triage: 'needs_reply' | 'fyi' | 'notification'; is_unread: boolean };
+  type RowPick = { triage: 'needs_reply' | 'fyi' | 'notification'; is_unread: boolean; handled_at: string | null };
   const rows = (data ?? []) as RowPick[];
   return {
-    // needs_reply persists whether or not it's been read; fyi/notification
-    // stay unread-only (a read note isn't "waiting").
-    needsReply: rows.filter(r => r.triage === 'needs_reply').length,
+    // needs_reply persists whether or not it's been read, until it's
+    // answered or marked handled; fyi/notification stay unread-only (a
+    // read note isn't "waiting").
+    needsReply: rows.filter(r => r.triage === 'needs_reply' && !r.handled_at).length,
     fyi: rows.filter(r => r.triage === 'fyi' && r.is_unread).length,
     notifications: rows.filter(r => r.triage === 'notification' && r.is_unread).length,
     unread: rows.filter(r => r.is_unread).length,
