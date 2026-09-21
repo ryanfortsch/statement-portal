@@ -49,6 +49,12 @@ type Props = {
 // and it takes the upstream load down with it.
 const PAGE_REFRESH_MS = 60_000;
 
+// Why a card needed no reply at all. Deliberately short and drawn from what
+// the 141 real bypasses in the last 30 days actually were, not invented: the
+// rollup reads these back against which guard suppressed an auto-send, so a
+// long menu would fragment the counts into uselessness.
+const NO_REPLY_REASONS = ['Already answered', 'Guest said thanks', 'Not worth a reply'] as const;
+
 // Muted bronze for the queued (scheduled) state. Reused from the proactive
 // 'scheduled'/'reminder' badge tone on purpose, and deliberately NOT
 // var(--signal) (which already means stale/aging/error on this card).
@@ -218,6 +224,13 @@ function ApprovalCard({
   const [error, setError] = useState<string | null>(null);
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
+  // "Mark handled" now asks what she actually did. Before 2026-09-21 it posted
+  // nothing, so 376 of 377 hand-cleared cards stored a blank reply and both
+  // learning consumers, which require that field to be non-empty, skipped
+  // every one. The moment she decides a draft is not worth editing is the
+  // sharpest judgment in the system and it was being filed as a null.
+  const [showHandled, setShowHandled] = useState(false);
+  const [sentText, setSentText] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   // Coaching is the one action whose work outlives its request: the service
   // answers 202 and rewrites in the background, so the transition ends while
@@ -281,6 +294,7 @@ function ApprovalCard({
     setShowSchedule(false);
     setScheduleCustom(false);
     setEditing(false);
+    setShowHandled(false);
   };
 
   // Dismiss the schedule menu on Escape or a click outside this card.
@@ -449,11 +463,20 @@ function ApprovalCard({
     });
   };
 
-  const handleMarkHandled = () => {
+  const toggleHandled = () => {
+    const next = !showHandled;
+    closeDrawers();
+    setShowHandled(next);
+  };
+
+  /** `capture` is what she tells us she did. Undefined keeps the old
+   *  behavior exactly, which is what Skip sends. */
+  const handleMarkHandled = (capture?: { sent_text?: string; reason?: string }) => {
     setError(null);
+    setShowHandled(false);
     setPendingAction('mark-handled');
     startTransition(async () => {
-      const res = await markHandled(approval.id);
+      const res = await markHandled(approval.id, capture);
       if (!res.ok) {
         if (res.stale) { onResolved(); return; }
         setError(res.error);
@@ -1208,8 +1231,11 @@ function ApprovalCard({
             <PrimaryButton onClick={handleCopy} disabled={busy}>
               {copied ? 'Copied ✓' : 'Copy message'}
             </PrimaryButton>
+            {/* Copy-to-send: she pasted OUR draft verbatim, so the draft IS what
+                the guest got. Capture it rather than asking. Passing the handler
+                bare here would hand the click event through as the payload. */}
             <SecondaryButton
-              onClick={handleMarkHandled}
+              onClick={() => handleMarkHandled({ sent_text: (editing ? draftText : savedDraft ?? approval.draft) || '' })}
               disabled={busy}
               loading={pendingAction === 'mark-handled'}
               loadingLabel="Marking"
@@ -1318,13 +1344,13 @@ function ApprovalCard({
               }}
             >
               <QuietButton
-                onClick={handleMarkHandled}
+                onClick={toggleHandled}
                 disabled={busy}
                 loading={pendingAction === 'mark-handled'}
                 loadingLabel="Marking"
                 title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
               >
-                Mark handled
+                {showHandled ? 'Cancel' : 'Mark handled'}
               </QuietButton>
               <QuietButton
                 onClick={handleReject}
@@ -1362,6 +1388,97 @@ function ApprovalCard({
           onConfirmCustom={() => handleSchedule(isoFromDayTime(customDay, customTime))}
           disabled={busy}
         />
+      )}
+
+      {showHandled && (
+        <div
+          style={{
+            marginTop: 14,
+            border: '1px solid var(--rule)',
+            background: 'var(--paper)',
+            padding: '12px 14px',
+          }}
+        >
+          <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 8 }}>
+            What did you do instead?
+          </div>
+          <label
+            htmlFor={`sent-${approval.id}`}
+            style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)', marginBottom: 6 }}
+          >
+            If you replied somewhere else, paste it here. The AI learns your wording from
+            this, and it is the only way it ever sees the answer you actually gave.
+          </label>
+          <textarea
+            id={`sent-${approval.id}`}
+            value={sentText}
+            onChange={(e) => setSentText(e.target.value)}
+            rows={3}
+            placeholder="Paste what you sent, or leave blank"
+            style={{
+              width: '100%',
+              padding: 10,
+              border: '1px solid var(--rule)',
+              background: 'var(--paper-2)',
+              fontFamily: 'inherit',
+              fontSize: 14,
+              lineHeight: 1.55,
+              color: 'var(--ink)',
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+            <PrimaryButton
+              onClick={() => handleMarkHandled({ sent_text: sentText })}
+              disabled={busy || sentText.trim().length < 25}
+              loading={pendingAction === 'mark-handled'}
+              loadingLabel="Saving"
+            >
+              Save what I sent
+            </PrimaryButton>
+            {sentText.trim().length > 0 && sentText.trim().length < 25 && (
+              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                A few more words: under 25 characters is not enough to learn from.
+              </span>
+            )}
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              gap: 18,
+              alignItems: 'center',
+              marginTop: 12,
+              paddingTop: 10,
+              borderTop: '1px solid var(--rule-soft)',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+              Or nothing was needed
+            </span>
+            {NO_REPLY_REASONS.map((reason) => (
+              <button
+                key={reason}
+                type="button"
+                onClick={() => handleMarkHandled({ reason })}
+                disabled={busy}
+                className="rt-quiet-btn"
+              >
+                {reason}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => handleMarkHandled()}
+              disabled={busy}
+              className="rt-quiet-btn"
+              style={{ marginLeft: 'auto' }}
+              title="Clear it without telling us anything."
+            >
+              Skip
+            </button>
+          </div>
+        </div>
       )}
 
       {showCoach && (

@@ -14,6 +14,7 @@ import {
   listConversations,
   getStats,
   getStatsTimeseries,
+  getCourtesyRollup,
   getFacts,
   getFactAudit,
   listProposedPropertyUpdates,
@@ -164,7 +165,7 @@ async function ProposedUpdatesSection() {
 // activity / learning + weekly fact audit). Slow calls; they stream in
 // independently after the queue and never block it.
 async function AnalyticsSection() {
-  const [stats, facts, ts, audit, recent] = await Promise.all([
+  const [stats, facts, ts, audit, recent, rollup] = await Promise.all([
     // Default the stats window to All-time (hours=0). The 7d window is thin
     // because /messaging only just went live; All-time is where the real
     // "is the AI getting it right?" signal lives.
@@ -173,6 +174,7 @@ async function AnalyticsSection() {
     getStatsTimeseries(30, undefined, 'substantive'),
     getFactAudit(),
     listRecentApprovals(24),
+    getCourtesyRollup(28),
   ]);
   return (
     <PerformanceDropdown
@@ -185,6 +187,7 @@ async function AnalyticsSection() {
       initialRecent={recent.ok ? recent.data.approvals : []}
       audit={audit.ok ? audit.data : null}
       auditError={audit.ok ? null : explainError(audit.error)}
+      rollup={rollup.ok ? rollup.data : null}
     />
   );
 }
