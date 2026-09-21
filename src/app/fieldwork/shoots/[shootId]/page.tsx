@@ -10,6 +10,9 @@ import type { RateCard } from '@/lib/creative-rates';
 import { addAsset, updateAsset, deleteAsset, readAssetViews, setAssetQualifies, payDeliveryBase, markAssetPosted, payAssetTopup, setAssetTopupOverride, setShootPaidAdjustment, cancelShoot, syncDriveNow, setShootDriveFolder, resendShootBrief, textShootAllClear } from '../actions';
 import { dayClearReport, type DayClearInfo } from '@/lib/maintenance-runs';
 import { shootAccessReadiness, type CreativeAccessReadiness } from '@/lib/creative-brief';
+import { loadFleetForecast } from '@/lib/weather';
+import { weatherLine, type DayWeather } from '@/lib/weather-types';
+import { WeatherGlyph, GRADE_TINT, GRADE_WORD } from '@/components/WeatherGlyph';
 import { PendingButton } from '@/app/field/packet/[packetId]/PendingButton';
 
 export const dynamic = 'force-dynamic';
@@ -592,9 +595,19 @@ async function ShootDayCard({
   // What the brief will actually be able to SAY: which way in, and whether
   // there's parking on file. Checked here so a job never goes out to a home
   // that can't explain itself at the door.
-  const ready: CreativeAccessReadiness | null = propertyId
-    ? await shootAccessReadiness(propertyId).catch(() => null)
-    : null;
+  // The sky on the day, for an upcoming shoot. A past shoot, or a date past
+  // the seven-day forecast, simply has none: the line is omitted rather
+  // than guessed at. Never gates anything here either. Fetched beside the
+  // access check, not after it.
+  const [ready, forecast] = await Promise.all([
+    propertyId
+      ? shootAccessReadiness(propertyId).catch((): CreativeAccessReadiness | null => null)
+      : Promise.resolve<CreativeAccessReadiness | null>(null),
+    shootDate >= today
+      ? loadFleetForecast().catch(() => new Map<string, DayWeather>())
+      : Promise.resolve(new Map<string, DayWeather>()),
+  ]);
+  const sky: DayWeather | null = forecast.get(shootDate) ?? null;
   const entryLabel = !ready
     ? null
     : ready.entry.kind === 'creative'
@@ -634,6 +647,12 @@ async function ShootDayCard({
           {verdict.clear
             ? `Clear: the home is empty ${fmtShort(shootDate)}${verdict.priorGuestCheckout === shootDate ? ' after the ~11 AM checkout' : ''}${verdict.nextCheckin ? `; next guests ${fmtShort(verdict.nextCheckin)}` : ''}.`
             : `Not clear: ${verdict.reason}. The 8 AM day-of check texts ${contractorFirst} to hold and emails you. Once you know the home is free, text ${contractorFirst} the all-clear here.`}
+        </div>
+      )}
+      {sky && (
+        <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, display: 'flex', alignItems: 'center', gap: 6, color: GRADE_TINT[sky.grade] }}>
+          <WeatherGlyph sky={sky.sky} size={14} />
+          <span>{weatherLine(sky)} · {GRADE_WORD[sky.grade]}</span>
         </div>
       )}
       {ready && (

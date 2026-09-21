@@ -6,6 +6,7 @@ import { isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, loadCreativeContractors, shootPaySummary, setShortLabel, type ShootSummary } from '@/lib/creative-shoots';
 import { loadDriveFilesByShoots, finalsProgress, finalsProgressLabel, isCreativeDriveConfigured } from '@/lib/creative-drive';
 import { loadShootCalendar, todayET, addDays } from '@/lib/creative-calendar';
+import { loadFleetForecast } from '@/lib/weather';
 import { loadFieldProperties } from '@/lib/field-packets';
 import { dollars } from '@/lib/field-types';
 import { createShoot, syncDriveNow } from './actions';
@@ -100,12 +101,18 @@ export default async function CreativeBoard({
   let to = isIso(sp.to) ? sp.to : addDays(from, 13);
   if (to < from || to > addDays(from, 30)) to = addDays(from, 13);
   const span = Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000) + 1;
-  const [board, contributors, properties] = await Promise.all([
+  // The forecast depends on nothing, so it rides along with the rest rather
+  // than adding its own round trip. Advisory only, and never allowed to
+  // break the board: loadFleetForecast returns an empty map rather than
+  // throwing, and the grid renders a blank forecast row when it does.
+  const [board, contributors, properties, forecast] = await Promise.all([
     loadShootBoard(),
     loadCreativeContractors(),
     loadFieldProperties(),
+    loadFleetForecast(),
   ]);
   const calendar = await loadShootCalendar(from, to, properties);
+  const weather = Object.fromEntries(forecast);
   const driveFiles = await loadDriveFilesByShoots(board.map((s) => s.shoot.id));
   // Per-shoot Drive chip: package progress while the finals gate is open
   // (nothing paid yet), plain file count once money has moved.
@@ -223,7 +230,7 @@ export default async function CreativeBoard({
             <div>
               <span style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600 }}>Send a contributor to a home</span>
               <span style={{ fontSize: 12, color: 'var(--ink-4)', marginLeft: 10 }}>
-                Click an empty day. We log the shoot and text + email the brief: address, arrival, and the door code on the day.
+                Click an empty day. We log the shoot and text + email the brief: address, arrival, and the door code on the day. The forecast row is advisory, never a block.
               </span>
             </div>
             <div style={{ display: 'flex', gap: 14, fontSize: 12, whiteSpace: 'nowrap' }}>
@@ -238,7 +245,13 @@ export default async function CreativeBoard({
               </Link>
             </div>
           </div>
-          <ShootPlanner days={calendar.days} rows={calendar.rows} contributors={contributors.map((c) => ({ id: c.id, name: c.full_name }))} today={today} />
+          <ShootPlanner
+            days={calendar.days}
+            rows={calendar.rows}
+            contributors={contributors.map((c) => ({ id: c.id, name: c.full_name }))}
+            today={today}
+            weather={weather}
+          />
         </div>
 
         {/* Log a shoot by hand: a past date (the after-the-fact ledger flow) or
