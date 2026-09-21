@@ -68,8 +68,21 @@ function cardKeyOf(itemId: string, zoneId: string | null): string {
   return `${itemId}::${zoneId ?? '_'}`;
 }
 
+/** "Sep 14", pinned to Eastern so a note left at 11 PM keeps its day and
+ *  the server (UTC) and the phone agree at hydration. */
+function pinDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'America/New_York',
+  });
+}
+
 type StepperNote = {
   id: string;
+  /** The walk that wrote it. A property note from an earlier walk is a
+   *  pin carried over (see lib/inspection-notes.ts). */
+  inspection_id: string | null;
   inspection_item_id: string | null;
   note_text: string;
   note_type: 'INSPECTION_NOTE' | 'PROPERTY_NOTE';
@@ -207,6 +220,17 @@ export function Stepper({
     ? workSlips.filter((ws) => ws.inspection_item_id === activeCard.itemId)
     : [];
 
+  // A pin whose card is not on this deck (the layout dropped the card, the
+  // pullout flag was cleared, or the note was left on the walk as a whole)
+  // has no card to surface on. It rides the first card instead, which is
+  // "on arrival" as literally as the deck allows.
+  const deckItemIds = new Set(cards.map((c) => c.itemId));
+  const unplacedPins = notes.filter(
+    (n) =>
+      n.note_type === 'PROPERTY_NOTE' &&
+      (!n.inspection_item_id || !deckItemIds.has(n.inspection_item_id)),
+  );
+
   function applyOptimistic(card: StepperCard, next: StepperResult) {
     setResults((prev) => {
       const m = new Map(prev);
@@ -320,6 +344,7 @@ export function Stepper({
       ...prev,
       {
         id: res.id,
+        inspection_id: inspectionId,
         inspection_item_id: activeCard.itemId,
         note_text: text.trim() || '(photo)',
         note_type: asProperty ? 'PROPERTY_NOTE' : 'INSPECTION_NOTE',
@@ -765,6 +790,33 @@ export function Stepper({
           </p>
         )}
 
+        {/* Pins with no card on this deck, shown once on arrival */}
+        {activeIdx === 0 && unplacedPins.length > 0 && (
+          <div
+            style={{
+              marginTop: 20,
+              padding: '12px 16px',
+              borderLeft: '2px solid var(--tide-deep)',
+              background: 'var(--paper-2)',
+            }}
+          >
+            <div style={{ fontSize: 9, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--tide-deep)', marginBottom: 8, fontWeight: 600 }}>
+              Pinned to this home
+            </div>
+            {unplacedPins.map((n) => (
+              <div key={n.id} style={{ marginBottom: 10 }}>
+                {n.note_text !== '(photo)' && (
+                  <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.4 }}>{n.note_text}</div>
+                )}
+                {n.photo_urls && n.photo_urls.length > 0 && <PhotoThumbs urls={n.photo_urls} size={64} />}
+                <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>
+                  {n.inspection_id === inspectionId ? 'pinned this walk' : `pinned ${pinDate(n.created_at)}`}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Mark indicator (subtle, just so the inspector knows it's saved) */}
         {activeResult && (
           <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -828,12 +880,18 @@ export function Stepper({
             )}
             {activeNotes.map((n) => {
               const isPhotoOnly = n.note_text === '(photo)' && (n.photo_urls?.length ?? 0) > 0;
+              const isProperty = n.note_type === 'PROPERTY_NOTE';
+              // A pin from an earlier walk says when it was left, so it reads
+              // as standing knowledge about the home rather than something
+              // this inspector wrote a moment ago.
+              const carried = isProperty && n.inspection_id !== inspectionId;
+              const pinLabel = carried ? `pinned ${pinDate(n.created_at)}` : 'pinned to folder';
               const label = isPhotoOnly
-                ? n.note_type === 'PROPERTY_NOTE'
-                  ? 'Property Photo · pinned to folder'
+                ? isProperty
+                  ? `Property Photo · ${pinLabel}`
                   : 'Photo'
-                : n.note_type === 'PROPERTY_NOTE'
-                  ? 'Property Note · pinned to folder'
+                : isProperty
+                  ? `Property Note · ${pinLabel}`
                   : 'Inspection Note';
               return (
                 <div
