@@ -16,6 +16,7 @@ import {
   editDraft,
 } from './actions';
 import { ThreadPanel } from './Thread';
+import { UndoToast, type Decision } from './UndoToast';
 import {
   prettifySlug,
   prettifyTopic,
@@ -98,6 +99,11 @@ export function MessagingQueue({ initialPending }: Props) {
     softRefresh();
   }, [refresh, softRefresh]);
 
+  // The last reject / mark-handled made from this page, for the undo toast.
+  // Latest wins; the toast clears itself.
+  const [lastDecision, setLastDecision] = useState<Decision | null>(null);
+  const closeToast = useCallback(() => setLastDecision(null), []);
+
   // Queued cards firing within the next 24h float to the top, ordered by
   // when they actually fire, so the last chance to cancel stays in view.
   // Sends parked further out sink BELOW the pending drafts instead -- a
@@ -140,11 +146,13 @@ export function MessagingQueue({ initialPending }: Props) {
             key={approval.id}
             approval={approval}
             onResolved={onResolved}
+            onDecided={setLastDecision}
             onRegenerating={watchRegen}
             regenStalled={stalledId === approval.id}
           />
         ))}
       </div>
+      <UndoToast decision={lastDecision} onClose={closeToast} onUndone={onResolved} />
     </Section>
   );
 }
@@ -168,11 +176,14 @@ type PendingAction =
 function ApprovalCard({
   approval,
   onResolved,
+  onDecided,
   onRegenerating,
   regenStalled,
 }: {
   approval: Approval;
   onResolved: () => void;
+  /** A reversible decision landed (reject / mark handled): offer undo. */
+  onDecided: (d: Decision) => void;
   /** Coaching accepted upstream: watch closely for the rewritten card. */
   onRegenerating: (id: string) => void;
   /** The rewrite never came back. */
@@ -381,6 +392,7 @@ function ApprovalCard({
         setPendingAction(null);
         return;
       }
+      onDecided({ id: approval.id, action: 'rejected', guest: guestLabel, property: propertyLabel });
       onResolved();
     });
   };
@@ -396,6 +408,7 @@ function ApprovalCard({
         setPendingAction(null);
         return;
       }
+      onDecided({ id: approval.id, action: 'manual_sent', guest: guestLabel, property: propertyLabel });
       onResolved();
     });
   };
@@ -701,7 +714,7 @@ function ApprovalCard({
           <span
             className="eyebrow"
             style={{ color: 'var(--ink-4)' }}
-            title={approval.created_at}
+            title={`Drafted ${approval.created_at} · id ${approval.short_id}`}
           >
             {'drafted '}
             <span
@@ -712,8 +725,6 @@ function ApprovalCard({
             >
               {ageLabel}
             </span>
-            {' · id '}
-            {approval.short_id}
           </span>
         )}
       </header>
@@ -1120,44 +1131,48 @@ function ApprovalCard({
             >
               {showCoach ? 'Cancel coaching' : 'Coach the AI'}
             </SecondaryButton>
-            <SecondaryButton
-              onClick={handleMarkHandled}
-              disabled={busy}
-              loading={pendingAction === 'mark-handled'}
-              loadingLabel="Marking"
-              title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
+            {/* The two ways of closing a card WITHOUT sending are text, not
+                boxes, and sit apart from the send controls: one dark button,
+                one outlined, then the quiet exits. Four equal boxes read as
+                four equal choices, which they are not. */}
+            <span
+              style={{
+                marginLeft: 'auto',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 20,
+                flexWrap: 'wrap',
+              }}
             >
-              Mark handled
-            </SecondaryButton>
-            <SecondaryButton
-              onClick={handleReject}
-              disabled={busy}
-              loading={pendingAction === 'reject'}
-              loadingLabel="Rejecting"
-              title="This guest message doesn't need a reply. Drops the draft."
-            >
-              Reject
-            </SecondaryButton>
-            {isPrereleaseRequest && showMore && (
-              <button
-                type="button"
-                onClick={() => setShowMore(false)}
-                aria-expanded
-                className="eyebrow"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  color: 'var(--ink-3)',
-                  textDecoration: 'underline',
-                  textUnderlineOffset: 3,
-                  cursor: 'pointer',
-                  marginLeft: 'auto',
-                }}
+              <QuietButton
+                onClick={handleMarkHandled}
+                disabled={busy}
+                loading={pendingAction === 'mark-handled'}
+                loadingLabel="Marking"
+                title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
               >
-                Fewer options
-              </button>
-            )}
+                Mark handled
+              </QuietButton>
+              <QuietButton
+                onClick={handleReject}
+                disabled={busy}
+                loading={pendingAction === 'reject'}
+                loadingLabel="Rejecting"
+                title="This guest message doesn't need a reply. Drops the draft."
+              >
+                Reject
+              </QuietButton>
+              {isPrereleaseRequest && showMore && (
+                <button
+                  type="button"
+                  onClick={() => setShowMore(false)}
+                  aria-expanded
+                  className="rt-quiet-btn"
+                >
+                  Fewer options
+                </button>
+              )}
+            </span>
           </>
         )}
       </footer>
@@ -1664,6 +1679,38 @@ function SecondaryButton({
         // buttons fade while another action runs.
         opacity: disabled && !loading ? 0.5 : 1,
       }}
+    >
+      {loading ? <LoadingLabel label={loadingLabel || 'Working'} /> : children}
+    </button>
+  );
+}
+
+/** Text-only tertiary action (Mark handled, Reject): styled by .rt-quiet-btn
+ *  in globals.css so it gets a real hover state. Same loading contract as
+ *  the boxed buttons. */
+function QuietButton({
+  children,
+  onClick,
+  disabled,
+  loading,
+  loadingLabel,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  loadingLabel?: string;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-busy={loading || undefined}
+      title={title}
+      className="rt-quiet-btn"
     >
       {loading ? <LoadingLabel label={loadingLabel || 'Working'} /> : children}
     </button>

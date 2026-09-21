@@ -80,9 +80,11 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
   );
 }
 
-// Reversible decisions from the last hours (rejects, mark-handleds), shown
-// right above the queue with an Undo. Renders nothing when there are none,
-// and nothing when the service is unreachable (the queue shows that).
+// Reversible decisions from the last hours (rejects, mark-handleds), a quiet
+// ledger with an Undo directly under the queue. The moment-of-decision undo
+// is the toast inside MessagingQueue; this is the fallback for anything
+// older. Renders nothing when there are none, and nothing when the service
+// is unreachable (the queue shows that).
 async function RecentDecisionsSection() {
   const recent = await listRecentApprovals(12);
   if (!recent.ok) return null;
@@ -193,11 +195,11 @@ export default function MessagingPage() {
 
   return (
     <Shell>
-      <Suspense fallback={null}>
-        <RecentDecisionsSection />
-      </Suspense>
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <RecentDecisionsSection />
       </Suspense>
       <Suspense fallback={null}>
         <ConversationsSection />
