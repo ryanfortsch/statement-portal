@@ -171,3 +171,105 @@ export async function dismissProposedUpdate(candidateId: string): Promise<Dismis
   revalidatePath('/contractor-messaging');
   return { ok: true };
 }
+
+// ── Triaged review (one pass per property) ─────────────────────────────
+
+/**
+ * File ONE triaged statement: parse it through Quick Capture, apply the
+ * routed items, and resolve every candidate that was merged into it.
+ *
+ * The statement filed is kb_triage's rewritten line, not the raw fact_text:
+ * that is the one that merged the halves of a policy into a sentence and
+ * dropped the "from your own reply" framing. The parse + apply path and the
+ * credential guard are the existing ones, unchanged, so the routing rules
+ * that keep a password out of an anon-readable note still hold.
+ */
+export type FileGroupResult =
+  | { ok: true; columns: number; notes: number; skipped: string[]; warning?: string }
+  | { ok: false; error: string };
+
+export async function fileTriagedGroup(
+  candidateIds: string[],
+  propertyId: string,
+  statement: string,
+  category: string,
+): Promise<FileGroupResult> {
+  if (!(await requireEmail())) return { ok: false, error: 'Not signed in.' };
+  if (!propertyId) return { ok: false, error: 'No property on this group.' };
+  if (!statement.trim()) return { ok: false, error: 'Nothing to file.' };
+  if (!candidateIds.length) return { ok: false, error: 'No candidates in this group.' };
+
+  const parsed = await parsePropertyCaptureAction(propertyId, statement);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  const items = parsed.proposal.items;
+  if (items.length === 0) {
+    return {
+      ok: false,
+      error: 'Helm could not route that into a property field or note. File it by hand on the property page, then dismiss.',
+    };
+  }
+
+  const violation = credentialRoutingViolation(category, items);
+  if (violation) return { ok: false, error: violation };
+
+  const applied = await applyPropertyCaptureAction(propertyId, items);
+  if (!applied.ok) return { ok: false, error: applied.error };
+
+  // Resolve every merged candidate. A failure here never undoes the write.
+  let unresolved = 0;
+  for (const id of candidateIds) {
+    const marked = await markProposedPropertyUpdateApplied(id);
+    if (!marked.ok) {
+      console.error('[fileTriagedGroup] mark-applied failed', id, explainError(marked.error));
+      unresolved++;
+    }
+  }
+  const warning = unresolved
+    ? 'Filed, but could not clear it from the queue. If it reappears, dismiss it rather than filing again.'
+    : undefined;
+
+  revalidatePath('/messaging');
+  revalidatePath('/owner-messaging');
+  revalidatePath('/cleaner-messaging');
+  revalidatePath('/contractor-messaging');
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath(`/properties/${propertyId}/edit`);
+  return { ok: true, columns: applied.columns, notes: applied.notes, skipped: applied.skipped, warning };
+}
+
+export type FileManyResult = {
+  filed: number;
+  failed: { statement: string; error: string }[];
+};
+
+/** File several triaged statements for one property in a single round trip. */
+export async function fileTriagedGroups(
+  propertyId: string,
+  groups: { candidateIds: string[]; statement: string; category: string }[],
+): Promise<FileManyResult> {
+  const out: FileManyResult = { filed: 0, failed: [] };
+  for (const g of groups) {
+    const res = await fileTriagedGroup(g.candidateIds, propertyId, g.statement, g.category);
+    if (res.ok) out.filed++;
+    else out.failed.push({ statement: g.statement, error: res.error });
+  }
+  return out;
+}
+
+/** Dismiss every candidate merged into one statement. */
+export async function dismissTriagedGroup(candidateIds: string[]): Promise<DismissResult> {
+  if (!(await requireEmail())) return { ok: false, error: 'Not signed in.' };
+  let failed = 0;
+  for (const id of candidateIds) {
+    const res = await dismissProposedPropertyUpdate(id);
+    if (!res.ok) failed++;
+  }
+  if (failed === candidateIds.length) {
+    return { ok: false, error: 'Could not dismiss. The service may be unreachable.' };
+  }
+  revalidatePath('/messaging');
+  revalidatePath('/owner-messaging');
+  revalidatePath('/cleaner-messaging');
+  revalidatePath('/contractor-messaging');
+  return { ok: true };
+}

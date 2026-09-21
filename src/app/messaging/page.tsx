@@ -25,7 +25,7 @@ import { MessagingQueue } from './MessagingQueue';
 import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
 import { PerformanceDropdown } from './PerformanceDropdown';
-import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
+import { TriagedPropertyUpdates } from './TriagedPropertyUpdates';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -151,7 +151,7 @@ async function ProposedUpdatesSection() {
   // empty educational card would be noise on it.
   if (proposed.ok && proposed.data.updates.length === 0) return null;
   return (
-    <ProposedPropertyUpdatesCard
+    <TriagedPropertyUpdates
       initial={proposed.ok ? proposed.data.updates : []}
       initialError={proposed.ok ? null : explainError(proposed.error)}
       properties={properties}
