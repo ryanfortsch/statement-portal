@@ -152,6 +152,33 @@ export function isPlaceholderGuestName(name: string | null | undefined): boolean
 }
 
 /**
+ * The Airbnb confirmation code, read from the feed's own DESCRIPTION.
+ *
+ * Airbnb's direct per-listing feed redacts the guest (SUMMARY is just
+ * "Reserved") but its DESCRIPTION links the reservation:
+ *
+ *   Reservation URL: https://www.airbnb.com/hosting/reservations/details/HMEFDNMS4Z
+ *   Phone Number (Last 4 Digits): 4905
+ *
+ * The last path segment is the same confirmation code Guesty reports for the
+ * reservation ("Reservation HMEFDNMS4Z" on the aggregate feed, and the
+ * guesty_reservations row), so a direct-feed row that carries it joins its
+ * twins by identity in booking-dedupe's first pass instead of being placed by
+ * dates alone. Nameless, codeless direct rows are what let a cancelled stay
+ * and its same-dates rebooking fuse at 20 Hammond (#1568).
+ *
+ * Returns null when the description carries no such link (a block, a VRBO
+ * feed, the Guesty aggregate feed). Uppercased, because the dedupe join is an
+ * exact string match against Guesty's uppercase code. The guest name is not
+ * touched: the feed has none, and the code must never be printed as one.
+ */
+export function airbnbConfirmationCode(description: string | null | undefined): string | null {
+  if (!description) return null;
+  const m = description.match(/airbnb\.com\/hosting\/reservations\/details\/([A-Za-z0-9]+)/);
+  return m ? m[1].toUpperCase() : null;
+}
+
+/**
  * Some OTAs leak the guest name in DESCRIPTION even when they redact it
  * from SUMMARY. Try a couple of common patterns.
  */

@@ -10,7 +10,13 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { parseIcal, isBookingEvent, guessGuestNameFromIcal, isPlaceholderGuestName } from '@/lib/ical';
+import {
+  parseIcal,
+  isBookingEvent,
+  guessGuestNameFromIcal,
+  isPlaceholderGuestName,
+  airbnbConfirmationCode,
+} from '@/lib/ical';
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
@@ -104,6 +110,11 @@ export async function syncListing(opts: {
           channel = parsed.channel;
           externalConfirmationCode = parsed.code;
           if (parsed.isBlock) status = 'block';
+        } else {
+          // A direct Airbnb feed names no guest but links the reservation in
+          // DESCRIPTION; the code in that link is the cross-source identity
+          // the dedupe joins on. Anything else (VRBO, a block) yields null.
+          externalConfirmationCode = airbnbConfirmationCode(e.description);
         }
         return {
           property_id: opts.property_id,
