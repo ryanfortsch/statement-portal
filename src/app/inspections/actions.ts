@@ -456,6 +456,78 @@ export async function addInspectionNote(args: {
 }
 
 /**
+ * Correct where a property's pullout sheets live, from inside the walk.
+ *
+ * This is the one registry field an inspector may write, and the exception
+ * is deliberate. The location is a physical fact that moves, the pullout
+ * card prints it on every visit, and the person standing in the closet is
+ * the only one positioned to see that it is wrong. Until now a contractor's
+ * only move was a note, which then contradicted the card directly above it:
+ * 3 South read "drawers under the TV" for months while the linens sat in a
+ * lower-level closet.
+ *
+ * Contractors are held to the same ownership check as completing a walk.
+ * The inspection decides which property this is, never the client-supplied
+ * propertyId, and a contractor must hold the packet that inspection is a
+ * stop on. Otherwise a field session could aim this at any home in the
+ * fleet.
+ */
+export async function updatePulloutLinensLocation(args: {
+  inspectionId: string;
+  propertyId: string;
+  location: string;
+}): Promise<{ ok: true; location: string } | { ok: false; error: string }> {
+  const actor = await resolveInspectionActor();
+  if (!actor) return { ok: false, error: 'Not signed in' };
+
+  const location = args.location.trim();
+  if (!location) return { ok: false, error: 'Say where the sheets are.' };
+  if (location.length > 300) return { ok: false, error: 'Keep it under 300 characters.' };
+
+  // The inspection is the authority on which property this is.
+  const { data: inspRow } = await supabase
+    .from('inspections')
+    .select('property_id')
+    .eq('id', args.inspectionId)
+    .maybeSingle();
+  const propertyId = (inspRow as { property_id: string } | null)?.property_id ?? null;
+  if (!propertyId || propertyId !== args.propertyId) {
+    return { ok: false, error: 'That inspection is not for this property.' };
+  }
+
+  if (actor.kind === 'contractor') {
+    const { data: stopRow } = await fieldDb()
+      .from('packet_stops')
+      .select('packet_id')
+      .eq('inspection_id', args.inspectionId)
+      .maybeSingle();
+    const packetId = (stopRow as { packet_id: string } | null)?.packet_id ?? null;
+    if (!packetId) return { ok: false, error: 'Not your inspection.' };
+    const { data: pk } = await fieldDb()
+      .from('inspection_packets')
+      .select('awarded_contractor_id')
+      .eq('id', packetId)
+      .maybeSingle();
+    const awarded = (pk as { awarded_contractor_id: string | null } | null)?.awarded_contractor_id;
+    if (awarded !== actor.contractorId) return { ok: false, error: 'Not your inspection.' };
+  }
+
+  const { error } = await supabase
+    .from('properties')
+    .update({
+      pullout_linens_location: location,
+      pullout_linens_location_at: new Date().toISOString(),
+      pullout_linens_location_by_email: actor.email,
+    })
+    .eq('id', propertyId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath(`/inspections/${args.inspectionId}`);
+  return { ok: true, location };
+}
+
+/**
  * Resolve a property note (mark as no-longer-pinned-to-the-folder).
  * Used by the "x" / "resolve" button on the property folder pinned-notes
  * section so an old observation doesn't accumulate forever.

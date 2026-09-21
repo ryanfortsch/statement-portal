@@ -68,7 +68,11 @@ export default async function FieldInspectPage({
   const zoneIds = Array.from(new Set(cards.map((c) => c.zoneId).filter((z): z is string => !!z)));
 
   const [{ data: property }, { data: items }, { data: results }, { data: zoneRows }] = await Promise.all([
-    supabase.from('properties').select('id, name, title, city, bedrooms').eq('id', insp.property_id).maybeSingle(),
+    supabase
+      .from('properties')
+      .select('id, name, title, city, bedrooms, pullout_linens_location')
+      .eq('id', insp.property_id)
+      .maybeSingle(),
     itemIds.length > 0
       ? supabase
           .from('inspection_items')
@@ -216,6 +220,7 @@ export default async function FieldInspectPage({
       inspectorName={insp.inspector_name}
       initialNotes={initialNotes}
       initialWorkSlips={initialWorkSlips}
+      pulloutLinensLocation={(property as { pullout_linens_location: string | null }).pullout_linens_location}
       cards={stepperCards}
       initialResults={(results ?? []).map((r) => {
         const rr = r as InspectionResultRow;
