@@ -35,6 +35,10 @@ function daysInMonth(year: number, monthOneBased: number): number {
  *
  *   seasonMonths    months-of-year (1-12) the property is open. Recurring:
  *                   applies to every year in the horizon.
+ *   seasonFirstDay  'MM-DD', the first operating day of a RECURRING season
+ *                   that opens mid-month. That month pro-rates by the share
+ *                   of days from it onward. Its month must be in
+ *                   seasonMonths, or the month is shut before this is read.
  *   seasonLastDay   'MM-DD', the last operating day of a RECURRING season
  *                   that ends mid-month. That month pro-rates by the share
  *                   of days before it; the season still returns next year.
@@ -52,6 +56,7 @@ function daysInMonth(year: number, monthOneBased: number): number {
  */
 export type OperatingWindow = {
   seasonMonths?: number[];
+  seasonFirstDay?: string;
   seasonLastDay?: string;
   closedMonths?: string[];
   offlineFrom?: string;
@@ -76,15 +81,12 @@ export const OPERATING_WINDOWS: Record<string, OperatingWindow> = {
   // '2026-10-21', which read the end of its 2026 season as a permanent exit
   // and zeroed every month after it, 2027's summer included.
   '79_main': { seasonMonths: [6, 7, 8, 9, 10], seasonLastDay: '10-20' },
-  // 30 Woodward shuts at the end of November and reopens "late April, early
-  // May" (Dotti, 2026-09-21). The house is not fully insulated, so the
-  // closure is a property fact rather than a booking decision and recurs
-  // every year. The reopening is recorded as May 1, the conservative end of
-  // the range she gave: claiming late-April nights the house may not be open
-  // for would invent revenue, while starting in May only forgoes a few. Its
-  // April 2026 calendar corroborates the shape, carrying a zero-payout hold
-  // across April 1-29.
-  '30_woodward': { seasonMonths: [5, 6, 7, 8, 9, 10, 11] },
+  // 30 Woodward shuts at the end of November and reopens on 25 April (Dotti,
+  // 2026-09-21, confirming the date after the first pass recorded the
+  // conservative 1 May). The house is not fully insulated, so the closure is
+  // a property fact rather than a booking decision and it recurs every year.
+  // April therefore pro-rates to its last six days.
+  '30_woodward': { seasonMonths: [4, 5, 6, 7, 8, 9, 10, 11], seasonFirstDay: '04-25' },
 };
 
 /**
@@ -104,13 +106,23 @@ export function operatingFactor(propertyId: string, ym: string): number {
   if (w.seasonMonths && !w.seasonMonths.includes(monthOfYear)) {
     return 0;
   }
-  // A recurring season that ends mid-month: that month pro-rates, and unlike
-  // offlineFromDate the season comes back the following year.
-  if (w.seasonLastDay && parseInt(w.seasonLastDay.slice(0, 2), 10) === monthOfYear) {
+  // A recurring season that opens or closes mid-month: that month pro-rates
+  // by the days actually inside the season, and unlike offlineFromDate the
+  // season comes back the following year. Both ends are handled together so a
+  // season that opens AND closes within one month is not counted as whole.
+  const opensThisMonth =
+    !!w.seasonFirstDay && parseInt(w.seasonFirstDay.slice(0, 2), 10) === monthOfYear;
+  const closesThisMonth =
+    !!w.seasonLastDay && parseInt(w.seasonLastDay.slice(0, 2), 10) === monthOfYear;
+  if (opensThisMonth || closesThisMonth) {
     const [y, m] = ym.split('-').map((n) => parseInt(n, 10));
     const dim = daysInMonth(y, m);
-    const lastDay = parseInt(w.seasonLastDay.slice(3, 5), 10);
-    if (dim && lastDay) return Math.min(1, Math.max(0, lastDay / dim));
+    if (dim) {
+      const from = opensThisMonth ? parseInt(w.seasonFirstDay!.slice(3, 5), 10) : 1;
+      const to = closesThisMonth ? parseInt(w.seasonLastDay!.slice(3, 5), 10) : dim;
+      const open = to - from + 1;
+      return Math.min(1, Math.max(0, open / dim));
+    }
   }
 
   if (w.offlineFromDate) {
@@ -155,6 +167,10 @@ export function isOperatingOnDate(propertyId: string, iso: string): boolean {
   const day = parseInt(iso.slice(8, 10), 10);
   const monthOfYear = parseInt(iso.slice(5, 7), 10);
 
+  // Recurring season that opens mid-month: shut before its first day.
+  if (w.seasonFirstDay && parseInt(w.seasonFirstDay.slice(0, 2), 10) === monthOfYear) {
+    if (day < parseInt(w.seasonFirstDay.slice(3, 5), 10)) return false;
+  }
   // Recurring season that ends mid-month: shut after its last day, and open
   // again when the season comes back next year.
   if (w.seasonLastDay && parseInt(w.seasonLastDay.slice(0, 2), 10) === monthOfYear) {
@@ -196,7 +212,11 @@ export function describeOperatingWindow(propertyId: string): string | null {
   if (!w) return null;
   const parts: string[] = [];
   if (w.seasonMonths?.length) {
-    const first = MONTH_NAMES[w.seasonMonths[0] - 1];
+    const firstMonth = w.seasonMonths[0];
+    const first =
+      w.seasonFirstDay && parseInt(w.seasonFirstDay.slice(0, 2), 10) === firstMonth
+        ? `${MONTH_NAMES[firstMonth - 1]} ${parseInt(w.seasonFirstDay.slice(3, 5), 10)}`
+        : MONTH_NAMES[firstMonth - 1];
     const lastMonth = w.seasonMonths[w.seasonMonths.length - 1];
     const last =
       w.seasonLastDay && parseInt(w.seasonLastDay.slice(0, 2), 10) === lastMonth

@@ -9,7 +9,12 @@ import {
   openDatesOf,
   type RentalPeriod,
 } from '../rental-periods.ts';
-import { isOperatingOnDate, opensInYear } from '../forecast-operating-windows.ts';
+import {
+  describeOperatingWindow,
+  isOperatingOnDate,
+  operatingFactor,
+  opensInYear,
+} from '../forecast-operating-windows.ts';
 
 /** A summer home: open Memorial Day weekend through the end of October. */
 const summer: RentalPeriod[] = [{ startMonth: 5, startDay: 1, endMonth: 10, endDay: 31 }];
@@ -156,13 +161,27 @@ test('a home with no window is open every day', () => {
   assert.equal(isOperatingOnDate('3_south_st', '2028-02-29'), true);
 });
 
-test('30 Woodward runs May to the end of November, and is shut all winter', () => {
+test('30 Woodward runs 25 April to the end of November, and is shut all winter', () => {
   // Not fully insulated, so the closure is a property fact and recurs.
   assert.equal(isOperatingOnDate('30_woodward', '2026-11-30'), true, 'the 30th is the last night');
   assert.equal(isOperatingOnDate('30_woodward', '2026-12-01'), false);
   assert.equal(isOperatingOnDate('30_woodward', '2027-01-15'), false);
-  assert.equal(isOperatingOnDate('30_woodward', '2027-04-30'), false, 'April stays shut');
-  assert.equal(isOperatingOnDate('30_woodward', '2027-05-01'), true, 'reopens in May');
+  assert.equal(isOperatingOnDate('30_woodward', '2027-04-24'), false, 'shut the day before it opens');
+  assert.equal(isOperatingOnDate('30_woodward', '2027-04-25'), true, 'reopens on the 25th');
+  assert.equal(isOperatingOnDate('30_woodward', '2027-05-01'), true);
   assert.equal(opensInYear('30_woodward', 2027), true);
   assert.equal(opensInYear('30_woodward', 2030), true, 'the season recurs, it is not an exit');
+});
+
+test('a season opening mid-month earns only the days inside it', () => {
+  // April 25-30 is six nights of thirty.
+  assert.ok(Math.abs(operatingFactor('30_woodward', '2027-04') - 6 / 30) < 1e-9);
+  assert.equal(operatingFactor('30_woodward', '2027-05'), 1, 'May is whole');
+  assert.equal(operatingFactor('30_woodward', '2027-12'), 0);
+});
+
+test('the season reads back the way an operator would say it', () => {
+  assert.equal(describeOperatingWindow('30_woodward'), 'open Apr 25 to Nov each year');
+  assert.equal(describeOperatingWindow('79_main'), 'open Jun to Oct 20 each year');
+  assert.equal(describeOperatingWindow('3_south_st'), null, 'no window means nothing to say');
 });
