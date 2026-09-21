@@ -7,13 +7,13 @@ import { deleteDraft } from '@/lib/daily-brief';
 /**
  * Dismiss an email from the daily brief.
  *
- * Flips `email_triage.is_unread` to false for the given Gmail message id,
- * which makes it drop off /today and out of the SMS body. Next time the
- * hourly cron runs, if the email is still actually unread in Gmail it
- * will get re-stamped is_unread=true and come back — but that's the
- * right behavior (the operator decided the email no longer needs their
- * attention; if Gmail still has it marked unread for a real reason, it
- * stays).
+ * Stamps `email_triage.handled_at` (handled_via 'operator') and flips
+ * is_unread to false for the given Gmail message id, which drops it off
+ * /today, the home feed and the SMS body. handled_at is the same
+ * retirement stamp the hourly sync sets when it detects a reply, so a
+ * needs_reply row the operator has marked handled stays gone. (Before
+ * this, the button only flipped is_unread, which since #454 no longer
+ * removes a needs_reply row.)
  *
  * If we'd queued an AI reply draft for this email, delete that draft
  * too — the operator is saying "handled", so the unsent draft is just
@@ -39,10 +39,18 @@ export async function markEmailHandled(gmailMessageId: string): Promise<{ ok: bo
     await deleteDraft(draftId);
   }
 
+  const nowIso = new Date().toISOString();
   await sb
     .from('email_triage')
-    .update({ is_unread: false, draft_id: null, last_seen_at: new Date().toISOString() })
+    .update({
+      is_unread: false,
+      draft_id: null,
+      handled_at: nowIso,
+      handled_via: 'operator',
+      last_seen_at: nowIso,
+    })
     .eq('gmail_message_id', gmailMessageId);
   revalidatePath('/today');
+  revalidatePath('/');
   return { ok: true };
 }
