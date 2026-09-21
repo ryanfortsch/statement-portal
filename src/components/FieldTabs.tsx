@@ -12,7 +12,7 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * lives in the query string and the pathname cannot derive it.
  *
  * Row 2 (lens) is the function within a job: Packets (the priced work board),
- * Shoots & Pay (creative's money surface), Roster (the people), Hiring (the
+ * Shoots & Pay (creative's planner grid + money surface), Roster (the people), Hiring (the
  * applicant pipeline), Trades (the outside vendors we dispatch). Packets only
  * shows for trades that use the packet machinery - creative work is paid per
  * delivered asset, so its board is Shoots & Pay instead. It rides in the
@@ -41,16 +41,16 @@ export function FieldTabs({
   trade?: ContractorTrade;
 }) {
   // A job-type tab keeps you on the same lens where that lens exists for the
-  // target trade; if you're on Packets and switch to a packet-less trade
-  // (creative), land on its Roster instead of a dead board. Same fallback for
-  // Shoots & Pay when the target trade has no shoot board.
-  const jobHref = (t: ContractorTrade) => {
-    const lens =
-      (current === 'packets' && !TRADE_META[t].hasPackets) || (current === 'shoots' && !TRADE_META[t].hasShoots)
-        ? 'contractors'
-        : current;
-    return `${LENS_HREF[lens]}?trade=${t}`;
-  };
+  // target trade; otherwise it lands on that trade's own work board: Packets
+  // for the trades that dispatch packets, Shoots & Pay for creative (the
+  // planner grid and the pay ledger, which is where creative work is run
+  // from). Landing creative on its Roster, as this used to, put the people
+  // list in front of the work every time (Dotti, 2026-09-21).
+  const lensExists = (lens: FieldLens, t: ContractorTrade) =>
+    lens === 'packets' ? TRADE_META[t].hasPackets : lens === 'shoots' ? TRADE_META[t].hasShoots : true;
+  const homeLens = (t: ContractorTrade): FieldLens =>
+    TRADE_META[t].hasPackets ? 'packets' : TRADE_META[t].hasShoots ? 'shoots' : 'contractors';
+  const jobHref = (t: ContractorTrade) => `${LENS_HREF[lensExists(current, t) ? current : homeLens(t)]}?trade=${t}`;
 
   const lenses = (
     [

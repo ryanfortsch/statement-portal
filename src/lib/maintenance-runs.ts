@@ -405,6 +405,11 @@ export type DayClearInfo = {
   clear: boolean;
   /** Why not clear, in operator words. Null when clear. */
   reason: string | null;
+  /** The same verdict as a discriminator, for surfaces that colour a day
+   *  rather than read a sentence (the creative planner grid). Null when
+   *  clear. `guest_night` = someone sleeps there; `check_in` = empty but a
+   *  guest arrives ~3 PM; `held` = an owner / manual / mirror hold. */
+  why: 'guest_night' | 'check_in' | 'held' | null;
   /** Latest checkout on/before the day (guests leave ~11 AM). Counts calendar
    *  blocks too — it answers "since when has nothing been on this calendar". */
   priorCheckout: string | null;
@@ -423,6 +428,29 @@ export async function dayClearReport(
 ): Promise<Map<string, DayClearInfo>> {
   const out = new Map<string, DayClearInfo>();
   if (propertyIds.length === 0 || !day) return out;
+  const range = await dayClearRange(propertyIds, day, day);
+  for (const pid of propertyIds) {
+    const info = range.get(pid)?.get(day);
+    if (info) out.set(pid, info);
+  }
+  return out;
+}
+
+/**
+ * dayClearReport over a window: per property, per day in [start, end], the
+ * same verdict the single-day report gives. The creative planner grid reads
+ * this so the day it offers, the brief it sends and the 8 AM go/no-go text
+ * cannot disagree about a home. A single-day call fetches exactly the window
+ * the report always fetched (±14 days), so the wrapper above is byte-for-byte
+ * the old behaviour.
+ */
+export async function dayClearRange(
+  propertyIds: string[],
+  start: string,
+  end: string,
+): Promise<Map<string, Map<string, DayClearInfo>>> {
+  const out = new Map<string, Map<string, DayClearInfo>>();
+  if (propertyIds.length === 0 || !start || !end || end < start) return out;
 
   const [{ data: bData }, { data: mirrorData }] = await Promise.all([
     fieldDb()
@@ -431,13 +459,14 @@ export async function dayClearReport(
       .in('status', OCCUPANCY_STATUSES)
       .is('duplicate_of', null)
       .in('property_id', propertyIds)
-      .lte('check_in', addDays(day, 14))
-      .gte('check_out', addDays(day, -14)),
+      .lte('check_in', addDays(end, 14))
+      .gte('check_out', addDays(start, -14)),
     fieldDb()
       .from('property_calendar_days')
-      .select('property_id, status, block_type, block_note')
+      .select('property_id, date, status, block_type, block_note')
       .in('property_id', propertyIds)
-      .eq('date', day),
+      .gte('date', start)
+      .lte('date', end),
   ]);
   // Guesty's advance-notice and booking-window rules ride the iCal feed as
   // "Blocked by Guesty" rows that look exactly like a hold. They are not a
@@ -448,50 +477,65 @@ export async function dayClearReport(
     (b) => b.check_in && b.check_out && !(b.status === 'block' && isGuestyRuleArtifactUid(b.ical_uid)),
   );
   const mirror = new Map(
-    ((mirrorData ?? []) as Array<{ property_id: string } & MirrorDayLite>).map((m) => [m.property_id, m]),
+    ((mirrorData ?? []) as Array<{ property_id: string; date: string } & MirrorDayLite>).map((m) => [
+      `${m.property_id}:${m.date.slice(0, 10)}`,
+      m,
+    ]),
   );
 
   for (const pid of propertyIds) {
     const propBookings = bookings.filter((b) => b.property_id === pid);
     const guestStays = propBookings.filter((b) => b.status !== 'block');
-    // A guest stay and a calendar BLOCK both close the night, but they are not
-    // the same fact and must never be reported as one: a block is an owner
-    // hold, a maintenance hold, or an unnamed Guesty block, and saying "a guest
-    // is in the house" about one sends the office chasing a guest who does not
-    // exist (3 South, 2026-08-26).
-    const guestNight = guestStays.some((b) => b.check_in <= day && day < b.check_out);
-    const blocksTonight = propBookings.filter(
-      (b) => b.status === 'block' && b.check_in <= day && day < b.check_out,
-    );
-    const checkInToday = guestStays.some((b) => b.check_in === day);
-    // A deliberate hold from either source, or a mirror-only booking. The
-    // mirror's unavailable-with-no-ref days (the rule artifacts) do not count.
-    const heldReason = heldNightReason(mirror.get(pid), blocksTonight);
+    const byDay = new Map<string, DayClearInfo>();
+    for (let day = start; day <= end; day = addDays(day, 1)) {
+      // A guest stay and a calendar BLOCK both close the night, but they are
+      // not the same fact and must never be reported as one: a block is an
+      // owner hold, a maintenance hold, or an unnamed Guesty block, and saying
+      // "a guest is in the house" about one sends the office chasing a guest
+      // who does not exist (3 South, 2026-08-26).
+      const guestNight = guestStays.some((b) => b.check_in <= day && day < b.check_out);
+      const blocksTonight = propBookings.filter(
+        (b) => b.status === 'block' && b.check_in <= day && day < b.check_out,
+      );
+      const checkInToday = guestStays.some((b) => b.check_in === day);
+      // A deliberate hold from either source, or a mirror-only booking. The
+      // mirror's unavailable-with-no-ref days (the rule artifacts) do not count.
+      const heldReason = heldNightReason(mirror.get(`${pid}:${day}`), blocksTonight);
 
-    const priorCheckout =
-      propBookings
-        .filter((b) => b.check_out <= day)
-        .map((b) => b.check_out)
-        .sort()
-        .at(-1) ?? null;
-    const priorGuestCheckout =
-      guestStays
-        .filter((b) => b.check_out <= day)
-        .map((b) => b.check_out)
-        .sort()
-        .at(-1) ?? null;
-    const nextCheckin =
-      guestStays
-        .filter((b) => b.check_in >= day)
-        .map((b) => b.check_in)
-        .sort()[0] ?? null;
+      const priorCheckout =
+        propBookings
+          .filter((b) => b.check_out <= day)
+          .map((b) => b.check_out)
+          .sort()
+          .at(-1) ?? null;
+      const priorGuestCheckout =
+        guestStays
+          .filter((b) => b.check_out <= day)
+          .map((b) => b.check_out)
+          .sort()
+          .at(-1) ?? null;
+      const nextCheckin =
+        guestStays
+          .filter((b) => b.check_in >= day)
+          .map((b) => b.check_in)
+          .sort()[0] ?? null;
 
-    let reason: string | null = null;
-    if (guestNight) reason = 'a guest is in the house that night';
-    else if (checkInToday) reason = 'a guest checks in that day (~3 PM)';
-    else if (heldReason) reason = heldReason;
+      let reason: string | null = null;
+      let why: DayClearInfo['why'] = null;
+      if (guestNight) {
+        reason = 'a guest is in the house that night';
+        why = 'guest_night';
+      } else if (checkInToday) {
+        reason = 'a guest checks in that day (~3 PM)';
+        why = 'check_in';
+      } else if (heldReason) {
+        reason = heldReason;
+        why = 'held';
+      }
 
-    out.set(pid, { clear: !reason, reason, priorCheckout, priorGuestCheckout, nextCheckin });
+      byDay.set(day, { clear: !reason, reason, why, priorCheckout, priorGuestCheckout, nextCheckin });
+    }
+    out.set(pid, byDay);
   }
   return out;
 }
