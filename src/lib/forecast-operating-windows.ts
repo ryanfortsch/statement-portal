@@ -76,6 +76,15 @@ export const OPERATING_WINDOWS: Record<string, OperatingWindow> = {
   // '2026-10-21', which read the end of its 2026 season as a permanent exit
   // and zeroed every month after it, 2027's summer included.
   '79_main': { seasonMonths: [6, 7, 8, 9, 10], seasonLastDay: '10-20' },
+  // 30 Woodward shuts at the end of November and reopens "late April, early
+  // May" (Dotti, 2026-09-21). The house is not fully insulated, so the
+  // closure is a property fact rather than a booking decision and recurs
+  // every year. The reopening is recorded as May 1, the conservative end of
+  // the range she gave: claiming late-April nights the house may not be open
+  // for would invent revenue, while starting in May only forgoes a few. Its
+  // April 2026 calendar corroborates the shape, carrying a zero-payout hold
+  // across April 1-29.
+  '30_woodward': { seasonMonths: [5, 6, 7, 8, 9, 10, 11] },
 };
 
 /**

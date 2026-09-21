@@ -155,3 +155,14 @@ test('16 Waterman runs May to October', () => {
 test('a home with no window is open every day', () => {
   assert.equal(isOperatingOnDate('3_south_st', '2028-02-29'), true);
 });
+
+test('30 Woodward runs May to the end of November, and is shut all winter', () => {
+  // Not fully insulated, so the closure is a property fact and recurs.
+  assert.equal(isOperatingOnDate('30_woodward', '2026-11-30'), true, 'the 30th is the last night');
+  assert.equal(isOperatingOnDate('30_woodward', '2026-12-01'), false);
+  assert.equal(isOperatingOnDate('30_woodward', '2027-01-15'), false);
+  assert.equal(isOperatingOnDate('30_woodward', '2027-04-30'), false, 'April stays shut');
+  assert.equal(isOperatingOnDate('30_woodward', '2027-05-01'), true, 'reopens in May');
+  assert.equal(opensInYear('30_woodward', 2027), true);
+  assert.equal(opensInYear('30_woodward', 2030), true, 'the season recurs, it is not an exit');
+});
