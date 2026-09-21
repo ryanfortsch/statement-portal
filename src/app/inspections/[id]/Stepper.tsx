@@ -451,6 +451,32 @@ export function Stepper({
     }
   }
 
+  // The "+ Slip" button sits in the top bar on BOTH the review screen and a
+  // card screen, so the modal is built once here and rendered by each branch.
+  // It used to live only inside the card screen's JSX, which left the review
+  // screen's button setting state that nothing rendered: it looked dead
+  // exactly when an inspector who had just marked the last card reached for
+  // it. With no active card the slip is property-scoped, which is right for
+  // something spotted on the way out.
+  const workSlipModal = showWorkSlipModal ? (
+    <WorkSlipModal
+      // Card-scoped when there's an active card (per-item slip from
+      // the action row), otherwise property-scoped (top-bar quick
+      // slip for stuff spotted between cards). Subtitle reflects
+      // which mode the operator is in.
+      itemTitle={activeCard ? activeCard.title : propertyName}
+      scope={activeCard ? 'card' : 'property'}
+      inspectionId={inspectionId}
+      onClose={() => setShowWorkSlipModal(false)}
+      onSubmit={async (input) => {
+        const err = await submitWorkSlip(input);
+        if (err) return err;
+        setShowWorkSlipModal(false);
+        return null;
+      }}
+    />
+  ) : null;
+
   // ─── Review screen (after last card) ───────────────────────────────
   if (showReview) {
     return (
@@ -673,6 +699,8 @@ export function Stepper({
             </button>
           </div>
         </section>
+
+        {workSlipModal}
       </div>
     );
   }
@@ -991,24 +1019,7 @@ export function Stepper({
           }}
         />
       )}
-      {showWorkSlipModal && (
-        <WorkSlipModal
-          // Card-scoped when there's an active card (per-item slip from
-          // the action row), otherwise property-scoped (top-bar quick
-          // slip for stuff spotted between cards). Subtitle reflects
-          // which mode the operator is in.
-          itemTitle={activeCard ? activeCard.title : propertyName}
-          scope={activeCard ? 'card' : 'property'}
-          inspectionId={inspectionId}
-          onClose={() => setShowWorkSlipModal(false)}
-          onSubmit={async (input) => {
-            const err = await submitWorkSlip(input);
-            if (err) return err;
-            setShowWorkSlipModal(false);
-            return null;
-          }}
-        />
-      )}
+      {workSlipModal}
 
       {/* STICKY BOTTOM: 3 big tap targets + nav row */}
       <BottomBar>
