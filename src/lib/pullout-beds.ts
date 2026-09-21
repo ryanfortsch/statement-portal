@@ -179,10 +179,31 @@ export function pulloutCardNote(
     );
     for (const r of ctx.requests) lines.push(`· ${r.ask}`);
   }
-  lines.push(
-    ctx.linensLocation
-      ? `Sheets: ${ctx.linensLocation}`
-      : 'Sheets: not recorded yet. Note where you find them so the next person knows.',
-  );
+  lines.push(sheetsLine(ctx.linensLocation));
   return { note: lines.join('\n'), level: ctx.requests.length > 0 ? 'alert' : 'info' };
+}
+
+/** The prefix the sheets line always carries, so the swap below can find it. */
+const SHEETS_PREFIX = 'Sheets:';
+
+/** The card's sheets line. The one place its wording lives. */
+export function sheetsLine(location: string | null): string {
+  const clean = location?.trim();
+  return clean
+    ? `${SHEETS_PREFIX} ${clean}`
+    : `${SHEETS_PREFIX} not recorded yet. Note where you find them so the next person knows.`;
+}
+
+/**
+ * The frozen card note with its sheets line swapped for the current one.
+ *
+ * The note is snapshotted onto ordered_cards at Start so a walk cannot
+ * shift under the inspector mid-deck. That is right for the guest-request
+ * lines, and wrong for this one: an inspector who has just corrected the
+ * location would otherwise keep reading the stale text on the very card
+ * they fixed. Only the sheets line is live; everything else stays frozen.
+ */
+export function withSheetsLine(note: string | null, location: string | null): string {
+  const kept = (note ?? '').split('\n').filter((l) => !l.trimStart().startsWith(SHEETS_PREFIX));
+  return [...kept, sheetsLine(location)].join('\n').trim();
 }

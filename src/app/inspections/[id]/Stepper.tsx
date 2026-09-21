@@ -8,6 +8,7 @@ import {
   completeInspection,
   addInspectionNote,
   createWorkSlipFromInspection,
+  updatePulloutLinensLocation,
 } from '../actions';
 import type {
   InspectionStatus,
@@ -17,6 +18,7 @@ import type {
 import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
 import { compressImage } from '@/lib/image-compress';
 import { INSPECTION_SUPPLIES } from '@/lib/inspection-supplies';
+import { PULLOUT_BED_ITEM_ID, withSheetsLine } from '@/lib/pullout-beds';
 
 /**
  * One deck card. For zone-mapped properties the same template item can
@@ -111,6 +113,10 @@ type Props = {
   initialResults: StepperResult[];
   initialNotes?: StepperNote[];
   initialWorkSlips?: StepperWorkSlip[];
+  /** Where this home's pullout sheets are, live rather than frozen. The
+   *  pullout card's note is snapshotted at Start, so an inspector who
+   *  corrects the location needs the card to catch up without a reload. */
+  pulloutLinensLocation?: string | null;
   /** Where ← Exit lands. Staff default is the inspections index; the
    *  contractor entry (/field/inspect) passes its packet page — the staff
    *  route is behind Helm SSO and would bounce a contractor to sign-in. */
@@ -138,6 +144,7 @@ export function Stepper({
   initialResults,
   initialNotes = [],
   initialWorkSlips = [],
+  pulloutLinensLocation = null,
   exitHref = '/inspections',
   trailingTasks = [],
   verifySlips = [],
@@ -149,6 +156,8 @@ export function Stepper({
     () => new Map(initialResults.map((r) => [cardKeyOf(r.item_id, r.zone_id), r]))
   );
   const [notes, setNotesList] = useState<StepperNote[]>(initialNotes);
+  const [linensLocation, setLinensLocation] = useState<string | null>(pulloutLinensLocation);
+  const [showLinensModal, setShowLinensModal] = useState(false);
   const [workSlips, setWorkSlips] = useState<StepperWorkSlip[]>(initialWorkSlips);
   const [activeIdx, setActiveIdx] = useState<number>(() => {
     const firstUnmarked = cards.findIndex(
@@ -230,6 +239,25 @@ export function Stepper({
       n.note_type === 'PROPERTY_NOTE' &&
       (!n.inspection_item_id || !deckItemIds.has(n.inspection_item_id)),
   );
+
+  // The pullout card is the one card whose note is not purely frozen: its
+  // sheets line reflects the registry as it stands right now, so correcting
+  // the location updates the card in hand. Only annotated pullout cards
+  // qualify, so a card laid into a deck by hand at a home with no pullout
+  // is left exactly as it was.
+  const isPulloutCard = !!activeCard && activeCard.itemId === PULLOUT_BED_ITEM_ID;
+  const canFixLinens = isPulloutCard && !!activeCard?.note;
+  const activeNote =
+    activeCard && canFixLinens
+      ? withSheetsLine(activeCard.note ?? null, linensLocation)
+      : (activeCard?.note ?? null);
+
+  async function submitLinensLocation(location: string): Promise<string | null> {
+    const res = await updatePulloutLinensLocation({ inspectionId, propertyId, location });
+    if (!res.ok) return res.error;
+    setLinensLocation(res.location);
+    return null;
+  }
 
   function applyOptimistic(card: StepperCard, next: StepperResult) {
     setResults((prev) => {
@@ -792,7 +820,7 @@ export function Stepper({
         >
           {activeCard.title}
         </h1>
-        {activeCard.note && (
+        {activeNote && (
           <div
             style={{
               marginTop: 16,
@@ -809,8 +837,26 @@ export function Stepper({
               whiteSpace: 'pre-wrap',
             }}
           >
-            {activeCard.note}
+            {activeNote}
           </div>
+        )}
+        {canFixLinens && (
+          <button
+            type="button"
+            onClick={() => setShowLinensModal(true)}
+            style={{
+              marginTop: 8,
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              fontSize: 12,
+              color: 'var(--tide-deep)',
+              textDecoration: 'underline',
+              cursor: 'pointer',
+            }}
+          >
+            Sheets somewhere else? Fix it
+          </button>
         )}
         {activeCard.description && (
           <p style={{ marginTop: 14, fontSize: 16, lineHeight: 1.5, color: 'var(--ink-3)' }}>
@@ -1020,6 +1066,20 @@ export function Stepper({
         />
       )}
       {workSlipModal}
+
+      {showLinensModal && activeCard && (
+        <LinenLocationModal
+          propertyName={propertyName}
+          current={linensLocation}
+          onClose={() => setShowLinensModal(false)}
+          onSubmit={async (location) => {
+            const err = await submitLinensLocation(location);
+            if (err) return err;
+            setShowLinensModal(false);
+            return null;
+          }}
+        />
+      )}
 
       {/* STICKY BOTTOM: 3 big tap targets + nav row */}
       <BottomBar>
@@ -1799,6 +1859,86 @@ function WorkSlipModal({
 }
 
 // ─── Modal primitives ─────────────────────────────────────────────
+
+/**
+ * Correct where the pullout sheets live, without leaving the walk.
+ *
+ * Deliberately one field and nothing else. The inspector is standing in
+ * the room, which makes them the only person who can see the registry is
+ * wrong, but it does not make the walk a place to edit the property
+ * record at large.
+ */
+function LinenLocationModal({
+  propertyName,
+  current,
+  onClose,
+  onSubmit,
+}: {
+  propertyName: string;
+  current: string | null;
+  onClose: () => void;
+  onSubmit: (location: string) => Promise<string | null>;
+}) {
+  const [text, setText] = useState(current ?? '');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const trimmed = text.trim();
+  const canSubmit = trimmed.length > 0 && trimmed !== (current ?? '').trim();
+
+  async function handleSubmit() {
+    if (!canSubmit) return;
+    setErr(null);
+    setSubmitting(true);
+    const e = await onSubmit(trimmed);
+    setSubmitting(false);
+    if (e) setErr(e);
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="Where are the sheets?" subtitle={propertyName}>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        autoFocus
+        rows={3}
+        maxLength={300}
+        placeholder="e.g. Lower-level closet, in the grey drawer unit"
+        style={modalTextareaStyle()}
+      />
+      <div
+        style={{
+          marginTop: 14,
+          padding: '8px 12px',
+          background: 'var(--paper-2)',
+          fontSize: 11,
+          color: 'var(--ink-3)',
+          lineHeight: 1.5,
+        }}
+      >
+        This replaces the Sheets line on this card for everyone, on this visit
+        and every one after. Say where they actually are, in the words you
+        would use standing at the door.
+      </div>
+
+      {err && <ErrorBlock error={err} />}
+
+      <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+        <button type="button" onClick={onClose} disabled={submitting} style={ghostBtn()}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit || submitting}
+          style={{ ...primaryBtn(), opacity: !canSubmit || submitting ? 0.5 : 1 }}
+        >
+          {submitting ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
 
 function ModalShell({
   title,
