@@ -696,6 +696,33 @@ export async function saveOwnerCuratedFacts(content: string) {
 // property_access / property_notes), then marks them applied so they stop
 // surfacing. The extractor never writes to Helm's DB.
 
+/** What stay-concierge's kb_triage stage decided about a candidate after
+ *  reading the property's actual knowledge base (src/kb_triage.py). Null on a
+ *  candidate the sweep has not reached yet, in which case the card falls back
+ *  to the old one-fact-at-a-time review. */
+export type ProposedUpdateTriage = {
+  /** known / junk are auto-dismissed upstream and never reach this list.
+   *  fill = the KB has an empty slot this fills. conflict = the KB says
+   *  something different and a human has to rule. */
+  verdict: 'fill' | 'add' | 'conflict' | 'known' | 'junk' | string;
+  /** The fact rewritten as one clean KB line, merging every candidate in the
+   *  group. This, not fact_text, is what gets filed. */
+  statement: string;
+  kb_section: string;
+  /** The verbatim KB line behind a fill or a conflict. Quoted back to the
+   *  operator so a claim about the KB can be checked at a glance. */
+  evidence: string;
+  reason: string;
+  confidence: 'high' | 'medium' | 'low' | string;
+  downgraded_from: string;
+  needs_ruling: boolean;
+  /** Candidates merged into one statement share a group_id. */
+  group_id: string;
+  group_size: number;
+  property_id: string;
+  at: string;
+};
+
 export type ProposedPropertyUpdate = {
   id: string;
   property_id: string;
@@ -708,6 +735,7 @@ export type ProposedPropertyUpdate = {
   source: string;
   created_at: string;
   status: 'pending' | 'applied' | 'dismissed' | string;
+  triage?: ProposedUpdateTriage | null;
 };
 
 export type ProposedPropertyUpdatesResponse = {
