@@ -11,6 +11,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { planDedupe, type DedupRow, type DedupPlan } from '../booking-dedupe.ts';
 import { isPlaceholderGuestName } from '../ical.ts';
+import { findDoubleBookings } from '../booking-conflicts.ts';
 
 const AGGREGATE = 'listing-guesty';
 const DIRECT = 'listing-airbnb';
@@ -90,6 +91,11 @@ const ashley = [
 
 const canonicalOf = (plan: DedupPlan, id: string): string => plan.desired.get(id) ?? id;
 const byId = (rows: DedupRow[]) => new Map(rows.map((r) => [r.id, r]));
+/** Every row the plan leaves standing canonical, whatever its status. */
+const canonicals = (plan: DedupPlan, rows: DedupRow[]) => rows.filter((r) => (plan.desired.get(r.id) ?? null) === null);
+/** The canonical's name once its patch is applied: a placeholder gives way to the patch. */
+const pooledName = (plan: DedupPlan, rows: DedupRow[], id: string) =>
+  (plan.enrichPatches.get(id)?.guest_name as string | undefined) ?? byId(rows).get(id)!.guest_name;
 /** What the canonical row will carry once its patch is applied. */
 const pooled = (plan: DedupPlan, rows: DedupRow[], id: string, field: keyof DedupRow) =>
   byId(rows).get(id)![field] ?? plan.enrichPatches.get(id)?.[field] ?? null;
@@ -390,5 +396,115 @@ describe('what the tighter clustering must still do', () => {
       row({ id: 'in', check_in: '2026-09-22', check_out: '2026-09-25' }),
     ];
     assert.equal(planDedupe(rows, opts).clusters, 0);
+  });
+});
+
+describe('a closed Booking.com placeholder is not a stay, nor a cancellation of one', () => {
+  // Guesty records a Booking.com stay before the guest is named ("Guest to
+  // be announced", no BC- code, its own reservation id) and again once the
+  // guest is, then retires the placeholder as `closed`; a placeholder never
+  // followed by a named record is a booking that fell through. The backfill
+  // mirrors a record closed before its check-in as cancelled
+  // (guesty-legacy-status.ts). Rows as the table held them on 2026-09-21,
+  // with that mirror applied.
+  const locust = (over: Partial<DedupRow> & { id: string }) => row({ property_id: '3_locust', ...over });
+  const tba = (over: Partial<DedupRow> & { id: string }) =>
+    locust({
+      source: 'guesty_legacy',
+      channel_listing_id: null,
+      status: 'cancelled',
+      guest_name: 'Guest to be announced',
+      created_at: '2026-08-25T15:31:24Z',
+      ...over,
+    });
+
+  test('beside the named record it is a duplicate of a live stay', () => {
+    // 3 Locust, 2027-06-01 to 06-08: the placeholder booked 05-29, Gary
+    // Heathcote's BC-l0PnOpEkV a day later. Trusting the placeholder's
+    // cancel made the cluster cancelled, elected the placeholder canonical
+    // and hid Gary's stay from every schedule surface.
+    const heathcote = [
+      locust({ id: 'gh-agg', channel_listing_id: AGGREGATE, check_in: '2027-06-01', check_out: '2027-06-08', guest_name: 'Reservation BC-l0PnOpEkV', external_confirmation_code: 'BC-l0PnOpEkV', created_at: '2026-05-30T15:30:00Z' }),
+      locust({ id: 'gh-legacy', source: 'guesty_legacy', channel_listing_id: null, check_in: '2027-06-01', check_out: '2027-06-08', guest_name: 'Gary Heathcote', external_confirmation_code: 'BC-l0PnOpEkV', external_booking_id: '6a1af22055f83200154db385', payout: 6566.7, created_at: '2026-05-31T04:45:00Z' }),
+      tba({ id: 'tba-jun', check_in: '2027-06-01', check_out: '2027-06-08', external_booking_id: '6a19928f4543e9001284d66a', payout: 6516.13 }),
+    ];
+    const orders: Array<[string, DedupRow[]]> = [
+      ['named first', heathcote],
+      ['placeholder first', [...heathcote].reverse()],
+      ['interleaved', [heathcote[1], heathcote[2], heathcote[0]]],
+    ];
+    for (const [label, rows] of orders) {
+      const plan = planDedupe(rows, opts);
+      assert.equal(plan.clusters, 1, `one stay (${label})`);
+      const live = canonicalOf(plan, 'gh-legacy');
+      assert.equal(canonicalOf(plan, 'tba-jun'), live, `the placeholder is a duplicate of the stay (${label})`);
+      assert.equal(byId(rows).get(live)!.status, 'confirmed', `and the stay is live (${label})`);
+      assert.equal(pooledName(plan, rows, live), 'Gary Heathcote');
+      assert.deepEqual(findDoubleBookings(canonicals(plan, rows)), []);
+    }
+  });
+
+  test('alone, or with only its own twin, it is a cancelled stay', () => {
+    // Rachel Lindas, VRBO 10-13 to 10-18, next to the placeholder booked
+    // 2025-08-28 for 10-16 to 10-19; then Diane Walkinshaw, Airbnb 2027-07-02
+    // to 07-09, next to two placeholders for 06-30 to 07-06. Confirmed, these
+    // were two of the five double-bookings on the list.
+    const rows = [
+      locust({ id: 'rl-agg', channel_listing_id: AGGREGATE, check_in: '2026-10-13', check_out: '2026-10-18', guest_name: 'Reservation HA-x33CAMu', external_confirmation_code: 'HA-x33CAMu', created_at: '2026-08-15T21:00:14Z' }),
+      locust({ id: 'rl-legacy', source: 'guesty_legacy', channel_listing_id: null, check_in: '2026-10-13', check_out: '2026-10-18', guest_name: 'Rachel Lindas', external_confirmation_code: 'HA-x33CAMu', external_booking_id: '6a80ce101d1d5f8d468fc410', created_at: '2026-08-16T04:45:02Z' }),
+      tba({ id: 'tba-oct', check_in: '2026-10-16', check_out: '2026-10-19', external_booking_id: '68b066c96a70ce001325081a', payout: 2466.34 }),
+      locust({ id: 'dw-direct', check_in: '2027-07-02', check_out: '2027-07-09', external_confirmation_code: 'HMKPYXXF5N', created_at: '2026-09-15T15:30:29Z' }),
+      locust({ id: 'dw-agg', channel_listing_id: AGGREGATE, check_in: '2027-07-02', check_out: '2027-07-09', guest_name: 'Reservation HMKPYXXF5N', external_confirmation_code: 'HMKPYXXF5N', created_at: '2026-09-15T15:30:30Z' }),
+      locust({ id: 'dw-legacy', source: 'guesty_legacy', channel_listing_id: null, check_in: '2027-07-02', check_out: '2027-07-09', guest_name: 'Diane Walkinshaw', external_confirmation_code: 'HMKPYXXF5N', external_booking_id: '6aa95f3456eb63a39e09606a', created_at: '2026-09-15T17:08:32Z' }),
+      tba({ id: 'tba-jul-1', check_in: '2027-06-30', check_out: '2027-07-06', external_booking_id: '6a4a7c21fc96cd0014bc33fc', payout: 0 }),
+      tba({ id: 'tba-jul-2', check_in: '2027-06-30', check_out: '2027-07-06', external_booking_id: '6a4be6298b2f12000eac46a4', payout: 0 }),
+    ];
+    const plan = planDedupe(rows, opts);
+    const all = byId(rows);
+    assert.equal(plan.desired.get('tba-oct'), null, 'the October placeholder stands alone');
+    const lindas = canonicalOf(plan, 'rl-legacy');
+    assert.equal(canonicalOf(plan, 'rl-agg'), lindas);
+    assert.equal(all.get(lindas)!.status, 'confirmed');
+    const july = canonicalOf(plan, 'tba-jul-1');
+    assert.equal(canonicalOf(plan, 'tba-jul-2'), july, 'the two July placeholders are one record');
+    assert.equal(all.get(july)!.status, 'cancelled', 'and it is cancelled');
+    const walkinshaw = canonicalOf(plan, 'dw-legacy');
+    assert.equal(canonicalOf(plan, 'dw-direct'), walkinshaw);
+    assert.equal(canonicalOf(plan, 'dw-agg'), walkinshaw);
+    assert.equal(all.get(walkinshaw)!.status, 'confirmed');
+    assert.notEqual(july, walkinshaw);
+    assert.equal(plan.clusters, 3);
+    assert.deepEqual(findDoubleBookings(canonicals(plan, rows)), []);
+  });
+});
+
+describe("an inquiry from another guest on a stay's dates", () => {
+  // 17 Beach, 2026-10-29 to 11-02. Airbnb reveals only a first name on an
+  // inquiry, so Guesty holds "Rebecca" (asked 08-14) beside Todd Shepherd's
+  // HMM5EZCBDB (booked 09-05): two people, two records. The same shape sat
+  // at 3 South (Claire, Kelsey) and 53 Rocky Neck (Zoe) on 2026-09-21. The
+  // inquiry is not the stay, and not a party to a double-booking.
+  const beach = (over: Partial<DedupRow> & { id: string }) =>
+    row({ property_id: '17_beach_rd', check_in: '2026-10-29', check_out: '2026-11-02', ...over });
+  const rows = [
+    beach({ id: 'ts-direct', external_confirmation_code: 'HMM5EZCBDB', created_at: '2026-09-05T23:30:27Z' }),
+    beach({ id: 'ts-agg', channel_listing_id: AGGREGATE, guest_name: 'Reservation HMM5EZCBDB', external_confirmation_code: 'HMM5EZCBDB', created_at: '2026-09-05T23:30:29Z' }),
+    beach({ id: 'ts-legacy', source: 'guesty_legacy', channel_listing_id: null, guest_name: 'Todd Shepherd', external_confirmation_code: 'HMM5EZCBDB', external_booking_id: '6a9ca35e6bba7f1c85d24a4b', created_at: '2026-09-06T02:02:00Z' }),
+    beach({ id: 'rebecca', source: 'guesty_legacy', channel_listing_id: null, status: 'inquiry', guest_name: 'Rebecca', external_booking_id: '6a7f1379d358610fec31fd57', payout: 4873, created_at: '2026-08-25T15:31:24Z' }),
+  ];
+
+  test('stays its own record, and the stay keeps its name', () => {
+    for (const order of [rows, [...rows].reverse()]) {
+      const plan = planDedupe(order, opts);
+      assert.equal(plan.clusters, 1);
+      const live = canonicalOf(plan, 'ts-legacy');
+      assert.equal(canonicalOf(plan, 'ts-direct'), live);
+      assert.equal(canonicalOf(plan, 'ts-agg'), live);
+      assert.equal(byId(order).get(live)!.status, 'confirmed');
+      assert.equal(pooledName(plan, order, live), 'Todd Shepherd');
+      assert.equal(plan.desired.get('rebecca'), null, 'the inquiry stands alone');
+      assert.notEqual(plan.enrichPatches.get(live)?.payout, 4873, 'nothing of the inquiry reaches the stay');
+      assert.deepEqual(findDoubleBookings(canonicals(plan, order)), []);
+    }
   });
 });

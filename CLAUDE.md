@@ -509,6 +509,12 @@ Watch-outs: the reservations feed drops non-confirmed rows, so a reconciler catc
 feed silently omits. A missing "Business model" setting on a Guesty listing means no OWNER NET,
 which is the first thing to check when statement reservations vanish.
 
+Guesty `closed` retires a reservation RECORD, not the stay. After checkout it is a real stay; beside
+a confirmed record it is a superseded one (an altered Airbnb code, or a Booking.com "Guest to be
+announced" placeholder replaced by the named record). Only closed BEFORE arrival is a cancellation:
+`src/lib/guesty-legacy-status.ts` maps it so for the `bookings` backfill, and the dedupe never lets
+an unnamed record's cancel hide a named twin (`isUnnamedRecord` in `src/lib/booking-dedupe.ts`).
+
 ## Quo (OpenPhone)
 
 Rebranded OpenPhone. Cross-cutting: cleaning completion pings, CRM contact timeline, owner
