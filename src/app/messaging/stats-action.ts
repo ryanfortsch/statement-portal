@@ -28,10 +28,14 @@ export type FetchTimeseriesResult =
 export async function fetchTimeseries(
   days: number,
   topic?: string,
+  scope: 'all' | 'substantive' = 'substantive',
 ): Promise<FetchTimeseriesResult> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
-  const res = await getStatsTimeseries(days, topic);
+  // Defaults to the substantive slice so the chart tracks the same number as
+  // the hero. Charting everything meant 39% of the line was courtesy acks at
+  // ~95%, which is why three weeks of work left it visually flat.
+  const res = await getStatsTimeseries(days, topic, scope);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   return { ok: true, data: res.data };
 }

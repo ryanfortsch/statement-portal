@@ -170,7 +170,7 @@ async function AnalyticsSection() {
     // "is the AI getting it right?" signal lives.
     getStats(0),
     getFacts(20),
-    getStatsTimeseries(30),
+    getStatsTimeseries(30, undefined, 'substantive'),
     getFactAudit(),
     listRecentApprovals(24),
   ]);

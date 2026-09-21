@@ -281,6 +281,15 @@ function StatsBody({
 }) {
   const oneShotPct =
     stats.one_shot_rate == null ? null : Math.round(stats.one_shot_rate * 100);
+  // The hero is the SUBSTANTIVE rate: the one that can actually move. The
+  // headline counted courtesy acks (39% of the denominator, ~95% first-try)
+  // and auto-sent cards (which grade themselves), so a 10-point gain on a
+  // real topic moved it under a point. Older concierge builds do not send
+  // this block, in which case the headline stays the hero as before.
+  const sub = stats.substantive ?? null;
+  const subPct =
+    sub && sub.one_shot_rate != null ? Math.round(sub.one_shot_rate * 100) : null;
+  const heroPct = sub ? subPct : oneShotPct;
 
   return (
     <div>
@@ -304,7 +313,7 @@ function StatsBody({
           }}
         >
           <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-            One-shot rate
+            {sub ? 'One-shot rate · real work' : 'One-shot rate'}
           </span>
           <InfoTooltip>
             <OneShotExplainer stats={stats} />
@@ -316,15 +325,39 @@ function StatsBody({
             fontSize: 56,
             lineHeight: 1,
             fontWeight: 500,
-            color: oneShotPct == null ? 'var(--ink-4)' : 'var(--ink)',
+            color: heroPct == null ? 'var(--ink-4)' : 'var(--ink)',
             letterSpacing: '-0.02em',
             marginBottom: 8,
           }}
         >
-          {oneShotPct == null ? '—' : `${oneShotPct}%`}
+          {heroPct == null ? '—' : `${heroPct}%`}
         </div>
         <OneShotSubtitle stats={stats} />
       </div>
+
+      {/* The old headline, kept as a secondary readout so the change is
+          legible rather than looking like a regression. It counts courtesy
+          acks and auto-sends, which is why it reads ~20 points higher and
+          why it could not move. The Auto-sent tile in the grid below now
+          reads correctly too: it rendered 0 for seven weeks because the
+          service logs "auto_send" and the stats endpoint read "auto_sent". */}
+      {sub && (
+        <div
+          style={{
+            padding: '0 0 20px',
+            borderBottom: '1px solid var(--rule)',
+            marginBottom: 20,
+            fontSize: 13,
+            color: 'var(--ink-3)',
+          }}
+        >
+          Counting everything, including thank-yous and auto-sends:{' '}
+          <b style={{ color: 'var(--ink)' }}>
+            {oneShotPct == null ? '—' : `${oneShotPct}%`}
+          </b>{' '}
+          of {stats.approved_total + stats.escalated}
+        </div>
+      )}
 
       {/* Trend: rolling one-shot rate over the last 30 days. Sits between
           the hero and the KPI grid so the "is it getting better?" answer
@@ -427,6 +460,22 @@ function StatsBody({
 }
 
 function OneShotSubtitle({ stats }: { stats: MessagingStats }) {
+  const sub = stats.substantive ?? null;
+  if (sub && sub.engaged > 0) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+        <b style={{ color: 'var(--ink)' }}>{sub.first_pass_clean}</b> of{' '}
+        <b style={{ color: 'var(--ink)' }}>{sub.engaged}</b> first-try, thank-yous and
+        auto-sends excluded
+        {sub.escalated > 0 && (
+          <>
+            {' · '}
+            <span style={{ color: 'var(--signal)' }}>{sub.escalated} punted to SMS</span>
+          </>
+        )}
+      </div>
+    );
+  }
   const helmEngaged = stats.approved_total + stats.escalated;
   if (helmEngaged === 0) {
     return (
@@ -521,8 +570,18 @@ function OneShotExplainer({ stats }: { stats: MessagingStats }) {
       </span>
     );
   }
+  const sub = stats.substantive ?? null;
   return (
     <>
+      {sub && sub.engaged > 0 && (
+        <>
+          The big number counts only work that costs you time. Courtesy acks and
+          review requests are excluded (they are{' '}
+          <b>{helmEngaged - sub.approved - sub.escalated}</b> of the messages here and
+          the AI nails almost all of them), and so are messages it sent by itself,
+          which would otherwise be scoring their own homework.{' '}
+        </>
+      )}
       Of the <b>{helmEngaged}</b>{' '}
       {helmEngaged === 1 ? 'message' : 'messages'} the AI tried to handle,{' '}
       <b>{stats.first_pass_clean}</b> shipped on the first draft.
