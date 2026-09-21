@@ -6,6 +6,8 @@ import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { Approval } from '@/lib/stay-concierge';
+import type { CardQuoteBlock, GuestQuoteContext } from '@/lib/guest-quote-context-core';
+import { fmtCents, type ScaQuoteStatus } from '@/lib/sca-quotes-types';
 import {
   approveDraft,
   rejectDraft,
@@ -33,6 +35,9 @@ import {
 
 type Props = {
   initialPending: Approval[];
+  /** This guest's existing Stay Cape Ann quotes, keyed by approval id. Rides
+   *  the queue's own feed so a coached rewrite (new id) keeps its context. */
+  initialQuotes?: GuestQuoteContext;
 };
 
 // How often the REST of the page (recent strip, conversations, performance)
@@ -49,9 +54,23 @@ const PAGE_REFRESH_MS = 60_000;
 // var(--signal) (which already means stale/aging/error on this card).
 const QUEUED_TONE = '#7a6a3a';
 
+// Existing Stay Cape Ann quotes for this guest. Muted ink rather than a
+// colour of its own: this block is context the operator reads, never an
+// action competing with the send buttons below it.
+const QUOTE_TONE = 'var(--ink-3)';
+
 // Add-on payment-link block: money being collected, so its own tone —
 // distinct from the slip teal, the queued bronze, and the extension sage.
 const ADDON_TONE = '#6b4f7a';
+
+/** One colour per quote state, so a row reads before it is parsed. Sent and
+ *  accepted are the two the operator is looking for; the rest stay quiet. */
+function quoteStatusTone(status: ScaQuoteStatus): string {
+  if (status === 'accepted') return 'var(--go, #2e7d32)';
+  if (status === 'sent') return ADDON_TONE;
+  if (status === 'expired' || status === 'declined') return 'var(--signal)';
+  return 'var(--ink-3)';
+}
 
 // Quick-send presets, in minutes.
 const SEND_PRESETS: { label: string; minutes: number }[] = [
@@ -80,11 +99,11 @@ function nextQuarterHour(): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export function MessagingQueue({ initialPending }: Props) {
+export function MessagingQueue({ initialPending, initialQuotes }: Props) {
   // The cards come from the queue's own feed, so a slow page render can never
   // hold a finished draft back. Seeded by the server render above.
-  const { approvals, updatedTick, refresh, watchRegen, stalledId } =
-    useApprovalQueue(initialPending, 'guests');
+  const { approvals, context: quotes, updatedTick, refresh, watchRegen, stalledId } =
+    useApprovalQueue<Approval, GuestQuoteContext>(initialPending, 'guests', initialQuotes);
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
   // stampede fix). Now only the strips below the queue depend on it. The
@@ -145,6 +164,7 @@ export function MessagingQueue({ initialPending }: Props) {
           <ApprovalCard
             key={approval.id}
             approval={approval}
+            quotes={quotes?.[approval.id]}
             onResolved={onResolved}
             onDecided={setLastDecision}
             onRegenerating={watchRegen}
@@ -175,12 +195,17 @@ type PendingAction =
 
 function ApprovalCard({
   approval,
+  quotes,
   onResolved,
   onDecided,
   onRegenerating,
   regenStalled,
 }: {
   approval: Approval;
+  /** Stay Cape Ann quotes already on file for this guest, with the true
+   *  count beside them. Undefined when the card has no email to join on, or
+   *  when the lookup degraded. */
+  quotes?: CardQuoteBlock;
   onResolved: () => void;
   /** A reversible decision landed (reject / mark handled): offer undo. */
   onDecided: (d: Decision) => void;
@@ -310,16 +335,43 @@ function ApprovalCard({
   // size, email and phone ride the card in `prerelease`; without them the
   // form opened half-empty and the operator retyped them by hand.
   const pre = approval.prerelease;
+  const quoteProperty = pre?.helm_property_id || approval.listing_id || '';
+  // The email the card knows: the pre-release sidecar's, else the address the
+  // thread itself is with.
+  const quoteEmail = pre?.guest_email || approval.guest_email || '';
   const quoteHref =
-    `/guests/quotes/new?property=${encodeURIComponent(pre?.helm_property_id || approval.listing_id || '')}` +
+    `/guests/quotes/new?property=${encodeURIComponent(quoteProperty)}` +
     `&check_in=${encodeURIComponent(approval.check_in || '')}` +
     `&check_out=${encodeURIComponent(approval.check_out || '')}` +
     `&first=${encodeURIComponent(approval.guest_first || '')}` +
     (pre?.guests ? `&guests=${encodeURIComponent(String(pre.guests))}` : '') +
-    (pre?.guest_email ? `&email=${encodeURIComponent(pre.guest_email)}` : '') +
+    (quoteEmail ? `&email=${encodeURIComponent(quoteEmail)}` : '') +
     (pre?.guest_last ? `&last=${encodeURIComponent(pre.guest_last)}` : '') +
     (pre?.guest_phone ? `&phone=${encodeURIComponent(pre.guest_phone)}` : '') +
-    `&source=prerelease&source_ref=${encodeURIComponent(approval.guesty_message_id || '')}`;
+    `&source=${encodeURIComponent(isPrereleaseRequest ? 'prerelease' : approval.topic || 'messaging')}` +
+    `&source_ref=${encodeURIComponent(approval.guesty_message_id || '')}`;
+  // An email guest can be quoted too. Abha Singhal filed a 2027 form request
+  // for one house, moved the conversation to email about a different house and
+  // different dates, and at that moment lost the only button that could price
+  // her: the action was gated on the card's TOPIC rather than on whether a
+  // quote was possible (Dotti, 2026-09-21). Email cards get it now. OTA chat
+  // does not: those threads are about a stay already booked, and a Send a
+  // price on every one of them is noise.
+  // It stays SECONDARY here. A pre-release card's draft is only a holding
+  // reply, so pricing is its likely action; an email card's draft is a real
+  // reply the operator means to send, and demoting Approve would be wrong.
+  //
+  // Deliberately NOT gated on the card knowing a property. An email thread
+  // resolves its home from a link or from the thread's own history, and a
+  // later message in that same thread routinely carries neither: both of the
+  // live replies from Abha and Kaitlin on 2026-09-21 came back with an empty
+  // listing_id. Gating on a slug would have hidden the button on exactly the
+  // cards it was built for. With no slug the composer simply opens on the
+  // property picker with the guest already filled in.
+  const canQuoteEmailGuest = !isPrereleaseRequest && approval.module === 'email';
+  const quoteHint = quoteProperty
+    ? 'Opens the quote form with their home filled in. The reply above is unaffected.'
+    : 'Opens the quote form with this guest filled in. Pick their home there. The reply above is unaffected.';
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
   const kind = proactiveKind(approval.guesty_message_id, approval.topic);
   const badge = proactiveBadge(kind);
@@ -866,6 +918,111 @@ function ApprovalCard({
         </div>
       )}
 
+      {quotes && quotes.quotes.length > 0 && (
+        <div
+          style={{
+            marginTop: 16,
+            border: '1px solid var(--rule)',
+            borderLeft: `3px solid ${QUOTE_TONE}`,
+            background: 'var(--paper)',
+            padding: '12px 14px',
+          }}
+        >
+          <div className="eyebrow" style={{ color: QUOTE_TONE, marginBottom: 8 }}>
+            {/* The TRUE count, never the length of the truncated list: a cap
+                printed as a total reads as a complete history and is how a
+                guest gets quoted twice for the same dates. */}
+            {quotes.total === 1 ? 'Quote on file' : `${quotes.total} quotes on file`}
+            {quotes.total > quotes.quotes.length
+              ? ` · showing ${quotes.quotes.length}`
+              : ''}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {quotes.quotes.map((q) => (
+              <a
+                key={q.id}
+                href={`/guests/quotes/${q.id}`}
+                style={{ color: 'var(--ink)', textDecoration: 'none', display: 'block' }}
+              >
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: 10,
+                    flexWrap: 'wrap',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      border: `1px solid ${quoteStatusTone(q.status)}`,
+                      color: quoteStatusTone(q.status),
+                      padding: '1px 6px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {q.status}
+                  </span>
+                  <span className="font-serif" style={{ fontSize: 14 }}>
+                    {q.property_internal_name || 'Quote'}
+                  </span>
+                  <span style={{ color: 'var(--ink-3)' }}>
+                    {formatStayDates(q.check_in, q.check_out) || `${q.check_in} to ${q.check_out}`}
+                    {q.nights > 0 ? ` · ${q.nights}n` : ''}
+                  </span>
+                  <span className="tabular-nums" style={{ marginLeft: 'auto', fontWeight: 600 }}>
+                    {fmtCents(q.total_cents)}
+                  </span>
+                </span>
+                {/* An accepted split plan means the DEPOSIT landed, not that
+                    the stay is paid for. Showing only the total read as
+                    settled while a balance was still outstanding. */}
+                {q.leg_due === 'balance' && (
+                  <span
+                    style={{
+                      display: 'block',
+                      marginTop: 2,
+                      fontSize: 12,
+                      color: 'var(--signal)',
+                    }}
+                  >
+                    Balance {fmtCents(q.amount_due_cents)} still due
+                    {q.balance_due_on ? ` by ${q.balance_due_on}` : ''}
+                  </span>
+                )}
+                {/* The card's address is not always the quote's: a quote made
+                    here and re-addressed in the composer keeps its source_ref.
+                    Say whose it is rather than letting the header imply it. */}
+                {q.guest_email && q.guest_email !== (approval.guest_email || '').trim().toLowerCase() && (
+                  <span style={{ display: 'block', marginTop: 2, fontSize: 12, color: 'var(--ink-4)' }}>
+                    Addressed to {q.guest_email}
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+          <p style={{ marginTop: 9, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+            {quotes.quotes.some((q) => q.status === 'draft')
+              ? 'A draft is not with the guest yet. Open it to send.'
+              : 'Open one to see its terms and what it is waiting on.'}
+            {quotes.total > quotes.quotes.length && (
+              <>
+                {' '}
+                <a href="/guests/quotes" style={{ color: 'var(--ink-3)' }}>
+                  See all {quotes.total} in Quotes
+                </a>
+                .
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
       {addon && (
         <div
           style={{
@@ -1019,6 +1176,11 @@ function ApprovalCard({
                 branch runs before the pre-release branch below, and the header
                 link it replaced used to render here. */}
             {isPrereleaseRequest && <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>}
+            {canQuoteEmailGuest && (
+              <SecondaryLink href={quoteHref} title={quoteHint}>
+                Send a price
+              </SecondaryLink>
+            )}
             <SecondaryButton
               onClick={handleSendNow}
               disabled={busy}
@@ -1115,13 +1277,24 @@ function ApprovalCard({
                 </span>
               </>
             ) : (
-              <SplitSendButton
-                onApprove={handleApprove}
-                onToggle={toggleSchedule}
-                disabled={busy}
-                loading={pendingAction === 'approve'}
-                open={showSchedule}
-              />
+              <>
+                <SplitSendButton
+                  onApprove={handleApprove}
+                  onToggle={toggleSchedule}
+                  disabled={busy}
+                  loading={pendingAction === 'approve'}
+                  open={showSchedule}
+                />
+                {canQuoteEmailGuest && (
+                  <SecondaryLink
+                    href={quoteHref}
+                    disabled={busy}
+                    title={quoteHint}
+                  >
+                    Send a price
+                  </SecondaryLink>
+                )}
+              </>
             )}
             <SecondaryButton
               onClick={toggleCoach}
@@ -1634,6 +1807,48 @@ function PrimaryLink({
         letterSpacing: '0.18em',
         textTransform: 'uppercase',
         fontWeight: 700,
+        textDecoration: 'none',
+        display: 'inline-block',
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+/** A secondary action that navigates (Send a price on an email card). Same
+ *  weight as SecondaryButton so it reads as one of the lesser actions beside
+ *  Approve, not as a second primary. */
+function SecondaryLink({
+  href,
+  children,
+  disabled,
+  title,
+}: {
+  href: string;
+  children: React.ReactNode;
+  /** Another action on the card is in flight; navigating away would abandon
+   *  it, so this greys out with the buttons beside it. */
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <a
+      href={disabled ? undefined : href}
+      aria-disabled={disabled || undefined}
+      onClick={disabled ? (e) => e.preventDefault() : undefined}
+      title={title}
+      style={{
+        pointerEvents: disabled ? 'none' : undefined,
+        opacity: disabled ? 0.5 : 1,
+        background: 'var(--paper)',
+        color: 'var(--ink-2)',
+        border: '1px solid var(--ink-3)',
+        padding: '10px 16px',
+        fontSize: 11,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        fontWeight: 500,
         textDecoration: 'none',
         display: 'inline-block',
       }}

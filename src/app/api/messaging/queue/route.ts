@@ -10,6 +10,7 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadContractorApprovalContext } from '@/lib/contractor-approval-context';
+import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
 
 /**
  * A messaging queue's cards as plain JSON, for the card list to poll on its own.
@@ -90,5 +91,15 @@ export async function GET(req: NextRequest) {
   }
 
   const res = await listApprovals();
-  return res.ok ? NextResponse.json({ approvals: res.data.approvals }) : failed(res.error);
+  if (!res.ok) return failed(res.error);
+  const approvals = res.data.approvals;
+  // A guest's open quotes, keyed by approval id. Same reason the contractor
+  // context rides this feed: a coached rewrite lands under a NEW id, so a
+  // context left to the next full page render would blank on the replacement
+  // card. Only a card carrying an email or a message id can join to anything,
+  // and an all-OTA queue carries neither, so check before paying for it.
+  const wantsQuotes = approvals.some((a) => (a.guest_email || '').trim() || (a.guesty_message_id || '').trim());
+  if (!wantsQuotes) return NextResponse.json({ approvals, context: {} });
+  const context = await loadGuestQuoteContext(approvals).catch(() => ({}));
+  return NextResponse.json({ approvals, context });
 }
