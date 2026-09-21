@@ -79,7 +79,9 @@ export type DedupOptions = {
 export type DedupPlan = {
   /** Every row given: null to stand canonical, else its canonical's id. */
   desired: Map<string, string | null>;
-  /** Per canonical, the fields it is missing that a duplicate provides. */
+  /** Per canonical, the fields it is missing that a duplicate provides, plus
+   *  a pooled booking id corrected or cleared (see bookingIdPatch); a row
+   *  standing alone can carry the latter. */
   enrichPatches: Map<string, Record<string, unknown>>;
   /** Clusters of two or more rows. */
   clusters: number;
@@ -169,32 +171,91 @@ function normId(v: string | null): string | null {
 }
 
 /**
+ * The booking id a row can vouch for: its own, written by a source that has
+ * one. Null on an ical_import row whatever the column says.
+ *
+ * guesty_legacy rows are keyed on the Guesty reservation id (guesty-backfill
+ * writes it). An iCal feed carries no reservation id and ical-sync's upsert
+ * row has no external_booking_id, so any value on an ical_import row was
+ * POOLED onto it by the enrichment at the bottom of planDedupe while it stood
+ * canonical. A pooled id is a copy of a twin's, and it outlives the cluster
+ * it was copied in: a cluster split never reverts a patch.
+ *
+ * 53 Rocky Neck, 2026-10-08 to 10-12, is the worked case. Monica Lashley
+ * booked HMTWCKF422, cancelled it on 07-17 and rebooked the same dates on
+ * 07-20 as HMSZKNJ3CD. While the clusters were fused (pre-#1568) the
+ * cancelled aggregate-feed row of the first reservation was canonical and
+ * took the Guesty id of the live one. #1568 told the two codes apart, but
+ * pass one joined "any shared booking id, never refused", so the borrowed id
+ * glued the clusters straight back together, the direct feed's trusted
+ * cancel made the whole cluster cancelled, and the live stay vanished from
+ * every schedule surface (they read duplicate_of is null + confirmed). 309
+ * ical_import rows carried such an id on 2026-09-21.
+ *
+ * So a pooled id is identity for nothing. It stays enrichment, and
+ * bookingIdPatch holds it to what the cluster's native rows actually carry.
+ */
+function nativeBookingId(r: DedupRow): string | null {
+  if (r.source === 'ical_import') return null;
+  return normId(r.external_booking_id);
+}
+
+/**
+ * What the canonical's external_booking_id should be, as a patch, or null
+ * for no change.
+ *
+ * A canonical that carries its own booking id (see nativeBookingId) is left
+ * alone. Otherwise the column is a pooled copy and is held to the cluster:
+ * it keeps its value only while some native row in the cluster carries the
+ * same id, else it takes the first id a native row does carry, or is cleared
+ * when there is none. Only-fill-when-empty is what let the borrowed
+ * 53 Rocky Neck id outlive the fused cluster it was copied in; and a copy is
+ * never taken from another pooled copy, so a stale id cannot hop between
+ * iCal rows either.
+ */
+function bookingIdPatch(canonical: DedupRow, cluster: DedupRow[]): Record<string, unknown> | null {
+  if (nativeBookingId(canonical)) return null;
+  const current = normId(canonical.external_booking_id);
+  const vouched: string[] = [];
+  for (const r of cluster) {
+    const id = nativeBookingId(r);
+    if (id && !vouched.includes(id)) vouched.push(id);
+  }
+  if (current && vouched.includes(current)) return null;
+  const want = vouched[0] ?? null;
+  if (current === want) return null;
+  return { external_booking_id: want };
+}
+
+/**
  * Two rows are the SAME reservation when they share a non-empty confirmation
- * code or booking id. This is the reliable cross-source join: a single Airbnb
- * stay arrives as a direct-feed iCal row, a Guesty aggregate-feed iCal row,
- * and a guesty_legacy row, all carrying the same channel confirmation code.
+ * code or a booking id each carries natively. This is the reliable
+ * cross-source join: a single Airbnb stay arrives as a direct-feed iCal row,
+ * a Guesty aggregate-feed iCal row, and a guesty_legacy row, all carrying the
+ * same channel confirmation code.
  */
 function shareIdentity(a: DedupRow, b: DedupRow): boolean {
   const ca = normId(a.external_confirmation_code);
   const cb = normId(b.external_confirmation_code);
   if (ca && cb && ca === cb) return true;
-  const ia = normId(a.external_booking_id);
-  const ib = normId(b.external_booking_id);
+  const ia = nativeBookingId(a);
+  const ib = nativeBookingId(b);
   return !!(ia && ib && ia === ib);
 }
 
 /**
  * Two rows are EXPLICITLY different reservations when both carry a code (or
- * both a booking id) and they differ. Such a pair must never be merged by a
- * bare date overlap -- that's what keeps a cancel-then-rebook (fresh code on
- * the same dates) and a genuine same-date double-booking as separate stays.
+ * both a native booking id) and they differ. Such a pair must never be
+ * merged by a bare date overlap -- that's what keeps a cancel-then-rebook
+ * (fresh code on the same dates) and a genuine same-date double-booking as
+ * separate stays.
  */
 function conflictingIdentity(a: DedupRow, b: DedupRow): boolean {
   const ca = normId(a.external_confirmation_code);
   const cb = normId(b.external_confirmation_code);
   if (ca && cb && ca !== cb) return true;
-  const ia = normId(a.external_booking_id);
-  const ib = normId(b.external_booking_id);
+  const ia = nativeBookingId(a);
+  const ib = nativeBookingId(b);
   return !!(ia && ib && ia !== ib);
 }
 
@@ -304,9 +365,10 @@ function createdGap(a: DedupRow, b: DedupRow): number {
  *
  * Union-find over same-stay pairs within a property, in three passes.
  *
- * Pass one joins rows that share a confirmation code or booking id: one
- * reservation seen by several feeds. Never refused; a code names one
- * reservation for good.
+ * Pass one joins rows that share a confirmation code or a native booking id
+ * (an ical_import row's is a pooled copy and joins nothing; see
+ * nativeBookingId): one reservation seen by several feeds. Never refused; a
+ * code names one reservation for good.
  *
  * Pass two joins by dates, but only rows that carry EVIDENCE of which
  * reservation they are (a code or a real guest name), and only when the
@@ -492,7 +554,13 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
 
     for (const cluster of clusters.values()) {
       if (cluster.length === 1) {
-        desired.set(cluster[0].id, null);
+        const only = cluster[0];
+        desired.set(only.id, null);
+        // A row standing alone has no twin to have borrowed from: an
+        // ical_import row still wearing a booking id got it in a cluster it
+        // has since left, and it comes off.
+        const stale = bookingIdPatch(only, cluster);
+        if (stale) enrichPatches.set(only.id, stale);
         continue;
       }
       clusterCount += 1;
@@ -510,13 +578,18 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       // Pool enrichment fields onto the canonical: for each field the canonical
       // is missing, take the first value from a duplicate. guest_name is special
       // -- a placeholder ("Reservation HM…") counts as missing so a real name
-      // from the Guesty side overwrites the iCal code.
+      // from the Guesty side overwrites the iCal code. external_booking_id is
+      // special the other way: held to the cluster, not just filled when empty.
       const patch: Record<string, unknown> = {};
       for (const field of ENRICH_FIELDS) {
         if (field === 'guest_name') {
           if (!isPlaceholder(canonical.guest_name)) continue;
           const donor = cluster.find((r) => r.id !== canonical.id && !isPlaceholder(r.guest_name));
           if (donor) patch.guest_name = (donor.guest_name as string).trim();
+          continue;
+        }
+        if (field === 'external_booking_id') {
+          Object.assign(patch, bookingIdPatch(canonical, cluster));
           continue;
         }
         if (canonical[field] != null) continue;

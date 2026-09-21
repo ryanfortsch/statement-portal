@@ -140,6 +140,166 @@ describe('cancel-then-rebook on the exact same dates', () => {
   });
 });
 
+describe('a booking id pooled onto an iCal row is not identity', () => {
+  // 53 Rocky Neck, 2026-10-08 to 10-12, as the table held it on 2026-09-21.
+  // Monica Lashley booked HMTWCKF422, cancelled it on 07-17 and rebooked the
+  // same dates on 07-20 as HMSZKNJ3CD. While the clusters were fused, the
+  // cancelled aggregate-feed row stood canonical and pooled the LIVE
+  // reservation's Guesty id (with the name and the payout); the rebooking's
+  // direct-feed row pooled the same id while it stood canonical later. The
+  // sync never writes external_booking_id on an ical_import row, so every
+  // one of those is a copy. cancelled_at is stamped on the confirmed rows
+  // too, as the table has it; only status 'cancelled' reads as a cancel.
+  const LIVE_ID = '6a5e32b311b34fc38573a38a';
+  const CANCELLED_ID = '6a5a2f046b457b66d97f3a4b';
+  const rn = (over: Partial<DedupRow> & { id: string }) =>
+    row({ property_id: '53_rocky_neck', check_in: '2026-10-08', check_out: '2026-10-12', ...over });
+  const first = [
+    rn({
+      id: 'old-agg',
+      channel_listing_id: AGGREGATE,
+      status: 'cancelled',
+      cancelled_at: '2026-07-17T19:30:17Z',
+      created_at: '2026-07-17T14:00:19Z',
+      guest_name: 'Monica Lashley',
+      external_confirmation_code: 'HMTWCKF422',
+      external_booking_id: LIVE_ID,
+      payout: 2648.23,
+    }),
+    rn({
+      id: 'old-direct',
+      status: 'cancelled',
+      cancelled_at: '2026-07-17T19:30:14Z',
+      created_at: '2026-07-17T14:00:25Z',
+      external_confirmation_code: 'HMTWCKF422',
+    }),
+    rn({
+      id: 'old-legacy',
+      source: 'guesty_legacy',
+      channel_listing_id: null,
+      status: 'cancelled',
+      cancelled_at: '2026-08-05T15:09:07Z',
+      created_at: '2026-07-18T04:45:35Z',
+      guest_name: 'Monica Lashley',
+      external_confirmation_code: 'HMTWCKF422',
+      external_booking_id: CANCELLED_ID,
+      payout: 0,
+    }),
+  ];
+  const rebooked = [
+    rn({
+      id: 'new-agg',
+      channel_listing_id: AGGREGATE,
+      cancelled_at: '2026-08-05T15:09:07Z',
+      created_at: '2026-07-20T15:00:29Z',
+      guest_name: 'Reservation HMSZKNJ3CD',
+      external_confirmation_code: 'HMSZKNJ3CD',
+    }),
+    rn({
+      id: 'new-direct',
+      cancelled_at: '2026-08-05T15:09:07Z',
+      created_at: '2026-07-20T15:00:31Z',
+      external_confirmation_code: 'HMSZKNJ3CD',
+      external_booking_id: LIVE_ID,
+      payout: 2648.23,
+    }),
+    rn({
+      id: 'new-legacy',
+      source: 'guesty_legacy',
+      channel_listing_id: null,
+      cancelled_at: '2026-08-05T15:09:07Z',
+      created_at: '2026-07-21T04:45:31Z',
+      guest_name: 'Monica Lashley',
+      external_confirmation_code: 'HMSZKNJ3CD',
+      external_booking_id: LIVE_ID,
+      payout: 2648.23,
+    }),
+  ];
+
+  const orders: Array<[string, DedupRow[]]> = [
+    ['cancelled first', [...first, ...rebooked]],
+    ['rebooking first', [...rebooked, ...first]],
+    ['interleaved', [first[0], rebooked[1], rebooked[0], first[1], rebooked[2], first[2]]],
+  ];
+
+  for (const [label, rows] of orders) {
+    test(`the rebooking keeps a confirmed canonical and the cancelled stay stays apart (${label})`, () => {
+      const plan = planDedupe(rows, opts);
+      const all = byId(rows);
+      assert.equal(plan.clusters, 2, 'two reservations, two stays');
+
+      const live = canonicalOf(plan, 'new-agg');
+      assert.equal(canonicalOf(plan, 'new-direct'), live);
+      assert.equal(canonicalOf(plan, 'new-legacy'), live);
+      assert.equal(all.get(live)!.status, 'confirmed', 'the rebooking is live');
+      assert.equal(pooled(plan, rows, live, 'external_confirmation_code'), 'HMSZKNJ3CD');
+      assert.equal(pooled(plan, rows, live, 'external_booking_id'), LIVE_ID);
+      // The aggregate-feed row is canonical and wears the placeholder, so
+      // the name arrives by patch.
+      assert.equal(plan.enrichPatches.get(live)?.guest_name, 'Monica Lashley');
+
+      const gone = canonicalOf(plan, 'old-agg');
+      assert.equal(canonicalOf(plan, 'old-direct'), gone);
+      assert.equal(canonicalOf(plan, 'old-legacy'), gone);
+      assert.equal(all.get(gone)!.status, 'cancelled', 'the first booking stays cancelled');
+      assert.notEqual(live, gone);
+    });
+  }
+
+  test('the borrowed id on the cancelled canonical is corrected from its own cluster', () => {
+    const rows = [...first, ...rebooked];
+    const plan = planDedupe(rows, opts);
+    // The aggregate-feed row is canonical (iCal outranks the backfill, and
+    // it is the earliest), still wearing the live reservation's id.
+    assert.equal(canonicalOf(plan, 'old-agg'), 'old-agg');
+    assert.equal(plan.enrichPatches.get('old-agg')?.external_booking_id, CANCELLED_ID);
+  });
+
+  test('a borrowed id is never copied from one iCal row to another', () => {
+    // No backfill row yet: nothing native vouches for the id the direct-feed
+    // row carries, so the canonical is not lent it.
+    const rows = [rebooked[0], rebooked[1]];
+    const plan = planDedupe(rows, opts);
+    const live = canonicalOf(plan, 'new-direct');
+    assert.equal(live, 'new-agg');
+    assert.equal(plan.enrichPatches.get('new-agg')?.external_booking_id, undefined);
+  });
+
+  test('an iCal row standing alone sheds a borrowed id', () => {
+    const plan = planDedupe([rebooked[1]], opts);
+    assert.equal(plan.desired.get('new-direct'), null);
+    const patch = plan.enrichPatches.get('new-direct') ?? {};
+    assert.ok('external_booking_id' in patch, 'the id is cleared');
+    assert.equal(patch.external_booking_id, null);
+  });
+
+  test('a native booking id is never rewritten', () => {
+    // The backfill row is canonical (its status matches the cluster's, the
+    // aggregate feed's cancel is not trusted), and the copy on its iCal twin
+    // says something else. Its own id stands.
+    const rows = [
+      rn({ id: 'legacy', source: 'guesty_legacy', channel_listing_id: null, guest_name: 'Monica Lashley', external_confirmation_code: 'HMSZKNJ3CD', external_booking_id: LIVE_ID }),
+      rn({ id: 'agg', channel_listing_id: AGGREGATE, status: 'cancelled', cancelled_at: '2026-09-01T12:00:00Z', guest_name: 'Reservation HMSZKNJ3CD', external_confirmation_code: 'HMSZKNJ3CD', external_booking_id: CANCELLED_ID }),
+    ];
+    const plan = planDedupe(rows, opts);
+    assert.equal(canonicalOf(plan, 'agg'), 'legacy');
+    assert.equal(plan.enrichPatches.get('legacy')?.external_booking_id, undefined);
+  });
+
+  test('a borrowed id does not keep an iCal row out of its own stay either', () => {
+    // A nameless, codeless direct-feed row wearing a stale copy, next to the
+    // backfill row of the stay it actually belongs to. Two differing booking
+    // ids used to read as two reservations and block the date merge.
+    const rows = [
+      rn({ id: 'legacy', source: 'guesty_legacy', channel_listing_id: null, guest_name: 'Monica Lashley', external_confirmation_code: 'HMSZKNJ3CD', external_booking_id: LIVE_ID }),
+      rn({ id: 'direct', external_booking_id: CANCELLED_ID }),
+    ];
+    const plan = planDedupe(rows, opts);
+    assert.equal(canonicalOf(plan, 'legacy'), canonicalOf(plan, 'direct'));
+    assert.equal(plan.clusters, 1);
+  });
+});
+
 describe('what the tighter clustering must still do', () => {
   test('one stay under reissued Guesty ids still collapses', () => {
     // Guesty reissued the reservation id on a modification; the old row
