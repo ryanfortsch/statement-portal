@@ -3,11 +3,11 @@ import { redirect, notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb } from '@/lib/field-db';
 import { resolveContractorFromCookie } from '@/lib/field-auth';
+import { loadStepperNotes } from '@/lib/inspection-notes';
 import type {
   InspectionRow,
   InspectionItemRow,
   InspectionResultRow,
-  InspectionNoteRow,
   OrderedCard,
   PropertyZoneRow,
   WorkSlipCategory,
@@ -121,33 +121,16 @@ export default async function FieldInspectPage({
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
 
-  const [{ data: notesData }, { data: workSlipsData }] = await Promise.all([
-    supabase
-      .from('inspection_notes')
-      .select('id, inspection_item_id, note_text, note_type, author_email, created_at, photo_urls')
-      .eq('inspection_id', inspectionId)
-      .is('resolved_at', null)
-      .order('created_at', { ascending: true }),
+  // Notes: this walk's own plus every pin left at the home on earlier
+  // walks (see lib/inspection-notes.ts for why both).
+  const [initialNotes, { data: workSlipsData }] = await Promise.all([
+    loadStepperNotes(supabase, { inspectionId, propertyId: (property as { id: string }).id }),
     supabase
       .from('work_slips')
       .select('id, inspection_item_id, title, category, priority, created_at, photo_urls')
       .eq('inspection_id', inspectionId)
       .order('created_at', { ascending: true }),
   ]);
-
-  const initialNotes = ((notesData ?? []) as Array<
-    Pick<InspectionNoteRow, 'id' | 'inspection_item_id' | 'note_text' | 'note_type' | 'author_email' | 'created_at'> & {
-      photo_urls: string[] | null;
-    }
-  >).map((n) => ({
-    id: n.id,
-    inspection_item_id: n.inspection_item_id,
-    note_text: n.note_text,
-    note_type: n.note_type,
-    author_email: n.author_email,
-    created_at: n.created_at,
-    photo_urls: n.photo_urls ?? [],
-  }));
 
   const initialWorkSlips = ((workSlipsData ?? []) as Array<{
     id: string;
