@@ -7,6 +7,7 @@ import {
   rejectApproval,
   coachApproval,
   markHandledApproval,
+  redraftApproval,
   type MarkHandledCapture,
   undoApproval,
   explainUndoRefusal,
@@ -56,6 +57,14 @@ export async function rejectDraft(approvalId: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   return mapResult(await rejectApproval(approvalId, sess.email));
+}
+
+/** Re-run the draft against current data. Nothing is sent; the card is
+ *  replaced by its rewrite, same as a coached regen. */
+export async function redraftDraft(approvalId: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  return mapResult(await redraftApproval(approvalId, sess.email));
 }
 
 export async function markHandled(

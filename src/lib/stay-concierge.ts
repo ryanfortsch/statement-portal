@@ -431,6 +431,22 @@ export async function rejectApproval(id: string, actor?: string) {
  *  non-empty, skipped every one of them. */
 export type MarkHandledCapture = { sent_text?: string; reason?: string };
 
+/** Re-run a pending draft against today's data, with nothing to correct.
+ *
+ *  A card is frozen at draft time, so anything the system learns afterwards
+ *  (an extension offer it can now compute, a knowledge base it can now load)
+ *  never reaches a card already in the queue. Coaching was the only way to
+ *  re-run one, which is the wrong shape when there is no correction to make:
+ *  the draft is simply stale. Refreshing re-reads the row; this re-runs the
+ *  draft. 202 + the card is superseded by its replacement, exactly as a
+ *  coached regen is. */
+export async function redraftApproval(id: string, actor?: string) {
+  return request<{ status: string; id: string }>(
+    `/api/approvals/${id}/redraft`,
+    { method: 'POST', actor },
+  );
+}
+
 export async function markHandledApproval(
   id: string,
   actor?: string,
