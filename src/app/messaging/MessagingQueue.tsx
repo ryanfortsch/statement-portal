@@ -13,6 +13,7 @@ import {
   rejectDraft,
   coachDraft,
   markHandled,
+  redraftDraft,
   scheduleDraft,
   cancelSchedule,
   editDraft,
@@ -197,6 +198,7 @@ type PendingAction =
   | 'save-edit'
   | 'cancel-schedule'
   | 'send-now'
+  | 'redraft'
   | null;
 
 function ApprovalCard({
@@ -459,6 +461,27 @@ function ApprovalCard({
         return;
       }
       onDecided({ id: approval.id, action: 'rejected', guest: guestLabel, property: propertyLabel });
+      onResolved();
+    });
+  };
+
+  /** Re-run the draft against today's data. For when the draft is stale
+   *  rather than wrong: the system has learned something since it was
+   *  written (a price it can now compute, a knowledge base it can now load)
+   *  and Refresh only re-reads the row. Nothing is sent. */
+  const handleRedraft = () => {
+    setError(null);
+    closeDrawers();
+    setPendingAction('redraft');
+    onRegenerating(approval.id);
+    startTransition(async () => {
+      const res = await redraftDraft(approval.id);
+      if (!res.ok) {
+        if (res.stale) { onResolved(); return; }
+        setError(res.error);
+        setPendingAction(null);
+        return;
+      }
       onResolved();
     });
   };
@@ -1343,6 +1366,15 @@ function ApprovalCard({
                 flexWrap: 'wrap',
               }}
             >
+              <QuietButton
+                onClick={handleRedraft}
+                disabled={busy}
+                loading={pendingAction === 'redraft'}
+                loadingLabel="Redrafting"
+                title="Re-run this draft against today's data. Use when the draft is stale rather than wrong. Nothing is sent."
+              >
+                Redraft
+              </QuietButton>
               <QuietButton
                 onClick={toggleHandled}
                 disabled={busy}
