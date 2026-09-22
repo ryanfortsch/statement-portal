@@ -276,6 +276,15 @@ export function sendsInLabel(iso: string | null | undefined): string {
  * Format a stay date range compactly: "Jun 18-22" when same month,
  * "Jun 28 - Jul 5" across months, "Jun 18" when only check-in is known.
  * Returns '' when neither date is present.
+ *
+ * The YEAR is appended whenever the range is not in the current one. Stay
+ * Cape Ann inquiry cards started carrying the window the guest asked about
+ * (2026-09-21), and those run far ahead: 2027 pre-release is live and some
+ * threads discuss 2028. The concierge resolves a bare "Aug 15" to the next
+ * occurrence, trying only this year and next, so a window further out lands a
+ * year early with no other signal. Showing the year on the card face is what
+ * makes a bad read visible before the operator opens a quote on it, rather
+ * than leaving it in the hover title where nobody looks.
  */
 export function formatStayDates(checkIn: string, checkOut: string): string {
   const ci = parseYmd(checkIn);
@@ -284,14 +293,21 @@ export function formatStayDates(checkIn: string, checkOut: string): string {
   const mon = (d: Date) =>
     d.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
   const day = (d: Date) => d.getUTCDate();
+  // "now" is the render year. A range that straddles New Year shows the year
+  // on both halves rather than implying they share one.
+  const thisYear = new Date().getUTCFullYear();
+  const yr = (d: Date) => (d.getUTCFullYear() === thisYear ? '' : `, ${d.getUTCFullYear()}`);
   if (ci && co) {
     if (ci.getUTCMonth() === co.getUTCMonth() && ci.getUTCFullYear() === co.getUTCFullYear()) {
-      return `${mon(ci)} ${day(ci)}-${day(co)}`;
+      return `${mon(ci)} ${day(ci)}-${day(co)}${yr(co)}`;
     }
-    return `${mon(ci)} ${day(ci)} - ${mon(co)} ${day(co)}`;
+    if (ci.getUTCFullYear() !== co.getUTCFullYear()) {
+      return `${mon(ci)} ${day(ci)}${yr(ci)} - ${mon(co)} ${day(co)}${yr(co)}`;
+    }
+    return `${mon(ci)} ${day(ci)} - ${mon(co)} ${day(co)}${yr(co)}`;
   }
   const only = ci || co!;
-  return `${mon(only)} ${day(only)}`;
+  return `${mon(only)} ${day(only)}${yr(only)}`;
 }
 
 function parseYmd(s: string): Date | null {
