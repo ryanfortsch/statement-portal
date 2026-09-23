@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
-import type { OwnerApproval } from '@/lib/stay-concierge';
+import type { OwnerApproval, OwnerProposedAction } from '@/lib/stay-concierge';
 import {
   approveOwnerDraft,
   rejectOwnerDraft,
@@ -221,11 +221,16 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   const ownerSaid = realSegments.length > 0 ? realSegments : [approval.owner_text || '(empty)'];
   const firstName = (approval.owner_name || '').trim().split(/\s+/)[0] || 'They';
 
+  const proposedActions = approval.proposed_actions ?? [];
+  const [fileActions, setFileActions] = useState(true);
+
   const canApprove = draftText.trim().length > 0 && !busy;
 
   const doApprove = () => {
     if (!canApprove) return;
-    run('approve', () => approveOwnerDraft(approval.id, edited ? draftText : undefined));
+    run('approve', () =>
+      approveOwnerDraft(approval.id, edited ? draftText : undefined, { fileActions }),
+    );
   };
   const doSchedule = (sendAtIso: string) => {
     setShowSchedule(false);
@@ -236,7 +241,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
     );
   };
   // Edits were persisted at schedule time, so Send now fires the stored draft.
-  const doSendNow = () => run('send-now', () => approveOwnerDraft(approval.id));
+  const doSendNow = () => run('send-now', () => approveOwnerDraft(approval.id, undefined, { fileActions }));
   const doCancelSchedule = () => run('cancel-schedule', () => cancelOwnerSchedule(approval.id));
   const doReject = () => run('reject', () => rejectOwnerDraft(approval.id));
   const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id));
@@ -513,6 +518,10 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
               }}
               onApprove={doApprove}
             />
+          )}
+
+          {proposedActions.length > 0 && !isScheduled && (
+            <ProposedActions actions={proposedActions} enabled={fileActions} onToggle={setFileActions} />
           )}
 
           {error && (
@@ -824,6 +833,75 @@ function PrimaryButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * What approving this card will ALSO do. An owner reporting a peeling soap
+ * dispenser should leave a work slip behind, and an owner describing how the
+ * crew should clean should leave the crew a heads-up; before 2026-09-23 the
+ * reply was the only artifact and the items existed nowhere once it sent.
+ * Untick to send the reply and file nothing.
+ */
+function ProposedActions({
+  actions,
+  enabled,
+  onToggle,
+}: {
+  actions: OwnerProposedAction[];
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+}) {
+  const slips = actions.filter((a) => a.kind === 'work_slip').length;
+  const notes = actions.length - slips;
+  const summary = [
+    slips ? `${slips} work slip${slips === 1 ? '' : 's'}` : null,
+    notes ? `${notes} cleaner heads-up${notes === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' and ');
+  return (
+    <section
+      style={{ border: '1px solid var(--rule)', padding: '14px 18px', background: 'var(--paper-2)' }}
+      aria-label="What approving also does"
+    >
+      <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 10 }}>
+        Approving also creates {summary}
+      </div>
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
+        {actions.map((action, i) => (
+          <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 13 }}>
+            <span
+              className="eyebrow"
+              style={{
+                minWidth: 108,
+                fontWeight: 600,
+                color: action.kind === 'work_slip' ? 'var(--ink-2)' : 'var(--ink-3)',
+              }}
+            >
+              {action.kind === 'work_slip' ? 'Work slip' : 'Cleaners'}
+            </span>
+            <span style={{ color: 'var(--ink)', flex: 1 }}>
+              {action.kind === 'work_slip' ? action.title : action.summary}
+              {action.kind === 'work_slip' && action.priority === 'high' && (
+                <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · urgent</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <label
+        style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}
+      >
+        <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
+        Create these when I approve
+      </label>
+      {notes > 0 && (
+        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
+          A cleaner heads-up lands in the Cleaners queue for approval. It is not sent to anyone yet.
+        </p>
+      )}
+    </section>
   );
 }
 

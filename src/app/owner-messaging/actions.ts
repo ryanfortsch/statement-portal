@@ -21,12 +21,17 @@ async function requireSession(): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function approveOwnerDraft(id: string, finalText?: string): Promise<ActionResult> {
+export async function approveOwnerDraft(
+  id: string,
+  finalText?: string,
+  opts?: { fileActions?: boolean },
+): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   // finalText is the operator's hand-edited reply. undefined => send the
-  // AI draft as-is; a string => send that instead.
-  const res = await approveOwnerApproval(id, finalText);
+  // AI draft as-is; a string => send that instead. fileActions false means
+  // the operator unticked the proposed slips and cleaner notes.
+  const res = await approveOwnerApproval(id, finalText, opts);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/owner-messaging');
   return { ok: true };
