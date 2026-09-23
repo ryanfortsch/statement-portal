@@ -637,7 +637,23 @@ export type OwnerApproval = {
   /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
    * Empty otherwise. */
   send_at: string;
+  /** What approving this card ALSO does: work slips for physical things and
+   *  heads-up cards for the cleaning crew, mined from the owner's message
+   *  (2026-09-23). Empty or absent when the message asked for nothing. */
+  proposed_actions?: OwnerProposedAction[];
 };
+
+/** A slip lands on the Work board; a note becomes a card in the cleaners
+ *  queue, in Portuguese, still needing approval before it reaches anyone. */
+export type OwnerProposedAction =
+  | {
+      kind: 'work_slip';
+      title: string;
+      description?: string;
+      category?: string;
+      priority?: 'low' | 'normal' | 'high';
+    }
+  | { kind: 'cleaner_note'; summary: string; detail?: string };
 
 export type OwnerApprovalsResponse = {
   approvals: OwnerApproval[];
@@ -652,11 +668,20 @@ export async function listRecentOwnerApprovals(hours = 24) {
   return request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`);
 }
 
-export async function approveOwnerApproval(id: string, finalText?: string) {
-  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/approve`, {
-    method: 'POST',
-    ...(finalText !== undefined ? { body: { final_text: finalText } } : {}),
-  });
+export async function approveOwnerApproval(
+  id: string,
+  finalText?: string,
+  opts?: { fileActions?: boolean },
+) {
+  const body: Record<string, unknown> = {};
+  if (finalText !== undefined) body.final_text = finalText;
+  // Only travels when the operator unticked the proposals; the default
+  // (absent) files whatever the card proposed.
+  if (opts?.fileActions === false) body.file_actions = false;
+  return request<{ status: string; id: string; filed?: { slips: string[]; notes: string[] } }>(
+    `/api/owner-approvals/${id}/approve`,
+    { method: 'POST', ...(Object.keys(body).length ? { body } : {}) },
+  );
 }
 
 export async function rejectOwnerApproval(id: string) {
