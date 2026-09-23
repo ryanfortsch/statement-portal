@@ -644,7 +644,9 @@ export type OwnerApproval = {
 };
 
 /** A slip lands on the Work board; a note becomes a card in the cleaners
- *  queue, in Portuguese, still needing approval before it reaches anyone. */
+ *  queue, in Portuguese; a guest notice becomes a card in the Guests queue
+ *  for whoever is actually in the house that day. All three still need
+ *  approval before they reach anyone. */
 export type OwnerProposedAction =
   | {
       kind: 'work_slip';
@@ -653,7 +655,21 @@ export type OwnerProposedAction =
       category?: string;
       priority?: 'low' | 'normal' | 'high';
     }
-  | { kind: 'cleaner_note'; summary: string; detail?: string };
+  | { kind: 'cleaner_note'; summary: string; detail?: string }
+  | {
+      /** Something happening at the property the guest in residence should
+       *  know before it happens: a vendor entering, water off, loud work. */
+      kind: 'guest_notice';
+      /** One line for the operator: who is coming and what for. */
+      why: string;
+      /** What the guest will be told. */
+      body: string;
+      /** YYYY-MM-DD. Empty when the owner was vague, in which case the
+       *  concierge refuses to file rather than guess a day. */
+      visit_date?: string;
+      /** True only when a person will be inside the guest's own unit. */
+      enters_guest_space?: boolean;
+    };
 
 export type OwnerApprovalsResponse = {
   approvals: OwnerApproval[];

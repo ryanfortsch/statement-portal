@@ -853,13 +853,18 @@ function ProposedActions({
   onToggle: (v: boolean) => void;
 }) {
   const slips = actions.filter((a) => a.kind === 'work_slip').length;
-  const notes = actions.length - slips;
+  const notes = actions.filter((a) => a.kind === 'cleaner_note').length;
+  // Counted explicitly, not as "everything that is not a slip". A third kind
+  // arrived (guest_notice, 2026-09-23) and the subtraction would have
+  // labelled it a cleaner heads-up.
+  const guestNotices = actions.filter((a) => a.kind === 'guest_notice').length;
   const summary = [
     slips ? `${slips} work slip${slips === 1 ? '' : 's'}` : null,
     notes ? `${notes} cleaner heads-up${notes === 1 ? '' : 's'}` : null,
+    guestNotices ? `${guestNotices} guest heads-up${guestNotices === 1 ? '' : 's'}` : null,
   ]
     .filter(Boolean)
-    .join(' and ');
+    .join(', ');
   return (
     <section
       style={{ border: '1px solid var(--rule)', padding: '14px 18px', background: 'var(--paper-2)' }}
@@ -876,15 +881,49 @@ function ProposedActions({
               style={{
                 minWidth: 108,
                 fontWeight: 600,
-                color: action.kind === 'work_slip' ? 'var(--ink-2)' : 'var(--ink-3)',
+                color:
+                  action.kind === 'work_slip'
+                    ? 'var(--ink-2)'
+                    : action.kind === 'guest_notice'
+                      ? 'var(--tide-deep)'
+                      : 'var(--ink-3)',
               }}
             >
-              {action.kind === 'work_slip' ? 'Work slip' : 'Cleaners'}
+              {action.kind === 'work_slip'
+                ? 'Work slip'
+                : action.kind === 'guest_notice'
+                  ? 'Guest'
+                  : 'Cleaners'}
             </span>
             <span style={{ color: 'var(--ink)', flex: 1 }}>
-              {action.kind === 'work_slip' ? action.title : action.summary}
+              {action.kind === 'work_slip'
+                ? action.title
+                : action.kind === 'guest_notice'
+                  ? action.why
+                  : action.summary}
               {action.kind === 'work_slip' && action.priority === 'high' && (
                 <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · urgent</span>
+              )}
+              {action.kind === 'guest_notice' && (
+                <>
+                  {action.enters_guest_space && (
+                    <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · enters the unit</span>
+                  )}
+                  {/* The draft itself, because this one is guest-facing and she
+                      should read the words before approving, not just the why. */}
+                  <span
+                    style={{
+                      display: 'block',
+                      marginTop: 4,
+                      fontSize: 12,
+                      color: 'var(--ink-3)',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {action.visit_date ? `${action.visit_date}: ` : ''}
+                    &ldquo;{action.body}&rdquo;
+                  </span>
+                </>
               )}
             </span>
           </li>
@@ -899,6 +938,12 @@ function ProposedActions({
       {notes > 0 && (
         <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
           A cleaner heads-up lands in the Cleaners queue for approval. It is not sent to anyone yet.
+        </p>
+      )}
+      {guestNotices > 0 && (
+        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
+          A guest heads-up lands in the Guests queue for approval, addressed to whoever is
+          actually in the house that day. Nothing is created if the house is empty.
         </p>
       )}
     </section>
