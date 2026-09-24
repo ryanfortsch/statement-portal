@@ -711,6 +711,19 @@ export type OwnerProposedAction =
       why: string;
       /** What the guest will be told. */
       body: string;
+    }
+  | {
+      /** A one-time instruction for the crew on the day they are next at the
+       *  house, lumped into the cleaners' schedule message rather than sent
+       *  on its own. Carries no date: Helm owns which day the turnover is
+       *  and resolves it when the note is filed. */
+      kind: 'turnover_note';
+      /** One line for the operator: what the owner asked for. */
+      why: string;
+      /** The instruction in English, for the operator. */
+      note_en: string;
+      /** The same line in Portuguese, which is what the crew receives. */
+      note_pt: string;
     };
 
 export type OwnerApprovalsResponse = {

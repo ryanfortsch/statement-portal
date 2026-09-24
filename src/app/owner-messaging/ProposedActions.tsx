@@ -6,7 +6,7 @@ import type { OwnerProposedAction } from '@/lib/stay-concierge';
  *  chain: the chain ended in "everything else is a cleaner note", so every
  *  new kind arrived mislabelled as one. An unknown kind now shows its own
  *  name, which is ugly on purpose and better than a wrong label. */
-const ACTION_KINDS = ['work_slip', 'cleaner_note', 'guest_notice', 'guest_message'] as const;
+const ACTION_KINDS = ['work_slip', 'cleaner_note', 'turnover_note', 'guest_notice', 'guest_message'] as const;
 
 const ACTION_STYLE: Record<string, { label: string; color: string; count: (n: number) => string }> = {
   work_slip: {
@@ -18,6 +18,11 @@ const ACTION_STYLE: Record<string, { label: string; color: string; count: (n: nu
     label: 'Cleaners',
     color: 'var(--ink-3)',
     count: (n) => `${n} cleaner heads-up${n === 1 ? '' : 's'}`,
+  },
+  turnover_note: {
+    label: 'Turnover',
+    color: 'var(--ink-3)',
+    count: (n) => `${n} note${n === 1 ? '' : 's'} on the next clean`,
   },
   guest_notice: {
     label: 'Guest',
@@ -39,13 +44,18 @@ function styleFor(kind: string) {
 function actionHeadline(action: OwnerProposedAction): string {
   if (action.kind === 'work_slip') return action.title;
   if (action.kind === 'cleaner_note') return action.summary;
+  if (action.kind === 'turnover_note') return action.note_en;
   return action.why;
 }
 
-/** Guest-facing wording is shown in full. She should read what a guest will
- *  actually receive before approving, not just why it exists. */
-function guestDraft(action: OwnerProposedAction): string {
-  return action.kind === 'guest_notice' || action.kind === 'guest_message' ? action.body : '';
+/** The words that will actually reach someone outside the office, shown in
+ *  full. She should read what a guest or the crew receives before approving,
+ *  not just the reason it exists. A turnover note shows its Portuguese,
+ *  because that is what lands on the phone. */
+function outboundWording(action: OwnerProposedAction): string {
+  if (action.kind === 'guest_notice' || action.kind === 'guest_message') return action.body;
+  if (action.kind === 'turnover_note') return action.note_pt;
+  return '';
 }
 
 export function ProposedActions({
@@ -69,6 +79,7 @@ export function ProposedActions({
 
   const notes = tally.get('cleaner_note') ?? 0;
   const guestCards = (tally.get('guest_notice') ?? 0) + (tally.get('guest_message') ?? 0);
+  const turnoverNotes = tally.get('turnover_note') ?? 0;
 
   return (
     <section
@@ -81,7 +92,7 @@ export function ProposedActions({
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
         {actions.map((action, i) => {
           const { label, color } = styleFor(action.kind);
-          const draft = guestDraft(action);
+          const draft = outboundWording(action);
           return (
             <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 13 }}>
               <span className="eyebrow" style={{ minWidth: 108, fontWeight: 600, color }}>
@@ -125,6 +136,12 @@ export function ProposedActions({
       {notes > 0 && (
         <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
           A cleaner heads-up lands in the Cleaners queue for approval. It is not sent to anyone yet.
+        </p>
+      )}
+      {turnoverNotes > 0 && (
+        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
+          A turnover note joins the cleaners&rsquo; schedule message for the day the crew is next
+          at that house. That message still needs approving before it sends.
         </p>
       )}
       {guestCards > 0 && (
