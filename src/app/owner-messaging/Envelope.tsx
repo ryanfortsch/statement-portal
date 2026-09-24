@@ -56,7 +56,13 @@ export function Envelope({ envelope }: { envelope?: ReplyEnvelope }) {
           : '',
     });
     rows.push({ label: 'To', value: to || 'nobody, so this card cannot send' });
-    rows.push({ label: 'Cc', value: envelope.cc.length ? envelope.cc.join(', ') : 'no one' });
+    rows.push({
+      label: 'Cc',
+      value: envelope.cc.length ? envelope.cc.join(', ') : 'no one',
+      // Says the rule, so a name in this list reads as the owner's choice
+      // rather than something the draft decided to add.
+      aside: envelope.cc.length ? 'everyone else the owner put on the email' : '',
+    });
     if (envelope.subject) rows.push({ label: 'Subject', value: envelope.subject });
   } else {
     rows.push({
