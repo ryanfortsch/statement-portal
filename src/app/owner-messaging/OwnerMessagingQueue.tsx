@@ -28,6 +28,7 @@ import {
   SchedulePopover,
 } from '@/components/ScheduleSend';
 import { splitOwnerText, parseTapback } from './conversation';
+import { Envelope, InboundSubject } from './Envelope';
 
 type Props = { initialPending: OwnerApproval[] };
 
@@ -482,10 +483,13 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                 </span>
               )}
             </div>
-            {/* subject slot: OwnerApproval has no email subject yet; add here when it lands */}
+            <InboundSubject envelope={approval.envelope} />
             <OwnerSaidRun segments={ownerSaid} />
             {reactions.length > 0 && <ReactionChips reactions={reactions} />}
           </div>
+
+          {/* WHERE IT GOES - read before approving, not after */}
+          <Envelope envelope={approval.envelope} />
 
           {/* PROPOSED REPLY - the hero, editable in place. A queued card
               shows the locked text instead: cancel the send to edit. */}
