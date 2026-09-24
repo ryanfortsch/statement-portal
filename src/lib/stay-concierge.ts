@@ -663,6 +663,18 @@ export type ReplyEnvelope = {
   mailbox: string;
   to: string[];
   cc: string[];
+  /** Where the owner's answer should go when that is not the From address,
+   *  which happens when we answer as somebody whose mail Helm does not
+   *  watch. Empty when the From is already the watched address. */
+  reply_to: string;
+  /** Why this From and not another. 'addressed' we are answering as
+   *  somebody the owner wrote to; 'default' they wrote to nobody we prefer;
+   *  'unverified' the one they wrote to is not a send-as identity on the
+   *  sending mailbox yet, so Gmail would rewrite it; 'senders_unknown'
+   *  Gmail could not be asked. */
+  from_reason: 'addressed' | 'default' | 'unverified' | 'senders_unknown' | string;
+  /** The address we wanted, on 'unverified' and 'senders_unknown'. */
+  preferred_from: string;
   subject: string;
   /** False when the original's recipients were never recorded, so the lists
    *  below are unknown rather than empty. */

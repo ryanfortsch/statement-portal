@@ -34,6 +34,39 @@ export function InboundSubject({ envelope }: { envelope?: ReplyEnvelope }) {
  * service sends no envelope (an older build), this renders nothing, because
  * a card showing no recipients is honest and a card guessing them is not.
  */
+/**
+ * The line under the From address.
+ *
+ * Whoever the owner wrote to is who answers, preferring the person at the
+ * keyboard when they wrote to more than one of us (Ryan, 2026-09-24: "if
+ * it's addressed to Allie and Ryan can you have it sent as Ryan ... i
+ * (ryan) am the one actually hitting the button"). Gmail silently rewrites
+ * a From that is not a verified send-as identity on the sending mailbox, so
+ * when the preferred name cannot be used the card says which one it wanted
+ * and what is missing, rather than quietly sending as somebody else.
+ *
+ * Nothing here describes how the send is wired. "Sent from the dotti@
+ * mailbox" read as a contradiction of the From line rather than an
+ * explanation of it (Dotti, 2026-09-24: "so is this from dotti or allie,
+ * im confused").
+ */
+function fromAside(envelope: ReplyEnvelope): string {
+  const { from_reason: reason, preferred_from: wanted, mailbox, from_address: from } = envelope;
+  if (reason === 'unverified' && wanted) {
+    return `${wanted} was on the owner's email too, but it is not a verified sender on this mailbox yet, so Gmail would rewrite it`;
+  }
+  if (reason === 'senders_unknown' && wanted) {
+    return `meant to answer as ${wanted}, but which senders Gmail will honour could not be checked just now`;
+  }
+  if (reason === 'addressed') {
+    return "the owner wrote to them, so they are the one answering";
+  }
+  if (mailbox && mailbox !== from) {
+    return `${from} lands in the ${mailbox} mailbox, so the reply comes back there`;
+  }
+  return '';
+}
+
 export function Envelope({ envelope }: { envelope?: ReplyEnvelope }) {
   if (!envelope) return null;
   const isEmail = envelope.channel === 'email';
@@ -47,18 +80,7 @@ export function Envelope({ envelope }: { envelope?: ReplyEnvelope }) {
       value: envelope.from_name
         ? `${envelope.from_name} <${envelope.from_address}>`
         : envelope.from_address,
-      // The From address is an alias on a different mailbox, both for
-      // sending and for receiving, so the owner writes to one name and a
-      // different person reads it. Say what the owner sees and where the
-      // answer comes back, and nothing about how the send is plumbed:
-      // "sent from the dotti@ mailbox" read as a contradiction of the
-      // From line rather than an explanation of it (Dotti, 2026-09-24:
-      // "so is this from dotti or allie, im confused"). Only worth saying
-      // when the two addresses differ.
-      aside:
-        envelope.mailbox && envelope.mailbox !== envelope.from_address
-          ? `${envelope.from_address} lands in the ${envelope.mailbox} mailbox, so the reply comes back there`
-          : '',
+      aside: fromAside(envelope),
     });
     rows.push({ label: 'To', value: to || 'nobody, so this card cannot send' });
     rows.push({
@@ -68,6 +90,16 @@ export function Envelope({ envelope }: { envelope?: ReplyEnvelope }) {
       // rather than something the draft decided to add.
       aside: envelope.cc.length ? 'everyone else the owner put on the email' : '',
     });
+    if (envelope.reply_to) {
+      rows.push({
+        label: 'Reply-To',
+        value: envelope.reply_to,
+        // Replies follow the From. Answering as somebody whose mail Helm
+        // does not watch would take the thread out of the queue entirely,
+        // so the return address stays on the watched one.
+        aside: 'so the answer comes back into Helm and not only to a personal inbox',
+      });
+    }
     if (envelope.subject) rows.push({ label: 'Subject', value: envelope.subject });
   } else {
     rows.push({
