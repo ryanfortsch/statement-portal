@@ -125,15 +125,18 @@ async function ConversationsSection() {
 }
 
 // Helm's own property list (service-role read; properties is RLS-locked) for the target selector
-// on each proposed update. Independent of the stay-concierge service; a
-// failure here just yields an empty list (operator can still dismiss).
-async function loadProperties(): Promise<{ id: string; name: string }[]> {
+// on each proposed update. Independent of the stay-concierge service.
+/** null means the lookup FAILED, which is not the same as "no properties".
+ *  Returning [] for both made a momentary read error tell the operator each
+ *  property "is not in Helm's registry" and switched filing off fleet-wide
+ *  (2026-09-23, 3 South). Callers must treat null as "could not check". */
+async function loadProperties(): Promise<{ id: string; name: string }[] | null> {
   try {
     const { data, error } = await supabase.from('properties').select('id, name').order('name');
-    if (error || !data) return [];
+    if (error || !data) return null;
     return data as { id: string; name: string }[];
   } catch {
-    return [];
+    return null;
   }
 }
 

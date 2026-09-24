@@ -41,7 +41,9 @@ import { useSoftRefresh } from '@/lib/use-soft-refresh';
 type Props = {
   initial: ProposedPropertyUpdate[];
   initialError: string | null;
-  properties: { id: string; name: string }[];
+  /** Helm's property list, or null when the lookup failed. null is NOT an
+   *  empty registry: the card must not then claim a property is unknown. */
+  properties: { id: string; name: string }[] | null;
   source?: 'owner' | 'cleaner' | 'contractor' | 'guest';
 };
 
@@ -163,7 +165,11 @@ export function TriagedPropertyUpdates({ initial, initialError, properties, sour
             propertyId={pid}
             propertyName={gs[0]?.propertyName || pid}
             groups={gs}
-            filable={properties.some((p) => p.id === pid)}
+            // Unknown only when we actually read the registry and it was
+            // absent. A failed read leaves filing on; the server action
+            // re-validates the property and reports a real problem.
+            filable={properties === null || properties.some((p) => p.id === pid)}
+            registryChecked={properties !== null}
           />
         ))}
         {untriaged.length > 0 && (
@@ -182,11 +188,14 @@ function PropertyBlock({
   propertyName,
   groups,
   filable,
+  registryChecked,
 }: {
   propertyId: string;
   propertyName: string;
   groups: Group[];
   filable: boolean;
+  /** False when Helm could not read its property list at all. */
+  registryChecked: boolean;
 }) {
   const softRefresh = useSoftRefresh();
   const [pending, start] = useTransition();
@@ -324,6 +333,12 @@ function PropertyBlock({
       {!filable && open && (
         <div style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>
           This property is not in Helm&apos;s registry, so filing is off. The facts stay here.
+        </div>
+      )}
+      {filable && !registryChecked && open && (
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+          Helm could not read its property list just now, so the registry check was skipped.
+          Filing still works and will say so if the property is wrong.
         </div>
       )}
       {error && (
