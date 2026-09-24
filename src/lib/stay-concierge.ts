@@ -701,6 +701,16 @@ export type OwnerProposedAction =
       visit_date?: string;
       /** True only when a person will be inside the guest's own unit. */
       enters_guest_space?: boolean;
+    }
+  | {
+      /** The owner wants the guest TOLD something, with nothing scheduled at
+       *  the house: how the heat is being run, noise, parking, a house rule.
+       *  Goes to whoever is in the house right now, so it carries no date. */
+      kind: 'guest_message';
+      /** One line for the operator: what the owner wants passed on. */
+      why: string;
+      /** What the guest will be told. */
+      body: string;
     };
 
 export type OwnerApprovalsResponse = {
