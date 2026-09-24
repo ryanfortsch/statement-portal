@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
-import type { OwnerApproval, OwnerProposedAction } from '@/lib/stay-concierge';
+import type { OwnerApproval } from '@/lib/stay-concierge';
 import {
   approveOwnerDraft,
   rejectOwnerDraft,
@@ -29,6 +29,7 @@ import {
 } from '@/components/ScheduleSend';
 import { splitOwnerText, parseTapback } from './conversation';
 import { Envelope, InboundSubject } from './Envelope';
+import { ProposedActions } from './ProposedActions';
 
 type Props = { initialPending: OwnerApproval[] };
 
@@ -847,113 +848,6 @@ function PrimaryButton({
  * reply was the only artifact and the items existed nowhere once it sent.
  * Untick to send the reply and file nothing.
  */
-function ProposedActions({
-  actions,
-  enabled,
-  onToggle,
-}: {
-  actions: OwnerProposedAction[];
-  enabled: boolean;
-  onToggle: (v: boolean) => void;
-}) {
-  const slips = actions.filter((a) => a.kind === 'work_slip').length;
-  const notes = actions.filter((a) => a.kind === 'cleaner_note').length;
-  // Counted explicitly, not as "everything that is not a slip". A third kind
-  // arrived (guest_notice, 2026-09-23) and the subtraction would have
-  // labelled it a cleaner heads-up.
-  const guestNotices = actions.filter((a) => a.kind === 'guest_notice').length;
-  const summary = [
-    slips ? `${slips} work slip${slips === 1 ? '' : 's'}` : null,
-    notes ? `${notes} cleaner heads-up${notes === 1 ? '' : 's'}` : null,
-    guestNotices ? `${guestNotices} guest heads-up${guestNotices === 1 ? '' : 's'}` : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
-  return (
-    <section
-      style={{ border: '1px solid var(--rule)', padding: '14px 18px', background: 'var(--paper-2)' }}
-      aria-label="What approving also does"
-    >
-      <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 10 }}>
-        Approving also creates {summary}
-      </div>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
-        {actions.map((action, i) => (
-          <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline', fontSize: 13 }}>
-            <span
-              className="eyebrow"
-              style={{
-                minWidth: 108,
-                fontWeight: 600,
-                color:
-                  action.kind === 'work_slip'
-                    ? 'var(--ink-2)'
-                    : action.kind === 'guest_notice'
-                      ? 'var(--tide-deep)'
-                      : 'var(--ink-3)',
-              }}
-            >
-              {action.kind === 'work_slip'
-                ? 'Work slip'
-                : action.kind === 'guest_notice'
-                  ? 'Guest'
-                  : 'Cleaners'}
-            </span>
-            <span style={{ color: 'var(--ink)', flex: 1 }}>
-              {action.kind === 'work_slip'
-                ? action.title
-                : action.kind === 'guest_notice'
-                  ? action.why
-                  : action.summary}
-              {action.kind === 'work_slip' && action.priority === 'high' && (
-                <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · urgent</span>
-              )}
-              {action.kind === 'guest_notice' && (
-                <>
-                  {action.enters_guest_space && (
-                    <span style={{ color: 'var(--signal)', fontWeight: 600 }}> · enters the unit</span>
-                  )}
-                  {/* The draft itself, because this one is guest-facing and she
-                      should read the words before approving, not just the why. */}
-                  <span
-                    style={{
-                      display: 'block',
-                      marginTop: 4,
-                      fontSize: 12,
-                      color: 'var(--ink-3)',
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {action.visit_date ? `${action.visit_date}: ` : ''}
-                    &ldquo;{action.body}&rdquo;
-                  </span>
-                </>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <label
-        style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}
-      >
-        <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
-        Create these when I approve
-      </label>
-      {notes > 0 && (
-        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
-          A cleaner heads-up lands in the Cleaners queue for approval. It is not sent to anyone yet.
-        </p>
-      )}
-      {guestNotices > 0 && (
-        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
-          A guest heads-up lands in the Guests queue for approval, addressed to whoever is
-          actually in the house that day. Nothing is created if the house is empty.
-        </p>
-      )}
-    </section>
-  );
-}
-
 function SecondaryButton({
   children,
   onClick,
