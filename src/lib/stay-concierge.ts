@@ -641,6 +641,38 @@ export type OwnerApproval = {
    *  heads-up cards for the cleaning crew, mined from the owner's message
    *  (2026-09-23). Empty or absent when the message asked for nothing. */
   proposed_actions?: OwnerProposedAction[];
+  /** Exactly who an approved reply reaches, and the identity it leaves as.
+   *  The service computes this with the same code that sends, so the card
+   *  cannot advertise a recipient the send would not use. Absent when the
+   *  service is on an older build: show nothing rather than a guess. */
+  envelope?: ReplyEnvelope;
+};
+
+/** The wire-level shape of an outgoing reply, as the sender will build it.
+ *  Never assemble one of these in Helm: an envelope Helm invented is a claim
+ *  about behaviour it does not control. */
+export type ReplyEnvelope = {
+  channel: 'email' | 'sms' | string;
+  /** Display name on the From line, or the Quo line's label for SMS. */
+  from_name: string;
+  /** The address the owner sees, or the Quo number for SMS. */
+  from_address: string;
+  /** The mailbox that physically sends, when it differs from from_address
+   *  (the service signs in as one account and sends under an alias). Empty
+   *  for SMS. */
+  mailbox: string;
+  to: string[];
+  cc: string[];
+  subject: string;
+  /** False when the original's recipients were never recorded, so the lists
+   *  below are unknown rather than empty. */
+  original_known: boolean;
+  /** Outside parties on the message being answered who are not on the reply. */
+  also_outside: string[];
+  /** Rising Tide people on the message being answered who are not on the
+   *  reply. Losing a colleague off a thread is a smaller problem than losing
+   *  an owner's contractor, so the card says which kind it is. */
+  also_rising_tide: string[];
 };
 
 /** A slip lands on the Work board; a note becomes a card in the cleaners
