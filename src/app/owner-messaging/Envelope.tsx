@@ -47,12 +47,17 @@ export function Envelope({ envelope }: { envelope?: ReplyEnvelope }) {
       value: envelope.from_name
         ? `${envelope.from_name} <${envelope.from_address}>`
         : envelope.from_address,
-      // The service signs in as one mailbox and sends under a verified
-      // alias, which is why an owner's answer comes back somewhere the
-      // From line never mentioned. Only worth saying when they differ.
+      // The From address is an alias on a different mailbox, both for
+      // sending and for receiving, so the owner writes to one name and a
+      // different person reads it. Say what the owner sees and where the
+      // answer comes back, and nothing about how the send is plumbed:
+      // "sent from the dotti@ mailbox" read as a contradiction of the
+      // From line rather than an explanation of it (Dotti, 2026-09-24:
+      // "so is this from dotti or allie, im confused"). Only worth saying
+      // when the two addresses differ.
       aside:
         envelope.mailbox && envelope.mailbox !== envelope.from_address
-          ? `sent from the ${envelope.mailbox} mailbox, so the reply lands there`
+          ? `${envelope.from_address} lands in the ${envelope.mailbox} mailbox, so the reply comes back there`
           : '',
     });
     rows.push({ label: 'To', value: to || 'nobody, so this card cannot send' });
