@@ -116,6 +116,73 @@ export async function getStatementGrossByProperty(): Promise<StatementGrossByPro
 }
 
 
+/** property_id -> YYYY-MM -> the management fee that month's statement billed. */
+export type StatementMgmtFeeByProperty = Map<string, Map<string, number>>;
+
+/**
+ * Per-property management fee from closed statements.
+ *
+ * The sibling of getStatementGrossByProperty, which returns the fee BASE
+ * (fee / pct) because the floor logic needs a gross to compare against. This
+ * returns the fee itself, which is what /forecast's per-property table is
+ * denominated in: its year-to-date column has to be the same unit as the
+ * projected months beside it or the two cannot be added.
+ *
+ * Same closed-month rule as the rest of this module: the in-progress month is
+ * never an actual, so these months and the smart forecast's forward months
+ * tile the year exactly, with no gap and no overlap.
+ *
+ * Empty map on any failure, which drops the year-to-date column and leaves
+ * the table reading forward-only, exactly as it did before.
+ */
+export async function getStatementMgmtFeeByProperty(): Promise<StatementMgmtFeeByProperty> {
+  const out: StatementMgmtFeeByProperty = new Map();
+  if (!isConfigured) return out;
+  try {
+    const db = createClient(supabaseUrl, supabaseKey);
+    const monthByPeriod = new Map<string, string>();
+    for (const p of await selectAllPaged<{ id: string | null; month: string | null }>(
+      (from, to) => db.from('statement_periods').select('id, month').order('id').range(from, to),
+      { label: 'statement_periods' },
+    )) {
+      if (p.id && p.month) monthByPeriod.set(p.id, p.month);
+    }
+    const rows = await selectAllPaged<{
+      period_id: string | null;
+      property_id: string | null;
+      management_fee: number | null;
+    }>(
+      (from, to) =>
+        db
+          .from('property_statements')
+          .select('period_id, property_id, management_fee')
+          .order('id')
+          .range(from, to),
+      { label: 'property_statements mgmt fee' },
+    );
+    const now = new Date();
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    for (const row of rows) {
+      const month = row.period_id ? monthByPeriod.get(row.period_id) : undefined;
+      if (!month || !row.property_id) continue;
+      if (month >= currentMonthKey) continue;
+      const fee = Number(row.management_fee ?? 0);
+      if (!(fee > 0)) continue;
+      let byMonth = out.get(row.property_id);
+      if (!byMonth) {
+        byMonth = new Map();
+        out.set(row.property_id, byMonth);
+      }
+      byMonth.set(month, (byMonth.get(month) ?? 0) + fee);
+    }
+    return out;
+  } catch (err) {
+    console.error('[forecast-statement-actuals] mgmt fee by property threw:', err);
+    return new Map();
+  }
+}
+
+
 /**
  * Sum `management_fee` per month across all property_statements. Returns
  * { 'YYYY-MM': totalMgmtFee, … } for every fully-closed past month that
