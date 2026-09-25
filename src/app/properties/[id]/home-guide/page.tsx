@@ -141,21 +141,41 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
               )}
             </Cell>
 
+            {/* The override carries the HOUSE (where the bins and carts live).
+                The city rule always appends underneath it, because what the
+                waste goes in and when it reaches the curb is city policy and
+                not an operator's to suppress. Before the cart cutover an
+                override replaced the whole cell, so the nine homes that had
+                one printed no collection day and no set-out rule at all. */}
             <Cell num="04" title="Trash & Recycling">
               {ov.trash?.trim() ? (
                 <FreeFormProse text={ov.trash} />
               ) : (
-                <>
-                  <p>
-                    Indoor bins are in the kitchen. When full, empty into the outdoor bins behind
-                    the home.
-                    {civic.trashDay
-                      ? ` Pickup is on ${civic.trashDay}${civic.recyclingDay && civic.recyclingDay !== civic.trashDay ? ` (recycling on ${civic.recyclingDay})` : ''}.`
-                      : ' Pickup runs weekly.'}
-                  </p>
-                  <p className="rt-aside">No need to take bins to the curb on departure.</p>
-                </>
+                <p>
+                  Indoor bins are in the kitchen. When full, empty into the outdoor bins behind
+                  the home.
+                </p>
               )}
+              {civic.trashDay && (
+                <p>
+                  Collection is {civic.trashDay}
+                  {civic.recyclingDay
+                    ? civic.recyclingDay === civic.trashDay
+                      ? ', recycling the same day'
+                      : `, recycling on ${civic.recyclingDay}`
+                    : ''}
+                  .
+                </p>
+              )}
+              {civic.receptacleRule && <p>{civic.receptacleRule}</p>}
+              {/* Scoped to departure on purpose. An unqualified "nothing to do"
+                  sitting under the cart rule reads as an exemption from it, and
+                  a guest who skips a mid-stay collection because of that is the
+                  failure this cell exists to prevent. */}
+              <p className="rt-aside">
+                On your last morning there is nothing to do. Leave everything as it is and we
+                will take care of it.
+              </p>
             </Cell>
 
             {/* Picker slots 5-6 — operator-chosen from HOME_GUIDE_CATALOG.

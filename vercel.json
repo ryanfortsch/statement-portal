@@ -53,10 +53,6 @@
       "schedule": "0 12 * * *"
     },
     {
-      "path": "/api/cron/prep-trash-bags",
-      "schedule": "20 5 * * *"
-    },
-    {
       "path": "/api/cron/thermostats",
       "schedule": "*/15 * * * *"
     },

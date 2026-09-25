@@ -92,16 +92,24 @@ export default async function InfoNotePage({ params }: { params: Promise<{ id: s
             <Cell num="01" title="Trash &amp; Recycling">
               <p>
                 <span className="rt-k">Trash</span>
-                <span className="rt-v">{civic.trashDay || '—'}</span>
+                <span className="rt-v">{civic.trashDay || 'Confirm with DPW'}</span>
               </p>
               <p>
                 <span className="rt-k">Recycling</span>
-                <span className="rt-v">{civic.recyclingDay || '—'}</span>
+                <span className="rt-v">{civic.recyclingDay || 'Confirm with DPW'}</span>
               </p>
-              <p className="rt-aside">
-                Place bins curbside the night before. Pet waste, yard waste, and household hazardous
-                items go in the trash, not recycling.
-              </p>
+              {/* The city rule, resolved per render off the cart cutover date.
+                  This is the line the STR permit inspector reads, so it states
+                  the same-day curb return that Sec. 5-66(q) fines $400 for. It
+                  used to read "place bins curbside the night before", which was
+                  the wrong set-out window and silent on bringing them back. */}
+              {civic.receptacleRule && <p className="rt-aside">{civic.receptacleRule}</p>}
+              {/* Narrowed from "pet waste, yard waste, and household hazardous
+                  items go in the trash". Pet waste is safe to assert; yard
+                  waste and HHW usually run on separate streams under an
+                  automated cart program and we have not confirmed Gloucester's,
+                  so the Note no longer claims it. */}
+              <p className="rt-aside">Pet waste goes in the trash, never in recycling.</p>
               {p.trash_notes && <p>{p.trash_notes}</p>}
             </Cell>
 

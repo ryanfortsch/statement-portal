@@ -97,7 +97,7 @@ export default async function ReadinessPage({ params }: { params: Promise<{ id: 
             <NoteField label="Supply closet" hint="Which closet stores linens, paper goods, batteries, etc." />
             <NoteField label="Smart lock brand &amp; code" hint="Brand, model, master + cleaner codes" />
             <NoteField label="Cleaner access" hint="Lockbox location + code, side door, etc." />
-            <NoteField label="Trash &amp; recycling day" hint="Pickup days + bin location" />
+            <NoteField label="Trash &amp; recycling day" hint="Pickup day + where the carts are stored" />
             <NoteField label="Wi-Fi name &amp; password" hint="Will be printed on the welcome card" />
             <NoteField label="Owner-side notes" hint="Anything they want guests to know" />
           </div>

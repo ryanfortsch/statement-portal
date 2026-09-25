@@ -1992,7 +1992,7 @@ export async function loadPacketSupplyRun(packetId: string): Promise<SupplyRun> 
   // Slips authored elsewhere often carry their own "<Home>: " prefix (prep
   // rules title them that way for the board). The supply rows already lead
   // with the home name, so strip it — otherwise the card reads
-  // "30 Woodward · 30 Woodward: Bring purple trash bags…" and the phone
+  // "30 Woodward · 30 Woodward: Restock bath towels…" and the phone
   // renders a wall of doubled text.
   const stripHomePrefix = (title: string, home: string): string =>
     title.toLowerCase().startsWith(`${home.toLowerCase()}:`)

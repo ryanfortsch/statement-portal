@@ -365,9 +365,9 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           <Section eyebrow="07" title="Inspection & Safety">
             <Row>
               <Field name="trash_day" label="Trash pickup day" defaultValue={ob.trash_day} hint="e.g. Tuesday" />
-              <Field name="recycling_day" label="Recycling pickup day" defaultValue={ob.recycling_day} hint="e.g. Tuesday (alternating weeks)" />
+              <Field name="recycling_day" label="Recycling pickup day" defaultValue={ob.recycling_day} hint="e.g. Tuesday. In Gloucester this is the same day as trash." />
             </Row>
-            <Field name="trash_notes" label="Trash & recycling notes" defaultValue={ob.trash_notes} hint="Bin location, opt-out, special instructions" textarea />
+            <Field name="trash_notes" label="Trash & recycling notes" defaultValue={ob.trash_notes} hint="Where the indoor bins and the outdoor carts live. We add the city set-out rule ourselves." textarea />
             <Field
               name="parking_regulations"
               label="Parking regulations"

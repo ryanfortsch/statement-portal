@@ -3,6 +3,8 @@ import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '
 import { getPropertyAccessMap } from '@/lib/property-access';
 import { normalizeTime } from '@/lib/checkout-schedule';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
+import { civicForProperty } from '@/lib/civic';
+import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
  * Outbound sync endpoint: the guest-relevant property facts the stay-concierge
@@ -35,6 +37,8 @@ type PropertyRow = {
   wifi_label: string | null;
   wifi_name_2: string | null;
   wifi_label_2: string | null;
+  city: string | null;
+  address: string | null;
   parking: string | null;
   trash_day: string | null;
   recycling_day: string | null;
@@ -57,7 +61,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id',
+      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id',
     )
     .eq('is_active', true);
   if (error) {
@@ -89,6 +93,7 @@ export async function GET(req: Request) {
 
   const properties = rows.map((p) => {
     const acc = access.get(p.id);
+    const civic = civicForProperty(p as unknown as HelmPropertyRow);
     return {
       property_id: p.id,
       name: p.name,
@@ -102,9 +107,24 @@ export async function GET(req: Request) {
       wifi_password_2: clean(acc?.wifi_password_2),
       wifi_label_2: clean(p.wifi_label_2),
       parking: clean(p.parking),
-      trash_day: clean(p.trash_day),
-      recycling_day: clean(p.recycling_day),
+      // City is bridged so the guest AI can gate its own waste wording. It
+      // could not before: the payload carried a collection day and no city,
+      // so that side hardcodes the Gloucester rule and stays off Rockport and
+      // Beverly only by the accident of their day being blank. Anything that
+      // reads trash_day should read city beside it.
+      city: clean(p.city).split(',')[0].trim(),
+      // Resolved, not raw. The street table can answer for a home whose
+      // trash_day column was never filled, and the printed Information Note
+      // already prints that day. Sending the raw column left three live
+      // Gloucester homes silent to the guest AI while their posted note in
+      // the kitchen named a day.
+      trash_day: clean(civic.trashDay),
+      recycling_day: clean(civic.recyclingDay),
       trash_notes: clean(p.trash_notes),
+      // The city's receptacle and set-out rule, resolved per request off the
+      // cart cutover date. Helm owns this string so every surface says it the
+      // same way. See src/lib/civic.ts.
+      receptacle_rule: clean(civic.receptacleRule),
       // Per-property check-in / checkout times: the same columns the cleaner
       // checkout schedule reads (filled from each Guesty listing's defaults
       // by /api/sync-guesty, operator-editable on /turnovers/schedule),

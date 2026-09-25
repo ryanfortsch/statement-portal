@@ -74,7 +74,7 @@ export const CAPTURE_COLUMNS: CaptureColumn[] = [
   // ── Inspection & safety ──
   { key: 'trash_day', label: 'Trash day', section: 'Inspection & safety', type: 'text', hints: 'trash collection day' },
   { key: 'recycling_day', label: 'Recycling day', section: 'Inspection & safety', type: 'text', hints: 'recycling collection day' },
-  { key: 'trash_notes', label: 'Trash notes', section: 'Inspection & safety', type: 'text', hints: 'bin location / instructions' },
+  { key: 'trash_notes', label: 'Trash notes', section: 'Inspection & safety', type: 'text', hints: 'indoor bin and outdoor cart location' },
   { key: 'parking_regulations', label: 'Parking regulations', section: 'Inspection & safety', type: 'text', hints: 'permit zone / street sweeping' },
   { key: 'gas_shutoff_location', label: 'Gas shutoff', section: 'Inspection & safety', type: 'text', hints: 'gas shutoff valve location' },
   { key: 'water_shutoff_location', label: 'Water shutoff', section: 'Inspection & safety', type: 'text', hints: 'main water shutoff location' },

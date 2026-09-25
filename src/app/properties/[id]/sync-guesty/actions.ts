@@ -4,6 +4,8 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import { resolveGuestyListingId } from '@/lib/guesty-listing-id';
+import { civicForProperty, receptacleRuleFor, GLOUCESTER_CART_CUTOVER } from '@/lib/civic';
+import type { HelmPropertyRow } from '@/lib/properties';
 import {
   getListingGuestFields,
   updateListingGuestFields,
@@ -70,6 +72,16 @@ function compose(parts: Array<string | null | undefined>, sep: string): string {
   return parts.map((p) => (p ?? '').trim()).filter(Boolean).join(sep);
 }
 
+/**
+ * The receptacle rule as it will be true from 2026-10-01 onward, rather than
+ * as it is on the day of the push. See the note in loadHelmFields: a Guesty
+ * listing field never re-syncs, so it wants the durable answer.
+ */
+function durableReceptacleRule(city: string | null | undefined): string | null {
+  const cityShort = (city || '').split(',')[0].trim();
+  return receptacleRuleFor(cityShort, new Date(`${GLOUCESTER_CART_CUTOVER}T12:00:00Z`));
+}
+
 /** Loose equality so trivial whitespace/case differences don't read as a diff. */
 function norm(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -110,12 +122,15 @@ async function requireLinkedProperty(
 async function loadHelmFields(propertyId: string): Promise<GuestyGuestFields> {
   const { data } = await supabase
     .from('properties')
-    .select('wifi_name, trash_day, trash_notes, parking, parking_regulations')
+    .select('wifi_name, city, address, trash_day, recycling_day, trash_notes, parking, parking_regulations')
     .eq('id', propertyId)
     .maybeSingle();
   const p = (data ?? {}) as {
     wifi_name?: string | null;
+    city?: string | null;
+    address?: string | null;
     trash_day?: string | null;
+    recycling_day?: string | null;
     trash_notes?: string | null;
     parking?: string | null;
     parking_regulations?: string | null;
@@ -123,11 +138,31 @@ async function loadHelmFields(propertyId: string): Promise<GuestyGuestFields> {
   // wifi_password is the one sensitive value — it lives in the RLS-locked
   // property_access table, read here via the service-role helper.
   const access = await getPropertyAccess(propertyId);
+  const civic = civicForProperty(p as unknown as HelmPropertyRow);
   return {
     wifiName: (p.wifi_name ?? '').trim(),
     wifiPassword: (access.wifi_password ?? '').trim(),
     parkingInstructions: compose([p.parking, p.parking_regulations], '\n'),
-    trashCollectedOn: compose([p.trash_day, p.trash_notes], ' — '),
+    // Composed, not the raw column. This string lands on the live Airbnb and
+    // VRBO listing where nothing downstream filters it, so it has to stand
+    // alone. trash_notes carries only where the bins and carts live; the day
+    // and the city rule come from civic.ts.
+    //
+    // Deliberately NOT the date-resolved rule. A Guesty listing field is
+    // write-once from Helm's side: we push it and nothing ever re-syncs, so
+    // whatever is pushed sits on the listing indefinitely. Pushing the
+    // pre-cutover bag wording during the last week of September would freeze
+    // a retired program onto the listing for good. For a durable field the
+    // correct content is the durable rule, so Gloucester always gets the cart
+    // text here even while civic.ts is still serving bags to the live pages.
+    trashCollectedOn: compose(
+      [
+        civic.trashDay ? `Collection is ${civic.trashDay}, recycling the same day.` : null,
+        p.trash_notes,
+        durableReceptacleRule(p.city),
+      ],
+      ' ',
+    ),
   };
 }
 
