@@ -78,13 +78,30 @@ test('Gloucester cart wording never leaks to Rockport or Beverly', () => {
   assert.equal(receptacleRuleFor('Somerville', AFTER), null);
 });
 
-test('the three dark Gloucester homes now resolve a collection day', () => {
-  // Each of these had no day on any Helm surface before the cutover audit.
-  // "3 Windward Pt" is the live DB spelling; the DPW list says "windward
-  // point", and "pt" was in neither the strip regex nor the synthesis list.
+test('two of the three dark Gloucester homes now resolve a collection day', () => {
+  // Both had no day on any Helm surface before the cutover audit, and both are
+  // single unambiguous rows on the DPW list, checked against it on 2026-09-25.
+  // "3 Windward Pt" is the live DB spelling; the list says "windward point",
+  // and "pt" was in neither the strip regex nor the synthesis list.
   assert.equal(civicForProperty(prop({ address: '3 Windward Pt' })).trashDay, 'Friday');
   assert.equal(civicForProperty(prop({ address: '7 Sumac Lane' })).trashDay, 'Friday');
-  assert.equal(civicForProperty(prop({ address: '84 Thatcher Road' })).trashDay, 'Monday');
+});
+
+test('a street the route splits refuses to answer', () => {
+  // The DPW list carries "Thatcher Road Fri" AND "Thatcher Road Mon" with no
+  // segment note. The table is an object literal, so the duplicate key kept
+  // whichever came last and the Information Note printed that as fact. A
+  // wrong day puts a cart at the curb for the rest of the week at $400 per
+  // occurrence, so the lookup declines and the surface says to confirm.
+  assert.equal(civicForProperty(prop({ address: '84 Thatcher Road' })).trashDay, null);
+  assert.equal(civicForProperty(prop({ address: '12 Atlantic Road' })).trashDay, null);
+  assert.equal(civicForProperty(prop({ address: '12 Main Street' })).trashDay, null);
+
+  // An operator who has actually phoned DPW for one address still wins.
+  assert.equal(
+    civicForProperty(prop({ address: '84 Thatcher Road', trash_day: 'Friday' })).trashDay,
+    'Friday',
+  );
 });
 
 test('a unit suffix after a comma does not break the street lookup', () => {
