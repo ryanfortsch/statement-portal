@@ -21,6 +21,7 @@ import type { MonthlyActual } from '@/lib/forecast-actuals';
 import type { SmartForecast } from '@/lib/forecast-smart';
 import type { ProspectForecast } from '@/lib/forecast-prospects';
 import type { StatementRevenueByMonth } from '@/lib/forecast-statement-actuals';
+import { describeMonths, type YtdSummary } from '@/lib/forecast-fy-total';
 
 const KNOWN_2026 = knownFromRoster(CURRENT_2026);
 
@@ -54,6 +55,13 @@ type Props = {
   /** Map keyed by YYYY-MM → total mgmt fee from property_statements. */
   statementRevenue: StatementRevenueByMonth;
   /**
+   * Year-to-date closed-statement management fee per year, the half of the
+   * year the smart table's forward months cannot see. Built on the server so
+   * the closed-month boundary is decided once rather than on each viewer's
+   * clock.
+   */
+  ytdByYear: Record<ForecastYear, YtdSummary>;
+  /**
    * 2026 bank actuals indexed by month-1 (sourced from overhead_expenses
    * via getActualsFromDb in page.tsx, falling back to hardcoded
    * ACTUALS_2026 when the DB is empty). Sparse holes are tolerated —
@@ -72,6 +80,7 @@ export function ForecastClient({
   prospects2027,
   prospects2028,
   statementRevenue,
+  ytdByYear,
   bankActuals2026,
   bankActualsThrough2026,
 }: Props) {
@@ -331,6 +340,7 @@ export function ForecastClient({
             yearKey === 2027 ? smart2027 :
             smart2028
           }
+          ytd={ytdByYear[yearKey]}
         />
       </section>
 
@@ -394,7 +404,13 @@ export function ForecastClient({
   );
 }
 
-function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
+function SmartForecastPanel({
+  data,
+  ytd,
+}: {
+  data: SmartForecast | null;
+  ytd: YtdSummary;
+}) {
   // Whole dollars throughout — round to nearest dollar.
   const fmtUsd = (n: number) =>
     n === 0
@@ -447,23 +463,34 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
     return MONTH_LABELS[parseInt(m, 10) - 1];
   };
 
-  // The totals column sums the months BESIDE it, which on the current-year
-  // tab is only the months still ahead: forwardMonths() starts at the current
-  // month because closed months are carried by the Monthly Detail table
-  // instead. Calling that "FY total" was false on exactly the tab an operator
-  // reads most. On 2026-09-21 it covered four months of twelve and showed
-  // $144.5k of a year tracking near $339k, and 4 Brier Neck, whose whole year
-  // is behind the left edge, read as a dash. Future-year tabs really do cover
-  // twelve months, so they keep the honest label.
-  const wholeYear = data.months.length === 12;
-  const spanLabel = wholeYear
+  // The month columns are the months still AHEAD: forwardMonths() starts at
+  // the current month. On its own that made the totals column four months of
+  // twelve while calling itself "FY total", $144.5k of a 2026 tracking near
+  // $339k, with 4 Brier Neck reading as a dash because its whole year sat
+  // behind the left edge.
+  //
+  // The year-to-date column is the missing half. Closed statements supply the
+  // actuals, the month columns supply the projection, and because the
+  // statement loader excludes the in-progress month that forwardMonths()
+  // starts at, the two tile the year with no gap and no double count.
+  // `ytd.coversYear` re-checks that rather than assuming it, and only when it
+  // holds does the totals column call itself a fiscal year.
+  const showYtd = ytd.total > 0;
+  const fyReal = ytd.coversYear;
+  const spanLabel = fyReal
     ? 'FY total'
     : data.months.length === 1
     ? fmtMonth(data.months[0])
     : `${fmtMonth(data.months[0])}-${fmtMonth(data.months[data.months.length - 1])}`;
-  const spanTitle = wholeYear
-    ? 'Total across all twelve months of the year.'
-    : `Total across the months shown, ${fmtMonth(data.months[0])} to ${fmtMonth(data.months[data.months.length - 1])}. This panel projects the months still ahead, so closed months are not included here. Their actuals are in Monthly Detail below.`;
+  const actualsSpan = describeMonths(ytd.monthsWithActuals);
+  const spanTitle = fyReal
+    ? `The whole year: closed statements${actualsSpan ? ` (${actualsSpan})` : ''} plus the months still projected.`
+    : `Total across the months shown, ${fmtMonth(data.months[0])} to ${fmtMonth(data.months[data.months.length - 1])}. Closed months are not included here; their actuals are in Monthly Detail below.`;
+  const ytdTitle = `Management fee already billed on closed statements${
+    actualsSpan ? `, ${actualsSpan}` : ''
+  }. Real money, not projected. The in-progress month is never counted as an actual, so it stays in the projected columns.`;
+  const fyFor = (propertyId: string, projected: number) =>
+    (ytd.byProperty[propertyId] ?? 0) + projected;
 
   return (
     <div
@@ -486,6 +513,11 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
           <tr>
             <Th first>&nbsp;</Th>
             <Th>Fee %</Th>
+            {showYtd && (
+              <Th actual title={ytdTitle}>
+                YTD
+              </Th>
+            )}
             {data.months.map((m) => (
               <Th key={m}>{fmtMonth(m)}</Th>
             ))}
@@ -501,6 +533,7 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
               Portfolio pacing
             </td>
             <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
+            {showYtd && <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>}
             {data.monthInputs.map((mi) => (
               <td
                 key={mi.month}
@@ -520,6 +553,7 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
               ↳ projection multiplier
             </td>
             <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
+            {showYtd && <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>}
             {data.monthInputs.map((mi) => (
               <td
                 key={mi.month}
@@ -562,6 +596,18 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
               <td style={cellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
                 {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
               </td>
+              {showYtd && (
+                <td
+                  title={ytdTitle}
+                  style={cellStyle({
+                    color: (ytd.byProperty[p.property.id] ?? 0) > 0 ? 'var(--signal)' : 'var(--ink-4)',
+                    opacity: (ytd.byProperty[p.property.id] ?? 0) > 0 ? 1 : 0.4,
+                    fontWeight: 600,
+                  })}
+                >
+                  {fmtUsd(ytd.byProperty[p.property.id] ?? 0)}
+                </td>
+              )}
               {p.monthly.map((m) => (
                 <td
                   key={m.month}
@@ -581,8 +627,8 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
               ))}
               <td
                 title={
-                  p.totals.projectedMgmtFee === 0 && !wholeYear
-                    ? `${p.property.name} has no operating month in this range. Anything it earned in closed months is not counted here. See Monthly Detail.`
+                  p.totals.projectedMgmtFee === 0 && (ytd.byProperty[p.property.id] ?? 0) > 0
+                    ? `${p.property.name} has no operating month left, so this is all year-to-date actual.`
                     : spanTitle
                 }
                 style={cellStyle({
@@ -591,7 +637,7 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
                   background: 'rgba(58, 107, 74, 0.08)',
                 })}
               >
-                {fmtUsdCents(p.totals.projectedMgmtFee)}
+                {fmtUsdCents(fyFor(p.property.id, p.totals.projectedMgmtFee))}
               </td>
             </tr>
           ))}
@@ -616,6 +662,18 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
             >
               —
             </td>
+            {showYtd && (
+              <td
+                title={ytdTitle}
+                style={cellStyle({
+                  background: 'var(--ink)',
+                  color: '#9bd1ad',
+                  fontWeight: 600,
+                })}
+              >
+                {fmtUsd(ytd.total)}
+              </td>
+            )}
             {data.months.map((ym) => {
               const sum = data.properties.reduce((s, p) => {
                 const cell = p.monthly.find((mm) => mm.month === ym);
@@ -642,7 +700,7 @@ function SmartForecastPanel({ data }: { data: SmartForecast | null }) {
                 fontWeight: 700,
               })}
             >
-              {fmtUsdCents(data.totals.projectedMgmtFee)}
+              {fmtUsdCents(ytd.total + data.totals.projectedMgmtFee)}
             </td>
           </tr>
         </tbody>

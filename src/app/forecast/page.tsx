@@ -26,7 +26,12 @@ import {
 } from '@/lib/forecast-actuals';
 import { getActualsFromDb } from '@/lib/forecast-actuals-from-db';
 import { getProspectForecast } from '@/lib/forecast-prospects';
-import { getStatementRevenueByMonth, type StatementRevenueByMonth, getStatementGrossByProperty } from '@/lib/forecast-statement-actuals';
+import {
+  getStatementRevenueByMonth,
+  getStatementGrossByProperty,
+  getStatementMgmtFeeByProperty,
+} from '@/lib/forecast-statement-actuals';
+import { summarizeYtd } from '@/lib/forecast-fy-total';
 
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
@@ -296,16 +301,38 @@ function filterToYear(smart: SmartForecast | null, year: number): SmartForecast 
 export default async function ForecastPage() {
   // Pull Guesty bookings + Helm prospects pipeline + reconciled statements
   // in parallel. Statements feed actual mgmt-fee revenue per closed month.
-  const [smartAll, prospects2026, prospects2027, prospects2028, statementRevenue] = await Promise.all([
+  const [
+    smartAll,
+    prospects2026,
+    prospects2027,
+    prospects2028,
+    statementRevenue,
+    statementMgmtFee,
+  ] = await Promise.all([
     getSmartForecast(2028),
     getProspectForecast(2026),
     getProspectForecast(2027),
     getProspectForecast(2028),
     getStatementRevenueByMonth(),
+    getStatementMgmtFeeByProperty(),
   ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);
   const smart2028 = filterToYear(smartAll, 2028);
+
+  // Year-to-date actuals, the half of the year the smart table cannot see.
+  // Built here rather than in the client so the "which months are closed"
+  // decision is made once, on the server clock, instead of drifting with the
+  // viewer's. `closedMonthsOf` and the statement loader use the same
+  // in-progress-month rule that `forwardMonths` starts from, so the two
+  // halves tile the year exactly; `summarizeYtd` re-checks that rather than
+  // assuming it.
+  const asOf = new Date();
+  const ytdByYear = {
+    2026: summarizeYtd(statementMgmtFee, closedMonthsOf(2026, asOf), smart2026?.months ?? [], 2026),
+    2027: summarizeYtd(statementMgmtFee, closedMonthsOf(2027, asOf), smart2027?.months ?? [], 2027),
+    2028: summarizeYtd(statementMgmtFee, closedMonthsOf(2028, asOf), smart2028?.months ?? [], 2028),
+  };
 
   // 2026 bank actuals: prefer the dynamic source (rows from the
   // /api/ingest-overhead upload's overhead_expenses table, refreshed
@@ -340,6 +367,7 @@ export default async function ForecastPage() {
         prospects2027={prospects2027}
         prospects2028={prospects2028}
         statementRevenue={statementRevenue}
+        ytdByYear={ytdByYear}
         bankActuals2026={bankActuals2026}
         bankActualsThrough2026={bankActualsThrough2026}
       />
