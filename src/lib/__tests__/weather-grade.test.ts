@@ -14,7 +14,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySky, parseWindMph, gradeDay, weatherLine, type DayWeather } from '../weather-types.ts';
+import { classifySky, parseWindMph, gradeDay, weatherLine, type DayWeather, type Sky } from '../weather-types.ts';
 
 describe('classifySky', () => {
   test('reads the clear end of the scale', () => {
@@ -35,13 +35,19 @@ describe('classifySky', () => {
     assert.equal(classifySky('Slight Chance Rain Showers then Mostly Sunny'), 'rain');
     assert.equal(classifySky('Mostly Sunny then Chance Showers'), 'rain');
     assert.equal(classifySky('Chance Rain And Snow'), 'snow');
+    // Thunder outranks the rain named in the same breath: one is a wet day,
+    // the other is a day nobody stands in a field holding a tripod.
+    assert.equal(classifySky('Chance Rain Showers And Thunderstorms'), 'storm');
   });
 
   test('names the weather events', () => {
     assert.equal(classifySky('Chance Rain Showers'), 'rain');
     assert.equal(classifySky('Rain Showers Likely'), 'rain');
     assert.equal(classifySky('Light Snow'), 'snow');
+    assert.equal(classifySky('Wintry Mix'), 'snow');
+    assert.equal(classifySky('Light Drizzle'), 'rain');
     assert.equal(classifySky('Patchy Fog'), 'fog');
+    assert.equal(classifySky('Areas Of Haze'), 'fog');
     assert.equal(classifySky('Scattered Thunderstorms'), 'storm');
   });
 
@@ -57,6 +63,10 @@ describe('parseWindMph', () => {
   test('takes the top of the range, which is what the shoot must survive', () => {
     assert.equal(parseWindMph('12 to 16 mph'), 16);
     assert.equal(parseWindMph('6 mph'), 6);
+  });
+
+  test('gusts count, because the gust is what moves the drone', () => {
+    assert.equal(parseWindMph('10 to 15 mph, with gusts as high as 30 mph'), 30);
   });
 
   test('no number means no reading', () => {
@@ -104,6 +114,22 @@ describe('gradeDay', () => {
     assert.equal(gradeDay('clear', 0, 24), 'good');
     assert.equal(gradeDay('clear', 0, 25), 'fair');
   });
+
+  test('every sky has a verdict, so a new one cannot fall through to good', () => {
+    // gradeDay ends in `return 'good'`. A sky added to the union without a
+    // rule above that line would quietly become a green day on the grid and
+    // send a camera out in it. This is the tripwire for that.
+    const skies: Sky[] = ['clear', 'partly', 'cloudy', 'fog', 'rain', 'snow', 'storm'];
+    const wet: Sky[] = ['rain', 'snow', 'storm'];
+    for (const sky of skies) {
+      const verdict = gradeDay(sky, 0, 0);
+      assert.ok(['good', 'fair', 'poor'].includes(verdict), `${sky} graded ${verdict}`);
+      // Dry-and-calm is the kindest input there is, so anything that still
+      // grades 'poor' here is genuinely unshootable weather, and nothing wet
+      // may grade anything else.
+      if (wet.includes(sky)) assert.equal(verdict, 'poor', `${sky} must be poor even when dry and calm`);
+    }
+  });
 });
 
 describe('weatherLine', () => {
@@ -126,6 +152,15 @@ describe('weatherLine', () => {
     assert.equal(weatherLine(day({ precipPct: 40 })), 'Sunny · 68° · 40% rain');
     assert.equal(weatherLine(day({ windMph: 22 })), 'Sunny · 68° · wind to 22 mph');
     assert.equal(weatherLine(day({ windMph: 14 })), 'Sunny · 68°');
+    // The exact edge, so moving it is a decision rather than a slip.
+    assert.equal(weatherLine(day({ windMph: 15 })), 'Sunny · 68° · wind to 15 mph');
+  });
+
+  test('a bad day says all of it, in one line', () => {
+    assert.equal(
+      weatherLine(day({ shortForecast: 'Rain Showers Likely', sky: 'rain', grade: 'poor', precipPct: 60, windMph: 30 })),
+      'Rain Showers Likely · 68° · 60% rain · wind to 30 mph',
+    );
   });
 
   test('a missing temperature is simply absent, never a zero', () => {
