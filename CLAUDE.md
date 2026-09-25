@@ -637,7 +637,20 @@ anything service-role will 500 or silently degrade in local dev. That is expecte
 
 # Testing
 
-There is **no test runner and no automated test suite**. What exists:
+**`npm test` is the suite. Run it.** Node's own test runner over
+`src/**/__tests__/*.test.ts`, native TypeScript, no bundler and no network. It is fast (about a
+second) and currently green. This file used to say there was no test runner; that was true once
+and stopped being true, and an agent believing it duplicated an existing test into `scripts/`.
+**Put a new pure-logic test in `src/lib/__tests__/`, not in `scripts/`**, or it only runs when
+somebody remembers it exists.
+
+A test here is not only for arithmetic. Several guard an invariant that is spread thin across
+files and easy to delete by accident, by reading the source and asserting the guard is still
+there: `shoot-offer-optin.test.ts` is the clearest example (an offered shoot must never be
+treated as work). When you add one of those, break the guard once and watch the test fail before
+you trust it.
+
+Also present, and NOT part of `npm test`:
 
 - `scripts/*_parity.py`: read-only harnesses that prove a specific past change did not move any
   owner payout. They need a service-role key and are one-shot audits, not regression guards.
@@ -646,7 +659,7 @@ There is **no test runner and no automated test suite**. What exists:
 - `scripts/paged_select_check.mjs`: exercises `selectAllPaged` page boundaries via Node's native
   TypeScript stripping.
 
-The gate before shipping is `npx tsc --noEmit`. Run it. Chain commits on it.
+The gate before shipping is `npx tsc --noEmit` **and `npm test`**. Run both. Chain commits on them.
 
 # Known watch-outs
 
