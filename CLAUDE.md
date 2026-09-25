@@ -432,7 +432,9 @@ Three things to know before editing any of it:
 
 1. **The Gloucester rule is date-resolved**, off `GLOUCESTER_CART_CUTOVER`, because stays straddled
    the switch. Every surface that prints it is `force-dynamic`, so it flips itself with nothing for
-   anyone to remember. The pre-cutover bag branch is dead now and can be deleted.
+   anyone to remember. `GLOUCESTER_BAG_RULE` is still LIVE until the cutover and a guest with a
+   pickup on or before 2026-09-30 needs it, so do not delete that branch before 10-01. After
+   that date it is dead and should go, along with `durableReceptacleRule` in the Guesty push.
 2. **Never write "the night before" or "out by 7am".** The wording is
    *"out after 4 PM the day before, back in that evening"*, which satisfies both the current rule
    and the pending Chapter 9 Sec. 9-4 deadline. The return half is the compliance clause, not
