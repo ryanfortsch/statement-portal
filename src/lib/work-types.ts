@@ -49,11 +49,13 @@ export type WorkSlipRow = {
    *  the messaging flow (e.g. "gear:<reservation_id>" for a pack-n-play /
    *  high-chair ask). One slip per stay; retries merge instead of dupe. */
   from_guest_request_key: string | null;
-  /** Idempotency key when auto-created by a reservation-driven prep rule
-   *  (e.g. "trashbags:<property_id>:<check_in>" for the long-stay purple-bag
-   *  check). Stay-shaped, not booking-row-shaped, because one stay can exist
-   *  as several uncollapsed feed rows in bookings. One slip per rule per
-   *  stay, ever — a dismissed slip stays dismissed. */
+  /** Idempotency key when auto-created by a reservation-driven prep rule,
+   *  shaped "<rule>:<property_id>:<check_in>". Stay-shaped, not
+   *  booking-row-shaped, because one stay can exist as several uncollapsed
+   *  feed rows in bookings. One slip per rule per stay, ever. A dismissed
+   *  slip stays dismissed. (The first such rule, the Gloucester purple-bag
+   *  supply run, retired with the city's bag program on 2026-09-30. The
+   *  column and its partial unique index are generic and stay.) */
   from_prep_rule_key: string | null;
   /** Stay linkage: the Guesty reservation this slip preps for, so the
    *  Operations turnover rail can pin it to the exact check-in. */

@@ -888,11 +888,16 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why: 'A KB template section guests genuinely ask about in a beach market.',
   },
   {
-    key: 'inventory.purple_bags',
+    // Replaces the retired inventory.purple_bags. New key, not a rename: the
+    // key is the join to the status rows (see the rule at the top of this
+    // file), and a Gloucester home that stocked bags has not thereby got its
+    // carts. Gloucester retired the purple bag program on 2026-09-30.
+    key: 'inventory.city_carts',
     stage: 'inventory',
-    title: 'Stock purple bags (Gloucester)',
-    description: 'A stash of city purple trash bags in the home, or n/a outside Gloucester.',
-    why: 'The pre-arrival prep cron sends someone with bags. A stash in the home short-circuits the errand.',
+    title: 'City carts on site (Gloucester)',
+    description:
+      'Both City carts delivered, a trash and a recycling, with a storage spot off the curb. N/a outside Gloucester.',
+    why: 'Gloucester collects only from the City carts, and a cart left at the curb is $400 per occurrence under the STR ordinance. The home needs both carts and somewhere to keep them.',
   },
   {
     key: 'inventory.spares_stash',
@@ -1013,9 +1018,9 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
   {
     key: 'guest_experience.trash_rules',
     stage: 'guest_experience',
-    title: 'Trash day and bag rules on file',
-    description: 'Trash day, recycling day, and the purple-bag rule recorded.',
-    why: 'Drives the trash-day reminder engine, the purple-bag prep cron, the guest KB, and Guesty\'s trashCollectedOn. Non-Gloucester homes need the day set by hand.',
+    title: 'Trash day and cart location on file',
+    description: 'Trash day, recycling day, and where the carts live recorded.',
+    why: 'Drives the trash-day reminder engine, the guest KB, the printed Information Note, and Guesty\'s trashCollectedOn. The city set-out rule comes from civic.ts, so the notes field only needs the cart location. Non-Gloucester homes need the day set by hand.',
     href: '/properties/{id}/edit',
     hrefLabel: 'Edit field',
     derive: ({ p }) => has(p.trash_day),

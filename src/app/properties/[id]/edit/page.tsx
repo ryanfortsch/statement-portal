@@ -215,7 +215,7 @@ export default async function PropertyEditPage({
             <Field name="trash_day" label="Trash pickup day" defaultValue={p.trash_day} hint="Auto-derived from address for Gloucester — set here to override" />
             <Field name="recycling_day" label="Recycling pickup day" defaultValue={p.recycling_day} />
           </Row>
-          <Field name="trash_notes" label="Trash & recycling notes" defaultValue={p.trash_notes} hint="Bin location, opt-out, special instructions" textarea />
+          <Field name="trash_notes" label="Trash & recycling notes" defaultValue={p.trash_notes} hint="Where the indoor bins and outdoor carts live. The city set-out rule is added automatically, do not repeat it here." textarea />
           <Field
             name="parking_regulations"
             label="Parking regulations"

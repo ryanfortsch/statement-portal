@@ -13,6 +13,19 @@
  *
  * Noise + animal-control text and the default parking rules come from each
  * city's STR ordinance; they're per-jurisdiction, not per-property.
+ *
+ * THIS MODULE OWNS THE RECEPTACLE RULE. What a household puts waste in, and
+ * when it goes to the curb, is city policy. A property row says where its
+ * carts live; it does not get to contradict the city about the set-out rule.
+ * Every surface reads `receptacleRule` from here rather than carrying its own
+ * copy, which is what keeps a Gloucester cart sentence off a Rockport home
+ * that has no curbside collection at all. See GLOUCESTER_CART_CUTOVER.
+ *
+ * CAVEAT ON THE DAY TABLE: the street list below is the 11-16-23 revision.
+ * Gloucester's 2026-10-01 switch to automated carts is documented as not
+ * changing collection days, but nothing here has re-verified 690 streets
+ * against the Casella route list. Confirm with DPW (978-325-5600) before
+ * trusting a day for a street the fleet doesn't already occupy.
  */
 import type { HelmPropertyRow } from './properties';
 
@@ -29,14 +42,111 @@ export type CivicInfo = {
   animals: string;
   /** URL fragment for the city's published trash schedule. */
   trashLink: string | null;
+  /**
+   * What the household puts its waste IN, and when it goes to the curb.
+   * City policy, never per-property: a property row may say where its carts
+   * live, but it may not contradict the city about the set-out rule. Null
+   * for a city we have no confirmed rule for, so a surface can omit the
+   * line rather than print something wrong.
+   */
+  receptacleRule: string | null;
 };
+
+/**
+ * Gloucester retired its purple pay-as-you-throw bags on 2026-09-30 and
+ * collects with automated Casella carts from 2026-10-01: one 65-gallon
+ * trash cart and one 65-gallon recycling cart per unit, $300/yr billed
+ * $75/quarter on the property's utility account. Short-term rentals are
+ * named explicitly and are not exempt. Collection DAYS did not change and
+ * the holiday one-day-later rule survives.
+ *
+ * The date matters because stays straddle it. A guest whose pickup is
+ * 2026-09-28 still needs bags; the same guest's 2026-10-02 pickup needs the
+ * cart. So the rule is resolved per render, not frozen into a constant.
+ * Every surface that prints it is `force-dynamic`, so this evaluates on each
+ * request and flips itself at midnight with nothing for anyone to remember.
+ * This mirrors stay-concierge's `CART_CUTOVER` / `_uses_carts`
+ * (src/trash_reminders.py), which keys on the PICKUP date for the same
+ * reason. The two constants must stay equal.
+ *
+ * After 2026-10-01 the bag branch below is dead and should be deleted.
+ */
+export const GLOUCESTER_CART_CUTOVER = '2026-10-01';
+
+/**
+ * The canonical Gloucester cart paragraph. Wording is load-bearing, not
+ * decorative:
+ *
+ *  - "lid fully closed" / "nothing beside the cart" replaces the bag-era
+ *    habit of leaving overflow next to the barrel. Overflow is not collected.
+ *  - "loose bags or personal barrels are no longer picked up" is here because
+ *    the homes still physically have barrels a guest will reach for.
+ *  - "back in that evening" is the compliance clause, not politeness.
+ *    Gloucester STR ordinance Sec. 5-66(q) fines $400 PER OCCURRENCE for a
+ *    cart left at the curb, each day a separate offence, and chains to the
+ *    Board of Health rental permit via s.3.8. Do not drop it in a rewrite.
+ *  - "after 4 PM the day before" satisfies both the current rule and the
+ *    pending Chapter 9 Sec. 9-4 7 a.m. deadline. Never write "the night
+ *    before" or "out by 7am" on their own.
+ *
+ * Identical in substance to stay-concierge's cart sentence so a guest who
+ * reads the posted note and then texts us hears the same answer twice.
+ */
+export const GLOUCESTER_CART_RULE =
+  'Everything goes in the two City carts with the lids fully closed, since anything left beside a cart is not collected, and loose bags or personal barrels are no longer picked up. Carts go out after 4 PM the day before collection and come back in that evening, which the city requires. A holiday earlier in the week pushes collection one day later, and Friday runs Saturday.';
+
+/** The pre-cutover rule. Dead on 2026-10-01, delete it with the branch. */
+const GLOUCESTER_BAG_RULE =
+  'Trash goes out in the official purple City bags, which are the only ones collected. Bags go out after 4 PM the day before collection and the barrels come back in that evening, which the city requires. A holiday earlier in the week pushes collection one day later, and Friday runs Saturday. Gloucester switches to automated City carts on October 1, and after that everything goes in the carts instead.';
+
+/**
+ * Rockport has no curbside collection at all: the town runs a Transfer Station
+ * and its own pay-as-you-throw bags. Never send it cart wording.
+ *
+ * Written for the guest, who is the one reading it. Hauling to the Transfer
+ * Station is OUR job, not theirs, so this says where their trash goes and
+ * stops. An earlier draft described the Transfer Station run itself, which
+ * read as an errand we were handing a guest on holiday.
+ */
+const ROCKPORT_RULE =
+  'Rockport has no curbside collection, so nothing goes out to the street here. Fill the outdoor bins and leave them where they are, and we take it from there.';
+
+/**
+ * Beverly runs its own Casella program, moved over 2026-07-01 on its own
+ * specs (95-gallon recycling). Deliberately states only what we have actually
+ * confirmed: the carts and the lid rule. Beverly's set-out window and its
+ * removal deadline are NOT Gloucester's and we have not sourced them, so this
+ * does not assert one. Add it once someone has the city's own wording.
+ */
+const BEVERLY_RULE =
+  'Beverly collects with City carts. Everything goes inside with the lid fully closed, since anything left beside a cart is not collected. Check the city schedule for the set-out window.';
+
+/**
+ * Resolve the receptacle rule for a city on a given date. `on` is injectable
+ * so the test suite can pin both sides of the cutover without touching the
+ * clock.
+ */
+export function receptacleRuleFor(city: string, on: Date = new Date()): string | null {
+  switch (city) {
+    case 'Gloucester':
+      return gloucesterDateKey(on) >= GLOUCESTER_CART_CUTOVER
+        ? GLOUCESTER_CART_RULE
+        : GLOUCESTER_BAG_RULE;
+    case 'Rockport':
+      return ROCKPORT_RULE;
+    case 'Beverly':
+      return BEVERLY_RULE;
+    default:
+      return null;
+  }
+}
 
 /**
  * Resolve civic info for a property. Prefers per-property DB overrides
  * (`trash_day`, `recycling_day`, `parking_regulations`) when present;
  * otherwise derives from the city table.
  */
-export function civicForProperty(p: HelmPropertyRow): CivicInfo {
+export function civicForProperty(p: HelmPropertyRow, on: Date = new Date()): CivicInfo {
   const cityShort = (p.city || '').split(',')[0].trim();
   const cityDefaults = civicForCity(cityShort);
 
@@ -45,11 +155,14 @@ export function civicForProperty(p: HelmPropertyRow): CivicInfo {
     cityShort === 'Gloucester' ? gloucesterTrashDay(street) : null;
 
   // Per-property override wins over the lookup; lookup wins over null.
-  const trashDay = p.trash_day || lookedUpDay;
+  const trashDay = normalizeDay(p.trash_day) || lookedUpDay;
   const recyclingDay =
-    p.recycling_day ||
+    normalizeDay(p.recycling_day) ||
     // Gloucester collects single-stream recycling on the same day as trash.
-    (cityShort === 'Gloucester' ? lookedUpDay : null);
+    // Fall back to the RESOLVED trash day, not the raw lookup: when an
+    // operator overrides trash_day the two must move together, or the note
+    // prints two different days for a city that collects both at once.
+    (cityShort === 'Gloucester' ? trashDay : null);
 
   return {
     trashDay,
@@ -58,7 +171,22 @@ export function civicForProperty(p: HelmPropertyRow): CivicInfo {
     noise: cityDefaults.noise,
     animals: cityDefaults.animals,
     trashLink: cityDefaults.trashLink,
+    receptacleRule: receptacleRuleFor(cityShort, on),
   };
+}
+
+/**
+ * Screen the sentinels that mean "no collection" so they never escape as a
+ * printable weekday. The DPW list itself carries a literal "None" on one
+ * street, and operators have typed "NA" and "DUMP" into the column for homes
+ * with no curbside service.
+ */
+const NO_SERVICE_DAYS = new Set(['na', 'n/a', 'none', 'no', 'dump', '-', '—']);
+
+function normalizeDay(raw: string | null | undefined): string | null {
+  const v = (raw ?? '').trim();
+  if (!v || NO_SERVICE_DAYS.has(v.toLowerCase())) return null;
+  return DAY_LONG[v] ?? v;
 }
 
 /**
@@ -72,8 +200,53 @@ function extractStreet(address: string): string {
   // suffixes like "21A". Then trim and lowercase.
   return address
     .replace(/^\s*\d+[a-zA-Z]?(\s*[-–]\s*\d+[a-zA-Z]?)?\s+/, '')
+    // Drop anything after a comma: a unit token or a city/state tail.
+    // "53 Rocky Neck, Downstairs" is a real address in the fleet and the
+    // suffix pass below is end-anchored, so without this it never matches.
+    .split(',')[0]
     .trim()
     .toLowerCase();
+}
+
+/**
+ * Street-suffix spellings the DPW list and our address column disagree on.
+ * The list publishes "windward point"; the property row says "3 Windward Pt".
+ * Expanded before the lookup so both spellings land on the same key.
+ */
+const SUFFIX_ALIASES: Record<string, string> = {
+  st: 'street',
+  ave: 'avenue',
+  av: 'avenue',
+  rd: 'road',
+  ln: 'lane',
+  dr: 'drive',
+  ct: 'court',
+  cir: 'circle',
+  pl: 'place',
+  sq: 'square',
+  ter: 'terrace',
+  pt: 'point',
+  hts: 'heights',
+  ext: 'extension',
+  pk: 'park',
+};
+
+/**
+ * Today's date in Gloucester, as YYYY-MM-DD.
+ *
+ * The cutover is a calendar date in Massachusetts, not an instant. Vercel runs
+ * functions in UTC, so reading the date off the server's own clock would flip
+ * the wording at 8 PM Eastern on 2026-09-30, four hours early, and tell a
+ * guest to use a cart the city will not empty until Thursday. Pin the zone.
+ */
+function gloucesterDateKey(on: Date): string {
+  // en-CA formats as YYYY-MM-DD, which is what we want to string-compare.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(on);
 }
 
 /**
@@ -83,20 +256,47 @@ function extractStreet(address: string): string {
  */
 function gloucesterTrashDay(street: string): string | null {
   if (!street) return null;
-  const direct = GLOUCESTER_TRASH[street];
-  if (direct) return DAY_LONG[direct] ?? direct;
+  // Canonicalize the suffix and drop a trailing period BEFORE anything else,
+  // so an exact street still wins on the direct hit. This ordering is the
+  // whole point: the synthesis pass below strips the suffix and guesses, and
+  // on a stem with several entries it guesses wrong. "beach court" is Tuesday
+  // while "beach road" is Monday, so "beach ct" or "beach court." reaching
+  // synthesis used to answer Monday. Resolve the real key first and it never
+  // gets there.
+  // Order matters. The published list carries BOTH spellings for some streets
+  // and they do not always agree ("patriots cir" is Wednesday, "patriots
+  // circle" is Friday), and it carries an abbreviated-only key for others
+  // ("mason sq", with no "mason square" to expand into). So an exact key,
+  // period aside, always wins over the expansion.
+  const bare = street.replace(/\.\s*$/, '');
+  const expanded = bare.replace(
+    /\b(st|ave|av|rd|ln|dr|ct|cir|pl|sq|ter|pt|hts|ext|pk)\b$/,
+    (m) => SUFFIX_ALIASES[m] ?? m,
+  );
+  for (const candidate of [street, bare, expanded]) {
+    const direct = GLOUCESTER_TRASH[candidate];
+    if (direct) return normalizeDay(direct);
+  }
   // Try without the suffix word, then with each common suffix variant.
-  const noSuffix = street.replace(/\b(street|st|avenue|ave|road|rd|lane|ln|way|drive|dr|circle|cir|court|ct|place|pl|square|sq|terrace|ter)\b\.?$/, '').trim();
+  //
+  // point / heights / park are deliberately NOT in either list. They are rare
+  // enough that a street carrying one usually has a same-stem neighbour with
+  // an ordinary suffix, and synthesis would silently answer with the wrong
+  // one: "norwood heights" is Friday but "norwood court" is Monday, and
+  // stripping "heights" makes the Monday row win. The alias expansion above
+  // already lands "windward pt" on the real "windward point" key by direct
+  // lookup, which is the only case the fleet actually needs.
+  const noSuffix = expanded.replace(/\b(street|st|avenue|ave|road|rd|lane|ln|way|drive|dr|circle|cir|court|ct|place|pl|square|sq|terrace|ter)\b\.?$/, '').trim();
   for (const suffix of ['street', 'avenue', 'road', 'lane', 'way', 'drive', 'circle', 'court', 'place', 'square', 'terrace']) {
     const candidate = `${noSuffix} ${suffix}`.trim();
     const hit = GLOUCESTER_TRASH[candidate];
-    if (hit) return DAY_LONG[hit] ?? hit;
+    if (hit) return normalizeDay(hit);
   }
   return null;
 }
 
 /** Short city defaults — apply per jurisdiction. */
-function civicForCity(city: string): {
+export function civicForCity(city: string): {
   parking: string;
   noise: string;
   animals: string;

@@ -52,7 +52,7 @@ Roughly 193k lines across 760 TypeScript files.
 ```
 src/
   app/          32 route groups + api/. 125 pages, 58 *actions.ts server-action files
-    api/        106 route handlers, 23 of them cron jobs under api/cron/
+    api/        105 route handlers, 25 of them cron jobs registered in vercel.json
   lib/          177 top-level modules (205 including subfolders). The domain logic lives here.
   components/   90 shared components
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -114,7 +114,7 @@ callers get a 401 JSON, not a sign-in redirect, so integrations can read the fai
 
 Two shared auth helpers exist. Use them; do not hand-roll a check:
 - `authorizeCron(request)` in `src/lib/cron-auth.ts`. Accepts Vercel Cron's bearer or a signed-in
-  Helm session. **Fails closed** when `CRON_SECRET` is unset. All 23 cron routes use it.
+  Helm session. **Fails closed** when `CRON_SECRET` is unset. Every cron route uses it.
 - `authorizeStayConcierge(req)` in `src/lib/stay-concierge-auth.ts`. Header only, always
   `x-stay-concierge-key`. **Never accept a secret in a query string.** URL logging was the leak
   vector behind the 2026-08-20 rotation.
@@ -413,6 +413,42 @@ starting with a house number, so a bare-word name like "Marina" never becomes a 
 **`/api/fill-gap` contains a second full copy of the cleaning classification pipeline and must be
 changed in lockstep with `/api/ingest`.** Note it does not implement vendor-credit netting.
 
+# Trash and recycling
+
+**`src/lib/civic.ts` owns the receptacle rule. Nothing else may state one.**
+
+What a household puts waste in, and when it reaches the curb, is city policy. A property row says
+where its bins and carts live; it does not get to contradict the city. Every surface reads
+`civicForProperty(p).receptacleRule` rather than carrying its own copy, which is what keeps a
+Gloucester cart sentence off a Rockport home that has no curbside collection at all.
+
+| City | Rule |
+|---|---|
+| **Gloucester** | Automated Casella carts since **2026-10-01**, one 65-gal trash and one 65-gal recycling per unit, $300/yr billed $75/quarter on the utility account. STRs are not exempt. Everything inside with the lid closed; nothing beside a cart is collected; personal barrels are done. Purple pay-as-you-throw bags died 2026-09-30. |
+| **Rockport** | No curbside collection at all. Transfer Station, Town PAYT bags. |
+| **Beverly** | Casella carts since 2026-07-01 on its own specs (95-gal recycling). Not Gloucester's rule. |
+
+Three things to know before editing any of it:
+
+1. **The Gloucester rule is date-resolved**, off `GLOUCESTER_CART_CUTOVER`, because stays straddled
+   the switch. Every surface that prints it is `force-dynamic`, so it flips itself with nothing for
+   anyone to remember. The pre-cutover bag branch is dead now and can be deleted.
+2. **Never write "the night before" or "out by 7am".** The wording is
+   *"out after 4 PM the day before, back in that evening"*, which satisfies both the current rule
+   and the pending Chapter 9 Sec. 9-4 deadline. The return half is the compliance clause, not
+   politeness: Gloucester STR ordinance **Sec. 5-66(q) fines $400 per occurrence** for a cart left
+   at the curb, each day a separate offence, chained to the Board of Health rental permit.
+3. **`properties.trash_notes` is LOCATION ONLY.** Where the bins and carts live, nothing else. The
+   day and the city rule compose on top of it at render time. This keeps the column regime-neutral
+   and matches what stay-concierge's `_house_lines` filter expects: it drops note sentences
+   carrying a weekday or a clock time and keeps location sentences.
+
+Collection days come from the DPW street list in `civic.ts` (11-16-23 revision), overridable per
+property via `properties.trash_day`. `/api/kb-facts` bridges the **resolved** day plus `city` and
+`receptacle_rule`, so the guest AI can gate its own wording. Writing `trash_day` for a
+**non-Gloucester** property is currently unsafe: stay-concierge's `_receptacle_rule` has no city
+gate and emits the Gloucester cart clause for any property with a parseable day.
+
 # Properties
 
 ## Naming convention
@@ -614,7 +650,7 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 23 cron routes fail closed without it.
+- **Cron**: `CRON_SECRET`. All 25 cron routes fail closed without it.
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
 - **Gmail**: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (bare = Allie's
@@ -649,6 +685,8 @@ files and easy to delete by accident, by reading the source and asserting the gu
 there: `shoot-offer-optin.test.ts` is the clearest example (an offered shoot must never be
 treated as work). When you add one of those, break the guard once and watch the test fail before
 you trust it.
+
+Imports inside a test need the explicit `.ts` extension or Node cannot resolve them.
 
 Also present, and NOT part of `npm test`:
 

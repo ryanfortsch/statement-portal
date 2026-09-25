@@ -88,7 +88,7 @@ export function HomeGuideCustomizeForm({
       num: '04',
       title: 'Trash & Recycling',
       defaultHint:
-        'Default: indoor / outdoor bins line + civic-driven pickup day, plus an aside about not taking bins to the curb on departure.',
+        'Where the indoor bins and the outdoor carts live. The collection day and the city set-out rule always print below whatever you write here, so you do not need to repeat them.',
     },
   ];
 

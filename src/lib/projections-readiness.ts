@@ -182,7 +182,7 @@ export const READINESS_NOTE_FIELDS: ReadinessNoteField[] = [
   {
     key: 'trash_recycling',
     label: 'Trash & recycling day',
-    hint: 'Pickup days + bin location',
+    hint: 'Pickup day + where the carts are stored',
     rows: 2,
   },
   {
