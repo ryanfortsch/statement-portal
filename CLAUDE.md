@@ -445,8 +445,13 @@ Three things to know before editing any of it:
    and matches what stay-concierge's `_house_lines` filter expects: it drops note sentences
    carrying a weekday or a clock time and keeps location sentences.
 
-Collection days come from the DPW street list in `civic.ts` (11-16-23 revision), overridable per
-property via `properties.trash_day`. `/api/kb-facts` bridges the **resolved** day plus `city` and
+Collection days come from the DPW street list in `civic.ts`, overridable per property via
+`properties.trash_day`. Checked against the city on 2026-09-25: the 11-16-23 revision is still
+the current published list and the cart rollout does not move days. **Twelve streets carry two
+published days** (the route splits them, and ten give no segment note), so `civic.ts` refuses to
+answer for those rather than guessing; only an operator who has phoned DPW should fill the column.
+`84_thatcher` is the live case, unresolved, and `225_washington` claims Wednesday off a four-way
+split that predates the check. `/api/kb-facts` bridges the **resolved** day plus `city` and
 `receptacle_rule`, so the guest AI can gate its own wording. Writing `trash_day` for a
 **non-Gloucester** property is currently unsafe: stay-concierge's `_receptacle_rule` has no city
 gate and emits the Gloucester cart clause for any property with a parseable day.

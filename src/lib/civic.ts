@@ -21,11 +21,12 @@
  * copy, which is what keeps a Gloucester cart sentence off a Rockport home
  * that has no curbside collection at all. See GLOUCESTER_CART_CUTOVER.
  *
- * CAVEAT ON THE DAY TABLE: the street list below is the 11-16-23 revision.
- * Gloucester's 2026-10-01 switch to automated carts is documented as not
- * changing collection days, but nothing here has re-verified 690 streets
- * against the Casella route list. Confirm with DPW (978-325-5600) before
- * trusting a day for a street the fleet doesn't already occupy.
+ * ON THE DAY TABLE: checked against the DPW list on 2026-09-25. The city still
+ * publishes the 11-16-23 revision as current and says the Casella cart rollout
+ * does not move collection days ("the day of the week that your trash is
+ * currently picked up will remain the same", gloucester-ma.gov/1616), so the
+ * table stands. Twelve streets carry two published days and are listed in
+ * AMBIGUOUS_STREETS; those resolve to null rather than guessing.
  */
 import type { HelmPropertyRow } from './properties';
 
@@ -274,6 +275,7 @@ function gloucesterTrashDay(street: string): string | null {
     (m) => SUFFIX_ALIASES[m] ?? m,
   );
   for (const candidate of [street, bare, expanded]) {
+    if (AMBIGUOUS_STREETS.has(candidate)) return null;
     const direct = GLOUCESTER_TRASH[candidate];
     if (direct) return normalizeDay(direct);
   }
@@ -286,9 +288,12 @@ function gloucesterTrashDay(street: string): string | null {
   // stripping "heights" makes the Monday row win. The alias expansion above
   // already lands "windward pt" on the real "windward point" key by direct
   // lookup, which is the only case the fleet actually needs.
+  // Synthesis could also land on an ambiguous street from a bare stem, so the
+  // guard is repeated below rather than only on the direct hits.
   const noSuffix = expanded.replace(/\b(street|st|avenue|ave|road|rd|lane|ln|way|drive|dr|circle|cir|court|ct|place|pl|square|sq|terrace|ter)\b\.?$/, '').trim();
   for (const suffix of ['street', 'avenue', 'road', 'lane', 'way', 'drive', 'circle', 'court', 'place', 'square', 'terrace']) {
     const candidate = `${noSuffix} ${suffix}`.trim();
+    if (AMBIGUOUS_STREETS.has(candidate)) return null;
     const hit = GLOUCESTER_TRASH[candidate];
     if (hit) return normalizeDay(hit);
   }
@@ -359,16 +364,49 @@ const DAY_LONG: Record<string, string> = {
 };
 
 /**
- * Gloucester trash collection schedule. Source: City of Gloucester DPW,
- * "Street List for Trash Collection" (11-16-23 revision). Keys are
- * lowercased canonical street names; values are the 3-letter day code as
- * published. Recycling collection runs the same day on Gloucester's
- * single-stream curbside route.
+ * Twelve streets on the published list carry more than one collection day,
+ * because the route splits them part-way along. Ten of the twelve give no
+ * segment note at all, so the street NAME cannot answer which day a given
+ * house is on, and the list is the only thing this module has.
  *
- * Streets with multiple entries on the published list (e.g. Atlantic
- * Road has both Mon and Fri rows depending on the segment) get the
- * later/conservative day so the inspection note doesn't promise pickup
- * on a day the truck might miss.
+ * Verified against the DPW list on 2026-09-25. The city still publishes the
+ * 11-16-23 revision as current and states that the Casella cart rollout does
+ * not change collection days ("the day of the week that your trash is
+ * currently picked up will remain the same", gloucester-ma.gov/1616).
+ *
+ * The table below is a plain object literal, so a duplicated key silently
+ * kept whichever row came last. That is not a conservative choice, it is an
+ * arbitrary one, and it meant any property on one of these streets got a
+ * confident coin-flip day on the printed Information Note. Refuse instead:
+ * an ambiguous street resolves to null and the surface says to confirm with
+ * DPW. A property can still carry an operator-set `properties.trash_day`,
+ * which wins over this and is the right place to record the answer once
+ * somebody has phoned 978-325-5600 for that specific address.
+ */
+const AMBIGUOUS_STREETS = new Set([
+  'atlantic road',
+  'cononicus road',
+  'hough avenue',
+  'magnolia avenue',
+  'main street',
+  'maplewood avenue',
+  'middle street',
+  'prospect street',
+  'thatcher road',
+  'washington street',
+  'western avenue',
+  'willow street',
+]);
+
+/**
+ * Gloucester trash collection schedule. Source: City of Gloucester DPW,
+ * "Street List for Trash Collection" (11-16-23 revision), still the current
+ * published list as of 2026-09-25. Keys are lowercased canonical street
+ * names; values are the 3-letter day code as published. Recycling collection
+ * runs the same day on Gloucester's single-stream curbside route.
+ *
+ * Streets the route splits are listed in AMBIGUOUS_STREETS above and are not
+ * answerable from this table, whatever value survived the collapse here.
  */
 const GLOUCESTER_TRASH: Record<string, string> = {
   'abbott road': 'Mon',
