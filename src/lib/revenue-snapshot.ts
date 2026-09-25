@@ -23,6 +23,7 @@ import { HISTORICAL_AVG_RECENT } from './forecast-occupancy';
 import { pacedMonthLift, projectOccupancy, type PacingPricing } from './revenue-pacing';
 import { isOpenOn, normalizePeriod, type RentalPeriod } from './rental-periods';
 import { isOperatingOnDate } from './forecast-operating-windows';
+import { resolveManagementFee } from './revenue-statement-fee';
 import {
   calibratedBenchmarkFrom,
   closedMonthsOf,
@@ -1680,6 +1681,18 @@ async function applyStatementsAndPacing(
     let usedStatement = false;
     let usedPacing = false;
     let usedBooked = false;
+    // Which months each branch actually claimed, and what the statements it
+    // swapped in had billed. Recorded from the branch that RAN, never
+    // re-derived by asking which months have a statement on file: September
+    // 2026 carries statements while still being the current month, and a
+    // month clipped by a range edge has one the swap deliberately skips.
+    // resolveManagementFee checks these account for the range before it
+    // trusts any of it.
+    const statementMonths: string[] = [];
+    const pacedMonths: string[] = [];
+    const bookedMonths: string[] = [];
+    let statementFeeTotal = 0;
+    let statementFeeRevenue = 0;
 
     // Rebuilt per-month with the same three branches as the money deltas,
     // so the mix always sums (approximately) to the displayed revenue.
@@ -1719,6 +1732,17 @@ async function applyStatementsAndPacing(
           cleaningDelta += (Number(stmt.cleaning_total) || 0) - (buckets.cleaningByMonth.get(seg.monthKey) ?? 0);
           repairsTaxDelta += (Number(stmt.repairs_total) || 0) + (Number(stmt.tax_remittance) || 0);
           usedStatement = true;
+          // Only the checkout basis swaps the statement's revenue in, so only
+          // it may bill the statement's fee. Under the nights basis the
+          // dollars are re-split across the months their nights fall in, and
+          // a checkout-scoped fee does not belong to that split.
+          if (basis === 'checkout') {
+            statementMonths.push(seg.monthKey);
+            statementFeeTotal += Number(stmt.management_fee) || 0;
+            statementFeeRevenue += Number(stmt.rental_revenue) || 0;
+          } else {
+            bookedMonths.push(seg.monthKey);
+          }
           if (basis === 'nights') {
             // Keep the base pass's night-split mix. The statement mix is
             // checkout-scoped like the scalars above.
@@ -1825,6 +1849,7 @@ async function applyStatementsAndPacing(
         cleaningDelta += lift.cleaning;
         calendarNightsDelta += lift.calendarNights;
         usedPacing = true;
+        pacedMonths.push(seg.monthKey);
         if (monthMix) {
           mergeMix(
             channelMix,
@@ -1839,6 +1864,7 @@ async function applyStatementsAndPacing(
 
       // (c) Otherwise: keep the booked/pro-rated contribution as-is.
       if (isCurrentOrFuture) usedBooked = true;
+      bookedMonths.push(seg.monthKey);
       if (monthMix) mergeMix(channelMix, monthMix);
     }
 
@@ -1896,7 +1922,26 @@ async function applyStatementsAndPacing(
         ? cleaningDelta
         : null;
 
-    const newMgmtFee = newRevenue != null ? newRevenue * mgmtFraction : null;
+    // A closed month's statement is the document that billed the owner, so
+    // its fee is read rather than re-derived. `revenue x live pct` cannot
+    // reproduce it: add-ons enter the fee base, an operator refund ruling can
+    // re-base it, and the rate is snapshotted at ingest. Falls back to the
+    // old expression whenever no statement was swapped or the months do not
+    // account for the range, so every other range is unchanged to the cent.
+    const feeResolution =
+      newRevenue != null
+        ? resolveManagementFee({
+            segmentMonths: segments.map((seg) => seg.monthKey),
+            statementMonths,
+            pacedMonths,
+            bookedMonths,
+            statementFee: statementFeeTotal,
+            statementRevenue: statementFeeRevenue,
+            totalRevenue: newRevenue,
+            mgmtFraction,
+          })
+        : null;
+    const newMgmtFee = feeResolution ? feeResolution.fee : null;
     const newPayout =
       newRevenue != null ? newRevenue - (newMgmtFee ?? 0) - (newCleaning ?? 0) - repairsTaxDelta : null;
     const newADR = newNights > 0 && newRevenue && newRevenue > 0 ? newRevenue / newNights : null;
