@@ -112,6 +112,34 @@ describe('quo backfill', () => {
     );
   });
 
+  test('the cleaning finish moves forward, and never over an operator', () => {
+    const src = read('src/lib/cleaning-sessions.ts');
+    const start = src.indexOf('export async function mirrorQuoFinish');
+    assert.notEqual(start, -1, 'mirrorQuoFinish is gone');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+
+    assert.match(
+      body,
+      /finished_at\.is\.null,finished_at\.lt\./,
+      'mirrorQuoFinish is an unconditional write again, so an out-of-order Quo delivery or the ' +
+        'six-hourly history sweep can walk finished_at BACKWARDS on a turnover',
+    );
+    assert.match(
+      body,
+      /finish_source\.is\.null,finish_source\.neq\.manual/,
+      "mirrorQuoFinish can overwrite a 'manual' finish again. That is an operator's own confirm " +
+        'via confirmCleaningDone, and a backfilled cleaner text must not replace a person.',
+    );
+  });
+
+  test('the backfill mirrors the finish into cleaning_sessions', () => {
+    assert.ok(
+      read(SWEEP).includes('mirrorQuoFinish('),
+      'the sweep no longer mirrors the finish, so a turnover completed during a missed webhook ' +
+        'delivery still looks unfinished beside its lock entry',
+    );
+  });
+
   test('the backfill stamps owners, now that it is safe to', () => {
     const sweep = read(SWEEP);
     assert.ok(
