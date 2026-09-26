@@ -13,7 +13,8 @@ const base: StatementFeeInput = {
   mgmtFraction: 0.25,
 };
 
-const near = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`);
+const near = (a: number, b: number, msg?: string) =>
+  assert.ok(Math.abs(a - b) < 1e-9, msg ?? `${a} vs ${b}`);
 
 // ── The substitution ────────────────────────────────────────────────────
 
@@ -103,10 +104,41 @@ test('a partial edge month is simply not in statementMonths, and that is enough'
   near(r.fee, 10_000 + 15_000 * 0.25);
 });
 
-test('revenue below the statements own months falls back rather than inventing a fee', () => {
+test('revenue meaningfully below the statements own months falls back rather than inventing a fee', () => {
   const r = resolveManagementFee({ ...base, totalRevenue: 30_000 });
   assert.equal(r.usedStatementFee, false);
   near(r.fee, 30_000 * 0.25);
+});
+
+test('a rounding hair below zero still bills the statements', () => {
+  // The card's revenue is rounded to cents before the statement's own revenue
+  // is subtracted, so an all-statement range lands either side of zero. 4
+  // Brier Neck's August reverted to $5,832.10 over exactly this, against the
+  // $5,321.81 it had billed.
+  const r = resolveManagementFee({
+    segmentMonths: ['2026-08'], statementMonths: ['2026-08'], pacedMonths: [], bookedMonths: [],
+    statementFee: 5_321.81,
+    statementRevenue: 29_160.51,
+    totalRevenue: 29_160.50, // one cent short
+    mgmtFraction: 0.20,
+  });
+  assert.equal(r.usedStatementFee, true);
+  near(r.fee, 5_321.81);
+});
+
+test('the clamp never bills a NEGATIVE remainder back against the statement', () => {
+  const r = resolveManagementFee({
+    segmentMonths: ['2026-08'], statementMonths: ['2026-08'], pacedMonths: [], bookedMonths: [],
+    statementFee: 1_000, statementRevenue: 10_000, totalRevenue: 9_999.5, mgmtFraction: 0.25,
+  });
+  near(r.fee, 1_000, 'the shortfall is clamped, not subtracted');
+});
+
+test('the tolerance is a dollar, not a licence', () => {
+  const justInside = resolveManagementFee({ ...base, totalRevenue: 40_000 - 0.99 });
+  assert.equal(justInside.usedStatementFee, true);
+  const justOutside = resolveManagementFee({ ...base, totalRevenue: 40_000 - 1.01 });
+  assert.equal(justOutside.usedStatementFee, false);
 });
 
 // ── Invariants that must survive ────────────────────────────────────────
