@@ -29,7 +29,6 @@ import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
-import { ClimatePanel } from './ClimatePanel';
 import { GuestCodesPanel } from './GuestCodesPanel';
 import { MarkSlipDoneButton } from './MarkSlipDoneButton';
 import { QuickCapture } from './QuickCapture';
@@ -43,7 +42,7 @@ import {
   daysUntil,
   renewalSummary,
 } from '@/lib/property-contracts';
-import { getClimateProfile, listSeamThermostatsSafe } from '@/lib/climate';
+import { getClimateProfile } from '@/lib/climate';
 import { getRentalPeriods } from '@/lib/property-rental-periods';
 import { describePeriods } from '@/lib/rental-periods';
 import { describeOperatingWindow } from '@/lib/forecast-operating-windows';
@@ -57,6 +56,7 @@ import { getPropertyNotes } from '@/lib/property-notes';
 import { loadLaunchForProperty } from '@/lib/launch-context';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
+import { ClimatePanelLoader } from './ClimatePanelLoader';
 import { PropertyMasthead, type PropertyAlert } from './PropertyMasthead';
 import { OwnersEditor } from './OwnersEditor';
 import { OnboardingItemToggle } from './OnboardingItemToggle';
@@ -424,7 +424,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -453,7 +453,6 @@ export default async function PropertyDetailPage({
       excludePropertyId: p.id,
     }),
     getClimateProfile(p.id),
-    listSeamThermostatsSafe(),
     getGuestCodeView(p.id),
     getPropertyCleaners(p.id),
     getPropertyRooms(p.id),
@@ -1161,7 +1160,19 @@ export default async function PropertyDetailPage({
         title="Climate automation"
         summary={climateProfile?.enabled ? 'on' : 'not set up'}
       >
-        <ClimatePanel propertyId={p.id} profile={climateProfile} thermostats={seamThermostats} />
+        {/* The Seam thermostat list is a fleet-wide external call. It used
+            to run in this page's Promise.all, so every arrival at every
+            property waited on Seam to fill a device picker inside a section
+            that renders collapsed. Streamed instead. */}
+        <Suspense
+          fallback={
+            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+              Loading thermostats…
+            </div>
+          }
+        >
+          <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
+        </Suspense>
       </CollapsibleSection>
 
       <CollapsibleSection
