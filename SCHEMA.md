@@ -292,9 +292,12 @@ descriptors still name them.
   publishes real reservations as closures ("CLOSED - Not available"). That
   rule is what keeps the export free of echo loops; see
   `src/lib/ical-export.ts`. A Booking.com reservation is recorded by hand
-  (channel `booking_com`) on top of its own closure; the writer never
-  counts a channel's own closure as an overlap, and
-  `src/lib/cutover-carryover.ts` reconciles the two.
+  (channel `booking_com`) on top of its own closure; the writers' one
+  overlap rule (`helm_row_conflicts`) does not count Booking.com's closure,
+  nor another OTA's closure of the same nights, against that booking, and
+  `src/lib/cutover-carryover.ts` reconciles the two. A block made in Helm
+  (source `manual`) is Helm's own whatever its `hold_kind`; only an
+  imported row (`ical_import`) with `hold_kind` `ota` is an OTA closure.
 - **`property_calendar_days`**: the per-night day grid (holds, prices,
   availability) that the turnovers pipeline, Field packets, extension
   holds and the checkout schedule read. **Who writes it depends on

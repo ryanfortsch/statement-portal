@@ -10,19 +10,20 @@
  * them either reopens a Booking.com guest's nights on Airbnb and VRBO or
  * cancels the guest outright:
  *
- *   - the sync counts Booking.com closures for both cancel guards;
- *   - an empty feed is released only by a release given for THAT guard;
- *   - retiring a feed, and the nightly sweep, never cancel a Booking.com
- *     closure;
+ *   - the sync counts Booking.com closures for both cancel guards, and a
+ *     release answers only the guarded run it followed, used up by one run;
+ *   - closures sit out the cancel pass while a home's closures are dropped;
+ *   - retiring a feed, and the sweep, never cancel a Booking.com closure;
+ *     no feed row with upcoming rows, and never the Guesty row, is deleted;
  *   - the export reads duplicates and windows by overlap, the availability
- *     bridge reads duplicate OTA holds, and the booking writer counts them;
- *   - the writer exempts a channel's own closure, so the Booking.com booking
- *     entered by hand is not refused by the closure Booking.com published for
- *     it;
- *   - the importer's Guesty-echo set throws on a failed read (it used to
- *     answer "every home" and drop every closure) and stops dropping once an
- *     OTA imports Helm's export;
- *   - the dedupe's Helm-run loader throws rather than run on Guesty rules.
+ *     bridge reads duplicate imported OTA holds, and both writers share one
+ *     overlap rule whose only exemptions serve a Booking.com booking typed
+ *     over its own closure, with a move checked only over added nights;
+ *   - the importer's Guesty-echo set throws on a failed read and stops
+ *     dropping closures once an OTA imports Helm's export;
+ *   - the dedupe's strict homes (Helm-run, or an OTA already reading Helm)
+ *     come from a loader that throws;
+ *   - an operator checking a line is never credited as the OTA's pull.
  *
  * So this reads the source and asserts each guard is still there, in the
  * shape shoot-offer-optin.test.ts uses. Break one and watch it fail.

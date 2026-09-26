@@ -552,7 +552,10 @@ begin
     -- it was refused by its own echoes. Nights it already held are not new
     -- to anyone (a clash there already existed), so a move is refused only
     -- over the nights it adds: before the old check-in, or after the old
-    -- check-out, or all of them when the row held nothing before.
+    -- check-out, or all of them when the row held nothing before. A night
+    -- the row gave up stays held by its own echoes until the OTAs re-pull,
+    -- so taking it back (or reinstating a cancelled stay) is refused until
+    -- then: in that window nobody can tell the echo from a new guest.
     select * into v_conflict from public.bookings b
      where b.property_id = v_before.property_id and b.id <> p_booking_id
        and b.check_in < p_check_out and b.check_out > p_check_in

@@ -192,20 +192,43 @@ and mark those rules "configured in Airbnb" on the automations tab. Connect
 PriceLabs directly to Airbnb and VRBO. Wait for the first pull from each OTA
 (the hub shows it per channel).
 
+From the first tick the dedupe also runs on Helm-run rules for the home
+(two events of one feed never merge, a feed row first seen after the tick
+never merges with a Guesty record), because the OTAs now rely on Helm's
+export. The channel hub's Needs attention panel appears from this point
+and lists everything the preflight will ask about, each with its fix link.
+
 Then, on `/channels/65_calderwood`, press Flip to Helm once every preflight
-check is green: rate plan, tax config, every feed successful within 2 hours,
-every channel subscribed and pulled within 24 hours, no double bookings,
-Guesty stays handed over (every Guesty-era Airbnb or VRBO stay ahead has a
-live twin on that OTA's own feed, the only thing that can cancel it once
-Guesty stops writing; every Booking.com reservation on file is still closed
-on Booking.com's feed), Booking.com reconciled (every Booking.com closure
-ahead has a reservation on file or a Helm row behind it), Luana scoped,
-automations reviewed, Guesty disconnect acknowledged. The flip adopts any
-hold on the Guesty aggregate feed as a Helm block (it stays closed and lifts
-in Helm), retires the Guesty feed row, deletes the `guesty_listings` row, parks the
-Guesty id into `former_guesty_listing_id`, sets the authority, writes an
-audit event, and rewrites the calendar mirror in place. Then turn automations
-on and enable the property's rules in approve mode.
+check is green:
+- rate plan and tax config;
+- every OTA feed successful within 2 hours. A Helm-run home reads no
+  "other" platform feed yet: Helm cannot tell that platform's bookings from
+  its echoes, so retire any such row first;
+- every channel ticked and pulled by the OTA itself within 24 hours. A pull
+  by a browser signed in to Helm, or by curl, is logged but never counts;
+- no double bookings;
+- Guesty stays handed over:
+  - every Guesty-era Airbnb or VRBO stay ahead has a live twin on that OTA's
+    own feed, the only thing that can cancel it once Guesty stops writing;
+  - every Booking.com reservation on file is still closed on Booking.com's
+    feed, and Booking.com's feed is read at all while any is ahead;
+  - every hold set in Guesty that is not one of Guesty's own rolling rules
+    (the booking-window block to the calendar horizon, the one-night
+    advance-notice block) has been re-entered as a Helm block. Guesty's iCal
+    labels them all "Blocked by Guesty", so the flip cannot tell them apart
+    and cancels every one;
+- Booking.com reconciled: every Booking.com closure ahead has a reservation
+  on file or a Helm row behind it, and none sits on a feed Helm stopped
+  reading;
+- Luana scoped, automations reviewed, Guesty disconnect acknowledged.
+
+The flip cancels the Guesty aggregate feed's blocks, retires the Guesty
+feed row (it is never deleted: its id is what marks its rows as Guesty's),
+deletes the `guesty_listings` row, parks the Guesty id into
+`former_guesty_listing_id`, sets the authority, writes an audit event, and
+rewrites the calendar mirror in place. Set the booking window and advance
+notice Guesty used to enforce in the Helm rate plan and on each OTA. Then
+turn automations on and enable the property's rules in approve mode.
 
 Verify within 24 hours: the Guesty sync reports `helm_run_skipped` for the
 property; `guesty_reservations` gains no new rows for it; the mirror carries
@@ -237,7 +260,13 @@ Airbnb and VRBO reopen at theirs); the channel hub's Needs attention panel
 and the Helm-run homes section on `/today` list what needs a person
 (Booking.com bookings to enter or cancel, feeds read on the wrong line,
 closures stranded on a retired feed); a feed that goes empty or loses many
-stays at once holds its cancels until you release it on the hub; Airbnb stays
+stays at once holds its cancels until you release it on the hub (on
+Booking.com this includes closures that only mirrored a stay Helm sent it,
+since a Booking.com closure may be a guest; a release answers only the
+alert it was pressed on); a feed row with upcoming rows cannot be deleted,
+only retired; a stay moved in Helm is checked only over the nights it
+adds, so its own echoes never block it, but a night it gave up stays held
+by those echoes until the OTAs re-pull; Airbnb stays
 read "Reserved" plus a code until the notification-email parser lands.
 Revenue shows Calderwood's Guesty-era money and then freezes; Books remains
 the LLC's ledger.
