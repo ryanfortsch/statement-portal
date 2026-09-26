@@ -179,6 +179,19 @@ async function performPropertyUpdate(
     owner_mailing_address: strOrNull(formData, 'owner_mailing_address'),
     owner_preferred_contact: strOrNull(formData, 'owner_preferred_contact'),
 
+    // House policy. Each of these was a tick in the onboarding catalog with
+    // the decision itself stored nowhere, so a guest asking "do you take
+    // dogs" had no source to be answered from.
+    default_checkin_time: strOrNull(formData, 'default_checkin_time'),
+    default_checkout_time: strOrNull(formData, 'default_checkout_time'),
+    quiet_hours: strOrNull(formData, 'quiet_hours'),
+    max_occupancy: intOrNull(formData, 'max_occupancy'),
+    pet_policy: strOrNull(formData, 'pet_policy'),
+    smoking_policy: strOrNull(formData, 'smoking_policy'),
+    cancellation_policy: strOrNull(formData, 'cancellation_policy'),
+    house_rules: strOrNull(formData, 'house_rules'),
+    discount_stance: strOrNull(formData, 'discount_stance'),
+
     // Billing
     bank_last4: bankDigits ? bankDigits : null,
     // Revenue snapshots and the forecast fall back to this per-turn figure
