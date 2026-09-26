@@ -13,7 +13,7 @@ import { quoteForBridge, bridgeStatus } from '@/lib/pms-bridge';
  *   -> {nights, subtotal, cleaningFee, extraGuestFee, taxes, total, currency,
  *       quoteId:'hq_...', ratePlanId:'helm', breakdown:{...cents}, violations:[]}
  *
- *   422 {error:'terms', violations}       min / max nights, notice, window, closed, occupancy
+ *   422 {error:'terms', violations}       min / max nights, notice, window, closed, CTA / CTD, occupancy
  *   409 {error:'unavailable', blockedNights, reservedNights}
  *   409 {error:'tax_jurisdiction_unknown'} a non Cape Ann home with no tax config row
  *   409 {error:'no_rate_plan'}             the home has no Helm rate plan yet

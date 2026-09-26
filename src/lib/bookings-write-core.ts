@@ -251,3 +251,43 @@ export function isPublicBookable<P extends { id: string; is_active: boolean; cal
   if (!p || !p.is_active) return false;
   return p.calendar_authority === 'helm' || rosterIds.has(p.id);
 }
+
+// ── Feed rows in the change log ─────────────────────────────────────────────
+
+export type FeedStayState = { check_in: string; check_out: string; status: string };
+export type FeedEventRow = {
+  booking_id: string;
+  kind: 'feed_moved' | 'status_changed' | 'cancelled';
+  actor: 'ical-sync';
+  before: FeedStayState;
+  after: FeedStayState;
+  note: string | null;
+};
+
+/**
+ * booking_events rows for what a feed did to rows it already had: moved
+ * dates ('feed_moved', which the record page's "the feed moved it" banner
+ * reads), a status change such as a cancelled stay coming back, or a cancel
+ * (with its reason). Without them a feed row's history read "No events
+ * recorded" however often the OTA moved or dropped it.
+ */
+export function feedChangeEvents(
+  changes: ReadonlyArray<{ id: string; before: FeedStayState; after: FeedStayState; note?: string | null }>,
+): FeedEventRow[] {
+  const out: FeedEventRow[] = [];
+  for (const c of changes) {
+    const moved = c.before.check_in !== c.after.check_in || c.before.check_out !== c.after.check_out;
+    const statusMoved = c.before.status !== c.after.status;
+    if (!moved && !statusMoved) continue;
+    const kind: FeedEventRow['kind'] = c.after.status === 'cancelled' && statusMoved ? 'cancelled' : moved ? 'feed_moved' : 'status_changed';
+    out.push({
+      booking_id: c.id,
+      kind,
+      actor: 'ical-sync',
+      before: { check_in: c.before.check_in, check_out: c.before.check_out, status: c.before.status },
+      after: { check_in: c.after.check_in, check_out: c.after.check_out, status: c.after.status },
+      note: c.note ?? null,
+    });
+  }
+  return out;
+}

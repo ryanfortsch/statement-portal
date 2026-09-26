@@ -37,6 +37,7 @@ import { supabaseAdmin, isServiceConfigured } from './supabase-admin.ts';
 import { selectAllPaged } from './paged-select.ts';
 import { isIsoDay, nightsBetween, shiftIsoDay, todayInEastern } from './sca-quotes-types.ts';
 import {
+  arrivalDepartureViolations,
   quoteStay,
   resolveTaxRate,
   stayNights,
@@ -48,7 +49,7 @@ import {
   type TaxConfigRow,
 } from './rate-plan.ts';
 import { loadPricingBundle, type PricingBundle } from './property-rates.ts';
-import { buildAvailability, checkRange, nightHolds, type AvailabilityBooking, type HelmAvailabilityDay, type RangeCheck } from './availability.ts';
+import { buildAvailability, bufferNights, checkRange, nightHolds, type AvailabilityBooking, type HelmAvailabilityDay, type RangeCheck } from './availability.ts';
 import { isOpenOn } from './rental-periods.ts';
 import { getListingRecord, toScaListing, type ScaListing } from './listing-content.ts';
 import { EXPORT_FOR_CHANNELS, exportUrlFor, type ExportForChannel } from './ical-export.ts';
@@ -435,7 +436,8 @@ async function priceStay(args: {
 
   const lastNight = shiftIsoDay(args.checkOut, -1);
   const [bundle, holds] = await Promise.all([
-    loadPricingBundle(property.id, args.checkIn, lastNight),
+    // Through the checkout date: its rate day carries No departure (CTD).
+    loadPricingBundle(property.id, args.checkIn, args.checkOut),
     holdsInWindow(property.id, args.checkIn, args.checkOut),
   ]);
   if (!bundle.plan) return fail({ ok: false, error: 'no_rate_plan', property_id: property.id });
@@ -482,12 +484,13 @@ async function priceStay(args: {
  */
 function hardBlockedNights(p: PricedStay, checkIn: string, checkOut: string): { blocked: string[]; reserved: string[] } {
   const { reserved, blocked } = nightHolds(p.holds);
+  const buffer = bufferNights(p.holds, p.bundle.plan?.turnover_buffer_days ?? 0);
   const out: string[] = [];
   const res: string[] = [];
   for (const night of stayNights(checkIn, checkOut)) {
     const held = reserved.has(night);
     if (held) res.push(night);
-    if (held || blocked.has(night) || !!p.bundle.days.get(night)?.closed || !isOpenOn(p.bundle.periods, night)) out.push(night);
+    if (held || blocked.has(night) || buffer.has(night) || !!p.bundle.days.get(night)?.closed || !isOpenOn(p.bundle.periods, night)) out.push(night);
   }
   return { blocked: out, reserved: res };
 }
@@ -802,6 +805,9 @@ export async function createReservationFromBridge(
   //    business; an operator or a paid guest is never refused on the clock.
   const hard = hardBlockedNights(priced, input.check_in, input.check_out);
   if (hard.blocked.length > 0) return fail({ ok: false, error: 'unavailable', blockedNights: hard.blocked, reservedNights: hard.reserved });
+  // No arrival / no departure days are hard too: never sold on any clock.
+  const dayRules = arrivalDepartureViolations(priced.bundle.days, input.check_in, input.check_out);
+  if (dayRules.length > 0) return fail({ ok: false, error: 'terms', violations: dayRules });
 
   // Money on the row: what was paid when the caller knows, else the quote.
   const money = input.money ?? null;

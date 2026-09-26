@@ -118,6 +118,29 @@ export function nightHolds(bookings: readonly AvailabilityBooking[]): {
 }
 
 /**
+ * The nights a plan's turnover buffer keeps free around each stay: `days`
+ * nights before its arrival and `days` nights from its checkout on (what
+ * Guesty's preparation time did with its 'b' and 'a' padding, which the flip
+ * drops). Stays only, canonical only: an owner hold needs no turnover.
+ */
+export function bufferNights(bookings: readonly AvailabilityBooking[], days: number): Set<string> {
+  const out = new Set<string>();
+  const n = Math.max(0, Math.floor(Number(days) || 0));
+  if (n === 0) return out;
+  for (const b of bookings) {
+    if (b.duplicate_of || !STAY_STATUSES.has(String(b.status ?? '').toLowerCase())) continue;
+    for (let i = 1; i <= n; i++) out.add(shiftIsoDay(b.check_in, -i));
+    for (let i = 0; i < n; i++) out.add(shiftIsoDay(b.check_out, i));
+  }
+  // A night a stay itself holds is the stay's, not a buffer.
+  for (const b of bookings) {
+    if (b.duplicate_of || !STAY_STATUSES.has(String(b.status ?? '').toLowerCase())) continue;
+    for (const night of stayNights(b.check_in, b.check_out)) out.delete(night);
+  }
+  return out;
+}
+
+/**
  * One AvailabilityDay per date in [start, end]. The window is inclusive at
  * both ends, like Guesty's calendar endpoint, so a caller asking for a month
  * gets the last day too.
@@ -131,6 +154,7 @@ export function buildAvailability(input: BuildAvailabilityInput): HelmAvailabili
   const today = todayInEastern(now);
   const { plan } = input;
   const { reserved, blocked } = nightHolds(input.bookings);
+  const buffer = bufferNights(input.bookings, plan?.turnover_buffer_days ?? 0);
 
   const noticeHours = plan ? Math.max(0, Number(plan.advance_notice_hours) || 0) : 0;
   const windowDays = plan ? Number(plan.booking_window_days) || 0 : 0;
@@ -153,7 +177,7 @@ export function buildAvailability(input: BuildAvailabilityInput): HelmAvailabili
 
     const row: HelmAvailabilityDay = {
       date,
-      available: !isReserved && !isBlocked && !isClosed && isOpen && !isPast && !insideNotice && !beyondWindow,
+      available: !isReserved && !isBlocked && !buffer.has(date) && !isClosed && isOpen && !isPast && !insideNotice && !beyondWindow,
       reserved: isReserved,
     };
     if (plan) {

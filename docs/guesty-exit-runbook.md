@@ -167,6 +167,13 @@ importing at the first "OTA imports Helm's export" tick in step 7.
   config; run the quote tester against a known Airbnb folio (accommodation
   must match Guesty's `fareAccommodation` before the channel markup).
 - `?tab=guest#listing`: confirm content, rooms and photos.
+- Turnover buffer: the flip drops Guesty's reservation padding (its
+  preparation time), so set the Rates panel's Turnover buffer to the same
+  number of nights. Helm's availability, quotes and the bridge's create path
+  keep that many nights free before and after every stay. Airbnb, VRBO and
+  Booking.com never see the buffer: set each one's own preparation time in
+  its app after the flip. No arrival (CTA) and No departure (CTD) days on the
+  rate calendar are enforced the same way, on Helm's sales only.
 - `/turnovers/schedule`: add Luana as a recipient (property ids
   `65_calderwood`, language, enabled; the region follows the home's,
   `bridgeport_ct`). For done-text attribution she also needs a

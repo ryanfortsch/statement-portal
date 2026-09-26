@@ -23,6 +23,7 @@ import {
   GUEST_FIELD_KEYS,
   MONEY_FIELD_KEYS,
   isPublicBookable,
+  feedChangeEvents,
 } from '../bookings-write-core.ts';
 
 describe('mintHelmConfirmationCode', () => {
@@ -201,5 +202,20 @@ describe('isPublicBookable (round 13)', () => {
     assert.equal(isPublicBookable({ id: '36_granite', is_active: true, calendar_authority: 'guesty' }, roster), false);
     assert.equal(isPublicBookable({ id: '21_horton', is_active: false, calendar_authority: 'guesty' }, roster), false);
     assert.equal(isPublicBookable(null, roster), false);
+  });
+});
+
+describe('feedChangeEvents (round 15)', () => {
+  const st = (check_in: string, check_out: string, status = 'confirmed') => ({ check_in, check_out, status });
+  test('a move, a revival and a cancel are logged; an unchanged row is not', () => {
+    const ev = feedChangeEvents([
+      { id: 'a', before: st('2026-10-10', '2026-10-13'), after: st('2026-10-11', '2026-10-14') },
+      { id: 'b', before: st('2026-10-10', '2026-10-13', 'cancelled'), after: st('2026-10-10', '2026-10-13') },
+      { id: 'c', before: st('2026-10-10', '2026-10-13'), after: st('2026-10-10', '2026-10-13', 'cancelled'), note: 'missing_from_feed' },
+      { id: 'd', before: st('2026-10-10', '2026-10-13'), after: st('2026-10-10', '2026-10-13') },
+    ]);
+    assert.deepEqual(ev.map((e) => [e.booking_id, e.kind, e.actor]), [['a', 'feed_moved', 'ical-sync'], ['b', 'status_changed', 'ical-sync'], ['c', 'cancelled', 'ical-sync']]);
+    assert.equal(ev[2].note, 'missing_from_feed');
+    assert.deepEqual(ev[0].before, st('2026-10-10', '2026-10-13'));
   });
 });

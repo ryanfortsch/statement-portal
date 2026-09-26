@@ -739,6 +739,9 @@ export function continuationFlags(
 }
 
 const ARRIVAL_TRIGGERS: ReadonlySet<AutomationTrigger> = new Set(['booking_confirmed', 'pre_arrival', 'checkin_day']);
+/** The arrival itself: a cleaner notice on these is about this stay's own
+ *  turnover in, which a seam at its checkout does not remove. */
+const ARRIVAL_DAY_TRIGGERS: ReadonlySet<AutomationTrigger> = new Set(['pre_arrival', 'checkin_day']);
 const DEPARTURE_TRIGGERS: ReadonlySet<AutomationTrigger> = new Set(['pre_checkout', 'post_checkout']);
 
 /** Does a rule apply to this stay given its continuation seams and status? */
@@ -750,7 +753,10 @@ export function triggerAppliesTo(
   if (booking.status === 'completed') return rule.trigger === 'post_checkout';
   if (booking.status !== 'confirmed') return false;
   if (flags.arrivalContinuation && ARRIVAL_TRIGGERS.has(rule.trigger)) return false;
-  if (flags.departureContinuation && (DEPARTURE_TRIGGERS.has(rule.trigger) || rule.audience === 'cleaner')) return false;
+  // The guest stays on: no goodbye, and no cleaner notice about a turnover
+  // out that is not happening. A cleaner notice about the arrival still
+  // goes: the earlier stay still arrives.
+  if (flags.departureContinuation && (DEPARTURE_TRIGGERS.has(rule.trigger) || (rule.audience === 'cleaner' && !ARRIVAL_DAY_TRIGGERS.has(rule.trigger)))) return false;
   return true;
 }
 
@@ -799,6 +805,14 @@ export type PlanInput = {
    * paused is not "a stay already on the calendar" in that gate's sense.
    */
   resumable?: ReadonlySet<string>;
+  /**
+   * sendKey of ledger rows paused because their stay was cancelled
+   * (PAUSE_REASON_STAY_CANCELLED). A booking_confirmed row among them is
+   * planned again when its stay is live again, whatever the 24h window: the
+   * card was waiting on an operator, and a feed blip, or a cancel and
+   * re-confirm, must not lose it.
+   */
+  pausedByStayCancel?: ReadonlySet<string>;
   now: Date;
 };
 
@@ -831,7 +845,11 @@ export function isFreshlyBooked(
   if (enabledAt !== undefined) {
     const stamp = enabledAt[b.property_id];
     const enabledMs = stamp ? Date.parse(stamp) : NaN;
-    if (!Number.isFinite(enabledMs) || !Number.isFinite(firstSeen) || firstSeen < enabledMs) return false;
+    // The later of first sight and the booking moment: an inquiry asked
+    // before the switch went on and confirmed after it is a booking made
+    // after it (helm_move_booking stamps booked_at at the confirm).
+    const since = Number.isFinite(firstSeen) ? Math.max(firstSeen, booked) : NaN;
+    if (!Number.isFinite(enabledMs) || !Number.isFinite(since) || since < enabledMs) return false;
   }
   return true;
 }
@@ -870,8 +888,10 @@ export function planAutomationSends(input: PlanInput): PlannedSend[] {
       if (rule.channel_exclusions.includes(b.channel)) continue;
       if (rule.min_nights !== null && rule.min_nights !== undefined && nights < rule.min_nights) continue;
       if (rule.trigger === 'booking_confirmed' && !freshlyBooked) {
-        const paused = input.resumable?.has(sendKey(b.id, rule.id)) ?? false;
-        if (!paused || !isFreshlyBooked(b, nowMs, undefined)) continue;
+        const key = sendKey(b.id, rule.id);
+        const revived = input.pausedByStayCancel?.has(key) ?? false;
+        const paused = input.resumable?.has(key) ?? false;
+        if (!revived && (!paused || !isFreshlyBooked(b, nowMs, undefined))) continue;
       }
       const fireAt = fireAtFor(rule, b, plan, adjustment, input.now);
       const base = {
@@ -945,6 +965,15 @@ export function isResumablePause(row: Pick<ExistingSend, 'status' | 'error'>): b
     reason === PAUSE_REASON_NO_LONGER_APPLIES ||
     reason.startsWith(PAUSE_REASON_DISABLED_PREFIX)
   );
+}
+
+/** sendKey of ledger rows paused because their stay was cancelled, for PlanInput.pausedByStayCancel. */
+export function stayCancelPausedKeys(existing: readonly ExistingSend[]): Set<string> {
+  const out = new Set<string>();
+  for (const e of existing) {
+    if (e.automation_id && e.status === 'cancelled' && e.error === PAUSE_REASON_STAY_CANCELLED) out.add(sendKey(e.booking_id, e.automation_id));
+  }
+  return out;
 }
 
 /** sendKey of every ledger row the engine paused, for PlanInput.resumable. */

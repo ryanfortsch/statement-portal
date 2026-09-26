@@ -65,7 +65,7 @@ type NoteRow = { property_id: string; title: string | null; body: string | null 
 
 /** property_rate_plans.checkin_time is the GUEST-facing arrival hour on a
  *  Helm-run home (properties.default_checkin_time is cleaner guidance). */
-type RatePlanPick = { property_id: string; checkin_time: string | null };
+type RatePlanPick = { property_id: string; checkin_time: string | null; checkout_time: string | null };
 
 export async function GET(req: Request) {
   const denied = authorizeStayConcierge(req);
@@ -95,14 +95,17 @@ export async function GET(req: Request) {
   // note below), so this read is scoped to the helm-run ids only.
   const helmRunIds = rows.filter(isHelmRun).map((r) => r.id);
   const checkinByProp = new Map<string, string>();
+  const checkoutByProp = new Map<string, string>();
   if (helmRunIds.length > 0) {
     const { data: planData } = await supabase
       .from('property_rate_plans')
-      .select('property_id, checkin_time')
+      .select('property_id, checkin_time, checkout_time')
       .in('property_id', helmRunIds);
     for (const r of (planData ?? []) as RatePlanPick[]) {
       const t = normalizeTime(r.checkin_time);
       if (t) checkinByProp.set(r.property_id, t);
+      const o = normalizeTime(r.checkout_time);
+      if (o) checkoutByProp.set(r.property_id, o);
     }
   }
 
@@ -190,7 +193,10 @@ export async function GET(req: Request) {
       // is safe to bridge because it is still synced from each Guesty listing
       // and is genuinely what the guest is told (10:00 at four homes, 11:00
       // elsewhere).
-      check_out_time: normalizeTime(p.default_checkout_time) ?? '',
+      // A Helm-run home's guest-facing checkout is its rate plan's (what the
+      // automations' {{check_out_time}} and staycapeann.com read), so the
+      // concierge never says 11:00 while the pre-checkout text says 10:00.
+      check_out_time: checkoutByProp.get(p.id) ?? normalizeTime(p.default_checkout_time) ?? '',
       // Check-in, for HELM-RUN homes only, from property_rate_plans.checkin_time
       // (the guest-facing arrival hour, 16:00 by default). Never from
       // default_checkin_time, which is the cleaner's 15:00 margin (see above).

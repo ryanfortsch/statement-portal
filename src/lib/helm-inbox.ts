@@ -328,16 +328,18 @@ async function insertMessage(
   // stamps say is newest.
   const at = isoInstant(m.at);
   if (m.direction === 'inbound') {
-    // A guest message newer than anything on the thread reopens it
-    // (statusAfterInbound: never an archived one); a late or replayed older
-    // one never reopens a thread the team closed. Guarded on the row, not
-    // on the status this call read.
+    // A guest message new to the thread and newer than the guest's latest
+    // reopens it (statusAfterInbound: never an archived one), whatever the
+    // team did since: a text Quo delivered late, sent before our reply, is
+    // still unread. A replay of a recorded message never gets here (the
+    // unique index), and an old reprocessed one is older than the guest's
+    // latest. Guarded on the row, not on the status this call read.
     await supabaseAdmin
       .from('guest_threads')
       .update({ status: statusAfterInbound('done'), snoozed_until: null })
       .eq('id', thread.id)
       .in('status', ['snoozed', 'done'])
-      .or(allBeforeOr(['last_guest_at', 'last_host_at'], at));
+      .or(allBeforeOr(['last_guest_at'], at));
     await supabaseAdmin.from('guest_threads').update({ last_guest_at: at }).eq('id', thread.id).or(allBeforeOr(['last_guest_at'], at));
   } else {
     await supabaseAdmin.from('guest_threads').update({ last_host_at: at }).eq('id', thread.id).or(allBeforeOr(['last_host_at'], at));

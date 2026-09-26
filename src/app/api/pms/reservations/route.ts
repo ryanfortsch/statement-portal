@@ -21,7 +21,8 @@ import { createReservationFromBridge, listReservationPicks, bridgeStatus, type C
  *   200 the same body when source_ref was already booked (idempotent)
  *   409 {error:'booking_overlap', conflict}
  *   409 {error:'quote_drift', quoted_total_cents, current_total_cents}
- *   409 {error:'unavailable', blockedNights} closed night or shut season
+ *   409 {error:'unavailable', blockedNights} closed night, shut season, or a turnover-buffer night
+ *   422 {error:'terms', violations} arrival on a No arrival (CTA) day or departure on a No departure (CTD) day
  *   410 {error:'quote_expired'}; 400 {error:'quote_invalid'} tampered or for another stay
  *   409 calendar_authority_guesty; 404 unknown property; 400 validation
  *

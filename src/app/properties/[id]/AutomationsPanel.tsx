@@ -391,7 +391,7 @@ function RuleCard({
           {is(`test:${r.id}`) ? 'Sending' : 'Test'}
         </button>
         {pr.source === 'property' && (
-          <button type="button" disabled={pending} onClick={onRemove} style={quietBtn(is(`rm:${r.key}`))} title="Removes this home's version and its send history; the fleet default applies again">
+          <button type="button" disabled={pending} onClick={onRemove} style={quietBtn(is(`rm:${r.key}`))} title="Removes this home's version; the fleet default applies again. What it already sent stays in the history and is not sent again">
             {is(`rm:${r.key}`) ? 'Removing' : 'Remove override'}
           </button>
         )}

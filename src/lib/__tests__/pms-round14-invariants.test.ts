@@ -68,7 +68,7 @@ test('the inbox writer guards every event stamp itself (watch-out 9)', () => {
   assert.ok(/update\(\{ last_host_at: at \}\)\.eq\('id', thread\.id\)\.or\(allBeforeOr\(\['last_host_at'\], at\)\)/.test(body));
   assert.ok(/last_preview: previewOf\(m\.body\), last_message_at: at/.test(body));
   assert.ok(body.includes('.or(`last_message_at.is.null,last_message_at.lte.${at}`)'));
-  assert.ok(/\.in\('status', \['snoozed', 'done'\]\)\s*\.or\(allBeforeOr\(\['last_guest_at', 'last_host_at'\], at\)\)/.test(body), 'reopen only for the newest message');
+  assert.ok(/\.in\('status', \['snoozed', 'done'\]\)\s*\.or\(allBeforeOr\(\['last_guest_at'\], at\)\)/.test(body), 'reopen for a guest message newer than the guest\'s latest (round 15: not held back by our reply)');
   assert.ok(SQL.includes('last_message_at timestamptz,'));
 });
 

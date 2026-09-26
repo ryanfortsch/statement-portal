@@ -27,6 +27,7 @@ import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
 import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, releaseAnswers, type CancelGuard } from '@/lib/ical-cancel-policy';
 import { nextAge, type AgeWrite, type HeldAge, type PriorRow } from '@/lib/echo-cause';
 import { PAUSE_REASON_STAY_CANCELLED } from '@/lib/automations-core';
+import { feedChangeEvents } from '@/lib/bookings-write-core';
 import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadStrictDedupeHomes, guestyEchoPropertyIds, type ListingScopeRow } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
@@ -494,6 +495,23 @@ export async function syncListing(opts: {
           .upsert(steady, { onConflict: 'channel,ical_uid' });
         if (upsertErr) throw new Error(`upsert bookings: ${upsertErr.message}`);
       }
+      // The change log: what the feed did to rows it already had. Non-fatal.
+      const feedEvents = feedChangeEvents([
+        ...updates.flatMap((r) => {
+          const prior = existingByUid.get(r.ical_uid);
+          return prior
+            ? [{ id: prior.id, before: { check_in: prior.check_in, check_out: prior.check_out, status: prior.status }, after: { check_in: r.check_in, check_out: r.check_out, status: r.status } }]
+            : [];
+        }),
+        ...judged
+          .filter((r) => plan.cancelNow.includes(r.id) || plan.reclassified.includes(r.id))
+          .map((r) => ({
+            id: r.id,
+            before: { check_in: r.check_in, check_out: r.check_out, status: r.status },
+            after: { check_in: r.check_in, check_out: r.check_out, status: 'cancelled' },
+            note: plan.reclassified.includes(r.id) ? 'reclassified_hold' : String(r.check_out) < cutoff ? 'rolled off the feed after checkout' : 'missing_from_feed',
+          })),
+      ]);
       // First observation of an absence: stamp it, so the next run that
       // still misses the row can count a second look (rule 3). Only where
       // unset, so a concurrent run cannot push an earlier stamp later.
@@ -546,6 +564,11 @@ export async function syncListing(opts: {
           })
           .in('id', ids);
         if (reclassErr) throw new Error(`reclassify holds: ${reclassErr.message}`);
+      }
+      // Written once every change above has landed.
+      for (const part of chunk(feedEvents, ID_WRITE_CHUNK)) {
+        const { error: evErr } = await sb.from('booking_events').insert(part);
+        if (evErr) console.warn(`[ical-sync] booking_events: ${evErr.message}`);
       }
 
       result.bookings_added = added;

@@ -6,8 +6,8 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAvailability, checkRange, nightHolds, type AvailabilityBooking } from '../availability.ts';
-import { rateDayMap, type RateDayRow, type RatePlanRow } from '../rate-plan.ts';
+import { buildAvailability, bufferNights, checkRange, nightHolds, type AvailabilityBooking } from '../availability.ts';
+import { arrivalDepartureViolations, quoteStay, rateDayMap, type RateDayRow, type RatePlanRow } from '../rate-plan.ts';
 import type { RentalPeriod } from '../rental-periods.ts';
 
 const plan: RatePlanRow = {
@@ -269,5 +269,35 @@ describe('a hold imported from an OTA feed holds its nights (fail closed)', () =
       { status: 'block', check_in: '2026-10-28', check_out: '2026-10-29', hold_kind: 'ota', source: 'manual', duplicate_of: 'z' },
     ]);
     assert.deepEqual([...blocked].sort(), ['2026-10-10', '2026-10-11']);
+  });
+});
+
+describe('turnover buffer and CTA / CTD are enforced on Helm sales (round 15)', () => {
+  const stay: AvailabilityBooking[] = [{ status: 'confirmed', check_in: '2026-10-15', check_out: '2026-10-17' }];
+  test('a buffer keeps nights free before the arrival and from the checkout on', () => {
+    assert.deepEqual([...bufferNights(stay, 1)].sort(), ['2026-10-14', '2026-10-17']);
+    assert.deepEqual([...bufferNights(stay, 2)].sort(), ['2026-10-13', '2026-10-14', '2026-10-17', '2026-10-18']);
+    assert.equal(bufferNights(stay, 0).size, 0);
+    // Holds, duplicates and cancelled rows carry no buffer; a stay's own nights are never a buffer.
+    assert.equal(bufferNights([{ status: 'block', check_in: '2026-10-15', check_out: '2026-10-17' }], 1).size, 0);
+    assert.equal(bufferNights([{ status: 'confirmed', check_in: '2026-10-15', check_out: '2026-10-17', duplicate_of: 'x' }], 1).size, 0);
+    const backToBack: AvailabilityBooking[] = [...stay, { status: 'confirmed', check_in: '2026-10-17', check_out: '2026-10-19' }];
+    assert.ok(!bufferNights(backToBack, 1).has('2026-10-17'), 'a night a stay holds is the stay');
+  });
+  test('availability sells no buffer night: a same-day turnover is refused', () => {
+    const days = byDate(buildAvailability({ bookings: stay, plan: { ...plan, turnover_buffer_days: 1 }, rateDays: new Map(), rentalPeriods: [], start: '2026-10-12', end: '2026-10-19', now: NOW }));
+    assert.equal(days.get('2026-10-17')?.available, false);
+    assert.equal(days.get('2026-10-14')?.available, false);
+    assert.equal(days.get('2026-10-18')?.available, true);
+    const none = byDate(buildAvailability({ bookings: stay, plan, rateDays: new Map(), rentalPeriods: [], start: '2026-10-12', end: '2026-10-19', now: NOW }));
+    assert.equal(none.get('2026-10-17')?.available, true);
+  });
+  test('an arrival on a No arrival day or a departure on a No departure day is a violation', () => {
+    const days = rateDayMap([day('2026-10-17', { cta: true }), day('2026-10-20', { ctd: true })]);
+    assert.deepEqual(arrivalDepartureViolations(days, '2026-10-17', '2026-10-20'), ['closed_to_arrival', 'closed_to_departure']);
+    assert.deepEqual(arrivalDepartureViolations(days, '2026-10-18', '2026-10-21'), []);
+    const q = quoteStay({ plan, days, tax: null, checkIn: '2026-10-17', checkOut: '2026-10-20', guests: 2, channel: 'direct', now: NOW, region: 'cape_ann', propertyId: '21_horton' });
+    assert.ok(q.violations.includes('closed_to_arrival'));
+    assert.ok(q.violations.includes('closed_to_departure'));
   });
 });

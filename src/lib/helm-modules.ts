@@ -675,7 +675,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/channels/listings',
     number: '16b',
     title: 'Channel wiring',
-    description: 'Per-channel listing ids, URLs, iCal import feeds and the Helm export link for Airbnb, VRBO, Booking.com and Guesty, with the calendar authority switch that cuts a home over from Guesty to Helm.',
+    description: 'Per-channel listing ids, URLs, iCal import feeds and the Helm export link for Airbnb, VRBO, Booking.com and Guesty, and which OTA imports Helm. The switch that cuts a home over from Guesty to Helm is the Cutover panel on each home\'s channel hub.',
     status: 'active',
     primary: false,
     hidden: true,

@@ -332,7 +332,22 @@ export type StayViolation =
   | 'advance_notice'
   | 'booking_window'
   | 'closed_night'
+  | 'closed_to_arrival'
+  | 'closed_to_departure'
   | 'over_occupancy';
+
+/**
+ * A rate day's No arrival (CTA) on the check-in date and No departure (CTD)
+ * on the checkout date. Pass the day map covering the checkout date too.
+ * Hard rules, like a closed night: the create path checks them whatever the
+ * clock.
+ */
+export function arrivalDepartureViolations(days: ReadonlyMap<string, Pick<RateDayRow, 'cta' | 'ctd'>>, checkIn: string, checkOut: string): StayViolation[] {
+  const out: StayViolation[] = [];
+  if (days.get(checkIn.slice(0, 10))?.cta) out.push('closed_to_arrival');
+  if (days.get(checkOut.slice(0, 10))?.ctd) out.push('closed_to_departure');
+  return out;
+}
 
 export type StayQuote = {
   nights: number;
@@ -473,6 +488,7 @@ export function quoteStay(input: QuoteStayInput): StayQuote {
     violations.push('max_nights');
   }
   if (nightly.some((n) => days.get(n.date)?.closed)) violations.push('closed_night');
+  violations.push(...arrivalDepartureViolations(days, checkIn, checkOut));
   if (plan.max_occupancy != null && num(plan.max_occupancy, 0) > 0 && guests > num(plan.max_occupancy)) {
     violations.push('over_occupancy');
   }

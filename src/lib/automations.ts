@@ -49,7 +49,9 @@ import {
   PAUSE_REASON_DISABLED_PREFIX,
   PAUSE_REASON_SUPERSEDED,
   PAUSE_REASON_NO_LONGER_APPLIES,
+  PAUSE_REASON_STAY_CANCELLED,
   withdrawnSends,
+  stayCancelPausedKeys,
   PLAN_WINDOW_DAYS,
   SECRET_FIELDS,
   addDays,
@@ -482,12 +484,42 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
           .in('property_id', ids)
           .eq('status', 'confirmed')
           .is('duplicate_of', null)
-          .gte('first_seen_at', sinceIso)
+          // First seen, or BOOKED, in the last 24h: an inquiry confirmed
+          // today for a stay two months out is a new booking today.
+          .or(`first_seen_at.gte.${sinceIso},booked_at.gte.${sinceIso}`)
           .order('id', { ascending: true })
           .range(from, to),
       { label: 'automations plan fresh' },
     );
-    for (const b of [...windowRows, ...freshRows]) byId.set(b.id, b);
+    // Stays whose waiting messages a cancel paused: once the stay is live
+    // again (a feed that dropped it and put it back, a re-confirm), its
+    // messages resume at once, not when it enters the window weeks later.
+    const pausedRows = await selectAllPaged<{ id: string; booking_id: string }>(
+      (from, to) =>
+        supabaseAdmin
+          .from('automation_sends')
+          .select('id, booking_id')
+          .in('property_id', ids)
+          .eq('status', 'cancelled')
+          .eq('error', PAUSE_REASON_STAY_CANCELLED)
+          .gte('planned_check_out', addDays(today, -1))
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'automations paused by a cancel' },
+    );
+    const pausedIds = [...new Set(pausedRows.map((r) => r.booking_id))].filter((id) => !byId.has(id));
+    const revivedRows: AutomationBooking[] = [];
+    for (const part of chunk(pausedIds)) {
+      const { data } = await supabaseAdmin
+        .from('bookings')
+        .select(BOOKING_COLS)
+        .in('id', part)
+        .eq('status', 'confirmed')
+        .is('duplicate_of', null)
+        .gte('check_out', addDays(today, -1));
+      for (const r of (data ?? []) as AutomationBooking[]) revivedRows.push(r);
+    }
+    for (const b of [...windowRows, ...freshRows, ...revivedRows]) byId.set(b.id, b);
   }
   const bookings = [...byId.values()].filter((b) => effectiveByProperty.get(b.property_id)?.size);
 
@@ -522,7 +554,16 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
     for (const r of rows) existing.push(r);
   }
 
-  const planned = planAutomationSends({ bookings, rules, plans, adjustments, enabledAt, resumable: resumableKeys(existing), now });
+  const planned = planAutomationSends({
+    bookings,
+    rules,
+    plans,
+    adjustments,
+    enabledAt,
+    resumable: resumableKeys(existing),
+    pausedByStayCancel: stayCancelPausedKeys(existing),
+    now,
+  });
   const diff = diffPlan(planned, existing);
 
   // Rows waiting on a rule that no longer applies to the home (an override
@@ -1317,8 +1358,9 @@ export async function setPropertyRuleFlags(
 
 /**
  * Remove this home's own row for a key, so the fleet default applies again.
- * automation_sends cascades on automation_id: the override's send history
- * goes with it, which the panel says out loud.
+ * automation_sends keeps the override's rows (automation_id SET NULL, the
+ * key kept): what it sent stays in the history, and the planner's key
+ * dedupe never sends it again to the same stay.
  */
 export async function deletePropertyRule(propertyId: string, key: string): Promise<{ ok: boolean; error?: string }> {
   if (!isServiceConfigured) return { ok: false, error: 'Service role is not configured.' };

@@ -23,8 +23,9 @@ import { createSlipsFromActionableReviews } from '@/lib/reviews-to-slips';
  * trigger from the dashboard would pass x-helm-manual-sync: 1 instead.
  *
  * Runs on the service role (supabaseAdmin), never a hand-rolled client
- * with an anon fallback: work_slips is RLS-locked and the route is on a
- * daily schedule now, independent of the Guesty sync.
+ * with an anon fallback: work_slips is RLS-locked. It has no schedule of
+ * its own on purpose (CLAUDE.md): the recurring pass is the tail of
+ * sync-guesty, and a second daily pass gave every review a second LLM roll.
  */
 
 async function handle(request: NextRequest) {

@@ -201,27 +201,26 @@ export async function clearRateDays(propertyId: string, from: string, to: string
 //    which carries the 'server-only' marker node:test cannot load) ──────────
 
 async function readRentalPeriods(propertyId: string): Promise<RentalPeriod[]> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('property_rental_periods')
-      .select('start_month, start_day, end_month, end_day, note')
-      .eq('property_id', propertyId)
-      .order('start_month', { ascending: true })
-      .order('start_day', { ascending: true });
-    if (error) throw error;
-    return (data ?? []).map((r) =>
-      normalizePeriod({
-        startMonth: r.start_month,
-        startDay: r.start_day,
-        endMonth: r.end_month,
-        endDay: r.end_day,
-        note: r.note,
-      }),
-    );
-  } catch {
-    // Unreadable = open year-round, the default every un-stamped home has.
-    return [];
-  }
+  // No rows = open year-round, the default every un-stamped home has. A
+  // FAILED read is not "no rows": read as open it made a shut season
+  // sellable on staycapeann.com. It throws like the rate-day read beside it,
+  // so the bridge answers 503 and a page shows its read error.
+  const { data, error } = await supabaseAdmin
+    .from('property_rental_periods')
+    .select('start_month, start_day, end_month, end_day, note')
+    .eq('property_id', propertyId)
+    .order('start_month', { ascending: true })
+    .order('start_day', { ascending: true });
+  if (error) throw new Error(`rental periods ${propertyId}: ${error.message}`);
+  return (data ?? []).map((r) =>
+    normalizePeriod({
+      startMonth: r.start_month,
+      startDay: r.start_day,
+      endMonth: r.end_month,
+      endDay: r.end_day,
+      note: r.note,
+    }),
+  );
 }
 
 // ── The bundle ──────────────────────────────────────────────────────────────

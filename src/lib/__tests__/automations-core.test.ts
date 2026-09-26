@@ -16,6 +16,7 @@ import {
   withdrawnSends,
   rolledOffAfterStay,
   keyDecided,
+  stayCancelPausedKeys,
   PAUSE_REASON_STAY_CANCELLED,
   PAUSE_REASON_NO_LONGER_APPLIES,
   anchorDateFor,
@@ -911,5 +912,44 @@ describe('round 14: pauses that resume, moved cards, key dedupe, withdrawals', (
     assert.equal(sendStatusLabel('cancelled', PAUSE_REASON_STAY_CANCELLED), 'Paused: stay cancelled');
     assert.equal(sendStatusLabel('cancelled', PAUSE_REASON_NO_LONGER_APPLIES), 'Paused: no longer applies');
     assert.equal(sendStatusLabel('cancelled', 'skipped by x'), 'Cancelled');
+  });
+});
+
+describe('round 15: promoted inquiries, revived confirmation cards, cleaner arrival notices', () => {
+  const now = new Date('2026-07-10T12:00:00Z');
+  const confirm = rule({ id: 'f-conf', key: 'booking_confirmed', trigger: 'booking_confirmed', offset_days: 0, at_local: null });
+
+  test('an inquiry asked before automations went on and confirmed after is a booking made after', () => {
+    const promoted = booking({ first_seen_at: '2026-07-08T12:00:00Z', booked_at: '2026-07-10T11:00:00Z' });
+    const enabledAt = { '65_calderwood': '2026-07-09T00:00:00Z' };
+    assert.equal(isFreshlyBooked(promoted, now.getTime(), enabledAt), true);
+    // A stay first seen and booked before the switch is still not confirmed by it.
+    assert.equal(isFreshlyBooked(booking({ first_seen_at: '2026-07-08T12:00:00Z', booked_at: '2026-07-08T12:00:00Z' }), now.getTime(), enabledAt), false);
+  });
+
+  test('a confirmation card paused by a stay cancel comes back when the stay does, past the 24h window', () => {
+    const revived = booking({ first_seen_at: '2026-07-08T12:00:00Z', booked_at: '2026-07-08T12:00:00Z' });
+    const existing: ExistingSend[] = [
+      { id: 's', booking_id: 'bk-1', automation_id: 'f-conf', automation_key: 'booking_confirmed', fire_at: '2026-07-08T12:00:00Z', status: 'cancelled', error: PAUSE_REASON_STAY_CANCELLED, planned_check_in: '2026-07-15', planned_check_out: '2026-07-18' },
+    ];
+    const keys = stayCancelPausedKeys(existing);
+    assert.deepEqual([...keys], ['bk-1|f-conf']);
+    const with_ = planAutomationSends({ bookings: [revived], rules: [confirm], plans: {}, adjustments: {}, pausedByStayCancel: keys, now });
+    assert.equal(with_.length, 1);
+    assert.equal(diffPlan(with_, existing).resumed, 1);
+    const without = planAutomationSends({ bookings: [revived], rules: [confirm], plans: {}, adjustments: {}, now });
+    assert.equal(without.length, 0);
+    // Only stay-cancel pauses: a switch-off pause keeps the 24h window.
+    assert.equal(stayCancelPausedKeys([{ ...existing[0], error: 'automations disabled by x' }]).size, 0);
+  });
+
+  test('a seam at checkout drops departure and cleaner-turnover notices, never the cleaner arrival notice', () => {
+    const flags = { arrivalContinuation: false, departureContinuation: true };
+    const b = booking();
+    assert.equal(triggerAppliesTo({ trigger: 'pre_arrival', audience: 'cleaner' }, b, flags), true);
+    assert.equal(triggerAppliesTo({ trigger: 'checkin_day', audience: 'cleaner' }, b, flags), true);
+    assert.equal(triggerAppliesTo({ trigger: 'pre_checkout', audience: 'cleaner' }, b, flags), false);
+    assert.equal(triggerAppliesTo({ trigger: 'booking_confirmed', audience: 'cleaner' }, b, flags), false);
+    assert.equal(triggerAppliesTo({ trigger: 'pre_checkout', audience: 'guest' }, b, flags), false);
   });
 });
