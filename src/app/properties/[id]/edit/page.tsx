@@ -183,6 +183,14 @@ export default async function PropertyEditPage({
         {/* ── Access & notes ── */}
         <Group eyebrow="05" title="Property access & notes">
           <Field name="key_code_location" label="Key / code location" defaultValue={p.key_code_location} />
+          <Field
+            name="arrival_brief"
+            label="Arrival brief for field crews"
+            defaultValue={p.arrival_brief}
+            id="arrival"
+            textarea
+            hint="Colleague tone, not guest tone. Where to park, which door, what to expect on the way in. The Field packet's How to get in panel prints this."
+          />
           <Field name="supply_closet_location" label="Supply closet location" defaultValue={p.supply_closet_location} hint="Where cleaning supplies, linens, and paper goods are kept — e.g. basement utility room, second-floor hall closet" />
           <Field name="alarm_system" label="Alarm system" defaultValue={p.alarm_system} />
           <Row>
@@ -261,6 +269,15 @@ export default async function PropertyEditPage({
             id="bank"
             maxLength={4}
             hint="Last 4 digits of the account that receives this property's deposits. Used to match Chase deposits on the monthly statement."
+          />
+          <Field
+            name="cleaning_cost_estimate"
+            label="Cleaning cost estimate"
+            defaultValue={p.cleaning_cost_estimate}
+            id="cleaning"
+            type="number"
+            step="0.01"
+            hint="Expected cost per turn, in dollars. Revenue snapshots and the forecast fall back to this until real cleanings land."
           />
         </Group>
 

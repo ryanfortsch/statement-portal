@@ -120,11 +120,17 @@ export async function getGuestCodeView(propertyId: string): Promise<GuestCodeVie
     const locks = await getPropertyLocks(sb, propertyId);
     const today = todayET();
     const [{ data: bks }, { data: codes }, { data: unmapped }] = await Promise.all([
+      // `bookings` holds duplicate rows per stay by design, one per source.
+      // Without the canonical filter a superseded twin (an altered Airbnb
+      // code, or a Booking.com "Guest to be announced" placeholder that a
+      // named record later replaced) can win the check_in sort and put the
+      // wrong guest name against a live door code.
       sb
         .from('bookings')
         .select('id, guest_name, check_in, check_out')
         .eq('property_id', propertyId)
         .eq('status', 'confirmed')
+        .is('duplicate_of', null)
         .gte('check_out', today)
         .order('check_in', { ascending: true })
         .limit(25),

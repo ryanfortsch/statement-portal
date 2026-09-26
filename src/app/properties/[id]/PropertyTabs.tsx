@@ -1,7 +1,45 @@
 'use client';
 
-import { createContext, useContext, useState, useTransition, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useTransition, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+
+/**
+ * The masthead is `sticky top-0 z-50`. This strip was also `top: 0` at
+ * `zIndex: 20`, so it did not pin below the masthead, it slid underneath
+ * it and disappeared. Offsetting by a hardcoded constant does not work
+ * either: the masthead is one content-sized row (a 36px mark plus 16/12
+ * padding) that shrinks on narrow screens, so a fixed offset leaves a gap
+ * page content scrolls through. Measure it instead, and keep the SSR
+ * default equal to the desktop height so the first paint does not jump.
+ */
+const MASTHEAD_FALLBACK_PX = 65;
+
+function useMastheadHeight(): number {
+  const [height, setHeight] = useState(MASTHEAD_FALLBACK_PX);
+  useEffect(() => {
+    const masthead = document.querySelector('header.sticky');
+    if (!(masthead instanceof HTMLElement)) return;
+    const measure = () => setHeight(masthead.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(masthead);
+    return () => observer.disconnect();
+  }, []);
+  return height;
+}
+
+/**
+ * Badges mark live pressure, so a quiet tab shows nothing. The old guard
+ * was `badge !== 0`, which only catches the number, so the onboarding
+ * percentage rendered at both '0%' and '100%' and the strip never went
+ * quiet on any property. Suppress anything that reads as nothing to do.
+ */
+function badgeIsQuiet(badge: string | number | undefined): boolean {
+  if (badge == null || badge === '') return true;
+  if (typeof badge === 'number') return badge === 0;
+  const numeric = Number.parseFloat(badge);
+  return Number.isFinite(numeric) && (numeric === 0 || (badge.trim().endsWith('%') && numeric >= 100));
+}
 
 /**
  * Tabbed shell for the property detail page.
@@ -49,6 +87,7 @@ export function PropertyTabs({
     setAdoptedInitial(valid);
     setActive(valid);
   }
+  const mastheadHeight = useMastheadHeight();
   const router = useRouter();
   const pathname = usePathname();
   const [, startTransition] = useTransition();
@@ -80,7 +119,7 @@ export function PropertyTabs({
         className="rt-tabnav"
         style={{
           position: 'sticky',
-          top: 0,
+          top: mastheadHeight,
           zIndex: 20,
           background: 'var(--paper)',
           borderBottom: '1px solid var(--ink)',
@@ -119,7 +158,7 @@ export function PropertyTabs({
                 }}
               >
                 {t.label}
-                {t.badge != null && t.badge !== '' && t.badge !== 0 && (
+                {!badgeIsQuiet(t.badge) && (
                   <span
                     style={{
                       fontFamily: 'var(--font-mono-dash), ui-monospace, monospace',

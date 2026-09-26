@@ -181,6 +181,10 @@ async function performPropertyUpdate(
 
     // Billing
     bank_last4: bankDigits ? bankDigits : null,
+    // Revenue snapshots and the forecast fall back to this per-turn figure
+    // until real cleanings land. The onboarding catalog has always linked
+    // here to set it; until now the form had no control to set it with.
+    cleaning_cost_estimate: numOrNull(formData, 'cleaning_cost_estimate'),
 
     // Property specs
     bedrooms: intOrNull(formData, 'bedrooms'),
@@ -304,6 +308,10 @@ async function performPropertyUpdate(
   // (not the anon-readable properties table). Write them there. strOrNull
   // gives '' -> null so a cleared field clears the column.
   const { error: accessErr } = await upsertPropertyAccess(id, {
+    // Read back onto the form since property_access was split out, but never
+    // written by it, so the onboarding item's "Edit field" link led to a
+    // control that did not exist and a brief that could not be saved.
+    arrival_brief: strOrNull(formData, 'arrival_brief'),
     wifi_password: strOrNull(formData, 'wifi_password'),
     wifi_password_2: strOrNull(formData, 'wifi_password_2'),
     smart_lock_code: strOrNull(formData, 'smart_lock_code'),

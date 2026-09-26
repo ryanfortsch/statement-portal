@@ -559,7 +559,7 @@ export type HelmPropertyRow = {
   wifi_name: string | null;
   // SENSITIVE access credentials below (wifi_password, wifi_password_2,
   // thermostat_code, smart_lock_code, key_code_location, alarm_system,
-  // gate_code, garage_code) physically live on the RLS-locked
+  // gate_code, garage_code, arrival_brief) physically live on the RLS-locked
   // public.property_access table, NOT public.properties — they were split
   // out in migration 20260620b to close an anon-key read leak. They're
   // merged back onto this row by the server-side helpers in
@@ -592,6 +592,12 @@ export type HelmPropertyRow = {
 
   // Property access & notes
   key_code_location: string | null;
+  // Colleague-tone arrival and parking prose for inspectors and contractors;
+  // the Field packet's "How to get in" panel prints it. Also on
+  // property_access (it is in ACCESS_COLUMNS) and merged back like the rest,
+  // but it was never declared here, so every surface that tried to read or
+  // write it failed to typecheck and got dropped instead.
+  arrival_brief: string | null;
   alarm_system: string | null;
   // Driveway / community gate code if any.
   gate_code: string | null;
