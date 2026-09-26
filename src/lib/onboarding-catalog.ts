@@ -116,6 +116,14 @@ export type OnboardingDeriveContext = {
   cleanerMapped: boolean;
   scaLive: boolean;
   /**
+   * The SCA book-probe's verdict on whether the property's own Stripe keys
+   * are actually wired: 'wired' | 'demo_mode' | 'unknown', null when never
+   * probed. Distinct from scaLive ON PURPOSE. A demo-mode listing is live
+   * and takes bookings that collect nothing, which is how 84 Thatcher took
+   * four bookings worth $41,917 with no payment path.
+   */
+  scaPaymentSignal: 'wired' | 'demo_mode' | 'unknown' | null;
+  /**
    * The linked projection's management contract is executed: owner signed
    * AND Rising Tide countersigned, or the operator marked the contract
    * stage done (paper deals). False when the property predates the
@@ -337,7 +345,11 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why: 'Helm never touches the Stripe secret. The book-probe stamps payment_verified_at when the wiring is right.',
     href: '/properties/{id}/stay-cape-ann',
     hrefLabel: 'Open SCA launch',
-    derive: (ctx) => ctx.scaLive,
+    // Was `ctx.scaLive`, which is the one signal that CANNOT answer this.
+    // A demo-mode listing is live, so this item ticked itself green on
+    // exactly the properties where the wiring was missing. The item's own
+    // why line already named the right signal; the derive did not read it.
+    derive: (ctx) => ctx.scaPaymentSignal === 'wired',
   },
   {
     key: 'financial.sca_test_booking',
@@ -347,7 +359,9 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why: 'The one test that proves Chase, Stripe, Guesty, and the ingest matcher all agree before a real guest pays.',
     href: '/properties/{id}/stay-cape-ann',
     hrefLabel: 'Open SCA launch',
-    derive: (ctx) => ctx.scaLive,
+    // No derive on purpose. Nothing in the database records that a human
+    // ran a test booking, and "the page is live" was never evidence that
+    // anyone did. An operator ticks this one.
   },
   {
     key: 'financial.guesty_business_model',

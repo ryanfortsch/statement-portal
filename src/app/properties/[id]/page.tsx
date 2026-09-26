@@ -560,6 +560,7 @@ export default async function PropertyDetailPage({
     climateConfigured: !!climateProfile?.enabled,
     cleanerMapped: launchCleanerMapped,
     scaLive: scaLaunch?.status === 'live',
+    scaPaymentSignal: scaLaunch?.payment_verify_signal ?? null,
     contractExecuted: contractFacts.executed,
     contractTermStart: contractFacts.termStart,
     contractTermEnd: contractFacts.termEnd,
