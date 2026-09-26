@@ -58,6 +58,7 @@ import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
 import { ClimatePanelLoader } from './ClimatePanelLoader';
 import { ResolveFlagButton } from './ResolveFlagButton';
+import { InlineField } from './InlineField';
 import { PropertyMasthead, type PropertyAlert } from './PropertyMasthead';
 import { OwnersEditor } from './OwnersEditor';
 import { OnboardingItemToggle } from './OnboardingItemToggle';
@@ -2424,7 +2425,18 @@ function missingInfoNoteFields(p: HelmPropertyRow): string[] {
 }
 
 /** Renders any operational sections that have at least one populated field. */
-type OpRow = { label: string; value: string | number | null; mono?: boolean };
+type OpRow = {
+  label: string;
+  value: string | number | null;
+  mono?: boolean;
+  /**
+   * The column this row reads, when it maps to exactly one. Present means a
+   * blank can be filled inline; absent means the row is composed from
+   * several columns (the smart lock, guest gear) or is not in the capture
+   * catalog, and keeps its link to the form.
+   */
+  col?: string;
+};
 
 /** ONE primary treatment for the whole page (the thing you came to do:
  *  Edit operational data, Open a deliverable, + Add note). The page used
@@ -2583,36 +2595,36 @@ function TabActions({ children }: { children: React.ReactNode }) {
  */
 function operationalGroups(p: HelmPropertyRow) {
   const entry: OpRow[] = [
-    { label: 'Guest access', value: p.guest_access_method },
+    { label: 'Guest access', value: p.guest_access_method, col: 'guest_access_method' },
     { label: 'Smart lock', value: [p.smart_lock_brand, p.smart_lock_code].filter(Boolean).join(' · ') || null },
-    { label: 'Key / code location', value: p.key_code_location },
-    { label: 'Gate code', value: p.gate_code, mono: true },
-    { label: 'Garage code', value: p.garage_code, mono: true },
-    { label: 'Alarm system', value: p.alarm_system },
-    { label: 'Cameras', value: p.security_cameras },
+    { label: 'Key / code location', value: p.key_code_location, col: 'key_code_location' },
+    { label: 'Gate code', value: p.gate_code, mono: true, col: 'gate_code' },
+    { label: 'Garage code', value: p.garage_code, mono: true, col: 'garage_code' },
+    { label: 'Alarm system', value: p.alarm_system, col: 'alarm_system' },
+    { label: 'Cameras', value: p.security_cameras, col: 'security_cameras' },
     { label: 'Arrival brief (crew)', value: p.arrival_brief },
-    { label: 'Supply closet', value: p.supply_closet_location },
+    { label: 'Supply closet', value: p.supply_closet_location, col: 'supply_closet_location' },
   ];
   const connectivity: OpRow[] = [
     { label: p.wifi_label ? `WiFi name (${p.wifi_label})` : 'WiFi name', value: p.wifi_name },
     { label: p.wifi_label ? `WiFi password (${p.wifi_label})` : 'WiFi password', value: p.wifi_password, mono: true },
     { label: p.wifi_label_2 ? `WiFi name (${p.wifi_label_2})` : 'WiFi name 2', value: p.wifi_name_2 },
     { label: p.wifi_label_2 ? `WiFi password (${p.wifi_label_2})` : 'WiFi password 2', value: p.wifi_password_2, mono: true },
-    { label: 'Internet', value: p.internet_provider },
-    { label: 'Cable / TV', value: p.cable_provider },
-    { label: 'TVs', value: p.num_tvs },
-    { label: 'Smart TV', value: p.smart_tv },
+    { label: 'Internet', value: p.internet_provider, col: 'internet_provider' },
+    { label: 'Cable / TV', value: p.cable_provider, col: 'cable_provider' },
+    { label: 'TVs', value: p.num_tvs, col: 'num_tvs' },
+    { label: 'Smart TV', value: p.smart_tv, col: 'smart_tv' },
   ];
   const systems: OpRow[] = [
-    { label: 'Bedrooms', value: p.bedrooms },
-    { label: 'Bathrooms', value: p.bathrooms },
-    { label: 'Square feet', value: p.square_feet },
+    { label: 'Bedrooms', value: p.bedrooms, col: 'bedrooms' },
+    { label: 'Bathrooms', value: p.bathrooms, col: 'bathrooms' },
+    { label: 'Square feet', value: p.square_feet, col: 'square_feet' },
     { label: 'Livable floors', value: p.livable_floors },
-    { label: 'Basement', value: p.basement },
-    { label: 'HOA', value: p.hoa },
-    { label: 'Heating', value: p.heating },
-    { label: 'Cooling', value: p.cooling },
-    { label: 'Electricity', value: p.electricity_provider },
+    { label: 'Basement', value: p.basement, col: 'basement' },
+    { label: 'HOA', value: p.hoa, col: 'hoa' },
+    { label: 'Heating', value: p.heating, col: 'heating' },
+    { label: 'Cooling', value: p.cooling, col: 'cooling' },
+    { label: 'Electricity', value: p.electricity_provider, col: 'electricity_provider' },
     // Beside the systems it controls rather than filed under Utilities,
     // so one appliance reads as one thing. Its automation is the Climate
     // section directly above.
@@ -2633,31 +2645,31 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
   ];
   const civic: OpRow[] = [
-    { label: 'Trash day', value: p.trash_day },
-    { label: 'Recycling day', value: p.recycling_day },
+    { label: 'Trash day', value: p.trash_day, col: 'trash_day' },
+    { label: 'Recycling day', value: p.recycling_day, col: 'recycling_day' },
     { label: 'Trash notes (location only)', value: p.trash_notes },
-    { label: 'Parking', value: p.parking },
-    { label: 'Parking regulations', value: p.parking_regulations },
+    { label: 'Parking', value: p.parking, col: 'parking' },
+    { label: 'Parking regulations', value: p.parking_regulations, col: 'parking_regulations' },
   ];
   const safety: OpRow[] = [
-    { label: 'Gas shutoff', value: p.gas_shutoff_location },
-    { label: 'Water shutoff', value: p.water_shutoff_location },
-    { label: 'Electrical panel', value: p.electrical_panel_location },
-    { label: 'Fire extinguishers', value: p.fire_extinguisher_locations },
-    { label: 'Smoke / CO detectors', value: p.smoke_detector_locations },
-    { label: 'Fire exits', value: p.fire_exit_locations },
-    { label: 'STR permit expires', value: p.str_permit_expires },
-    { label: 'STR registration', value: p.str_registration_id, mono: true },
-    { label: 'STR insurance', value: p.str_insurance_carrier },
+    { label: 'Gas shutoff', value: p.gas_shutoff_location, col: 'gas_shutoff_location' },
+    { label: 'Water shutoff', value: p.water_shutoff_location, col: 'water_shutoff_location' },
+    { label: 'Electrical panel', value: p.electrical_panel_location, col: 'electrical_panel_location' },
+    { label: 'Fire extinguishers', value: p.fire_extinguisher_locations, col: 'fire_extinguisher_locations' },
+    { label: 'Smoke / CO detectors', value: p.smoke_detector_locations, col: 'smoke_detector_locations' },
+    { label: 'Fire exits', value: p.fire_exit_locations, col: 'fire_exit_locations' },
+    { label: 'STR permit expires', value: p.str_permit_expires, col: 'str_permit_expires' },
+    { label: 'STR registration', value: p.str_registration_id, mono: true, col: 'str_registration_id' },
+    { label: 'STR insurance', value: p.str_insurance_carrier, col: 'str_insurance_carrier' },
   ];
   const emergency: OpRow[] = [
     { label: 'Name', value: p.emergency_contact_name },
-    { label: 'Relationship', value: p.emergency_contact_relationship },
+    { label: 'Relationship', value: p.emergency_contact_relationship, col: 'emergency_contact_relationship' },
     { label: 'Phone', value: formatUsPhone(p.emergency_contact_phone), mono: true },
     { label: 'Email', value: p.emergency_contact_email, mono: true },
   ];
   const listing: OpRow[] = [
-    { label: 'Currently listed', value: p.currently_listed },
+    { label: 'Currently listed', value: p.currently_listed, col: 'currently_listed' },
     { label: 'Listing URLs', value: p.existing_listing_urls, mono: true },
   ];
   return [
@@ -2728,12 +2740,20 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
                   <div key={r.label}>
                     <dt className="eyebrow" style={{ marginBottom: 4 }}>{r.label}</dt>
                     <dd style={{ margin: 0 }}>
-                      <Link
-                        href={`/properties/${p.id}/edit#${g.editAnchor}`}
-                        style={{ fontSize: 12, color: 'var(--signal)', textDecoration: 'none' }}
-                      >
-                        Add &rarr;
-                      </Link>
+                      {/* A row that maps to exactly one catalog column is
+                          filled here; anything composed from several columns
+                          keeps the trip to the form, where the whole shape
+                          is visible. */}
+                      {r.col ? (
+                        <InlineField propertyId={p.id} column={r.col} label={r.label} />
+                      ) : (
+                        <Link
+                          href={`/properties/${p.id}/edit#${g.editAnchor}`}
+                          style={{ fontSize: 12, color: 'var(--signal)', textDecoration: 'none' }}
+                        >
+                          Add &rarr;
+                        </Link>
+                      )}
                     </dd>
                   </div>
                 ),
