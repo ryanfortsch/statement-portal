@@ -214,7 +214,7 @@ const SIGNED_VIA: Record<PropertyContractRow['signed_via'], string> = {
 };
 
 function recordsHref(propertyId: string): string {
-  return `/properties/${propertyId}?tab=records`;
+  return `/properties/${propertyId}?tab=owner`;
 }
 
 /* ---------- page ---------- */

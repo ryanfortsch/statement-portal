@@ -100,7 +100,7 @@ export function NoteEditorForm({
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
         <SubmitButton label={submitLabel} busyLabel="Saving…" style={primaryButtonStyle} />
-        <Link href={`/properties/${propertyId}?tab=operations`} style={secondaryLinkStyle}>
+        <Link href={`/properties/${propertyId}?tab=facts`} style={secondaryLinkStyle}>
           Cancel
         </Link>
       </div>

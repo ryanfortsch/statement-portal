@@ -41,7 +41,7 @@ export default async function NewPropertyNoticePage({
 
       <HelmBreadcrumb
         trail={[
-          { label: p.name, href: `/properties/${p.id}?tab=records` },
+          { label: p.name, href: `/properties/${p.id}?tab=guest` },
           { label: 'New notice' },
         ]}
       />

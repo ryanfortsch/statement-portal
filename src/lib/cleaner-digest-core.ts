@@ -246,12 +246,8 @@ function composeDigestBodyEn(
   return lines.join('\n');
 }
 
-/** The operator's note rides AFTER the schedule and BEFORE the live link,
- *  so the schedule can keep recomposing while the instruction survives. */
-export function withOperatorNote(body: string, note: string | null | undefined): string {
-  const n = (note ?? '').trim();
-  return n ? `${body}\n\n${n}` : body;
-}
+// The operator's note (after the schedule, before the live link) is
+// appended by lib/cleaner-note withOperatorNote, rendered in Portuguese.
 
 /** The "schedule changed" marker an update send carries. */
 export function updateMarker(language: DigestLanguage): string {

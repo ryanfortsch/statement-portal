@@ -37,7 +37,7 @@ export default async function SyncGuestyPage({
 
       <HelmBreadcrumb
         trail={[
-          { label: p.name, href: `/properties/${p.id}?tab=growth` },
+          { label: p.name, href: `/properties/${p.id}?tab=guest` },
           { label: 'Guesty listing fields' },
         ]}
       />

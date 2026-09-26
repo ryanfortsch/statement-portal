@@ -205,8 +205,62 @@ export function reservationIdFromRequestKey(key: string): string {
   return /^[0-9a-f]{24}$/i.test(parts[1]) ? parts[1] : '';
 }
 
+/**
+ * Whether a ledger row was minted against this Guesty reservation, whichever
+ * door minted it. Helm's own rows carry the id in `reservation_id`; the
+ * concierge's bridge inserts leave that column empty, so its id is read back
+ * out of the request key. A malformed id matches nothing, never everything.
+ */
+export function linkBelongsToReservation(
+  row: { request_key: string; reservation_id?: string | null },
+  reservationId: string,
+): boolean {
+  const id = (reservationId || '').trim();
+  if (!/^[0-9a-f]{24}$/i.test(id)) return false;
+  if ((row.reservation_id || '').trim() === id) return true;
+  return reservationIdFromRequestKey(row.request_key) === id;
+}
+
 /** How long an unpaid link waits before the home feed calls it out. */
 export const UNPAID_AFTER_HOURS = 24;
+
+/**
+ * When an unpaid link comes back as a reminder card in the Guests queue
+ * (stay-concierge payment_reminders.py). The first a day after the link was
+ * texted, the second three days after the first went out, then no more: the
+ * home feed's unpaid card carries it from there. Dotti, 2026-09-26: "auto
+ * populate nudges in the messaging box ... at the appropriate time".
+ */
+export const REMINDER_AFTER_HOURS = [24, 72] as const;
+/** A link this old is a dead deal: nobody gets chased for it. */
+export const REMINDER_MAX_AGE_DAYS = 14;
+
+export type ReminderInput = {
+  created_at: string;
+  sent_at: string | null;
+  paid_at: string | null;
+  deactivated_at: string | null;
+  nudged_at: string | null;
+  nudge_count: number | null;
+  paid_check_error?: string | null;
+};
+
+/**
+ * Which reminder a link is due, 1 or 2, or 0 for none. Only a link that
+ * reached the guest can be chased (an unsent one was never asked of anyone),
+ * never one Helm cannot read from Stripe (it may well be paid), and a hand
+ * nudge from Helm counts as a reminder, so the next one waits its turn.
+ */
+export function reminderDue(row: ReminderInput, nowMs = Date.now()): number {
+  if (row.paid_at || row.deactivated_at || !row.sent_at || row.paid_check_error) return 0;
+  const created = Date.parse(row.created_at);
+  if (Number.isFinite(created) && nowMs - created > REMINDER_MAX_AGE_DAYS * 86_400_000) return 0;
+  const n = (row.nudge_count || 0) + 1;
+  if (n > REMINDER_AFTER_HOURS.length) return 0;
+  const last = Date.parse((n > 1 && row.nudged_at) || row.sent_at);
+  if (!Number.isFinite(last)) return 0;
+  return nowMs - last >= REMINDER_AFTER_HOURS[n - 1] * 3_600_000 ? n : 0;
+}
 /** Links older than this are dead deals: not polled, not shown. Matches the
  *  concierge sweep's lookback. */
 export const LINK_LOOKBACK_DAYS = 45;

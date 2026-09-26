@@ -118,7 +118,7 @@ export async function updateProperty(id: string, formData: FormData) {
   const result = await performPropertyUpdate(id, formData);
   if (result.error) throw new Error(result.error);
 
-  redirect(`/properties/${id}?tab=operations`);
+  redirect(`/properties/${id}?tab=facts`);
 }
 
 /**
@@ -142,11 +142,11 @@ export async function updatePropertyWithState(
   if (result.error) return { error: result.error };
 
   // Land back on the tab the operator came from (the onboarding hub's
-  // "Edit field" deep links carry ?return=onboarding via a hidden input).
+  // "Edit field" deep links carry ?return=setup via a hidden input).
   // Allowlisted so a tampered value can't smuggle in a junk redirect.
-  const RETURN_TABS = new Set(['today', 'operations', 'records', 'onboarding']);
+  const RETURN_TABS = new Set(['now', 'facts', 'owner', 'guest', 'setup']);
   const ret = String(formData.get('return_tab') ?? '');
-  const tab = RETURN_TABS.has(ret) ? ret : 'operations';
+  const tab = RETURN_TABS.has(ret) ? ret : 'facts';
   redirect(`/properties/${id}?tab=${tab}`);
 }
 
@@ -179,8 +179,25 @@ async function performPropertyUpdate(
     owner_mailing_address: strOrNull(formData, 'owner_mailing_address'),
     owner_preferred_contact: strOrNull(formData, 'owner_preferred_contact'),
 
+    // House policy. Each of these was a tick in the onboarding catalog with
+    // the decision itself stored nowhere, so a guest asking "do you take
+    // dogs" had no source to be answered from.
+    default_checkin_time: strOrNull(formData, 'default_checkin_time'),
+    default_checkout_time: strOrNull(formData, 'default_checkout_time'),
+    quiet_hours: strOrNull(formData, 'quiet_hours'),
+    max_occupancy: intOrNull(formData, 'max_occupancy'),
+    pet_policy: strOrNull(formData, 'pet_policy'),
+    smoking_policy: strOrNull(formData, 'smoking_policy'),
+    cancellation_policy: strOrNull(formData, 'cancellation_policy'),
+    house_rules: strOrNull(formData, 'house_rules'),
+    discount_stance: strOrNull(formData, 'discount_stance'),
+
     // Billing
     bank_last4: bankDigits ? bankDigits : null,
+    // Revenue snapshots and the forecast fall back to this per-turn figure
+    // until real cleanings land. The onboarding catalog has always linked
+    // here to set it; until now the form had no control to set it with.
+    cleaning_cost_estimate: numOrNull(formData, 'cleaning_cost_estimate'),
 
     // Property specs
     bedrooms: intOrNull(formData, 'bedrooms'),
@@ -304,6 +321,10 @@ async function performPropertyUpdate(
   // (not the anon-readable properties table). Write them there. strOrNull
   // gives '' -> null so a cleared field clears the column.
   const { error: accessErr } = await upsertPropertyAccess(id, {
+    // Read back onto the form since property_access was split out, but never
+    // written by it, so the onboarding item's "Edit field" link led to a
+    // control that did not exist and a brief that could not be saved.
+    arrival_brief: strOrNull(formData, 'arrival_brief'),
     wifi_password: strOrNull(formData, 'wifi_password'),
     wifi_password_2: strOrNull(formData, 'wifi_password_2'),
     smart_lock_code: strOrNull(formData, 'smart_lock_code'),
@@ -392,7 +413,7 @@ export async function updateHomeGuideOverrides(id: string, formData: FormData) {
 
   revalidatePath(`/properties/${id}`);
   revalidatePath(`/properties/${id}/home-guide`);
-  redirect(`/properties/${id}?tab=records#home-guide-customize`);
+  redirect(`/properties/${id}?tab=guest#home-guide-customize`);
 }
 
 export type OwnerContactChannel = 'email' | 'phone' | 'sms' | 'in_person' | 'other';
@@ -661,7 +682,7 @@ export async function createPropertyNotice(propertyId: string, formData: FormDat
   if (!created) throw new Error('Notice insert returned no row.');
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=records#notice-${created.id}`);
+  redirect(`/properties/${propertyId}?tab=guest#notice-${created.id}`);
 }
 
 /**
@@ -685,7 +706,7 @@ export async function updatePropertyNotice(propertyId: string, noticeId: string,
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/notice/${noticeId}`);
-  redirect(`/properties/${propertyId}?tab=records#notice-${noticeId}`);
+  redirect(`/properties/${propertyId}?tab=guest#notice-${noticeId}`);
 }
 
 /**
@@ -705,7 +726,7 @@ export async function deletePropertyNotice(propertyId: string, noticeId: string)
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=records#guest-placards`);
+  redirect(`/properties/${propertyId}?tab=guest#guest-placards`);
 }
 
 /**
@@ -748,7 +769,7 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
+  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
 }
 
 export async function updatePropertyNote(propertyId: string, noteId: string, formData: FormData) {
@@ -766,7 +787,7 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
+  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
 }
 
 export async function deletePropertyNote(propertyId: string, noteId: string) {
@@ -781,7 +802,7 @@ export async function deletePropertyNote(propertyId: string, noteId: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
+  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
 }
 
 /**

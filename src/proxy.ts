@@ -79,6 +79,10 @@ const PUBLIC_PATH_PREFIXES = [
  *                            aggregate data, read-only)
  *   /api/notify-dotti        daily story-card mailer (to Ryan, sent as Dotti);
  *                            STORY_FACTORY_SECRET auth inside the route, fail-closed
+ *   /api/review-stories/...  the daily review story's own legs: /drive copies
+ *                            a finished story into Drive, /reviews feeds new
+ *                            five-star reviews to the queue on Dotti's Mac.
+ *                            Same STORY_FACTORY_SECRET gate, fail-closed
  *   /api/version             deployment id probe for AutoRefresh's skew
  *                            check; must answer even when the session has
  *                            expired so a stale tab still reloads onto the
@@ -104,6 +108,9 @@ const PUBLIC_API_PREFIXES = [
   "/api/notify-dotti",
   // Review Stories -> Drive copier: same STORY_FACTORY_SECRET gate, fail-closed.
   "/api/review-stories/drive",
+  // Review feed for the daily story queue on Dotti's Mac. Same gate: the
+  // launchd agent cannot reach the keychain the Supabase CLI logs into.
+  "/api/review-stories/reviews",
   "/api/owners-sync",
   "/api/kb-facts",
   "/api/backfill-owner-phones",

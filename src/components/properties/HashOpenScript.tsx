@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 /**
  * Hash deep-link opener for pages built from native <details> sections.
  *
- * After a server action redirects to e.g. `?tab=records#notice-<id>`, the
+ * After a server action redirects to e.g. `?tab=guest#notice-<id>`, the
  * anchor target often sits inside one or more COLLAPSED <details> elements
  * (CollapsibleSection / CollapsibleSubSection render closed by default), so
  * the browser's native hash scroll silently does nothing. On mount and on

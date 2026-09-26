@@ -238,6 +238,10 @@ export async function runClimateAutomation(
         .from('bookings')
         .select('check_in, check_out, status')
         .eq('property_id', profile.property_id)
+        // Canonical rows only: a superseded twin reads as an occupied house
+        // or an imminent arrival, so the thermostat holds comfort on an
+        // empty home.
+        .is('duplicate_of', null)
         .eq('status', 'confirmed')
         .gte('check_out', today)
         .order('check_in', { ascending: true });

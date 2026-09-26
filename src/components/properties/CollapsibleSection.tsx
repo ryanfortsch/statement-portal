@@ -1,5 +1,15 @@
 import type { ReactNode } from 'react';
 
+/**
+ * Clearance for a `#anchor` jump. The property page (the only consumer of
+ * these sections) carries two stacked sticky bars: the masthead, and the
+ * tab strip pinned directly below it. Without this, every one of the nine
+ * server-action hash redirects scrolled the target heading underneath that
+ * chrome, so the section it opened was the one thing off screen.
+ * `Section.tsx` uses 100 for the masthead alone; this clears both.
+ */
+const ANCHOR_OFFSET_PX = 120;
+
 type Props = {
   title: string;
   /**
@@ -85,7 +95,7 @@ export function CollapsibleSection({
             id={id}
             open={defaultOpen}
             className="rt-collapsible"
-            style={{ flex: 1, minWidth: 0 }}
+            style={{ flex: 1, minWidth: 0, scrollMarginTop: ANCHOR_OFFSET_PX }}
           >
             <summary
               style={{
@@ -179,7 +189,7 @@ export function CollapsibleSubSection({
         id={id}
         open={defaultOpen}
         className="rt-collapsible"
-        style={{ borderTop: '1px solid var(--rule)' }}
+        style={{ borderTop: '1px solid var(--rule)', scrollMarginTop: ANCHOR_OFFSET_PX }}
       >
         <summary
           style={{

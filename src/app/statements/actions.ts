@@ -11,6 +11,7 @@ import { loadStatementInputs } from '@/lib/statement-totals-write';
 import { computeStatementTotals } from '@/lib/statement-totals';
 import { reconcileStatement, type Reconciliation } from '@/lib/statement-reconciliation';
 import { loadOwnerRequestCandidates } from '@/lib/statement-owner-requests';
+import { closeTaskWriteRefusal } from '@/lib/close-task-write';
 import type { OwnerRequestSelections, PropertyRequestCandidates } from '@/lib/email-templates';
 import { auth } from '@/auth';
 import type { WorkSlipOwnerActionType } from '@/lib/work-types';
@@ -539,9 +540,21 @@ export async function setPeriodStatusAction(
   return { ok: !error, error: error?.message ?? null };
 }
 
-/** Upsert one property's close-task row (merged client-side, same as before). */
-export async function upsertCloseTask(merged: Row): Promise<void> {
-  await supabaseAdmin.from('close_tasks').upsert(merged, { onConflict: 'period_id,property_id' });
+/**
+ * Upsert one property's close-task row. The caller sends only the fields it
+ * is changing (closeTaskPatchRow): the upsert touches just those columns, so
+ * a stale tab cannot write its old copy of the sent stamp or the Drive link
+ * back over the real ones.
+ *
+ * Refuses to clear email_sent_at; that is unfreezing, and it goes through
+ * unmarkStatementSentAction below. Returns the error instead of dropping it:
+ * a tick that failed to save used to look saved until a reload unticked it.
+ */
+export async function upsertCloseTask(row: Row): Promise<{ ok: boolean; error: string | null }> {
+  const refusal = closeTaskWriteRefusal(row);
+  if (refusal) return { ok: false, error: refusal };
+  const { error } = await supabaseAdmin.from('close_tasks').upsert(row, { onConflict: 'period_id,property_id' });
+  return { ok: !error, error: error?.message ?? null };
 }
 
 /**
@@ -559,6 +572,11 @@ export async function upsertCloseTask(merged: Row): Promise<void> {
  * mistake, or a send that has to be redone), so this does not refuse it --
  * it makes it deliberate and leaves a trace, the same bargain every other
  * override in the freeze makes.
+ *
+ * #1439 shipped this action with no caller, so the checkbox kept clearing
+ * the stamp through the bare upsert anyway. It is now the checkbox's
+ * untick (markStatementSent in page.tsx, after a confirm), and
+ * upsertCloseTask refuses the clear, so this stays the only door.
  */
 export async function unmarkStatementSentAction(args: {
   periodId: string;

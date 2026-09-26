@@ -351,7 +351,7 @@ function AvailabilityBlock({ check, isBlock }: { check: Check; isBlock: boolean 
         {helmRun && !check.hasPlan && (
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)' }}>
             Helm runs this home but it has no rate plan yet, so there is no quote.{' '}
-            <Link href={`/properties/${check.property.id}?tab=rates`} style={{ color: 'inherit' }}>Set one on the Rates tab.</Link>
+            <Link href={`/properties/${check.property.id}?tab=guest#rates`} style={{ color: 'inherit' }}>Set one under Rates & taxes (property page, Guest & listing).</Link>
           </div>
         )}
       </div>

@@ -13,6 +13,9 @@
  * If either is unset, the lib returns an `unconfigured` error and callers
  * should render a setup hint instead of crashing the page.
  */
+
+import type { ConciergeAttention } from '@/lib/concierge-alerts';
+
 export type Approval = {
   id: string;
   short_id: string;
@@ -1181,6 +1184,23 @@ export type AiStatus = {
 
 export async function getAiStatus() {
   return request<AiStatus>('/api/ai-status');
+}
+
+/** What the concierge needs a human for: unhandled guest emergencies and
+ *  recent alerts (lib/concierge-alerts.ts). A cheap local read on the
+ *  concierge, bounded short so a sleepy Mac Mini never holds up the home
+ *  page; a failed read shows nothing rather than a false all-clear. */
+export async function getConciergeAttention() {
+  return request<ConciergeAttention>('/api/attention', { method: 'GET', timeoutMs: 4_000 });
+}
+
+/** Dismiss one alert for everyone: an alert somebody handled is handled. */
+export async function dismissConciergeAttention(itemKey: string, actor?: string) {
+  return request<{ ok: boolean; dismissed: number }>('/api/attention/dismiss', {
+    method: 'POST',
+    body: { item_key: itemKey },
+    actor,
+  });
 }
 
 export async function getStats(hours: number) {

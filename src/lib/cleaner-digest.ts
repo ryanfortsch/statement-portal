@@ -46,6 +46,7 @@ import {
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { loadVendorAppointments } from '@/lib/vendor-schedule';
 import { loadAddedNotesByProperty } from '@/lib/turnover-notes';
+import { resolveNoteBlock, withOperatorNote } from '@/lib/cleaner-note';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import {
   RECIPIENT_COLS,
@@ -54,7 +55,6 @@ import {
   filterScheduleForRecipient,
   shapeRecipient,
   updateMarker,
-  withOperatorNote,
   type DigestLanguage,
   type PropertyRegionLookup,
   type ScheduleRecipient,
@@ -73,7 +73,6 @@ export {
   recountDay,
   shapeRecipient,
   updateMarker,
-  withOperatorNote,
   type DigestLanguage,
   type PropertyRegionLookup,
   type ScheduleRecipient,
@@ -89,7 +88,11 @@ export type DigestRow = {
   built_at: string;
   sent_at: string | null;
   sent_by: string | null;
+  /** As the operator typed it. Never sent raw; see cleaner-note.ts. */
   operator_note: string;
+  operator_note_pt: string;
+  operator_note_en: string;
+  operator_note_src: string;
   sent_log: Array<{
     at: string;
     by: string;
@@ -497,8 +500,18 @@ export async function sendDigest(
       throw err;
     }
     const bodies = await composeRecipientBodies(supabase, regionDay, recipients);
+    // The operator's note goes out rendered in Portuguese (lib/cleaner-note),
+    // re-derived now if the stored rendering is stale: on the evening
+    // autosend nobody is there to notice an untranslated note.
+    let noteBlock: string;
+    try {
+      noteBlock = await resolveNoteBlock(supabase, digest.id);
+    } catch (err) {
+      await revert();
+      throw err;
+    }
     const finish = (text: string, language: DigestLanguage) =>
-      withOperatorNote(opts.kind === 'update' ? `${text}\n\n${updateMarker(language)}` : text, digest.operator_note);
+      withOperatorNote(opts.kind === 'update' ? `${text}\n\n${updateMarker(language)}` : text, noteBlock);
     perRecipient = bodies.map((b) => ({
       recipient: b.recipient,
       text: finish(b.body, b.recipient.language),

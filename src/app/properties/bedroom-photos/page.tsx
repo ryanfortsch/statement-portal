@@ -82,7 +82,7 @@ export default async function BedroomPhotosPage({
 
       <div className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingTop: 20 }}>
         <Link
-          href={property ? `/properties/${property}?tab=growth` : '/properties'}
+          href={property ? `/properties/${property}?tab=guest` : '/properties'}
           style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.04em' }}
         >
           ← Properties

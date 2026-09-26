@@ -51,8 +51,8 @@ export default async function PropertyEditPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  // Deep links from the onboarding hub carry ?return=onboarding so the save
-  // redirect lands back on that tab. Threaded through the form as a hidden
+  // Deep links from the Setup tab carry ?return=setup so the save redirect
+  // lands back on that tab. Threaded through the form as a hidden
   // input; the action allowlists the value.
   const returnTab = (await searchParams)?.return ?? '';
 
@@ -86,7 +86,7 @@ export default async function PropertyEditPage({
       <EditFormShell action={action} propertyId={p.id}>
         {returnTab ? <input type="hidden" name="return_tab" value={returnTab} /> : null}
         {/* ── Owner contact ── */}
-        <Group eyebrow="01" title="Owner contact">
+        <Group eyebrow="01" id="owner" title="Owner contact">
           <Row>
             <Field name="owner_full" label="Owner name" defaultValue={p.owner_full} hint="As it should read on the statement — e.g. Khristin Lambert-Vorais" />
             <Field name="owner_greeting" label="Greeting" defaultValue={p.owner_greeting} hint="First name(s) for emails — e.g. Khristin and Carol Ann" />
@@ -100,7 +100,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Property specs ── */}
-        <Group eyebrow="02" title="Property specs">
+        <Group eyebrow="02" id="specs" title="Property specs">
           <Row>
             <Field name="bedrooms" label="Bedrooms" type="number" defaultValue={p.bedrooms} />
             <Field name="bathrooms" label="Bathrooms" type="number" step="0.5" defaultValue={p.bathrooms} />
@@ -129,7 +129,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Utilities ── */}
-        <Group eyebrow="03" title="Utilities">
+        <Group eyebrow="03" id="utilities" title="Utilities">
           <Row>
             <Field name="electricity_provider" label="Electricity provider" defaultValue={p.electricity_provider} />
             <Field name="heating" label="Heating" defaultValue={p.heating} hint="Gas, Electric, Oil, Heat pump…" />
@@ -140,7 +140,7 @@ export default async function PropertyEditPage({
           </Row>
           <Row>
             <Field name="cable_provider" label="Cable / TV provider" defaultValue={p.cable_provider} />
-            <Field name="wifi_name" label="Wi-Fi name" defaultValue={p.wifi_name} />
+            <Field name="wifi_name" label="Wi-Fi name" defaultValue={p.wifi_name} id="wifi" />
             <Field name="wifi_password" label="Wi-Fi password" defaultValue={p.wifi_password} />
           </Row>
           {/* Two-unit homes get a second network. Labels name the unit
@@ -165,7 +165,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── STR setup ── */}
-        <Group eyebrow="04" title="STR setup">
+        <Group eyebrow="04" id="str" title="STR setup">
           <Field name="currently_listed" label="Currently listed?" defaultValue={p.currently_listed} hint="Platform(s)" />
           <Field name="existing_listing_urls" label="Existing listing URL(s)" defaultValue={p.existing_listing_urls} />
           <Row>
@@ -181,8 +181,16 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Access & notes ── */}
-        <Group eyebrow="05" title="Property access & notes">
+        <Group eyebrow="05" id="access" title="Property access & notes">
           <Field name="key_code_location" label="Key / code location" defaultValue={p.key_code_location} />
+          <Field
+            name="arrival_brief"
+            label="Arrival brief for field crews"
+            defaultValue={p.arrival_brief}
+            id="arrival"
+            textarea
+            hint="Colleague tone, not guest tone. Where to park, which door, what to expect on the way in. The Field packet's How to get in panel prints this."
+          />
           <Field name="supply_closet_location" label="Supply closet location" defaultValue={p.supply_closet_location} hint="Where cleaning supplies, linens, and paper goods are kept — e.g. basement utility room, second-floor hall closet" />
           <Field name="alarm_system" label="Alarm system" defaultValue={p.alarm_system} />
           <Row>
@@ -198,7 +206,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Emergency contact ── */}
-        <Group eyebrow="06" title="Emergency contact">
+        <Group eyebrow="06" id="emergency" title="Emergency contact">
           <Row>
             <Field name="emergency_contact_name" label="Name" defaultValue={p.emergency_contact_name} />
             <Field name="emergency_contact_relationship" label="Relationship" defaultValue={p.emergency_contact_relationship} />
@@ -210,7 +218,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Inspection & safety ── */}
-        <Group eyebrow="07" title="Inspection & safety">
+        <Group eyebrow="07" id="safety" title="Inspection & safety">
           <Row>
             <Field name="trash_day" label="Trash pickup day" defaultValue={p.trash_day} hint="Auto-derived from address for Gloucester — set here to override" />
             <Field name="recycling_day" label="Recycling pickup day" defaultValue={p.recycling_day} />
@@ -249,11 +257,66 @@ export default async function PropertyEditPage({
             hint="Primary + secondary egress"
             textarea
           />
-          <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} hint="If known. e.g. 2027-04-30" />
+          <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} id="permit" hint="If known. e.g. 2027-04-30" />
+        </Group>
+
+        {/* ── House policy ──
+            These were nine ticks in the onboarding catalog recording that
+            somebody decided. The decisions themselves had nowhere to live,
+            so the listing, the home guide and the concierge all had to
+            invent an answer or ask. */}
+        <Group eyebrow="08" id="policy-group" title="House policy">
+          <Row>
+            <Field
+              name="default_checkin_time"
+              label="Cleaner turnover deadline"
+              defaultValue={p.default_checkin_time}
+              id="times"
+              hint="NOT the guest's arrival time. This is when the home must be ready (15:00 by default, an hour of margin before a 16:00 guest). It drives the cleaner schedule and the field packets, and is deliberately never sent to the guest AI. Guesty stays authoritative for what a guest is told about arrival."
+            />
+            <Field
+              name="default_checkout_time"
+              label="Guest checkout time"
+              defaultValue={p.default_checkout_time}
+              hint="What the guest is told, e.g. 10:00 AM. Bridged to the guest AI, so it must match the listing."
+            />
+          </Row>
+          <Row>
+            <Field name="quiet_hours" label="Quiet hours" defaultValue={p.quiet_hours} id="policy" hint="e.g. 10pm to 8am" />
+            <Field name="max_occupancy" label="Max occupancy" type="number" defaultValue={p.max_occupancy} hint="Guests, as listed" />
+          </Row>
+          <Field
+            name="pet_policy"
+            label="Pet policy"
+            defaultValue={p.pet_policy}
+            textarea
+            hint="The whole answer, not yes/no: species, size, count, fee, refundable or not. A guest asking about dogs gets quoted this."
+          />
+          <Field
+            name="smoking_policy"
+            label="Smoking policy"
+            defaultValue={p.smoking_policy}
+            hint="Include outdoors and decks, which is the half guests actually ask about."
+          />
+          <Field
+            name="cancellation_policy"
+            label="Cancellation policy"
+            defaultValue={p.cancellation_policy}
+            textarea
+            hint="Per channel where they differ. The OTA setting lives on the listing; this records what was chosen."
+          />
+          <Field name="house_rules" label="House rules" defaultValue={p.house_rules} textarea />
+          <Field
+            name="discount_stance"
+            label="Discount stance"
+            defaultValue={p.discount_stance}
+            textarea
+            hint="What we will and will not discount, so a reply does not have to invent one."
+          />
         </Group>
 
         {/* ── Billing ── */}
-        <Group eyebrow="08" title="Billing">
+        <Group eyebrow="09" id="billing" title="Billing">
           <Field
             name="bank_last4"
             label="Bank account last 4"
@@ -261,6 +324,15 @@ export default async function PropertyEditPage({
             id="bank"
             maxLength={4}
             hint="Last 4 digits of the account that receives this property's deposits. Used to match Chase deposits on the monthly statement."
+          />
+          <Field
+            name="cleaning_cost_estimate"
+            label="Cleaning cost estimate"
+            defaultValue={p.cleaning_cost_estimate}
+            id="cleaning"
+            type="number"
+            step="0.01"
+            hint="Expected cost per turn, in dollars. Revenue snapshots and the forecast fall back to this until real cleanings land."
           />
         </Group>
 
@@ -275,9 +347,20 @@ export default async function PropertyEditPage({
 }
 
 // ─── Layout components ──────────────────────────────────────────────────────
-function Group({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
+function Group({
+  eyebrow,
+  title,
+  id,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  /** Anchor target so Facts can link straight at the group that owns a field. */
+  id?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rt-edit-group">
+    <div className="rt-edit-group" id={id} style={{ scrollMarginTop: 100 }}>
       <div className="rt-edit-group-h">
         <span className="rt-edit-group-num">{eyebrow}</span>
         <h2>{title}</h2>

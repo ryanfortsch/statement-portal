@@ -209,7 +209,7 @@ export async function quoteRangeAction(input: QuoteRangeInput): Promise<QuoteRan
       loadPricingBundle(propertyId, shiftIsoDay(input.checkIn, -1), input.checkOut),
       listBookingsForProperty(propertyId, input.checkIn, input.checkOut),
     ]);
-    if (!bundle.plan) return { ok: false, error: `${property.name} has no rate plan yet. Set one on the Rates tab.` };
+    if (!bundle.plan) return { ok: false, error: `${property.name} has no rate plan yet. Set one under Rates & taxes (property page, Guest & listing).` };
     const days = buildAvailability({
       bookings: bookings.filter((b) => b.status !== 'cancelled'),
       plan: bundle.plan,

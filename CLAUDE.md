@@ -30,7 +30,7 @@ Related docs:
 - **Auth**: Auth.js v5 (`next-auth` 5 beta) with Google SSO. Enforced in `src/proxy.ts`, which is
   Next 16's middleware file name. It gates every page and every `/api` route except an explicit
   public allowlist.
-- **Database**: Supabase (Postgres). Migrations in `supabase/migrations/` (208 files). 22 legacy
+- **Database**: Supabase (Postgres). Migrations in `supabase/migrations/` (256 files). 20 legacy
   `supabase-schema-*.sql` files at the repo root predate that folder.
 - **Hosting**: Vercel, auto-deploy from `main`.
 - **UI**: Tailwind v4, shadcn/radix, recharts. The statement render page is the exception and uses
@@ -41,29 +41,37 @@ Related docs:
 
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
-Practical consequences: the 22 crons and the 18 routes at `maxDuration = 300` are all fine, and
-platform Skew Protection is available. It was switched **on** on 2026-08-26 at
+Practical consequences: the 25 scheduled crons and the 20 routes at `maxDuration = 300` are all
+fine, and platform Skew Protection is available. It was switched **on** on 2026-08-26 at
 `skewProtectionMaxAge = 43200` (12 hours).
 
 ## Shape of the codebase
 
-Roughly 193k lines across 760 TypeScript files.
+Roughly 247k lines across 970 TypeScript files, counted 2026-09-26. Treat every number below as
+an order of magnitude with a date on it, not a fact: the previous set was written when the repo
+was about a quarter smaller and had drifted silently in every direction. They are here to tell
+you where the weight sits, nothing more.
 
 ```
 src/
-  app/          32 route groups + api/. 125 pages, 58 *actions.ts server-action files
-    api/        105 route handlers, 25 of them cron jobs registered in vercel.json
-  lib/          177 top-level modules (205 including subfolders). The domain logic lives here.
-  components/   90 shared components
+  app/          35 route groups + api/. 136 pages, 65 *actions.ts server-action files
+    api/        120 route handlers, 26 cron routes (25 scheduled in vercel.json)
+  lib/          262 top-level modules (290 including subfolders). The domain logic lives here.
+  components/   96 shared components (62 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
   auth.ts       Auth.js config
-supabase/migrations/   208 migrations
+supabase/migrations/   256 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-Load-bearing `src/lib` modules by import count: `supabase-admin` (144), `properties` (67),
-`stay-concierge` (41), `field-db` (41), `use-soft-refresh` (33), `work-types` (30), `field-types`
-(30), `projections-types` (29), `cron-auth` (24), `field-packets` (22).
+**26 cron routes, 25 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
+Do not "fix" it by adding a schedule.
+
+Load-bearing `src/lib` modules by import count, 2026-09-26: `supabase-admin` (171),
+`properties` (74), `stay-concierge` (55), `field-db` (46), `use-soft-refresh` (37), `work-types`
+(35), `field-types` (34), `projections-types` (31), `cron-auth` (28), `field-packets` (24). The
+ORDER is the durable part and has not moved; the numbers drift with the repo.
 
 ## Module map
 
@@ -85,7 +93,7 @@ Load-bearing `src/lib` modules by import count: `supabase-admin` (144), `propert
 | `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger), trades (the outside vendor directory) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
 | `/work` | Work slips per property plus team tasks. `/work/gear` tracks guest gear |
-| `/properties` | Property registry. The largest module: 23 pages, ~21k lines |
+| `/properties` | Property registry. The largest module: 26 pages |
 | `/properties/contracts` | Owner agreements, renewal mechanics, notice deadlines |
 | `/properties/prospects` | Prospect funnel. Generates projection decks and partnership guides |
 | `/messaging` | Guest message drafts awaiting approval, plus `/messaging/send` |
@@ -410,8 +418,28 @@ ordinary new property needs no stamping; `invoice_match` is only for spellings t
 yield (abbreviations, sub-units, suffix variants). Derived needles are restricted to strings
 starting with a house number, so a bare-word name like "Marina" never becomes a needle.
 
-**`/api/fill-gap` contains a second full copy of the cleaning classification pipeline and must be
-changed in lockstep with `/api/ingest`.** Note it does not implement vendor-credit netting.
+**`/api/fill-gap` and `/api/ingest` share the cleaning rules; they do NOT hold two copies.**
+This paragraph used to describe fill-gap as holding its own duplicate of the classification
+pipeline, and as lacking credit netting. Both were true once and both are now wrong, which is
+worse than saying nothing: it invites a fix duplicated into a file that already imports the
+rule, and it warns you off editing the one place that actually owns it.
+
+What is true, checked 2026-09-26:
+
+- **`classifyBankRow` is one function** in `src/lib/bank-charges.ts`. Both routes import and call
+  it (`ingest` line 903, `fill-gap` line 736). Adding a vendor is still the one-file change
+  described above, and it reaches both routes with no lockstep edit.
+- **Vendor-credit netting is shared** via `src/lib/vendor-credit-netting.ts`. fill-gap imports
+  `netVendorCredits`, `vendorCreditFields` and `unappliedRefundGap` and does implement it.
+- The two routes share twelve `src/lib` modules in all, including `insertCleaningEvents`,
+  `cleaning-credit-overrides`, `remittance`, `installments`, `statement-finality` and
+  **`statement-totals-write`**, which is the single payout write path.
+
+What can still drift is the ORCHESTRATION around those shared pieces: ingest is ~2,700 lines and
+fill-gap ~1,200, and they differ in what they do with the results (ingest alone carries the
+month gate, cancellation matching, internal transfers and the platform-CSV cache). So read both
+before changing either. Just do not go looking for a second copy of the classification rule,
+because there is not one.
 
 # Trash and recycling
 
@@ -544,7 +572,7 @@ like a premium editorial document.
 `/api/sync-guesty` pulls reviews, reservations, and the listing map. `/api/ingest-guesty-csv` is
 the fallback when the API is unavailable. Token caching is shared through the `guesty_auth` table.
 
-Two clients exist: `src/lib/guesty.ts` (6 importers) and `src/lib/guesty-client.ts` (2). They share
+Two clients exist: `src/lib/guesty.ts` (7 importers) and `src/lib/guesty-client.ts` (2). They share
 the token cache and differ in one way that matters: `guesty-client.ts` throws a typed
 `GuestyNotFound` on 404, `guesty.ts` throws a generic error.
 
@@ -657,7 +685,8 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 25 cron routes fail closed without it.
+- **Cron**: `CRON_SECRET`. All 26 cron routes fail closed without it (verified 2026-09-26: every
+  one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
 - **Gmail**: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (bare = Allie's

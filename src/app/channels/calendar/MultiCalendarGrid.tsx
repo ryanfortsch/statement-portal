@@ -552,7 +552,7 @@ export function EditDrawer({
           {p.helmRun && !p.hasPlan && (
             <Note tone="negative">
               This home has no rate plan yet, so a per-night override has nothing to override.{' '}
-              <Link href={`/properties/${p.id}?tab=rates`} style={{ color: 'inherit' }}>Set the plan on the Rates tab.</Link>
+              <Link href={`/properties/${p.id}?tab=guest#rates`} style={{ color: 'inherit' }}>Set the plan under Rates & taxes (property page, Guest & listing).</Link>
             </Note>
           )}
           <Field label="Nightly rate (USD)" hint="Blank returns the night to the plan's own rate (weekend or base).">

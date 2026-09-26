@@ -17,18 +17,17 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { displayNameForEmail } from '@/lib/team';
-import { ResolveNoteButton } from './ResolveNoteButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { TaxCertEditor } from './TaxCertEditor';
 import { MultiMonthBookingsSection } from './MultiMonthBookingsSection';
+import { Fragment, Suspense } from 'react';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
-import { ClimatePanel } from './ClimatePanel';
 import { GuestCodesPanel } from './GuestCodesPanel';
 import { MarkSlipDoneButton } from './MarkSlipDoneButton';
 import { QuickCapture } from './QuickCapture';
@@ -42,23 +41,29 @@ import {
   daysUntil,
   renewalSummary,
 } from '@/lib/property-contracts';
-import { getClimateProfile, listSeamThermostatsSafe } from '@/lib/climate';
+import { getClimateProfile } from '@/lib/climate';
 import { getRentalPeriods } from '@/lib/property-rental-periods';
 import { describePeriods } from '@/lib/rental-periods';
 import { describeOperatingWindow } from '@/lib/forecast-operating-windows';
 import { getGuestCodeView } from '@/lib/guest-locks';
+import { getPropertyCleaners } from '@/lib/property-crew';
+import type { PaymentVerifySignal } from '@/lib/sca-launch';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
-import { loadLaunchForProperty, loadForwardDistinctPrices } from '@/lib/launch-context';
+import { getPropertyFlags } from '@/lib/property-flags';
+import { loadLaunchForProperty } from '@/lib/launch-context';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
+import { ClimatePanelLoader } from './ClimatePanelLoader';
+import { ResolveFlagButton } from './ResolveFlagButton';
+import { InlineField } from './InlineField';
+import { PropertyMasthead, type PropertyAlert } from './PropertyMasthead';
 import { OwnersEditor } from './OwnersEditor';
 import { OnboardingItemToggle } from './OnboardingItemToggle';
 import { RoomsEditor } from './RoomsEditor';
 import { RentalSeasonPanel } from './RentalSeasonPanel';
-import { WalkthroughCapture } from './WalkthroughCapture';
 import { getPropertyRooms } from '@/lib/property-rooms';
 import { RatesPanel } from './RatesPanel';
 import { ListingPanel } from './ListingPanel';
@@ -107,32 +112,49 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   return { ...(data as HelmPropertyRow), ...access } as HelmPropertyRow;
 }
 
-async function getScaLaunchStatus(
-  id: string,
-): Promise<{ status: string; live_url: string | null; guesty_listing_id: string | null } | null> {
+type ScaLaunchStatus = {
+  status: string;
+  live_url: string | null;
+  guesty_listing_id: string | null;
+  payment_verify_signal: PaymentVerifySignal | null;
+  snapshot_refresh_error: string | null;
+};
+
+/**
+ * The SCA launch row behind the Stay Cape Ann tile.
+ *
+ * `payment_verify_signal` is read because a launch that never got its
+ * per-property Stripe key stays in demo mode and takes bookings that
+ * collect nothing. Reading only `status` renders that identically to a
+ * wired listing, which is how 84 Thatcher took four bookings worth
+ * $41,917 without a payment path.
+ */
+async function getScaLaunchStatus(id: string): Promise<ScaLaunchStatus | null> {
   try {
     const { data, error } = await supabase
       .from('sca_launches')
-      .select('status, live_url, guesty_listing_id')
+      .select('status, live_url, guesty_listing_id, payment_verify_signal, snapshot_refresh_error')
       .eq('property_id', id)
       .maybeSingle();
     if (error) return null; // table may not exist yet on older preview envs
-    return (data as { status: string; live_url: string | null; guesty_listing_id: string | null }) ?? null;
+    return (data as ScaLaunchStatus) ?? null;
   } catch {
     return null;
   }
 }
 
 /**
- * Onboarding "Edit field" deep links carry ?return=onboarding so the edit
- * page's save redirect lands back on this tab instead of the default
- * ?tab=operations (query goes BEFORE any #anchor).
+ * Setup "Edit field" deep links carry ?return=setup so the edit page's save
+ * redirect lands back on that tab instead of the default ?tab=facts (query
+ * goes BEFORE any #anchor). The value is allowlisted by RETURN_TABS in
+ * properties/actions.ts; the two must agree or a save silently lands on
+ * Facts instead of where the operator came from.
  */
 function editHrefWithReturn(href: string): string {
   if (!href.includes('/edit')) return href;
   const [path, hash] = href.split('#');
   const sep = path.includes('?') ? '&' : '?';
-  return `${path}${sep}return=onboarding${hash ? `#${hash}` : ''}`;
+  return `${path}${sep}return=setup${hash ? `#${hash}` : ''}`;
 }
 
 /**
@@ -172,16 +194,6 @@ async function getContractFacts(projectionId: string | null): Promise<ContractFa
   }
 }
 
-/**
- * Distinct non-null nightly prices over the next 60 days of the Guesty
- * calendar mirror, for the onboarding catalog's pricing derive. 1 means a
- * flat base rate on every night (the listing-live-on-defaults state that
- * underpriced 3 Windward's launch); 2+ means dynamic pricing is flowing.
- */
-// Forward distinct prices moved to lib/launch-context.ts (loadForwardDistinctPrices),
-// which reads Helm's own rate days for a helm-run home and the Guesty mirror
-// otherwise, so the pricing_flowing derive is not Guesty-only after a cutover.
-
 /** "2026-07-01" -> "Jul 1, 2026" (noon UTC guard against TZ day-shift). */
 function fmtTermDate(iso: string): string {
   return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', {
@@ -190,33 +202,6 @@ function fmtTermDate(iso: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   });
-}
-
-type PropertyNoteRow = {
-  id: string;
-  note_text: string;
-  author_email: string;
-  created_at: string;
-  inspection_id: string | null;
-  photo_urls: string[] | null;
-};
-
-async function getPinnedPropertyNotes(propertyId: string): Promise<PropertyNoteRow[]> {
-  if (!isHelmConfigured) return [];
-  try {
-    const { data, error } = await supabase
-      .from('inspection_notes')
-      .select('id, note_text, author_email, created_at, inspection_id, photo_urls')
-      .eq('property_id', propertyId)
-      .eq('note_type', 'PROPERTY_NOTE')
-      .is('resolved_at', null)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (error) throw error;
-    return (data ?? []) as PropertyNoteRow[];
-  } catch {
-    return [];
-  }
 }
 
 type RecentInspectionRow = {
@@ -416,22 +401,41 @@ export default async function PropertyDetailPage({
 }) {
   const { id } = await params;
   const rawTab = (await searchParams)?.tab ?? 'today';
-  // Old deep links (?tab=overview/history/documents/deliverables) still land
+  // Old deep links (?tab=now/history/documents/deliverables) still land
   // somewhere sensible after the 6 to 5 tab restructure.
-  const initialTab =
-    ({ overview: 'today', history: 'records', documents: 'records', deliverables: 'records' } as Record<string, string>)[rawTab] ?? rawTab;
+  // Every tab name this route has ever answered to, mapped onto the four
+  // that remain. 27 in-repo links, nine server-action hash redirects and any
+  // bookmark an operator kept all still land where they mean to.
+  const TAB_ALIASES: Record<string, string> = {
+    // the six this replaces
+    today: 'now',
+    onboarding: 'setup',
+    operations: 'facts',
+    people: 'owner',
+    growth: 'guest',
+    records: 'owner',
+    // the four already aliased before this change
+    overview: 'now',
+    history: 'now',
+    documents: 'owner',
+    deliverables: 'guest',
+    // the PMS branch's three, folded into Guest & listing as sections
+    rates: 'guest',
+    listing: 'guest',
+    automations: 'guest',
+  };
+  const initialTab = TAB_ALIASES[rawTab] ?? rawTab;
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
+  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
     getRecentStatements(p.id),
-    getPinnedPropertyNotes(p.id),
+    getPropertyFlags(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
     getLatestOwnerContact(p.id, p),
     getCrmContactsFullForProperty(p.id),
     getCrmTouchesForProperty(p.id),
-    loadPropertyActivity(p),
     getPropertyNotices(p.id),
     getPropertyNotes(p.id),
     getPropertyDocuments(p.id),
@@ -453,12 +457,11 @@ export default async function PropertyDetailPage({
       excludePropertyId: p.id,
     }),
     getClimateProfile(p.id),
-    listSeamThermostatsSafe(),
     getGuestCodeView(p.id),
+    getPropertyCleaners(p.id),
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
-    loadForwardDistinctPrices(p.id, { helmRun: isHelmRun(p as unknown as { calendar_authority?: string | null }) }),
     getPropertyContracts(p.id),
     hasOrderChecklistState(p.id),
     getRentalPeriods(p.id),
@@ -494,6 +497,74 @@ export default async function PropertyDetailPage({
     ? contractAttention(activeContract, contractTodayIso)
     : null;
 
+  /**
+   * The header band's alert lane. Each of these was already detectable on
+   * this page and each was rendered inside a fold, so the expensive ones
+   * were the easiest to miss. Cap at five is enforced by the component.
+   *
+   * 3 Locust has no owner and never will (is_rising_tide_owned), so the
+   * missing-contract chip would be permanently wrong there.
+   */
+  const mastheadAlerts: PropertyAlert[] = [];
+  if (scaLaunch?.status === 'live' && scaLaunch.payment_verify_signal === 'demo_mode') {
+    mastheadAlerts.push({
+      key: 'sca-demo',
+      tone: 'negative',
+      text: 'Stay Cape Ann is live in demo mode: bookings collect nothing',
+      href: `/properties/${p.id}/stay-cape-ann`,
+    });
+  }
+  if (
+    activeContract?.fee_pct != null &&
+    p.management_fee_pct != null &&
+    Number(p.management_fee_pct) !== Number(activeContract.fee_pct)
+  ) {
+    mastheadAlerts.push({
+      key: 'fee-mismatch',
+      tone: 'negative',
+      text: `Contract says ${activeContract.fee_pct}%, Helm bills ${p.management_fee_pct}%`,
+      href: `/properties/${p.id}?tab=owner`,
+    });
+  }
+  if (!activeContract && !p.is_rising_tide_owned && p.is_active) {
+    mastheadAlerts.push({
+      key: 'no-contract',
+      tone: 'negative',
+      text: 'Operating with no live contract',
+      href: `/properties/${p.id}?tab=owner`,
+    });
+  }
+  if (activeContractAttention?.kind === 'notice_window') {
+    mastheadAlerts.push({
+      key: 'notice-window',
+      tone: 'signal',
+      text: `Non-renewal notice closes ${fmtTermDate(activeContractAttention.deadline)}`,
+      href: `/properties/${p.id}?tab=owner`,
+    });
+  }
+  if (p.str_permit_expires) {
+    const daysLeft = daysUntil(p.str_permit_expires, contractTodayIso);
+    if (daysLeft != null && daysLeft <= 60) {
+      mastheadAlerts.push({
+        key: 'permit',
+        tone: daysLeft <= 0 ? 'negative' : 'signal',
+        text:
+          daysLeft <= 0
+            ? `STR permit expired ${fmtTermDate(p.str_permit_expires)}`
+            : `STR permit expires in ${daysLeft}d`,
+        href: `/properties/${p.id}/edit#permit`,
+      });
+    }
+  }
+  if (scaLaunch?.snapshot_refresh_error) {
+    mastheadAlerts.push({
+      key: 'sca-stale',
+      tone: 'signal',
+      text: 'Stay Cape Ann snapshot refresh is failing',
+      href: `/properties/${p.id}/stay-cape-ann`,
+    });
+  }
+
   // Launch progress for the Today tab launch chip: the shared resolver's
   // summary, so the chip and the launch page never disagree (the
   // 1/18-vs-5/18 mismatch came from two copies of this calc).
@@ -516,6 +587,7 @@ export default async function PropertyDetailPage({
     climateConfigured: !!climateProfile?.enabled,
     cleanerMapped: launchCleanerMapped,
     scaLive: scaLaunch?.status === 'live',
+    scaPaymentSignal: scaLaunch?.payment_verify_signal ?? null,
     contractExecuted: contractFacts.executed,
     contractTermStart: contractFacts.termStart,
     contractTermEnd: contractFacts.termEnd,
@@ -524,7 +596,9 @@ export default async function PropertyDetailPage({
       const c = fleetCoverage?.properties?.[p.id];
       return c ? { kb: !!c.kb, crosswalk: !!c.crosswalk, todos: Number(c.todos) || 0 } : null;
     })(),
-    forwardDistinctPrices,
+    // Same query, already run by the launch loader above. A second copy
+    // here meant one pricing fact moved two different progress counters.
+    forwardDistinctPrices: launchLoad.ctx.forwardDistinctPrices,
     orderChecklistTouched,
   };
   const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
@@ -539,6 +613,21 @@ export default async function PropertyDetailPage({
     }
   }
   const onboardingResolved = [...onboardingStatus.values()].filter((s) => s.status !== 'todo').length;
+  /**
+   * Setup is the only tab with a retirement condition.
+   *
+   * A house that has earned for seasons should not wear onboarding
+   * furniture, and 16 Waterman wearing a permanent "27%" is what that looked
+   * like. The gate is the predicate launch-checklist already uses, NOT
+   * activated_at alone: that column is null on purpose across the legacy
+   * fleet, so keying on it would hide Setup on every home we onboarded
+   * before it existed.
+   *
+   * Once retired, the readiness number is still reachable: the launch page
+   * keeps it, and a footer line on Facts links there. The fleet-level view
+   * of who is half-done belongs on /properties, not on one record.
+   */
+  const showSetup = !(p.activated_at || launchLoad.ctx.firstStayStarted);
   const onboardingTotal = ONBOARDING_ITEMS.length;
 
   // Internal-first display: the address-without-suffix name as the hero,
@@ -581,10 +670,6 @@ export default async function PropertyDetailPage({
     const issues = last.issue_count;
     return `${date} · ${issues} ${issues === 1 ? 'issue' : 'issues'}`;
   })();
-  const activitySummary =
-    activityEvents.length === 0
-      ? 'quiet'
-      : `${activityEvents.length} ${activityEvents.length === 1 ? 'event' : 'events'} · last ${formatRelative(activityEvents[0].at)}`;
 
   // CRM section summary: contact count + most-recent touch across the
   // whole set, so the closed-state chip reads like "3 contacts · last
@@ -699,22 +784,33 @@ export default async function PropertyDetailPage({
         )}
       </section>
 
-      {/* STAT GRID — shared Stat cells (the local copy dropped the
-          rt-helm-stat class, so the mobile border-patch rules in
-          globals.css never matched and phone cells drew wrong rules). */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 20, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-          <div className="rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <Stat label="Mgmt Fee" value={`${p.management_fee_pct}%`} />
-            <Stat
-              label="Cleaning Est"
-              value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : '—'}
-            />
-            <Stat label="Bank" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} href={`/properties/${p.id}/edit#bank`} />
-            <Stat label="Owner" value={p.owner_last} last />
-          </div>
-        </div>
-      </section>
+      {/* HEADER BAND — replaces the four stat tiles (Mgmt Fee / Cleaning Est
+          / Bank / Owner), which were config rather than state and rendered
+          two hand-written dashes on a live property. Those four now live in
+          the Owner block on the People tab, beside the rest of the deal.
+
+          What takes their place is what an operator actually arrives for:
+          who is in the house, and one fact to read out loud. See the
+          component docblock for why this sits above the tabs. */}
+      <PropertyMasthead
+        propertyId={p.id}
+        isActive={!!p.is_active}
+        todayIso={contractTodayIso}
+        bookings={guestCodeView.bookingRows}
+        lockCodes={guestCodeView.lockCodes}
+        cleaners={propertyCleaners}
+        wifiName={p.wifi_name}
+        wifiPassword={p.wifi_password}
+        keyCodeLocation={p.key_code_location}
+        ownerName={p.owner_full || p.owner_last}
+        ownerPhone={p.owner_phone}
+        ownerEmail={p.owner_emails?.[0] ?? null}
+        ownerPreferredContact={p.owner_preferred_contact}
+        openSlipCount={openSlips.length}
+        lastInspectionAt={recentInspections[0]?.completed_at ?? recentInspections[0]?.started_at ?? null}
+        seasonNote={describeOperatingWindow(p.id) ?? describePeriods(rentalPeriods)}
+        alerts={mastheadAlerts}
+      />
 
       {/* Cross-month bookings -- inline action to split a long stay across
           the months it spans. Hidden when this property has no qualifying
@@ -725,19 +821,22 @@ export default async function PropertyDetailPage({
       <PropertyTabs
         initialTab={initialTab}
         tabs={[
-          { id: 'today', label: 'Today', badge: openSlips.length || undefined },
-          { id: 'onboarding', label: 'Onboarding', badge: `${Math.round((onboardingResolved / Math.max(1, onboardingTotal)) * 100)}%` },
-          { id: 'operations', label: 'Operations' },
-          { id: 'people', label: 'People & owner', badge: crmContactsFull.length || undefined },
-          { id: 'growth', label: 'Listing & growth' },
-          { id: 'rates', label: 'Rates & taxes' },
-          { id: 'listing', label: 'Listing', badge: listingRecord?.photos.length || undefined },
-          { id: 'automations', label: 'Automations', badge: automationsView?.counts.awaiting || undefined },
-          { id: 'records', label: 'Guest & records', badge: documents.length || undefined },
+          { id: 'now', label: 'Now', badge: openSlips.length || undefined },
+          { id: 'facts', label: 'Facts' },
+          { id: 'owner', label: 'Owner & money', badge: crmContactsFull.length || undefined },
+          // Rates & taxes, Listing and Automations (the Helm-native PMS
+          // records) are sections of this tab; the badge is sends waiting
+          // on an approval there.
+          { id: 'guest', label: 'Guest & listing', badge: automationsView?.counts.awaiting || undefined },
+          // Setup leaves the strip once the house is established. The
+          // onboarding percentage badge is gone with it: it counted N/A as
+          // progress and could not reach 100 (108 items, 48 derives), so it
+          // was the one badge in Helm that never cleared.
+          ...(showSetup ? [{ id: 'setup', label: 'Setup', badge: `${onboardingResolved}/${onboardingTotal}` }] : []),
         ]}
       >
-        {/* ════════════ TODAY ════════════ */}
-        <TabSection tab="today">
+        {/* ════════════ NOW ════════════ */}
+        <TabSection tab="now">
           {/* Dictate/type a note; Helm routes it to the right field or
               note after operator review. Top of the tab — capture comes
               before scanning open work. */}
@@ -766,8 +865,15 @@ export default async function PropertyDetailPage({
             </Link>
           </TabActions>
 
-      {/* PINNED PROPERTY NOTES (from inspections) */}
-      {pinnedNotes.length > 0 && (
+      {/* FLAGGED AT THE HOUSE — one list over BOTH note tables.
+          inspection_notes (someone flagged it on a walk) and property_notes
+          (someone wrote it down) used to render as two lists on two tabs,
+          under headings that did not distinguish them. Worse, the old
+          heading here read "Pinned from walkthroughs" while rendering
+          inspection_notes: both capture boxes write to property_notes, so
+          nothing a walkthrough dictated ever appeared under it. Source pill,
+          one resolve verb, honest count. */}
+      {propertyFlags.flags.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
             <h2
@@ -780,14 +886,19 @@ export default async function PropertyDetailPage({
                 margin: 0,
               }}
             >
-              Pinned from walkthroughs
+              Flagged at the house
             </h2>
-            <span className="eyebrow">{pinnedNotes.length} pinned</span>
+            <span className="eyebrow">
+              {propertyFlags.total} open
+              {propertyFlags.total > propertyFlags.flags.length
+                ? ` · showing ${propertyFlags.flags.length}`
+                : ''}
+            </span>
           </div>
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {pinnedNotes.map((n) => (
+            {propertyFlags.flags.map((f) => (
               <div
-                key={n.id}
+                key={`${f.source}-${f.id}`}
                 style={{
                   padding: '16px 0',
                   borderBottom: '1px solid var(--rule)',
@@ -797,20 +908,42 @@ export default async function PropertyDetailPage({
                   alignItems: 'baseline',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
-                    {n.note_text}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <span style={pillStyle(f.source === 'walk' ? 'var(--tide-deep)' : 'var(--ink-4)', true)}>
+                      {f.source === 'walk' ? 'Walk' : 'Note'}
+                    </span>
+                    {f.guestFacing && (
+                      <span
+                        title="Part of the guest-messaging knowledge base"
+                        style={pillStyle('var(--tide-deep)', true)}
+                      >
+                        Guest KB
+                      </span>
+                    )}
+                    <span style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
+                      {f.href ? (
+                        <Link href={f.href} style={{ color: 'inherit', textDecoration: 'none' }}>
+                          {f.text}
+                        </Link>
+                      ) : (
+                        f.text
+                      )}
+                    </span>
                   </div>
-                  {n.photo_urls && n.photo_urls.length > 0 && (
-                    <PhotoThumbs urls={n.photo_urls} size={64} />
+                  {f.detail && f.detail !== f.text && (
+                    <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                      {f.detail.length > 180 ? `${f.detail.slice(0, 180)}…` : f.detail}
+                    </div>
                   )}
+                  {f.photoUrls.length > 0 && <PhotoThumbs urls={f.photoUrls} size={64} />}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {n.author_email.split('@')[0]}
+                  {(f.authorEmail ?? '').split('@')[0] || 'Helm'}
                   <br />
-                  <span style={{ fontSize: 10 }}>{formatDate(n.created_at)}</span>
+                  <span style={{ fontSize: 10 }}>{formatDate(f.createdAt)}</span>
                 </div>
-                <ResolveNoteButton noteId={n.id} />
+                <ResolveFlagButton propertyId={p.id} flagId={f.id} source={f.source} />
               </div>
             ))}
           </div>
@@ -923,16 +1056,114 @@ export default async function PropertyDetailPage({
         )}
       </section>
 
+      {/* ACTIVITY FEED */}
+      <CollapsibleSection title="Activity" summary="recent · full log on its own page">
+        <Suspense
+          fallback={
+            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+              Loading recent activity…
+            </div>
+          }
+        >
+          <ActivityPeek property={p} />
+        </Suspense>
+      </CollapsibleSection>
+
+      {/* INSPECTION HISTORY (Helm-native) */}
+      <CollapsibleSection title="Recent Inspections" summary={inspectionsSummary}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <Link
+            href={`/turnovers?property=${p.id}`}
+            title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
+            style={primaryActionStyle}
+          >
+            Plan a walk
+          </Link>
+        </div>
+        {recentInspections.length === 0 && (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            No inspections recorded for this property yet.
+          </div>
+        )}
+        {recentInspections.length > 0 && (
+          <div>
+            {recentInspections.map((insp) => {
+              const isComplete = !!insp.completed_at;
+              const href = isComplete
+                ? `/inspections/${insp.id}/summary`
+                : `/inspections/${insp.id}`;
+              const summary = isComplete
+                ? `${insp.pass_count} pass · ${insp.issue_count} issue · ${insp.na_count} N/A`
+                : 'In progress';
+              return (
+                <Link
+                  key={insp.id}
+                  href={href}
+                  style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+                >
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '160px 1fr auto auto',
+                      gap: 24,
+                      alignItems: 'baseline',
+                      padding: '16px 0',
+                      borderBottom: '1px solid var(--rule)',
+                    }}
+                  >
+                    <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+                      {formatDate(insp.completed_at ?? insp.started_at)}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{insp.inspector_name}</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        letterSpacing: '.08em',
+                        textTransform: 'uppercase',
+                        color: isComplete
+                          ? insp.issue_count > 0
+                            ? 'var(--signal)'
+                            : 'var(--positive)'
+                          : 'var(--ink-4)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {summary}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+                      {isComplete ? 'Summary →' : 'Resume →'}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </CollapsibleSection>
+
         </TabSection>
 
-        {/* ════════════ ONBOARDING ════════════ */}
-        <TabSection tab="onboarding">
+        {/* ════════════ SETUP ════════════ */}
+        <TabSection tab="setup">
           {/* The full lot-to-listing pipeline. Auto-derived items resolve
               themselves from live data (bank on file, lock mapped, KB
-              seeded); the rest are operator toggles. The walkthrough
-              dictation up top is the fast path for the physical stage. */}
+              seeded); the rest are operator toggles.
+
+              The walkthrough mic used to sit here, a tab away from the other
+              one, both writing through the same apply action. There is one
+              box now, on Today: say the walk into it and Helm routes it to
+              the room-by-room parser. */}
           <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 8, width: '100%' }}>
-            <WalkthroughCapture propertyId={p.id} propertyName={p.name} />
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 720 }}>
+              Walking the house?{' '}
+              <Link
+                href={`/properties/${p.id}?tab=now`}
+                style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+              >
+                Dictate it into the capture box on Today
+              </Link>
+              . Room by room is recognised on its own; everything it finds lands in the stages below.
+            </p>
           </section>
 
           {ONBOARDING_STAGES.map((stage) => {
@@ -1043,8 +1274,8 @@ export default async function PropertyDetailPage({
           </CollapsibleSection>
         </TabSection>
 
-        {/* ════════════ OPERATIONS ════════════ */}
-        <TabSection tab="operations">
+        {/* ════════════ FACTS ════════════ */}
+        <TabSection tab="facts">
           {/* Launcher tiles, same grammar as the Growth tab's grid, replacing
               the old right-aligned ghost-link row: each tool gets a card with
               its one-line pitch instead of a bare label. Backfill is a true
@@ -1110,21 +1341,153 @@ export default async function PropertyDetailPage({
         title="Climate automation"
         summary={climateProfile?.enabled ? 'on' : 'not set up'}
       >
-        <ClimatePanel propertyId={p.id} profile={climateProfile} thermostats={seamThermostats} />
+        {/* The Seam thermostat list is a fleet-wide external call. It used
+            to run in this page's Promise.all, so every arrival at every
+            property waited on Seam to fill a device picker inside a section
+            that renders collapsed. Streamed instead. */}
+        <Suspense
+          fallback={
+            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+              Loading thermostats…
+            </div>
+          }
+        >
+          <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
+        </Suspense>
       </CollapsibleSection>
 
       <CollapsibleSection
+        id="guest-codes"
         title="Guest door codes"
         summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
       >
         <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
       </CollapsibleSection>
 
+      {/* HOUSE POLICY — the decisions a guest, a listing or the concierge
+          quotes. Each of these was a tick in the Setup catalog recording
+          that somebody decided, with the answer itself stored nowhere, so
+          "what time is checkout" and "do they take dogs" were unanswerable
+          on the record. A blank renders as the question with a link to the
+          field that answers it, never as a dash. */}
+      <CollapsibleSection
+        id="policy"
+        title="House policy"
+        summary={(() => {
+          const set = [
+            p.default_checkin_time, p.default_checkout_time, p.quiet_hours,
+            p.max_occupancy, p.pet_policy, p.smoking_policy,
+            p.cancellation_policy, p.house_rules, p.discount_stance,
+          ].filter((v) => v != null && String(v).trim() !== '').length;
+          return set === 9 ? 'all set' : `${set} of 9 decided`;
+        })()}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
+          {([
+            ['Turnover deadline', p.default_checkin_time, 'times'],
+            ['Guest checkout', p.default_checkout_time, 'times'],
+            ['Quiet hours', p.quiet_hours, 'policy'],
+            ['Max occupancy', p.max_occupancy != null ? `${p.max_occupancy} guests` : null, 'policy'],
+            ['Pets', p.pet_policy, 'policy'],
+            ['Smoking', p.smoking_policy, 'policy'],
+            ['Cancellation', p.cancellation_policy, 'policy'],
+            ['House rules', p.house_rules, 'policy'],
+            ['Discounts', p.discount_stance, 'policy'],
+          ] as Array<[string, string | number | null, string]>).map(([label, value, anchorId]) => (
+            <Fragment key={label}>
+              <div className="eyebrow">{label}</div>
+              {value != null && String(value).trim() !== '' ? (
+                <div style={{ color: 'var(--ink)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{value}</div>
+              ) : (
+                <Link
+                  href={`/properties/${p.id}/edit#${anchorId}`}
+                  style={{ color: 'var(--signal)', textDecoration: 'none', fontSize: 12 }}
+                >
+                  Not decided yet &rarr;
+                </Link>
+              )}
+            </Fragment>
+          ))}
+        </div>
+      </CollapsibleSection>
+
+      {/* WHO SERVES THIS HOUSE — the people who physically go there.
+          "Which cleaner covers this property and what is their number" had
+          no door anywhere on the record before the header band; this is the
+          full answer behind the band's single line. property_ids = '{}' on
+          cleaner_phones means serves-all, which is why a fleet-wide mapping
+          is listed and labelled rather than hidden. */}
+      <CollapsibleSection
+        id="crew"
+        title="Who serves this house"
+        summary={
+          propertyCleaners.length === 0
+            ? 'no cleaner mapped'
+            : propertyCleaners.length === 1
+              ? propertyCleaners[0].display_name
+              : `${propertyCleaners.length} mapped`
+        }
+      >
+        {propertyCleaners.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, maxWidth: 720 }}>
+            No cleaner is mapped to {p.name}. Inbound texts from this house fall back to matching on
+            the message body, and the cleaner line on the header band stays empty.{' '}
+            <Link
+              href="/turnovers/schedule"
+              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Open the cleaner schedule
+            </Link>
+          </div>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {propertyCleaners.map((c) => (
+              <div
+                key={c.phone}
+                style={{
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  gap: 16,
+                  alignItems: 'baseline',
+                }}
+              >
+                <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, color: 'var(--ink)' }}>{c.display_name}</span>
+                  {c.vendor && <span style={pillStyle('var(--ink-4)', true)}>{c.vendor}</span>}
+                  {c.fleetWide && (
+                    <span title="Mapped to every property, not just this one" style={pillStyle('var(--ink-4)', true)}>
+                      Fleet-wide
+                    </span>
+                  )}
+                </div>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-mono-dash), ui-monospace, monospace',
+                    fontSize: 13,
+                    color: 'var(--ink-3)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {formatUsPhone(c.phone)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
       {/* OPERATIONS NOTEBOOK — internal per-property knowledge base
           (property_notes). Each row is a discrete note (quirk / workaround
           / vendor / warning).
-          Closed-state chip surfaces the open count so a single glance
-          tells you whether there's tribal knowledge attached. */}
+
+          This and "Flagged at the house" on Today now share rows, and that
+          is deliberate rather than the old accident: Today answers "what
+          needs attention here", this answers "what do we know about this
+          house". So this one keeps resolved entries and the guest-facing
+          split, which is what makes it a knowledge base rather than a
+          queue. Open rows appear in both because they are both. */}
       <CollapsibleSection
         id="ops-notebook"
         title="Operations notebook"
@@ -1209,15 +1572,37 @@ export default async function PropertyDetailPage({
           </div>
         )}
       </CollapsibleSection>
-      {/* OPERATIONAL DATA — collapsed by default; expand for the six subgroups */}
-      {operationalCounts.populated > 0 && (
-        <CollapsibleSection title="Operational data" summary={operationalSummary}>
-          <OperationalSections p={p} />
-        </CollapsibleSection>
-      )}
+      {/* THE FACT SHEET — seven groups shaped by the question they answer
+          rather than by the table they came from, each linking at the edit
+          group that owns it.
+
+          The `populated > 0` gate is gone on purpose. It hid this block
+          entirely on a property with nothing filled in, which is exactly
+          the property whose blanks ARE the work. A blank now renders as its
+          own label with an Add link. */}
+      <CollapsibleSection id="facts" title="The fact sheet" summary={operationalSummary}>
+        <OperationalSections p={p} />
+      </CollapsibleSection>
 
       {/* REFERENCE — Helm IDs, sync state, and the Perfection link, all in one
           quiet block at the bottom. Used rarely; collapsed by default. */}
+      {/* Setup has retired off the strip for this house, so the readiness
+          number needs somewhere to still be reachable. One line, not a tab. */}
+      {!showSetup && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
+            Setup is complete for {p.name}.{' '}
+            <Link
+              href={`/properties/${p.id}/launch`}
+              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Open the launch checklist
+            </Link>{' '}
+            to review the {onboardingResolved} of {onboardingTotal} items on record.
+          </p>
+        </section>
+      )}
+
       <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
           <Detail term="Helm ID" definition={p.id} mono />
@@ -1271,10 +1656,39 @@ export default async function PropertyDetailPage({
 
         </TabSection>
 
-        {/* ════════════ PEOPLE & OWNER ════════════ */}
-        <TabSection tab="people">
+        {/* ════════════ OWNER & MONEY ════════════ */}
+        <TabSection tab="owner">
       {/* OWNER */}
       <CollapsibleSection title="Owner" summary={ownerSummary} defaultOpen>
+        {/* The deal terms that used to lead every visit as four stat tiles.
+            They are owner facts, not live state, so they belong beside the
+            owner rather than above the tab strip. Cleaning Est is a manual
+            fallback that revenue snapshots override with a real rolling
+            figure once the property has closed statements, so it is labelled
+            as the estimate it is rather than presented as a measured cost. */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            borderTop: '1px solid var(--rule)',
+            borderBottom: '1px solid var(--rule)',
+            marginBottom: 18,
+          }}
+        >
+          <Stat label="Mgmt Fee" value={p.is_rising_tide_owned ? 'RT owned' : `${p.management_fee_pct}%`} />
+          <Stat
+            label="Cleaning Est"
+            value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : 'Not set'}
+            sub={p.cleaning_cost_estimate != null ? 'manual fallback' : undefined}
+            href={`/properties/${p.id}/edit#cleaning`}
+          />
+          <Stat
+            label="Bank"
+            value={p.bank_last4 ? `**${p.bank_last4}` : 'Not set'}
+            href={`/properties/${p.id}/edit#bank`}
+          />
+          <Stat label="Owner" value={p.owner_last || 'Not set'} last />
+        </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
           <Link
             href={`/properties/${p.id}/edit`}
@@ -1449,10 +1863,303 @@ export default async function PropertyDetailPage({
           touchesByContact={crmTouchesByContact}
         />
       </CollapsibleSection>
+      {/* MANAGEMENT AGREEMENT — the deal facts the Setup checklist's
+          "Open records" links land on. The property_contracts registry row
+          (seeded from the Drive Contracts corpus) is the canonical source:
+          fee, term, renewal mechanics, and negotiated clauses as signed.
+          Falls back to the linked projection's contract columns for a
+          promoted prospect whose contract isn't registered yet. */}
+      {/* Both branches carry id="management-agreement" on purpose: they are
+          the two arms of one ternary, so only ever one is in the DOM, and the
+          deep links from /properties/contracts and the alert lane must land
+          on whichever arm rendered. */}
+      {activeContract ? (
+        <CollapsibleSection
+          id="management-agreement"
+          title="Management Agreement"
+          summary={
+            activeContractAttention
+              ? activeContractAttention.kind === 'notice_window'
+                ? `notice deadline ${fmtTermDate(activeContractAttention.deadline)}`
+                : 'needs attention'
+              : `through ${fmtTermDate(currentTermEnd(activeContract, contractTodayIso))} · ${activeContract.fee_pct != null ? `${activeContract.fee_pct}%` : 'fee n/a'}`
+          }
+          defaultOpen={!!activeContractAttention}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
+            <div className="eyebrow">Parties</div>
+            <div style={{ color: 'var(--ink)' }}>
+              {activeContract.owner_party} · signed via{' '}
+              {activeContract.signed_via === 'helm' ? 'Helm e-sign' : activeContract.signed_via === 'docusign' ? 'Docusign' : 'external paperwork'}
+              {activeContract.executed_on ? ` on ${fmtTermDate(activeContract.executed_on)}` : ' (copy on file is undated)'}
+            </div>
+            <div className="eyebrow">Term</div>
+            <div style={{ color: 'var(--ink)' }}>
+              {activeContract.term_start ? fmtTermDate(activeContract.term_start) : 'start not recorded'}
+              {' to '}
+              {fmtTermDate(currentTermEnd(activeContract, contractTodayIso))}
+              {currentTermEnd(activeContract, contractTodayIso) > activeContract.term_end && (
+                <span style={{ color: 'var(--ink-3)' }}>
+                  {' '}(auto-renewed; written term ended {fmtTermDate(activeContract.term_end)})
+                </span>
+              )}
+            </div>
+            <div className="eyebrow">Renewal</div>
+            <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>
+              {renewalSummary(activeContract)}
+              {(() => {
+                const deadline = noticeDeadline(activeContract, contractTodayIso);
+                if (!deadline) return null;
+                const days = daysUntil(deadline, contractTodayIso);
+                return (
+                  <span
+                    className="tabular-nums"
+                    style={{
+                      color: days <= 14 ? 'var(--negative)' : days <= 75 ? 'var(--signal)' : 'var(--ink-3)',
+                      fontWeight: days <= 75 ? 600 : 400,
+                    }}
+                  >
+                    {' '}· notice deadline {fmtTermDate(deadline)}{days >= 0 ? ` (${days}d)` : ''}
+                  </span>
+                );
+              })()}
+            </div>
+            <div className="eyebrow">Fee</div>
+            <div style={{ color: 'var(--ink)', lineHeight: 1.55 }}>
+              {activeContract.fee_pct != null ? `${activeContract.fee_pct}% of gross rental income` : 'not recorded'}
+              {activeContract.fee_pct != null &&
+                p.management_fee_pct != null &&
+                Number(p.management_fee_pct) !== Number(activeContract.fee_pct) && (
+                  <span style={{ color: 'var(--negative)' }}>
+                    {' '}(contract disagrees with the {p.management_fee_pct}% Helm bills; reconcile before the next statement)
+                  </span>
+                )}
+              {activeContract.fee_notes && (
+                <span style={{ color: 'var(--ink-3)' }}> · {activeContract.fee_notes}</span>
+              )}
+            </div>
+            {activeContract.min_availability && (
+              <>
+                <div className="eyebrow">Availability</div>
+                <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>{activeContract.min_availability}</div>
+              </>
+            )}
+            {activeContract.special_terms.length > 0 && (
+              <>
+                <div className="eyebrow">Negotiated</div>
+                <ul style={{ margin: 0, paddingLeft: 16, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                  {activeContract.special_terms.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+          {activeContractAttention && (
+            <p style={{ margin: '14px 0 0', fontSize: 12.5, color: 'var(--signal)', lineHeight: 1.55, maxWidth: 760 }}>
+              {activeContractAttention.detail}
+            </p>
+          )}
+          {activeContract.notes && (
+            <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 760 }}>
+              {activeContract.notes}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
+            {activeContract.drive_url && (
+              <a href={activeContract.drive_url} target="_blank" rel="noreferrer" style={primaryActionStyle}>
+                Signed PDF ↗
+              </a>
+            )}
+            {p.projection_id && (
+              <Link
+                href={`/projections/${p.projection_id}/contract`}
+                target="_blank"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                Contract page
+              </Link>
+            )}
+            <Link
+              href="/properties/contracts"
+              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+            >
+              All contracts
+            </Link>
+            {/* Renewal draft: rides the prospect contract pipeline (edit
+                terms, owner sign link, countersign) with the row pre-linked
+                to this property so it never touches the funnel. */}
+            <form action={startRenewal} style={{ margin: 0 }}>
+              <button
+                type="submit"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--tide-deep)', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 12px' }}
+              >
+                Draft renewal
+              </button>
+            </form>
+          </div>
+          {pastContracts.length > 0 && (
+            <div style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+              {pastContracts.map((c) => (
+                <div key={c.id}>
+                  {c.status === 'superseded' ? 'Superseded' : 'Expired'}:{' '}
+                  {c.term_start ? fmtTermDate(c.term_start) : '—'} to {fmtTermDate(c.term_end)}
+                  {c.fee_pct != null ? ` at ${c.fee_pct}%` : ''}
+                  {c.drive_url && (
+                    <>
+                      {' · '}
+                      <a href={c.drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                        PDF ↗
+                      </a>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CollapsibleSection>
+      ) : (
+        <CollapsibleSection
+          id="management-agreement"
+          title="Management Agreement"
+          summary={
+            pastContracts.length > 0
+              ? 'expired, no live contract'
+              : p.projection_id
+                ? contractFacts.executed
+                  ? 'signed, not yet registered'
+                  : 'not fully executed'
+                : 'none on file'
+          }
+          defaultOpen={pastContracts.length > 0}
+        >
+          {pastContracts.length > 0 && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--negative)', lineHeight: 1.6, maxWidth: 760 }}>
+              The last agreement ({pastContracts[0].term_start ? fmtTermDate(pastContracts[0].term_start) : '—'} to{' '}
+              {fmtTermDate(pastContracts[0].term_end)}
+              {pastContracts[0].fee_pct != null ? ` at ${pastContracts[0].fee_pct}%` : ''}) has ended and nothing
+              renews it. This property is operating without a live contract.
+              {pastContracts[0].drive_url && (
+                <>
+                  {' '}
+                  <a href={pastContracts[0].drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                    Last signed PDF ↗
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+          {pastContracts.length === 0 && p.projection_id && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 720 }}>
+              <div className="eyebrow">Status</div>
+              <div style={{ color: 'var(--ink)' }}>
+                {contractFacts.executed ? 'Executed (signed and countersigned)' : 'Not fully executed'}
+              </div>
+              <div className="eyebrow">Term</div>
+              <div style={{ color: contractFacts.termStart && contractFacts.termEnd ? 'var(--ink)' : 'var(--signal)' }}>
+                {contractFacts.termStart ? fmtTermDate(contractFacts.termStart) : 'start not recorded'}
+                {' to '}
+                {contractFacts.termEnd ? fmtTermDate(contractFacts.termEnd) : 'end not recorded'}
+              </div>
+            </div>
+          )}
+          {pastContracts.length === 0 && !p.projection_id && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 760 }}>
+              No management agreement is registered for this property. If a signed copy exists, it belongs in the
+              Drive Contracts folder and in the register.
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
+            {/* No live agreement: drafting a renewal is the primary move.
+                Idempotent - re-clicking lands on the open draft. */}
+            <form action={startRenewal} style={{ margin: 0 }}>
+              <button type="submit" style={{ ...primaryActionStyle, border: 'none', cursor: 'pointer' }}>
+                Draft renewal contract
+              </button>
+            </form>
+            {p.projection_id && (
+              <Link
+                href={`/prospects/${p.projection_id}`}
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                Contract workroom
+              </Link>
+            )}
+            {p.projection_id && (
+              <Link
+                href={`/projections/${p.projection_id}/contract`}
+                target="_blank"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                View contract ↗
+              </Link>
+            )}
+            <Link
+              href="/properties/contracts"
+              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+            >
+              All contracts
+            </Link>
+          </div>
+        </CollapsibleSection>
+      )}
+      {/* DOCUMENTS — folded into the same collapsible grammar as its
+          neighbors; the upload form used to render permanently expanded
+          even when nothing was filed. */}
+      <CollapsibleSection
+        id="documents"
+        title="Documents"
+        summary={documents.length === 0 ? 'none yet' : `${documents.length} on file`}
+      >
+        <DocumentsPanel propertyId={p.id} documents={documents} />
+      </CollapsibleSection>
+      {/* RECENT STATEMENTS (Helm-native) */}
+      <CollapsibleSection title="Recent Statements" summary={statementsSummary}>
+        {statements.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            No statements for this property yet.
+          </div>
+        ) : (
+          <div>
+            {statements.map((s) => (
+              <Link
+                key={s.id}
+                href={`/statements/render?id=${s.id}&month=${s.month}`}
+                style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '160px 1fr auto auto',
+                    gap: 24,
+                    alignItems: 'baseline',
+                    padding: '16px 0',
+                    borderBottom: '1px solid var(--rule)',
+                  }}
+                >
+                  <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+                    {formatMonth(s.month)}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                    {s.num_stays} stay{s.num_stays === 1 ? '' : 's'} · {s.nights_booked} nights
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                    {formatCurrency(s.rental_revenue)} rev
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                    {formatCurrency(s.owner_payout)} payout →
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
         </TabSection>
 
-        {/* ════════════ LISTING & GROWTH ════════════ */}
-        <TabSection tab="growth">
+        {/* ════════════ GUEST & LISTING ════════════ */}
+        <TabSection tab="guest">
           {/* Launcher tiles, not a bare row of links: each growth tool gets
               a card with its one-line pitch (lifted from the old hover-only
               title attrs) so the tab reads as a workbench instead of the
@@ -1477,18 +2184,37 @@ export default async function PropertyDetailPage({
                 description="Push Helm's Wi-Fi, parking, and trash details into the matching guest-facing fields on the live listing."
                 href={`/properties/${p.id}/sync-guesty`}
               />
+              {/* A live listing whose payment probe came back demo_mode takes
+                  bookings that collect nothing, so it must never render as a
+                  plain "Live ✓" (84 Thatcher: four bookings, $41,917, no
+                  payment path). A stale snapshot is the quieter twin of the
+                  same problem and says so rather than reading healthy. */}
               <GrowthTile
                 eyebrow="Direct booking"
                 title="Stay Cape Ann"
                 description={
                   scaLaunch?.status === 'live'
-                    ? 'Live on staycapeann.com.'
+                    ? scaLaunch.payment_verify_signal === 'demo_mode'
+                      ? 'Live, but the last payment probe found demo mode: bookings collect nothing. Check this property’s Stripe key.'
+                      : scaLaunch.snapshot_refresh_error
+                        ? 'Live on staycapeann.com. The last snapshot refresh failed, so the page may be stale.'
+                        : 'Live on staycapeann.com.'
                     : scaLaunch?.status === 'pr_open'
-                      ? 'Launch in review — a PR is open.'
+                      ? 'Launch in review, a PR is open.'
                       : 'Launch this property on staycapeann.com.'
                 }
                 href={`/properties/${p.id}/stay-cape-ann`}
-                status={scaLaunch?.status === 'live' ? 'Live ✓' : scaLaunch?.status === 'pr_open' ? 'In review' : undefined}
+                status={
+                  scaLaunch?.status === 'live'
+                    ? scaLaunch.payment_verify_signal === 'demo_mode'
+                      ? 'Demo mode'
+                      : scaLaunch.snapshot_refresh_error
+                        ? 'Live, stale'
+                        : 'Live ✓'
+                    : scaLaunch?.status === 'pr_open'
+                      ? 'In review'
+                      : undefined
+                }
               />
               {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
                 <GrowthTile
@@ -1500,15 +2226,24 @@ export default async function PropertyDetailPage({
               )}
             </div>
           </section>
-        </TabSection>
-
-        {/* ════════════ RATES & TAXES ════════════
-            Guesty's Pricing & policies, Tax configuration and Calendar rules
-            as one screen over property_rate_plans / property_rate_days /
-            property_tax_config. Authoritative for direct quotes and the Helm
-            calendar once this home is helm-run; a draft before. */}
-        <TabSection tab="rates">
-          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%' }}>
+          {/* RATES & TAXES, LISTING, AUTOMATIONS: the Helm-native records
+              that replace Guesty's Pricing & policies, listing content and
+              Message Automation (property_rate_plans / property_rate_days /
+              property_tax_config, property_listing_content and photos,
+              message_automations). Authoritative once this home is
+              helm-run; a draft before. Deep links: ?tab=guest#rates,
+              #listing, #automations (the old ?tab=rates etc. alias here). */}
+          <CollapsibleSection
+            id="rates"
+            title="Rates & taxes"
+            summary={
+              pricing?.plan
+                ? `Base $${Math.round(pricing.plan.base_nightly_cents / 100).toLocaleString('en-US')} a night · ${pricing.plan.min_nights_default} night minimum`
+                : helmRun
+                ? 'No rate plan: Helm cannot price a night'
+                : 'No rate plan yet'
+            }
+          >
             <RatesPanel
               propertyId={p.id}
               plan={pricing?.plan ?? null}
@@ -1518,15 +2253,12 @@ export default async function PropertyDetailPage({
               region={pmsRegion}
               today={pmsToday}
             />
-          </section>
-        </TabSection>
-
-        {/* ════════════ LISTING ════════════
-            The guest-facing listing record Helm owns (property_listing_content,
-            property_listing_photos, rooms from property_rooms): what
-            staycapeann.com, the guest AI and automations read. */}
-        <TabSection tab="listing">
-          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%' }}>
+          </CollapsibleSection>
+          <CollapsibleSection
+            id="listing"
+            title="Listing"
+            summary={`${listingRecord?.photos.length ?? 0} photo${listingRecord?.photos.length === 1 ? '' : 's'} · what staycapeann.com and the guest AI read`}
+          >
             <ListingPanel
               propertyId={p.id}
               content={listingRecord?.content ?? null}
@@ -1538,20 +2270,14 @@ export default async function PropertyDetailPage({
               helmRun={helmRun}
               registry={{ title: p.title ?? null, bedrooms: p.bedrooms ?? null, bathrooms: p.bathrooms ?? null }}
             />
-          </section>
-        </TabSection>
-
-        {/* ════════════ AUTOMATIONS ════════════
-            Guesty Message Automation, Helm-native: fleet defaults with this
-            home's overrides, the send ledger, approve / skip. */}
-        <TabSection tab="automations">
-          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%' }}>
+          </CollapsibleSection>
+          <CollapsibleSection
+            id="automations"
+            title="Automations"
+            summary={automationsView ? `${automationsView.counts.awaiting} awaiting approval · ${automationsView.counts.scheduled} scheduled` : 'not loaded'}
+          >
             <AutomationsPanel propertyId={p.id} view={automationsView} />
-          </section>
-        </TabSection>
-
-        {/* ════════════ GUEST & RECORDS ════════════ */}
-        <TabSection tab="records">
+          </CollapsibleSection>
       {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
           Information Note. */}
       <CollapsibleSection
@@ -1758,370 +2484,8 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </CollapsibleSection>
-      {/* MANAGEMENT AGREEMENT — the deal facts the onboarding checklist's
-          "Open records" links land on. The property_contracts registry row
-          (seeded from the Drive Contracts corpus) is the canonical source:
-          fee, term, renewal mechanics, and negotiated clauses as signed.
-          Falls back to the linked projection's contract columns for a
-          promoted prospect whose contract isn't registered yet. */}
-      {activeContract ? (
-        <CollapsibleSection
-          title="Management Agreement"
-          summary={
-            activeContractAttention
-              ? activeContractAttention.kind === 'notice_window'
-                ? `notice deadline ${fmtTermDate(activeContractAttention.deadline)}`
-                : 'needs attention'
-              : `through ${fmtTermDate(currentTermEnd(activeContract, contractTodayIso))} · ${activeContract.fee_pct != null ? `${activeContract.fee_pct}%` : 'fee n/a'}`
-          }
-          defaultOpen={!!activeContractAttention}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
-            <div className="eyebrow">Parties</div>
-            <div style={{ color: 'var(--ink)' }}>
-              {activeContract.owner_party} · signed via{' '}
-              {activeContract.signed_via === 'helm' ? 'Helm e-sign' : activeContract.signed_via === 'docusign' ? 'Docusign' : 'external paperwork'}
-              {activeContract.executed_on ? ` on ${fmtTermDate(activeContract.executed_on)}` : ' (copy on file is undated)'}
-            </div>
-            <div className="eyebrow">Term</div>
-            <div style={{ color: 'var(--ink)' }}>
-              {activeContract.term_start ? fmtTermDate(activeContract.term_start) : 'start not recorded'}
-              {' to '}
-              {fmtTermDate(currentTermEnd(activeContract, contractTodayIso))}
-              {currentTermEnd(activeContract, contractTodayIso) > activeContract.term_end && (
-                <span style={{ color: 'var(--ink-3)' }}>
-                  {' '}(auto-renewed; written term ended {fmtTermDate(activeContract.term_end)})
-                </span>
-              )}
-            </div>
-            <div className="eyebrow">Renewal</div>
-            <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>
-              {renewalSummary(activeContract)}
-              {(() => {
-                const deadline = noticeDeadline(activeContract, contractTodayIso);
-                if (!deadline) return null;
-                const days = daysUntil(deadline, contractTodayIso);
-                return (
-                  <span
-                    className="tabular-nums"
-                    style={{
-                      color: days <= 14 ? 'var(--negative)' : days <= 75 ? 'var(--signal)' : 'var(--ink-3)',
-                      fontWeight: days <= 75 ? 600 : 400,
-                    }}
-                  >
-                    {' '}· notice deadline {fmtTermDate(deadline)}{days >= 0 ? ` (${days}d)` : ''}
-                  </span>
-                );
-              })()}
-            </div>
-            <div className="eyebrow">Fee</div>
-            <div style={{ color: 'var(--ink)', lineHeight: 1.55 }}>
-              {activeContract.fee_pct != null ? `${activeContract.fee_pct}% of gross rental income` : 'not recorded'}
-              {activeContract.fee_pct != null &&
-                p.management_fee_pct != null &&
-                Number(p.management_fee_pct) !== Number(activeContract.fee_pct) && (
-                  <span style={{ color: 'var(--negative)' }}>
-                    {' '}— contract disagrees with the {p.management_fee_pct}% Helm bills; reconcile before the next statement
-                  </span>
-                )}
-              {activeContract.fee_notes && (
-                <span style={{ color: 'var(--ink-3)' }}> · {activeContract.fee_notes}</span>
-              )}
-            </div>
-            {activeContract.min_availability && (
-              <>
-                <div className="eyebrow">Availability</div>
-                <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>{activeContract.min_availability}</div>
-              </>
-            )}
-            {activeContract.special_terms.length > 0 && (
-              <>
-                <div className="eyebrow">Negotiated</div>
-                <ul style={{ margin: 0, paddingLeft: 16, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-                  {activeContract.special_terms.map((t) => (
-                    <li key={t}>{t}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-          {activeContractAttention && (
-            <p style={{ margin: '14px 0 0', fontSize: 12.5, color: 'var(--signal)', lineHeight: 1.55, maxWidth: 760 }}>
-              {activeContractAttention.detail}
-            </p>
-          )}
-          {activeContract.notes && (
-            <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 760 }}>
-              {activeContract.notes}
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
-            {activeContract.drive_url && (
-              <a href={activeContract.drive_url} target="_blank" rel="noreferrer" style={primaryActionStyle}>
-                Signed PDF ↗
-              </a>
-            )}
-            {p.projection_id && (
-              <Link
-                href={`/projections/${p.projection_id}/contract`}
-                target="_blank"
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-              >
-                Contract page
-              </Link>
-            )}
-            <Link
-              href="/properties/contracts"
-              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-            >
-              All contracts
-            </Link>
-            {/* Renewal draft: rides the prospect contract pipeline (edit
-                terms, owner sign link, countersign) with the row pre-linked
-                to this property so it never touches the funnel. */}
-            <form action={startRenewal} style={{ margin: 0 }}>
-              <button
-                type="submit"
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--tide-deep)', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 12px' }}
-              >
-                Draft renewal
-              </button>
-            </form>
-          </div>
-          {pastContracts.length > 0 && (
-            <div style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-              {pastContracts.map((c) => (
-                <div key={c.id}>
-                  {c.status === 'superseded' ? 'Superseded' : 'Expired'}:{' '}
-                  {c.term_start ? fmtTermDate(c.term_start) : '—'} to {fmtTermDate(c.term_end)}
-                  {c.fee_pct != null ? ` at ${c.fee_pct}%` : ''}
-                  {c.drive_url && (
-                    <>
-                      {' · '}
-                      <a href={c.drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
-                        PDF ↗
-                      </a>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CollapsibleSection>
-      ) : (
-        <CollapsibleSection
-          title="Management Agreement"
-          summary={
-            pastContracts.length > 0
-              ? 'expired — no live contract'
-              : p.projection_id
-                ? contractFacts.executed
-                  ? 'signed — not yet registered'
-                  : 'not fully executed'
-                : 'none on file'
-          }
-          defaultOpen={pastContracts.length > 0}
-        >
-          {pastContracts.length > 0 && (
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--negative)', lineHeight: 1.6, maxWidth: 760 }}>
-              The last agreement ({pastContracts[0].term_start ? fmtTermDate(pastContracts[0].term_start) : '—'} to{' '}
-              {fmtTermDate(pastContracts[0].term_end)}
-              {pastContracts[0].fee_pct != null ? ` at ${pastContracts[0].fee_pct}%` : ''}) has ended and nothing
-              renews it — this property is operating without a live contract.
-              {pastContracts[0].drive_url && (
-                <>
-                  {' '}
-                  <a href={pastContracts[0].drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
-                    Last signed PDF ↗
-                  </a>
-                </>
-              )}
-            </p>
-          )}
-          {pastContracts.length === 0 && p.projection_id && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 720 }}>
-              <div className="eyebrow">Status</div>
-              <div style={{ color: 'var(--ink)' }}>
-                {contractFacts.executed ? 'Executed (signed and countersigned)' : 'Not fully executed'}
-              </div>
-              <div className="eyebrow">Term</div>
-              <div style={{ color: contractFacts.termStart && contractFacts.termEnd ? 'var(--ink)' : 'var(--signal)' }}>
-                {contractFacts.termStart ? fmtTermDate(contractFacts.termStart) : 'start not recorded'}
-                {' to '}
-                {contractFacts.termEnd ? fmtTermDate(contractFacts.termEnd) : 'end not recorded'}
-              </div>
-            </div>
-          )}
-          {pastContracts.length === 0 && !p.projection_id && (
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 760 }}>
-              No management agreement is registered for this property. If a signed copy exists, it belongs in the
-              Drive Contracts folder and in the register.
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
-            {/* No live agreement: drafting a renewal is the primary move.
-                Idempotent - re-clicking lands on the open draft. */}
-            <form action={startRenewal} style={{ margin: 0 }}>
-              <button type="submit" style={{ ...primaryActionStyle, border: 'none', cursor: 'pointer' }}>
-                Draft renewal contract
-              </button>
-            </form>
-            {p.projection_id && (
-              <Link
-                href={`/prospects/${p.projection_id}`}
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-              >
-                Contract workroom
-              </Link>
-            )}
-            {p.projection_id && (
-              <Link
-                href={`/projections/${p.projection_id}/contract`}
-                target="_blank"
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-              >
-                View contract ↗
-              </Link>
-            )}
-            <Link
-              href="/properties/contracts"
-              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-            >
-              All contracts
-            </Link>
-          </div>
-        </CollapsibleSection>
-      )}
-      {/* DOCUMENTS — folded into the same collapsible grammar as its
-          neighbors; the upload form used to render permanently expanded
-          even when nothing was filed. */}
-      <CollapsibleSection
-        title="Documents"
-        summary={documents.length === 0 ? 'none yet' : `${documents.length} on file`}
-      >
-        <DocumentsPanel propertyId={p.id} documents={documents} />
-      </CollapsibleSection>
-      {/* ACTIVITY FEED */}
-      <CollapsibleSection title="Activity" summary={activitySummary}>
-        <PropertyActivityList events={activityEvents} />
-      </CollapsibleSection>
-
-      {/* INSPECTION HISTORY (Helm-native) */}
-      <CollapsibleSection title="Recent Inspections" summary={inspectionsSummary}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <Link
-            href={`/turnovers?property=${p.id}`}
-            title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
-            style={primaryActionStyle}
-          >
-            Plan a walk
-          </Link>
-        </div>
-        {recentInspections.length === 0 && (
-          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-            No inspections recorded for this property yet.
-          </div>
-        )}
-        {recentInspections.length > 0 && (
-          <div>
-            {recentInspections.map((insp) => {
-              const isComplete = !!insp.completed_at;
-              const href = isComplete
-                ? `/inspections/${insp.id}/summary`
-                : `/inspections/${insp.id}`;
-              const summary = isComplete
-                ? `${insp.pass_count} pass · ${insp.issue_count} issue · ${insp.na_count} N/A`
-                : 'In progress';
-              return (
-                <Link
-                  key={insp.id}
-                  href={href}
-                  style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-                >
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '160px 1fr auto auto',
-                      gap: 24,
-                      alignItems: 'baseline',
-                      padding: '16px 0',
-                      borderBottom: '1px solid var(--rule)',
-                    }}
-                  >
-                    <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
-                      {formatDate(insp.completed_at ?? insp.started_at)}
-                    </span>
-                    <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{insp.inspector_name}</span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        letterSpacing: '.08em',
-                        textTransform: 'uppercase',
-                        color: isComplete
-                          ? insp.issue_count > 0
-                            ? 'var(--signal)'
-                            : 'var(--positive)'
-                          : 'var(--ink-4)',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {summary}
-                    </span>
-                    <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
-                      {isComplete ? 'Summary →' : 'Resume →'}
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </CollapsibleSection>
-
-      {/* RECENT STATEMENTS (Helm-native) */}
-      <CollapsibleSection title="Recent Statements" summary={statementsSummary}>
-        {statements.length === 0 ? (
-          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-            No statements for this property yet.
-          </div>
-        ) : (
-          <div>
-            {statements.map((s) => (
-              <Link
-                key={s.id}
-                href={`/statements?month=${s.month}`}
-                style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-              >
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '160px 1fr auto auto',
-                    gap: 24,
-                    alignItems: 'baseline',
-                    padding: '16px 0',
-                    borderBottom: '1px solid var(--rule)',
-                  }}
-                >
-                  <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
-                    {formatMonth(s.month)}
-                  </span>
-                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                    {s.num_stays} stay{s.num_stays === 1 ? '' : 's'} · {s.nights_booked} nights
-                  </span>
-                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                    {formatCurrency(s.rental_revenue)} rev
-                  </span>
-                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                    {formatCurrency(s.owner_payout)} payout →
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </CollapsibleSection>
-
         </TabSection>
+
       </PropertyTabs>
 
       <HelmFooter module="Properties" right="Source: Helm" />
@@ -2151,7 +2515,18 @@ function missingInfoNoteFields(p: HelmPropertyRow): string[] {
 }
 
 /** Renders any operational sections that have at least one populated field. */
-type OpRow = { label: string; value: string | number | null; mono?: boolean };
+type OpRow = {
+  label: string;
+  value: string | number | null;
+  mono?: boolean;
+  /**
+   * The column this row reads, when it maps to exactly one. Present means a
+   * blank can be filled inline; absent means the row is composed from
+   * several columns (the smart lock, guest gear) or is not in the capture
+   * catalog, and keeps its link to the form.
+   */
+  col?: string;
+};
 
 /** ONE primary treatment for the whole page (the thing you came to do:
  *  Edit operational data, Open a deliverable, + Add note). The page used
@@ -2185,6 +2560,28 @@ const actionLinkStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
 };
+
+/**
+ * The last few things that happened here, streamed.
+ *
+ * Deliberately narrow: 21 days and a fifth of the usual row allowance, which
+ * is enough to answer "has anyone touched this house lately" and nothing
+ * more. Anything else is a question for the full log, which this links to.
+ *
+ * It is its own async component so the page's own await never waits on it.
+ * Rendered inside a Suspense boundary below the notFound() check, so a miss
+ * still 404s properly rather than streaming a 200 with an error in the body.
+ */
+async function ActivityPeek({ property }: { property: HelmPropertyRow }) {
+  const events = await loadPropertyActivity(property, { windowDays: 21, scale: 0.2 });
+  return (
+    <PropertyActivityList
+      events={events}
+      max={5}
+      more={`/properties/${property.id}/activity`}
+    />
+  );
+}
 
 /** Micro-pill factory — the house 9px uppercase chip, outline form.
  *  Pass `solid` for the inverted (colored bg) emphasis form. */
@@ -2269,15 +2666,59 @@ function TabActions({ children }: { children: React.ReactNode }) {
 /** Builds the six operational-data row groups in display order. Shared by
  *  the renderer (which shows only populated rows per group) and the field
  *  counter (which folds populated/total counts up into the parent header). */
+/**
+ * The house's stored facts, grouped by the question they answer.
+ *
+ * These were six groups shaped by the database: Property specs, Utilities,
+ * STR setup, Property access & notes, Emergency contact, Inspection &
+ * safety. The cost was that no single group could answer a whole question.
+ * How a guest gets in was split four ways (guest_access_method and the
+ * smart lock under "STR setup", the key location, gate and garage codes
+ * under "Property access"), the thermostat sat in Utilities while its
+ * automation sat in its own panel, and trash day and parking regulations
+ * were filed under "Inspection & safety", which is neither.
+ *
+ * `editAnchor` is the edit-form group that owns most of a group's fields,
+ * so reading a wrong value and fixing it is one gesture. Where a group
+ * draws from two edit sections the link points at the larger half; that
+ * mismatch is real and is noted per group rather than papered over.
+ */
 function operationalGroups(p: HelmPropertyRow) {
-  const specs: OpRow[] = [
-    { label: 'Bedrooms', value: p.bedrooms },
-    { label: 'Bathrooms', value: p.bathrooms },
-    { label: 'Square feet', value: p.square_feet },
+  const entry: OpRow[] = [
+    { label: 'Guest access', value: p.guest_access_method, col: 'guest_access_method' },
+    { label: 'Smart lock', value: [p.smart_lock_brand, p.smart_lock_code].filter(Boolean).join(' · ') || null },
+    { label: 'Key / code location', value: p.key_code_location, col: 'key_code_location' },
+    { label: 'Gate code', value: p.gate_code, mono: true, col: 'gate_code' },
+    { label: 'Garage code', value: p.garage_code, mono: true, col: 'garage_code' },
+    { label: 'Alarm system', value: p.alarm_system, col: 'alarm_system' },
+    { label: 'Cameras', value: p.security_cameras, col: 'security_cameras' },
+    { label: 'Arrival brief (crew)', value: p.arrival_brief },
+    { label: 'Supply closet', value: p.supply_closet_location, col: 'supply_closet_location' },
+  ];
+  const connectivity: OpRow[] = [
+    { label: p.wifi_label ? `WiFi name (${p.wifi_label})` : 'WiFi name', value: p.wifi_name },
+    { label: p.wifi_label ? `WiFi password (${p.wifi_label})` : 'WiFi password', value: p.wifi_password, mono: true },
+    { label: p.wifi_label_2 ? `WiFi name (${p.wifi_label_2})` : 'WiFi name 2', value: p.wifi_name_2 },
+    { label: p.wifi_label_2 ? `WiFi password (${p.wifi_label_2})` : 'WiFi password 2', value: p.wifi_password_2, mono: true },
+    { label: 'Internet', value: p.internet_provider, col: 'internet_provider' },
+    { label: 'Cable / TV', value: p.cable_provider, col: 'cable_provider' },
+    { label: 'TVs', value: p.num_tvs, col: 'num_tvs' },
+    { label: 'Smart TV', value: p.smart_tv, col: 'smart_tv' },
+  ];
+  const systems: OpRow[] = [
+    { label: 'Bedrooms', value: p.bedrooms, col: 'bedrooms' },
+    { label: 'Bathrooms', value: p.bathrooms, col: 'bathrooms' },
+    { label: 'Square feet', value: p.square_feet, col: 'square_feet' },
     { label: 'Livable floors', value: p.livable_floors },
-    { label: 'Basement', value: p.basement },
-    { label: 'Parking', value: p.parking },
-    { label: 'HOA', value: p.hoa },
+    { label: 'Basement', value: p.basement, col: 'basement' },
+    { label: 'HOA', value: p.hoa, col: 'hoa' },
+    { label: 'Heating', value: p.heating, col: 'heating' },
+    { label: 'Cooling', value: p.cooling, col: 'cooling' },
+    { label: 'Electricity', value: p.electricity_provider, col: 'electricity_provider' },
+    // Beside the systems it controls rather than filed under Utilities,
+    // so one appliance reads as one thing. Its automation is the Climate
+    // section directly above.
+    { label: 'Smart thermostat', value: [p.thermostat_brand, p.thermostat_code].filter(Boolean).join(' · ') || null },
     {
       label: 'Guest gear on-site',
       value:
@@ -2289,72 +2730,48 @@ function operationalGroups(p: HelmPropertyRow) {
           .filter(Boolean)
           .join(', ') || null,
     },
-    {
-      label: 'Pullout linens',
-      value: p.has_pullout_bed ? p.pullout_linens_location : null,
-    },
-  ];
-  const utilities: OpRow[] = [
-    { label: 'Electricity', value: p.electricity_provider },
-    { label: 'Heating', value: p.heating },
-    { label: 'Cooling', value: p.cooling },
-    { label: 'Internet', value: p.internet_provider },
-    { label: 'Cable / TV', value: p.cable_provider },
-    { label: p.wifi_label ? `WiFi name (${p.wifi_label})` : 'WiFi name', value: p.wifi_name },
-    { label: p.wifi_label ? `WiFi password (${p.wifi_label})` : 'WiFi password', value: p.wifi_password, mono: true },
-    { label: p.wifi_label_2 ? `WiFi name (${p.wifi_label_2})` : 'WiFi name 2', value: p.wifi_name_2 },
-    { label: p.wifi_label_2 ? `WiFi password (${p.wifi_label_2})` : 'WiFi password 2', value: p.wifi_password_2, mono: true },
-    { label: 'Smart thermostat', value: [p.thermostat_brand, p.thermostat_code].filter(Boolean).join(' · ') || null },
-    { label: 'TVs', value: p.num_tvs },
-    { label: 'Smart TV', value: p.smart_tv },
-  ];
-  const str: OpRow[] = [
-    { label: 'Currently listed', value: p.currently_listed },
-    { label: 'Listing URLs', value: p.existing_listing_urls, mono: true },
-    { label: 'STR registration', value: p.str_registration_id, mono: true },
-    { label: 'STR insurance', value: p.str_insurance_carrier },
-    { label: 'Guest access', value: p.guest_access_method },
-    { label: 'Smart lock', value: [p.smart_lock_brand, p.smart_lock_code].filter(Boolean).join(' · ') || null },
-    { label: 'Cameras', value: p.security_cameras },
-  ];
-  const access: OpRow[] = [
-    { label: 'Key / code location', value: p.key_code_location },
-    { label: 'Supply closet', value: p.supply_closet_location },
-    { label: 'Alarm system', value: p.alarm_system },
-    { label: 'Garage code', value: p.garage_code, mono: true },
-    { label: 'Gate code', value: p.gate_code, mono: true },
+    { label: 'Pullout linens', value: p.has_pullout_bed ? p.pullout_linens_location : null },
     { label: 'Known issues', value: p.known_issues },
     { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
-    // Freeform notes have been moved to the structured Operations notebook
-    // accordion (renders above this section). See public.property_notes
-    // and src/lib/property-notes.ts.
+  ];
+  const civic: OpRow[] = [
+    { label: 'Trash day', value: p.trash_day, col: 'trash_day' },
+    { label: 'Recycling day', value: p.recycling_day, col: 'recycling_day' },
+    { label: 'Trash notes (location only)', value: p.trash_notes },
+    { label: 'Parking', value: p.parking, col: 'parking' },
+    { label: 'Parking regulations', value: p.parking_regulations, col: 'parking_regulations' },
+  ];
+  const safety: OpRow[] = [
+    { label: 'Gas shutoff', value: p.gas_shutoff_location, col: 'gas_shutoff_location' },
+    { label: 'Water shutoff', value: p.water_shutoff_location, col: 'water_shutoff_location' },
+    { label: 'Electrical panel', value: p.electrical_panel_location, col: 'electrical_panel_location' },
+    { label: 'Fire extinguishers', value: p.fire_extinguisher_locations, col: 'fire_extinguisher_locations' },
+    { label: 'Smoke / CO detectors', value: p.smoke_detector_locations, col: 'smoke_detector_locations' },
+    { label: 'Fire exits', value: p.fire_exit_locations, col: 'fire_exit_locations' },
+    { label: 'STR permit expires', value: p.str_permit_expires, col: 'str_permit_expires' },
+    { label: 'STR registration', value: p.str_registration_id, mono: true, col: 'str_registration_id' },
+    { label: 'STR insurance', value: p.str_insurance_carrier, col: 'str_insurance_carrier' },
   ];
   const emergency: OpRow[] = [
     { label: 'Name', value: p.emergency_contact_name },
-    { label: 'Relationship', value: p.emergency_contact_relationship },
+    { label: 'Relationship', value: p.emergency_contact_relationship, col: 'emergency_contact_relationship' },
     { label: 'Phone', value: formatUsPhone(p.emergency_contact_phone), mono: true },
     { label: 'Email', value: p.emergency_contact_email, mono: true },
   ];
-  const inspection: OpRow[] = [
-    { label: 'Trash day', value: p.trash_day },
-    { label: 'Recycling day', value: p.recycling_day },
-    { label: 'Trash notes', value: p.trash_notes },
-    { label: 'Parking regulations', value: p.parking_regulations },
-    { label: 'Gas shutoff', value: p.gas_shutoff_location },
-    { label: 'Water shutoff', value: p.water_shutoff_location },
-    { label: 'Electrical panel', value: p.electrical_panel_location },
-    { label: 'Fire extinguishers', value: p.fire_extinguisher_locations },
-    { label: 'Smoke / CO detectors', value: p.smoke_detector_locations },
-    { label: 'Fire exits', value: p.fire_exit_locations },
-    { label: 'STR permit expires', value: p.str_permit_expires },
+  const listing: OpRow[] = [
+    { label: 'Currently listed', value: p.currently_listed, col: 'currently_listed' },
+    { label: 'Listing URLs', value: p.existing_listing_urls, mono: true },
   ];
   return [
-    { title: 'Property specs', rows: specs },
-    { title: 'Utilities', rows: utilities },
-    { title: 'STR setup', rows: str },
-    { title: 'Property access & notes', rows: access },
-    { title: 'Emergency contact', rows: emergency },
-    { title: 'Inspection & safety', rows: inspection },
+    // Draws from two edit sections (STR setup holds guest access and the
+    // smart lock; Property access holds the rest). Linked at the larger half.
+    { title: 'Entry and credentials', rows: entry, editAnchor: 'access' },
+    { title: 'Connectivity', rows: connectivity, editAnchor: 'utilities' },
+    { title: 'House and systems', rows: systems, editAnchor: 'specs' },
+    { title: 'Trash, parking and civic', rows: civic, editAnchor: 'safety' },
+    { title: 'Safety and permits', rows: safety, editAnchor: 'safety' },
+    { title: 'Emergency contact', rows: emergency, editAnchor: 'emergency' },
+    { title: 'Listing', rows: listing, editAnchor: 'str' },
   ];
 }
 
@@ -2373,27 +2790,64 @@ function countOperationalFields(p: HelmPropertyRow): { populated: number; total:
   return { populated, total };
 }
 
+/**
+ * The fact sheet.
+ *
+ * Every group renders, populated or not, and every blank renders as its own
+ * label linked at the control that fills it. The old version dropped a group
+ * the moment it had nothing in it, which meant the block disappeared exactly
+ * when its blanks were the work: during setup, when knowing what is missing
+ * is the whole point.
+ */
 function OperationalSections({ p }: { p: HelmPropertyRow }) {
   const groups = operationalGroups(p);
-
-  // Caller (page.tsx) already gates on populated > 0 before rendering this
-  // inside a CollapsibleSection — but keep the safety net so the function
-  // is still self-contained.
-  const anything = groups.some((g) => g.rows.some((r) => r.value != null && r.value !== ''));
-  if (!anything) return null;
 
   return (
     <div>
       {groups.map((g) => {
         const populated = g.rows.filter((r) => r.value != null && r.value !== '');
-        if (populated.length === 0) return null;
-        const summary = `${populated.length} of ${g.rows.length}`;
+        const summary =
+          populated.length === g.rows.length
+            ? 'complete'
+            : populated.length === 0
+              ? `nothing yet · ${g.rows.length} fields`
+              : `${populated.length} of ${g.rows.length}`;
         return (
           <CollapsibleSubSection key={g.title} title={g.title} summary={summary}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <Link
+                href={`/properties/${p.id}/edit#${g.editAnchor}`}
+                style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
+              >
+                Edit these &rarr;
+              </Link>
+            </div>
             <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 48px', fontSize: 13 }}>
-              {populated.map((r) => (
-                <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
-              ))}
+              {g.rows.map((r) =>
+                r.value != null && r.value !== '' ? (
+                  <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
+                ) : (
+                  <div key={r.label}>
+                    <dt className="eyebrow" style={{ marginBottom: 4 }}>{r.label}</dt>
+                    <dd style={{ margin: 0 }}>
+                      {/* A row that maps to exactly one catalog column is
+                          filled here; anything composed from several columns
+                          keeps the trip to the form, where the whole shape
+                          is visible. */}
+                      {r.col ? (
+                        <InlineField propertyId={p.id} column={r.col} label={r.label} />
+                      ) : (
+                        <Link
+                          href={`/properties/${p.id}/edit#${g.editAnchor}`}
+                          style={{ fontSize: 12, color: 'var(--signal)', textDecoration: 'none' }}
+                        >
+                          Add &rarr;
+                        </Link>
+                      )}
+                    </dd>
+                  </div>
+                ),
+              )}
             </dl>
           </CollapsibleSubSection>
         );

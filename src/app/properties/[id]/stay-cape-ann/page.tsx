@@ -69,7 +69,7 @@ export default async function StayCapeAnnLaunchPage({
 
       <HelmBreadcrumb
         trail={[
-          { label: property.name, href: `/properties/${id}?tab=growth` },
+          { label: property.name, href: `/properties/${id}?tab=guest` },
           { label: 'Stay Cape Ann launch' },
         ]}
       />

@@ -24,6 +24,7 @@ import { pacedMonthLift, projectOccupancy, type PacingPricing } from './revenue-
 import { isOpenOn, normalizePeriod, type RentalPeriod } from './rental-periods';
 import { isOperatingOnDate } from './forecast-operating-windows';
 import { resolveManagementFee } from './revenue-statement-fee';
+import { effectiveStart } from './occupancy-window';
 import {
   calibratedBenchmarkFrom,
   closedMonthsOf,
@@ -344,11 +345,6 @@ function resolveGrossPayout(r: ReservationRow, mgmtFraction: number): number {
   return 0;
 }
 
-function effectiveStart(rangeStart: string, activatedAt: string | null): string {
-  if (!activatedAt) return rangeStart;
-  const d = new Date(activatedAt).toISOString().split('T')[0];
-  return d > rangeStart ? d : rangeStart;
-}
 
 function normalizeStatus(s: string | null): string {
   return (s || '').toLowerCase().replace(/_/g, '-').replace(/\s+/g, '-');
@@ -693,6 +689,12 @@ export async function computeRevenueSnapshot(
     ),
   );
 
+  // The first night Helm holds any record of, fleet-wide. Everything earlier
+  // is UNMEASURED rather than unsold, and has to stay out of the occupancy
+  // denominator. Read separately from `reservations`, which is clipped to the
+  // requested range and so can never see behind it.
+  const dataHorizon = await loadDataHorizon();
+
   // Cross-month installment splits for any fetched booking. A split booking
   // is allocated to its months per the operator-entered slices (matching the
   // Statements module) instead of checkout attribution -- one batched query,
@@ -810,7 +812,7 @@ export async function computeRevenueSnapshot(
   const monthBucketsByProperty = new Map<string, PropertyMonthBuckets>();
 
   const baseSnapshots: PropertySnapshot[] = properties.map((prop) => {
-    const propStart = effectiveStart(rangeStart, prop.activated_at);
+    const propStart = effectiveStart(rangeStart, prop.activated_at, dataHorizon);
     const skipped = propStart >= periodEndExclusive;
 
     const empty: PropertyRevenueMetrics = {
@@ -1245,7 +1247,7 @@ export async function computeRevenueSnapshot(
   // for future months that aren't fully booked yet.
   let totalPossibleNights = 0;
   for (const prop of properties) {
-    const propStart = effectiveStart(rangeStart, prop.activated_at);
+    const propStart = effectiveStart(rangeStart, prop.activated_at, dataHorizon);
     if (propStart < periodEndExclusive) {
       totalPossibleNights += nightsBetween(propStart, periodEndExclusive);
     }
@@ -2230,6 +2232,29 @@ function trailingClosedMonths(now: Date, count: number): string[] {
     out.push(`${y}-${String(m).padStart(2, '0')}`);
   }
   return out.reverse();
+}
+
+/**
+ * The earliest night any reservation in Helm touches. Occupancy is not
+ * measured before it, because there is nothing there to measure.
+ *
+ * Non-fatal: a failed read returns null and every denominator behaves exactly
+ * as it did before the horizon existed.
+ */
+async function loadDataHorizon(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('guesty_reservations')
+      .select('check_in')
+      .not('check_in', 'is', null)
+      .order('check_in', { ascending: true })
+      .limit(1);
+    if (error) throw error;
+    const first = (data ?? [])[0]?.check_in;
+    return first ? String(first).slice(0, 10) : null;
+  } catch {
+    return null;
+  }
 }
 
 function round2(n: number): number {

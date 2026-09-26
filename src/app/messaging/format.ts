@@ -25,7 +25,8 @@ export function prettifySlug(slug: string): string {
  * backend stamps (extension: / nudge: / recurring: / sched:), with a topic
  * fallback. Mirrors the backend's stale-prune exemption for the same rows.
  */
-export type ProactiveKind = 'extension' | 'nudge' | 'reminder' | 'scheduled' | 'review' | 'trash' | null;
+export type ProactiveKind =
+  | 'extension' | 'nudge' | 'reminder' | 'scheduled' | 'review' | 'trash' | 'payment' | null;
 
 export function proactiveKind(
   guestyMessageId: string | null | undefined,
@@ -33,6 +34,9 @@ export function proactiveKind(
 ): ProactiveKind {
   const id = (guestyMessageId || '').toLowerCase();
   const t = (topic || '').toLowerCase();
+  // An unpaid payment link coming back as a guest-text card
+  // (stay-concierge payment_reminders.py).
+  if (id.startsWith('quo_sms:payremind:') || t === 'payment_reminder') return 'payment';
   if (id.startsWith('extension:') || t === 'extension_offer') return 'extension';
   if (id.startsWith('nudge:') || t === 'guest_count_nudge') return 'nudge';
   if (id.startsWith('trash:') || id.startsWith('trash-manual:') || t === 'trash_reminder') return 'trash';
@@ -60,6 +64,9 @@ export function proactiveBadge(
       return { label: 'Review request', tone: '#8a5a2b' };
     case 'trash':
       return { label: 'Trash day', tone: '#4a6d6a' };
+    case 'payment':
+      // The add-on plum, so it reads as the same money thread as the link.
+      return { label: 'Payment reminder', tone: '#6b4f7a' };
     default:
       return null;
   }

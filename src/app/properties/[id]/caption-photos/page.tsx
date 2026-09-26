@@ -38,7 +38,7 @@ export default async function CaptionPhotosPage({
 
       <HelmBreadcrumb
         trail={[
-          { label: p.name, href: `/properties/${p.id}?tab=growth` },
+          { label: p.name, href: `/properties/${p.id}?tab=guest` },
           { label: 'Photo captions' },
         ]}
       />

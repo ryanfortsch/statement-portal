@@ -4,6 +4,8 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { loadLaunchForFleet } from '@/lib/launch-context';
+import type { LaunchSummary } from '@/lib/launch-checklist';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
 import { PropertiesTabBar } from './PropertiesTabBar';
@@ -68,6 +70,18 @@ export default async function PropertiesPage() {
     getProperties(),
     getWorkCountsByProperty(),
   ]);
+  /**
+   * Fleet readiness, one row per property.
+   *
+   * This is load-bearing now rather than nice to have: the property page's
+   * Setup tab retires itself once a house is established (#1617), so a
+   * stalled half-onboarded home has nowhere else to be visible. This is
+   * that somewhere. Failures degrade to an empty map and no pills, never to
+   * a blank roster.
+   */
+  const launchByProperty = await loadLaunchForFleet(
+    properties.filter((p) => p.is_active && p.kind === 'managed'),
+  ).catch(() => new Map<string, { summary: LaunchSummary }>());
   const active = properties.filter((p) => p.is_active);
   // Non-managed work locations (HQ, prospect homes) ride is_active=false but
   // aren't "inactive rentals" — count them by what they are.
@@ -144,6 +158,7 @@ export default async function PropertiesPage() {
                   property={p}
                   number={String(i + 1).padStart(2, '0')}
                   workCounts={workCounts[p.id]}
+                  launch={launchByProperty.get(p.id)?.summary}
                 />
               ))}
             </div>
@@ -179,11 +194,15 @@ function PropertyRow({
   property: p,
   number,
   workCounts,
+  launch,
   dimmed = false,
 }: {
   property: HelmPropertyRow;
   number: string;
   workCounts?: WorkCounts;
+  /** Undefined for anything not loaded (inactive, HQ, prospects) or on a
+   *  failed load: no pill rather than a wrong one. */
+  launch?: LaunchSummary;
   dimmed?: boolean;
 }) {
   // Internal naming convention: show the short address-without-suffix
@@ -255,6 +274,28 @@ function PropertyRow({
               }}
             >
               {ownerActionWork} owner
+            </span>
+          )}
+          {/* Readiness. Only shown while a home is still being set up: a
+              live property wearing a progress chip forever is the habit the
+              old 27%% badge taught, and the whole point of retiring Setup
+              was to stop it. */}
+          {launch && !launch.live && (
+            <span
+              title={
+                launch.requiredRemaining > 0
+                  ? `${launch.requiredRemaining} required launch step${launch.requiredRemaining === 1 ? '' : 's'} open${launch.next ? `. Next: ${launch.next.title}` : ''}`
+                  : 'All required launch steps are done; not yet marked live'
+              }
+              style={{
+                fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase',
+                color: launch.requiredRemaining > 0 ? 'var(--paper)' : 'var(--positive)',
+                background: launch.requiredRemaining > 0 ? 'var(--tide-deep)' : 'transparent',
+                border: launch.requiredRemaining > 0 ? 'none' : '1px solid var(--positive)',
+                padding: '2px 7px',
+              }}
+            >
+              {launch.requiredRemaining > 0 ? `setup ${launch.done}/${launch.total}` : 'ready'}
             </span>
           )}
           {totalWork > 0 && (

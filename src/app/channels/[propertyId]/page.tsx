@@ -266,7 +266,7 @@ export default async function ChannelsPropertyPage({
                       </p>
                       <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
                         <input type="checkbox" name="ack_automations" required style={{ marginTop: 2 }} />
-                        <span>I reviewed the automation rules for this home on the Automations tab.</span>
+                        <span>I reviewed the automation rules for this home under Automations (property page, Guest & listing).</span>
                       </label>
                       <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12, lineHeight: 1.45, marginBottom: 14 }}>
                         <input type="checkbox" name="ack_guesty_disconnect" required style={{ marginTop: 2 }} />
@@ -419,7 +419,7 @@ export default async function ChannelsPropertyPage({
             {!property.automations_enabled && (
               <>
                 Automations are off for this home{helmRun ? '' : ' and only run once Helm is the calendar authority'}.{' '}
-                <Link href={`/properties/${propertyId}?tab=automations`} style={{ color: 'var(--ink)' }}>Automations tab →</Link>
+                <Link href={`/properties/${propertyId}?tab=guest#automations`} style={{ color: 'var(--ink)' }}>Automations →</Link>
               </>
             )}
           </div>
@@ -448,9 +448,9 @@ export default async function ChannelsPropertyPage({
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 80 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>On the property record</div>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)' }}>
-          <Tile href={`/properties/${propertyId}?tab=rates`} title="Rates and policies" body={bundle?.plan ? `Base $${Math.round(bundle.plan.base_nightly_cents / 100)} a night, ${bundle.plan.min_nights_default} night minimum, cleaning $${Math.round(bundle.plan.cleaning_fee_cents / 100)}.` : helmRun ? 'No rate plan yet. Helm cannot price a night without one.' : 'The plan Helm will price from after the flip; the seed mirrors Guesty.'} />
-          <Tile href={`/properties/${propertyId}?tab=listing`} title="Listing content" body="Title, summary, the space, rooms and beds, amenities and photos: the guest-facing record Helm feeds to staycapeann.com." />
-          <Tile href={`/properties/${propertyId}?tab=automations`} title="Automations" body={property.automations_enabled ? 'On for this home. Fleet defaults with per-property overrides; sends need approval unless a rule says auto.' : 'Off for this home. Review the fleet rules and overrides before the flip.'} last />
+          <Tile href={`/properties/${propertyId}?tab=guest#rates`} title="Rates and policies" body={bundle?.plan ? `Base $${Math.round(bundle.plan.base_nightly_cents / 100)} a night, ${bundle.plan.min_nights_default} night minimum, cleaning $${Math.round(bundle.plan.cleaning_fee_cents / 100)}.` : helmRun ? 'No rate plan yet. Helm cannot price a night without one.' : 'The plan Helm will price from after the flip; the seed mirrors Guesty.'} />
+          <Tile href={`/properties/${propertyId}?tab=guest#listing`} title="Listing content" body="Title, summary, the space, rooms and beds, amenities and photos: the guest-facing record Helm feeds to staycapeann.com." />
+          <Tile href={`/properties/${propertyId}?tab=guest#automations`} title="Automations" body={property.automations_enabled ? 'On for this home. Fleet defaults with per-property overrides; sends need approval unless a rule says auto.' : 'Off for this home. Review the fleet rules and overrides before the flip.'} last />
         </div>
       </section>
 
@@ -560,7 +560,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
             why={`Guesty takes no bookings from ${carry.bookingWindowGap.closedFrom}. After the flip only Helm's rate plan and each OTA's own setting keep those nights off sale, and the plan's booking window is ${carry.bookingWindowGap.planWindow == null ? 'unlimited' : `${carry.bookingWindowGap.planWindow} days`}. Set it to ${carry.bookingWindowGap.maxPlanWindow} days or fewer, and the same window on each OTA.`}
           >
             <li>
-              <Link href={`/properties/${propertyId}?tab=rates`} style={{ fontSize: 12, color: 'var(--ink)' }}>Open the Rates tab →</Link>
+              <Link href={`/properties/${propertyId}?tab=guest#rates`} style={{ fontSize: 12, color: 'var(--ink)' }}>Open Rates & taxes →</Link>
             </li>
           </Item>
         )}

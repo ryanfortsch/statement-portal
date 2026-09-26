@@ -10,6 +10,9 @@ import {
   toE164,
   helmRequestKey,
   reservationIdFromRequestKey,
+  linkBelongsToReservation,
+  reminderDue,
+  REMINDER_MAX_AGE_DAYS,
   paymentLinkStatus,
   money,
   stripeKeyFixUrl,
@@ -98,6 +101,28 @@ test('request keys: anchor, suffix, and the reservation id read back', () => {
   assert.equal(reservationIdFromRequestKey('ffdeposit:x'), '');
 });
 
+test('a link belongs to a stay by its column, or by its key when the column is empty', () => {
+  // Christie Cheyne's 20 Enon stay: the operator's pet-fee link, 2026-09-26.
+  const stay = '6ab74da08b2e8cbe286736f0';
+  assert.equal(linkBelongsToReservation({ request_key: `helm:${stay}:pet-fee:20000`, reservation_id: stay }, stay), true);
+  // Concierge bridge rows leave reservation_id empty; the key carries it.
+  assert.equal(linkBelongsToReservation({ request_key: `addon:${stay}:pet-fee:20000`, reservation_id: '' }, stay), true);
+  assert.equal(linkBelongsToReservation({ request_key: `addon:${stay}:pet-fee:20000`, reservation_id: null }, stay), true);
+  // A card with no reservation minted against its approval uuid: not this stay.
+  assert.equal(
+    linkBelongsToReservation({ request_key: 'addon:f2cec23b-1d2b-4f91-a8c0-9c6885c4ab62:pet-fee:20000', reservation_id: '' }, stay),
+    false,
+  );
+  // Another stay at the same home.
+  assert.equal(
+    linkBelongsToReservation({ request_key: 'helm:6a63edbe0693123c468fc254:pet-fee:20000', reservation_id: '6a63edbe0693123c468fc254' }, stay),
+    false,
+  );
+  // A blank or malformed id matches nothing, never everything.
+  assert.equal(linkBelongsToReservation({ request_key: 'helm::pet-fee:1', reservation_id: '' }, ''), false);
+  assert.equal(linkBelongsToReservation({ request_key: 'scopetest:20_enon:20260729', reservation_id: '' }, 'not-an-id'), false);
+});
+
 test('status: paid wins, then cancelled, then delivery evidence, then age', () => {
   const now = Date.parse('2026-09-14T12:00:00Z');
   const base = { source: 'helm', created_at: '2026-09-14T11:00:00Z', sent_at: null, sent_via: '', paid_at: null, deactivated_at: null };
@@ -147,4 +172,40 @@ test('paid-check errors: the fix link and the plain-words reason', () => {
 test('money', () => {
   assert.equal(money(20000), '$200');
   assert.equal(money(22340), '$223.40');
+});
+
+test('reminders: a day after the text, three days after the first, then none', () => {
+  // Laura Gunson's pet-fee link, texted 2026-09-26 at 15:59 UTC.
+  const sent = '2026-09-26T15:59:48Z';
+  const base = {
+    created_at: '2026-09-26T15:58:00Z', sent_at: sent, paid_at: null, deactivated_at: null,
+    nudged_at: null, nudge_count: 0, paid_check_error: null,
+  };
+  const at = (iso: string) => Date.parse(iso);
+  assert.equal(reminderDue(base, at('2026-09-27T15:00:00Z')), 0, 'not yet a day');
+  assert.equal(reminderDue(base, at('2026-09-27T16:00:00Z')), 1, 'a day later: first reminder');
+  const once = { ...base, nudged_at: '2026-09-27T17:00:00Z', nudge_count: 1 };
+  assert.equal(reminderDue(once, at('2026-09-29T17:00:00Z')), 0, 'two days after the first: wait');
+  assert.equal(reminderDue(once, at('2026-09-30T17:00:00Z')), 2, 'three days after the first: second');
+  const twice = { ...once, nudged_at: '2026-09-30T17:05:00Z', nudge_count: 2 };
+  assert.equal(reminderDue(twice, at('2026-10-06T00:00:00Z')), 0, 'two reminders is the end of it');
+});
+
+test('reminders: never for a paid, cancelled, unsent, unreadable or stale link', () => {
+  const base = {
+    created_at: '2026-09-26T15:58:00Z', sent_at: '2026-09-26T15:59:48Z', paid_at: null,
+    deactivated_at: null, nudged_at: null, nudge_count: 0, paid_check_error: null,
+  };
+  const later = Date.parse('2026-09-28T00:00:00Z');
+  assert.equal(reminderDue({ ...base, paid_at: '2026-09-27T01:00:00Z' }, later), 0);
+  assert.equal(reminderDue({ ...base, deactivated_at: '2026-09-27T01:00:00Z' }, later), 0);
+  // Minted beside a draft and never texted: nobody was asked, nobody is chased.
+  assert.equal(reminderDue({ ...base, sent_at: null }, later), 0);
+  // Helm cannot read the property's Stripe sessions: it may well be paid.
+  assert.equal(reminderDue({ ...base, paid_check_error: 'checkout_session_read' }, later), 0);
+  const stale = Date.parse('2026-09-26T15:58:00Z') + (REMINDER_MAX_AGE_DAYS + 1) * 86_400_000;
+  assert.equal(reminderDue(base, stale), 0);
+  // A hand nudge from Helm counts: the next card waits three days from it.
+  const handNudged = { ...base, nudged_at: '2026-09-27T20:00:00Z', nudge_count: 1 };
+  assert.equal(reminderDue(handNudged, Date.parse('2026-09-28T20:00:00Z')), 0);
 });

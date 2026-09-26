@@ -1,4 +1,15 @@
 import type { HelmPropertyRow } from '@/lib/properties';
+// Facts the 26-step launch checklist also tests come from one definition,
+// so the two lists cannot disagree about the same column. They already had:
+// this item accepted any non-empty bank_last4 while the launch step
+// required exactly four digits, so a malformed three-digit value resolved
+// here and not there.
+import {
+  filled as has,
+  hasBankLast4,
+  pricingIsFlowing,
+  scaPaymentWired,
+} from '@/lib/property-facts';
 
 /**
  * Deep property-onboarding catalog.
@@ -116,6 +127,14 @@ export type OnboardingDeriveContext = {
   cleanerMapped: boolean;
   scaLive: boolean;
   /**
+   * The SCA book-probe's verdict on whether the property's own Stripe keys
+   * are actually wired: 'wired' | 'demo_mode' | 'unknown', null when never
+   * probed. Distinct from scaLive ON PURPOSE. A demo-mode listing is live
+   * and takes bookings that collect nothing, which is how 84 Thatcher took
+   * four bookings worth $41,917 with no payment path.
+   */
+  scaPaymentSignal: 'wired' | 'demo_mode' | 'unknown' | null;
+  /**
    * The linked projection's management contract is executed: owner signed
    * AND Rising Tide countersigned, or the operator marked the contract
    * stage done (paper deals). False when the property predates the
@@ -181,8 +200,6 @@ export type OnboardingItem = {
 };
 
 /** Non-empty string check shared by the derives. */
-const has = (v: string | null | undefined): boolean => !!v && v.trim().length > 0;
-
 export const ONBOARDING_ITEMS: OnboardingItem[] = [
   // ── Owner & deal ────────────────────────────────────────────────────
   {
@@ -191,7 +208,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Management agreement signed',
     description: 'Signed agreement in hand, both parties dated.',
     why: 'Auto-resolves from the projection\'s e-sign trail (owner signed plus Rising Tide countersigned, or contract marked done). Tick manually only for deals that never ran through Projections.',
-    href: '/properties/{id}?tab=records',
+    href: '/properties/{id}?tab=owner',
     hrefLabel: 'Open records',
     derive: (ctx) => ctx.contractExecuted,
   },
@@ -201,7 +218,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Log contract start, term, and renewal',
     description: 'Start date, term length, and renewal terms noted where the team can find them.',
     why: 'Auto-resolves when the projection has both term dates (they fill the contract\'s Term clause; renewal is the standard 120-day auto-renew unless redlined). The Records tab shows them. An unlogged renewal date is an invisible one.',
-    href: '/properties/{id}?tab=records',
+    href: '/properties/{id}?tab=owner',
     hrefLabel: 'Open records',
     derive: (ctx) => has(ctx.contractTermStart) && has(ctx.contractTermEnd),
   },
@@ -211,7 +228,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'File the core paper trail',
     description: 'Agreement, insurance dec page, permits, and W-9 uploaded to Documents.',
     why: 'One place to look when an owner, a city, or an accountant asks.',
-    href: '/properties/{id}?tab=records',
+    href: '/properties/{id}?tab=owner',
     hrefLabel: 'Open records',
     derive: (ctx) => ctx.documentsCount > 0,
   },
@@ -293,7 +310,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why: 'Monthly Bank CSV ingest and Cape Ann Elite ACH cleaning charges attribute to the property by this account. Auto-resolves once the account\'s last 4 are on the property record.',
     href: '/properties/{id}/edit#bank',
     hrefLabel: 'Edit field',
-    derive: ({ p }) => has(p.bank_last4),
+    derive: ({ p }) => hasBankLast4(p),
   },
   {
     key: 'financial.chase_signers_named',
@@ -341,7 +358,11 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why: 'Helm never touches the Stripe secret. The book-probe stamps payment_verified_at when the wiring is right.',
     href: '/properties/{id}/stay-cape-ann',
     hrefLabel: 'Open SCA launch',
-    derive: (ctx) => ctx.scaLive,
+    // Was `ctx.scaLive`, which is the one signal that CANNOT answer this.
+    // A demo-mode listing is live, so this item ticked itself green on
+    // exactly the properties where the wiring was missing. The item's own
+    // why line already named the right signal; the derive did not read it.
+    derive: (ctx) => scaPaymentWired(ctx.scaPaymentSignal),
   },
   {
     key: 'financial.sca_test_booking',
@@ -351,7 +372,9 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why: 'The one test that proves Chase, Stripe, Guesty, and the ingest matcher all agree before a real guest pays.',
     href: '/properties/{id}/stay-cape-ann',
     hrefLabel: 'Open SCA launch',
-    derive: (ctx) => ctx.scaLive,
+    // No derive on purpose. Nothing in the database records that a human
+    // ran a test booking, and "the page is live" was never evidence that
+    // anyone did. An operator ticks this one.
   },
   {
     key: 'financial.guesty_business_model',
@@ -373,7 +396,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Set the cleaning cost estimate',
     description: 'Expected per-turn cleaning cost on the property record.',
     why: 'Revenue snapshots and forecasts fall back to this number until real cleanings land.',
-    href: '/properties/{id}/edit',
+    href: '/properties/{id}/edit#cleaning',
     hrefLabel: 'Edit field',
     derive: ({ p }) => p.cleaning_cost_estimate != null,
   },
@@ -422,7 +445,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Pass the MA 26F smoke and CO inspection',
     description: 'Fire department inspection done, certificate filed in Documents.',
     why: 'A Massachusetts rental requirement with a paper certificate. No Helm column tracks it, so the Documents panel is the record.',
-    href: '/properties/{id}?tab=records',
+    href: '/properties/{id}?tab=owner',
     hrefLabel: 'Open records',
   },
   {
@@ -508,7 +531,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Print and post the Information Note',
     description: 'The permit placard printed and hung in the home.',
     why: 'Gloucester requires it posted. The page flags any of its six required fields still empty.',
-    href: '/properties/{id}?tab=records',
+    href: '/properties/{id}?tab=guest',
     hrefLabel: 'Open info note',
   },
 
@@ -705,8 +728,11 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Write the arrival brief for field crews',
     description: 'Colleague-tone arrival and parking prose for inspectors and contractors.',
     why: 'The Field packet "How to get in" panel prints it. Access confusion is a dedicated contractor topic for a reason.',
-    href: '/properties/{id}/edit',
+    href: '/properties/{id}/edit#arrival',
     hrefLabel: 'Edit field',
+    // property_access is merged onto the row by both the detail page and the
+    // edit page, so the brief reads back here like any other column.
+    derive: ({ p }) => !!p.arrival_brief?.trim(),
   },
   {
     key: 'access.wifi_on_file',
@@ -799,7 +825,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Configure climate automation',
     description: 'Thermostat mapped in Seam with eco and comfort setpoints per season.',
     why: 'Empty homes idle at eco and pre-warm before check-in. The 20 Enon lesson: the owner must complete the Ecobee account connect.',
-    href: '/properties/{id}?tab=operations',
+    href: '/properties/{id}?tab=facts',
     hrefLabel: 'Open operations',
     derive: (ctx) => ctx.climateConfigured,
   },
@@ -819,7 +845,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Start the ops notebook',
     description: 'First internal note filed on the property.',
     why: 'Walkthrough leftovers, neighbor intel, and vendor quirks need a home the team actually reads.',
-    href: '/properties/{id}?tab=operations',
+    href: '/properties/{id}?tab=facts',
     hrefLabel: 'Open operations',
     derive: (ctx) => ctx.opsNotes > 0,
   },
@@ -928,7 +954,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Set pricing, min-stay, and cleaning fee',
     description: 'Nightly rates, minimum-stay rules, and the guest cleaning fee configured in Guesty.',
     why: 'Auto-resolves when the forward calendar shows real rate variation (2+ distinct nightly prices in the next 60 days). A flat single price on every night is the Guesty base-rate default, i.e. PriceLabs is not pushing to this listing and every channel is underpriced.',
-    derive: (ctx) => ctx.forwardDistinctPrices >= 2,
+    derive: (ctx) => pricingIsFlowing(ctx.forwardDistinctPrices),
   },
   {
     key: 'listing.house_rules',
@@ -936,6 +962,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Write the house rules',
     description: 'The canonical rules text every channel shows.',
     why: 'Every policy answer a guest gets held to starts here.',
+    derive: ({ p }) => has(p.house_rules),
   },
   {
     key: 'listing.times_confirmed',
@@ -943,6 +970,10 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Confirm check-in and checkout times',
     description: 'One canonical pair, identical in Guesty, the listing, and the KB.',
     why: '3 South\'s automated message said 10 AM while the team said 11. Guests notice the difference.',
+    // default_checkin_time is the CLEANER's turnover deadline, not the
+    // guest's arrival (#1293); both still have to be set for the schedule
+    // and the listing to agree.
+    derive: ({ p }) => has(p.default_checkin_time) && has(p.default_checkout_time),
   },
   {
     key: 'listing.quiet_hours_occupancy',
@@ -950,6 +981,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'State quiet hours and max occupancy',
     description: 'Both in the listing as hard numbers, not vibes.',
     why: 'Quiet hours were undocumented in 8 of 9 KBs, occupancy vague in 6 of 9. The fallback was citing the municipal ordinance.',
+    derive: ({ p }) => has(p.quiet_hours) && p.max_occupancy != null,
   },
   {
     key: 'listing.pet_policy',
@@ -957,6 +989,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Decide the pet policy',
     description: 'Allowed or not, the fee, and the multi-dog and size lines.',
     why: 'The $200 fee is confirmed fleet-wide, but breed, size, and multi-dog questions still escalate. 30 Woodward carried a $200-versus-$250 ambiguity.',
+    derive: ({ p }) => has(p.pet_policy),
   },
   {
     key: 'listing.smoking_policy',
@@ -964,6 +997,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'State the smoking policy',
     description: 'Inside, outside, and where, written in the listing.',
     why: 'Missing in 6 of 9 KBs at the last audit.',
+    derive: ({ p }) => has(p.smoking_policy),
   },
   {
     key: 'listing.cancellation_policy',
@@ -971,6 +1005,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Choose cancellation policies per channel',
     description: 'Airbnb, VRBO, and direct each set deliberately.',
     why: 'Refund threads land on whatever these say, chosen or not.',
+    derive: ({ p }) => has(p.cancellation_policy),
   },
   {
     key: 'listing.discount_stance',
@@ -978,6 +1013,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Record the discount stance',
     description: 'Weekly, monthly, and repeat-guest positions, plus a long-stay floor.',
     why: 'Long-stay counter-offers reached $15-17k a month at 30 Woodward. A pre-decided floor makes those threads short.',
+    derive: ({ p }) => has(p.discount_stance),
   },
   {
     key: 'listing.prior_listings',
@@ -1049,7 +1085,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Seed the guest knowledge base',
     description: 'First guest-facing notes filed on the property.',
     why: 'guest_facing notes ARE the guest KB. A fresh scaffold ships with about twenty _TODO_ placeholders that each become an escalation.',
-    href: '/properties/{id}?tab=operations',
+    href: '/properties/{id}?tab=facts',
     hrefLabel: 'Open operations',
     derive: (ctx) => ctx.guestFacingNotes > 0,
   },
