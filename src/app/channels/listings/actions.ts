@@ -342,7 +342,7 @@ export async function releaseOrphanedOtaHold(formData: FormData) {
     if (lErr) throw new Error(`release closure: ${lErr.message}`);
     const l = listing as { is_active: boolean | null; ical_import_enabled: boolean | null; ical_import_url: string | null } | null;
     if (l && l.is_active && l.ical_import_enabled && l.ical_import_url) {
-      throw new Error('That feed is still read; the closure cancels itself once the OTA reopens the nights.');
+      throw new Error('That feed is still read: the closure cancels itself once the OTA reopens the nights, or, if a cancel guard on the feed card is holding it, once you release that guard.');
     }
   }
   const session = await auth().catch(() => null);
