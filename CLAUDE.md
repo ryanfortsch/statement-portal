@@ -30,7 +30,7 @@ Related docs:
 - **Auth**: Auth.js v5 (`next-auth` 5 beta) with Google SSO. Enforced in `src/proxy.ts`, which is
   Next 16's middleware file name. It gates every page and every `/api` route except an explicit
   public allowlist.
-- **Database**: Supabase (Postgres). Migrations in `supabase/migrations/` (208 files). 22 legacy
+- **Database**: Supabase (Postgres). Migrations in `supabase/migrations/` (256 files). 20 legacy
   `supabase-schema-*.sql` files at the repo root predate that folder.
 - **Hosting**: Vercel, auto-deploy from `main`.
 - **UI**: Tailwind v4, shadcn/radix, recharts. The statement render page is the exception and uses
@@ -68,9 +68,10 @@ scripts/               parity harnesses and one-off tools (see Testing below)
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
-Load-bearing `src/lib` modules by import count: `supabase-admin` (144), `properties` (67),
-`stay-concierge` (41), `field-db` (41), `use-soft-refresh` (33), `work-types` (30), `field-types`
-(30), `projections-types` (29), `cron-auth` (24), `field-packets` (22).
+Load-bearing `src/lib` modules by import count, 2026-09-26: `supabase-admin` (171),
+`properties` (74), `stay-concierge` (55), `field-db` (46), `use-soft-refresh` (37), `work-types`
+(35), `field-types` (34), `projections-types` (31), `cron-auth` (28), `field-packets` (24). The
+ORDER is the durable part and has not moved; the numbers drift with the repo.
 
 ## Module map
 
@@ -571,7 +572,7 @@ like a premium editorial document.
 `/api/sync-guesty` pulls reviews, reservations, and the listing map. `/api/ingest-guesty-csv` is
 the fallback when the API is unavailable. Token caching is shared through the `guesty_auth` table.
 
-Two clients exist: `src/lib/guesty.ts` (6 importers) and `src/lib/guesty-client.ts` (2). They share
+Two clients exist: `src/lib/guesty.ts` (7 importers) and `src/lib/guesty-client.ts` (2). They share
 the token cache and differ in one way that matters: `guesty-client.ts` throws a typed
 `GuestyNotFound` on 404, `guesty.ts` throws a generic error.
 
