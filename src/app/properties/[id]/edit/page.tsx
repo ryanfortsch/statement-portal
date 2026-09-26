@@ -51,8 +51,8 @@ export default async function PropertyEditPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  // Deep links from the onboarding hub carry ?return=onboarding so the save
-  // redirect lands back on that tab. Threaded through the form as a hidden
+  // Deep links from the Setup tab carry ?return=setup so the save redirect
+  // lands back on that tab. Threaded through the form as a hidden
   // input; the action allowlists the value.
   const returnTab = (await searchParams)?.return ?? '';
 

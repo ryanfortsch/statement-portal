@@ -244,7 +244,7 @@ export function PropertyMasthead({
         <State label="Last walked">
           {lastInspectionAt ? (
             <Link
-              href={`/properties/${propertyId}?tab=records`}
+              href={`/properties/${propertyId}?tab=owner`}
               style={{ color: 'inherit', textDecoration: 'none' }}
             >
               {fmtDay(lastInspectionAt.slice(0, 10))}
@@ -291,7 +291,7 @@ export function PropertyMasthead({
           scope={guestPinScope}
           copy
           fixLabel={showCreds ? 'No code issued' : 'Inactive'}
-          fixHref={`/properties/${propertyId}?tab=operations#guest-codes`}
+          fixHref={`/properties/${propertyId}?tab=facts#guest-codes`}
         />
         <Fact
           label="Wi-Fi"
@@ -319,7 +319,7 @@ export function PropertyMasthead({
           value={ownerName && ownerChannel ? `${ownerName} · ${ownerChannel}` : null}
           copy
           fixLabel="Add owner contact"
-          fixHref={`/properties/${propertyId}?tab=people`}
+          fixHref={`/properties/${propertyId}?tab=owner`}
         />
       </div>
 

@@ -145,7 +145,7 @@ export function OrderChecklistClient({
       <div className="rt-oc">
         <header className="rt-oc-head">
           <div className="rt-oc-head-top rt-oc-noprint">
-            <Link href={`/properties/${propertyId}?tab=onboarding`} className="rt-oc-back">
+            <Link href={`/properties/${propertyId}?tab=setup`} className="rt-oc-back">
               ← Onboarding
             </Link>
             <button type="button" className="rt-oc-print" onClick={() => window.print()}>
@@ -165,7 +165,7 @@ export function OrderChecklistClient({
             {!context.bedsFromRooms && (
               <p className="rt-oc-warn">
                 No beds on file yet, so linen quantities assume one queen per bedroom.{' '}
-                <Link href={`/properties/${propertyId}?tab=onboarding`}>
+                <Link href={`/properties/${propertyId}?tab=setup`}>
                   Walk the rooms
                 </Link>{' '}
                 and the order re-computes from real bed sizes.

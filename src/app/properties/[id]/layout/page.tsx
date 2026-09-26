@@ -101,7 +101,7 @@ export default async function PropertyLayoutPage({ params }: { params: Promise<P
 
       <HelmBreadcrumb
         trail={[
-          { label: property.name, href: `/properties/${property.id}?tab=operations` },
+          { label: property.name, href: `/properties/${property.id}?tab=facts` },
           { label: 'Inspection layout' },
         ]}
       />

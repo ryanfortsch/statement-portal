@@ -135,15 +135,17 @@ async function getScaLaunchStatus(id: string): Promise<ScaLaunchStatus | null> {
 }
 
 /**
- * Onboarding "Edit field" deep links carry ?return=onboarding so the edit
- * page's save redirect lands back on this tab instead of the default
- * ?tab=operations (query goes BEFORE any #anchor).
+ * Setup "Edit field" deep links carry ?return=setup so the edit page's save
+ * redirect lands back on that tab instead of the default ?tab=facts (query
+ * goes BEFORE any #anchor). The value is allowlisted by RETURN_TABS in
+ * properties/actions.ts; the two must agree or a save silently lands on
+ * Facts instead of where the operator came from.
  */
 function editHrefWithReturn(href: string): string {
   if (!href.includes('/edit')) return href;
   const [path, hash] = href.split('#');
   const sep = path.includes('?') ? '&' : '?';
-  return `${path}${sep}return=onboarding${hash ? `#${hash}` : ''}`;
+  return `${path}${sep}return=setup${hash ? `#${hash}` : ''}`;
 }
 
 /**
@@ -390,10 +392,26 @@ export default async function PropertyDetailPage({
 }) {
   const { id } = await params;
   const rawTab = (await searchParams)?.tab ?? 'today';
-  // Old deep links (?tab=overview/history/documents/deliverables) still land
+  // Old deep links (?tab=now/history/documents/deliverables) still land
   // somewhere sensible after the 6 to 5 tab restructure.
-  const initialTab =
-    ({ overview: 'today', history: 'records', documents: 'records', deliverables: 'records' } as Record<string, string>)[rawTab] ?? rawTab;
+  // Every tab name this route has ever answered to, mapped onto the four
+  // that remain. 27 in-repo links, nine server-action hash redirects and any
+  // bookmark an operator kept all still land where they mean to.
+  const TAB_ALIASES: Record<string, string> = {
+    // the six this replaces
+    today: 'now',
+    onboarding: 'setup',
+    operations: 'facts',
+    people: 'owner',
+    growth: 'guest',
+    records: 'owner',
+    // the four already aliased before this change
+    overview: 'now',
+    history: 'now',
+    documents: 'owner',
+    deliverables: 'guest',
+  };
+  const initialTab = TAB_ALIASES[rawTab] ?? rawTab;
   const p = await getProperty(id);
   if (!p) notFound();
 
@@ -478,7 +496,7 @@ export default async function PropertyDetailPage({
       key: 'fee-mismatch',
       tone: 'negative',
       text: `Contract says ${activeContract.fee_pct}%, Helm bills ${p.management_fee_pct}%`,
-      href: `/properties/${p.id}?tab=records`,
+      href: `/properties/${p.id}?tab=owner`,
     });
   }
   if (!activeContract && !p.is_rising_tide_owned && p.is_active) {
@@ -486,7 +504,7 @@ export default async function PropertyDetailPage({
       key: 'no-contract',
       tone: 'negative',
       text: 'Operating with no live contract',
-      href: `/properties/${p.id}?tab=records`,
+      href: `/properties/${p.id}?tab=owner`,
     });
   }
   if (activeContractAttention?.kind === 'notice_window') {
@@ -494,7 +512,7 @@ export default async function PropertyDetailPage({
       key: 'notice-window',
       tone: 'signal',
       text: `Non-renewal notice closes ${fmtTermDate(activeContractAttention.deadline)}`,
-      href: `/properties/${p.id}?tab=records`,
+      href: `/properties/${p.id}?tab=owner`,
     });
   }
   if (p.str_permit_expires) {
@@ -567,6 +585,21 @@ export default async function PropertyDetailPage({
     }
   }
   const onboardingResolved = [...onboardingStatus.values()].filter((s) => s.status !== 'todo').length;
+  /**
+   * Setup is the only tab with a retirement condition.
+   *
+   * A house that has earned for seasons should not wear onboarding
+   * furniture, and 16 Waterman wearing a permanent "27%" is what that looked
+   * like. The gate is the predicate launch-checklist already uses, NOT
+   * activated_at alone: that column is null on purpose across the legacy
+   * fleet, so keying on it would hide Setup on every home we onboarded
+   * before it existed.
+   *
+   * Once retired, the readiness number is still reachable: the launch page
+   * keeps it, and a footer line on Facts links there. The fleet-level view
+   * of who is half-done belongs on /properties, not on one record.
+   */
+  const showSetup = !(p.activated_at || launchLoad.ctx.firstStayStarted);
   const onboardingTotal = ONBOARDING_ITEMS.length;
 
   // Internal-first display: the address-without-suffix name as the hero,
@@ -760,16 +793,19 @@ export default async function PropertyDetailPage({
       <PropertyTabs
         initialTab={initialTab}
         tabs={[
-          { id: 'today', label: 'Today', badge: openSlips.length || undefined },
-          { id: 'onboarding', label: 'Onboarding', badge: `${Math.round((onboardingResolved / Math.max(1, onboardingTotal)) * 100)}%` },
-          { id: 'operations', label: 'Operations' },
-          { id: 'people', label: 'People & owner', badge: crmContactsFull.length || undefined },
-          { id: 'growth', label: 'Listing & growth' },
-          { id: 'records', label: 'Guest & records', badge: documents.length || undefined },
+          { id: 'now', label: 'Now', badge: openSlips.length || undefined },
+          { id: 'facts', label: 'Facts' },
+          { id: 'owner', label: 'Owner & money', badge: crmContactsFull.length || undefined },
+          { id: 'guest', label: 'Guest & listing' },
+          // Setup leaves the strip once the house is established. The
+          // onboarding percentage badge is gone with it: it counted N/A as
+          // progress and could not reach 100 (108 items, 48 derives), so it
+          // was the one badge in Helm that never cleared.
+          ...(showSetup ? [{ id: 'setup', label: 'Setup', badge: `${onboardingResolved}/${onboardingTotal}` }] : []),
         ]}
       >
-        {/* ════════════ TODAY ════════════ */}
-        <TabSection tab="today">
+        {/* ════════════ NOW ════════════ */}
+        <TabSection tab="now">
           {/* Dictate/type a note; Helm routes it to the right field or
               note after operator review. Top of the tab — capture comes
               before scanning open work. */}
@@ -989,10 +1025,95 @@ export default async function PropertyDetailPage({
         )}
       </section>
 
+      {/* ACTIVITY FEED */}
+      <CollapsibleSection title="Activity" summary="recent · full log on its own page">
+        <Suspense
+          fallback={
+            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+              Loading recent activity…
+            </div>
+          }
+        >
+          <ActivityPeek property={p} />
+        </Suspense>
+      </CollapsibleSection>
+
+      {/* INSPECTION HISTORY (Helm-native) */}
+      <CollapsibleSection title="Recent Inspections" summary={inspectionsSummary}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <Link
+            href={`/turnovers?property=${p.id}`}
+            title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
+            style={primaryActionStyle}
+          >
+            Plan a walk
+          </Link>
+        </div>
+        {recentInspections.length === 0 && (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            No inspections recorded for this property yet.
+          </div>
+        )}
+        {recentInspections.length > 0 && (
+          <div>
+            {recentInspections.map((insp) => {
+              const isComplete = !!insp.completed_at;
+              const href = isComplete
+                ? `/inspections/${insp.id}/summary`
+                : `/inspections/${insp.id}`;
+              const summary = isComplete
+                ? `${insp.pass_count} pass · ${insp.issue_count} issue · ${insp.na_count} N/A`
+                : 'In progress';
+              return (
+                <Link
+                  key={insp.id}
+                  href={href}
+                  style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+                >
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '160px 1fr auto auto',
+                      gap: 24,
+                      alignItems: 'baseline',
+                      padding: '16px 0',
+                      borderBottom: '1px solid var(--rule)',
+                    }}
+                  >
+                    <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+                      {formatDate(insp.completed_at ?? insp.started_at)}
+                    </span>
+                    <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{insp.inspector_name}</span>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        letterSpacing: '.08em',
+                        textTransform: 'uppercase',
+                        color: isComplete
+                          ? insp.issue_count > 0
+                            ? 'var(--signal)'
+                            : 'var(--positive)'
+                          : 'var(--ink-4)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {summary}
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+                      {isComplete ? 'Summary →' : 'Resume →'}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </CollapsibleSection>
+
         </TabSection>
 
-        {/* ════════════ ONBOARDING ════════════ */}
-        <TabSection tab="onboarding">
+        {/* ════════════ SETUP ════════════ */}
+        <TabSection tab="setup">
           {/* The full lot-to-listing pipeline. Auto-derived items resolve
               themselves from live data (bank on file, lock mapped, KB
               seeded); the rest are operator toggles.
@@ -1005,7 +1126,7 @@ export default async function PropertyDetailPage({
             <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 720 }}>
               Walking the house?{' '}
               <Link
-                href={`/properties/${p.id}?tab=today`}
+                href={`/properties/${p.id}?tab=now`}
                 style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
               >
                 Dictate it into the capture box on Today
@@ -1122,8 +1243,8 @@ export default async function PropertyDetailPage({
           </CollapsibleSection>
         </TabSection>
 
-        {/* ════════════ OPERATIONS ════════════ */}
-        <TabSection tab="operations">
+        {/* ════════════ FACTS ════════════ */}
+        <TabSection tab="facts">
           {/* Launcher tiles, same grammar as the Growth tab's grid, replacing
               the old right-aligned ghost-link row: each tool gets a card with
               its one-line pitch instead of a bare label. Backfill is a true
@@ -1201,6 +1322,73 @@ export default async function PropertyDetailPage({
         summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
       >
         <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
+      </CollapsibleSection>
+
+      {/* WHO SERVES THIS HOUSE — the people who physically go there.
+          "Which cleaner covers this property and what is their number" had
+          no door anywhere on the record before the header band; this is the
+          full answer behind the band's single line. property_ids = '{}' on
+          cleaner_phones means serves-all, which is why a fleet-wide mapping
+          is listed and labelled rather than hidden. */}
+      <CollapsibleSection
+        id="crew"
+        title="Who serves this house"
+        summary={
+          propertyCleaners.length === 0
+            ? 'no cleaner mapped'
+            : propertyCleaners.length === 1
+              ? propertyCleaners[0].display_name
+              : `${propertyCleaners.length} mapped`
+        }
+      >
+        {propertyCleaners.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13, lineHeight: 1.6, maxWidth: 720 }}>
+            No cleaner is mapped to {p.name}. Inbound texts from this house fall back to matching on
+            the message body, and the cleaner line on the header band stays empty.{' '}
+            <Link
+              href="/turnovers/schedule"
+              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Open the cleaner schedule
+            </Link>
+          </div>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {propertyCleaners.map((c) => (
+              <div
+                key={c.phone}
+                style={{
+                  padding: '14px 0',
+                  borderBottom: '1px solid var(--rule)',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  gap: 16,
+                  alignItems: 'baseline',
+                }}
+              >
+                <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, color: 'var(--ink)' }}>{c.display_name}</span>
+                  {c.vendor && <span style={pillStyle('var(--ink-4)', true)}>{c.vendor}</span>}
+                  {c.fleetWide && (
+                    <span title="Mapped to every property, not just this one" style={pillStyle('var(--ink-4)', true)}>
+                      Fleet-wide
+                    </span>
+                  )}
+                </div>
+                <span
+                  style={{
+                    fontFamily: 'var(--font-mono-dash), ui-monospace, monospace',
+                    fontSize: 13,
+                    color: 'var(--ink-3)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {formatUsPhone(c.phone)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </CollapsibleSection>
 
       {/* OPERATIONS NOTEBOOK — internal per-property knowledge base
@@ -1306,6 +1494,23 @@ export default async function PropertyDetailPage({
 
       {/* REFERENCE — Helm IDs, sync state, and the Perfection link, all in one
           quiet block at the bottom. Used rarely; collapsed by default. */}
+      {/* Setup has retired off the strip for this house, so the readiness
+          number needs somewhere to still be reachable. One line, not a tab. */}
+      {!showSetup && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
+            Setup is complete for {p.name}.{' '}
+            <Link
+              href={`/properties/${p.id}/launch`}
+              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Open the launch checklist
+            </Link>{' '}
+            to review the {onboardingResolved} of {onboardingTotal} items on record.
+          </p>
+        </section>
+      )}
+
       <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
           <Detail term="Helm ID" definition={p.id} mono />
@@ -1359,8 +1564,8 @@ export default async function PropertyDetailPage({
 
         </TabSection>
 
-        {/* ════════════ PEOPLE & OWNER ════════════ */}
-        <TabSection tab="people">
+        {/* ════════════ OWNER & MONEY ════════════ */}
+        <TabSection tab="owner">
       {/* OWNER */}
       <CollapsibleSection title="Owner" summary={ownerSummary} defaultOpen>
         {/* The deal terms that used to lead every visit as four stat tiles.
@@ -1566,10 +1771,303 @@ export default async function PropertyDetailPage({
           touchesByContact={crmTouchesByContact}
         />
       </CollapsibleSection>
+      {/* MANAGEMENT AGREEMENT — the deal facts the Setup checklist's
+          "Open records" links land on. The property_contracts registry row
+          (seeded from the Drive Contracts corpus) is the canonical source:
+          fee, term, renewal mechanics, and negotiated clauses as signed.
+          Falls back to the linked projection's contract columns for a
+          promoted prospect whose contract isn't registered yet. */}
+      {/* Both branches carry id="management-agreement" on purpose: they are
+          the two arms of one ternary, so only ever one is in the DOM, and the
+          deep links from /properties/contracts and the alert lane must land
+          on whichever arm rendered. */}
+      {activeContract ? (
+        <CollapsibleSection
+          id="management-agreement"
+          title="Management Agreement"
+          summary={
+            activeContractAttention
+              ? activeContractAttention.kind === 'notice_window'
+                ? `notice deadline ${fmtTermDate(activeContractAttention.deadline)}`
+                : 'needs attention'
+              : `through ${fmtTermDate(currentTermEnd(activeContract, contractTodayIso))} · ${activeContract.fee_pct != null ? `${activeContract.fee_pct}%` : 'fee n/a'}`
+          }
+          defaultOpen={!!activeContractAttention}
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
+            <div className="eyebrow">Parties</div>
+            <div style={{ color: 'var(--ink)' }}>
+              {activeContract.owner_party} · signed via{' '}
+              {activeContract.signed_via === 'helm' ? 'Helm e-sign' : activeContract.signed_via === 'docusign' ? 'Docusign' : 'external paperwork'}
+              {activeContract.executed_on ? ` on ${fmtTermDate(activeContract.executed_on)}` : ' (copy on file is undated)'}
+            </div>
+            <div className="eyebrow">Term</div>
+            <div style={{ color: 'var(--ink)' }}>
+              {activeContract.term_start ? fmtTermDate(activeContract.term_start) : 'start not recorded'}
+              {' to '}
+              {fmtTermDate(currentTermEnd(activeContract, contractTodayIso))}
+              {currentTermEnd(activeContract, contractTodayIso) > activeContract.term_end && (
+                <span style={{ color: 'var(--ink-3)' }}>
+                  {' '}(auto-renewed; written term ended {fmtTermDate(activeContract.term_end)})
+                </span>
+              )}
+            </div>
+            <div className="eyebrow">Renewal</div>
+            <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>
+              {renewalSummary(activeContract)}
+              {(() => {
+                const deadline = noticeDeadline(activeContract, contractTodayIso);
+                if (!deadline) return null;
+                const days = daysUntil(deadline, contractTodayIso);
+                return (
+                  <span
+                    className="tabular-nums"
+                    style={{
+                      color: days <= 14 ? 'var(--negative)' : days <= 75 ? 'var(--signal)' : 'var(--ink-3)',
+                      fontWeight: days <= 75 ? 600 : 400,
+                    }}
+                  >
+                    {' '}· notice deadline {fmtTermDate(deadline)}{days >= 0 ? ` (${days}d)` : ''}
+                  </span>
+                );
+              })()}
+            </div>
+            <div className="eyebrow">Fee</div>
+            <div style={{ color: 'var(--ink)', lineHeight: 1.55 }}>
+              {activeContract.fee_pct != null ? `${activeContract.fee_pct}% of gross rental income` : 'not recorded'}
+              {activeContract.fee_pct != null &&
+                p.management_fee_pct != null &&
+                Number(p.management_fee_pct) !== Number(activeContract.fee_pct) && (
+                  <span style={{ color: 'var(--negative)' }}>
+                    {' '}(contract disagrees with the {p.management_fee_pct}% Helm bills; reconcile before the next statement)
+                  </span>
+                )}
+              {activeContract.fee_notes && (
+                <span style={{ color: 'var(--ink-3)' }}> · {activeContract.fee_notes}</span>
+              )}
+            </div>
+            {activeContract.min_availability && (
+              <>
+                <div className="eyebrow">Availability</div>
+                <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>{activeContract.min_availability}</div>
+              </>
+            )}
+            {activeContract.special_terms.length > 0 && (
+              <>
+                <div className="eyebrow">Negotiated</div>
+                <ul style={{ margin: 0, paddingLeft: 16, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+                  {activeContract.special_terms.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+          {activeContractAttention && (
+            <p style={{ margin: '14px 0 0', fontSize: 12.5, color: 'var(--signal)', lineHeight: 1.55, maxWidth: 760 }}>
+              {activeContractAttention.detail}
+            </p>
+          )}
+          {activeContract.notes && (
+            <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 760 }}>
+              {activeContract.notes}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
+            {activeContract.drive_url && (
+              <a href={activeContract.drive_url} target="_blank" rel="noreferrer" style={primaryActionStyle}>
+                Signed PDF ↗
+              </a>
+            )}
+            {p.projection_id && (
+              <Link
+                href={`/projections/${p.projection_id}/contract`}
+                target="_blank"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                Contract page
+              </Link>
+            )}
+            <Link
+              href="/properties/contracts"
+              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+            >
+              All contracts
+            </Link>
+            {/* Renewal draft: rides the prospect contract pipeline (edit
+                terms, owner sign link, countersign) with the row pre-linked
+                to this property so it never touches the funnel. */}
+            <form action={startRenewal} style={{ margin: 0 }}>
+              <button
+                type="submit"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--tide-deep)', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 12px' }}
+              >
+                Draft renewal
+              </button>
+            </form>
+          </div>
+          {pastContracts.length > 0 && (
+            <div style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+              {pastContracts.map((c) => (
+                <div key={c.id}>
+                  {c.status === 'superseded' ? 'Superseded' : 'Expired'}:{' '}
+                  {c.term_start ? fmtTermDate(c.term_start) : '—'} to {fmtTermDate(c.term_end)}
+                  {c.fee_pct != null ? ` at ${c.fee_pct}%` : ''}
+                  {c.drive_url && (
+                    <>
+                      {' · '}
+                      <a href={c.drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                        PDF ↗
+                      </a>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CollapsibleSection>
+      ) : (
+        <CollapsibleSection
+          id="management-agreement"
+          title="Management Agreement"
+          summary={
+            pastContracts.length > 0
+              ? 'expired, no live contract'
+              : p.projection_id
+                ? contractFacts.executed
+                  ? 'signed, not yet registered'
+                  : 'not fully executed'
+                : 'none on file'
+          }
+          defaultOpen={pastContracts.length > 0}
+        >
+          {pastContracts.length > 0 && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--negative)', lineHeight: 1.6, maxWidth: 760 }}>
+              The last agreement ({pastContracts[0].term_start ? fmtTermDate(pastContracts[0].term_start) : '—'} to{' '}
+              {fmtTermDate(pastContracts[0].term_end)}
+              {pastContracts[0].fee_pct != null ? ` at ${pastContracts[0].fee_pct}%` : ''}) has ended and nothing
+              renews it. This property is operating without a live contract.
+              {pastContracts[0].drive_url && (
+                <>
+                  {' '}
+                  <a href={pastContracts[0].drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
+                    Last signed PDF ↗
+                  </a>
+                </>
+              )}
+            </p>
+          )}
+          {pastContracts.length === 0 && p.projection_id && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 720 }}>
+              <div className="eyebrow">Status</div>
+              <div style={{ color: 'var(--ink)' }}>
+                {contractFacts.executed ? 'Executed (signed and countersigned)' : 'Not fully executed'}
+              </div>
+              <div className="eyebrow">Term</div>
+              <div style={{ color: contractFacts.termStart && contractFacts.termEnd ? 'var(--ink)' : 'var(--signal)' }}>
+                {contractFacts.termStart ? fmtTermDate(contractFacts.termStart) : 'start not recorded'}
+                {' to '}
+                {contractFacts.termEnd ? fmtTermDate(contractFacts.termEnd) : 'end not recorded'}
+              </div>
+            </div>
+          )}
+          {pastContracts.length === 0 && !p.projection_id && (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 760 }}>
+              No management agreement is registered for this property. If a signed copy exists, it belongs in the
+              Drive Contracts folder and in the register.
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
+            {/* No live agreement: drafting a renewal is the primary move.
+                Idempotent - re-clicking lands on the open draft. */}
+            <form action={startRenewal} style={{ margin: 0 }}>
+              <button type="submit" style={{ ...primaryActionStyle, border: 'none', cursor: 'pointer' }}>
+                Draft renewal contract
+              </button>
+            </form>
+            {p.projection_id && (
+              <Link
+                href={`/prospects/${p.projection_id}`}
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                Contract workroom
+              </Link>
+            )}
+            {p.projection_id && (
+              <Link
+                href={`/projections/${p.projection_id}/contract`}
+                target="_blank"
+                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+              >
+                View contract ↗
+              </Link>
+            )}
+            <Link
+              href="/properties/contracts"
+              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
+            >
+              All contracts
+            </Link>
+          </div>
+        </CollapsibleSection>
+      )}
+      {/* DOCUMENTS — folded into the same collapsible grammar as its
+          neighbors; the upload form used to render permanently expanded
+          even when nothing was filed. */}
+      <CollapsibleSection
+        id="documents"
+        title="Documents"
+        summary={documents.length === 0 ? 'none yet' : `${documents.length} on file`}
+      >
+        <DocumentsPanel propertyId={p.id} documents={documents} />
+      </CollapsibleSection>
+      {/* RECENT STATEMENTS (Helm-native) */}
+      <CollapsibleSection title="Recent Statements" summary={statementsSummary}>
+        {statements.length === 0 ? (
+          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
+            No statements for this property yet.
+          </div>
+        ) : (
+          <div>
+            {statements.map((s) => (
+              <Link
+                key={s.id}
+                href={`/statements/render?id=${s.id}&month=${s.month}`}
+                style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
+              >
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '160px 1fr auto auto',
+                    gap: 24,
+                    alignItems: 'baseline',
+                    padding: '16px 0',
+                    borderBottom: '1px solid var(--rule)',
+                  }}
+                >
+                  <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
+                    {formatMonth(s.month)}
+                  </span>
+                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                    {s.num_stays} stay{s.num_stays === 1 ? '' : 's'} · {s.nights_booked} nights
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                    {formatCurrency(s.rental_revenue)} rev
+                  </span>
+                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+                    {formatCurrency(s.owner_payout)} payout →
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CollapsibleSection>
+
         </TabSection>
 
-        {/* ════════════ LISTING & GROWTH ════════════ */}
-        <TabSection tab="growth">
+        {/* ════════════ GUEST & LISTING ════════════ */}
+        <TabSection tab="guest">
           {/* Launcher tiles, not a bare row of links: each growth tool gets
               a card with its one-line pitch (lifted from the old hover-only
               title attrs) so the tab reads as a workbench instead of the
@@ -1636,10 +2134,6 @@ export default async function PropertyDetailPage({
               )}
             </div>
           </section>
-        </TabSection>
-
-        {/* ════════════ GUEST & RECORDS ════════════ */}
-        <TabSection tab="records">
       {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
           Information Note. */}
       <CollapsibleSection
@@ -1846,378 +2340,8 @@ export default async function PropertyDetailPage({
           )}
         </div>
       </CollapsibleSection>
-      {/* MANAGEMENT AGREEMENT — the deal facts the onboarding checklist's
-          "Open records" links land on. The property_contracts registry row
-          (seeded from the Drive Contracts corpus) is the canonical source:
-          fee, term, renewal mechanics, and negotiated clauses as signed.
-          Falls back to the linked projection's contract columns for a
-          promoted prospect whose contract isn't registered yet. */}
-      {activeContract ? (
-        <CollapsibleSection
-          title="Management Agreement"
-          summary={
-            activeContractAttention
-              ? activeContractAttention.kind === 'notice_window'
-                ? `notice deadline ${fmtTermDate(activeContractAttention.deadline)}`
-                : 'needs attention'
-              : `through ${fmtTermDate(currentTermEnd(activeContract, contractTodayIso))} · ${activeContract.fee_pct != null ? `${activeContract.fee_pct}%` : 'fee n/a'}`
-          }
-          defaultOpen={!!activeContractAttention}
-        >
-          <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
-            <div className="eyebrow">Parties</div>
-            <div style={{ color: 'var(--ink)' }}>
-              {activeContract.owner_party} · signed via{' '}
-              {activeContract.signed_via === 'helm' ? 'Helm e-sign' : activeContract.signed_via === 'docusign' ? 'Docusign' : 'external paperwork'}
-              {activeContract.executed_on ? ` on ${fmtTermDate(activeContract.executed_on)}` : ' (copy on file is undated)'}
-            </div>
-            <div className="eyebrow">Term</div>
-            <div style={{ color: 'var(--ink)' }}>
-              {activeContract.term_start ? fmtTermDate(activeContract.term_start) : 'start not recorded'}
-              {' to '}
-              {fmtTermDate(currentTermEnd(activeContract, contractTodayIso))}
-              {currentTermEnd(activeContract, contractTodayIso) > activeContract.term_end && (
-                <span style={{ color: 'var(--ink-3)' }}>
-                  {' '}(auto-renewed; written term ended {fmtTermDate(activeContract.term_end)})
-                </span>
-              )}
-            </div>
-            <div className="eyebrow">Renewal</div>
-            <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>
-              {renewalSummary(activeContract)}
-              {(() => {
-                const deadline = noticeDeadline(activeContract, contractTodayIso);
-                if (!deadline) return null;
-                const days = daysUntil(deadline, contractTodayIso);
-                return (
-                  <span
-                    className="tabular-nums"
-                    style={{
-                      color: days <= 14 ? 'var(--negative)' : days <= 75 ? 'var(--signal)' : 'var(--ink-3)',
-                      fontWeight: days <= 75 ? 600 : 400,
-                    }}
-                  >
-                    {' '}· notice deadline {fmtTermDate(deadline)}{days >= 0 ? ` (${days}d)` : ''}
-                  </span>
-                );
-              })()}
-            </div>
-            <div className="eyebrow">Fee</div>
-            <div style={{ color: 'var(--ink)', lineHeight: 1.55 }}>
-              {activeContract.fee_pct != null ? `${activeContract.fee_pct}% of gross rental income` : 'not recorded'}
-              {activeContract.fee_pct != null &&
-                p.management_fee_pct != null &&
-                Number(p.management_fee_pct) !== Number(activeContract.fee_pct) && (
-                  <span style={{ color: 'var(--negative)' }}>
-                    {' '}(contract disagrees with the {p.management_fee_pct}% Helm bills; reconcile before the next statement)
-                  </span>
-                )}
-              {activeContract.fee_notes && (
-                <span style={{ color: 'var(--ink-3)' }}> · {activeContract.fee_notes}</span>
-              )}
-            </div>
-            {activeContract.min_availability && (
-              <>
-                <div className="eyebrow">Availability</div>
-                <div style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>{activeContract.min_availability}</div>
-              </>
-            )}
-            {activeContract.special_terms.length > 0 && (
-              <>
-                <div className="eyebrow">Negotiated</div>
-                <ul style={{ margin: 0, paddingLeft: 16, color: 'var(--ink-2)', lineHeight: 1.6 }}>
-                  {activeContract.special_terms.map((t) => (
-                    <li key={t}>{t}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </div>
-          {activeContractAttention && (
-            <p style={{ margin: '14px 0 0', fontSize: 12.5, color: 'var(--signal)', lineHeight: 1.55, maxWidth: 760 }}>
-              {activeContractAttention.detail}
-            </p>
-          )}
-          {activeContract.notes && (
-            <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 760 }}>
-              {activeContract.notes}
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
-            {activeContract.drive_url && (
-              <a href={activeContract.drive_url} target="_blank" rel="noreferrer" style={primaryActionStyle}>
-                Signed PDF ↗
-              </a>
-            )}
-            {p.projection_id && (
-              <Link
-                href={`/projections/${p.projection_id}/contract`}
-                target="_blank"
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-              >
-                Contract page
-              </Link>
-            )}
-            <Link
-              href="/properties/contracts"
-              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-            >
-              All contracts
-            </Link>
-            {/* Renewal draft: rides the prospect contract pipeline (edit
-                terms, owner sign link, countersign) with the row pre-linked
-                to this property so it never touches the funnel. */}
-            <form action={startRenewal} style={{ margin: 0 }}>
-              <button
-                type="submit"
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--tide-deep)', background: 'none', border: 'none', cursor: 'pointer', padding: '9px 12px' }}
-              >
-                Draft renewal
-              </button>
-            </form>
-          </div>
-          {pastContracts.length > 0 && (
-            <div style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-              {pastContracts.map((c) => (
-                <div key={c.id}>
-                  {c.status === 'superseded' ? 'Superseded' : 'Expired'}:{' '}
-                  {c.term_start ? fmtTermDate(c.term_start) : '—'} to {fmtTermDate(c.term_end)}
-                  {c.fee_pct != null ? ` at ${c.fee_pct}%` : ''}
-                  {c.drive_url && (
-                    <>
-                      {' · '}
-                      <a href={c.drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
-                        PDF ↗
-                      </a>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </CollapsibleSection>
-      ) : (
-        <CollapsibleSection
-          title="Management Agreement"
-          summary={
-            pastContracts.length > 0
-              ? 'expired, no live contract'
-              : p.projection_id
-                ? contractFacts.executed
-                  ? 'signed, not yet registered'
-                  : 'not fully executed'
-                : 'none on file'
-          }
-          defaultOpen={pastContracts.length > 0}
-        >
-          {pastContracts.length > 0 && (
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--negative)', lineHeight: 1.6, maxWidth: 760 }}>
-              The last agreement ({pastContracts[0].term_start ? fmtTermDate(pastContracts[0].term_start) : '—'} to{' '}
-              {fmtTermDate(pastContracts[0].term_end)}
-              {pastContracts[0].fee_pct != null ? ` at ${pastContracts[0].fee_pct}%` : ''}) has ended and nothing
-              renews it. This property is operating without a live contract.
-              {pastContracts[0].drive_url && (
-                <>
-                  {' '}
-                  <a href={pastContracts[0].drive_url} target="_blank" rel="noreferrer" style={{ color: 'var(--tide-deep)' }}>
-                    Last signed PDF ↗
-                  </a>
-                </>
-              )}
-            </p>
-          )}
-          {pastContracts.length === 0 && p.projection_id && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 720 }}>
-              <div className="eyebrow">Status</div>
-              <div style={{ color: 'var(--ink)' }}>
-                {contractFacts.executed ? 'Executed (signed and countersigned)' : 'Not fully executed'}
-              </div>
-              <div className="eyebrow">Term</div>
-              <div style={{ color: contractFacts.termStart && contractFacts.termEnd ? 'var(--ink)' : 'var(--signal)' }}>
-                {contractFacts.termStart ? fmtTermDate(contractFacts.termStart) : 'start not recorded'}
-                {' to '}
-                {contractFacts.termEnd ? fmtTermDate(contractFacts.termEnd) : 'end not recorded'}
-              </div>
-            </div>
-          )}
-          {pastContracts.length === 0 && !p.projection_id && (
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 760 }}>
-              No management agreement is registered for this property. If a signed copy exists, it belongs in the
-              Drive Contracts folder and in the register.
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16, alignItems: 'center' }}>
-            {/* No live agreement: drafting a renewal is the primary move.
-                Idempotent - re-clicking lands on the open draft. */}
-            <form action={startRenewal} style={{ margin: 0 }}>
-              <button type="submit" style={{ ...primaryActionStyle, border: 'none', cursor: 'pointer' }}>
-                Draft renewal contract
-              </button>
-            </form>
-            {p.projection_id && (
-              <Link
-                href={`/prospects/${p.projection_id}`}
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-              >
-                Contract workroom
-              </Link>
-            )}
-            {p.projection_id && (
-              <Link
-                href={`/projections/${p.projection_id}/contract`}
-                target="_blank"
-                style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-              >
-                View contract ↗
-              </Link>
-            )}
-            <Link
-              href="/properties/contracts"
-              style={{ fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', textDecoration: 'none', padding: '9px 12px' }}
-            >
-              All contracts
-            </Link>
-          </div>
-        </CollapsibleSection>
-      )}
-      {/* DOCUMENTS — folded into the same collapsible grammar as its
-          neighbors; the upload form used to render permanently expanded
-          even when nothing was filed. */}
-      <CollapsibleSection
-        title="Documents"
-        summary={documents.length === 0 ? 'none yet' : `${documents.length} on file`}
-      >
-        <DocumentsPanel propertyId={p.id} documents={documents} />
-      </CollapsibleSection>
-      {/* ACTIVITY FEED */}
-      <CollapsibleSection title="Activity" summary="recent · full log on its own page">
-        <Suspense
-          fallback={
-            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
-              Loading recent activity…
-            </div>
-          }
-        >
-          <ActivityPeek property={p} />
-        </Suspense>
-      </CollapsibleSection>
-
-      {/* INSPECTION HISTORY (Helm-native) */}
-      <CollapsibleSection title="Recent Inspections" summary={inspectionsSummary}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <Link
-            href={`/turnovers?property=${p.id}`}
-            title="Open Operations filtered to this property to schedule a walk before an upcoming check-in"
-            style={primaryActionStyle}
-          >
-            Plan a walk
-          </Link>
-        </div>
-        {recentInspections.length === 0 && (
-          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-            No inspections recorded for this property yet.
-          </div>
-        )}
-        {recentInspections.length > 0 && (
-          <div>
-            {recentInspections.map((insp) => {
-              const isComplete = !!insp.completed_at;
-              const href = isComplete
-                ? `/inspections/${insp.id}/summary`
-                : `/inspections/${insp.id}`;
-              const summary = isComplete
-                ? `${insp.pass_count} pass · ${insp.issue_count} issue · ${insp.na_count} N/A`
-                : 'In progress';
-              return (
-                <Link
-                  key={insp.id}
-                  href={href}
-                  style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-                >
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '160px 1fr auto auto',
-                      gap: 24,
-                      alignItems: 'baseline',
-                      padding: '16px 0',
-                      borderBottom: '1px solid var(--rule)',
-                    }}
-                  >
-                    <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
-                      {formatDate(insp.completed_at ?? insp.started_at)}
-                    </span>
-                    <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{insp.inspector_name}</span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        letterSpacing: '.08em',
-                        textTransform: 'uppercase',
-                        color: isComplete
-                          ? insp.issue_count > 0
-                            ? 'var(--signal)'
-                            : 'var(--positive)'
-                          : 'var(--ink-4)',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {summary}
-                    </span>
-                    <span style={{ fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
-                      {isComplete ? 'Summary →' : 'Resume →'}
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </CollapsibleSection>
-
-      {/* RECENT STATEMENTS (Helm-native) */}
-      <CollapsibleSection title="Recent Statements" summary={statementsSummary}>
-        {statements.length === 0 ? (
-          <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
-            No statements for this property yet.
-          </div>
-        ) : (
-          <div>
-            {statements.map((s) => (
-              <Link
-                key={s.id}
-                href={`/statements/render?id=${s.id}&month=${s.month}`}
-                style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
-              >
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '160px 1fr auto auto',
-                    gap: 24,
-                    alignItems: 'baseline',
-                    padding: '16px 0',
-                    borderBottom: '1px solid var(--rule)',
-                  }}
-                >
-                  <span className="font-serif" style={{ fontSize: 16, fontWeight: 400, color: 'var(--ink)' }}>
-                    {formatMonth(s.month)}
-                  </span>
-                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                    {s.num_stays} stay{s.num_stays === 1 ? '' : 's'} · {s.nights_booked} nights
-                  </span>
-                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-                    {formatCurrency(s.rental_revenue)} rev
-                  </span>
-                  <span className="font-mono tabular-nums" style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
-                    {formatCurrency(s.owner_payout)} payout →
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </CollapsibleSection>
-
         </TabSection>
+
       </PropertyTabs>
 
       <HelmFooter module="Properties" right="Source: Helm" />
