@@ -40,9 +40,14 @@ describe('quo checkout resolution', () => {
       'sync-quo has defined its own mostRecentCheckout again. Two resolvers is how the two Quo ' +
         'paths started disagreeing about which checkout a cleaner text belongs to.',
     );
-    assert.ok(
-      src.includes("import { mostRecentCheckout } from '@/lib/quo-ingest'"),
-      'sync-quo no longer imports the shared resolver',
+    // Match the symbol and its source, not the exact import line: other
+    // shared helpers legitimately ride along in the same import (the
+    // cleaner-issue slip writer does), and an exact-string assertion here
+    // fails on a change that is entirely correct.
+    assert.match(
+      src,
+      /import\s*\{[^}]*\bmostRecentCheckout\b[^}]*\}\s*from\s*'@\/lib\/quo-ingest'/,
+      'sync-quo no longer imports the shared resolver from quo-ingest',
     );
   });
 
