@@ -1,4 +1,15 @@
 import type { HelmPropertyRow } from '@/lib/properties';
+// Facts the 26-step launch checklist also tests come from one definition,
+// so the two lists cannot disagree about the same column. They already had:
+// this item accepted any non-empty bank_last4 while the launch step
+// required exactly four digits, so a malformed three-digit value resolved
+// here and not there.
+import {
+  filled as has,
+  hasBankLast4,
+  pricingIsFlowing,
+  scaPaymentWired,
+} from '@/lib/property-facts';
 
 /**
  * Deep property-onboarding catalog.
@@ -185,8 +196,6 @@ export type OnboardingItem = {
 };
 
 /** Non-empty string check shared by the derives. */
-const has = (v: string | null | undefined): boolean => !!v && v.trim().length > 0;
-
 export const ONBOARDING_ITEMS: OnboardingItem[] = [
   // ── Owner & deal ────────────────────────────────────────────────────
   {
@@ -297,7 +306,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     why: 'Monthly Bank CSV ingest and Cape Ann Elite ACH cleaning charges attribute to the property by this account. Auto-resolves once the account\'s last 4 are on the property record.',
     href: '/properties/{id}/edit#bank',
     hrefLabel: 'Edit field',
-    derive: ({ p }) => has(p.bank_last4),
+    derive: ({ p }) => hasBankLast4(p),
   },
   {
     key: 'financial.chase_signers_named',
@@ -349,7 +358,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     // A demo-mode listing is live, so this item ticked itself green on
     // exactly the properties where the wiring was missing. The item's own
     // why line already named the right signal; the derive did not read it.
-    derive: (ctx) => ctx.scaPaymentSignal === 'wired',
+    derive: (ctx) => scaPaymentWired(ctx.scaPaymentSignal),
   },
   {
     key: 'financial.sca_test_booking',
@@ -941,7 +950,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Set pricing, min-stay, and cleaning fee',
     description: 'Nightly rates, minimum-stay rules, and the guest cleaning fee configured in Guesty.',
     why: 'Auto-resolves when the forward calendar shows real rate variation (2+ distinct nightly prices in the next 60 days). A flat single price on every night is the Guesty base-rate default, i.e. PriceLabs is not pushing to this listing and every channel is underpriced.',
-    derive: (ctx) => ctx.forwardDistinctPrices >= 2,
+    derive: (ctx) => pricingIsFlowing(ctx.forwardDistinctPrices),
   },
   {
     key: 'listing.house_rules',

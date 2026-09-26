@@ -24,6 +24,15 @@
  * were theirs, and which ones were quietly waiting on a code change.
  */
 
+import {
+  hasBankLast4,
+  hasTaxCert,
+  hasExternalTitle,
+  hasGuestyListing,
+  pricingIsFlowing,
+  scaIsLive,
+} from '@/lib/property-facts';
+
 export type LaunchStepStatus = 'todo' | 'in_progress' | 'done' | 'skipped' | 'n_a';
 
 export type LaunchStepPhase =
@@ -427,19 +436,19 @@ export function deriveStepResolved(
       // Anything > 0 means the terms were committed.
       return (p.management_fee_pct ?? 0) > 0;
     case 'bank_last4':
-      return !!p.bank_last4 && p.bank_last4.length === 4;
+      return hasBankLast4(p);
     case 'tax_cert':
-      return !!p.tax_cert_id?.trim();
+      return hasTaxCert(p);
     case 'external_title':
-      return !!p.title?.trim();
+      return hasExternalTitle(p);
     case 'guesty_listing_match':
       // The hard signal is a real Guesty listing_id on the row; the legacy
       // substring (lib/properties.ts > listing_match) is a fallback.
-      return !!p.guesty_listing_id?.trim();
+      return hasGuestyListing(p);
     case 'sca_page_live':
-      return ctx.scaLaunchStatus === 'live';
+      return scaIsLive(ctx.scaLaunchStatus);
     case 'pricing_flowing':
-      return ctx.forwardDistinctPrices >= 2;
+      return pricingIsFlowing(ctx.forwardDistinctPrices);
     case 'quo_cleaner_mapped':
       return ctx.hasQuoCleanerMapping;
     case 'seam_lock_paired':
