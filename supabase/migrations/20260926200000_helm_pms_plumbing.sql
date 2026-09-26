@@ -445,6 +445,16 @@ create unique index if not exists guest_messages_external_uniq
   on public.guest_messages(thread_id, external_message_id) where external_message_id is not null;
 create index if not exists idx_guest_messages_thread on public.guest_messages(thread_id, sent_at desc);
 
+-- One send per concierge approval: /api/pms/threads/<id>/messages claims the
+-- approval_id here before it texts, so a caller that times out and retries
+-- gets the first send back instead of texting the guest twice.
+create table if not exists public.pms_reply_claims (
+  approval_id text primary key,
+  thread_id uuid not null references public.guest_threads(id) on delete cascade,
+  message_id uuid,
+  created_at timestamptz not null default now()
+);
+
 -- ── 9. cleaner digests per region and per-recipient scope ────────────────
 alter table public.cleaner_schedule_recipients
   add column if not exists property_ids text[] not null default '{}',    -- '{}' = every property in `region`
@@ -770,7 +780,7 @@ do $$ declare t text; begin
 
 -- ── 14. RLS: service-role only, no policies, anon grants stripped ────────
 do $$ declare t text; begin
-  foreach t in array array['regions','property_pms_events','ical_export_pulls','guests','booking_events','property_rate_plans','property_rate_days','property_tax_config','property_listing_content','property_listing_photos','message_automations','automation_sends','guest_threads','guest_messages'] loop
+  foreach t in array array['regions','property_pms_events','ical_export_pulls','guests','booking_events','property_rate_plans','property_rate_days','property_tax_config','property_listing_content','property_listing_photos','message_automations','automation_sends','guest_threads','guest_messages','pms_reply_claims'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from anon, authenticated', t);
     execute format('grant all on public.%I to service_role', t);

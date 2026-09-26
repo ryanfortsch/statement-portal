@@ -95,6 +95,25 @@ export function stayStatusOf(
   return 'in_house';
 }
 
+/**
+ * Whether a thread linked to `linked` should move to `candidate`: a guest
+ * who comes back texts the same number, and the thread (one per number)
+ * kept its first stay, so a returning guest showed as Checked out, fell out
+ * of In house, and the concierge's stay picker found no conversation for
+ * the new stay. Moved only when the linked stay is over (or gone) and the
+ * candidate is in house or ahead.
+ */
+export function shouldMoveThreadStay(
+  linked: { id: string; check_in: string; check_out: string } | null,
+  candidate: { id: string; check_in: string; check_out: string } | null,
+  today: string,
+): boolean {
+  if (!candidate || (linked && linked.id === candidate.id)) return false;
+  const c = stayStatusOf(candidate.check_in, candidate.check_out, today);
+  if (c !== 'in_house' && c !== 'upcoming') return false;
+  return !linked || stayStatusOf(linked.check_in, linked.check_out, today) === 'checked_out';
+}
+
 export function addDays(ymd: string, days: number): string {
   const d = new Date(`${ymd}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);

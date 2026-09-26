@@ -122,8 +122,10 @@ node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guest
 node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json
 ```
 
-The pull writes the listing and its calendar only (no reservations; door
-codes, lock codes and wifi are dropped). Keep the file out of git.
+The pull keeps only what the seed reads: the listing without its door
+codes, lock codes, wifi or check-in instructions, and each calendar day's
+price and rules, never the guest Guesty embeds on a booked day. Seed files
+(`*_guesty_seed.json`) are gitignored.
 
 What switches on, deliberately: kb-facts starts feeding the concierge KB;
 reviews already keyed to the property count on the reviews lens; the 04:30

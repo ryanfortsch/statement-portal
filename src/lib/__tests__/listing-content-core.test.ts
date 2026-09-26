@@ -241,7 +241,9 @@ describe('the consumer map', () => {
       assert.ok(consumersOf(field).length > 0, `${field} has no consumer`);
     }
     assert.deepEqual(consumersOf('nonsense'), []);
-    assert.ok(FIELD_CONSUMERS.title.includes('staycapeann.com'));
+    assert.ok(FIELD_CONSUMERS.title.includes('staycapeann.com (once it reads Helm)'));
+    // No reader is named that does not read this record (round 12).
+    assert.ok(!Object.values(FIELD_CONSUMERS).flat().some((c) => /kb-facts|automations/.test(c)));
   });
 
   test('the amenity catalog has no duplicate entries across groups', () => {

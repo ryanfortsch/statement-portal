@@ -7,6 +7,26 @@ import { sendMessage } from '@/lib/quo';
 import { quoFromNumber } from '@/lib/quo-lines';
 import { sendTransactionalViaResend } from '@/lib/resend';
 import { fleetNameMap } from '@/lib/fleet';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+
+/**
+ * Claim an approval before sending on it (pms_reply_claims): the first call
+ * gets 'claimed', a repeat gets the earlier send. A failed send releases its
+ * claim so the caller can try again.
+ */
+async function claimApproval(approvalId: string, threadId: string): Promise<{ claimed: true } | { claimed: false; messageId: string | null }> {
+  const { error } = await supabaseAdmin.from('pms_reply_claims').insert({ approval_id: approvalId, thread_id: threadId });
+  if (!error) return { claimed: true };
+  if (error.code !== '23505') throw new Error(`claim approval: ${error.message}`);
+  const { data } = await supabaseAdmin.from('pms_reply_claims').select('message_id').eq('approval_id', approvalId).maybeSingle();
+  return { claimed: false, messageId: (data as { message_id: string | null } | null)?.message_id ?? null };
+}
+
+async function settleClaim(approvalId: string | null, messageId: string | null, ok: boolean): Promise<void> {
+  if (!approvalId) return;
+  if (ok) await supabaseAdmin.from('pms_reply_claims').update({ message_id: messageId }).eq('approval_id', approvalId);
+  else await supabaseAdmin.from('pms_reply_claims').delete().eq('approval_id', approvalId);
+}
 
 /**
  * /api/pms/threads/<id>/messages
@@ -25,6 +45,11 @@ import { fleetNameMap } from '@/lib/fleet';
  *
  *   {body, sender:'host_ai'|'host_human', actor, approval_id?, subject?}
  *   -> {ok, message_id, rail:'sms'|'email', to}
+ *
+ * With an approval_id the call is idempotent: the first claims it
+ * (pms_reply_claims) before sending, and a retry of the same approval,
+ * even one that arrives while the first is still sending, gets
+ * {ok, duplicate: true, message_id} and texts nobody.
  *
  * The recorded sender_kind is what the caller says it is, so an AI send
  * renders as "Helm AI" and a human's as the team member, not as a Helm
@@ -101,6 +126,12 @@ export async function POST(req: Request, ctx: Ctx) {
     const thread = await getHelmThreadRow(threadId);
     if (!thread) return NextResponse.json({ ok: false, error: 'not_found' }, { status: 404 });
 
+    // One send per approval: a retry gets the first send back.
+    if (approvalId) {
+      const claim = await claimApproval(approvalId, thread.id);
+      if (!claim.claimed) return NextResponse.json({ ok: true, duplicate: true, message_id: claim.messageId });
+    }
+
     // SMS rail: any thread whose guest has a phone, on the GUESTS line only.
     const phone = smsRailOf(thread);
     if (phone) {
@@ -109,6 +140,7 @@ export async function POST(req: Request, ctx: Ctx) {
         const sent = await sendMessage({ from: quoFromNumber('guests'), to: phone, content: text });
         quoId = sent?.id ?? null;
       } catch (err) {
+        await settleClaim(approvalId, null, false);
         return NextResponse.json(
           { ok: false, error: 'send_failed', rail: 'sms', detail: err instanceof Error ? err.message : String(err) },
           { status: 502 },
@@ -126,6 +158,7 @@ export async function POST(req: Request, ctx: Ctx) {
         createForStranger: true,
         raw: { approval_id: approvalId, rail: 'sms', from_line: 'guests', bridge: 'pms' },
       });
+      await settleClaim(approvalId, r.recorded ? r.messageId : null, true);
       return NextResponse.json({ ok: true, rail: 'sms', to: phone, message_id: r.recorded ? r.messageId : null, recorded: r.recorded });
     }
 
@@ -141,7 +174,10 @@ export async function POST(req: Request, ctx: Ctx) {
             ? `Your stay at ${propertyName}`
             : 'Your stay with Stay Cape Ann';
       const sent = await sendTransactionalViaResend({ to: email, subject, html: bodyToHtml(text), text });
-      if (!sent) return NextResponse.json({ ok: false, error: 'send_failed', rail: 'email', detail: 'Resend refused or is not configured' }, { status: 502 });
+      if (!sent) {
+        await settleClaim(approvalId, null, false);
+        return NextResponse.json({ ok: false, error: 'send_failed', rail: 'email', detail: 'Resend refused or is not configured' }, { status: 502 });
+      }
       const r = await recordOutboundEmail({
         email,
         body: text,
@@ -156,10 +192,12 @@ export async function POST(req: Request, ctx: Ctx) {
         guestName: thread.guest_name,
         raw: { approval_id: approvalId, rail: 'email', bridge: 'pms' },
       });
+      await settleClaim(approvalId, r.recorded ? r.messageId : null, true);
       return NextResponse.json({ ok: true, rail: 'email', to: email, message_id: r.recorded ? r.messageId : null, recorded: r.recorded });
     }
 
     // OTA thread, or a guest with no contact on file: nothing Helm can send on.
+    await settleClaim(approvalId, null, false);
     return NextResponse.json(
       { ok: false, error: 'no_rail', channel: channelLabel(thread.channel), external_thread_url: thread.external_thread_url },
       { status: 409 },

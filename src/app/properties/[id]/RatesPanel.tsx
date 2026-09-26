@@ -357,7 +357,7 @@ function SeasonsTool({ propertyId, today, hasPlan }: { propertyId: string; today
           <Field label="Min nights" hint="blank = keep">
             <input name="min_nights" inputMode="numeric" style={input} />
           </Field>
-          <Field label="Closed">
+          <Field label="Closed" hint="Helm's own sales only; block nights to close them on the OTAs">
             <select name="closed_mode" defaultValue="" style={input}>
               <option value="">keep</option>
               <option value="close">close these nights</option>

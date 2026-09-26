@@ -92,9 +92,29 @@ test('round 11: the seed reads an export someone pulled, and the pull never keep
   assert.ok(seed.includes("if (!args.seedPath) fail('--seed <path> is required"));
   const pull = read('scripts/pull_guesty_seed.mts');
   assert.ok(!pull.includes('/v1/reservations'));
-  assert.ok(pull.includes('const SECRET_KEY = /(door|lock|access|gate|key)_?code|wifi|password|checkininstructions/i;'));
+  // The reductions themselves are tested in pricing-seed.test.ts.
+  assert.ok(pull.includes('scrubSeedListing(listing)') && pull.includes('seedCalendarDays(calendar)'));
 });
 
 test('round 11: "configured in Airbnb" answers for Airbnb stays only', () => {
   assert.ok(read('src/lib/automations-core.ts').includes("return rule.configured_in_ota && booking.channel === 'airbnb'"));
+});
+
+test('round 12: a concierge approval is claimed before the reply is sent, once', () => {
+  const src = read('src/app/api/pms/threads/[id]/messages/route.ts');
+  const claim = src.indexOf('const claim = await claimApproval(approvalId, thread.id);');
+  const send = src.indexOf("await sendMessage({ from: quoFromNumber('guests')");
+  assert.ok(claim > 0 && send > 0 && claim < send, 'the claim comes before the SMS send');
+  assert.ok(read('supabase/migrations/20260926200000_helm_pms_plumbing.sql').includes('create table if not exists public.pms_reply_claims ('));
+});
+
+test('round 12: the OTA paste text is fetched for the operator, never copied from the masked ledger', () => {
+  const panel = read('src/app/properties/[id]/AutomationsPanel.tsx');
+  assert.ok(!panel.includes("copy(s.body_rendered ?? '')"));
+  assert.ok(panel.includes('const r = await otaPasteTextAction(propertyId, s.id);'));
+  assert.ok(read('src/lib/automations.ts').includes('return { ok: true, text: rendered.text };'));
+});
+
+test('round 12: a closed rate night says it closes only Helm\'s own sales', () => {
+  assert.ok(!read('src/app/channels/calendar/MultiCalendarGrid.tsx').includes('shows as a hold on the export feed'));
 });

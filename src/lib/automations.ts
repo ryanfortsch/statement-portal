@@ -1000,6 +1000,34 @@ export async function approveSend(id: string, actor: string, opts: { body?: stri
   }
 }
 
+/**
+ * The real text of a message parked for an OTA paste (rail ota_manual). The
+ * ledger keeps only the masked render, and pasted from it a VRBO guest got
+ * "Door code: ••••". Rendered afresh from the rule and the stay for the
+ * signed-in operator, returned, never stored. Refused while a merge field is
+ * missing, so "[guest_first]" is never pasted literally.
+ */
+export async function otaPasteText(id: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  if (!isServiceConfigured) return { ok: false, error: 'Service role is not configured.' };
+  const { data, error } = await supabaseAdmin.from('automation_sends').select(SEND_COLS).eq('id', id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  const row = data as AutomationSendRow | null;
+  if (!row || row.status !== 'awaiting_approval' || row.delivery_used !== 'ota_manual') {
+    return { ok: false, error: 'That message is not waiting to be pasted into an OTA.' };
+  }
+  const cache = newCache();
+  const [booking, allRules, bundle] = await Promise.all([loadBooking(row.booking_id), rulesFor(cache, row.property_id), bundleFor(cache, row.property_id)]);
+  const rule = allRules.find((r) => r.id === row.automation_id) ?? (await getAutomationRule(row.automation_id));
+  if (!booking || !bundle || !rule) return { ok: false, error: 'The stay or its rule is gone; skip this message.' };
+  const guest = await loadGuest(booking.guest_id);
+  const adjustment = await loadAdjustmentFor(booking.property_id, booking.check_in);
+  const rendered = renderTemplate(rule.body, await mergeContextFor(booking, bundle, guest, adjustment));
+  if (rendered.missing.length > 0) {
+    return { ok: false, error: `Missing ${rendered.missing.join(', ')}: fill the record first, or write the message in the OTA yourself.` };
+  }
+  return { ok: true, text: rendered.text };
+}
+
 /** Skip a parked or scheduled row. It stays in the ledger as cancelled with the actor's note. */
 export async function skipSend(id: string, actor: string): Promise<SendVerbResult> {
   if (!isServiceConfigured) return { ok: false, error: 'Service role is not configured.' };

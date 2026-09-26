@@ -347,6 +347,52 @@ export function mapRatePlan(listing: GuestySeedListing, propertyId: string): See
 }
 
 /** The day list out of either calendar shape. */
+/** Keys a Guesty listing export never keeps on disk, at any depth. */
+const SEED_SECRET_KEY = /(door|lock|access|gate|key)_?code|wifi|password|checkininstructions/i;
+/** A line that talks about a code, whatever the spelling. */
+const SEED_CODE_LINE = /\b(key\s*code|keycode|door\s*code|lock\s*code|access\s*code|gate\s*code|pin)\b/i;
+
+/**
+ * A Guesty listing as scripts/pull_guesty_seed.mts writes it: every door
+ * code, lock code, wifi detail and check-in instruction dropped by key, and
+ * every line that mentions a code dropped from free-text custom fields (the
+ * seed reads the check-in blurb from one; a code typed into it must not
+ * reach the file).
+ */
+export function scrubSeedListing(v: unknown, inCustomFields = false): unknown {
+  if (Array.isArray(v)) return v.map((x) => scrubSeedListing(x, inCustomFields));
+  if (typeof v === 'string') {
+    return inCustomFields ? v.split('\n').filter((l) => !SEED_CODE_LINE.test(l)).join('\n') : v;
+  }
+  if (v && typeof v === 'object') {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (SEED_SECRET_KEY.test(k)) continue;
+      o[k] = scrubSeedListing(val, inCustomFields || k === 'customFields');
+    }
+    return o;
+  }
+  return v;
+}
+
+/**
+ * A Guesty calendar reduced to what the seed reads (GuestySeedCalendarDay).
+ * Guesty embeds the whole reservation on every booked day (guest name,
+ * confirmation code, payout); none of it is kept.
+ */
+export function seedCalendarDays(calendar: GuestySeedCalendar): GuestySeedCalendarDay[] {
+  return calendarDaysOf(calendar).map((d) => ({
+    date: d.date,
+    price: d.price ?? null,
+    minNights: d.minNights ?? null,
+    status: d.status,
+    cta: !!d.cta,
+    ctd: !!d.ctd,
+    blocks: d.blocks ? { ...d.blocks } : undefined,
+    blockRefs: (d.blockRefs ?? []).map((r) => ({ type: r.type, startDate: r.startDate, endDate: r.endDate, reservationId: r.reservationId })),
+  }));
+}
+
 export function calendarDaysOf(calendar: GuestySeedCalendar): GuestySeedCalendarDay[] {
   if (!calendar) return [];
   if (Array.isArray(calendar)) return calendar;

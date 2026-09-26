@@ -8,6 +8,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  shouldMoveThreadStay,
   HELM_SMS_MODULE,
   helmConversationId,
   helmThreadIdOf,
@@ -406,5 +407,23 @@ describe('guards on the wiring', () => {
     assert.ok(ingest.includes('recordOutboundSms('), 'a Quo-app reply must reach the Helm inbox');
     assert.ok(ingest.includes('captureUnknownInbound(fromPhone'), 'the unknown-number capture must survive');
     assert.ok(!ingest.includes("from '@supabase/supabase-js'"), 'quo-ingest must use supabaseAdmin, never a hand-rolled client');
+  });
+});
+
+describe('a returning guest moves the thread to the current stay (round 12)', () => {
+  const stay = (id: string, check_in: string, check_out: string) => ({ id, check_in, check_out });
+  const today = '2026-11-05';
+  test('an ended stay gives way to one in house or ahead', () => {
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B2', '2026-11-04', '2026-11-08'), today), true);
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B2', '2026-12-01', '2026-12-05'), today), true);
+  });
+  test('a current stay keeps the thread; a past candidate never takes it', () => {
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-11-01', '2026-11-08'), stay('B2', '2026-12-01', '2026-12-05'), today), false);
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B0', '2026-09-01', '2026-09-05'), today), false);
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B1', '2026-07-01', '2026-07-05'), today), false);
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), null, today), false);
+  });
+  test('a link to a stay that is gone moves to the current one', () => {
+    assert.equal(shouldMoveThreadStay(null, stay('B2', '2026-11-04', '2026-11-08'), today), true);
   });
 });

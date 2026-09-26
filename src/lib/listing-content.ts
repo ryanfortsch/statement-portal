@@ -106,27 +106,37 @@ const PROPERTY_FACT_COLS = 'id, name, title, address, city, region, latitude, lo
 
 // ── Who reads each field (the editor's 'consumed by' line) ──────────────────
 
-export type ListingConsumer = 'staycapeann.com' | 'guest AI (kb-facts)' | 'automations' | 'OTA push (later)';
+/**
+ * Who reads each field, as the editor's 'consumed by' line says it. Only
+ * readers that exist: the guest AI (kb-facts) reads properties, access and
+ * notes, never this record, and automations take the title from
+ * properties.title, so neither is named here until they do. staycapeann.com
+ * reads it through /api/pms once its provider is switched to Helm.
+ */
+export type ListingConsumer = 'staycapeann.com (once it reads Helm)' | 'OTA push (later)';
+
+const SCA: ListingConsumer = 'staycapeann.com (once it reads Helm)';
+const OTA: ListingConsumer = 'OTA push (later)';
 
 export const FIELD_CONSUMERS: Record<string, ListingConsumer[]> = {
-  title: ['staycapeann.com', 'guest AI (kb-facts)', 'automations', 'OTA push (later)'],
-  summary: ['staycapeann.com', 'OTA push (later)'],
-  space: ['staycapeann.com', 'guest AI (kb-facts)', 'OTA push (later)'],
-  access: ['guest AI (kb-facts)', 'OTA push (later)'],
-  interaction: ['OTA push (later)'],
-  neighborhood: ['staycapeann.com', 'guest AI (kb-facts)', 'OTA push (later)'],
-  house_rules: ['staycapeann.com', 'guest AI (kb-facts)', 'OTA push (later)'],
-  notes: ['staycapeann.com'],
-  property_type: ['staycapeann.com', 'OTA push (later)'],
-  room_type: ['OTA push (later)'],
-  accommodates: ['staycapeann.com', 'guest AI (kb-facts)', 'OTA push (later)'],
-  bedrooms: ['staycapeann.com', 'OTA push (later)'],
-  bathrooms: ['staycapeann.com', 'OTA push (later)'],
-  beds: ['staycapeann.com', 'OTA push (later)'],
-  amenities: ['staycapeann.com', 'guest AI (kb-facts)', 'OTA push (later)'],
-  rooms: ['staycapeann.com', 'guest AI (kb-facts)'],
-  photos: ['staycapeann.com', 'OTA push (later)'],
-  hero: ['staycapeann.com'],
+  title: [SCA, OTA],
+  summary: [SCA, OTA],
+  space: [SCA, OTA],
+  access: [OTA],
+  interaction: [OTA],
+  neighborhood: [SCA, OTA],
+  house_rules: [SCA, OTA],
+  notes: [SCA],
+  property_type: [SCA, OTA],
+  room_type: [OTA],
+  accommodates: [SCA, OTA],
+  bedrooms: [SCA, OTA],
+  bathrooms: [SCA, OTA],
+  beds: [SCA, OTA],
+  amenities: [SCA, OTA],
+  rooms: [SCA],
+  photos: [SCA, OTA],
+  hero: [SCA],
 };
 
 export function consumersOf(field: string): ListingConsumer[] {

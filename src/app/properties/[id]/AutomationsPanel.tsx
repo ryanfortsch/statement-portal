@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import {
   approveSendAction,
+  otaPasteTextAction,
   deleteRuleOverrideAction,
   saveRuleOverrideAction,
   sendTestAction,
@@ -21,7 +22,7 @@ import {
   DELIVERY_LABELS,
   MERGE_FIELDS,
   MERGE_FIELD_HELP,
-  SEND_STATUS_LABELS,
+  sendStatusLabel,
   TRIGGER_LABELS,
   type AutomationRule,
 } from '@/lib/automations-core';
@@ -46,6 +47,8 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
   const [testPhone, setTestPhone] = useState('');
   const [openSend, setOpenSend] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  // The real text of an OTA paste, fetched on demand and held only here.
+  const [pasteText, setPasteText] = useState<Record<string, string>>({});
   const [showHistory, setShowHistory] = useState(false);
 
   const run = (id: string, fn: () => Promise<AutomationActionResult>) => {
@@ -239,6 +242,17 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
               run(`ap:${s.id}`, () => approveSendAction(propertyId, s.id, draft[s.id] && draft[s.id] !== s.template_body ? draft[s.id] : null))
             }
             onSkip={() => run(`sk:${s.id}`, () => skipSendAction(propertyId, s.id))}
+            pasteText={pasteText[s.id]}
+            onCopy={() =>
+              run(`cp:${s.id}`, async () => {
+                const r = await otaPasteTextAction(propertyId, s.id);
+                if (r.ok && r.text) {
+                  setPasteText({ ...pasteText, [s.id]: r.text });
+                  copy(r.text);
+                }
+                return { ok: r.ok, message: r.message };
+              })
+            }
           />
         ))}
         {scheduled.map((s) => (
@@ -389,6 +403,8 @@ function SendRow({
   busy,
   onApprove,
   onSkip,
+  onCopy,
+  pasteText,
 }: {
   s: PanelSend;
   open: boolean;
@@ -399,6 +415,8 @@ function SendRow({
   busy: string | null;
   onApprove?: () => void;
   onSkip?: () => void;
+  onCopy?: () => void;
+  pasteText?: string;
 }) {
   const tone = s.status === 'awaiting_approval' ? 'signal' : s.status === 'sent' ? 'pos' : s.status === 'scheduled' || s.status === 'sending' ? 'muted' : s.status === 'failed' || s.status === 'skipped_no_contact' ? 'neg' : 'muted';
   const isOta = s.delivery_used === 'ota_manual';
@@ -410,7 +428,7 @@ function SendRow({
   return (
     <div style={{ padding: '12px 0', borderBottom: '1px solid var(--rule)' }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap', cursor: 'pointer' }} onClick={onOpen}>
-        <Badge tone={tone}>{SEND_STATUS_LABELS[s.status] ?? s.status}</Badge>
+        <Badge tone={tone}>{sendStatusLabel(s.status, s.error)}</Badge>
         <span className="font-mono" style={{ fontSize: 12, color: 'var(--ink)' }}>{s.key}</span>
         <span style={{ fontSize: 13, color: 'var(--ink)' }}>{s.guest_name}</span>
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
@@ -433,6 +451,11 @@ function SendRow({
           {s.to_address && !isOta && <div style={{ color: 'var(--ink-4)', marginBottom: 6 }}>To {s.to_address}</div>}
           {s.subject_rendered && (s.delivery_used === 'email') && <div style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{s.subject_rendered}</div>}
           <div style={{ color: 'var(--ink)', whiteSpace: 'pre-wrap', background: 'var(--paper-2)', padding: '8px 12px', borderLeft: '3px solid var(--rule)' }}>{s.body_rendered}</div>
+          {isOta && pasteText && (
+            // What goes into the OTA: the real text, shown after Copy text in
+            // case the clipboard was refused. Never stored.
+            <textarea readOnly value={pasteText} rows={5} onFocus={(e) => e.currentTarget.select()} style={{ ...inputStyle, width: '100%', marginTop: 8, fontFamily: 'inherit', lineHeight: 1.5 }} />
+          )}
           {canEdit && (
             <div style={{ marginTop: 10 }}>
               <div style={{ color: 'var(--ink-4)', marginBottom: 4 }}>
@@ -456,8 +479,9 @@ function SendRow({
                       Open in {s.channel === 'airbnb' ? 'Airbnb' : s.channel === 'vrbo' ? 'VRBO' : 'Booking.com'}
                     </a>
                   )}
-                  <button type="button" disabled={pending} onClick={() => copy(s.body_rendered ?? '')} style={ghostBtn(false)}>
-                    Copy text
+                  {/* The ledger's text is masked; this fetches the real one. */}
+                  <button type="button" disabled={pending || !onCopy} onClick={onCopy} style={ghostBtn(pending && busy === `cp:${s.id}`)}>
+                    {pending && busy === `cp:${s.id}` ? 'Preparing' : 'Copy text'}
                   </button>
                   <button type="button" disabled={pending} onClick={onApprove} style={solidBtn(pending && busy === `ap:${s.id}`)}>
                     {pending && busy === `ap:${s.id}` ? 'Saving' : 'Mark pasted'}

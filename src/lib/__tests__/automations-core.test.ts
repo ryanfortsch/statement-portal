@@ -44,6 +44,7 @@ import {
   PAUSE_REASON_DISABLED_PREFIX,
   PAUSE_REASON_SUPERSEDED,
   STALE_AFTER_MS,
+  sendStatusLabel,
   type AutomationBooking,
   type AutomationRule,
   type ExistingSend,
@@ -116,12 +117,34 @@ describe('fireAtFor', () => {
     assert.equal(at?.getTime(), now.getTime());
   });
 
-  test('a fire time more than 12h gone is null; within 12h still fires', () => {
+  test('a fire time more than 12h gone is null once the arrival day is over; within 12h still fires', () => {
     const planned = Date.parse('2026-07-14T14:00:00Z');
-    const stale = new Date(planned + STALE_AFTER_MS + 60_000);
     const fresh = new Date(planned + STALE_AFTER_MS - 60_000);
-    assert.equal(fireAtFor(rule(), booking(), PLAN, null, stale), null);
     assert.equal(fireAtFor(rule(), booking(), PLAN, null, fresh)?.toISOString(), '2026-07-14T14:00:00.000Z');
+    const afterArrival = new Date('2026-07-16T05:00:00Z');
+    assert.equal(fireAtFor(rule(), booking(), PLAN, null, afterArrival), null);
+    const midStay = rule({ trigger: 'mid_stay', offset_days: 0, at_local: '10:00' });
+    const longStay = booking({ check_in: '2026-07-15', check_out: '2026-07-25' });
+    assert.equal(fireAtFor(midStay, longStay, PLAN, null, new Date('2026-07-21T12:00:00Z')), null, 'other triggers never go late');
+    const oneNight = booking({ check_in: '2026-07-15', check_out: '2026-07-16' });
+    const midNoTime = rule({ trigger: 'mid_stay', offset_days: 0, at_local: null });
+    assert.equal(fireAtFor(midNoTime, oneNight, PLAN, null, new Date('2026-07-15T20:00:00Z')), null, 'not even on the arrival day');
+  });
+
+  test('an arrival message whose moment passed before it was planned goes now, until the arrival day ends (round 12)', () => {
+    // Booked 22:40 the evening before arrival: pre_arrival (10:00 the day
+    // before) is 12h+ gone at the first planner pass.
+    const late = new Date('2026-07-15T03:05:00Z'); // 23:05 EDT on the 14th
+    assert.equal(fireAtFor(rule(), booking(), PLAN, null, late)?.toISOString(), late.toISOString());
+    const checkinDay = rule({ trigger: 'checkin_day', offset_days: 0, at_local: '08:00' });
+    const switchOn = new Date('2026-07-16T01:00:00Z'); // 21:00 EDT on arrival day, 13h after 08:00
+    assert.equal(fireAtFor(checkinDay, booking(), PLAN, null, switchOn)?.toISOString(), switchOn.toISOString());
+  });
+
+  test('a stale row reads "Missed its time", not "Stay cancelled"', () => {
+    assert.equal(sendStatusLabel('skipped_cancelled', 'stale: the fire time was more than 12h in the past when planned'), 'Missed its time');
+    assert.equal(sendStatusLabel('skipped_cancelled', 'booking_cancelled'), 'Stay cancelled');
+    assert.equal(sendStatusLabel('sent', null), 'Sent');
   });
 
   test('a paid late checkout moves pre_checkout and the anchor date', () => {

@@ -21,6 +21,8 @@ import {
   mapGuestyListingToHelm,
   mapTaxConfig,
   slugFromNickname,
+  scrubSeedListing,
+  seedCalendarDays,
   type GuestySeedCalendarDay,
   type GuestySeedListing,
 } from '../pricing-seed.ts';
@@ -350,5 +352,35 @@ describe('door codes never leave Guesty through this mapper', () => {
     for (const key of ['doorCode', 'lockCode', 'checkInInstructions', 'checkOutInstructions']) {
       assert.ok(!src.includes(key), `pricing-seed.ts reads ${key}`);
     }
+  });
+});
+
+describe('the seed pull keeps nothing it does not need (scripts/pull_guesty_seed.mts)', () => {
+  test("a calendar day keeps what the mapper reads, never the reservation Guesty embeds", () => {
+    const day = {
+      date: '2026-10-10', price: 350, minNights: 3, status: 'booked', cta: false, ctd: true,
+      blocks: { r: true, b: false },
+      reservation: { guest: { fullName: 'Pat Guest' }, confirmationCode: 'HMABC', money: { hostPayout: 999 } },
+      blockRefs: [{ type: 'r', startDate: '2026-10-10', endDate: '2026-10-12', reservationId: 'res1', reservation: { guest: { fullName: 'Pat Guest' } } }],
+    };
+    const [out] = seedCalendarDays({ data: { days: [day as never] } });
+    assert.equal(JSON.stringify(out).includes('Pat Guest'), false);
+    assert.equal(JSON.stringify(out).includes('HMABC'), false);
+    assert.equal(JSON.stringify(out).includes('hostPayout'), false);
+    assert.deepEqual(out, { date: '2026-10-10', price: 350, minNights: 3, status: 'booked', cta: false, ctd: true, blocks: { r: true, b: false }, blockRefs: [{ type: 'r', startDate: '2026-10-10', endDate: '2026-10-12', reservationId: 'res1' }] });
+  });
+
+  test('a listing loses its codes by key, and code lines in custom fields, but keeps ordinary copy', () => {
+    const listing = {
+      title: 'Stay at Black Rock Harbor',
+      doorCode: '1234', lockCode: '5678', wifiPassword: 'x', checkInInstructions: 'use 1234',
+      publicDescription: { summary: 'Drop a pin at the harbor.' },
+      customFields: [{ value: 'Check-in is at 4.\nDoor code: 1234\nPark behind the house.' }],
+    };
+    const out = scrubSeedListing(listing) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(out).sort(), ['customFields', 'publicDescription', 'title']);
+    assert.equal((out.publicDescription as { summary: string }).summary, 'Drop a pin at the harbor.');
+    assert.equal(JSON.stringify(out.customFields).includes('1234'), false);
+    assert.match(JSON.stringify(out.customFields), /Park behind the house/);
   });
 });

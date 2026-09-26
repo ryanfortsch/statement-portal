@@ -12,6 +12,7 @@ import {
   upsertPropertyRule,
   type PlanSummary,
   type RuleInput,
+  otaPasteText,
 } from '@/lib/automations';
 import type { AutomationDelivery, AutomationTrigger, SendMode } from '@/lib/automations-core';
 
@@ -152,6 +153,18 @@ export async function approveSendAction(propertyId: string, sendId: string, body
     default:
       return { ok: true, message: `Recorded as ${r.status}.` };
   }
+}
+
+/** The unmasked text of a message waiting for an OTA paste, for the
+ *  signed-in operator only (lib/automations otaPasteText). Logged by id and
+ *  actor, never with the text. */
+export async function otaPasteTextAction(propertyId: string, sendId: string): Promise<AutomationActionResult & { text?: string }> {
+  const who = await actor();
+  if (!who) return { ok: false, message: 'Not signed in' };
+  const r = await otaPasteText(sendId);
+  if (!r.ok) return { ok: false, message: r.error };
+  console.info('[automations] OTA paste text revealed', { propertyId, sendId, by: who });
+  return { ok: true, message: 'Copied. Paste it into the OTA, then press Mark pasted.', text: r.text };
 }
 
 export async function skipSendAction(propertyId: string, sendId: string): Promise<AutomationActionResult> {

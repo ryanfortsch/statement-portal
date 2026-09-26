@@ -8,15 +8,20 @@
 // SUPABASE_SERVICE_ROLE_KEY (the Guesty token cache lives in Supabase).
 //
 // Writes { "<property>.listing": ..., "<property>.calendar": ... } and nothing
-// else. Reservations are never pulled (guest names, contacts and money do not
-// belong in a file on disk), and every door code, lock code, wifi detail and
-// check-in instruction is dropped from the listing before it is written: the
-// seed mapper (src/lib/pricing-seed.ts) never reads them. Keep the file out of
-// git.
+// else, both reduced before they touch disk (src/lib/pricing-seed.ts):
+//   - the listing loses every door code, lock code, wifi detail and check-in
+//     instruction by key, and every line that mentions a code from its
+//     free-text fields (the check-in blurb the seed reads is one of them);
+//   - the calendar keeps only what the seed reads per day (date, price,
+//     minimum nights, status, the rule flags and block refs): Guesty embeds
+//     each booked day's reservation (guest name, confirmation code, payout),
+//     and none of it is written.
+// Reservations themselves are never pulled. *_guesty_seed.json is gitignored.
 
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { guestyGet } from '../src/lib/guesty.ts';
+import { scrubSeedListing, seedCalendarDays, type GuestySeedCalendar } from '../src/lib/pricing-seed.ts';
 
 function fail(msg: string): never {
   console.error(`pull_guesty_seed: ${msg}`);
@@ -35,26 +40,10 @@ if (!property || !/^[a-z0-9_]+$/.test(property)) fail('--property <helm property
 if (!listingId || !/^[0-9a-f]{24}$/.test(listingId)) fail('--listing <guesty listing id> is required');
 if (!out) fail('--out <path> is required');
 
-/** Keys never written to disk, at any depth. */
-const SECRET_KEY = /(door|lock|access|gate|key)_?code|wifi|password|checkininstructions/i;
-
-function scrub(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(scrub);
-  if (v && typeof v === 'object') {
-    const o: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      if (SECRET_KEY.test(k)) continue;
-      o[k] = scrub(val);
-    }
-    return o;
-  }
-  return v;
-}
-
 const today = new Date().toISOString().slice(0, 10);
 const end = new Date(Date.now() + 400 * 86_400_000).toISOString().slice(0, 10);
 const listing = await guestyGet<Record<string, unknown>>(`/v1/listings/${listingId}`);
-const calendar = await guestyGet<unknown>(`/v1/availability-pricing/api/calendar/listings/${listingId}`, { startDate: today, endDate: end });
+const calendar = await guestyGet<GuestySeedCalendar>(`/v1/availability-pricing/api/calendar/listings/${listingId}`, { startDate: today, endDate: end });
 const path = resolve(out!);
-writeFileSync(path, JSON.stringify({ [`${property}.listing`]: scrub(listing), [`${property}.calendar`]: calendar }, null, 2));
+writeFileSync(path, JSON.stringify({ [`${property}.listing`]: scrubSeedListing(listing), [`${property}.calendar`]: seedCalendarDays(calendar) }, null, 2));
 console.log(`wrote ${path}: listing "${String(listing.title ?? '')}", calendar ${today} to ${end}`);

@@ -571,7 +571,7 @@ export function EditDrawer({
           </Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
             <input type="checkbox" checked={closed} onChange={(e) => setClosed(e.target.checked)} disabled={!p.helmRun || pending} />
-            Closed (not for sale; shows as a hold on the export feed)
+            Closed for Helm&apos;s own sales (staycapeann.com and quotes). Airbnb, VRBO and Booking.com never see it: to close a night there, block it
           </label>
           <Field label="Note" hint="Why this night is priced or closed this way. Shows on the property month grid.">
             <input type="text" value={note} onChange={(e) => setNote(e.target.value)} disabled={!p.helmRun || pending} style={inputStyle} />

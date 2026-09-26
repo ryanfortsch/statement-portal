@@ -331,8 +331,17 @@ export function fireAtFor(
         ? effectiveCheckOutTime(plan, adjustment) ?? '11:00'
         : '00:00';
   }
-  const ms = zonedTimeToMs(day, hhmm, rule.timezone || DEFAULT_TIMEZONE);
-  if (ms < now.getTime() - STALE_AFTER_MS) return null;
+  const tz = rule.timezone || DEFAULT_TIMEZONE;
+  const ms = zonedTimeToMs(day, hhmm, tz);
+  if (ms < now.getTime() - STALE_AFTER_MS) {
+    // An arrival message whose moment passed before Helm could plan it (a
+    // booking made the evening before, or automations switched on with an
+    // arrival today) still has its guest to reach, door code and all: it
+    // goes now, until the arrival day is over. Never stale before then.
+    const arrivalSide = rule.trigger === 'pre_arrival' || rule.trigger === 'checkin_day';
+    if (arrivalSide && now.getTime() < zonedTimeToMs(addDays(booking.check_in, 1), '00:00', tz)) return new Date(now.getTime());
+    return null;
+  }
   return new Date(ms);
 }
 
@@ -1036,6 +1045,14 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
     if (rule.send_mode === 'approve') return { outcome: 'awaiting_approval', rail, reason: 'approve mode' };
   }
   return { outcome: 'send', rail, reason: null };
+}
+
+/** Human copy for a ledger row: a stale plan is written as skipped_cancelled
+ *  with an error starting 'stale:', and reads "Missed its time", never "Stay
+ *  cancelled" (the stay was not). */
+export function sendStatusLabel(status: string, error?: string | null): string {
+  if (status === 'skipped_cancelled' && String(error ?? '').startsWith('stale:')) return 'Missed its time';
+  return SEND_STATUS_LABELS[status] ?? status;
 }
 
 /** Human copy for a ledger status. */

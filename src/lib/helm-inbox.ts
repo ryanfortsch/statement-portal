@@ -36,6 +36,7 @@ import {
   phoneMatchesE164,
   pickBookingForContact,
   previewOf,
+  shouldMoveThreadStay,
   smsRailOf,
   statusAfterInbound,
   summarizeThread,
@@ -209,6 +210,34 @@ async function createThread(seed: ThreadSeed): Promise<ThreadRow | null> {
   return (data ?? null) as ThreadRow | null;
 }
 
+/** Move a thread off a stay that has ended onto the guest's current one
+ * (helm-inbox-core shouldMoveThreadStay). `elsewhere`: the current stay is
+ * at a home Guesty still runs, where this inbox has no say. */
+async function moveThreadToCurrentStay(
+  thread: ThreadRow,
+  candidate: BookingRow | null,
+  today: string,
+  opts: { helmRunOnly?: boolean } = {},
+): Promise<{ thread: ThreadRow; elsewhere: boolean }> {
+  if (!thread.booking_id || !candidate || candidate.id === thread.booking_id) return { thread, elsewhere: false };
+  const linked = await getBooking(thread.booking_id);
+  if (!shouldMoveThreadStay(linked, candidate, today)) return { thread, elsewhere: false };
+  if (opts.helmRunOnly && !(await isHelmRunProperty(candidate.property_id))) return { thread, elsewhere: true };
+  const { data, error } = await supabaseAdmin
+    .from('guest_threads')
+    .update({
+      booking_id: candidate.id,
+      property_id: candidate.property_id,
+      guest_name: candidate.guest_name || thread.guest_name,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', thread.id)
+    .select(THREAD_COLS)
+    .maybeSingle();
+  if (error || !data) return { thread, elsewhere: false };
+  return { thread: data as ThreadRow, elsewhere: false };
+}
+
 /** Fill a thread's stay / guest link when a later message can tell us
  * more than the first one could (a guest who texted before booking). */
 async function attachStayIfMissing(thread: ThreadRow, booking: BookingRow | null, guest: GuestHit | null): Promise<ThreadRow> {
@@ -367,6 +396,14 @@ export async function recordInboundSms(input: InboundSmsInput): Promise<InboundS
   } else if (booking || guest) {
     thread = await attachStayIfMissing(thread, booking, guest);
   }
+  if (thread.booking_id) {
+    // A returning guest: the thread may still point at a stay that ended.
+    const current = pickBookingForContact(await bookingsForPhone(e164, today), today);
+    const moved = await moveThreadToCurrentStay(thread, current, today, { helmRunOnly: input.helmRunOnly });
+    // Their stay now is at a home Guesty runs: not this inbox's message.
+    if (moved.elsewhere) return { recorded: false, reason: 'no_match' };
+    thread = moved.thread;
+  }
 
   const r = await insertMessage(thread, {
     direction: 'inbound',
@@ -452,6 +489,11 @@ export async function recordOutboundSms(input: OutboundSmsInput): Promise<Outbou
       // or an earlier send landed before the stay was in the window).
       const booking = await getBooking(input.bookingId);
       if (booking) thread = await attachStayIfMissing(thread, booking, null);
+    } else if (input.bookingId && thread.booking_id !== input.bookingId) {
+      // A send for a later stay of a returning guest: move the thread onto it
+      // once the one it points at has ended.
+      const booking = await getBooking(input.bookingId);
+      thread = (await moveThreadToCurrentStay(thread, booking, todayEastern())).thread;
     }
   }
 
