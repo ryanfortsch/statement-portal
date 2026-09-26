@@ -158,17 +158,17 @@ alter table public.bookings
   -- How long the row has held its nights (src/lib/echo-cause.ts). live_since:
   -- when its current dates began (set on insert, and again when it comes
   -- back after a real absence or its dates move; feeds reuse UIDs, so
-  -- created_at says when the UID was first seen). kept_*: the nights it
-  -- already held before its last move, with the age they had, so an
-  -- extension keeps the age of the nights the stay already held. Written by
-  -- ical-sync for feed rows and by helm_create_booking / helm_move_booking
-  -- for Helm's own, by the same rule (echo-cause nextAge). The cutover
-  -- handover and the dedupe's pass four read them to tell a closure's cause
-  -- from a later booking.
+  -- created_at says when the UID was first seen). held_ages: the runs of
+  -- nights it already held before its last move, each with the exact age it
+  -- had ([{"from": date, "to": date, "since": timestamptz}], to exclusive),
+  -- so an extension keeps the age of the nights the stay already held and
+  -- a grown Booking.com closure still dates a guest's first nights from
+  -- when they closed. Written by ical-sync for feed rows and by
+  -- helm_create_booking / helm_move_booking for Helm's own, by the same
+  -- rule (echo-cause nextAge). The cutover handover and the dedupe's pass
+  -- four read them to tell a closure's cause from a later booking.
   add column if not exists live_since timestamptz,
-  add column if not exists kept_check_in date,
-  add column if not exists kept_check_out date,
-  add column if not exists kept_since timestamptz;
+  add column if not exists held_ages jsonb;
 
 -- Guesty's rule type on a night its own calendar closes for a rule rather
 -- than a hold (advance notice 'an', booking window 'bw' / 'bd', padding
@@ -603,7 +603,7 @@ create or replace function public.helm_move_booking(
 language plpgsql security definer set search_path = public as $$
 declare
   v_before public.bookings; v_row public.bookings; v_conflict public.bookings;
-  v_live timestamptz; v_kin date; v_kout date; v_ksince timestamptz; v_reage boolean := false;
+  v_live timestamptz; v_ages jsonb; v_reage boolean := false;
 begin
   if p_check_out <= p_check_in then raise exception 'booking_invalid_dates' using errcode = 'P0001'; end if;
   select * into v_before from public.bookings where id = p_booking_id for update;
@@ -639,25 +639,44 @@ begin
     end if;
   end if;
   -- Ages, as src/lib/echo-cause.ts nextAge (keep the two in step): a row
-  -- that starts holding, or comes back more than the echo lag (8 hours)
-  -- after its cancel, is new; one whose dates move keeps, for the nights it
-  -- already held, the latest age they had; anything else keeps its ages.
+  -- that starts holding (an inquiry confirmed; a declined inquiry, which
+  -- never held, re-confirmed), or comes back more than the echo lag (8
+  -- hours) after its cancel, is new; one whose dates move keeps, night by
+  -- night, the age each night it already held had (movedAge); anything
+  -- else keeps its ages. A row moved to dates it does not hold (cancelled
+  -- and moved in one save) keeps no ages: it never held those nights.
   if p_status in ('confirmed','completed','block') then
-    v_live := v_before.live_since; v_kin := v_before.kept_check_in; v_kout := v_before.kept_check_out; v_ksince := v_before.kept_since;
-    if (v_before.status = 'cancelled' and (v_before.cancelled_at is null or now() - v_before.cancelled_at > interval '8 hours'))
+    if (v_before.status = 'cancelled' and (
+            v_before.cancelled_at is null
+            or now() - v_before.cancelled_at > interval '8 hours'
+            or (v_before.live_since is null and v_before.source in ('manual','direct_booking'))))
        or v_before.status not in ('confirmed','completed','block','cancelled') then
-      v_reage := true; v_live := now(); v_kin := null; v_kout := null; v_ksince := null;
+      v_reage := true; v_live := now(); v_ages := null;
     elsif p_check_in <> v_before.check_in or p_check_out <> v_before.check_out then
       v_reage := true; v_live := now();
-      v_kin := greatest(p_check_in, v_before.check_in); v_kout := least(p_check_out, v_before.check_out);
-      if v_kin >= v_kout then
-        v_kin := null; v_kout := null; v_ksince := null;
-      elsif v_before.kept_since is not null and v_before.kept_check_in <= v_kin and v_kout <= v_before.kept_check_out then
-        v_ksince := v_before.kept_since;
-      else
-        v_ksince := coalesce(v_before.live_since, v_before.created_at);
-      end if;
+      select case when count(*) = 0 then null
+                  else jsonb_agg(jsonb_build_object('from', g.first_night, 'to', g.last_night + 1, 'since', g.since) order by g.first_night) end
+        into v_ages
+        from (
+          select x.since, min(x.night) as first_night, max(x.night) as last_night
+            from (
+              select n.night, n.since, n.night - (row_number() over (partition by n.since order by n.night))::int as grp
+                from (
+                  select d::date as night,
+                         coalesce(
+                           (select (seg->>'since')::timestamptz
+                              from jsonb_array_elements(coalesce(v_before.held_ages, '[]'::jsonb)) seg
+                             where d::date >= (seg->>'from')::date and d::date < (seg->>'to')::date
+                             limit 1),
+                           v_before.live_since, v_before.created_at) as since
+                    from generate_series(greatest(p_check_in, v_before.check_in), least(p_check_out, v_before.check_out) - 1, interval '1 day') d
+                ) n
+            ) x
+           group by x.since, x.grp
+        ) g;
     end if;
+  elsif p_check_in <> v_before.check_in or p_check_out <> v_before.check_out then
+    v_reage := true; v_live := null; v_ages := null;
   end if;
   update public.bookings
      set check_in = p_check_in, check_out = p_check_out, nights = (p_check_out - p_check_in), status = p_status,
@@ -666,9 +685,7 @@ begin
                              when v_before.status = 'cancelled' then coalesce(v_before.cancelled_at, now())
                              else now() end,
          live_since = case when v_reage then v_live else live_since end,
-         kept_check_in = case when v_reage then v_kin else kept_check_in end,
-         kept_check_out = case when v_reage then v_kout else kept_check_out end,
-         kept_since = case when v_reage then v_ksince else kept_since end,
+         held_ages = case when v_reage then v_ages else held_ages end,
          updated_at = now()
    where id = p_booking_id returning * into v_row;
   insert into public.booking_events (booking_id, kind, actor, before, after)

@@ -79,7 +79,16 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
         : gb.count > 0
         ? ` ${gb.count} Guesty block${gb.count === 1 ? '' : 's'} cancelled; every hold among them had a Helm block or a reservation on file over it.`
         : '';
-      outcome = { flipped: 'helm', flip_note: `Helm runs ${propertyId} as of ${result.property.cutover_at ?? 'now'}.${mirrorNote}${adoptNote}` };
+      const cs = result.carriedSeasons;
+      const seasonNote = !cs
+        ? ''
+        : cs.error
+        ? ` The blocks carrying a closed season were NOT noted (${cs.error}); the hub will not warn before they run out.`
+        : cs.count > 0
+        ? ` ${cs.count} block${cs.count === 1 ? '' : 's'} carrying a closed season noted; the hub warns before the booking window reaches ${cs.count === 1 ? 'its' : 'their'} end.`
+        : '';
+      const trimNote = result.mirrorTrimmed?.error ? ` Guesty's calendar rows past the Helm window were not cleared (${result.mirrorTrimmed.error}).` : '';
+      outcome = { flipped: 'helm', flip_note: `Helm runs ${propertyId} as of ${result.property.cutover_at ?? 'now'}.${mirrorNote}${adoptNote}${seasonNote}${trimNote}` };
     } catch (err) {
       if (err instanceof CutoverPreflightError) {
         const red = err.preflight.checks.filter((c) => !c.ok).map((c) => `${c.label}: ${c.detail}`);

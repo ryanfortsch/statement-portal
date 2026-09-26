@@ -1060,10 +1060,14 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     stage: 'guest_experience',
     title: 'Trash day and cart location on file',
     description: 'Trash day, recycling day, and where the carts live recorded.',
-    why: 'Drives the trash-day reminder engine, the guest KB, the printed Information Note, and Guesty\'s trashCollectedOn. The city set-out rule comes from civic.ts, so the notes field only needs the cart location. Non-Gloucester homes need the day set by hand.',
+    why: 'Drives the trash-day reminder engine, the guest KB, the printed Information Note, and Guesty\'s trashCollectedOn. The city set-out rule comes from civic.ts, so the notes field only needs the cart location. Outside Gloucester leave the day blank and write where the bins go in the notes: the guest AI turns any trash day into Gloucester\'s cart rule (CLAUDE.md, Trash and recycling).',
     href: '/properties/{id}/edit',
     hrefLabel: 'Edit field',
-    derive: ({ p }) => has(p.trash_day),
+    // Outside Gloucester the location note is the fact on file: a trash day
+    // there makes stay-concierge's schedule block (no city gate) tell guests
+    // the Gloucester cart rule. Asked to set one, the operator did, for
+    // 65 Calderwood (Bridgeport, CT).
+    derive: ({ p }) => has(p.trash_day) || ((p.city || '').split(',')[0].trim() !== 'Gloucester' && has(p.trash_notes)),
   },
   {
     key: 'guest_experience.concierge_knows_home',

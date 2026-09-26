@@ -11,7 +11,7 @@
  */
 
 import type { BookingSource } from '@/lib/channels-types';
-import { echoExplained, heldBeforeCancel, type CoverRow } from './echo-cause.ts';
+import { echoExplained, heldBeforeCancel, type CoverRow, type HeldAge } from './echo-cause.ts';
 
 /**
  * Canonical-source priority. When the same physical stay appears in
@@ -47,11 +47,9 @@ export type DedupRow = {
   /** bookings.live_since: when a row's current dates began (ical-sync,
    *  helm_move_booking). Optional; absent falls back to created_at. */
   live_since?: string | null;
-  /** bookings.kept_*: nights held before the last move, and since when
+  /** bookings.held_ages: nights held before the last move, and since when
    *  (lib/echo-cause nightHeldSinceMs). Optional. */
-  kept_check_in?: string | null;
-  kept_check_out?: string | null;
-  kept_since?: string | null;
+  held_ages?: readonly HeldAge[] | null;
   /** bookings.cancel_reason. 'operator_delete: ...' marks a record the
    *  operator removed (Delete), not a guest's cancellation; optional so
    *  fixtures that predate it load. */
@@ -912,6 +910,11 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
           covers: candidates as CoverRow[],
           now,
           allowRecentWithdrawal: false,
+          // Its own feed's other closures, live or cancelled: a run re-issued
+          // under a new UID is the same closure (echo-cause closureNightSinceMs).
+          closureSiblings: list.filter(
+            (r) => r.id !== echo.id && r.source === 'ical_import' && r.channel_listing_id === echo.channel_listing_id && isBlockLike(r),
+          ) as CoverRow[],
         });
         if (!judged.explained) continue;
         const causeIds = new Set(judged.causes.map((c) => c.id));

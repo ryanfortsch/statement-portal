@@ -62,7 +62,7 @@ import { propertyInScope, recipientScope } from './cleaner-digest-core.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
 import { mirrorWindow, writeHelmCalendarMirror, type HelmMirrorResult } from './helm-calendar-mirror.ts';
 import { relativeAge } from './calendar-model.ts';
-import { carryoverClear, evaluateCarryover, isGuestyRule, mirrorRunsFromDays, type CarryRow, type Carryover, type MirrorDay, type MirrorHold } from './cutover-carryover.ts';
+import { CARRIED_SEASON_NOTE, carryoverClear, evaluateCarryover, isGuestyRule, mirrorRunsFromDays, type CarryRow, type Carryover, type MirrorDay, type MirrorHold } from './cutover-carryover.ts';
 import { todayInEastern } from './sca-quotes-types.ts';
 
 // ── Facts ───────────────────────────────────────────────────────────────────
@@ -648,7 +648,7 @@ export async function loadCarryRows(propertyId: string, todayIso: string): Promi
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, notes, missing_since, cancelled_at, ical_uid, live_since, kept_check_in, kept_check_out, kept_since')
+        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, notes, missing_since, cancelled_at, ical_uid, live_since, held_ages')
         .eq('property_id', propertyId)
         .gt('check_out', todayIso)
         .order('check_in', { ascending: true })
@@ -861,6 +861,11 @@ export type FlipResult = {
   preflight?: CutoverPreflight;
   /** Present on a flip to Helm: Guesty aggregate blocks cancelled. */
   guestyBlocksCancelled?: { count: number; error: string | null };
+  /** Present on a flip to Helm: Helm blocks noted as carrying a closed
+   *  season (CARRIED_SEASON_NOTE), and mirror rows past the Helm window
+   *  dropped. */
+  carriedSeasons?: { count: number; error: string | null };
+  mirrorTrimmed?: { error: string | null };
 };
 
 async function callFlip(propertyId: string, target: 'helm' | 'guesty', actorEmail: string): Promise<FlipResult['property']> {
@@ -907,17 +912,49 @@ export async function flipToHelm(
   // and a sync of that feed would otherwise write them straight back (its
   // upsert keys on channel + UID). A sync already in flight still can; the
   // stale-closure sweep in ical-sync clears those on its next full run.
-  const guestyBlocksCancelled = await cancelGuestyBlocks(
-    carryoverFor(facts).guestyBlocks.map((r) => r.id),
-    actorEmail,
-  ).then(
-    (count) => ({ count, error: null as string | null }),
-    (err: unknown) => ({ count: 0, error: err instanceof Error ? err.message : String(err) }),
-  );
+  const carry = carryoverFor(facts);
+  const settle = <T,>(p: Promise<T>, empty: T) =>
+    p.then(
+      (v) => ({ value: v, error: null as string | null }),
+      (err: unknown) => ({ value: empty, error: err instanceof Error ? err.message : String(err) }),
+    );
+  const cancelled = await settle(cancelGuestyBlocks(carry.guestyBlocks.map((r) => r.id), actorEmail), 0);
+  const guestyBlocksCancelled = { count: cancelled.value, error: cancelled.error };
+  // The blocks that keep a closed season shut now carry the note the hub's
+  // follow-up (carriedSeasonsEnding) looks for, however they were entered.
+  const noted = await settle(noteCarriedSeasons(carry.carriedSeasonBlockIds), 0);
+  const carriedSeasons = { count: noted.value, error: noted.error };
   const window = mirrorWindow(90, 540);
   const mirror = await writeHelmCalendarMirror([propertyId], window.start, window.end);
+  // Rows past the Helm window are what Guesty last showed (the read-ahead
+  // reaches two years); Helm's own mirror reaches them as its window moves.
+  const trimmed = await settle(trimMirrorPast(propertyId, window.end), undefined);
   const [event] = await listPmsEvents(propertyId, 1);
-  return { property, event: event ?? null, mirror, preflight, guestyBlocksCancelled };
+  return { property, event: event ?? null, mirror, preflight, guestyBlocksCancelled, carriedSeasons, mirrorTrimmed: { error: trimmed.error } };
+}
+
+/** Prefix CARRIED_SEASON_NOTE onto each block's notes (once). */
+async function noteCarriedSeasons(ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const { data, error } = await supabaseAdmin.from('bookings').select('id, notes').in('id', [...ids]);
+  if (error) throw new Error(`read carried blocks: ${error.message}`);
+  let count = 0;
+  for (const r of (data ?? []) as Array<{ id: string; notes: string | null }>) {
+    if (String(r.notes ?? '').startsWith(CARRIED_SEASON_NOTE)) continue;
+    const notes = `${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end.${r.notes ? `\n${r.notes}` : ''}`;
+    const { error: upErr } = await supabaseAdmin.from('bookings').update({ notes, updated_at: new Date().toISOString() }).eq('id', r.id);
+    if (upErr) throw new Error(`note carried block: ${upErr.message}`);
+    count += 1;
+  }
+  return count;
+}
+
+/** Drop this home's calendar mirror rows after `end` (flip only). */
+async function trimMirrorPast(propertyId: string, end: string): Promise<void> {
+  for (const table of ['property_calendar_days', 'property_calendar_blocks']) {
+    const { error } = await supabaseAdmin.from(table).delete().eq('property_id', propertyId).gt('date', end);
+    if (error) throw new Error(`trim ${table}: ${error.message}`);
+  }
 }
 
 /**

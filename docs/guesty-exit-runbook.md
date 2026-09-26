@@ -172,9 +172,11 @@ row stays `pricelabs` so the calendar labels OTA prices honestly.
 
 ## Step 7. Disconnect in Guesty and flip
 
-Before you touch Guesty, open the channel hub's preflight and re-enter, as
-Helm blocks, every hold it lists under "Guesty stays handed over" (owner
-holds, a season closed from a fixed date). Helm reads them from Guesty's
+Before you touch Guesty, press "Read Guesty's calendar ahead" on the
+channel hub (it reads this home's Guesty calendar two years out), then
+re-enter, as Helm blocks, every hold the hub lists under "Guesty holds to
+re-enter before the first tick" (owner holds, a season closed from a fixed
+date; each has a link that pre-fills the block). Helm reads them from Guesty's
 calendar mirror (or, on a home with one, the Guesty aggregate feed), and a
 hold may be placed over Guesty's copy. Doing it now matters: from the first
 tick below, an OTA's leftover copy of a Guesty hold is imported too, and a
@@ -248,7 +250,9 @@ check is green:
     block, a season "closed from a fixed date" ends there: before the
     booking window reaches that end, extend the block (a Rental season
     closes Helm's own sales, but only a block reaches the OTAs through the
-    export). The flip cancels every Guesty block;
+    export). The flip notes each block that carries such a season, and
+    the hub and `/today` warn when the booking window nears its end. The
+    flip cancels every Guesty block;
   - the rate plan's booking window is no wider than Guesty's rolling one
     (Guesty closed 21 Horton 270 days out; a 365-day plan would sell the
     rest on staycapeann.com the moment the rule is gone). Set the same

@@ -19,16 +19,18 @@
  *   - the chain reaches now: a live row, or, where the caller allows it, one
  *     let go within the echo lag (the OTA has not pulled since).
  *
- * How long a row has held a night (nightHeldSinceMs) is read off three
+ * How long a row has held a night (nightHeldSinceMs) is read off two
  * columns, written by ical-sync for feed rows and by helm_move_booking for
  * Helm's own (the same rule, nextAge): live_since, when the row's current
- * dates began, and a kept range (kept_check_in, kept_check_out, kept_since)
- * of nights it already held before its last move, with the age they had. So
- * an extension keeps the age of the nights the stay already held (the OTA's
- * unchanged closures of them are still its echo), while a stay moved onto
- * the nights of a guest nobody entered starts those nights at the move and
- * is not that guest's cause. A row back within the lag of its cancel keeps
- * its age; one back later starts again.
+ * dates began, and held_ages, the runs of nights it already held before its
+ * last move with the exact age each had. So an extension keeps the age of
+ * the nights the stay already held (the OTA's unchanged closures of them
+ * are still its echo), while a stay moved onto the nights of a guest nobody
+ * entered starts those nights at the move and is not that guest's cause. A
+ * row back within the lag of its cancel keeps its age; one back later
+ * starts again. A closure's own age runs back across the rows its feed
+ * re-issued it under (closureNightSinceMs), so a new UID for a grown run
+ * does not make a guest's nights look new.
  *
  * What time cannot tell apart is left to a person: a hold typed in the
  * minutes between an OTA guest's booking and Helm's next import of that OTA
@@ -62,30 +64,32 @@ export const REVIVAL_GAP_MS = 2 * 3_600_000;
 
 const HOLDING = new Set(['confirmed', 'completed', 'block']);
 
-/** The age columns (bookings.live_since, kept_check_in / kept_check_out /
- *  kept_since) with the row's dates and creation. */
+/** A run of nights a row already held before its last move, and since
+ *  when (bookings.held_ages, one element per run of equal age). */
+export type HeldAge = { from: string; to: string; since: string };
+
+/** The age columns (bookings.live_since, bookings.held_ages) with the row's
+ *  dates and creation. */
 export type AgeRow = {
   check_in: string;
   check_out: string;
   created_at: string;
   live_since?: string | null;
-  kept_check_in?: string | null;
-  kept_check_out?: string | null;
-  kept_since?: string | null;
+  held_ages?: readonly HeldAge[] | null;
 };
 
 /** What a writer stores in the age columns. */
 export type AgeWrite = {
   live_since: string;
-  kept_check_in: string | null;
-  kept_check_out: string | null;
-  kept_since: string | null;
+  held_ages: HeldAge[] | null;
 };
 
 /** A row already on file, as the age rule reads it. */
 export type PriorRow = AgeRow & {
   status: string;
   cancelled_at: string | null;
+  /** bookings.source; absent reads as a feed row (heldBeforeCancel). */
+  source?: string;
 };
 
 /** When a row's current dates began: live_since, else created_at. */
@@ -93,38 +97,49 @@ export function heldSinceMs(r: { created_at: string; live_since?: string | null 
   return Date.parse(r.live_since ?? r.created_at);
 }
 
-/** When a row began holding one of its nights: the kept range's age for a
- *  night it already held before its last move, else heldSinceMs. */
+/** When a row began holding one of its nights: the age held_ages records
+ *  for a night it already held before its last move, else heldSinceMs. */
 export function nightHeldSinceMs(r: AgeRow, night: string): number {
-  if (r.kept_since && r.kept_check_in && r.kept_check_out && r.kept_check_in <= night && night < r.kept_check_out) {
-    const kept = Date.parse(r.kept_since);
-    if (Number.isFinite(kept)) return kept;
+  for (const seg of r.held_ages ?? []) {
+    if (seg.from <= night && night < seg.to) {
+      const t = Date.parse(seg.since);
+      if (Number.isFinite(t)) return t;
+    }
   }
   return heldSinceMs(r);
 }
 
 function fresh(at: Date): AgeWrite {
-  return { live_since: at.toISOString(), kept_check_in: null, kept_check_out: null, kept_since: null };
+  return { live_since: at.toISOString(), held_ages: null };
+}
+
+function nextNight(d: string): string {
+  return new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
 }
 
 /**
  * The ages after a row's dates move from `prior` to `next` at `at`:
- * live_since restarts, and the nights both ranges share keep the age they
- * had. One kept range holds one age, so the shared nights take the LATEST
- * age any of them had (never older than the truth: a kept night can only
- * read as younger, which lists a closure, never hides one).
+ * live_since restarts (the nights it adds start now), and every night both
+ * ranges share keeps exactly the age it had, night by night, in held_ages.
+ * Exact on both sides: a stay extended twice still vouches for its first
+ * nights from its first booking, and a Booking.com closure grown twice
+ * still dates a guest's original nights from when they closed (a single
+ * merged age read one of the two younger than the truth, and a younger
+ * closure hid a double booking).
  */
 export function movedAge(prior: AgeRow, next: { check_in: string; check_out: string }, at: Date): AgeWrite {
   const from = prior.check_in > next.check_in ? prior.check_in : next.check_in;
   const to = prior.check_out < next.check_out ? prior.check_out : next.check_out;
-  if (from >= to) return fresh(at);
-  let since = heldSinceMs(prior);
-  const keptSince = Date.parse(prior.kept_since ?? '');
-  if (prior.kept_check_in && prior.kept_check_out && Number.isFinite(keptSince) && prior.kept_check_in <= from && to <= prior.kept_check_out) {
-    since = keptSince;
+  const held: HeldAge[] = [];
+  for (let d = from; d < to && held.length < 1100; d = nextNight(d)) {
+    const t = nightHeldSinceMs(prior, d);
+    if (!Number.isFinite(t)) continue;
+    const since = new Date(t).toISOString();
+    const last = held[held.length - 1];
+    if (last && last.to === d && last.since === since) last.to = nextNight(d);
+    else held.push({ from: d, to: nextNight(d), since });
   }
-  if (!Number.isFinite(since)) return fresh(at);
-  return { live_since: at.toISOString(), kept_check_in: from, kept_check_out: to, kept_since: new Date(since).toISOString() };
+  return { live_since: at.toISOString(), held_ages: held.length > 0 ? held : null };
 }
 
 /**
@@ -147,6 +162,8 @@ export function nextAge(
 ): AgeWrite | null {
   if (!prior) return fresh(at);
   if (prior.status === 'cancelled') {
+    // A Helm row that never held (a declined inquiry) starts holding now.
+    if (!heldBeforeCancel({ source: prior.source ?? 'ical_import', live_since: prior.live_since })) return fresh(at);
     const gone = Date.parse(prior.cancelled_at ?? '');
     const gap = next.hold_kind === 'ota' ? REVIVAL_GAP_MS : ECHO_LAG_GRACE_MS;
     if (!Number.isFinite(gone) || at.getTime() - gone > gap) return fresh(at);
@@ -180,6 +197,40 @@ export type CoverRow = AgeRow & {
 export type ClosureRow = AgeRow;
 
 /**
+ * When a closure began closing one of its nights, run back across the
+ * other closures its own feed published for that night (`siblings`: the
+ * same listing's closures, live, and cancelled with cancelled_at): a feed
+ * that re-issues a grown run under a new UID cancels the old event as the
+ * new one appears, and read alone the new row dated a guest's nights from
+ * the re-issue. Siblings chain when one was still up within `gapMs` of the
+ * next one's start (REVIVAL_GAP_MS, the same hiccup allowance a returning
+ * closure gets). Never later than the closure's own age.
+ */
+export function closureNightSinceMs(
+  closure: AgeRow,
+  night: string,
+  siblings: readonly CoverRow[],
+  gapMs: number = REVIVAL_GAP_MS,
+): number {
+  let since = nightHeldSinceMs(closure, night);
+  if (!Number.isFinite(since)) return since;
+  const spells = siblings
+    .filter((r) => r !== closure && r.check_in <= night && night < r.check_out)
+    .map((r) => ({ start: nightHeldSinceMs(r, night), end: r.status === 'cancelled' ? Date.parse(r.cancelled_at ?? '') : Infinity }))
+    .filter((iv) => Number.isFinite(iv.start) && !Number.isNaN(iv.end));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const iv of spells) {
+      if (iv.start < since && iv.end >= since - gapMs) {
+        since = iv.start;
+        changed = true;
+      }
+    }
+  }
+  return since;
+}
+
+/**
  * Night by night, whether `covers` account for `nights` of `closure` as an
  * echo (see the module docblock), and the live rows at the end of the
  * chains. `covers` are the rows the OTA was sent: live ones, and cancelled
@@ -195,11 +246,13 @@ export function echoExplained(input: {
   /** A chain whose last row was let go within graceMs of now still counts:
    *  the OTA has not pulled since. */
   allowRecentWithdrawal: boolean;
+  /** The closure's own feed's other closures (closureNightSinceMs). */
+  closureSiblings?: readonly CoverRow[];
 }): { explained: boolean; causes: CoverRow[] } {
   const grace = input.graceMs ?? ECHO_LAG_GRACE_MS;
   const causes = new Map<string, CoverRow>();
   for (const night of input.nights) {
-    const age = nightHeldSinceMs(input.closure, night);
+    const age = closureNightSinceMs(input.closure, night, input.closureSiblings ?? []);
     const since = Number.isFinite(age) ? age : Infinity;
     const intervals: Array<{ row: CoverRow; start: number; end: number }> = [];
     for (const r of input.covers) {

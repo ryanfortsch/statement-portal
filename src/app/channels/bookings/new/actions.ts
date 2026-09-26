@@ -124,6 +124,10 @@ export async function createManualBooking(formData: FormData) {
       type: isBlock ? 'block' : null,
       check_in: checkIn,
       check_out: checkOut,
+      // Carried back so a retry after a conflict keeps what was typed (the
+      // hub's carried-season note included).
+      hold_kind: isBlock ? holdKindRaw || null : null,
+      notes: notes ? notes.slice(0, 500) : null,
     })}`;
   }
 

@@ -25,7 +25,7 @@ import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
 import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, releaseAnswers, type CancelGuard } from '@/lib/ical-cancel-policy';
-import { nextAge, type AgeWrite, type PriorRow } from '@/lib/echo-cause';
+import { nextAge, type AgeWrite, type HeldAge, type PriorRow } from '@/lib/echo-cause';
 import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadStrictDedupeHomes, guestyEchoPropertyIds, type ListingScopeRow } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
@@ -102,7 +102,7 @@ async function loadReattachedPrior(sb: SupabaseClient, rows: readonly UpsertRow[
 const ID_WRITE_CHUNK = 200;
 
 /** What lib/echo-cause nextAge reads off a row on file. */
-const AGE_COLUMNS = 'status, check_in, check_out, cancelled_at, created_at, live_since, kept_check_in, kept_check_out, kept_since';
+const AGE_COLUMNS = 'status, check_in, check_out, cancelled_at, created_at, live_since, held_ages';
 
 /** The columns the cancel pass reads off an existing ical_import row. */
 type ExistingRow = {
@@ -117,9 +117,7 @@ type ExistingRow = {
   cancelled_at: string | null;
   created_at: string;
   live_since: string | null;
-  kept_check_in: string | null;
-  kept_check_out: string | null;
-  kept_since: string | null;
+  held_ages: HeldAge[] | null;
 };
 
 /** What the sync writes per event. booked_at is added on the insert only. */
@@ -760,7 +758,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, live_since, kept_check_in, kept_check_out, kept_since, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, live_since, held_ages, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },

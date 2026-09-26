@@ -263,6 +263,17 @@ export default async function ChannelsPropertyPage({
                   </span>
                 </form>
               )}
+
+              {/* Before the first tick the Needs attention panel is not shown,
+                  and the runbook re-enters Guesty's holds now: the same links. */}
+              {!helmRun && !cutoverUnderway && carry && carry.guestyHoldsUncarried.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--ink-3)' }}>Guesty holds to re-enter before the first tick</div>
+                  <ul style={{ margin: 0, paddingLeft: 16, display: 'grid', gap: 6 }}>
+                    <GuestyHoldLinks rows={carry.guestyHoldsUncarried} propertyId={propertyId} />
+                  </ul>
+                </div>
+              )}
             </div>
 
             <div>
@@ -557,18 +568,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
             title="Holds set in Guesty that Helm does not have yet"
             why="Guesty is going away, and with it every hold it set: owner holds, and a season closed from a fixed date. Re-enter each one you want kept as a Helm block (a hold may be placed over Guesty's copy). Guesty's rolling booking-window and advance-notice rules are left out of this list; the rate plan and each OTA's own settings replace them."
           >
-            {carry.guestyHoldsUncarried.map((r) => (
-              <li key={r.id}>
-                {rowLine(r)}{' '}
-                <Link
-                  href={`/channels/bookings/new?property=${propertyId}&type=block&check_in=${r.check_in}&check_out=${r.check_out}${r.rolling ? `&hold_kind=other&notes=${encodeURIComponent(`${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end`)}` : ''}`}
-                  style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}
-                >
-                  Re-enter as a Helm block →
-                </Link>
-                {r.rolling && <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>Guesty closes it with no end; carried a year past what Helm could sell</span>}
-              </li>
-            ))}
+            <GuestyHoldLinks rows={carry.guestyHoldsUncarried} propertyId={propertyId} />
           </Item>
         )}
         {carry.bookingWindowGap && (
@@ -653,6 +653,31 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
         )}
       </div>
     </section>
+  );
+}
+
+/** Each Guesty hold Helm does not have yet, with a link that pre-fills it
+ *  as a Helm block (a closure with a rolling end: its slack and the
+ *  carried-season note). */
+function GuestyHoldLinks({ rows, propertyId }: { rows: readonly CarryRow[]; propertyId: string }) {
+  return (
+    <>
+      {rows.map((r) => (
+        <li key={r.id}>
+          <span className="font-mono" style={{ fontSize: 12 }}>
+            {r.check_in} → {r.check_out}
+            {r.guest_name ? <span style={{ fontFamily: 'inherit', marginLeft: 8, color: 'var(--ink-3)' }}>{r.guest_name}</span> : null}
+          </span>{' '}
+          <Link
+            href={`/channels/bookings/new?property=${propertyId}&type=block&check_in=${r.check_in}&check_out=${r.check_out}${r.rolling ? `&hold_kind=other&notes=${encodeURIComponent(`${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end`)}` : ''}`}
+            style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}
+          >
+            Re-enter as a Helm block →
+          </Link>
+          {r.rolling && <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>Guesty closes it with no end; carried a year past what Helm could sell</span>}
+        </li>
+      ))}
+    </>
   );
 }
 

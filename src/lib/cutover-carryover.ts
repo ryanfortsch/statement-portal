@@ -52,7 +52,7 @@
 
 import { exportableBooking, isOtaHold } from './ical-export.ts';
 import { isRealHoldType } from './calendar-holds.ts';
-import { ECHO_LAG_GRACE_MS, echoExplained, heldBeforeCancel } from './echo-cause.ts';
+import { ECHO_LAG_GRACE_MS, echoExplained, heldBeforeCancel, type HeldAge } from './echo-cause.ts';
 
 export { ECHO_LAG_GRACE_MS };
 
@@ -77,11 +77,9 @@ export type CarryRow = {
   ical_uid?: string | null;
   /** bookings.live_since: when this row's current dates began. */
   live_since?: string | null;
-  /** bookings.kept_*: nights it already held before its last move, and
+  /** bookings.held_ages: nights it already held before its last move, and
    *  since when (lib/echo-cause nightHeldSinceMs). */
-  kept_check_in?: string | null;
-  kept_check_out?: string | null;
-  kept_since?: string | null;
+  held_ages?: readonly HeldAge[] | null;
   /** Set only on the synthetic rows for Guesty calendar holds (MirrorHold.kind). */
   raw_kind?: string;
   /** bookings.notes (read for CARRIED_SEASON_NOTE). */
@@ -218,26 +216,33 @@ export function mirrorRunsFromDays(
     run = { check_in: date, check_out: next(date), block_type: r.block_type, note, kind, rolling: false, key, last: date, blockEnd, rule: r.block_rule_type ?? null };
   }
   flush();
-  // A closure that runs on UNDER the mirror's last night (a hold or a stay
-  // sits on it) still rolls. Judged by that night's own rule type
-  // (calendar-days records it under holds and stays too): 'bd' names the
-  // fixed-date closure; with no type recorded (rows written before the
-  // column), the last unknown run is taken as rolling, which fails closed.
-  // Judged per run, a hold on the last nights made the season look bounded
-  // and the rest of it was never asked for.
+  // A closure that runs on UNDER the mirror's last nights (a hold or a stay
+  // sits on them) still rolls. Only the closure that ends exactly where
+  // that unbroken tail of held or stayed-in nights begins can, and only
+  // when the tail's own rule type says the closure is still beneath it
+  // (calendar-days records it under holds and stays too): 'bd' for a
+  // fixed-date closure, the run's own type for an unknown one (both null:
+  // rows written before the column, which fails closed). Judged per run, a
+  // hold on the last nights made a season look bounded and the rest of it
+  // was never asked for; judged loosely, a hold on the last night made any
+  // earlier, finished closure roll.
   const tail = rows[rows.length - 1];
   if (tail && String(tail.status ?? '') !== 'available') {
     const tailKind = kindOf(tail);
     if (tailKind === 'hold' || tailKind === 'skip') {
+      let i = rows.length - 1;
+      while (i > 0) {
+        const prev = rows[i - 1];
+        const pk = kindOf(prev);
+        const contiguous = next(String(prev.date).slice(0, 10)) === String(rows[i].date).slice(0, 10);
+        if (!contiguous || String(prev.status ?? '') === 'available' || !(pk === 'hold' || pk === 'skip')) break;
+        i -= 1;
+      }
+      const tailStart = String(rows[i].date).slice(0, 10);
       const tailRule = tail.block_rule_type ?? null;
-      for (let i = out.length - 1; i >= 0; i--) {
-        const h = out[i];
-        const beneath =
-          h.kind === 'closed_from_date' ? tailRule === 'bd' : h.kind === 'unknown' ? tailRule === null || tailRule === h.rule : false;
-        if (beneath) {
-          h.rolling = true;
-          break;
-        }
+      const beneath = out.find((h) => h.check_out === tailStart && (h.kind === 'closed_from_date' || h.kind === 'unknown'));
+      if (beneath && (beneath.kind === 'closed_from_date' ? tailRule === 'bd' : tailRule === (beneath.rule ?? null))) {
+        beneath.rolling = true;
       }
     }
   }
@@ -272,6 +277,11 @@ export type Carryover = {
    *  Guesty's calendar mirror, when Helm could sell further than it reaches:
    *  a hold that starts after it cannot be seen. Null otherwise. */
   mirrorBlindFrom: string | null;
+  /** The live Helm blocks that carry a closure with a rolling end over its
+   *  last demanded night: the flip notes them (CARRIED_SEASON_NOTE), so a
+   *  block typed by hand before the tick is followed up like one entered
+   *  from the hub's link. */
+  carriedSeasonBlockIds: string[];
   /** Helm blocks carried from a Guesty closed season (CARRIED_SEASON_NOTE)
    *  whose end the booking window reaches within 60 days: extend them, or
    *  the season's nights go on sale. After the flip nothing else says so. */
@@ -538,7 +548,19 @@ export function evaluateCarryover(input: {
     // A Booking.com reservation on file is the closure's cause outright;
     // every other night must be Booking.com echoing what Helm sent it.
     const echoNights = nightsAhead(h, todayIso).filter((n) => !bcomReservationNights.has(n));
-    const echo = echoExplained({ closure: h, nights: echoNights, covers: bcomCovers, now: now.getTime(), allowRecentWithdrawal: true });
+    // Its own feed's other closures of these nights: a run re-issued under a
+    // new UID is the same closure (lib/echo-cause closureNightSinceMs).
+    const siblings = rows.filter(
+      (r) => r.source === 'ical_import' && r.hold_kind === 'ota' && r.channel_listing_id === h.channel_listing_id,
+    );
+    const echo = echoExplained({
+      closure: h,
+      nights: echoNights,
+      covers: bcomCovers,
+      now: now.getTime(),
+      allowRecentWithdrawal: true,
+      closureSiblings: siblings,
+    });
     if (!echo.explained) bookingComUnexplained.push(h);
   }
 
@@ -562,6 +584,19 @@ export function evaluateCarryover(input: {
     .reduce<string | null>((m, r) => (!m || r.check_out > m ? r.check_out : m), null);
   const rollingEnd = (r: CarryRow): boolean => guestyBlockTag(r.ical_uid) === 'bd' || (!!horizonMark && r.check_out >= horizonMark);
   const listEnd = shiftDay(horizonEnd, CARRY_SLACK_DAYS);
+  // The Helm blocks over the last night Helm could sell of each closure
+  // with a rolling end: they are what keeps that season shut after the flip.
+  const lastDemanded = shiftDay(horizonEnd, -1);
+  const carriedSeasonBlockIds = new Set<string>();
+  const noteCarriers = (from: string) => {
+    if (from > lastDemanded) return;
+    for (const c of carriers) {
+      if (c.status === 'block' && c.source !== 'ical_import' && c.check_in <= lastDemanded && lastDemanded < c.check_out) {
+        carriedSeasonBlockIds.add(c.id);
+      }
+    }
+  };
+  for (const r of guestyBlocks) if (!isGuestyRule(r) && rollingEnd(r)) noteCarriers(r.check_in);
   const guestyHoldsUncarried = guestyBlocks
     .filter((r) => !isGuestyRule(r) && !coveredBy(nightsToCarry(r, rollingEnd(r)), carriers))
     .map((r) => (rollingEnd(r) ? { ...r, rolling: true, check_out: r.check_out > listEnd ? r.check_out : listEnd } : r));
@@ -573,6 +608,7 @@ export function evaluateCarryover(input: {
   const mirrorOnly = aggregateIds.size === 0 && input.calendarAuthority !== 'helm';
   let mirrorBlindFrom: string | null = null;
   if (mirrorOnly) {
+    for (const m of input.mirrorHolds ?? []) if (m.rolling && m.check_out > todayIso) noteCarriers(m.check_in);
     for (const m of input.mirrorHolds ?? []) {
       if (m.check_out <= todayIso) continue;
       const end = m.rolling ? horizonEnd : m.check_out;
@@ -651,6 +687,9 @@ export function evaluateCarryover(input: {
 
   // 6. Carried closed seasons whose end the booking window is about to reach.
   const soon = shiftDay(todayIso, (planWindow && planWindow > 0 ? planWindow : DEFAULT_CARRY_HORIZON_DAYS) + 60);
+  // A block whose end another live row already carries on from (a guest's
+  // stay, the season's next block) is not running out.
+  const liveCanonical = rows.filter((r) => r.duplicate_of == null && LIVE.has(r.status));
   const carriedSeasonsEnding = rows.filter(
     (r) =>
       r.status === 'block' &&
@@ -658,7 +697,8 @@ export function evaluateCarryover(input: {
       r.source !== 'ical_import' &&
       String(r.notes ?? '').startsWith(CARRIED_SEASON_NOTE) &&
       r.check_out > todayIso &&
-      r.check_out <= soon,
+      r.check_out <= soon &&
+      !liveCanonical.some((o) => o.id !== r.id && o.check_in <= r.check_out && r.check_out < o.check_out),
   );
 
   const byDate = (a: CarryRow, b: CarryRow) => a.check_in.localeCompare(b.check_in) || a.id.localeCompare(b.id);
@@ -672,6 +712,7 @@ export function evaluateCarryover(input: {
     guestyHoldsUncarried: guestyHoldsUncarried.sort(byDate),
     bookingWindowGap,
     mirrorBlindFrom,
+    carriedSeasonBlockIds: [...carriedSeasonBlockIds].sort(),
     carriedSeasonsEnding: carriedSeasonsEnding.sort(byDate),
     unreadFeedStays: unreadFeedStays.sort(byDate),
   };

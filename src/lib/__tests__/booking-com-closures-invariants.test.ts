@@ -187,7 +187,7 @@ describe('round 6: Guesty passes, live_since, the record form and the rule type'
     // listing is judged against what it was there, not taken as new.
     assert.ok(src.includes('const age = nextAge(existingByUid.get(r.ical_uid) ?? reattachedPrior.get(`${r.channel}|${r.ical_uid}`) ?? null, r, startedAt);'))
     assert.ok(src.includes('const reattachedPrior = await loadReattachedPrior(sb, reattached);'))
-    assert.ok(src.includes("const AGE_COLUMNS = 'status, check_in, check_out, cancelled_at, created_at, live_since, kept_check_in, kept_check_out, kept_since';"))
+    assert.ok(src.includes("const AGE_COLUMNS = 'status, check_in, check_out, cancelled_at, created_at, live_since, held_ages';"))
     assert.ok(src.includes('.upsert(fresh.map((r) => ({ ...r, ...ages.get(r.ical_uid)! })), { onConflict:'));
     assert.ok(src.includes('live_since: startedAt.toISOString(),'));
   });

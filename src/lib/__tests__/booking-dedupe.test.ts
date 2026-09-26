@@ -809,6 +809,18 @@ describe('round 8: a declined inquiry is never a link in pass four', () => {
   });
 });
 
+describe('round 9: a closure re-issued under a new UID keeps its age in pass four', () => {
+  test("a Booking.com guest's grown run, re-issued, is not filed under the Airbnb stay sold in the race", () => {
+    const NOW = new Date('2026-10-20T12:00:00Z');
+    const first = row({ id: 'C1', property_id: '65_calderwood', channel: 'booking_com', channel_listing_id: 'listing-bcom', status: 'cancelled', cancelled_at: '2026-10-01T15:00:00Z', raw_summary: 'CLOSED - Not available', created_at: '2026-10-01T10:30:00Z', live_since: '2026-10-01T10:30:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const reissued = row({ id: 'C2', property_id: '65_calderwood', channel: 'booking_com', channel_listing_id: 'listing-bcom', status: 'block', raw_summary: 'CLOSED - Not available', created_at: '2026-10-01T14:30:00Z', live_since: '2026-10-01T14:30:00Z', check_in: '2026-11-10', check_out: '2026-11-16' });
+    const race = row({ id: 'S', property_id: '65_calderwood', channel: 'airbnb', channel_listing_id: 'listing-airbnb', external_confirmation_code: 'HMRACE0001', created_at: '2026-10-01T11:30:00Z', check_in: '2026-11-10', check_out: '2026-11-16' });
+    const strict = { ...optsWithHolds, now: NOW, strictChannelPropertyIds: new Set(['65_calderwood']) };
+    assert.equal(canonicalOf(planDedupe([first, reissued, race], strict), 'C2'), 'C2');
+    assert.equal(canonicalOf(planDedupe([reissued, race], strict), 'C2'), 'S', 'read alone the re-issue was filed under the stay');
+  });
+});
+
 describe("fleet parity: Guesty's cancelled aggregate blocks cluster as they always have", () => {
   test('on a Guesty-run home a cancelled "Blocked by Guesty" row is not read as a hold by its summary', () => {
     // 1,625 such rows stood up as canonical rows when the summary test was

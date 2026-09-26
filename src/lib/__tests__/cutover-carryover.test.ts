@@ -310,9 +310,9 @@ describe('round 7: Booking.com closures judged by continuous cover (lib/echo-cau
 
   test('a stay extended keeps its old nights, so its unchanged Booking.com closures stay explained for good', () => {
     // Round 8: an 8-hour allowance used to cover this; the old nights were
-    // then listed for good once it ran out. The kept range carries them.
+    // then listed for good once it ran out. held_ages carries them.
     const closure = bcomHold({ created_at: '2026-09-16T00:00:00Z', live_since: '2026-09-16T00:00:00Z', check_out: '2026-10-13' });
-    const extended = row({ created_at: '2026-09-15T00:00:00Z', live_since: '2026-10-01T13:00:00Z', kept_check_in: '2026-10-10', kept_check_out: '2026-10-13', kept_since: '2026-09-15T00:00:00Z' });
+    const extended = row({ created_at: '2026-09-15T00:00:00Z', live_since: '2026-10-01T13:00:00Z', held_ages: [{ from: '2026-10-10', to: '2026-10-13', since: '2026-09-15T00:00:00Z' }] });
     assert.deepEqual(run([closure, extended]).bookingComUnexplained, []);
     const weeksLater = evaluateCarryover({ rows: [closure, extended], listings: LISTINGS, todayIso: '2026-10-09', now: new Date('2026-10-09T12:00:00Z') });
     assert.deepEqual(weeksLater.bookingComUnexplained, []);
@@ -623,13 +623,77 @@ describe('round 8: a closed season rolling under the mirror\'s last night, and c
   });
 
   test('a carried season whose end the booking window nears is listed for a person; a far one is not', () => {
-    const carried = (check_out: string) => row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'other', channel_listing_id: null, notes: `${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end`, check_in: '2026-11-02', check_out });
-    const near = carried('2027-11-15');
-    const far = carried('2029-03-24');
+    const carried = (check_in: string, check_out: string) => row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'other', channel_listing_id: null, notes: `${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end`, check_in, check_out });
+    const near = carried('2026-11-02', '2027-11-15');
+    const far = carried('2028-01-01', '2029-03-24');
     const c = evaluateCarryover({ rows: [near, far], listings: LISTINGS, todayIso: TODAY, now: NOW, planWindowDays: 365, calendarAuthority: 'helm' });
     assert.deepEqual(ids(c.carriedSeasonsEnding), [near.id]);
     assert.equal(carryoverClear(c), true, 'a follow-up, never a flip blocker');
     const plain = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in: '2027-11-01', check_out: '2027-11-08' });
     assert.deepEqual(evaluateCarryover({ rows: [plain], listings: LISTINGS, todayIso: TODAY, now: NOW, planWindowDays: 365 }).carriedSeasonsEnding, []);
+  });
+});
+
+describe('round 9: the tail rule needs contiguity; carried seasons are found however they were entered', () => {
+  const day = (date: string, patch: Partial<MirrorDay> = {}): MirrorDay => ({ date, status: 'unavailable', block_type: null, block_rule_type: null, block_ref_id: null, block_note: null, ...patch });
+  const range = (from: string, to: string, patch: Partial<MirrorDay> = {}) => {
+    const out: MirrorDay[] = [];
+    for (let d = from; d < to; d = new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) out.push(day(d, patch));
+    return out;
+  };
+
+  test("a finished closure is not made rolling by an ordinary hold on the mirror's last night (79 Main's shape)", () => {
+    const rows = [
+      ...range('2026-12-31', '2027-06-01'),
+      ...range('2027-06-01', '2027-09-20', { status: 'available' }),
+      ...range('2027-09-20', '2027-09-29', { block_type: 'm', block_ref_id: 'ref-m' }),
+    ];
+    const { holds } = mirrorRunsFromDays(rows, TODAY);
+    assert.equal(holds.find((h) => h.check_in === '2026-12-31')?.rolling, false);
+    const typed = mirrorRunsFromDays([...range('2026-12-31', '2027-06-01', { block_rule_type: 'r' }), ...range('2027-06-01', '2027-09-20', { status: 'available' }), ...range('2027-09-20', '2027-09-29', { block_type: 'm', block_ref_id: 'ref-m' })], TODAY);
+    assert.equal(typed.holds[0].rolling, false, 'the typed variant too');
+  });
+
+  test('a hold whose type differs from the closure beneath does not make it roll', () => {
+    const rows = [...range('2027-01-01', '2027-09-20', { block_rule_type: 'r' }), ...range('2027-09-20', '2027-09-29', { block_type: 'm', block_ref_id: 'ref-m' })];
+    assert.equal(mirrorRunsFromDays(rows, TODAY).holds[0].rolling, false, 'the hold carries no rule beneath it');
+  });
+
+  test('the flip is told which Helm blocks carry a rolling season, split around a stay or not', () => {
+    const { holds, lastDate } = mirrorRunsFromDays(range('2026-11-02', '2027-09-30'), TODAY);
+    const stay = row({ check_in: '2027-09-24', check_out: '2027-10-01' });
+    const first = row({ id: 'B1', source: 'manual', channel: 'block', status: 'block', hold_kind: 'other', channel_listing_id: null, check_in: '2026-11-02', check_out: '2027-09-24' });
+    const second = row({ id: 'B2', source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in: '2027-10-01', check_out: '2029-03-24' });
+    const c = evaluateCarryover({ rows: [stay, first, second], listings: LISTINGS, todayIso: TODAY, now: NOW, mirrorHolds: holds, mirrorLastDate: lastDate });
+    assert.deepEqual(c.guestyHoldsUncarried, []);
+    assert.deepEqual(c.carriedSeasonBlockIds, ['B2'], 'the block over the last night Helm could sell');
+  });
+
+  test("a noted block whose end another row carries on from is not 'running out'", () => {
+    const noted = (id: string, check_in: string, check_out: string) =>
+      row({ id, source: 'manual', channel: 'block', status: 'block', hold_kind: 'other', channel_listing_id: null, notes: `${CARRIED_SEASON_NOTE}: extend`, check_in, check_out });
+    const first = noted('P1', '2026-11-02', '2027-09-24');
+    const stay = row({ check_in: '2027-09-24', check_out: '2027-10-01' });
+    const c = evaluateCarryover({ rows: [first, stay], listings: LISTINGS, todayIso: TODAY, now: NOW, planWindowDays: 365 });
+    assert.deepEqual(c.carriedSeasonsEnding, []);
+    assert.deepEqual(ids(evaluateCarryover({ rows: [first], listings: LISTINGS, todayIso: TODAY, now: NOW, planWindowDays: 365 }).carriedSeasonsEnding), ['P1']);
+  });
+});
+
+describe('round 9: the handover reads a closure across its re-issued rows, and notes aggregate-path carriers', () => {
+  test("a Booking.com guest's run re-issued under a new UID stays listed over the Airbnb stay sold in the race", () => {
+    const first = bcomHold({ status: 'cancelled', cancelled_at: '2026-09-20T15:00:00Z', created_at: '2026-09-20T10:30:00Z', live_since: '2026-09-20T10:30:00Z', check_in: '2026-10-10', check_out: '2026-10-14' });
+    const reissued = bcomHold({ created_at: '2026-09-20T14:30:00Z', live_since: '2026-09-20T14:30:00Z', check_in: '2026-10-10', check_out: '2026-10-16' });
+    const race = row({ created_at: '2026-09-20T11:30:00Z', check_in: '2026-10-10', check_out: '2026-10-16' });
+    assert.deepEqual(ids(run([first, reissued, race]).bookingComUnexplained), [reissued.id]);
+    assert.deepEqual(run([reissued, race]).bookingComUnexplained, [], 'read alone, the re-issue hid the guest');
+  });
+
+  test('a Helm block over the last demanded night of a rolling aggregate closure is a carried season', () => {
+    const g = row({ channel: 'block', status: 'block', hold_kind: 'guesty', channel_listing_id: 'L-guesty', ical_uid: 'aaaa_bd_2027-01-01_2028-09-27@guesty.com', check_in: '2027-01-01', check_out: '2028-09-27' });
+    const helm = row({ id: 'HB', source: 'manual', channel: 'block', status: 'block', hold_kind: 'other', channel_listing_id: null, check_in: '2027-01-01', check_out: '2029-03-24' });
+    const c = run([g, helm], [listing('guesty'), ...LISTINGS]);
+    assert.deepEqual(c.guestyHoldsUncarried, []);
+    assert.deepEqual(c.carriedSeasonBlockIds, ['HB']);
   });
 });
