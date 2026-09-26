@@ -3,10 +3,10 @@
 import { redirect } from 'next/navigation';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { sendTransactionalViaResend } from '@/lib/resend';
-import { ALWAYS_CC } from '@/lib/properties';
+import { ALWAYS_CC, PROPERTIES } from '@/lib/properties';
 import { getFleetProperty } from '@/lib/fleet';
 import { createBooking, conflictToSearchParams, type BookingConflict } from '@/lib/bookings-write';
-import { isYmd, nightsBetween } from '@/lib/bookings-write-core';
+import { isPublicBookable, isYmd, nightsBetween } from '@/lib/bookings-write-core';
 
 /**
  * The public direct-inquiry form. The property comes from the registry
@@ -37,7 +37,7 @@ export async function submitBookingInquiry(formData: FormData) {
   }
 
   const property = await getFleetProperty(propertyId);
-  if (!property || !property.is_active) throw new Error('Property not found.');
+  if (!isPublicBookable(property, new Set(Object.keys(PROPERTIES)))) throw new Error('Property not found.');
   if (!checkIn || !checkOut) throw new Error('Pick both arrival and departure dates.');
   if (!isYmd(checkIn) || !isYmd(checkOut)) throw new Error('Dates must be valid.');
   if (checkOut <= checkIn) throw new Error('Departure must be after arrival.');

@@ -246,11 +246,18 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
             onCopy={() =>
               run(`cp:${s.id}`, async () => {
                 const r = await otaPasteTextAction(propertyId, s.id);
-                if (r.ok && r.text) {
-                  setPasteText({ ...pasteText, [s.id]: r.text });
-                  copy(r.text);
-                }
-                return { ok: r.ok, message: r.message };
+                if (!r.ok || !r.text) return { ok: r.ok, message: r.message };
+                setPasteText({ ...pasteText, [s.id]: r.text });
+                // Say "Copied" only when the clipboard took it: Safari refuses
+                // a write after the server round trip, and a stale clipboard
+                // pasted into the OTA thread is some other guest's text.
+                const copied = await copyText(r.text);
+                return {
+                  ok: true,
+                  message: copied
+                    ? 'Copied. Paste it into the OTA, then press Mark pasted.'
+                    : 'Your browser did not copy it: select the text below and copy it, then press Mark pasted.',
+                };
               })
             }
           />
@@ -734,11 +741,14 @@ function fmtWhen(iso: string): string {
   return d.toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function copy(text: string) {
+/** Resolves true only when the clipboard write succeeded. */
+async function copyText(text: string): Promise<boolean> {
   try {
-    void navigator.clipboard?.writeText(text);
+    if (!navigator.clipboard?.writeText) return false;
+    await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    /* clipboard unavailable: the text is on screen */
+    return false;
   }
 }
 

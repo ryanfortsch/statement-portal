@@ -81,6 +81,9 @@ export type GuestBookingInput = GuestLike & {
   id?: string | null;
   /** helm | direct_booking | sca | seed | sms; recorded on a NEW guest only. */
   source?: string | null;
+  /** Typed into a public form: link a matched record, never write onto it
+   *  (mergeGuestFields). */
+  guestTyped?: boolean;
 };
 
 async function findByStrategies(input: GuestLike): Promise<GuestRow | null> {
@@ -110,7 +113,7 @@ export async function upsertGuestForBooking(booking: GuestBookingInput): Promise
   let guest = await findByStrategies(booking);
 
   if (guest) {
-    const { patch, changed } = mergeGuestFields(guest, booking, { isProxyEmail });
+    const { patch, changed } = mergeGuestFields(guest, booking, { isProxyEmail, guestTyped: !!booking.guestTyped });
     if (changed) {
       const { error } = await supabaseAdmin
         .from('guests')

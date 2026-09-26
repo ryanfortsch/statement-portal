@@ -164,7 +164,8 @@ export async function otaPasteTextAction(propertyId: string, sendId: string): Pr
   const r = await otaPasteText(sendId);
   if (!r.ok) return { ok: false, message: r.error };
   console.info('[automations] OTA paste text revealed', { propertyId, sendId, by: who });
-  return { ok: true, message: 'Copied. Paste it into the OTA, then press Mark pasted.', text: r.text };
+  // The panel words the message from the clipboard's own answer.
+  return { ok: true, message: 'Ready to paste.', text: r.text };
 }
 
 export async function skipSendAction(propertyId: string, sendId: string): Promise<AutomationActionResult> {

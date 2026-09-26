@@ -112,9 +112,19 @@ function blank(v: string | null | undefined): boolean {
 export function mergeGuestFields(
   existing: GuestRecordFields,
   incoming: GuestLike,
-  opts: { isProxyEmail?: (email: string) => boolean } = {},
+  opts: {
+    isProxyEmail?: (email: string) => boolean;
+    /** The incoming fields were typed by whoever filled a public form
+     *  (/book, staycapeann.com). Nobody proved they own the matched record,
+     *  so nothing of theirs is written onto it: a stranger who knows a
+     *  guest's email must not plant their own phone there and receive that
+     *  guest's door code. The booking still links; the stay row carries
+     *  what they typed. */
+    guestTyped?: boolean;
+  } = {},
 ): { patch: Partial<GuestRecordFields>; changed: boolean } {
   const patch: Partial<GuestRecordFields> = {};
+  if (opts.guestTyped) return { patch, changed: false };
 
   const inEmail = normalizeEmail(incoming.guest_email);
   const exEmail = normalizeEmail(existing.email);

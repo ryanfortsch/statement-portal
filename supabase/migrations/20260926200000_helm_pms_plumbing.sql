@@ -394,7 +394,7 @@ insert into public.message_automations (key, property_id, audience, trigger, off
    'Hi {{guest_first}}, this is Rising Tide. Your stay at {{property_title}} is confirmed for {{check_in_long}} to {{check_out_long}}. Check-in is after {{check_in_time}}, checkout by {{check_out_time}}. We will send arrival details the day before you arrive.', false, 'migration'),
   ('pre_arrival', null, 'guest', 'pre_arrival', -1, '10:00', 'sms_then_email', 'approve',
    'Arrival details for {{property_title}}',
-   'Hi {{guest_first}}, tomorrow is the day. {{property_title}}, {{address}}. Check-in after {{check_in_time}}. Door code: {{door_code}}. Wifi: {{wifi_name}} / {{wifi_password}}. {{parking}}', false, 'migration'),
+   'Hi {{guest_first}}, see you {{arrival_when}}. {{property_title}}, {{address}}. Check-in after {{check_in_time}}. Door code: {{door_code}}. Wifi: {{wifi_name}} / {{wifi_password}}. {{parking}}', false, 'migration'),
   ('pre_checkout', null, 'guest', 'pre_checkout', -1, '17:00', 'sms', 'approve', null,
    'Hi {{guest_first}}, a quick note that checkout tomorrow is by {{check_out_time}}. Thank you for staying with us.', false, 'migration'),
   ('cleaner_new_booking', null, 'cleaner', 'booking_confirmed', 0, null, 'sms', 'approve', null,
@@ -447,11 +447,15 @@ create index if not exists idx_guest_messages_thread on public.guest_messages(th
 
 -- One send per concierge approval: /api/pms/threads/<id>/messages claims the
 -- approval_id here before it texts, so a caller that times out and retries
--- gets the first send back instead of texting the guest twice.
+-- gets the first send back instead of texting the guest twice. status is
+-- 'sending' until the provider accepts, then 'sent'; a retry that finds
+-- 'sending' is told in_flight, never ok, and a 'sending' claim older than
+-- the function's max duration is a dead call and may be taken over.
 create table if not exists public.pms_reply_claims (
   approval_id text primary key,
   thread_id uuid not null references public.guest_threads(id) on delete cascade,
   message_id uuid,
+  status text not null default 'sending' check (status in ('sending', 'sent')),
   created_at timestamptz not null default now()
 );
 

@@ -277,9 +277,12 @@ function PropertyRow({
           const cell = cellByDate.get(d);
           const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
           const weekend = wd === 0 || wd === 6;
-          const isCovered = covered.has(i);
-          const selected = isSelected(p.id, d);
           const reason = cell?.reason ?? null;
+          // A night a stay or hold covers is taken even when the channel
+          // filter hides its bar: never an open, priced, clickable night.
+          const hiddenStay = !covered.has(i) && (reason === 'stay' || reason === 'block');
+          const isCovered = covered.has(i) || hiddenStay;
+          const selected = isSelected(p.id, d);
           const vacantUnsellable = !isCovered && reason != null && reason !== 'stay' && reason !== 'block';
           const title = cell
             ? [
@@ -326,6 +329,11 @@ function PropertyRow({
                 gap: 1,
               }}
             >
+              {hiddenStay && (
+                <span style={{ fontSize: 8, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--ink-4)', lineHeight: 1 }}>
+                  {reason === 'block' ? 'held' : 'booked'}
+                </span>
+              )}
               {!isCovered && cell && (
                 <>
                   {cell.requests > 0 && (
@@ -473,11 +481,25 @@ export function EditDrawer({
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<CalendarActionResult | null>(null);
 
-  // Price fields prefilled from the first night's override state.
-  const [nightly, setNightly] = useState<string>(first?.priceSource === 'helm' && first.priceCents != null ? String(Math.round(first.priceCents / 100)) : '');
-  const [minNights, setMinNights] = useState<string>(first?.minNights != null ? String(first.minNights) : '');
-  const [closed, setClosed] = useState<boolean>(!!first?.closed);
-  const [note, setNote] = useState<string>(first?.note ?? '');
+  // Price fields prefilled only where every night in the range agrees; a
+  // field that differs reads 'mixed'. Only the fields the operator touches
+  // are saved: a range save once copied the first night's Closed, minimum
+  // and note onto every night, reopening closed nights and erasing notes.
+  const agreed = <T,>(pick: (c: CalendarCellVM) => T): { value: T | null; mixed: boolean } => {
+    if (nights.length === 0) return { value: null, mixed: false };
+    const v0 = pick(nights[0]);
+    return nights.every((c) => pick(c) === v0) ? { value: v0, mixed: false } : { value: null, mixed: true };
+  };
+  const priceAgreed = agreed((c) => (c.priceSource === 'helm' && c.priceCents != null ? String(Math.round(c.priceCents / 100)) : ''));
+  const minAgreed = agreed((c) => (c.minNights != null ? String(c.minNights) : ''));
+  const closedAgreed = agreed((c) => !!c.closed);
+  const noteAgreed = agreed((c) => c.note ?? '');
+  const [nightly, setNightly] = useState<string>(priceAgreed.value ?? '');
+  const [minNights, setMinNights] = useState<string>(minAgreed.value ?? '');
+  const [closed, setClosed] = useState<boolean>(closedAgreed.value ?? false);
+  const [note, setNote] = useState<string>(noteAgreed.value ?? '');
+  const [touched, setTouched] = useState<ReadonlySet<'nightly' | 'min' | 'closed' | 'note'>>(new Set());
+  const touch = (f: 'nightly' | 'min' | 'closed' | 'note') => setTouched((t) => new Set(t).add(f));
 
   const [holdKind, setHoldKind] = useState<'owner' | 'maintenance' | 'ota' | 'other'>('owner');
   const [holdNote, setHoldNote] = useState('');
@@ -510,15 +532,19 @@ export function EditDrawer({
 
   const submitPrice = () => {
     setResult(null);
+    if (touched.size === 0) {
+      setResult({ ok: false, error: 'Nothing changed: edit a field first.' });
+      return;
+    }
     startTransition(async () => {
       const r = await saveRateDaysAction({
         propertyId: p.id,
         start,
         end,
-        nightlyDollars: nightly,
-        minNights,
-        closed,
-        note,
+        nightlyDollars: touched.has('nightly') ? nightly : undefined,
+        minNights: touched.has('min') ? minNights : undefined,
+        closed: touched.has('closed') ? closed : undefined,
+        note: touched.has('note') ? note : undefined,
       });
       setResult(r);
       if (r.ok) setTimeout(onSaved, 900);
@@ -560,21 +586,55 @@ export function EditDrawer({
               type="text"
               inputMode="decimal"
               value={nightly}
-              onChange={(e) => setNightly(e.target.value)}
+              onChange={(e) => {
+                setNightly(e.target.value);
+                touch('nightly');
+              }}
               disabled={!p.helmRun || pending}
-              placeholder={first?.priceCents != null ? String(Math.round(first.priceCents / 100)) : 'plan rate'}
+              placeholder={priceAgreed.mixed ? 'mixed: unchanged unless typed' : first?.priceCents != null ? String(Math.round(first.priceCents / 100)) : 'plan rate'}
               style={inputStyle}
             />
           </Field>
           <Field label="Minimum nights" hint="Blank uses the plan default.">
-            <input type="number" min={1} max={365} value={minNights} onChange={(e) => setMinNights(e.target.value)} disabled={!p.helmRun || pending} style={inputStyle} />
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={minNights}
+              onChange={(e) => {
+                setMinNights(e.target.value);
+                touch('min');
+              }}
+              placeholder={minAgreed.mixed ? 'mixed' : ''}
+              disabled={!p.helmRun || pending}
+              style={inputStyle}
+            />
           </Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
-            <input type="checkbox" checked={closed} onChange={(e) => setClosed(e.target.checked)} disabled={!p.helmRun || pending} />
+            <input
+              type="checkbox"
+              checked={closed}
+              onChange={(e) => {
+                setClosed(e.target.checked);
+                touch('closed');
+              }}
+              disabled={!p.helmRun || pending}
+            />
             Closed for Helm&apos;s own sales (staycapeann.com and quotes). Airbnb, VRBO and Booking.com never see it: to close a night there, block it
+            {closedAgreed.mixed && !touched.has('closed') ? ' (mixed across the range: unchanged unless ticked)' : ''}
           </label>
           <Field label="Note" hint="Why this night is priced or closed this way. Shows on the property month grid.">
-            <input type="text" value={note} onChange={(e) => setNote(e.target.value)} disabled={!p.helmRun || pending} style={inputStyle} />
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                touch('note');
+              }}
+              placeholder={noteAgreed.mixed ? 'mixed: unchanged unless typed' : ''}
+              disabled={!p.helmRun || pending}
+              style={inputStyle}
+            />
           </Field>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 4 }}>
             <button type="button" onClick={submitPrice} disabled={!p.helmRun || pending} style={primaryButton(!p.helmRun || pending)}>

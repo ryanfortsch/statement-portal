@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 import { getHelmThread, getHelmThreadRow, recordOutboundSms, recordOutboundEmail } from '@/lib/helm-inbox';
-import { channelLabel, helmThreadIdOf, smsRailOf } from '@/lib/helm-inbox-core';
+import { channelLabel, helmThreadIdOf, replyClaimVerdict, smsRailOf } from '@/lib/helm-inbox-core';
 import { normalizeEmail } from '@/lib/guests-identity-core';
 import { sendMessage } from '@/lib/quo';
 import { quoFromNumber } from '@/lib/quo-lines';
@@ -11,21 +11,54 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 
 /**
  * Claim an approval before sending on it (pms_reply_claims): the first call
- * gets 'claimed', a repeat gets the earlier send. A failed send releases its
- * claim so the caller can try again.
+ * gets 'claimed'; a repeat learns whether the first was sent ('duplicate')
+ * or is still sending ('in_flight'). A claim left 'sending' by a call that
+ * died is taken over, compare-and-set on its created_at so two retries
+ * cannot both take it. A failed send releases its claim.
  */
-async function claimApproval(approvalId: string, threadId: string): Promise<{ claimed: true } | { claimed: false; messageId: string | null }> {
-  const { error } = await supabaseAdmin.from('pms_reply_claims').insert({ approval_id: approvalId, thread_id: threadId });
+type ClaimResult = { claimed: true } | { claimed: false; verdict: 'duplicate' | 'in_flight'; messageId: string | null };
+
+async function claimApproval(approvalId: string, threadId: string): Promise<ClaimResult> {
+  const { error } = await supabaseAdmin.from('pms_reply_claims').insert({ approval_id: approvalId, thread_id: threadId, status: 'sending' });
   if (!error) return { claimed: true };
   if (error.code !== '23505') throw new Error(`claim approval: ${error.message}`);
-  const { data } = await supabaseAdmin.from('pms_reply_claims').select('message_id').eq('approval_id', approvalId).maybeSingle();
-  return { claimed: false, messageId: (data as { message_id: string | null } | null)?.message_id ?? null };
+  const { data } = await supabaseAdmin
+    .from('pms_reply_claims')
+    .select('status, message_id, created_at')
+    .eq('approval_id', approvalId)
+    .maybeSingle();
+  const row = (data ?? null) as { status: string | null; message_id: string | null; created_at: string | null } | null;
+  // Released between our insert and this read: the caller may try again.
+  if (!row) return { claimed: false, verdict: 'in_flight', messageId: null };
+  const verdict = replyClaimVerdict(row, Date.now());
+  if (verdict !== 'expired') return { claimed: false, verdict, messageId: row.message_id };
+  const { data: taken } = await supabaseAdmin
+    .from('pms_reply_claims')
+    .update({ created_at: new Date().toISOString(), thread_id: threadId })
+    .eq('approval_id', approvalId)
+    .eq('status', 'sending')
+    .eq('created_at', row.created_at as string)
+    .select('approval_id');
+  return (taken ?? []).length > 0 ? { claimed: true } : { claimed: false, verdict: 'in_flight', messageId: null };
+}
+
+/** The provider accepted the reply: a retry from here on is a duplicate,
+ *  even if recording it below throws. */
+async function markClaimSent(approvalId: string | null): Promise<void> {
+  if (!approvalId) return;
+  await supabaseAdmin.from('pms_reply_claims').update({ status: 'sent' }).eq('approval_id', approvalId);
 }
 
 async function settleClaim(approvalId: string | null, messageId: string | null, ok: boolean): Promise<void> {
   if (!approvalId) return;
-  if (ok) await supabaseAdmin.from('pms_reply_claims').update({ message_id: messageId }).eq('approval_id', approvalId);
+  if (ok) await supabaseAdmin.from('pms_reply_claims').update({ message_id: messageId, status: 'sent' }).eq('approval_id', approvalId);
   else await supabaseAdmin.from('pms_reply_claims').delete().eq('approval_id', approvalId);
+}
+
+/** An aborted fetch may still have reached the provider: the outcome is unknown. */
+function isTimeout(err: unknown): boolean {
+  const name = err instanceof Error ? err.name : '';
+  return name === 'TimeoutError' || name === 'AbortError';
 }
 
 /**
@@ -47,9 +80,10 @@ async function settleClaim(approvalId: string | null, messageId: string | null, 
  *   -> {ok, message_id, rail:'sms'|'email', to}
  *
  * With an approval_id the call is idempotent: the first claims it
- * (pms_reply_claims) before sending, and a retry of the same approval,
- * even one that arrives while the first is still sending, gets
- * {ok, duplicate: true, message_id} and texts nobody.
+ * (pms_reply_claims) before sending. A retry of the same approval after the
+ * provider accepted gets {ok, duplicate: true, message_id} and texts nobody;
+ * one that arrives while the first is still sending gets 409 in_flight, so
+ * the caller asks again rather than marking a reply sent that may yet fail.
  *
  * The recorded sender_kind is what the caller says it is, so an AI send
  * renders as "Helm AI" and a human's as the team member, not as a Helm
@@ -129,7 +163,11 @@ export async function POST(req: Request, ctx: Ctx) {
     // One send per approval: a retry gets the first send back.
     if (approvalId) {
       const claim = await claimApproval(approvalId, thread.id);
-      if (!claim.claimed) return NextResponse.json({ ok: true, duplicate: true, message_id: claim.messageId });
+      if (!claim.claimed) {
+        return claim.verdict === 'duplicate'
+          ? NextResponse.json({ ok: true, duplicate: true, message_id: claim.messageId })
+          : NextResponse.json({ ok: false, error: 'in_flight', detail: 'This approval is still sending; ask again shortly.' }, { status: 409 });
+      }
     }
 
     // SMS rail: any thread whose guest has a phone, on the GUESTS line only.
@@ -146,6 +184,7 @@ export async function POST(req: Request, ctx: Ctx) {
           { status: 502 },
         );
       }
+      await markClaimSent(approvalId);
       const r = await recordOutboundSms({
         phone,
         body: text,
@@ -173,7 +212,20 @@ export async function POST(req: Request, ctx: Ctx) {
           : propertyName
             ? `Your stay at ${propertyName}`
             : 'Your stay with Stay Cape Ann';
-      const sent = await sendTransactionalViaResend({ to: email, subject, html: bodyToHtml(text), text });
+      let sent: boolean;
+      try {
+        sent = await sendTransactionalViaResend({ to: email, subject, html: bodyToHtml(text), text });
+      } catch (err) {
+        // A timeout may have reached Resend: keep the claim 'sending' so a
+        // retry is told in_flight until it expires, rather than emailing
+        // twice. Any other throw never left: release it.
+        if (!isTimeout(err)) await settleClaim(approvalId, null, false);
+        return NextResponse.json(
+          { ok: false, error: isTimeout(err) ? 'send_timeout' : 'send_failed', rail: 'email', detail: err instanceof Error ? err.message : String(err) },
+          { status: isTimeout(err) ? 504 : 502 },
+        );
+      }
+      if (sent) await markClaimSent(approvalId);
       if (!sent) {
         await settleClaim(approvalId, null, false);
         return NextResponse.json({ ok: false, error: 'send_failed', rail: 'email', detail: 'Resend refused or is not configured' }, { status: 502 });

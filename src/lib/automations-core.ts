@@ -365,6 +365,7 @@ export const MERGE_FIELDS = [
   'wifi_password',
   'parking',
   'trash_day',
+  'arrival_when',
 ] as const;
 export type MergeField = (typeof MERGE_FIELDS)[number];
 
@@ -386,6 +387,7 @@ export const MERGE_FIELD_HELP: Record<MergeField, string> = {
   wifi_password: 'Masked until sent',
   parking: 'The parking note on the property',
   trash_day: 'Collection day (Cape Ann only)',
+  arrival_when: "'tomorrow', 'today', or 'on Friday, October 16', from when the message goes",
 };
 
 /** Values that go over the wire but never into a stored body. */
@@ -538,7 +540,26 @@ export type MergeInput = {
   stayCode: string | null;
   lockMapped: boolean;
   trashDay: string | null;
+  /** When the message goes (arrival_when); absent reads as now. */
+  now?: Date;
+  /** The rule's timezone for arrival_when; absent reads as Eastern. */
+  timeZone?: string;
 };
+
+/** YYYY-MM-DD of an instant in a timezone. */
+function localDateOf(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
+/** 'tomorrow', 'today', or 'on <long date>': a pre-arrival sent late (the
+ *  planner sends a missed one until the arrival day ends) must not tell a
+ *  guest arriving today that tomorrow is the day. */
+export function arrivalWhen(checkIn: string, at: Date, timeZone: string = DEFAULT_TIMEZONE): string {
+  const today = localDateOf(at, timeZone);
+  if (checkIn === today) return 'today';
+  if (checkIn === addDays(today, 1)) return 'tomorrow';
+  return `on ${formatLongDate(checkIn)}`;
+}
 
 /**
  * Assemble the merge fields for one stay. Placeholder guest names (an iCal
@@ -576,6 +597,7 @@ export function buildMergeContext(input: MergeInput): MergeContext {
     wifi_password: (access?.wifi_password ?? '').trim(),
     parking: (property.parking ?? '').trim(),
     trash_day: (input.trashDay ?? '').trim(),
+    arrival_when: arrivalWhen(booking.check_in, input.now ?? new Date(), input.timeZone ?? DEFAULT_TIMEZONE),
   };
 }
 
@@ -615,6 +637,16 @@ export function isOtaChannel(channel: string | null | undefined): boolean {
 /** The guest's phone in E.164: the booking's own first, then the linked guest record. */
 export function guestPhoneOf(booking: Pick<AutomationBooking, 'guest_phone'>, guest: GuestLike): string | null {
   return toE164Phone(booking.guest_phone) ?? toE164Phone(guest?.phone_e164) ?? toE164Phone(guest?.phone) ?? null;
+}
+
+/** Whether the address a rail uses is the stay's own, not the guest record's. */
+export function contactOnStay(rail: Rail, booking: Pick<AutomationBooking, 'guest_phone' | 'guest_email'>): boolean {
+  if (rail === 'sms') return !!toE164Phone(booking.guest_phone);
+  if (rail === 'email') {
+    const e = normalizeEmail(booking.guest_email);
+    return !!e && !isProxyEmail(e);
+  }
+  return true;
 }
 
 /** A real, deliverable address: never an OTA relay. */
@@ -1041,6 +1073,13 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
   if (!input.approved) {
     if (templateHasDoorCode(rule.body) && !input.lockMapped) {
       return { outcome: 'awaiting_approval', rail, reason: 'door code without a mapped lock' };
+    }
+    // The stay carries no phone or email of its own on this rail: the
+    // address is the guest record's. Records are matched by email or phone
+    // and can be wrong; a secret waits for an operator to check who it
+    // goes to.
+    if (templateHasSecret(rule.body) && !contactOnStay(rail, booking)) {
+      return { outcome: 'awaiting_approval', rail, reason: 'contact from the guest record, not the stay' };
     }
     if (rule.send_mode === 'approve') return { outcome: 'awaiting_approval', rail, reason: 'approve mode' };
   }

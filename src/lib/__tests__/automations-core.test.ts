@@ -8,9 +8,11 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   addDays,
   adjustmentKey,
+  arrivalWhen,
   anchorDateFor,
   buildMergeContext,
   continuationFlags,
@@ -279,6 +281,37 @@ describe('renderTemplate', () => {
     const keyOnly = buildMergeContext({ ...base, stayCode: null, lockMapped: false, access: { smart_lock_code: null, key_code_location: 'Lockbox', wifi_password: null } });
     assert.equal(keyOnly.door_code, 'Lockbox');
     assert.equal(keyOnly.wifi_password, '');
+  });
+
+  test('arrival_when reads the guest calendar day when the text goes, so a late pre-arrival never says tomorrow on arrival day', () => {
+    // 10 PM Eastern on Oct 15 is already Oct 16 in UTC: the rule zone decides.
+    const eveBefore = new Date('2026-10-16T02:00:00Z');
+    assert.equal(arrivalWhen('2026-10-16', eveBefore, 'America/New_York'), 'tomorrow');
+    assert.equal(arrivalWhen('2026-10-16', eveBefore, 'UTC'), 'today');
+    const arrivalMorning = new Date('2026-10-16T13:00:00Z');
+    assert.equal(arrivalWhen('2026-10-16', arrivalMorning, 'America/New_York'), 'today');
+    assert.equal(arrivalWhen('2026-10-16', new Date('2026-10-12T13:00:00Z')), 'on Friday, October 16');
+    const ctx = buildMergeContext({
+      booking: { guest_name: 'Jane Doe', check_in: '2026-10-16', check_out: '2026-10-18' },
+      property: { name: '65 Calderwood', title: null, address: null, wifi_name: null, parking: null },
+      plan: PLAN,
+      adjustment: null,
+      access: null,
+      stayCode: null,
+      lockMapped: false,
+      trashDay: null,
+      now: arrivalMorning,
+      timeZone: 'America/New_York',
+    });
+    assert.equal(ctx.arrival_when, 'today');
+    assert.equal(renderTemplate('Hi {{guest_first}}, see you {{arrival_when}}.', ctx).text, 'Hi Jane, see you today.');
+  });
+
+  test('the seeded fleet pre-arrival text carries no fixed day word', () => {
+    const sql = readFileSync(new URL('../../../supabase/migrations/20260926200000_helm_pms_plumbing.sql', import.meta.url), 'utf8');
+    const seeded = sql.split('\n').find((l) => l.includes('Door code: {{door_code}}')) ?? '';
+    assert.match(seeded, /\{\{arrival_when\}\}/);
+    assert.doesNotMatch(seeded, /tomorrow|tonight/i);
   });
 
   test('a placeholder guest name yields no name; a late checkout changes the time field', () => {
@@ -723,6 +756,23 @@ describe('decideDispatch', () => {
     assert.equal(decideDispatch({ ...clean, rule: rule({ send_mode: 'approve' }) }).outcome, 'awaiting_approval');
     assert.equal(decideDispatch({ ...clean, rule: rule({ send_mode: 'approve' }), approved: true }).outcome, 'send');
     assert.equal(decideDispatch({ ...clean, rule: doorRule, lockMapped: false, approved: true }).outcome, 'send');
+  });
+
+  test('a secret whose address comes only from the guest record waits for approval (round 13)', () => {
+    const secret = rule({ body: 'Door {{door_code}}', send_mode: 'auto' });
+    const record = { phone_e164: '+16175550199', phone: null, email: 'dana@example.com' };
+    const bare = booking({ guest_phone: null, guest_email: null });
+    const parked = decideDispatch({ ...clean, rule: secret, booking: bare, guest: record });
+    assert.deepEqual(parked, { outcome: 'awaiting_approval', rail: 'sms', reason: 'contact from the guest record, not the stay' });
+    assert.equal(decideDispatch({ ...clean, rule: secret, booking: bare, guest: record, approved: true }).outcome, 'send');
+    // The stay's own phone: sends in auto.
+    assert.equal(decideDispatch({ ...clean, rule: secret, guest: record }).outcome, 'send');
+    // Email rail on the record's address parks too; on the stay's own address it sends.
+    const byEmail = rule({ body: 'Wifi {{wifi_password}}', send_mode: 'auto', delivery: 'email' });
+    assert.equal(decideDispatch({ ...clean, rule: byEmail, booking: bare, guest: record }).outcome, 'awaiting_approval');
+    assert.equal(decideDispatch({ ...clean, rule: byEmail, booking: booking({ guest_email: 'dana@example.com' }), guest: record }).outcome, 'send');
+    // No secret in the text: the record's address is fine.
+    assert.equal(decideDispatch({ ...clean, rule: rule({ send_mode: 'auto' }), booking: bare, guest: record }).outcome, 'send');
   });
 
   test('cleaner rules go to covering recipients on the cleaner rail', () => {

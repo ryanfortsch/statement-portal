@@ -113,6 +113,15 @@ describe('mergeGuestFields', () => {
     assert.deepEqual(r.patch, { phone_e164: '+19785551234', phone: '(978) 555-1234' });
   });
 
+  test('fields typed into a public form never write onto a matched record (round 13): a stranger who knows the email cannot plant a phone', () => {
+    const dana = onFile({ full_name: '', email: 'dana@example.com' });
+    const stranger = { guest_name: 'Anyone', guest_email: 'dana@example.com', guest_phone: '(617) 555-0199' };
+    assert.equal(mergeGuestFields(dana, stranger).changed, true, 'an operator-typed row still fills blanks');
+    const typed = mergeGuestFields(dana, stranger, { guestTyped: true });
+    assert.equal(typed.changed, false);
+    assert.deepEqual(typed.patch, {});
+  });
+
   test('a proxy email on file yields to a real one, never the reverse', () => {
     const proxyOnFile = onFile({ email: 'abc@guest.airbnb.com', phone_e164: '+19785551234' });
     const up = mergeGuestFields(proxyOnFile, { guest_email: 'Jane@X.com' }, { isProxyEmail });

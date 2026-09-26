@@ -507,6 +507,18 @@ export async function syncListing(opts: {
           .in('id', ids);
         if (cancelErr) throw new Error(`cancel bookings: ${cancelErr.message}`);
       }
+      // A stay the feed cancelled takes its parked and scheduled messages
+      // with it, as helm_cancel_booking does: left parked, an OTA paste card
+      // for a guest who is no longer one stayed on the panel. Non-fatal (a
+      // home with no automations has no rows).
+      for (const ids of chunk([...plan.cancelNow, ...plan.reclassified], ID_WRITE_CHUNK)) {
+        const { error: sendsErr } = await sb
+          .from('automation_sends')
+          .update({ status: 'cancelled', error: 'stay cancelled by its feed', updated_at: startedAt.toISOString() })
+          .in('booking_id', ids)
+          .in('status', ['scheduled', 'awaiting_approval']);
+        if (sendsErr) console.warn(`[ical-sync] cancel automation sends: ${sendsErr.message}`);
+      }
       for (const ids of chunk(plan.reclassified, ID_WRITE_CHUNK)) {
         const { error: reclassErr } = await sb
           .from('bookings')

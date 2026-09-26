@@ -197,6 +197,8 @@ async function linkGuestSafe(row: Booking): Promise<void> {
       guest_email: row.guest_email,
       guest_phone: row.guest_phone,
       source: row.source === 'direct_booking' ? 'direct_booking' : 'helm',
+      // A direct_booking row's contact was typed on the public /book form.
+      guestTyped: row.source === 'direct_booking',
     });
   } catch (err) {
     console.warn('[bookings-write] guest link failed', row.id, err instanceof Error ? err.message : err);
@@ -290,9 +292,17 @@ export async function createBooking(input: CreateBookingInput): Promise<Booking>
   if (error) throwRpcError(error, 'create booking');
   const row = rowFromRpc(data, 'create booking');
 
-  if (row.status !== 'block') await linkGuestSafe(row);
+  // An inquiry or pending request is not a guest yet: anyone can send one
+  // from /book naming any email. It links when the operator confirms it
+  // (moveBooking), so an unanswered request never touches a real record.
+  if (linksGuest(row.status)) await linkGuestSafe(row);
   await refreshMirrorSafe(row.property_id, row.id, null);
   return row;
+}
+
+/** Statuses whose row is a real stay and so links a guest record. */
+function linksGuest(status: string): boolean {
+  return status === 'confirmed' || status === 'completed';
 }
 
 export type CreateBlockInput = {
@@ -404,6 +414,9 @@ export async function moveBooking(
   if (error) throwRpcError(error, 'move booking');
   const row = rowFromRpc(data, 'move booking');
 
+  // A confirmed request becomes a stay: link its guest record now
+  // (createBooking held off while it was only an inquiry).
+  if (!linksGuest(before.status) && linksGuest(row.status)) await linkGuestSafe(row);
   await refreshMirrorSafe(row.property_id, row.id, windowFor([before, row]));
   return row;
 }
@@ -514,7 +527,7 @@ export async function updateGuestFields(id: string, patch: GuestFieldsPatch, act
   if (row !== before && row.status !== 'block') {
     const identityMoved =
       row.guest_email !== before.guest_email || row.guest_phone !== before.guest_phone || row.guest_name !== before.guest_name;
-    if (identityMoved) await linkGuestSafe(row);
+    if (identityMoved && linksGuest(row.status)) await linkGuestSafe(row);
   }
   return row;
 }

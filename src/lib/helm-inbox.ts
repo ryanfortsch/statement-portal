@@ -400,8 +400,9 @@ export async function recordInboundSms(input: InboundSmsInput): Promise<InboundS
     // A returning guest: the thread may still point at a stay that ended.
     const current = pickBookingForContact(await bookingsForPhone(e164, today), today);
     const moved = await moveThreadToCurrentStay(thread, current, today, { helmRunOnly: input.helmRunOnly });
-    // Their stay now is at a home Guesty runs: not this inbox's message.
-    if (moved.elsewhere) return { recorded: false, reason: 'no_match' };
+    // Their next stay is at a home Guesty runs: the thread stays where it
+    // is (the text may well be about the Helm-run stay they just left) and
+    // the message is still recorded on it.
     thread = moved.thread;
   }
 
@@ -490,10 +491,13 @@ export async function recordOutboundSms(input: OutboundSmsInput): Promise<Outbou
       const booking = await getBooking(input.bookingId);
       if (booking) thread = await attachStayIfMissing(thread, booking, null);
     } else if (input.bookingId && thread.booking_id !== input.bookingId) {
-      // A send for a later stay of a returning guest: move the thread onto it
-      // once the one it points at has ended.
-      const booking = await getBooking(input.bookingId);
-      thread = (await moveThreadToCurrentStay(thread, booking, todayEastern())).thread;
+      // A send for another stay of a returning guest: the thread follows the
+      // stay the guest is on now, among their stays and the one handed over.
+      const today = todayEastern();
+      const handed = await getBooking(input.bookingId);
+      const rows = await bookingsForPhone(e164, today);
+      const candidate = pickBookingForContact(handed && !rows.some((r) => r.id === handed.id) ? [...rows, handed] : rows, today);
+      thread = (await moveThreadToCurrentStay(thread, candidate, today)).thread;
     }
   }
 
@@ -556,6 +560,15 @@ export async function recordOutboundEmail(input: OutboundEmailInput): Promise<Ou
       propertyId: input.propertyId ?? null,
     });
     if (!thread) return { recorded: false, reason: 'no_match' };
+  } else {
+    // The email thread follows the guest's current stay too.
+    const today = todayEastern();
+    const handed = input.bookingId ? await getBooking(input.bookingId) : null;
+    const rows = await bookingsForEmail(key, today);
+    const candidate = pickBookingForContact(handed && !rows.some((r) => r.id === handed.id) ? [...rows, handed] : rows, today);
+    thread = thread.booking_id
+      ? (await moveThreadToCurrentStay(thread, candidate, today)).thread
+      : await attachStayIfMissing(thread, candidate, null);
   }
 
   const body = input.subject ? `${input.subject.trim()}\n\n${input.body}` : input.body;

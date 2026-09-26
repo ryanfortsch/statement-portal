@@ -22,6 +22,7 @@ import {
   pickPatch,
   GUEST_FIELD_KEYS,
   MONEY_FIELD_KEYS,
+  isPublicBookable,
 } from '../bookings-write-core.ts';
 
 describe('mintHelmConfirmationCode', () => {
@@ -189,5 +190,16 @@ describe('date guards and patch allowlists', () => {
     assert.deepEqual(p, { guest_name: 'Jane', guest_email: null, notes: 'x' });
     const m = pickPatch({ gross_amount: 100, guest_name: 'Jane' }, MONEY_FIELD_KEYS);
     assert.deepEqual(m, { gross_amount: 100 });
+  });
+});
+
+describe('isPublicBookable (round 13)', () => {
+  const roster = new Set(['21_horton', '3_locust']);
+  test('a roster home or a Helm-run home is served; any other registry row is not', () => {
+    assert.equal(isPublicBookable({ id: '21_horton', is_active: true, calendar_authority: 'guesty' }, roster), true);
+    assert.equal(isPublicBookable({ id: '65_calderwood', is_active: true, calendar_authority: 'helm' }, roster), true);
+    assert.equal(isPublicBookable({ id: '36_granite', is_active: true, calendar_authority: 'guesty' }, roster), false);
+    assert.equal(isPublicBookable({ id: '21_horton', is_active: false, calendar_authority: 'guesty' }, roster), false);
+    assert.equal(isPublicBookable(null, roster), false);
   });
 });

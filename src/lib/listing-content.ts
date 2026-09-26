@@ -125,14 +125,17 @@ export const FIELD_CONSUMERS: Record<string, ListingConsumer[]> = {
   access: [OTA],
   interaction: [OTA],
   neighborhood: [SCA, OTA],
-  house_rules: [SCA, OTA],
-  notes: [SCA],
-  property_type: [SCA, OTA],
+  // toScaListing does not read house rules, notes, property type or the
+  // bed count (it counts beds from the rooms): SCA is named only where the
+  // output changes with the field (round 13, pinned by a test).
+  house_rules: [OTA],
+  notes: [OTA],
+  property_type: [OTA],
   room_type: [OTA],
   accommodates: [SCA, OTA],
   bedrooms: [SCA, OTA],
   bathrooms: [SCA, OTA],
-  beds: [SCA, OTA],
+  beds: [OTA],
   amenities: [SCA, OTA],
   rooms: [SCA],
   photos: [SCA, OTA],

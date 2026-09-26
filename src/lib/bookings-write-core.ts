@@ -236,3 +236,18 @@ export function pickPatch<K extends string>(
   }
   return out;
 }
+
+/**
+ * Whether the public /book page serves a home and takes its inquiries: an
+ * active home Helm runs, or one on the statements roster (PROPERTIES, what
+ * /book served before the registry). Any other registry row, a home listed
+ * nowhere, is a 404: the page printed its street address and took
+ * inquiries for it.
+ */
+export function isPublicBookable<P extends { id: string; is_active: boolean; calendar_authority: string | null }>(
+  p: P | null | undefined,
+  rosterIds: ReadonlySet<string>,
+): p is P {
+  if (!p || !p.is_active) return false;
+  return p.calendar_authority === 'helm' || rosterIds.has(p.id);
+}

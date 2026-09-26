@@ -246,6 +246,21 @@ describe('the consumer map', () => {
     assert.ok(!Object.values(FIELD_CONSUMERS).flat().some((c) => /kb-facts|automations/.test(c)));
   });
 
+  test('a content field names staycapeann.com only when toScaListing changes with it (round 13)', () => {
+    const base = JSON.stringify(toScaListing(record, plan));
+    const changed: Record<string, unknown> = {
+      title: 'Other title', summary: 'Other pitch', space: 'Other space', access: 'Other access', interaction: 'Other',
+      neighborhood: 'Other neighborhood', house_rules: 'No parties', notes: 'Other notes', property_type: 'Cabin',
+      room_type: 'Private room', accommodates: 9, bedrooms: 7, bathrooms: 5, beds: 11, amenities: ['Sauna'],
+    };
+    for (const [field, value] of Object.entries(changed)) {
+      const content = { ...record.content!, [field]: value } as typeof record.content;
+      const moved = JSON.stringify(toScaListing({ ...record, content }, plan)) !== base;
+      const named = (FIELD_CONSUMERS[field] ?? []).includes('staycapeann.com (once it reads Helm)');
+      assert.equal(named, moved, `${field}: named for staycapeann.com=${named}, output changes=${moved}`);
+    }
+  });
+
   test('the amenity catalog has no duplicate entries across groups', () => {
     const all = AMENITY_CATALOG.flatMap((g) => g.items.map(amenityMatchKey));
     assert.equal(new Set(all).size, all.length);

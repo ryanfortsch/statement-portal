@@ -2,7 +2,8 @@ import { notFound } from 'next/navigation';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { selectAllPaged } from '@/lib/paged-select';
 import { getFleetProperty } from '@/lib/fleet';
-import { conflictFromSearchParams, isYmd } from '@/lib/bookings-write-core';
+import { conflictFromSearchParams, isPublicBookable, isYmd } from '@/lib/bookings-write-core';
+import { PROPERTIES } from '@/lib/properties';
 import { submitBookingInquiry } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +28,7 @@ export default async function BookPropertyPage({
   const { propertyId } = await params;
   const sp = await searchParams;
   const property = await getFleetProperty(propertyId);
-  if (!property || !property.is_active) notFound();
+  if (!isPublicBookable(property, new Set(Object.keys(PROPERTIES)))) notFound();
 
   const blockedRanges = await fetchBlockedRanges(propertyId);
   const conflict = conflictFromSearchParams(sp);

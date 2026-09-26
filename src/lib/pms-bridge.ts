@@ -880,6 +880,9 @@ async function afterCreate(row: BookingEx, input: CreateReservationInput, money:
       guest_email: input.guest.email ?? row.guest_email,
       guest_phone: input.guest.phone ?? row.guest_phone,
       source: input.source === 'sca' ? 'sca' : 'helm',
+      // Typed by the guest on staycapeann.com, never proven to own a
+      // matched record: link, do not write onto it.
+      guestTyped: true,
     });
   } catch (err) {
     warn('guest link', err);

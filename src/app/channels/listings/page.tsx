@@ -62,7 +62,7 @@ export default async function ChannelsListingsPage({ searchParams }: { searchPar
         eyebrow="Helm · Channels · Wiring"
         title="Both directions"
         emphasis="of every iCal link."
-        description="Per home and per channel: the OTA's export URL Helm imports, the listing ids and links, who owns the price, and whether the OTA has been given Helm's export and actually pulls it. The Guesty aggregate row retires here when a home leaves Guesty."
+        description="Per home and per channel: the OTA's export URL Helm imports, the listing ids and links, who owns the price, and whether the OTA has been given Helm's export and actually pulls it. The Guesty aggregate row retires at the flip, when a home leaves Guesty."
       />
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
@@ -151,7 +151,7 @@ function PropertyCard({ property, listings, pulls, pullsKnown, origin, now }: { 
         {extraRows.map((l) => (
           <ChannelRow key={l.id} property={property} channel={l.channel} listing={l} pull={null} helmRun={helmRun} now={now} />
         ))}
-        {guestyRow && <GuestyRow listing={guestyRow} now={now} />}
+        {guestyRow && <GuestyRow listing={guestyRow} now={now} helmRun={helmRun} propertyId={property.id} />}
       </div>
 
       {exportUrl && (
@@ -278,7 +278,7 @@ function ChannelRow({ property, channel, listing, pull, helmRun, now }: { proper
   );
 }
 
-function GuestyRow({ listing, now }: { listing: ChannelListingEx; now: Date }) {
+function GuestyRow({ listing, now, helmRun, propertyId }: { listing: ChannelListingEx; now: Date; helmRun: boolean; propertyId: string }) {
   const active = listing.is_active;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', gap: 14, alignItems: 'center', padding: '10px 12px', background: 'var(--paper)', border: `1px ${active ? 'solid' : 'dashed'} var(--rule)`, opacity: active ? 1 : 0.65 }}>
@@ -288,8 +288,10 @@ function GuestyRow({ listing, now }: { listing: ChannelListingEx; now: Date }) {
       </span>
       <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
         {active
-          ? `One feed carrying every channel; Helm parses each event into its real channel and drops direct-feed blocks as Guesty's echoes while this row is active and no OTA on the home imports Helm's export. ${listing.last_imported_at ? `Imported ${relativeAge(listing.last_imported_at, now)}, ${listing.last_import_event_count ?? 0} events.` : 'Never imported.'}`
-          : `Retired${listing.updated_at ? ` ${relativeAge(listing.updated_at, now)}` : ''}. Direct-feed blocks now import as OTA holds; only Booking.com's are passed on to the other channels.`}
+          ? `One feed carrying every channel; Helm parses each event into its real channel. Direct-feed closures are dropped as Guesty's echoes while Guesty runs this home and no OTA imports Helm's export. ${listing.last_imported_at ? `Imported ${relativeAge(listing.last_imported_at, now)}, ${listing.last_import_event_count ?? 0} events.` : 'Never imported.'}`
+          : helmRun
+            ? `Retired${listing.updated_at ? ` ${relativeAge(listing.updated_at, now)}` : ''}. Not read any more: Helm runs this home, and direct-feed blocks import as OTA holds; only Booking.com's are passed on to the other channels.`
+            : `Retired${listing.updated_at ? ` ${relativeAge(listing.updated_at, now)}` : ''}. Not read any more, and Guesty still runs this home: its blocks here are frozen until the flip cancels them. Reactivate it.`}
         {listing.last_import_status === 'error' && <span style={{ color: 'var(--negative)' }}> Last import errored: {listing.last_import_error ?? 'unknown'}.</span>}
       </span>
       <span style={{ display: 'inline-flex', gap: 12, alignItems: 'baseline' }}>
@@ -299,7 +301,13 @@ function GuestyRow({ listing, now }: { listing: ChannelListingEx; now: Date }) {
             <SubmitButton label="sync" busyLabel="syncing…" spinnerTone="ink" style={linkButton} />
           </form>
         )}
-        {active ? (
+        {active && !helmRun ? (
+          // Guesty runs this home: the flip retires this row. Retired by
+          // hand, its blocks froze live with nothing left to lift them.
+          <Link href={`/channels/${propertyId}#cutover`} style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            retires at the flip
+          </Link>
+        ) : active ? (
           <form action={toggleListingActive}>
             <input type="hidden" name="id" value={listing.id} />
             <input type="hidden" name="is_active" value="false" />

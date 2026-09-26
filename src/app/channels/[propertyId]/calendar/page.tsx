@@ -139,7 +139,11 @@ export default async function PropertyMonthGridPage({
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 28 }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <Stat label="Booked nights" value={String(summary.booked)} sub={`of ${monthCells.length} in ${grid.label.split(' ')[0]}`} />
-          <Stat label="Held" value={String(summary.held)} sub="owner, maintenance, closed" />
+          <Stat
+            label="Held"
+            value={String(summary.held)}
+            sub={summary.closed > 0 ? `holds, every channel; plus ${summary.closed} closed to Helm sales only` : 'owner, maintenance, repairs'}
+          />
           <Stat label="Open to sell" value={String(summary.open)} sub={summary.futureUnsellable > 0 ? `${summary.futureUnsellable} unsellable by rule` : 'every future vacancy'} />
           <Stat label="Average open rate" value={summary.avgOpenCents != null ? fmtCellPrice(summary.avgOpenCents) : '-'} sub={helmRun ? "from Helm's plan" : 'Guesty / PriceLabs mirror'} last />
         </div>
@@ -206,13 +210,17 @@ export default async function PropertyMonthGridPage({
                 </Field>
                 <Field label={<Tick name="touch_closed" label="Closed" />}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, height: 40 }}>
-                    <input name="closed" type="checkbox" /> not for sale
+                    <input name="closed" type="checkbox" /> Helm sales only
                   </label>
                 </Field>
                 <Field label={<Tick name="touch_note" label="Note" />}>
                   <input name="note" type="text" placeholder="why" style={inputStyle} />
                 </Field>
               </div>
+              <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, margin: 0 }}>
+                Closed stops Helm&apos;s own sales only (staycapeann.com and quotes). Airbnb, VRBO and Booking.com keep selling a closed night. To close nights on every channel,{' '}
+                <Link href={`/channels/bookings/new?type=block&property=${propertyId}`} style={{ color: 'var(--ink)' }}>hold them</Link>.
+              </p>
               <div>
                 <SubmitButton label="Apply to range" busyLabel="Applying…" style={primaryButton} />
               </div>
@@ -230,7 +238,10 @@ export default async function PropertyMonthGridPage({
 
 type Summary = {
   booked: number;
+  /** Holds (stay rows of kind block): every channel. */
   held: number;
+  /** Rate-day closures: Helm's own sales only, the OTAs keep selling. */
+  closed: number;
   open: number;
   futureUnsellable: number;
   avgOpenCents: number | null;
@@ -240,13 +251,15 @@ type Summary = {
 function summarise(cells: CalendarCellVM[], today: string): Summary {
   let booked = 0;
   let held = 0;
+  let closed = 0;
   let open = 0;
   let openCents = 0;
   let openPriced = 0;
   const byReason = new Map<UnsellableReason, string[]>();
   for (const c of cells) {
     if (c.reason === 'stay') booked++;
-    else if (c.reason === 'block' || c.reason === 'closed') held++;
+    else if (c.reason === 'block') held++;
+    else if (c.reason === 'closed') closed++;
     else if (c.reason == null) {
       open++;
       if (c.priceCents != null) {
@@ -264,6 +277,7 @@ function summarise(cells: CalendarCellVM[], today: string): Summary {
   return {
     booked,
     held,
+    closed,
     open,
     futureUnsellable: reasons.reduce((n, r) => n + r.dates.length, 0),
     avgOpenCents: openPriced > 0 ? Math.round(openCents / openPriced) : null,

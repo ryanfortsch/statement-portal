@@ -358,6 +358,9 @@ async function mergeContextFor(
   bundle: PropertyBundle,
   guest: GuestLike,
   adjustment: CheckoutAdjustmentLike,
+  /** The rule's timezone, so {{arrival_when}} reads the guest's calendar
+   *  day at the moment the text goes. */
+  timeZone?: string | null,
 ): Promise<MergeContext> {
   const stayCode = bundle.lockMapped ? await loadStayCode(booking.id) : null;
   return buildMergeContext({
@@ -378,6 +381,8 @@ async function mergeContextFor(
     stayCode,
     lockMapped: bundle.lockMapped,
     trashDay: bundle.trashDay,
+    now: new Date(),
+    timeZone: timeZone || undefined,
   });
 }
 
@@ -797,7 +802,7 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
 
   const guest = booking ? await loadGuest(booking.guest_id) : null;
   const adjustment = booking ? await loadAdjustmentFor(booking.property_id, booking.check_in) : null;
-  const ctx = booking && bundle ? await mergeContextFor(booking, bundle, guest, adjustment) : {};
+  const ctx = booking && bundle ? await mergeContextFor(booking, bundle, guest, adjustment, rule?.timezone) : {};
   const body = opts.bodyOverride?.trim() || rule?.body || '';
   const rendered = renderTemplate(body, ctx);
   // Rendered pair: .text for the wire only, .masked for the ledger and the inbox.
@@ -1017,11 +1022,31 @@ export async function otaPasteText(id: string): Promise<{ ok: true; text: string
   }
   const cache = newCache();
   const [booking, allRules, bundle] = await Promise.all([loadBooking(row.booking_id), rulesFor(cache, row.property_id), bundleFor(cache, row.property_id)]);
-  const rule = allRules.find((r) => r.id === row.automation_id) ?? (await getAutomationRule(row.automation_id));
-  if (!booking || !bundle || !rule) return { ok: false, error: 'The stay or its rule is gone; skip this message.' };
+  const ruleRow = allRules.find((r) => r.id === row.automation_id) ?? (await getAutomationRule(row.automation_id));
+  if (!booking || !bundle || !ruleRow) return { ok: false, error: 'The stay or its rule is gone; skip this message.' };
+  const effectiveIds = new Set(resolveAutomationsFor(row.property_id, allRules).map((r) => r.id));
+  const rule = { ...ruleRow, enabled: ruleRow.enabled && effectiveIds.has(ruleRow.id) };
   const guest = await loadGuest(booking.guest_id);
   const adjustment = await loadAdjustmentFor(booking.property_id, booking.check_in);
-  const rendered = renderTemplate(rule.body, await mergeContextFor(booking, bundle, guest, adjustment));
+  const rendered = renderTemplate(rule.body, await mergeContextFor(booking, bundle, guest, adjustment, rule.timezone));
+  // The same checks the send makes, before the door code leaves the server:
+  // a stay the feed has cancelled or moved since this was parked, a rule
+  // switched off, a home no longer automated. Copying first and learning at
+  // "Mark pasted" handed the code to someone who is no longer a guest.
+  const decision = decideDispatch({
+    row,
+    booking,
+    rule,
+    property: { automations_enabled: !!bundle.property.automations_enabled, calendar_authority: bundle.property.calendar_authority ?? 'guesty' },
+    guest,
+    recipients: bundle.recipients,
+    rendered,
+    lockMapped: !!bundle.lockMapped,
+    approved: true,
+  });
+  if (decision.outcome !== 'send' || decision.rail !== 'ota_manual') {
+    return { ok: false, error: `Not to be sent any more (${decision.reason ?? decision.outcome}): skip this message.` };
+  }
   if (rendered.missing.length > 0) {
     return { ok: false, error: `Missing ${rendered.missing.join(', ')}: fill the record first, or write the message in the OTA yourself.` };
   }
@@ -1244,7 +1269,7 @@ export async function sendTestToOperator(propertyId: string, ruleId: string, pho
   const stay = (await loadNextStay(propertyId)) ?? sampleStay(propertyId);
   const guest = await loadGuest(stay.guest_id);
   const adjustment = await loadAdjustmentFor(propertyId, stay.check_in);
-  const ctx = await mergeContextFor(stay, bundle, guest, adjustment);
+  const ctx = await mergeContextFor(stay, bundle, guest, adjustment, rule.timezone);
   const rendered = renderTemplate(rule.body, ctx);
   const content = `TEST from Helm (${bundle.property.name}, ${rule.key}). Secrets masked.\n\n${rendered.masked}`;
   try {

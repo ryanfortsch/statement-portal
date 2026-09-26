@@ -9,6 +9,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   shouldMoveThreadStay,
+  replyClaimVerdict,
+  REPLY_CLAIM_STALE_MS,
   HELM_SMS_MODULE,
   helmConversationId,
   helmThreadIdOf,
@@ -417,13 +419,46 @@ describe('a returning guest moves the thread to the current stay (round 12)', ()
     assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B2', '2026-11-04', '2026-11-08'), today), true);
     assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B2', '2026-12-01', '2026-12-05'), today), true);
   });
-  test('a current stay keeps the thread; a past candidate never takes it', () => {
+  test('a current stay keeps the thread; a stay ranked behind never takes it', () => {
     assert.equal(shouldMoveThreadStay(stay('B1', '2026-11-01', '2026-11-08'), stay('B2', '2026-12-01', '2026-12-05'), today), false);
-    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B0', '2026-09-01', '2026-09-05'), today), false);
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B0', '2026-06-01', '2026-06-05'), today), false);
     assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B1', '2026-07-01', '2026-07-05'), today), false);
     assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), null, today), false);
   });
   test('a link to a stay that is gone moves to the current one', () => {
     assert.equal(shouldMoveThreadStay(null, stay('B2', '2026-11-04', '2026-11-08'), today), true);
+  });
+});
+
+describe('the thread follows the stay the guest is on (round 13)', () => {
+  const stay = (id: string, check_in: string, check_out: string, extra: Record<string, unknown> = {}) => ({ id, check_in, check_out, ...extra });
+  const today = '2026-11-05';
+  test('a cancelled or duplicate link is gone', () => {
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-11-25', '2026-11-28', { status: 'cancelled' }), stay('B2', '2026-11-04', '2026-11-08'), today), true);
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-11-25', '2026-11-28', { duplicate_of: 'X' }), stay('B2', '2026-12-04', '2026-12-08'), today), true);
+  });
+  test('an in-house stay takes the thread from a later upcoming one; the sooner upcoming from a later one', () => {
+    assert.equal(shouldMoveThreadStay(stay('B3', '2026-12-25', '2026-12-28'), stay('B2', '2026-11-04', '2026-11-08'), today), true);
+    assert.equal(shouldMoveThreadStay(stay('B3', '2026-12-25', '2026-12-28'), stay('B2', '2026-11-20', '2026-11-24'), today), true);
+    assert.equal(shouldMoveThreadStay(stay('B2', '2026-11-20', '2026-11-24'), stay('B3', '2026-12-25', '2026-12-28'), today), false);
+  });
+  test('between two ended stays the one that ended last holds the thread', () => {
+    assert.equal(shouldMoveThreadStay(stay('B0', '2026-06-01', '2026-06-05'), stay('B1', '2026-07-01', '2026-07-05'), today), true);
+    assert.equal(shouldMoveThreadStay(stay('B1', '2026-07-01', '2026-07-05'), stay('B0', '2026-06-01', '2026-06-05'), today), false);
+  });
+});
+
+describe('replyClaimVerdict (round 13)', () => {
+  const now = Date.parse('2026-10-01T12:00:00Z');
+  test('a sent claim is a duplicate; a claim still sending is in flight, never ok', () => {
+    assert.equal(replyClaimVerdict({ status: 'sent', message_id: 'm1', created_at: '2026-10-01T11:59:00Z' }, now), 'duplicate');
+    assert.equal(replyClaimVerdict({ status: 'sending', message_id: null, created_at: '2026-10-01T11:59:00Z' }, now), 'in_flight');
+  });
+  test('a sending claim older than the function can live is a dead call and expires', () => {
+    assert.equal(replyClaimVerdict({ status: 'sending', message_id: null, created_at: new Date(now - REPLY_CLAIM_STALE_MS - 1000).toISOString() }, now), 'expired');
+    assert.equal(replyClaimVerdict({ status: 'sending', message_id: null, created_at: new Date(now - REPLY_CLAIM_STALE_MS + 1000).toISOString() }, now), 'in_flight');
+  });
+  test('a row with no status predates the column and was written after a send', () => {
+    assert.equal(replyClaimVerdict({ status: null, message_id: null, created_at: null }, now), 'duplicate');
   });
 });

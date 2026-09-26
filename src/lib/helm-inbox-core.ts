@@ -97,21 +97,31 @@ export function stayStatusOf(
 
 /**
  * Whether a thread linked to `linked` should move to `candidate`: a guest
- * who comes back texts the same number, and the thread (one per number)
+ * who comes back texts the same number, and the thread (one per contact)
  * kept its first stay, so a returning guest showed as Checked out, fell out
  * of In house, and the concierge's stay picker found no conversation for
- * the new stay. Moved only when the linked stay is over (or gone) and the
- * candidate is in house or ahead.
+ * the new stay. The thread follows the stay pickBookingForContact prefers:
+ * it moves when the candidate ranks strictly ahead of the linked stay (in
+ * house, then the soonest upcoming, then the latest checkout), or when the
+ * linked stay is gone (missing, cancelled, a duplicate).
  */
 export function shouldMoveThreadStay(
-  linked: { id: string; check_in: string; check_out: string } | null,
+  linked: { id: string; check_in: string; check_out: string; status?: string | null; duplicate_of?: string | null } | null,
   candidate: { id: string; check_in: string; check_out: string } | null,
   today: string,
 ): boolean {
   if (!candidate || (linked && linked.id === candidate.id)) return false;
-  const c = stayStatusOf(candidate.check_in, candidate.check_out, today);
-  if (c !== 'in_house' && c !== 'upcoming') return false;
-  return !linked || stayStatusOf(linked.check_in, linked.check_out, today) === 'checked_out';
+  if (!linked || linked.status === 'cancelled' || linked.duplicate_of) return true;
+  const rank = (b: { check_in: string; check_out: string }): number => {
+    const s = stayStatusOf(b.check_in, b.check_out, today);
+    return s === 'in_house' ? 0 : s === 'upcoming' ? 1 : 2;
+  };
+  const rc = rank(candidate);
+  const rl = rank(linked);
+  if (rc !== rl) return rc < rl;
+  if (rc === 1) return candidate.check_in < linked.check_in;
+  if (rc === 2) return candidate.check_out > linked.check_out;
+  return false;
 }
 
 export function addDays(ymd: string, days: number): string {
@@ -442,4 +452,30 @@ export function mergeConversationLists<T extends Pick<ConversationSummary, 'last
 /** A new guest message reopens a thread the operator had parked. */
 export function statusAfterInbound(status: ThreadStatus | string): ThreadStatus {
   return status === 'archived' ? 'archived' : 'open';
+}
+
+// ── Reply claims (pms_reply_claims) ─────────────────────────────────────
+
+/** Older than the route's max duration (300s) plus slack: the call that
+ *  claimed it is dead. */
+export const REPLY_CLAIM_STALE_MS = 10 * 60 * 1000;
+
+export type ReplyClaimRow = { status: string | null; message_id: string | null; created_at: string | null };
+
+/**
+ * What a retry of an approval learns from the claim it collided with:
+ *   - 'duplicate': the first call's provider accepted the reply; answer ok
+ *     with its message id and send nothing;
+ *   - 'in_flight': the first call is still sending; answer 409 so the caller
+ *     asks again, never ok (the send may yet fail and be released);
+ *   - 'expired': a 'sending' claim older than the function can live: that
+ *     call died mid-send, so the claim may be taken over.
+ * A row with no status predates the column and was written only after a
+ * send, so it reads as sent.
+ */
+export function replyClaimVerdict(row: ReplyClaimRow, nowMs: number): 'duplicate' | 'in_flight' | 'expired' {
+  if (row.status == null || row.status === 'sent') return 'duplicate';
+  const at = row.created_at ? Date.parse(row.created_at) : NaN;
+  if (Number.isFinite(at) && nowMs - at > REPLY_CLAIM_STALE_MS) return 'expired';
+  return 'in_flight';
 }

@@ -158,7 +158,21 @@ export async function toggleListingActive(formData: FormData) {
   const id = String(formData.get('id') || '').trim();
   const isActiveRaw = String(formData.get('is_active') || 'true');
   if (!id) throw new Error('Missing listing id');
-  if (isActiveRaw !== 'true') await retireFeedHolds(id, 'feed_deactivated');
+  if (isActiveRaw !== 'true') {
+    // The Guesty aggregate row of a home Guesty still runs is retired by the
+    // flip, never by hand: retired early, its blocks (hold_kind null, so
+    // retireFeedHolds leaves them) stayed live for good with nothing
+    // reading the feed that would lift them.
+    const { data: row } = await supabaseAdmin.from('channel_listings').select('channel, property_id').eq('id', id).maybeSingle();
+    const listing = row as { channel: string; property_id: string } | null;
+    if (listing?.channel === 'guesty') {
+      const { data: prop } = await supabaseAdmin.from('properties').select('calendar_authority').eq('id', listing.property_id).maybeSingle();
+      if ((prop as { calendar_authority: string | null } | null)?.calendar_authority !== 'helm') {
+        throw new Error('Guesty still runs this home: its Guesty row retires at the flip (hub, Cutover), not here.');
+      }
+    }
+    await retireFeedHolds(id, 'feed_deactivated');
+  }
   const { error } = await supabaseAdmin
     .from('channel_listings')
     .update({ is_active: isActiveRaw === 'true', updated_at: new Date().toISOString() })
