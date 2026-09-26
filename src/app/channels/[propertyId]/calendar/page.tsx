@@ -99,6 +99,7 @@ export default async function PropertyMonthGridPage({
       helmRun,
       badgeLabel: badge.label,
       badgeKind: badge.kind,
+      exportTicked: feeds.some((f) => f.is_active && f.channel !== 'guesty' && !!f.export_subscribed),
       freshness: importFreshness(oldestImport, now),
       freshnessDetail: '',
       hasPlan: !!bundle?.plan,

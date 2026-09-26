@@ -7,7 +7,7 @@ import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
 import { regionLabel } from '@/lib/property-scope';
 import { listBookingsForProperty, type BookingEx } from '@/lib/channels';
 import { loadPricingBundle, type PricingBundle } from '@/lib/property-rates';
-import { buildAvailability, checkRange, type RangeCheck } from '@/lib/availability';
+import { buildAvailability, checkRange, TURNOVER_BUFFER_MAX_DAYS, type RangeCheck } from '@/lib/availability';
 import { quoteStay, TaxJurisdictionUnknownError, type StayQuote } from '@/lib/rate-plan';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import { conflictFromSearchParams, describeConflict, isYmd } from '@/lib/bookings-write-core';
@@ -40,7 +40,9 @@ async function runCheck(property: FleetProperty, checkIn: string, checkOut: stri
   const out: Check = { property, checkIn, checkOut, guests, range: null, conflicting: [], quote: null, quoteError: null, hasPlan: false };
   try {
     const [bookings, bundle] = await Promise.all([
-      listBookingsForProperty(property.id, checkIn, checkOut),
+      // Past both edges: a neighbour's turnover buffer reaches these nights.
+      // The conflict list below still keeps only rows that overlap.
+      listBookingsForProperty(property.id, shiftIsoDay(checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(checkOut, TURNOVER_BUFFER_MAX_DAYS)),
       helmRun ? loadPricingBundle(property.id, shiftIsoDay(checkIn, -1), checkOut) : Promise.resolve(null as PricingBundle | null),
     ]);
     const live = bookings.filter((b) => b.status !== 'cancelled');
@@ -295,8 +297,11 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
           <div style={{ display: 'flex', gap: 10, marginTop: 8, alignItems: 'center' }}>
             <SubmitButton label={isBlock ? 'Create block' : 'Create booking'} busyLabel="Creating…" style={primaryButton} disabled={!property} />
             <Link href="/channels/bookings" style={secondaryButton}>Cancel</Link>
-            {check && check.range && !check.range.available && !isBlock && !bcomHandEntry && (
-              <span style={{ fontSize: 12, color: 'var(--negative)' }}>These nights are not open; the database will refuse a confirmed stay over them.</span>
+            {/* The writer refuses overlaps only: a night shut by rule
+                (closed, season, notice, window, turnover buffer) is said
+                below, and a hand-entered real reservation still goes in. */}
+            {check && check.conflicting.length > 0 && !isBlock && !bcomHandEntry && (
+              <span style={{ fontSize: 12, color: 'var(--negative)' }}>Another stay or hold has these nights; the database will refuse a confirmed stay over them.</span>
             )}
             {bcomHandEntry && (
               <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Only OTA closures hold these nights: a Booking.com booking may go in over them (see below).</span>
@@ -352,7 +357,7 @@ function AvailabilityBlock({ check, isBlock }: { check: Check; isBlock: boolean 
           </div>
         ) : holdsOnly ? (
           <span>
-            <span style={{ color: 'var(--negative)' }}>Not for sale</span> on {r.unavailableDates.length} night{r.unavailableDates.length === 1 ? '' : 's'} by rule (closed, off season, advance notice or booking window), though nothing holds them.{isBlock ? ' A hold is still allowed.' : ' A manual booking is still allowed; the database only refuses overlaps.'}
+            <span style={{ color: 'var(--negative)' }}>Not for sale</span> on {r.unavailableDates.length} night{r.unavailableDates.length === 1 ? '' : 's'} by rule (closed, off season, advance notice, booking window or turnover buffer), though nothing holds them.{isBlock ? ' A hold is still allowed.' : ' A manual booking is still allowed; the database only refuses overlaps.'}
           </span>
         ) : (
           <span style={{ color: 'var(--negative)' }}>Not available.</span>

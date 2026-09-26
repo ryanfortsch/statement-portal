@@ -1184,9 +1184,13 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
   if (booking.check_in !== row.planned_check_in || booking.check_out !== row.planned_check_out) {
     return { outcome: 'skipped_dates_moved', rail: null, reason: `dates moved to ${booking.check_in}..${booking.check_out}` };
   }
-  if (!rule || !rule.enabled) return { outcome: 'cancelled', rail: null, reason: 'rule_disabled' };
+  // Both are pauses the planner resumes (isResumablePause), never verdicts:
+  // a rule switched back on, or a home reverted to Guesty and flipped back,
+  // gets its waiting messages again. Written as 'rule_disabled' and
+  // 'property_not_automated' they froze for good, door-code text included.
+  if (!rule || !rule.enabled) return { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_SUPERSEDED };
   if (!property || !property.automations_enabled || property.calendar_authority !== 'helm') {
-    return { outcome: 'cancelled', rail: null, reason: 'property_not_automated' };
+    return { outcome: 'cancelled', rail: null, reason: `${PAUSE_REASON_DISABLED_PREFIX}the home (not Helm-run, or automations off)` };
   }
   if (rule.channel_exclusions.includes(booking.channel)) return { outcome: 'skipped_channel', rail: null, reason: `channel ${booking.channel} excluded` };
 

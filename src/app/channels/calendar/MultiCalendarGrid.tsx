@@ -42,6 +42,9 @@ export type CalendarRowVM = {
     helmRun: boolean;
     badgeLabel: string;
     badgeKind: 'guesty' | 'shadow' | 'helm';
+    /** An OTA on the home already imports Helm's export (the tick-to-flip
+     *  window): a Helm hold reaches that OTA now, and Guesty may be gone. */
+    exportTicked: boolean;
     freshness: Freshness;
     freshnessDetail: string;
     hasPlan: boolean;
@@ -650,8 +653,11 @@ export function EditDrawer({
           <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, margin: 0 }}>
             Holds {nights.length} night{nights.length === 1 ? '' : 's'}, {start} to {checkOut} (the morning the hold ends). The database refuses the hold if another stay has any of these nights.
           </p>
-          {!p.helmRun && (
+          {!p.helmRun && !p.exportTicked && (
             <Note tone="signal">Guesty still runs this calendar: the hold lives in Helm only until the flip. Block the dates in Guesty too.</Note>
+          )}
+          {!p.helmRun && p.exportTicked && (
+            <Note tone="signal">An OTA on this home already imports Helm&apos;s export, so the hold reaches it on its next pull. Any OTA still fed by Guesty needs the dates blocked there too.</Note>
           )}
           <Field label="Kind">
             <select value={holdKind} onChange={(e) => setHoldKind(e.target.value as typeof holdKind)} disabled={pending} style={inputStyle}>

@@ -137,6 +137,7 @@ export default async function ChannelsCalendarPage({ searchParams }: { searchPar
         helmRun,
         badgeLabel: badge.label,
         badgeKind: badge.kind,
+        exportTicked: propListings.some((l) => l.is_active && l.channel !== 'guesty' && !!l.export_subscribed),
         freshness,
         freshnessDetail,
         hasPlan: !!bundle?.plan,

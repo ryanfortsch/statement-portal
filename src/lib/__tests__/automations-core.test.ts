@@ -953,3 +953,26 @@ describe('round 15: promoted inquiries, revived confirmation cards, cleaner arri
     assert.equal(triggerAppliesTo({ trigger: 'pre_checkout', audience: 'guest' }, b, flags), false);
   });
 });
+
+describe('round 16: dispatch-time cancels are pauses', () => {
+  test('a rule switched off, or a home reverted to Guesty, pauses the row so it resumes', () => {
+    const base = {
+      row: { planned_check_in: '2026-07-15', planned_check_out: '2026-07-18' },
+      booking: booking(),
+      rule: rule({ send_mode: 'auto' }),
+      property: { automations_enabled: true, calendar_authority: 'helm' },
+      guest: null,
+      recipients: [],
+      rendered: { missing: [] },
+      lockMapped: true,
+      approved: false,
+    };
+    const off = decideDispatch({ ...base, rule: rule({ enabled: false }) });
+    assert.equal(off.outcome, 'cancelled');
+    assert.equal(isResumablePause({ status: 'cancelled', error: off.reason }), true);
+    const reverted = decideDispatch({ ...base, property: { automations_enabled: true, calendar_authority: 'guesty' } });
+    assert.equal(reverted.outcome, 'cancelled');
+    assert.equal(isResumablePause({ status: 'cancelled', error: reverted.reason }), true);
+    assert.equal(sendStatusLabel('cancelled', reverted.reason), 'Paused: automations off');
+  });
+});

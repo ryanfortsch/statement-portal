@@ -6,7 +6,8 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAvailability, bufferNights, checkRange, nightHolds, type AvailabilityBooking } from '../availability.ts';
+import { readFileSync } from 'node:fs';
+import { buildAvailability, bufferNights, checkRange, nightHolds, TURNOVER_BUFFER_MAX_DAYS, type AvailabilityBooking } from '../availability.ts';
 import { arrivalDepartureViolations, quoteStay, rateDayMap, type RateDayRow, type RatePlanRow } from '../rate-plan.ts';
 import type { RentalPeriod } from '../rental-periods.ts';
 
@@ -299,5 +300,27 @@ describe('turnover buffer and CTA / CTD are enforced on Helm sales (round 15)', 
     const q = quoteStay({ plan, days, tax: null, checkIn: '2026-10-17', checkOut: '2026-10-20', guests: 2, channel: 'direct', now: NOW, region: 'cape_ann', propertyId: '21_horton' });
     assert.ok(q.violations.includes('closed_to_arrival'));
     assert.ok(q.violations.includes('closed_to_departure'));
+  });
+});
+
+describe('the buffer reaches a request from a neighbour it does not overlap (round 16)', () => {
+  test('a same-day turnover after a stay is refused once the neighbour is loaded', () => {
+    const neighbour: AvailabilityBooking = { status: 'confirmed', check_in: '2026-10-16', check_out: '2026-10-19' };
+    const days = buildAvailability({ bookings: [neighbour], plan: { ...plan, turnover_buffer_days: 1 }, rateDays: new Map(), rentalPeriods: [], start: '2026-10-19', end: '2026-10-21', now: NOW });
+    assert.equal(checkRange(days, '2026-10-19', '2026-10-22').available, false);
+    assert.deepEqual(checkRange(days, '2026-10-19', '2026-10-22').unavailableDates, ['2026-10-19']);
+  });
+  test('a Booking.com guest, which a Helm-run home holds only as a closure, gets a buffer; an owner hold does not', () => {
+    const bcom: AvailabilityBooking = { status: 'block', hold_kind: 'ota', source: 'ical_import', channel: 'booking_com', check_in: '2026-10-16', check_out: '2026-10-19', duplicate_of: 'x' };
+    assert.deepEqual([...bufferNights([bcom], 1)].sort(), ['2026-10-15', '2026-10-19']);
+    const owner: AvailabilityBooking = { status: 'block', hold_kind: 'owner', source: 'manual', check_in: '2026-10-16', check_out: '2026-10-19' };
+    assert.equal(bufferNights([owner], 1).size, 0);
+    const airbnbClosure: AvailabilityBooking = { status: 'block', hold_kind: 'ota', source: 'ical_import', channel: 'airbnb', check_in: '2026-10-16', check_out: '2026-10-19' };
+    assert.equal(bufferNights([airbnbClosure], 1).size, 0);
+  });
+  test('the read margin covers the largest buffer the Rates form allows', () => {
+    assert.equal(TURNOVER_BUFFER_MAX_DAYS, 30);
+    const rates = readFileSync(new URL('../../app/properties/[id]/rates-actions.ts', import.meta.url), 'utf8');
+    assert.ok(rates.includes("intOrNull(fd, 'turnover_buffer_days', 0, TURNOVER_BUFFER_MAX_DAYS)"));
   });
 });

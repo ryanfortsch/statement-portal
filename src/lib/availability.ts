@@ -117,24 +117,40 @@ export function nightHolds(bookings: readonly AvailabilityBooking[]): {
   return { reserved, blocked };
 }
 
+/** The Rates form's cap on turnover_buffer_days. A sale path reads the
+ *  stays this far either side of the request, so the neighbours whose
+ *  buffer can reach it are loaded (an overlap read never loads them). */
+export const TURNOVER_BUFFER_MAX_DAYS = 30;
+
+/** A row that is a guest's stay for the buffer: a canonical stay, or a live
+ *  Booking.com closure (on a Helm-run home a Booking.com guest exists only
+ *  as that closure; see nightHolds), whatever its duplicate mark. */
+function isBufferedStay(b: AvailabilityBooking): boolean {
+  const status = String(b.status ?? '').toLowerCase();
+  if (status === 'block') return b.hold_kind === 'ota' && b.source === 'ical_import' && b.channel === 'booking_com';
+  return !b.duplicate_of && STAY_STATUSES.has(status);
+}
+
 /**
  * The nights a plan's turnover buffer keeps free around each stay: `days`
  * nights before its arrival and `days` nights from its checkout on (what
  * Guesty's preparation time did with its 'b' and 'a' padding, which the flip
- * drops). Stays only, canonical only: an owner hold needs no turnover.
+ * drops). Stays only: an owner hold needs no turnover. The caller must pass
+ * the stays up to `days` nights either side of the dates it asks about
+ * (TURNOVER_BUFFER_MAX_DAYS).
  */
 export function bufferNights(bookings: readonly AvailabilityBooking[], days: number): Set<string> {
   const out = new Set<string>();
   const n = Math.max(0, Math.floor(Number(days) || 0));
   if (n === 0) return out;
   for (const b of bookings) {
-    if (b.duplicate_of || !STAY_STATUSES.has(String(b.status ?? '').toLowerCase())) continue;
+    if (!isBufferedStay(b)) continue;
     for (let i = 1; i <= n; i++) out.add(shiftIsoDay(b.check_in, -i));
     for (let i = 0; i < n; i++) out.add(shiftIsoDay(b.check_out, i));
   }
   // A night a stay itself holds is the stay's, not a buffer.
   for (const b of bookings) {
-    if (b.duplicate_of || !STAY_STATUSES.has(String(b.status ?? '').toLowerCase())) continue;
+    if (!isBufferedStay(b)) continue;
     for (const night of stayNights(b.check_in, b.check_out)) out.delete(night);
   }
   return out;

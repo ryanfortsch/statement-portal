@@ -49,7 +49,7 @@ import {
   type TaxConfigRow,
 } from './rate-plan.ts';
 import { loadPricingBundle, type PricingBundle } from './property-rates.ts';
-import { buildAvailability, bufferNights, checkRange, nightHolds, type AvailabilityBooking, type HelmAvailabilityDay, type RangeCheck } from './availability.ts';
+import { buildAvailability, bufferNights, checkRange, nightHolds, TURNOVER_BUFFER_MAX_DAYS, type AvailabilityBooking, type HelmAvailabilityDay, type RangeCheck } from './availability.ts';
 import { isOpenOn } from './rental-periods.ts';
 import { getListingRecord, toScaListing, type ScaListing } from './listing-content.ts';
 import { EXPORT_FOR_CHANNELS, exportUrlFor, type ExportForChannel } from './ical-export.ts';
@@ -357,7 +357,11 @@ export async function availabilityForBridge(
   if (isFailure(property)) return property;
 
   const now = opts.now ?? new Date();
-  const [bundle, holds] = await Promise.all([loadPricingBundle(property.id, start, end), holdsInWindow(property.id, start, shiftIsoDay(end, 1))]);
+  // Holds read past both edges: a neighbour's turnover buffer reaches in.
+  const [bundle, holds] = await Promise.all([
+    loadPricingBundle(property.id, start, end),
+    holdsInWindow(property.id, shiftIsoDay(start, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(end, 1 + TURNOVER_BUFFER_MAX_DAYS)),
+  ]);
   const days = buildAvailability({
     bookings: holds,
     plan: bundle.plan,
@@ -438,7 +442,9 @@ async function priceStay(args: {
   const [bundle, holds] = await Promise.all([
     // Through the checkout date: its rate day carries No departure (CTD).
     loadPricingBundle(property.id, args.checkIn, args.checkOut),
-    holdsInWindow(property.id, args.checkIn, args.checkOut),
+    // Past both edges: the stays whose turnover buffer reaches these nights
+    // never overlap them. Only the stay's own nights are judged.
+    holdsInWindow(property.id, shiftIsoDay(args.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(args.checkOut, TURNOVER_BUFFER_MAX_DAYS)),
   ]);
   if (!bundle.plan) return fail({ ok: false, error: 'no_rate_plan', property_id: property.id });
 

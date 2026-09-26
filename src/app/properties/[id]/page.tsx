@@ -2257,7 +2257,7 @@ export default async function PropertyDetailPage({
           <CollapsibleSection
             id="listing"
             title="Listing"
-            summary={`${listingRecord?.photos.length ?? 0} photo${listingRecord?.photos.length === 1 ? '' : 's'} · what staycapeann.com and the guest AI read`}
+            summary={`${listingRecord?.photos.length ?? 0} photo${listingRecord?.photos.length === 1 ? '' : 's'} · ${helmRun ? 'what staycapeann.com reads once it reads Helm' : 'draft; Guesty holds the live listing'}`}
           >
             <ListingPanel
               propertyId={p.id}

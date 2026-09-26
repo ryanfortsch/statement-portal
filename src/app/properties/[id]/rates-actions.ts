@@ -7,6 +7,7 @@ import { getFleetProperty } from '@/lib/fleet';
 import { getRateDays, setRateDays, clearRateDays, upsertRatePlan, loadPricingBundle, type RateDayWrite, type RatePlanPatch } from '@/lib/property-rates';
 import { quoteStay, isoWeekday, TaxJurisdictionUnknownError, type StayQuote, type TaxConfigRow } from '@/lib/rate-plan';
 import { TAX_CONFIG_COLS } from '@/lib/tax-config';
+import { TURNOVER_BUFFER_MAX_DAYS } from '@/lib/availability';
 import { isIsoDay, nightsBetween, shiftIsoDay } from '@/lib/sca-quotes-types';
 
 /**
@@ -104,7 +105,7 @@ export async function saveRatePlanAction(propertyId: string, _prev: RatesFormSta
       max_nights: intOrNull(fd, 'max_nights', 1, 3650),
       advance_notice_hours: intOrNull(fd, 'advance_notice_hours', 0, 8760) ?? 24,
       booking_window_days: intOrNull(fd, 'booking_window_days', 0, 3650) ?? 365,
-      turnover_buffer_days: intOrNull(fd, 'turnover_buffer_days', 0, 30) ?? 0,
+      turnover_buffer_days: intOrNull(fd, 'turnover_buffer_days', 0, TURNOVER_BUFFER_MAX_DAYS) ?? 0,
       checkin_time: hhmm(fd, 'checkin_time', '16:00'),
       checkout_time: hhmm(fd, 'checkout_time', '11:00'),
       max_occupancy: intOrNull(fd, 'max_occupancy', 1, 100),

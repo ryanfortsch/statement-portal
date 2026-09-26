@@ -4,12 +4,13 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { getFleetProperty } from '@/lib/fleet';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getRateDays, loadPricingBundle, setRateDays, type RateDayWrite } from '@/lib/property-rates';
 import { writeHelmCalendarMirror } from '@/lib/helm-calendar-mirror';
 import { createBlock, isBookingOverlapError } from '@/lib/bookings-write';
 import { isYmd } from '@/lib/bookings-write-core';
 import { quoteStay, TaxJurisdictionUnknownError, type StayQuote } from '@/lib/rate-plan';
-import { buildAvailability, checkRange } from '@/lib/availability';
+import { buildAvailability, checkRange, TURNOVER_BUFFER_MAX_DAYS } from '@/lib/availability';
 import { listBookingsForProperty } from '@/lib/channels';
 import { shiftIsoDay } from '@/lib/sca-quotes-types';
 import { dateRange } from '@/lib/calendar-model';
@@ -177,10 +178,23 @@ export async function createBlockAction(input: CreateBlockInput): Promise<Calend
     revalidateCalendars(propertyId);
     revalidatePath('/channels/bookings');
     const nights = dateRange(input.checkIn, shiftIsoDay(input.checkOut, -1)).length;
-    const guestyNote =
-      property.calendar_authority !== 'helm'
-        ? ' Guesty still runs this calendar, so this hold lives in Helm only until the home is flipped; block the dates in Guesty too.'
-        : '';
+    let guestyNote = '';
+    if (property.calendar_authority !== 'helm') {
+      // In the tick-to-flip window an OTA already imports Helm's export and
+      // Guesty may be gone: "block it in Guesty" would be false there.
+      const { data: ticked } = await supabaseAdmin
+        .from('channel_listings')
+        .select('id')
+        .eq('property_id', propertyId)
+        .eq('is_active', true)
+        .eq('export_subscribed', true)
+        .neq('channel', 'guesty')
+        .limit(1);
+      guestyNote =
+        (ticked ?? []).length > 0
+          ? " An OTA on this home already imports Helm's export, so the hold reaches it on its next pull; any OTA still fed by Guesty needs the dates blocked there too."
+          : ' Guesty still runs this calendar, so this hold lives in Helm only until the home is flipped; block the dates in Guesty too.';
+    }
     return { ok: true, bookingId: row.id, message: `Held ${nights} night${nights === 1 ? '' : 's'} at ${property.name}, ${input.checkIn} to ${input.checkOut}.${guestyNote}` };
   } catch (err) {
     if (isBookingOverlapError(err)) return { ok: false, error: err.message };
@@ -207,7 +221,8 @@ export async function quoteRangeAction(input: QuoteRangeInput): Promise<QuoteRan
     }
     const [bundle, bookings] = await Promise.all([
       loadPricingBundle(propertyId, shiftIsoDay(input.checkIn, -1), input.checkOut),
-      listBookingsForProperty(propertyId, input.checkIn, input.checkOut),
+      // Past both edges: a neighbour's turnover buffer reaches these nights.
+      listBookingsForProperty(propertyId, shiftIsoDay(input.checkIn, -TURNOVER_BUFFER_MAX_DAYS), shiftIsoDay(input.checkOut, TURNOVER_BUFFER_MAX_DAYS)),
     ]);
     if (!bundle.plan) return { ok: false, error: `${property.name} has no rate plan yet. Set one under Rates & taxes (property page, Guest & listing).` };
     const days = buildAvailability({

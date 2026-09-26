@@ -52,7 +52,9 @@ export function ListingPanel({ propertyId, content, photos, rooms, bedSummaryTex
     <div style={{ display: 'flex', flexDirection: 'column', gap: 30, paddingBottom: 8 }}>
       <div style={{ borderLeft: `3px solid ${helmRun ? 'var(--positive)' : 'var(--signal)'}`, padding: '10px 14px', background: 'var(--paper-2)', fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.55 }}>
         <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>
-          {helmRun ? 'This record feeds staycapeann.com, the guest AI and automations for this home.' : 'Draft record: Guesty still holds the live listing for this home.'}
+          {helmRun
+            ? 'This record is what staycapeann.com will read once it reads Helm. The guest AI and automations read the property facts, not this record.'
+            : 'Draft record: Guesty still holds the live listing for this home.'}
         </div>
         Per-channel copy (Airbnb, Vrbo, Booking.com) is edited in each OTA until a push layer exists. Each field below says who reads it today.
         {content?.source === 'guesty_seed' && (
