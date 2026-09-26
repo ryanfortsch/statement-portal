@@ -21,6 +21,7 @@ import {
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
 import { loadTurnoverNotes, type TurnoverNote } from '@/lib/turnover-notes';
+import { formatOperatorNote, noteRenderingIsStale } from '@/lib/cleaner-note';
 import {
   approveAndSendDigest,
   sendDigestUpdate,
@@ -34,6 +35,7 @@ import {
   dismissTurnoverNoteAction,
   dismissProposalAction,
   ensureTomorrowDraft,
+  saveDigestNote,
 } from '../turnovers/schedule/actions';
 
 /**
@@ -375,6 +377,12 @@ export async function ScheduleDigestCard({
   // what she reads and what Rosa receives the same string by construction,
   // and draftedBody carries it too so the unedited-check still holds.
   const shownBody = pending && day ? await composeDigestBodyLive(supabase, day) : digest.body;
+  // The note as it will actually go out: Portuguese, with the English
+  // underneath. Rendered when the note was saved, so this is the real tail
+  // rather than a guess at one. `noteStale` means the typed text moved on
+  // from the rendering and the send will re-derive it.
+  const noteBlock = formatOperatorNote(digest.operator_note_pt, digest.operator_note_en);
+  const noteStale = noteRenderingIsStale(digest);
   const lastBatch = digest.sent_log?.[digest.sent_log.length - 1];
   const enabledList = recipients.filter((r) => r.enabled);
   const anyEnabled = enabledList.length > 0;
@@ -393,7 +401,8 @@ export async function ScheduleDigestCard({
             {notice.err === 'all_failed' && 'Quo rejected every send - see the log below and try again.'}
             {notice.err === 'raced' && 'Already handled in another tab - this is the fresh state.'}
             {notice.err === 'schedule_unavailable' && 'Nothing sent: the live schedule could not be read at that moment. Try again in a minute.'}
-            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced', 'schedule_unavailable'].includes(notice.err) && `Error: ${notice.err}`}
+            {notice.err === 'note_untranslated' && 'Your note is saved but could not be put into Portuguese just now. It will go out exactly as you typed it. Try Save & translate again in a minute.'}
+            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced', 'schedule_unavailable', 'note_untranslated'].includes(notice.err) && `Error: ${notice.err}`}
           </div>
         )}
         {notice?.sent && (
@@ -544,15 +553,30 @@ export async function ScheduleDigestCard({
                 resize: 'vertical',
               }}
             />
-            <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '6px 0 12px' }}>
-              Sent after the schedule, in your words. Unlike editing the text above, a note here does not freeze the
-              schedule -- it still recomposes live at send time. It sticks through Refresh draft and Re-scan.
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0 6px' }}>
+              <SubmitButton
+                label="Save &amp; translate"
+                busyLabel="Translating..."
+                spinnerTone="ink"
+                formAction={saveDigestNote}
+                style={{ fontSize: 12, padding: '7px 13px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                Puts it into Portuguese and shows it below, exactly as it will be sent.
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '0 0 12px' }}>
+              Write it in whichever language you think in. It goes out in Portuguese with your English underneath, after
+              the schedule. Unlike editing the text above, a note here does not freeze the schedule -- it still
+              recomposes live at send time. It sticks through Refresh draft and Re-scan.
             </div>
 
-            {/* The live-schedule link is appended per recipient at send time
-                (each cleaner has their own token), so it never appears in the
-                editable body above -- which reads as though no link goes out
-                at all. Show the real thing instead of claiming it. */}
+            {/* The tail nobody could see. The note is stored apart from the
+                body so the schedule keeps recomposing live, and the link is
+                appended per recipient at send time (each cleaner has their
+                own token) -- so neither appears in the editable body above,
+                which read as though no note and no link went out at all.
+                Show the real strings instead of claiming them. */}
             <div
               style={{
                 margin: '0 0 12px',
@@ -567,6 +591,26 @@ export async function ScheduleDigestCard({
               <span style={{ letterSpacing: '.1em', textTransform: 'uppercase', fontWeight: 700 }}>
                 Added to the end of each text
               </span>
+              {noteBlock && !noteStale && (
+                <pre
+                  style={{
+                    fontFamily: 'var(--font-mono), monospace',
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    margin: '6px 0 8px',
+                    whiteSpace: 'pre-wrap',
+                    color: 'var(--ink)',
+                  }}
+                >
+                  {noteBlock}
+                </pre>
+              )}
+              {noteStale && (
+                <div style={{ margin: '6px 0 8px', color: 'var(--signal)', fontWeight: 600 }}>
+                  Your note has not been put into Portuguese yet. Approving translates it anyway -- press Save &amp;
+                  translate first if you want to read it before it goes.
+                </div>
+              )}
               <div style={{ fontFamily: 'var(--font-mono), monospace', marginTop: 4, wordBreak: 'break-all', color: 'var(--ink-3)' }}>
                 Agenda ao vivo / live schedule:
                 <br />
