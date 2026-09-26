@@ -68,13 +68,13 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
           ? ` Mirror: ${mirror.errors.join('; ')}`
           : ` Mirror: ${mirror.days_written} days written, ${mirror.hold_days} held.`
         : '';
-      const adopted = result.adopted;
-      const adoptNote = !adopted
+      const gb = result.guestyBlocksCancelled;
+      const adoptNote = !gb
         ? ''
-        : adopted.error
-        ? ` Guesty holds NOT adopted (${adopted.error}); they still close their nights but only the aggregate feed row can cancel them. Re-enter them as Helm blocks and cancel the originals.`
-        : adopted.count > 0
-        ? ` ${adopted.count} Guesty hold${adopted.count === 1 ? '' : 's'} adopted as Helm block${adopted.count === 1 ? '' : 's'}.`
+        : gb.error
+        ? ` Guesty blocks NOT cancelled (${gb.error}); they still close their nights on every channel. The next full channel sync clears them.`
+        : gb.count > 0
+        ? ` ${gb.count} Guesty block${gb.count === 1 ? '' : 's'} cancelled; the holds among them were re-entered in Helm before the flip.`
         : '';
       outcome = { flipped: 'helm', flip_note: `Helm runs ${propertyId} as of ${result.property.cutover_at ?? 'now'}.${mirrorNote}${adoptNote}` };
     } catch (err) {

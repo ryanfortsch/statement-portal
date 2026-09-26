@@ -824,6 +824,29 @@ describe('Helm-run homes: a date join never crosses channels', () => {
     assert.notEqual(canonicalOf(without, 'VS2'), 'VS2');
   });
 
+  test('a post-cutover feed row never joins the frozen aggregate-feed twin of a cancelled Guesty-era stay', () => {
+    const AGG = 'listing-guesty';
+    const withAgg = {
+      ...strict,
+      isFromAggregateFeed: (r: DedupRow) => r.source === 'ical_import' && r.channel_listing_id === AGG,
+      cutoverAtByProperty: new Map([[HELM_HOME, '2026-09-30T12:00:00Z']]),
+    };
+    const rows = [
+      cancelledVrbo({ id: 'V1' }),
+      row({ id: 'AG1', property_id: HELM_HOME, channel: 'vrbo', channel_listing_id: AGG, check_in: '2026-10-10', check_out: '2026-10-14', external_confirmation_code: 'HA-111', created_at: '2026-08-15T00:00:00Z' }),
+      row({ id: 'V2', property_id: HELM_HOME, channel: 'vrbo', channel_listing_id: VRBO_FEED, check_in: '2026-10-10', check_out: '2026-10-14', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    assert.equal(canonicalOf(planDedupe(rows, withAgg), 'V2'), 'V2');
+  });
+
+  test('a cancelled hand entry and its re-entry stay two rows on a Helm-run home', () => {
+    const rows = [
+      row({ id: 'M1', property_id: HELM_HOME, channel: 'booking_com', source: 'manual', channel_listing_id: null, status: 'cancelled', cancelled_at: '2026-10-01T00:00:00Z', guest_name: 'Pat Doe', check_in: '2026-10-10', check_out: '2026-10-14' }),
+      row({ id: 'M2', property_id: HELM_HOME, channel: 'booking_com', source: 'manual', channel_listing_id: null, guest_name: 'Pat Doe', check_in: '2026-10-10', check_out: '2026-10-14', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    assert.equal(canonicalOf(planDedupe(rows, strict), 'M2'), 'M2');
+  });
+
   test('the same-feed refusal is Helm-run only: a Guesty-run home is unchanged', () => {
     const rows = [
       cancelledVrbo({ property_id: '20_hammond' }),

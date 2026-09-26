@@ -599,9 +599,13 @@ export default async function TodayPage() {
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {brief.channelsAttention.map((h) => (
                 <li key={h.propertyId} style={{ padding: '4px 0' }}>
-                  <Link href={`/channels/${h.propertyId}#attention`} style={{ color: 'var(--ink)', fontWeight: 500 }}>
-                    {h.propertyName}
-                  </Link>
+                  {h.propertyId ? (
+                    <Link href={`/channels/${h.propertyId}#attention`} style={{ color: 'var(--ink)', fontWeight: 500 }}>
+                      {h.propertyName}
+                    </Link>
+                  ) : (
+                    <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{h.propertyName}</span>
+                  )}
                   {h.items.map((it, i) => (
                     <div key={i} style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>
                       {it}

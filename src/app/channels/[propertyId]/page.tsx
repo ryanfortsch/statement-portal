@@ -46,6 +46,7 @@ import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
 import { flipCalendarAuthorityAction } from './cutover-actions';
 import { acknowledgeMassCancel, releaseOrphanedOtaHold, syncOneListing, tickExportSubscribed } from '../listings/actions';
+import { releaseAnswers } from '@/lib/ical-cancel-policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,6 +103,15 @@ export default async function ChannelsPropertyPage({
 
   const preflight: CutoverPreflight | null = factsOrError.facts ? evaluateCutoverPreflight(factsOrError.facts) : null;
   const carry: Carryover | null = factsOrError.facts ? carryoverFor(factsOrError.facts) : null;
+  // Before the flip the panel shows once a cutover is underway, so the
+  // preflight's "fix" links land on it: an OTA already reads Helm's export,
+  // or the home has no Guesty aggregate row and reads an OTA feed of its
+  // own (65 Calderwood from runbook step 3). A fleet home riding Guesty
+  // shows nothing.
+  const cutoverUnderway =
+    feeds.some((f) => f.is_active && f.channel !== 'guesty' && f.export_subscribed) ||
+    (!feeds.some((f) => f.is_active && f.channel === 'guesty') &&
+      feeds.some((f) => f.is_active && f.channel !== 'guesty' && f.channel !== 'direct' && !!f.ical_import_url));
   const activeDirectFeeds = feeds.filter((f) => f.is_active && !!f.ical_import_url && f.channel !== 'guesty');
   const badge = authorityBadge(property, activeDirectFeeds.length > 0);
 
@@ -196,7 +206,7 @@ export default async function ChannelsPropertyPage({
         </div>
       </section>
 
-      {carry && helmRun && <AttentionPanel carry={carry} propertyId={propertyId} helmRun={helmRun} unfiltered={anonPulls} now={now} />}
+      {carry && (helmRun || cutoverUnderway) && <AttentionPanel carry={carry} propertyId={propertyId} helmRun={helmRun} unfiltered={anonPulls} now={now} />}
 
       {/* ── Cutover panel ─────────────────────────────────────────────── */}
       <section id="cutover" className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
@@ -466,8 +476,10 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
   const empty =
     carry.untwinnedGuestyStays.length === 0 &&
     carry.bookingComNotShown.length === 0 &&
+    carry.bookingComUnwatched.length === 0 &&
     carry.bookingComUnexplained.length === 0 &&
     carry.bookingComOrphaned.length === 0 &&
+    carry.guestyHoldsUncarried.length === 0 &&
     !pullsRed;
   if (empty) return null;
   const rowLine = (r: CarryRow) => (
@@ -511,6 +523,34 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
               <li key={r.id}>
                 {rowLine(r)}{' '}
                 <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the stay →</Link>
+              </li>
+            ))}
+          </Item>
+        )}
+        {carry.bookingComUnwatched.length > 0 && (
+          <Item
+            title="Booking.com reservations with no Booking.com feed read"
+            why="Booking.com tells Helm about a cancellation only by reopening the nights in its own calendar feed, and Helm reads none for this home. Keep the Booking.com feed wired until these have checked out, or cancel each one here when Booking.com's email says so."
+          >
+            {carry.bookingComUnwatched.map((r) => (
+              <li key={r.id}>
+                {rowLine(r)}{' '}
+                <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the stay →</Link>
+              </li>
+            ))}
+          </Item>
+        )}
+        {carry.guestyHoldsUncarried.length > 0 && (
+          <Item
+            title="Holds set in Guesty that Helm does not have yet"
+            why="The flip cancels every block Guesty published, because Guesty labels an owner's hold and its own booking-window rules the same way. Re-enter each hold you want kept as a Helm block; Guesty's rolling booking-window and advance-notice rules are left out of this list and are replaced by the rate plan and each OTA's own settings."
+          >
+            {carry.guestyHoldsUncarried.map((r) => (
+              <li key={r.id}>
+                {rowLine(r)}{' '}
+                <Link href={`/channels/bookings/new?property=${propertyId}&type=block&check_in=${r.check_in}&check_out=${r.check_out}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>
+                  Re-enter as a Helm block →
+                </Link>
               </li>
             ))}
           </Item>
@@ -640,10 +680,6 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
   const guardTripped = guardKind !== null;
   const deferredCount = lastRun?.bookings_deferred ?? 0;
   const showDeferred = importable && !guardTripped && deferredCount > 0;
-  // A release the operator stamped that no sync has consumed yet (the sync
-  // after it failed before reaching the cancel pass, say). The alert shows it
-  // while the guard is up; once a later run clears the guard it still waits.
-  const pendingRelease = !guardTripped ? feed?.mass_cancel_acknowledged_at ?? null : null;
 
   const subtitle = !feed
     ? 'not configured'
@@ -728,13 +764,6 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
           <span style={{ color: 'var(--ink-4)' }}>· an upcoming stay cancels only after two syncs in a row miss it</span>
         </p>
       )}
-      {pendingRelease && (
-        <p style={{ margin: '0 0 12px 164px', fontSize: 12, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-          <Dot color="var(--signal)" title="Cancel-guard release not yet applied" />
-          <span>Cancel-guard release stamped {relativeAge(pendingRelease, now)}, not yet applied</span>
-          <span style={{ color: 'var(--ink-4)' }}>· the next sync of this feed skips the guard once, then clears it</span>
-        </p>
-      )}
     </div>
   );
 }
@@ -752,7 +781,9 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
  */
 function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; run: LastSyncRun; label: string; now: Date; kind: 'mass_cancel' | 'empty_feed' }) {
   const held = run.bookings_deferred;
-  const pending = feed.mass_cancel_acknowledged_at;
+  // A release counts only for the guard it answered (lib/ical-cancel-policy
+  // releaseAnswers); an older stamp is stale and the next sync clears it.
+  const pending = releaseAnswers(feed.mass_cancel_acknowledged_at, run) ? feed.mass_cancel_acknowledged_at : null;
   const empty = kind === 'empty_feed';
   return (
     <div style={{ margin: '0 0 16px 164px', borderLeft: '3px solid var(--signal)', background: 'var(--paper-2)', padding: '16px 20px 18px' }}>

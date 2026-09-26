@@ -39,7 +39,7 @@ async function actorEmail(): Promise<string> {
 
 export async function createManualBooking(formData: FormData) {
   const propertyId = String(formData.get('property_id') || '').trim();
-  const channel = String(formData.get('channel') || 'manual') as BookingChannel;
+  const channel = String(formData.get('channel') || '') as BookingChannel;
   const status = String(formData.get('status') || 'confirmed') as BookingStatus;
   const checkIn = String(formData.get('check_in') || '').trim();
   const checkOut = String(formData.get('check_out') || '').trim();
@@ -56,6 +56,7 @@ export async function createManualBooking(formData: FormData) {
   const isBlock = status === 'block' || channel === 'block' || String(formData.get('type') || '') === 'block';
 
   if (!propertyId) throw new Error('Pick a property.');
+  if (!channel) throw new Error('Pick the channel the booking came from.');
   if (!checkIn || !checkOut) throw new Error('Both check-in and check-out are required.');
   if (!isYmd(checkIn) || !isYmd(checkOut)) throw new Error('Dates must be YYYY-MM-DD.');
   if (checkOut <= checkIn) throw new Error('Check-out must be after check-in.');

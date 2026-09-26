@@ -447,6 +447,39 @@ create index if not exists idx_reviews_booking on public.reviews(booking_id) whe
 -- Helm-originated writes (operator, /book inquiry, SCA, concierge) go through
 -- these; ical-sync keeps its upsert (echo blocks legitimately overlap before
 -- dedupe, which is why this is a function and not an exclusion constraint).
+-- Does an existing row hold nights against a write on p_channel? The one
+-- overlap rule both writers use (src/lib/ical-export.ts isOtaHold says what an
+-- OTA closure is):
+--   - an inquiry, a pending request or a cancelled row never does;
+--   - a night an OTA closed on its own calendar (an imported block with
+--     hold_kind 'ota') does, WHATEVER its duplicate mark: the dedupe files
+--     one under the stay it overlaps, and the mark can outlive that stay
+--     until the next dedupe run. Two exemptions, for a Booking.com booking
+--     entered by hand (Booking.com publishes each booking as a bare closed
+--     night, so the booking is typed in on top of it): Booking.com's own
+--     closure, and another OTA's closure whose every night Booking.com has
+--     closed, which is that OTA echoing the closure Helm forwarded to it;
+--   - anything else does when it is canonical.
+create or replace function public.helm_row_conflicts(b public.bookings, p_channel public.booking_channel)
+returns boolean language sql stable set search_path = public as $$
+  select case
+    when b.status not in ('confirmed','completed','block') then false
+    when b.status = 'block' and b.hold_kind = 'ota' and b.source = 'ical_import' then
+      not (p_channel = 'booking_com' and (
+        b.channel = 'booking_com'
+        or not exists (
+          select 1 from generate_series(b.check_in, b.check_out - 1, interval '1 day') as n(d)
+           where not exists (
+             select 1 from public.bookings c
+              where c.property_id = b.property_id
+                and c.channel = 'booking_com' and c.status = 'block'
+                and c.hold_kind = 'ota' and c.source = 'ical_import'
+                and c.check_in <= n.d::date and c.check_out > n.d::date))))
+    else b.duplicate_of is null
+  end
+$$;
+revoke all on function public.helm_row_conflicts(public.bookings, public.booking_channel) from public, anon, authenticated;
+
 create or replace function public.helm_create_booking(
   p_property_id text,
   p_channel public.booking_channel,
@@ -469,18 +502,10 @@ begin
   -- One writer per property at a time: closes every read-then-insert race.
   perform pg_advisory_xact_lock(hashtext('helm_bookings:' || p_property_id));
   if p_status in ('confirmed','completed','block') and not p_allow_overlap then
-    -- A live OTA closure conflicts whatever its duplicate mark: the dedupe
-    -- files one under the stay it overlaps, and that mark can outlive the
-    -- stay until the next dedupe run (src/lib/availability.ts nightHolds).
-    -- Except the new row's own channel's closure: a Booking.com booking
-    -- entered by hand lands on the "CLOSED - Not available" Booking.com
-    -- published for that very reservation.
     select * into v_conflict from public.bookings b
      where b.property_id = p_property_id
-       and (b.duplicate_of is null or (b.status = 'block' and b.hold_kind = 'ota'))
-       and not (b.status = 'block' and b.hold_kind = 'ota' and b.channel = p_channel)
-       and b.status in ('confirmed','completed','block')
        and b.check_in < p_check_out and b.check_out > p_check_in
+       and public.helm_row_conflicts(b, p_channel)
      order by b.check_in limit 1;
     if found then
       raise exception 'booking_overlap' using errcode = 'P0002',
@@ -521,12 +546,25 @@ begin
   if not found then raise exception 'booking_not_found' using errcode = 'P0003'; end if;
   perform pg_advisory_xact_lock(hashtext('helm_bookings:' || v_before.property_id));
   if p_status in ('confirmed','completed','block') and not p_allow_overlap then
+    -- Only the nights the row does not already hold can conflict. A stay or
+    -- a block that the OTAs have echoed has their closures over its own
+    -- nights; checked against the whole new range, shortening or extending
+    -- it was refused by its own echoes. Nights it already held are not new
+    -- to anyone (a clash there already existed), so a move is refused only
+    -- over the nights it adds: before the old check-in, or after the old
+    -- check-out, or all of them when the row held nothing before.
     select * into v_conflict from public.bookings b
      where b.property_id = v_before.property_id and b.id <> p_booking_id
-       and (b.duplicate_of is null or (b.status = 'block' and b.hold_kind = 'ota'))
-       and not (b.status = 'block' and b.hold_kind = 'ota' and b.channel = v_before.channel)
-       and b.status in ('confirmed','completed','block')
-       and b.check_in < p_check_out and b.check_out > p_check_in limit 1;
+       and b.check_in < p_check_out and b.check_out > p_check_in
+       and (
+         v_before.status not in ('confirmed','completed','block')
+         or (p_check_in < least(p_check_out, v_before.check_in)
+             and b.check_in < least(p_check_out, v_before.check_in))
+         or (greatest(p_check_in, v_before.check_out) < p_check_out
+             and b.check_out > greatest(p_check_in, v_before.check_out))
+       )
+       and public.helm_row_conflicts(b, v_before.channel)
+     limit 1;
     if found then
       raise exception 'booking_overlap' using errcode = 'P0002',
         detail = json_build_object('booking_id', v_conflict.id, 'status', v_conflict.status,

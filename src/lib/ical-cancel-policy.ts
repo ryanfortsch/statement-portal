@@ -199,6 +199,29 @@ export function keepsEmptyFeedGuardUp(
   return true;
 }
 
+/**
+ * Which guard an operator's release answers, or null when it answers none.
+ *
+ * A release (channel_listings.mass_cancel_acknowledged_at) is valid only for
+ * the guard that was on screen when it was pressed: the listing's newest
+ * run was guarded, and the click came after that run started. Anything else
+ * is stale, and the sync clears it unused. Without this, a release pressed
+ * for a mass cancel survived an empty-feed run (which never consumed it) and
+ * then released the NEXT empty feed, cancelling a whole calendar the
+ * operator had never been asked about.
+ */
+export function releaseAnswers(
+  ackAt: string | null | undefined,
+  lastRun: { guard: string | null; started_at: string } | null,
+): 'mass_cancel' | 'empty_feed' | null {
+  if (!ackAt || !lastRun) return null;
+  if (lastRun.guard !== 'mass_cancel' && lastRun.guard !== 'empty_feed') return null;
+  const ack = Date.parse(ackAt);
+  const run = Date.parse(lastRun.started_at);
+  if (!Number.isFinite(ack) || !Number.isFinite(run) || ack <= run) return null;
+  return lastRun.guard;
+}
+
 export function massCancelThreshold(upcomingLive: number): number {
   return Math.max(MASS_CANCEL_MIN, Math.ceil(MASS_CANCEL_SHARE * upcomingLive));
 }

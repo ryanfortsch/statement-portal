@@ -470,7 +470,9 @@ export async function loadFeedHealth(propertyId: string): Promise<FeedHealth[]> 
 export async function anonymousPulls(propertyId: string): Promise<ExportPull[]> {
   if (!isConfigured || !propertyId) return [];
   const pulls = await lastPullsByProperty([propertyId]);
-  return (pulls.get(propertyId) ?? []).filter((p) => p.channel_guess == null || p.mismatch);
+  // A pull credited to nobody but naming a line (an operator checking it) got
+  // that line's filtered feed: not unfiltered, not listed.
+  return (pulls.get(propertyId) ?? []).filter((p) => (p.channel_guess == null && !p.requested_for) || p.mismatch);
 }
 
 export type AutomationSendRow = {

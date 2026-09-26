@@ -20,6 +20,8 @@ import {
   EXPORTABLE_STATUSES,
   EXPORT_FOR_CHANNELS,
   FORWARDED_HOLD_CHANNEL,
+  isOtaHold,
+  isToolUserAgent,
   exportUrlFor,
   exportUrlForListing,
   parseExportFor,
@@ -196,7 +198,7 @@ describe("OTA closures: only Booking.com's travel", () => {
   });
 
   test('exportableBooking applies the same rules row by row', () => {
-    const base = { duplicate_of: null, check_in: '2026-10-10', check_out: '2026-10-12' };
+    const base = { duplicate_of: null, check_in: '2026-10-10', check_out: '2026-10-12', source: 'ical_import' };
     assert.equal(exportableBooking({ ...base, status: 'block', channel: 'airbnb', hold_kind: 'ota' }), false);
     assert.equal(exportableBooking({ ...base, status: 'block', channel: 'booking_com', hold_kind: 'ota' }), true);
     assert.equal(exportableBooking({ ...base, status: 'block', channel: 'booking_com', hold_kind: 'ota', duplicate_of: 'x' }), true);
@@ -208,6 +210,22 @@ describe("OTA closures: only Booking.com's travel", () => {
     assert.equal(exportableBooking({ ...base, status: 'block' }), true);
     // hold_kind only means something on a block: a stay carrying it exports.
     assert.equal(exportableBooking({ ...base, status: 'confirmed', channel: 'vrbo', hold_kind: 'ota' }), true);
+  });
+
+  test("a hold made in Helm is Helm's, whatever kind was picked: 'Channel block' goes to every OTA", () => {
+    // createBlock writes channel 'block', source 'manual'. Keyed on hold_kind
+    // alone, one picked as "Channel block" (hold_kind 'ota') went to no OTA.
+    const helmOta: ExportBooking = { ...booking({ id: 'H', status: 'block', source: 'manual', channel: 'block' }), hold_kind: 'ota' };
+    for (const ch of [null, 'airbnb', 'vrbo', 'booking_com']) assert.deepEqual(feed([helmOta], ch), ['H'], String(ch));
+    assert.equal(isOtaHold(helmOta), false);
+    assert.equal(isOtaHold({ status: 'block', hold_kind: 'ota', source: 'ical_import' }), true);
+  });
+
+  test('isToolUserAgent: curl and friends never count as an OTA pull', () => {
+    for (const ua of ['curl/8.4.0', 'Wget/1.21', 'HTTPie/3.2', 'PostmanRuntime/7.36', 'insomnia/8.0']) assert.equal(isToolUserAgent(ua), true, ua);
+    for (const ua of [null, '', 'Airbnb-iCal/1.0', 'Mozilla/5.0 (compatible; Booking.com)', 'Mozilla/5.0 (Macintosh) Chrome/120']) {
+      assert.equal(isToolUserAgent(ua), false, String(ua));
+    }
   });
 
   test('parseExportFor accepts the three OTAs only; exportUrlFor appends for=', () => {

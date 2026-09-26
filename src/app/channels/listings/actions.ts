@@ -51,26 +51,6 @@ async function retireFeedHolds(listingId: string, reason: string): Promise<numbe
 }
 
 /**
- * A feed row deleted and added again: bookings.channel_listing_id is ON
- * DELETE SET NULL, so the old row's imports were left with no listing, and
- * the new listing's cancel pass (which reads by channel_listing_id) never
- * saw them. A stay cancelled while the row was gone stood live forever.
- * Re-attaching every orphaned import of this home and channel puts them
- * back in front of the cancel pass on the next sync. One listing per
- * (property, channel), so there is never a second candidate.
- */
-async function reattachOrphanedImports(listingId: string, propertyId: string, channel: string): Promise<void> {
-  const { error } = await supabaseAdmin
-    .from('bookings')
-    .update({ channel_listing_id: listingId })
-    .eq('property_id', propertyId)
-    .eq('channel', channel)
-    .eq('source', 'ical_import')
-    .is('channel_listing_id', null);
-  if (error) throw new Error(`re-attach orphaned imports: ${error.message}`);
-}
-
-/**
  * channel_listings writes for /channels/listings. Service role only: the
  * table is RLS-locked and an anon fallback would silently see zero rows.
  *
@@ -139,11 +119,6 @@ export async function saveListing(formData: FormData) {
   if (formData.has('ical_import_url') && row.ical_import_url === null && saved?.id) {
     await retireFeedHolds(saved.id as string, 'feed_url_cleared');
   }
-  // The Guesty aggregate row's imports carry their parsed channels, never
-  // 'guesty', so there is nothing of its own to re-attach.
-  if (saved?.id && channel !== 'guesty') {
-    await reattachOrphanedImports(saved.id as string, propertyId, channel);
-  }
 
   revalidatePath('/channels');
   revalidatePath('/channels/listings');
@@ -193,10 +168,41 @@ export async function toggleListingActive(formData: FormData) {
   revalidatePath('/channels/listings');
 }
 
+/**
+ * Delete a channel row. Refused in two cases, both because
+ * bookings.channel_listing_id is ON DELETE SET NULL and a row without its
+ * listing is a row nothing can cancel:
+ *   - the Guesty aggregate row, ever: its id is what marks its rows as
+ *     Guesty's (their disappearance is not a cancel; after the flip they
+ *     are Guesty-era for the dedupe). Deleted, those rows became ordinary
+ *     feed rows, and a cancel of theirs hid live stays. Retire it instead.
+ *   - any row with an import still ahead and not cancelled. Orphaned, those
+ *     rows never cancel, and re-attaching them to a new row by channel
+ *     cannot tell whose they were. Retire it instead; a retired row keeps
+ *     its rows, and reactivating it picks up where it left off.
+ */
 export async function deleteListing(formData: FormData) {
   ensureConfigured();
   const id = String(formData.get('id') || '').trim();
   if (!id) throw new Error('Missing listing id');
+  const { data: listing, error: lErr } = await supabaseAdmin.from('channel_listings').select('channel').eq('id', id).maybeSingle();
+  if (lErr) throw new Error(`delete listing: ${lErr.message}`);
+  if (!listing) throw new Error('Listing not found');
+  if ((listing as { channel: string }).channel === 'guesty') {
+    throw new Error('The Guesty aggregate row is never deleted; retire it instead.');
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const { count, error: cErr } = await supabaseAdmin
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('channel_listing_id', id)
+    .eq('source', 'ical_import')
+    .neq('status', 'cancelled')
+    .gt('check_out', today);
+  if (cErr) throw new Error(`delete listing: ${cErr.message}`);
+  if ((count ?? 0) > 0) {
+    throw new Error(`This feed still has ${count} upcoming row${count === 1 ? '' : 's'} on file; retire it instead of deleting it.`);
+  }
   // Before the delete: afterwards channel_listing_id is nulled and the
   // holds could not be found by listing any more.
   await retireFeedHolds(id, 'feed_removed');

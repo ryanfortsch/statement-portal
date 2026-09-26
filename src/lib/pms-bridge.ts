@@ -305,9 +305,9 @@ async function holdsInWindow(propertyId: string, start: string, endExclusive: st
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('status, check_in, check_out, duplicate_of, hold_kind')
+        .select('status, check_in, check_out, duplicate_of, hold_kind, source')
         .eq('property_id', propertyId)
-        .or('duplicate_of.is.null,hold_kind.eq.ota')
+        .or('duplicate_of.is.null,and(hold_kind.eq.ota,source.eq.ical_import)')
         .in('status', HOLD_STATUSES)
         .lt('check_in', endExclusive)
         .gt('check_out', start)

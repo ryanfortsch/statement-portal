@@ -252,9 +252,12 @@ describe('a hold imported from an OTA feed holds its nights (fail closed)', () =
     // that stay is cancelled the mark lingers until the next dedupe run, and
     // the closure may be a Booking.com guest.
     const { blocked } = nightHolds([
-      { status: 'block', check_in: '2026-10-10', check_out: '2026-10-12', hold_kind: 'ota', duplicate_of: 'cancelled-stay' },
+      { status: 'block', check_in: '2026-10-10', check_out: '2026-10-12', hold_kind: 'ota', source: 'ical_import', duplicate_of: 'cancelled-stay' },
       { status: 'block', check_in: '2026-10-20', check_out: '2026-10-22', hold_kind: 'owner', duplicate_of: 'x' },
-      { status: 'cancelled', check_in: '2026-10-25', check_out: '2026-10-27', hold_kind: 'ota', duplicate_of: 'y' },
+      { status: 'cancelled', check_in: '2026-10-25', check_out: '2026-10-27', hold_kind: 'ota', source: 'ical_import', duplicate_of: 'y' },
+      // A Helm hold picked as "Channel block" is Helm's own, and a duplicate
+      // of it holds nothing, like any other duplicate.
+      { status: 'block', check_in: '2026-10-28', check_out: '2026-10-29', hold_kind: 'ota', source: 'manual', duplicate_of: 'z' },
     ]);
     assert.deepEqual([...blocked].sort(), ['2026-10-10', '2026-10-11']);
   });

@@ -104,6 +104,7 @@ class Mesh {
         hold_kind: e.kind === 'stay' ? null : 'ota',
         channel: o,
         channel_listing_id: `L-${o}`,
+        source: 'ical_import',
         duplicate_of: null,
         check_in: e.night,
         check_out: next(e.night),

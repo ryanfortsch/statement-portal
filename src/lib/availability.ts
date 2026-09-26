@@ -55,6 +55,8 @@ export type AvailabilityBooking = {
   duplicate_of?: string | null;
   /** bookings.hold_kind; a block with 'ota' came from an OTA's feed. */
   hold_kind?: string | null;
+  /** bookings.source; an OTA closure is 'ical_import' with hold_kind 'ota'. */
+  source?: string | null;
 };
 
 const STAY_STATUSES: ReadonlySet<string> = new Set(['confirmed', 'completed']);
@@ -95,7 +97,7 @@ export function nightHolds(bookings: readonly AvailabilityBooking[]): {
   const blocked = new Set<string>();
   for (const b of bookings) {
     const status = String(b.status ?? '').toLowerCase();
-    if (b.duplicate_of && !(status === 'block' && b.hold_kind === 'ota')) continue;
+    if (b.duplicate_of && !(status === 'block' && b.hold_kind === 'ota' && b.source === 'ical_import')) continue;
     const target = STAY_STATUSES.has(status) ? reserved : status === 'block' ? blocked : null;
     if (!target) continue;
     for (const night of stayNights(b.check_in, b.check_out)) target.add(night);

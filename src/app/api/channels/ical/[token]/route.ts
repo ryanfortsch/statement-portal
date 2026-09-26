@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
-import { buildIcalExport, EXPORTABLE_STATUSES, resolveExportAudience, type ExportBooking } from '@/lib/ical-export';
+import { buildIcalExport, EXPORTABLE_STATUSES, isToolUserAgent, resolveExportAudience, type ExportBooking } from '@/lib/ical-export';
 import { recordExportPull } from '@/lib/ical-export-pulls';
 import { selectAllPaged } from '@/lib/paged-select';
 
@@ -117,10 +117,18 @@ export async function GET(
   });
 
   // The pull is the evidence the OTA is subscribed; log it before the body
-  // goes out so a client that hangs up early is still counted.
+  // goes out so a client that hangs up early is still counted. An operator
+  // checking a line (a browser signed in to Helm, or curl and friends) is
+  // recorded but credited to nobody: counted as the OTA's pull, it turned
+  // the preflight green for an OTA that had imported nothing. The feed it
+  // was served is unchanged.
+  const operatorClient =
+    !!request.cookies.get('authjs.session-token') ||
+    !!request.cookies.get('__Secure-authjs.session-token') ||
+    isToolUserAgent(userAgent);
   await recordExportPull(prop.id, {
     userAgent,
-    channel: audience.mismatch ? audience.uaGuess : audience.channel,
+    channel: operatorClient ? null : audience.mismatch ? audience.uaGuess : audience.channel,
     requestedFor: audience.requestedFor,
     uaGuess: audience.uaGuess,
   });

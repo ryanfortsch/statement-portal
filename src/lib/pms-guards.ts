@@ -15,7 +15,7 @@
  * callers that gate on "guesty-run" treat null as "cannot tell, keep
  * everything", never as "skip everything". The two loaders whose failure
  * would hurt a Helm-run home rather than a Guesty pass
- * (loadHelmRunCutovers for the dedupe, loadAggregateFeedPropertyIds for
+ * (loadStrictDedupeHomes for the dedupe, loadAggregateFeedPropertyIds for
  * the importer) throw instead.
  */
 import 'server-only';
@@ -60,24 +60,57 @@ export async function loadGuestyRunPropertyIds(sb: SupabaseClient = supabaseAdmi
   }
 }
 
+export { exportLiveSince, guestyEchoPropertyIds, type ListingScopeRow } from './listing-scope.ts';
+import { exportLiveSince, guestyEchoPropertyIds, type ListingScopeRow } from './listing-scope.ts';
+
 /**
- * Helm-run property ids mapped to their properties.cutover_at (null when a
- * row was flipped before the column existed). THROWS on a failed read.
+ * The homes the dedupe runs on Helm-run rules (booking-dedupe
+ * strictChannelPropertyIds), each mapped to its cutover moment
+ * (cutoverAtByProperty). THROWS on a failed read.
  *
- * For the dedupe, whose rules for these homes are what keep a live stay from
- * being filed under a cancelled one: an empty set on a failed read (the
- * forgiving loader above) would run a whole dedupe with every Helm-run home
- * on Guesty rules and write the result. A throw fails that dedupe run
- * instead, and the previous run's marks stand.
+ * Two kinds of home: every Helm-run home, and every home an OTA already
+ * reads Helm's export for (an active row ticked export_subscribed, runbook
+ * step 7). The second is the cutover window: Guesty is disconnected, the
+ * OTAs rely on Helm's export, and the flip may still be days away while
+ * VRBO is re-onboarded. On Guesty rules there, a VRBO rebook of a cancelled
+ * week was filed under the cancel and left the export Airbnb and Booking.com
+ * were reading. The moment is the earlier of properties.cutover_at and the
+ * first tick: Guesty stopped writing new bookings when it was disconnected.
+ *
+ * Throws rather than answer empty: a dedupe run on Guesty rules for these
+ * homes would be written. A throw fails that run and the previous marks
+ * stand.
  */
-export async function loadHelmRunCutovers(sb: SupabaseClient = supabaseAdmin): Promise<Map<string, string | null>> {
+export async function loadStrictDedupeHomes(sb: SupabaseClient = supabaseAdmin): Promise<Map<string, string | null>> {
   if (!isServiceConfigured && sb === supabaseAdmin) throw new Error('Supabase service role is not configured.');
-  const rows = await selectAllPaged<{ id: string; calendar_authority: string | null; cutover_at: string | null }>(
-    (from, to) =>
-      sb.from('properties').select('id, calendar_authority, cutover_at').order('id', { ascending: true }).range(from, to),
-    { label: 'pms guards cutovers' },
-  );
-  return new Map(rows.filter((r) => r.calendar_authority === 'helm').map((r) => [r.id, r.cutover_at ?? null]));
+  const [props, listings] = await Promise.all([
+    selectAllPaged<{ id: string; calendar_authority: string | null; cutover_at: string | null }>(
+      (from, to) =>
+        sb.from('properties').select('id, calendar_authority, cutover_at').order('id', { ascending: true }).range(from, to),
+      { label: 'pms guards cutovers' },
+    ),
+    selectAllPaged<ListingScopeRow>(
+      (from, to) =>
+        sb
+          .from('channel_listings')
+          .select('property_id, channel, is_active, export_subscribed, export_subscribed_at')
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'pms guards export ticks' },
+    ),
+  ]);
+  const live = exportLiveSince(listings);
+  const out = new Map<string, string | null>();
+  const earlier = (a: string | null, b: string | null): string | null => {
+    if (!a) return b;
+    if (!b) return a;
+    return Date.parse(a) <= Date.parse(b) ? a : b;
+  };
+  for (const p of props) {
+    if (p.calendar_authority === 'helm') out.set(p.id, earlier(p.cutover_at ?? null, live.get(p.id) ?? null));
+    else if (live.has(p.id)) out.set(p.id, live.get(p.id) ?? null);
+  }
+  return out;
 }
 
 /**
@@ -102,7 +135,7 @@ export async function loadHelmRunCutovers(sb: SupabaseClient = supabaseAdmin): P
  */
 export async function loadAggregateFeedPropertyIds(sb: SupabaseClient = supabaseAdmin): Promise<Set<string>> {
   if (!isServiceConfigured && sb === supabaseAdmin) return new Set();
-  const rows = await selectAllPaged<{ property_id: string; channel: string; is_active: boolean | null; export_subscribed: boolean | null }>(
+  const rows = await selectAllPaged<ListingScopeRow>(
     (from, to) =>
       sb
         .from('channel_listings')
@@ -111,15 +144,7 @@ export async function loadAggregateFeedPropertyIds(sb: SupabaseClient = supabase
         .range(from, to),
     { label: 'aggregate feeds' },
   );
-  const aggregate = new Set<string>();
-  const subscribed = new Set<string>();
-  for (const r of rows) {
-    if (!r.is_active) continue;
-    if (r.channel === 'guesty') aggregate.add(r.property_id);
-    else if (r.export_subscribed) subscribed.add(r.property_id);
-  }
-  for (const id of subscribed) aggregate.delete(id);
-  return aggregate;
+  return guestyEchoPropertyIds(rows);
 }
 
 /** True when this property's direct-feed closures are dropped at import. */

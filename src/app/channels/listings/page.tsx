@@ -12,7 +12,7 @@ import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
 import { CHANNEL_LABELS, ICAL_HINTS, PRIMARY_CHANNELS, type BookingChannel } from '@/lib/channels-types';
 import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
 import { authorityBadge, importFreshness, pullFreshness, relativeAge, type Freshness } from '@/lib/calendar-model';
-import { deleteListing, saveListing, syncOneListing, tickExportSubscribed, toggleListingActive } from './actions';
+import { saveListing, syncOneListing, tickExportSubscribed, toggleListingActive } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -306,17 +306,15 @@ function GuestyRow({ listing, now }: { listing: ChannelListingEx; now: Date }) {
             <SubmitButton label="Retire" busyLabel="Retiring…" style={{ ...smallPrimary, background: 'var(--negative)' }} />
           </form>
         ) : (
-          <>
-            <form action={toggleListingActive}>
-              <input type="hidden" name="id" value={listing.id} />
-              <input type="hidden" name="is_active" value="true" />
-              <SubmitButton label="reactivate" busyLabel="…" spinnerTone="ink" style={linkButton} />
-            </form>
-            <form action={deleteListing}>
-              <input type="hidden" name="id" value={listing.id} />
-              <SubmitButton label="delete row" busyLabel="…" spinnerTone="ink" style={{ ...linkButton, color: 'var(--negative)' }} />
-            </form>
-          </>
+          // No delete: a retired Guesty row is kept for good. Its id is what
+          // marks its rows as Guesty's (their disappearance is not a cancel,
+          // and after the flip they are Guesty-era for the dedupe); deleted,
+          // every one of those rows became an ordinary feed row.
+          <form action={toggleListingActive}>
+            <input type="hidden" name="id" value={listing.id} />
+            <input type="hidden" name="is_active" value="true" />
+            <SubmitButton label="reactivate" busyLabel="…" spinnerTone="ink" style={linkButton} />
+          </form>
         )}
       </span>
     </div>

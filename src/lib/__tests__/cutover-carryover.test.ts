@@ -10,7 +10,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { carryoverClear, evaluateCarryover, NOT_SHOWN_GRACE_MS, type CarryListing, type CarryRow } from '../cutover-carryover.ts';
+import { carryoverClear, evaluateCarryover, isGuestyRule, ECHO_LAG_GRACE_MS, NOT_SHOWN_GRACE_MS, type CarryListing, type CarryRow } from '../cutover-carryover.ts';
 import { evaluateCutoverPreflight, type CutoverFacts } from '../cutover.ts';
 
 const NOW = new Date('2026-10-01T15:00:00Z');
@@ -149,21 +149,76 @@ describe('Booking.com closures nothing explains', () => {
   });
 });
 
-describe('Guesty aggregate holds are adopted at the flip', () => {
-  test('upcoming live blocks on the aggregate feed, and nothing else', () => {
-    const agg = [listing('guesty'), ...LISTINGS];
-    const hold = row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty' });
+describe('Guesty aggregate blocks: cancelled at the flip, real holds re-entered first', () => {
+  const agg = [listing('guesty'), ...LISTINGS];
+  const gBlock = (patch: Partial<CarryRow> = {}) => row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty', ...patch });
+
+  test("every upcoming aggregate block is the flip's to cancel", () => {
+    const hold = gBlock({});
     const stay = row({ channel: 'airbnb', channel_listing_id: 'L-guesty' });
-    const past = row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty', check_in: '2026-09-01', check_out: '2026-09-03' });
+    const past = gBlock({ check_in: '2026-09-01', check_out: '2026-09-03' });
     const directHold = row({ status: 'block', hold_kind: 'ota' });
     assert.deepEqual(ids(run([hold, stay, past, directHold], agg).guestyBlocks), [hold.id]);
   });
 
-  test('carryoverClear ignores guestyBlocks: the flip handles them', () => {
-    const agg = [listing('guesty'), ...LISTINGS];
-    const c = run([row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty' })], agg);
-    assert.equal(c.guestyBlocks.length, 1);
-    assert.equal(carryoverClear(c), true);
+  test("Guesty's rolling rules are left behind; a hold that may be an owner's must be in Helm first", () => {
+    // What production shows (2026-09-26): every aggregate block reads
+    // "Blocked by Guesty", the booking-window block running to the calendar
+    // horizon and the one-night advance-notice block included.
+    const horizon = gBlock({ check_in: '2027-06-23', check_out: '2028-09-27' });
+    const notice = gBlock({ check_in: TODAY, check_out: '2026-10-02' });
+    const owner = gBlock({ check_in: '2026-12-20', check_out: '2026-12-27' });
+    const c = run([horizon, notice, owner], agg);
+    assert.equal(c.guestyBlocks.length, 3);
+    assert.deepEqual(ids(c.guestyHoldsUncarried), [owner.id]);
+    assert.equal(carryoverClear(c), false);
+    // Re-entered as a Helm block: carried.
+    const helm = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in: '2026-12-20', check_out: '2026-12-27' });
+    const after = run([horizon, notice, owner, helm], agg);
+    assert.deepEqual(after.guestyHoldsUncarried, []);
+    assert.equal(carryoverClear(after), true);
+  });
+
+  test('isGuestyRule: the horizon and the next night only', () => {
+    assert.equal(isGuestyRule({ check_in: '2027-01-01', check_out: '2028-06-01' }, TODAY), true);
+    assert.equal(isGuestyRule({ check_in: '2026-10-02', check_out: '2026-10-03' }, TODAY), true);
+    assert.equal(isGuestyRule({ check_in: '2026-10-05', check_out: '2026-10-06' }, TODAY), false, 'a single night later on may be an owner');
+    assert.equal(isGuestyRule({ check_in: '2026-10-01', check_out: '2026-10-03' }, TODAY), false, 'two nights');
+  });
+});
+
+describe('a Booking.com reservation with no Booking.com feed read', () => {
+  test('is flagged: its cancellation could never reach Helm', () => {
+    const gl = legacy({ channel: 'booking_com' });
+    const c = run([gl], [listing('airbnb'), listing('vrbo'), listing('booking_com', { is_active: false })]);
+    assert.deepEqual(ids(c.bookingComUnwatched), [gl.id]);
+    assert.deepEqual(c.bookingComNotShown, []);
+  });
+
+  test("is not flagged while a Booking.com feed is read (that is bookingComNotShown's job)", () => {
+    assert.deepEqual(run([legacy({ channel: 'booking_com' }), bcomHold({})]).bookingComUnwatched, []);
+  });
+});
+
+describe('echo lag is not an unexplained closure', () => {
+  test("a closure of an Airbnb stay cancelled an hour ago is Booking.com's lag, not a booking nobody entered", () => {
+    const stay = row({ status: 'cancelled', cancelled_at: new Date(NOW.getTime() - 3_600_000).toISOString() });
+    const h = bcomHold({});
+    assert.deepEqual(run([stay, h]).bookingComUnexplained, []);
+    const longAgo = { ...stay, cancelled_at: new Date(NOW.getTime() - ECHO_LAG_GRACE_MS - 60_000).toISOString() };
+    assert.deepEqual(ids(run([longAgo, h]).bookingComUnexplained), [h.id]);
+  });
+
+  test('a lifted Helm block counts the same way; a cancelled Airbnb closure never does (it was never sent)', () => {
+    const lifted = row({ source: 'manual', channel: 'block', status: 'cancelled', hold_kind: 'owner', channel_listing_id: null, cancelled_at: new Date(NOW.getTime() - 3_600_000).toISOString() });
+    assert.deepEqual(run([lifted, bcomHold({})]).bookingComUnexplained, []);
+    const airbnbClosure = row({ status: 'cancelled', hold_kind: 'ota', cancelled_at: new Date(NOW.getTime() - 3_600_000).toISOString() });
+    const h = bcomHold({});
+    assert.deepEqual(ids(run([airbnbClosure, h]).bookingComUnexplained), [h.id]);
+  });
+
+  test('a closure already observed missing from the feed is on its way out, not "shown"', () => {
+    assert.deepEqual(run([bcomHold({ missing_since: '2026-10-01T14:00:00Z' })]).bookingComUnexplained, []);
   });
 });
 

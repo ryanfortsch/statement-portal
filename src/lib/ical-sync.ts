@@ -24,8 +24,8 @@ import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
-import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, type CancelGuard } from '@/lib/ical-cancel-policy';
-import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadHelmRunCutovers } from '@/lib/pms-guards';
+import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, releaseAnswers, type CancelGuard } from '@/lib/ical-cancel-policy';
+import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadStrictDedupeHomes, guestyEchoPropertyIds, type ListingScopeRow } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -88,6 +88,7 @@ type ExistingRow = {
   check_out: string;
   missing_since: string | null;
   raw_summary: string | null;
+  hold_kind: string | null;
 };
 
 /** What the sync writes per event. booked_at is added on the insert only. */
@@ -269,7 +270,7 @@ export async function syncListing(opts: {
       (from, to) =>
         sb
           .from('bookings')
-          .select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary')
+          .select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary, hold_kind')
           .eq('channel_listing_id', opts.listing_id)
           .eq('source', 'ical_import')
           .order('id', { ascending: true })
@@ -321,20 +322,28 @@ export async function syncListing(opts: {
     // lifted hold that was an Airbnb or VRBO feed's last event must be able
     // to cancel (lib/ical-cancel-policy keepsEmptyFeedGuardUp).
     const reservationHolds = holdsAreReservations(opts.channel);
-    const liveExisting = existing.filter((r) => keepsEmptyFeedGuardUp(r, cutoff, isBlockSummary, reservationHolds));
-    // The operator's release, when one is waiting: it lets either guard
-    // through once (the empty-feed guard here, the mass-cancel guard in the
-    // cancel pass), then it is consumed below.
+    // While this home's closures are dropped as Guesty's echoes, the feed's
+    // closures are not being read, so their absence says nothing: any OTA
+    // hold still on file (imported while an OTA was ticked as reading Helm,
+    // then unticked) sits out the cancel pass and both guards. Counted, an
+    // untick made a Booking.com feed look empty and offered a release that
+    // would cancel its bookings.
+    const judged = dropDirectBlocks ? existing.filter((r) => !(r.status === 'block' && r.hold_kind === 'ota')) : existing;
+    const liveExisting = judged.filter((r) => keepsEmptyFeedGuardUp(r, cutoff, isBlockSummary, reservationHolds));
+    // The operator's release, when one is waiting. It answers the guard that
+    // was on screen when it was pressed and nothing else: valid only if the
+    // listing's newest run was guarded and the click came after that run.
+    // Whatever happens, this run uses it up (below). A release pressed for a
+    // mass cancel once survived an empty-feed run, then released the NEXT
+    // empty feed and cancelled a whole calendar.
     const ackAt =
       opts.massCancelAcknowledgedAt === undefined
         ? await readMassCancelAck(sb, opts.listing_id)
         : opts.massCancelAcknowledgedAt;
-    // An empty feed with rows on file that keep its guard up is released
-    // only by an operator answering THAT guard (the listing's newest run was
-    // 'empty_feed'): a release given for a mass cancel must never become
-    // licence to empty the whole calendar because the endpoint broke next.
+    const lastRun = ackAt ? await readLastRun(sb, opts.listing_id) : null;
+    const answered = releaseAnswers(ackAt, lastRun);
     const emptyFeed = rows.length === 0 && liveExisting.length > 0;
-    const emptyReleased = emptyFeed && !!ackAt && (await readLastGuard(sb, opts.listing_id)) === 'empty_feed';
+    const emptyReleased = emptyFeed && answered === 'empty_feed';
     if (emptyFeed && !emptyReleased) {
       result.bookings_added = 0;
       result.bookings_updated = 0;
@@ -351,13 +360,15 @@ export async function syncListing(opts: {
       // stay cancels when too many vanish at once, unless the operator has
       // released the guard. Mark cancelled rather than delete, to keep history.
       const plan = planCancelPass({
-        existing,
+        existing: judged,
         incomingUids,
         uidOf: (r) => (r as ExistingRow).ical_uid,
         now: startedAt,
         todayIso: cutoff,
         isBlockSummary,
-        allowMassCancel: !!ackAt,
+        // A mass-cancel release on this run's guard, or the empty-feed
+        // release that let this run through; never the other way round.
+        allowMassCancel: answered === 'mass_cancel' || emptyReleased,
         holdsAreReservations: reservationHolds,
         // The operator confirmed the empty feed: their word is the second
         // look, so what is missing cancels now rather than starting the
@@ -455,20 +466,20 @@ export async function syncListing(opts: {
       } else {
         result.success = true;
       }
+    }
 
-      // The release answered this run; consume it. Conditional on the value
-      // read, so a newer click made while this run was in flight survives
-      // for the next one.
-      if (ackAt) {
-        const { error: clearErr } = await sb
-          .from('channel_listings')
-          .update({ mass_cancel_acknowledged_at: null })
-          .eq('id', opts.listing_id)
-          .lte('mass_cancel_acknowledged_at', ackAt);
-        if (clearErr) {
-          result.success = false;
-          result.error = `mass-cancel release applied but its stamp could not be cleared: ${clearErr.message}`;
-        }
+    // One run, one release: used or stale, it is cleared. Conditional on the
+    // value read, so a newer click made while this run was in flight
+    // survives for the next one.
+    if (ackAt) {
+      const { error: clearErr } = await sb
+        .from('channel_listings')
+        .update({ mass_cancel_acknowledged_at: null })
+        .eq('id', opts.listing_id)
+        .lte('mass_cancel_acknowledged_at', ackAt);
+      if (clearErr) {
+        result.success = false;
+        result.error = `cancel-guard release read but its stamp could not be cleared: ${clearErr.message}`;
       }
     }
   } catch (err) {
@@ -550,7 +561,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     const sb = getServiceClient();
     let q = sb
       .from('channel_listings')
-      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at');
+      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at, export_subscribed');
     if (opts.onlyListingId) q = q.eq('id', opts.onlyListingId);
 
     const { data, error } = await q;
@@ -560,9 +571,14 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
       (l) => l.is_active && l.ical_import_enabled && !!l.ical_import_url,
     );
 
-    // Which homes still ride Guesty's aggregate feed, read once per run:
-    // their direct-feed blocks are dropped at import (see syncListing).
-    const aggregateFeedPropertyIds = await loadAggregateFeedPropertyIds(sb);
+    // Which homes still ride Guesty's aggregate feed with no OTA reading Helm
+    // yet: their direct-feed blocks are dropped at import (see syncListing).
+    // From the listing read above, not a second one: a failure of a second
+    // read failed the whole fleet's sync. A run for one listing reads its
+    // own home's rows (the filter above would hide the other listings).
+    const aggregateFeedPropertyIds = opts.onlyListingId
+      ? await loadAggregateFeedPropertyIds(sb)
+      : guestyEchoPropertyIds((data ?? []) as ListingScopeRow[]);
 
     const results: SyncListingResult[] = [];
     for (const l of eligible) {
@@ -586,7 +602,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     let staleHoldsRetired = 0;
     if (!opts.onlyListingId) {
       try {
-        staleHoldsRetired = await retireStaleOtaHolds(sb, new Set(eligible.map((l) => l.id as string)));
+        staleHoldsRetired = await retireStaleOtaHolds(sb);
       } catch (err) {
         console.error('[ical-sync] stale-hold sweep failed:', err);
       }
@@ -672,7 +688,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, cancelled_by, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },
@@ -787,32 +803,62 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
 }
 
 /**
- * Cancel every live OTA closure (source ical_import, status block,
- * hold_kind 'ota') whose feed is no longer read: no listing (the row was
- * deleted) or a listing outside `eligible` (retired, import disabled, no
- * URL). Such a closure can never be cancelled by its feed again, and it
- * holds its nights on staycapeann.com and in the writer's overlap check.
+ * Cancel the closures no feed can cancel any more:
+ *   - every live OTA closure (source ical_import, status block, hold_kind
+ *     'ota') whose listing is gone or not read (retired, import disabled,
+ *     no URL). It holds its nights on staycapeann.com and in the writer's
+ *     overlap check, and its feed will never drop it. Booking.com's are
+ *     left live on purpose (lib/ical-cancel-policy holdsAreReservations):
+ *     one may be a guest, and it is the one kind Helm forwards to Airbnb
+ *     and VRBO. The channel hub lists them for the operator.
+ *   - every live block on a retired Guesty aggregate row of a Helm-run
+ *     home. The flip cancels those (Guesty's rules and holds, re-entered in
+ *     Helm where the preflight asked); a sync that was already in flight at
+ *     the flip can write one back.
  *
- * Booking.com's are left live on purpose (lib/ical-cancel-policy
- * holdsAreReservations): one may be a guest, and it is the one kind Helm
- * forwards to Airbnb and VRBO. The channel hub lists them for the operator.
+ * Eligibility is read afresh here, not taken from the run's start: a feed
+ * the operator wired or reactivated while this run was fetching others is
+ * read, and its closures are not stale.
  */
-async function retireStaleOtaHolds(sb: SupabaseClient, eligible: ReadonlySet<string>): Promise<number> {
-  const live = await selectAllPaged<{ id: string; channel: string; channel_listing_id: string | null }>(
-    (from, to) =>
-      sb
-        .from('bookings')
-        .select('id, channel, channel_listing_id')
-        .eq('source', 'ical_import')
-        .eq('status', 'block')
-        .eq('hold_kind', 'ota')
-        .order('id', { ascending: true })
-        .range(from, to),
-    { label: 'stale ota holds' },
-  );
+async function retireStaleOtaHolds(sb: SupabaseClient): Promise<number> {
+  const [listings, helmRun, live] = await Promise.all([
+    selectAllPaged<{ id: string; property_id: string; channel: string; is_active: boolean | null; ical_import_enabled: boolean | null; ical_import_url: string | null }>(
+      (from, to) =>
+        sb
+          .from('channel_listings')
+          .select('id, property_id, channel, is_active, ical_import_enabled, ical_import_url')
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'stale sweep listings' },
+    ),
+    selectAllPaged<{ id: string }>(
+      (from, to) => sb.from('properties').select('id').eq('calendar_authority', 'helm').order('id', { ascending: true }).range(from, to),
+      { label: 'stale sweep helm-run' },
+    ),
+    selectAllPaged<{ id: string; property_id: string; channel: string; channel_listing_id: string | null; hold_kind: string | null }>(
+      (from, to) =>
+        sb
+          .from('bookings')
+          .select('id, property_id, channel, channel_listing_id, hold_kind')
+          .eq('source', 'ical_import')
+          .eq('status', 'block')
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'stale sweep blocks' },
+    ),
+  ]);
+  const byId = new Map(listings.map((l) => [l.id, l]));
+  const read = (id: string | null) => {
+    const l = id ? byId.get(id) : undefined;
+    return !!l && !!l.is_active && !!l.ical_import_enabled && !!l.ical_import_url;
+  };
+  const helm = new Set(helmRun.map((p) => p.id));
   const stale = live
-    .filter((r) => !holdsAreReservations(r.channel))
-    .filter((r) => !r.channel_listing_id || !eligible.has(r.channel_listing_id))
+    .filter((r) => {
+      if (r.hold_kind === 'ota') return !holdsAreReservations(r.channel) && !read(r.channel_listing_id);
+      const l = r.channel_listing_id ? byId.get(r.channel_listing_id) : undefined;
+      return !!l && l.channel === 'guesty' && !l.is_active && helm.has(r.property_id);
+    })
     .map((r) => r.id);
   for (const ids of chunk(stale, ID_WRITE_CHUNK)) {
     const { error } = await sb
@@ -830,26 +876,29 @@ async function retireStaleOtaHolds(sb: SupabaseClient, eligible: ReadonlySet<str
   return stale.length;
 }
 
-/** The dedupe's Helm-run options, from one registry read that throws. */
+/** The dedupe's Helm-run options (pms-guards loadStrictDedupeHomes: Helm-run
+ *  homes and homes whose OTAs already read Helm's export), from reads that
+ *  throw. */
 async function strictOptions(sb: SupabaseClient): Promise<{ strictChannelPropertyIds: Set<string>; cutoverAtByProperty: Map<string, string> }> {
-  const cutovers = await loadHelmRunCutovers(sb);
+  const cutovers = await loadStrictDedupeHomes(sb);
   const cutoverAtByProperty = new Map<string, string>();
   for (const [id, at] of cutovers) if (at) cutoverAtByProperty.set(id, at);
   return { strictChannelPropertyIds: new Set(cutovers.keys()), cutoverAtByProperty };
 }
 
-/** The guard on the listing's newest sync run, or null (none, or a failed
- *  read: a read error never releases a guard). */
-async function readLastGuard(sb: SupabaseClient, listingId: string): Promise<string | null> {
+/** The listing's newest sync run (guard and start), or null on none or a
+ *  failed read: a read error never releases a guard. */
+async function readLastRun(sb: SupabaseClient, listingId: string): Promise<{ guard: string | null; started_at: string } | null> {
   const { data, error } = await sb
     .from('ical_sync_runs')
-    .select('guard')
+    .select('guard, started_at')
     .eq('channel_listing_id', listingId)
     .order('started_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error || !data) return null;
-  return ((data as { guard?: string | null }).guard as string | null) ?? null;
+  const d = data as { guard?: string | null; started_at: string };
+  return { guard: d.guard ?? null, started_at: d.started_at };
 }
 
 /** channel_listings.mass_cancel_acknowledged_at for one listing; null on a

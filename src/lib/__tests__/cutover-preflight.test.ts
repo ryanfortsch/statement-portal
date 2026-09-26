@@ -183,7 +183,9 @@ describe('evaluateCutoverPreflight', () => {
     assert.equal(isOtaFeedChannel('other'), true);
 
     // A fourth OTA wired as 'other' pulls its own ?listing= line, which the
-    // route credits 'other'. The flip passes.
+    // route credits 'other': the export check passes. The flip itself does
+    // not: a Helm-run home cannot read an 'other' feed yet (feeds_fresh),
+    // because Helm cannot tell that platform's bookings from its echoes.
     const otherFeeds = [feed('airbnb'), feed('other')];
     const green = evaluateCutoverPreflight(
       greenFacts({
@@ -196,7 +198,8 @@ describe('evaluateCutoverPreflight', () => {
     );
     assert.equal(green.checks[3].ok, true, green.checks[3].detail);
     assert.match(green.checks[3].detail, /Other pulled 1h ago \(its own listing line\)/);
-    assert.equal(green.ok, true);
+    assert.deepEqual(green.failing, ['feeds_fresh']);
+    assert.match(green.checks[2].detail, /cannot read an 'other' feed yet/);
 
     // A bare-URL pull (no guess) does NOT count: that feed carries the
     // platform's own holds back to it, the stuck-block loop.
@@ -209,7 +212,7 @@ describe('evaluateCutoverPreflight', () => {
         ],
       }),
     );
-    assert.deepEqual(bare.failing, ['export_subscribed']);
+    assert.deepEqual(bare.failing, ['feeds_fresh', 'export_subscribed']);
     assert.match(bare.checks[3].detail, /Other: never pulled its own export line/);
 
     // A stale own-line pull is stale like any other.

@@ -20,9 +20,21 @@
  *     likely cancelled there. The same check covers a Booking.com booking
  *     entered by hand after the flip, which is how every one is recorded
  *     now (runbook step 0.2).
- *   - A block on the Guesty aggregate feed (an owner hold set in Guesty) is
- *     adopted as a Helm block at the flip (`guestyBlocks`), so it stays
- *     closed on every channel and the operator can lift it in Helm.
+ *   - A block on the Guesty aggregate feed is cancelled by the flip
+ *     (`guestyBlocks`). Guesty's iCal labels every block the same ("Blocked
+ *     by Guesty"), its own rolling booking-window and advance-notice rules
+ *     included, so none can be carried over blind: adopted, the rolling
+ *     horizon froze into a fixed block that shrank each home's bookable
+ *     window by a day every day. The preflight instead refuses the flip
+ *     while any block that is not one of those rules has no Helm block
+ *     over its nights (`guestyHoldsUncarried`): the operator re-enters each
+ *     real hold in Helm, deliberately. The rules themselves are replaced by
+ *     the rate plan's booking window and advance notice and each OTA's own
+ *     availability settings.
+ *   - A Booking.com reservation on file on a home whose Booking.com feed
+ *     Helm does not read (`bookingComUnwatched`) can never be seen to
+ *     cancel; the preflight refuses until the feed is wired or the stays
+ *     are over.
  *
  * And the other direction: a Booking.com closure with no reservation on file
  * behind it and nothing Helm sends Booking.com covering it
@@ -53,6 +65,10 @@ export type CarryRow = {
   channel_listing_id: string | null;
   created_at: string;
   guest_name?: string | null;
+  /** bookings.missing_since: set while a feed row is observed missing. */
+  missing_since?: string | null;
+  /** bookings.cancelled_at. */
+  cancelled_at?: string | null;
 };
 
 export type CarryListing = {
@@ -70,14 +86,41 @@ export type CarryListing = {
 export type Carryover = {
   untwinnedGuestyStays: CarryRow[];
   bookingComNotShown: CarryRow[];
+  bookingComUnwatched: CarryRow[];
   bookingComUnexplained: CarryRow[];
   bookingComOrphaned: CarryRow[];
+  /** Every block still ahead on the Guesty aggregate feed: the flip cancels them. */
   guestyBlocks: CarryRow[];
+  /** The ones that are not Guesty's rolling rules and have no Helm block over them yet. */
+  guestyHoldsUncarried: CarryRow[];
 };
 
 /** A hand-entered Booking.com booking gets this long before its absence from
  *  Booking.com's feed means anything: the feed is read every 30 minutes. */
 export const NOT_SHOWN_GRACE_MS = 2 * 3_600_000;
+
+/**
+ * How long after a row Helm sent Booking.com is cancelled that Booking.com's
+ * closure of it is still expected: Booking.com has to pull, reopen, and Helm
+ * has to see the closure gone twice. Until then the closure is the accepted
+ * echo lag, not a Booking.com booking nobody entered.
+ */
+export const ECHO_LAG_GRACE_MS = 8 * 3_600_000;
+
+/** A Guesty booking-window block ends at Guesty's calendar horizon, about
+ *  two years out; anything ending this far ahead is that rule. */
+export const GUESTY_HORIZON_DAYS = 600;
+
+/**
+ * Guesty's own rolling availability rules, as its iCal shows them: the
+ * booking-window block (runs to the calendar horizon) and the advance-notice
+ * block (one night, today or tomorrow). Every other Guesty block may be an
+ * owner's hold and has to be re-entered in Helm before the flip.
+ */
+export function isGuestyRule(r: { check_in: string; check_out: string }, todayIso: string): boolean {
+  if (r.check_out >= shiftDay(todayIso, GUESTY_HORIZON_DAYS)) return true;
+  return nights(r.check_in, r.check_out).length === 1 && r.check_in <= shiftDay(todayIso, 1);
+}
 
 const LIVE = new Set(['confirmed', 'completed', 'block']);
 const STAY = new Set(['confirmed', 'completed']);
@@ -189,11 +232,37 @@ export function evaluateCarryover(input: {
     }
   }
 
+  // 2b. Booking.com reservations on file with no Booking.com feed read at
+  // all: a cancellation of these can never reach Helm.
+  const bookingComUnwatched: CarryRow[] = [];
+  if (readingBcom.length === 0) {
+    for (const [key, members] of clusters) {
+      const canonical = byId.get(key);
+      if (!canonical || !STAY.has(canonical.status) || !upcoming(canonical) || isOtaHold(canonical)) continue;
+      if (!isBcomReservation(members)) continue;
+      const created = Math.min(...members.map((m) => Date.parse(m.created_at)).filter(Number.isFinite));
+      if (Number.isFinite(created) && now.getTime() - created < NOT_SHOWN_GRACE_MS) continue;
+      bookingComUnwatched.push(canonical);
+    }
+  }
+
   // 3. Booking.com closures nothing on file explains.
   const bcomReservations = rows.filter(
     (r) => r.channel === 'booking_com' && STAY.has(r.status) && !isOtaHold(r) && effectivelyLive(r),
   );
   const sentToBcom = rows.filter((r) => exportableBooking(r, { channel: 'booking_com', listingId: null }));
+  // Rows Helm was sending Booking.com until a moment ago: their closures are
+  // the echo lag (ECHO_LAG_GRACE_MS), not a booking nobody entered.
+  const recentlyWithdrawn = rows.filter((r) => {
+    if (r.status !== 'cancelled' || !r.cancelled_at) return false;
+    const at = Date.parse(r.cancelled_at);
+    if (!Number.isFinite(at) || now.getTime() - at > ECHO_LAG_GRACE_MS) return false;
+    // What it was before the cancel: a hold if it has a kind, else a stay.
+    // An OTA's own closure was never sent to Booking.com (Booking.com's own
+    // are left out of its feed, the others go to no feed at all).
+    if (r.hold_kind === 'ota' && r.source === 'ical_import') return false;
+    return exportableBooking({ ...r, status: r.hold_kind ? 'block' : 'confirmed' }, { channel: 'booking_com', listingId: null });
+  });
   const bookingComUnexplained: CarryRow[] = [];
   const bookingComOrphaned: CarryRow[] = [];
   for (const h of closuresImported ? rows : []) {
@@ -203,28 +272,42 @@ export function evaluateCarryover(input: {
       bookingComOrphaned.push(h);
       continue;
     }
-    if (!coveredBy(nightsAhead(h, todayIso), [...bcomReservations, ...sentToBcom])) bookingComUnexplained.push(h);
+    // Already observed missing from Booking.com's feed: it is on its way
+    // out (or held by a cancel guard, which the feed card shows), and
+    // "Booking.com shows these nights closed" would be false.
+    if (h.missing_since) continue;
+    if (!coveredBy(nightsAhead(h, todayIso), [...bcomReservations, ...sentToBcom, ...recentlyWithdrawn])) bookingComUnexplained.push(h);
   }
 
-  // 4. Upcoming holds on the Guesty aggregate feed, adopted at the flip.
+  // 4. Upcoming holds on the Guesty aggregate feed: all cancelled by the
+  // flip; the ones that may be an owner's hold must be in Helm first.
   const guestyBlocks = rows.filter((r) => fromAggregate(r) && r.status === 'block' && upcoming(r));
+  const helmHolds = rows.filter((r) => (r.source === 'manual' || r.source === 'direct_booking') && LIVE.has(r.status));
+  const guestyHoldsUncarried = guestyBlocks.filter(
+    (r) => !isGuestyRule(r, todayIso) && !coveredBy(nightsAhead(r, todayIso), helmHolds),
+  );
 
   const byDate = (a: CarryRow, b: CarryRow) => a.check_in.localeCompare(b.check_in) || a.id.localeCompare(b.id);
   return {
     untwinnedGuestyStays: untwinnedGuestyStays.sort(byDate),
     bookingComNotShown: bookingComNotShown.sort(byDate),
+    bookingComUnwatched: bookingComUnwatched.sort(byDate),
     bookingComUnexplained: bookingComUnexplained.sort(byDate),
     bookingComOrphaned: bookingComOrphaned.sort(byDate),
     guestyBlocks: guestyBlocks.sort(byDate),
+    guestyHoldsUncarried: guestyHoldsUncarried.sort(byDate),
   };
 }
 
-/** True when nothing needs a person. guestyBlocks are handled by the flip. */
+/** True when nothing needs a person. guestyBlocks themselves are the
+ *  flip's to cancel; only the uncarried ones need someone. */
 export function carryoverClear(c: Carryover): boolean {
   return (
     c.untwinnedGuestyStays.length === 0 &&
     c.bookingComNotShown.length === 0 &&
+    c.bookingComUnwatched.length === 0 &&
     c.bookingComUnexplained.length === 0 &&
-    c.bookingComOrphaned.length === 0
+    c.bookingComOrphaned.length === 0 &&
+    c.guestyHoldsUncarried.length === 0
   );
 }

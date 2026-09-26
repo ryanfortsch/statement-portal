@@ -82,9 +82,16 @@ export const OTA_HOLD_KIND = 'ota';
 /** The one channel whose OTA closures are forwarded (see the docblock). */
 export const FORWARDED_HOLD_CHANNEL = 'booking_com';
 
-/** True for a block imported from an OTA's own feed. */
-export function isOtaHold(b: { status: string; hold_kind?: string | null }): boolean {
-  return b.status === 'block' && b.hold_kind === OTA_HOLD_KIND;
+/**
+ * True for a night an OTA closed on its own calendar: a block IMPORTED from
+ * a feed with hold_kind 'ota'. A hold made in Helm is never one, whatever
+ * kind the operator picked ("Channel block" included): it is Helm's own and
+ * goes to every channel. Keyed on source as well as kind for exactly that
+ * reason; keyed on kind alone, a Helm hold picked as "Channel block" went to
+ * no OTA at all.
+ */
+export function isOtaHold(b: { status: string; hold_kind?: string | null; source?: string | null }): boolean {
+  return b.status === 'block' && b.hold_kind === OTA_HOLD_KIND && b.source === 'ical_import';
 }
 
 /** The channels that import Helm's export, one URL each. */
@@ -114,6 +121,8 @@ export type ExportCandidate = {
   channel_listing_id?: string | null;
   /** bookings.hold_kind; 'ota' on a block imported from an OTA's feed. */
   hold_kind?: string | null;
+  /** bookings.source; an OTA closure is always 'ical_import' (isOtaHold). */
+  source?: string | null;
 };
 
 /** A bookings row as the export reads it: Booking plus the PMS columns. */
@@ -232,6 +241,18 @@ export function guessChannelFromUserAgent(userAgent: string | null | undefined):
   if (ua.includes('vrbo') || ua.includes('homeaway') || ua.includes('expedia')) return 'vrbo';
   if (ua.includes('booking')) return 'booking_com';
   return null;
+}
+
+/**
+ * A command-line or API tool (curl, wget, HTTPie, Postman, Insomnia). No OTA
+ * fetches with one, and an operator checking a feed line does, so such a
+ * pull is never credited to the OTA its URL names: credited, the runbook's
+ * own curl turned the preflight's "pulled within 24h" green for an OTA that
+ * had imported nothing.
+ */
+export function isToolUserAgent(userAgent: string | null | undefined): boolean {
+  if (!userAgent) return false;
+  return /^(curl|wget|httpie|postmanruntime|insomnia)\//i.test(userAgent.trim());
 }
 
 /** The slice of an ical_export_pulls row exportPullState reads. */

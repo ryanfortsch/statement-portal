@@ -39,6 +39,10 @@ export type DedupRow = {
   duplicate_of: string | null;
   created_at: string;
   cancelled_at: string | null;
+  /** bookings.cancelled_by: 'ical-sync' for a feed's disappearance, an
+   *  operator's email (or 'operator') for a cancel pressed in Helm. Optional
+   *  so fixtures that predate it load; absent reads as not an operator's. */
+  cancelled_by?: string | null;
   // Which channel_listings feed this row arrived on. Used to tell a direct OTA
   // feed (reliable cancel signal) apart from the Guesty aggregate feed (which
   // can transiently drop a still-confirmed reservation).
@@ -108,11 +112,19 @@ export type DedupOptions = {
    *     in the cancelled one's cluster (its only candidate), so the live
    *     stay left the export, the availability bridge and the overlap check.
    *   - an ical_import row first seen after the home's cutover
-   *     (cutoverAtByProperty) never date-joins a guesty_legacy row. Guesty
-   *     stopped writing those at the flip, so every one describes a
+   *     (cutoverAtByProperty) never date-joins a Guesty-era row: a
+   *     guesty_legacy record or a row of the Guesty aggregate feed. Guesty
+   *     stopped writing both at the cutover, so every one describes a
    *     reservation that existed then, and its feed twin was already on
    *     file. A row first seen later is a later booking; joined to a frozen
-   *     twin whose feed row was cancelled, it was hidden the same way.
+   *     twin whose feed row was cancelled, it was hidden the same way. (The
+   *     aggregate row counts too: round three found a post-flip VRBO rebook
+   *     hidden through the frozen "Reservation HA-..." row of the week's
+   *     earlier guest.)
+   *   - two rows Helm itself wrote (manual, direct_booking) never date-join.
+   *     The booking writer refuses a second live row over the first, so two
+   *     of them on the same nights are a cancelled entry and its
+   *     replacement, and joined, the replacement was filed under the cancel.
    */
   strictChannelPropertyIds?: ReadonlySet<string>;
   /** properties.cutover_at per Helm-run home (see strictChannelPropertyIds). */
@@ -385,6 +397,18 @@ function isUnnamedRecord(r: DedupRow, isPlaceholder: Placeholder): boolean {
   );
 }
 
+/** A row Helm itself wrote: the booking writer's own sources. */
+function isHelmNative(r: DedupRow): boolean {
+  return r.source === 'manual' || r.source === 'direct_booking';
+}
+
+/** A cancel an operator pressed in Helm (cancelled_by set and not the
+ *  sync's). That is somebody saying this reservation is off, whichever
+ *  source row they pressed it on. */
+function isOperatorCancel(r: DedupRow): boolean {
+  return !!r.cancelled_by && r.cancelled_by !== 'ical-sync';
+}
+
 /** A cancellation worth believing: not the aggregate feed's, not a feed
  *  dropping a stay that already happened, not an unnamed record's, and not
  *  a hold's (a VRBO "Blocked" row the old sync stored as confirmed and
@@ -394,10 +418,16 @@ function isTrustedCancel(
   isFromAggregateFeed: (r: DedupRow) => boolean,
   isPlaceholder: Placeholder,
   isBlockLike: (r: DedupRow) => boolean,
+  helmRun = false,
 ): boolean {
   return (
     r.status === 'cancelled' &&
-    !isFromAggregateFeed(r) &&
+    // An aggregate-feed disappearance is not believed; on a Helm-run home an
+    // operator's cancel of that same row is. There the aggregate row is often
+    // the canonical of a Guesty-era stay, the one the hub links to, and one
+    // cancel has to take. A Guesty-run home is unchanged: Guesty is still
+    // the authority there, and a cancel typed only in Helm is not.
+    (!isFromAggregateFeed(r) || (helmRun && isOperatorCancel(r))) &&
     !isPostStayCancel(r) &&
     !isUnnamedRecord(r, isPlaceholder) &&
     !isBlockLike(r)
@@ -558,11 +588,13 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
     ) {
       return true;
     }
+    if (isHelmNative(a) && isHelmNative(b)) return true;
     // Instants, not strings: Postgres writes "+00:00" where JS writes "Z".
     const at = Date.parse(cutoverAt.get(a.property_id) ?? '');
     if (Number.isFinite(at)) {
-      const lateFeedRow = (r: DedupRow) => r.source === 'ical_import' && Date.parse(r.created_at) > at;
-      if ((lateFeedRow(a) && b.source === 'guesty_legacy') || (lateFeedRow(b) && a.source === 'guesty_legacy')) return true;
+      const guestyEra = (r: DedupRow) => r.source === 'guesty_legacy' || isFromAggregateFeed(r);
+      const lateFeedRow = (r: DedupRow) => r.source === 'ical_import' && !isFromAggregateFeed(r) && Date.parse(r.created_at) > at;
+      if ((lateFeedRow(a) && guestyEra(b)) || (lateFeedRow(b) && guestyEra(a))) return true;
     }
     return false;
   };
@@ -570,7 +602,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
   const isBlockLike = (r: DedupRow): boolean =>
     r.status === 'block' || (r.source === 'ical_import' && isBlockSummary(r.raw_summary));
   const trusted = (r: DedupRow): boolean =>
-    isTrustedCancel(r, isFromAggregateFeed, isPlaceholder, isBlockLike);
+    isTrustedCancel(r, isFromAggregateFeed, isPlaceholder, isBlockLike, strictChannels.has(r.property_id));
 
   const byProperty = new Map<string, DedupRow[]>();
   for (const r of rows) {

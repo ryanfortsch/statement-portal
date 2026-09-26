@@ -28,7 +28,6 @@ import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
-import { loadHelmRunPropertyIds } from '@/lib/pms-guards';
 import { carryoverFor, loadCutoverFacts } from '@/lib/cutover';
 
 let _serviceSupabase: SupabaseClient | null = null;
@@ -1398,8 +1397,14 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
  * failure rather than left out: silence here would read as "all clear".
  */
 async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
-  const ids = [...(await loadHelmRunPropertyIds())].sort();
   const out: BriefChannelAttention[] = [];
+  // Read here, not through the forgiving pms-guards loader: that one answers
+  // "no Helm-run homes" on a failed read, and this section would go silent.
+  const { data: helmRows, error: helmErr } = await supabase.from('properties').select('id').eq('calendar_authority', 'helm');
+  if (helmErr) {
+    return [{ propertyId: '', propertyName: 'Helm-run homes', items: [`could not read which homes Helm runs: ${helmErr.message}`] }];
+  }
+  const ids = ((helmRows ?? []) as Array<{ id: string }>).map((r) => r.id).sort();
   const dayAgo = Date.now() - 86_400_000;
   for (const id of ids) {
     try {
@@ -1413,6 +1418,9 @@ async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
       if (c.bookingComNotShown.length > 0) {
         items.push(`${n(c.bookingComNotShown.length, 'reservation', 'reservations')} Booking.com no longer shows (first ${c.bookingComNotShown[0].check_in}): cancelled there?`);
       }
+      if (c.bookingComUnwatched.length > 0) {
+        items.push(`${n(c.bookingComUnwatched.length, 'Booking.com reservation', 'Booking.com reservations')} on file with no Booking.com feed read: a cancellation cannot reach Helm`);
+      }
       if (c.untwinnedGuestyStays.length > 0) {
         items.push(`${n(c.untwinnedGuestyStays.length, 'Guesty-era stay', 'Guesty-era stays')} with no twin on the OTA's own feed (first ${c.untwinnedGuestyStays[0].check_in})`);
       }
@@ -1422,7 +1430,7 @@ async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
       const unfiltered = facts.pulls.filter(
         (p) =>
           Date.parse(p.pulled_at) > dayAgo &&
-          (p.channel_guess == null || (!!p.requested_for && !!p.ua_guess && p.requested_for !== p.ua_guess)),
+          ((p.channel_guess == null && !p.requested_for) || (!!p.requested_for && !!p.ua_guess && p.requested_for !== p.ua_guess)),
       );
       if (unfiltered.length > 0) {
         items.push(`${n(unfiltered.length, 'pull', 'pulls')} of the export in the last day got the unfiltered feed (an unidentified reader, or an OTA on another OTA's line)`);

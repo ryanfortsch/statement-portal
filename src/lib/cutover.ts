@@ -278,6 +278,15 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     const fine: string[] = [];
     for (const f of otaFeeds) {
       const name = channelName(f.channel);
+      // An 'other' platform's labels decide whether its closures are guests
+      // or echoes, and Helm cannot see them: forwarded, its echoes can loop
+      // with Booking.com's; dropped, a booking it publishes as "Blocked" is
+      // sold elsewhere. Until 'other' feeds can be classified, a Helm-run
+      // home has none.
+      if (isUnclassifiedChannel(f.channel) && f.ical_import_url) {
+        problems.push(`${name}: Helm cannot tell whether this platform's closed nights are its bookings or echoes of Helm's, so a Helm-run home cannot read an 'other' feed yet; retire the row before the flip`);
+        continue;
+      }
       if (!f.ical_import_url) {
         problems.push(`${name}: no iCal URL`);
         continue;
@@ -391,13 +400,25 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
         `Booking.com no longer shows ${carry.bookingComNotShown.length} reservation${carry.bookingComNotShown.length === 1 ? '' : 's'} Helm has on file as closed: ${listRows(carry.bookingComNotShown)}. Check the extranet and cancel ${carry.bookingComNotShown.length === 1 ? 'it' : 'each one'} in Helm if the guest cancelled`,
       );
     }
+    if (carry.bookingComUnwatched.length > 0) {
+      problems.push(
+        `${carry.bookingComUnwatched.length} Booking.com reservation${carry.bookingComUnwatched.length === 1 ? ' is' : 's are'} on file but Helm reads no Booking.com feed, so a cancellation could never reach Helm: ${listRows(carry.bookingComUnwatched)}. Keep the Booking.com feed wired until they have checked out`,
+      );
+    }
+    if (carry.guestyHoldsUncarried.length > 0) {
+      problems.push(
+        `${carry.guestyHoldsUncarried.length} hold${carry.guestyHoldsUncarried.length === 1 ? '' : 's'} set in Guesty ${carry.guestyHoldsUncarried.length === 1 ? 'has' : 'have'} no Helm block over ${carry.guestyHoldsUncarried.length === 1 ? 'it' : 'them'}: ${listRows(carry.guestyHoldsUncarried)}. The flip cancels every Guesty block, because Guesty labels its owner holds and its own rules alike; re-enter each hold you want kept as a Helm block first`,
+      );
+    }
+    const rulesDropped = carry.guestyBlocks.length - carry.guestyHoldsUncarried.length;
+    const compared = facts.feeds.some((f) => f.is_active && f.channel === 'booking_com' && !!f.ical_import_url);
     checks.push({
       key: 'guesty_stays_carried',
       label: 'Guesty stays handed over',
       ok: problems.length === 0,
       detail:
         problems.length === 0
-          ? `Every Guesty-era stay ahead has a live feed twin or is a Booking.com reservation Booking.com still shows.${carry.guestyBlocks.length > 0 ? ` The flip adopts ${carry.guestyBlocks.length} Guesty hold${carry.guestyBlocks.length === 1 ? '' : 's'} as Helm block${carry.guestyBlocks.length === 1 ? '' : 's'}.` : ''}`
+          ? `Every Guesty-era Airbnb or VRBO stay ahead has a live twin on the OTA's own feed${compared ? ', and every Booking.com reservation on file is still closed on Booking.com' : ''}.${carry.guestyBlocks.length > 0 ? ` The flip cancels ${carry.guestyBlocks.length} Guesty block${carry.guestyBlocks.length === 1 ? '' : 's'}${rulesDropped > 0 ? ` (${rulesDropped} of them Guesty's own booking-window or advance-notice rule${rulesDropped === 1 ? '' : 's'}: set those in the rate plan and on each OTA)` : ''}; every hold among them already has a Helm block.` : ''}`
           : problems.join('. ') + '.',
       acknowledgement: false,
       href: `/channels/${facts.propertyId}#attention`,
@@ -534,7 +555,7 @@ export async function loadCarryRows(propertyId: string, todayIso: string): Promi
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name')
+        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, missing_since, cancelled_at')
         .eq('property_id', propertyId)
         .gt('check_out', todayIso)
         .order('check_in', { ascending: true })
@@ -732,8 +753,8 @@ export type FlipResult = {
   /** Present on a flip to Helm. */
   mirror?: HelmMirrorResult;
   preflight?: CutoverPreflight;
-  /** Present on a flip to Helm: Guesty holds adopted as Helm blocks. */
-  adopted?: { count: number; error: string | null };
+  /** Present on a flip to Helm: Guesty aggregate blocks cancelled. */
+  guestyBlocksCancelled?: { count: number; error: string | null };
 };
 
 async function callFlip(propertyId: string, target: 'helm' | 'guesty', actorEmail: string): Promise<FlipResult['property']> {
@@ -777,9 +798,10 @@ export async function flipToHelm(
 
   const property = await callFlip(propertyId, 'helm', actorEmail);
   // After the flip, never before: the flip retires the aggregate feed row,
-  // and a sync of that feed would otherwise take the adopted rows straight
-  // back (its upsert keys on channel + UID).
-  const adopted = await adoptGuestyBlocks(
+  // and a sync of that feed would otherwise write them straight back (its
+  // upsert keys on channel + UID). A sync already in flight still can; the
+  // stale-closure sweep in ical-sync clears those on its next full run.
+  const guestyBlocksCancelled = await cancelGuestyBlocks(
     carryoverFor(facts).guestyBlocks.map((r) => r.id),
     actorEmail,
   ).then(
@@ -789,35 +811,33 @@ export async function flipToHelm(
   const window = mirrorWindow(90, 540);
   const mirror = await writeHelmCalendarMirror([propertyId], window.start, window.end);
   const [event] = await listPmsEvents(propertyId, 1);
-  return { property, event: event ?? null, mirror, preflight, adopted };
+  return { property, event: event ?? null, mirror, preflight, guestyBlocksCancelled };
 }
 
 /**
- * Guesty's own holds on the aggregate feed become Helm blocks. Once the
- * flip retires that feed nothing can cancel its rows, so an owner hold set
- * in Guesty would stand forever, and cancelling it instead would reopen
- * nights the owner closed. Adopted in place (source 'manual', no listing,
- * hold_kind 'other'), with a booking_events note on each, they stay closed
- * on every channel and lift like any hold Helm made. Reported in the flip
- * result, never thrown: the flip itself has committed.
+ * The Guesty aggregate feed's blocks are cancelled at the flip. Once the
+ * flip retires that feed nothing can cancel its rows, so they would stand
+ * forever; and they cannot be carried over blind, because Guesty labels its
+ * owner holds and its own rolling rules alike ("Blocked by Guesty"). The
+ * preflight (cutover-carryover guestyHoldsUncarried) already made sure every
+ * one that may be an owner's hold has a Helm block over it. Reported in the
+ * flip result, never thrown: the flip itself has committed.
  */
-async function adoptGuestyBlocks(ids: readonly string[], actorEmail: string): Promise<number> {
+async function cancelGuestyBlocks(ids: readonly string[], actorEmail: string): Promise<number> {
   if (ids.length === 0) return 0;
   const { data, error } = await supabaseAdmin
     .from('bookings')
-    .update({ source: 'manual', channel_listing_id: null, hold_kind: 'other', created_by: `cutover:${actorEmail}`, updated_at: new Date().toISOString() })
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: actorEmail,
+      cancel_reason: 'cutover_guesty_block',
+    })
     .in('id', [...ids])
     .eq('status', 'block')
     .select('id');
-  if (error) throw new Error(`adopt Guesty holds: ${error.message}`);
-  const adopted = ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
-  if (adopted.length > 0) {
-    const { error: evErr } = await supabaseAdmin.from('booking_events').insert(
-      adopted.map((id) => ({ booking_id: id, kind: 'note', actor: actorEmail, note: 'Adopted from the Guesty aggregate feed at the cutover' })),
-    );
-    if (evErr) console.error('[cutover] adopted holds, but their audit notes failed:', evErr.message);
-  }
-  return adopted.length;
+  if (error) throw new Error(`cancel Guesty blocks: ${error.message}`);
+  return ((data ?? []) as Array<{ id: string }>).length;
 }
 
 /**

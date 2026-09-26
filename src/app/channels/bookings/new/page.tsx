@@ -104,7 +104,10 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
   // ?channel= prefills the choice (the channel hub links a Booking.com
   // closure nobody has entered here with channel=booking_com).
   const presetChannel = one(sp.channel).trim() as BookingChannel;
-  const defaultChannel: BookingChannel = isBlock ? 'block' : channelChoices.includes(presetChannel) ? presetChannel : 'direct';
+  // No default for a stay: typed from a confirmation email, a Booking.com
+  // booking left on the old 'direct' default was sent to Booking.com as
+  // Helm's own and kept its nights shut there after the guest cancelled.
+  const defaultChannel: BookingChannel | '' = isBlock ? 'block' : channelChoices.includes(presetChannel) ? presetChannel : '';
   const money = (c: number) => (c / 100).toFixed(2);
 
   return (
@@ -208,7 +211,8 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
 
           <Row>
             <Field label="Channel">
-              <select name="channel" defaultValue={defaultChannel} style={selectStyle}>
+              <select name="channel" defaultValue={defaultChannel} required style={selectStyle}>
+                {!isBlock && <option value="" disabled>Pick the channel</option>}
                 {channelChoices.map((c) => (
                   <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>
                 ))}
@@ -326,9 +330,9 @@ function AvailabilityBlock({ check, isBlock }: { check: Check; isBlock: boolean 
                 );
               })}
             </ul>
-            {!isBlock && check.conflicting.some((b) => b.status === 'block' && b.hold_kind === 'ota') && (
+            {!isBlock && check.conflicting.some((b) => b.status === 'block' && b.hold_kind === 'ota' && b.source === 'ical_import' && b.channel === 'booking_com') && (
               <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
-                A hold marked (ota) is that OTA&apos;s own closed night. Entering the reservation behind it, say a Booking.com booking from its confirmation email, is allowed on the same channel: the database never counts a channel&apos;s own closure against it.
+                A Booking.com hold marked (ota) is a night Booking.com closed, and Booking.com publishes its bookings that way. Entering the booking behind it from its confirmation email is allowed with channel Booking.com: the database does not count Booking.com&apos;s own closure against it, nor Airbnb&apos;s or VRBO&apos;s closure of those same nights.
               </div>
             )}
           </div>
