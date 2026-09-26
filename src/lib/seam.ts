@@ -143,9 +143,19 @@ function apiKey(): string {
   return k;
 }
 
+/**
+ * Every other outbound call in this repo carries a deadline; these did not.
+ * `listSeamThermostatsSafe` is the clearest cost of that: it catches errors,
+ * so it reads as safe, but it had nothing to catch when Seam simply never
+ * answered, and it sat in the property page's critical path. A caught error
+ * is not a bound.
+ */
+const SEAM_TIMEOUT_MS = 10_000;
+
 async function seamGet<T>(path: string): Promise<T> {
   const res = await fetch(`${SEAM_API}${path}`, {
     headers: { Authorization: `Bearer ${apiKey()}` },
+    signal: AbortSignal.timeout(SEAM_TIMEOUT_MS),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -216,6 +226,7 @@ async function seamPost<T>(path: string, body: Record<string, unknown>): Promise
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(SEAM_TIMEOUT_MS),
   });
   if (!res.ok) {
     const txt = await res.text();
