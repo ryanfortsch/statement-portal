@@ -10,6 +10,7 @@
  * guesty_reservation_id throughout this module and the Operations page).
  */
 import { supabaseAdmin as supabase } from './supabase-admin';
+import { isCapeAnnOps } from './property-scope';
 import { chainStays } from '@/lib/stay-continuation';
 import type { CleaningSession } from './cleaning-sessions';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
@@ -72,13 +73,11 @@ export const CALENDAR_LOOKBACK_DAYS = 2;
 const PRESENCE_LOOKBACK_DAYS = 30;
 
 // Properties Rising Tide doesn't physically inspect (out-of-region, owner
-// handles cleaning + turnovers locally). They stay in the registry for
+// handles cleaning + turnovers locally) stay in the registry for
 // statements/revenue but are hidden from the turnover pipeline + calendar
-// so the operator's view isn't cluttered with rows they can't act on.
-const NON_OPERATIONS_PROPERTY_IDS = new Set<string>([
-  '65_calderwood',
-  '3246_ne_27th',
-]);
+// so the operator's view isn't cluttered with rows they can't act on. The
+// gate is properties.region (cape_ann only), read through
+// lib/property-scope.ts, never a literal id set.
 
 // Booking statuses that represent an actual stay needing a turnover. The
 // bookings.status enum is (inquiry|pending|confirmed|cancelled|completed|block);
@@ -437,6 +436,25 @@ export async function loadOperationsData(
   // are split out below and never become turnovers, so the pipeline and
   // stage counts stay guest-stays-only while the calendar stops rendering
   // an owner-held week as bookable vacancy.
+  // All active Cape Ann ops properties. Drives the calendar's row list (so
+  // vacant properties show up as empty rows, which is the whole point of
+  // the grid) and the keepRow gate below, so a stay at an out-of-region
+  // home never becomes a turnover here.
+  const { data: propData, error: propErr } = await supabase
+    .from('properties')
+    .select('id, name, title, city, region')
+    .eq('is_active', true)
+    .order('name');
+  if (propErr) {
+    throw new Error(`Failed to load properties: ${propErr.message}`);
+  }
+  const properties = ((propData ?? []) as Array<PropertyMini & { region: string | null }>)
+    .filter((p) => isCapeAnnOps(p) && (!propertyId || p.id === propertyId))
+    .map(({ region: _region, ...p }) => p);
+  const capeAnnIds = new Set(
+    ((propData ?? []) as Array<PropertyMini & { region: string | null }>).filter(isCapeAnnOps).map((p) => p.id),
+  );
+
   const { data: resData, error: resErr } = await supabase
     .from('bookings')
     .select(
@@ -492,7 +510,7 @@ export async function loadOperationsData(
     !!r.property_id &&
     !!r.check_in &&
     !!r.check_out &&
-    !NON_OPERATIONS_PROPERTY_IDS.has(r.property_id) &&
+    capeAnnIds.has(r.property_id) &&
     (!propertyId || r.property_id === propertyId);
 
   // Guest stays: everything downstream (turnovers, cleaning lifecycle,
@@ -612,19 +630,7 @@ export async function loadOperationsData(
     }
   }
 
-  // All active properties — drives the calendar's row list (so vacant
-  // properties show up as empty rows, which is the whole point of the grid).
-  const { data: propData, error: propErr } = await supabase
-    .from('properties')
-    .select('id, name, title, city')
-    .eq('is_active', true)
-    .order('name');
-  if (propErr) {
-    throw new Error(`Failed to load properties: ${propErr.message}`);
-  }
-  const properties = ((propData ?? []) as PropertyMini[]).filter(
-    (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id) && (!propertyId || p.id === propertyId)
-  );
+  // The property list was loaded up front (it gates keepRow); index it here.
   const propertyById = new Map(properties.map((p) => [p.id, p]));
 
   // Build a per-property checkout-date index so we can resolve previous

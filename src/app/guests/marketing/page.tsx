@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { MarketingTabs } from '@/components/MarketingTabs';
 import { supabase, isConfigured } from '@/lib/supabase';
-import { PROPERTIES } from '@/lib/properties';
+import { listFleetProperties } from '@/lib/fleet';
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { saveMarketing } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -30,10 +31,10 @@ async function loadMarketing(): Promise<Map<string, MarketingRow>> {
 export default async function MarketingMemoryPage() {
   const marketing = await loadMarketing();
 
-  // Guest-facing homes only (skip Ryan's personal properties).
-  const homes = Object.values(PROPERTIES).filter(
-    (p) => p.id !== '65_calderwood' && p.id !== '3246_ne_27th',
-  );
+  // Guest-facing Cape Ann homes from the registry (properties.region), so a
+  // home promoted from the prospect funnel shows up without a code change and
+  // Ryan's out-of-region homes stay off the marketing memory.
+  const homes = await listFleetProperties({ region: CAPE_ANN_REGION });
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>

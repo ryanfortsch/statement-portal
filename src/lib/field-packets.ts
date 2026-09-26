@@ -20,6 +20,7 @@ import 'server-only';
 import { getTeamMember } from './team';
 import { fieldDb } from '@/lib/field-db';
 import { selectAllPaged } from '@/lib/paged-select';
+import { isCapeAnnOps } from '@/lib/property-scope';
 import { slipIdsOnLivePackets } from '@/lib/field-work-board';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { holdOccupiesDay, type HoldDay } from '@/lib/field-stale-hold';
@@ -53,9 +54,9 @@ import {
   effectiveBaseCents,
 } from '@/lib/field-types';
 
-// Same exclusions the Operations turnover pipeline uses: out-of-region
-// properties Rising Tide doesn't physically inspect.
-const NON_OPERATIONS_PROPERTY_IDS = new Set(['65_calderwood', '3246_ne_27th']);
+// Same gate the Operations turnover pipeline uses: Field is the Cape Ann
+// contractor plane, so out-of-region homes (properties.region, read through
+// lib/property-scope.ts) never become stops.
 // A guest reservation is a turnover to PREP (inspect before the next arrival).
 const TURNOVER_STATUSES = ['confirmed', 'completed'];
 // An owner / manual "block" (Guesty owner-use, etc.) means the home is OCCUPIED
@@ -75,7 +76,7 @@ const isGuestStay = (b: { status: string | null }): boolean =>
 // garage_code, alarm_system) moved to the RLS-locked property_access table;
 // they're merged in via getPropertyAccessMap, not selected here.
 const PROPERTY_COLS =
-  'id, name, title, address, city, kind, latitude, longitude, inspection_base_price_cents, bedrooms, ' +
+  'id, name, title, address, city, kind, region, latitude, longitude, inspection_base_price_cents, bedrooms, ' +
   'guest_access_method, smart_lock_brand, parking, supply_closet_location, ' +
   // The real working window comes from these: a checkout-day stop can't start
   // before the guest is out, and the arrival is the hard finish.
@@ -128,9 +129,7 @@ export async function loadFieldProperties(): Promise<FieldProperty[]> {
     .from('properties')
     .select(PROPERTY_COLS)
     .or('is_active.eq.true,kind.neq.managed');
-  const rows = ((data ?? []) as unknown as FieldProperty[]).filter(
-    (p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id),
-  );
+  const rows = ((data ?? []) as unknown as FieldProperty[]).filter(isCapeAnnOps);
   const accessMap = await getPropertyAccessMap(rows.map((p) => p.id));
   // Fold home size into the per-stop base once, here, so every downstream
   // consumer (suggest, bundle, preview) reads the same effective price.

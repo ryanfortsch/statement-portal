@@ -36,6 +36,9 @@ async function getProperties(): Promise<PropertyOption[]> {
     .from('properties')
     .select('id, name, title, city')
     .eq('is_active', true)
+    // Cape Ann crew inspects Cape Ann homes; an out-of-region home
+    // (properties.region) has its own people. See lib/property-scope.ts.
+    .eq('region', 'cape_ann')
     .order('name');
   // Natural-sort by street number so the dropdown reads
   // "3 Locust, 3 South, 4 Brier Neck, 17 Beach, 20 Enon, 20 Hammond, 21 Horton…"

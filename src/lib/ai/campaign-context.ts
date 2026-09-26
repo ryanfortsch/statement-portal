@@ -7,6 +7,8 @@
 
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { PROPERTIES, type Property } from '@/lib/properties';
+import { listFleetProperties } from '@/lib/fleet';
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { findScaListingByAddress } from '@/lib/sca-listings';
 import { heroUrlForProperty, pageUrlForGuestyListing } from './property-cards';
 
@@ -140,9 +142,15 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
     bookingsByProperty.set(row.property_id, arr);
   }
 
-  const properties = Object.values(PROPERTIES)
-    .filter((p) => p.id !== '65_calderwood' && p.id !== '3246_ne_27th') // Ryan's personal, not guest-facing
-    .map((p: Property) => {
+  // Guest-facing Cape Ann homes from the registry (properties.region). The
+  // code roster is only the fallback for a failed read, so a promoted home
+  // reaches campaigns without a code change and Ryan's out-of-region homes
+  // never do.
+  const fleet: Array<Pick<Property, 'id' | 'name' | 'address' | 'city'>> = await listFleetProperties({ region: CAPE_ANN_REGION })
+    .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, address: r.address, city: r.city })))
+    .catch(() => Object.values(PROPERTIES).map((p) => ({ id: p.id, name: p.name, address: p.address, city: p.city })));
+  const properties = fleet
+    .map((p) => {
       const m = marketingById.get(p.id);
       const openings = computeOpenings(
         bookingsByProperty.get(p.id) ?? [],

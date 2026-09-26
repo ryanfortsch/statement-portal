@@ -41,6 +41,10 @@ export const SYNC_SOURCES = [
   'vendor-appointments',
   'seam',
   'ical',
+  // Helm-native PMS: the calendar mirror Helm writes for helm-run homes, and
+  // the message-automation planner / dispatcher.
+  'helm-calendar',
+  'automations',
 ] as const;
 export type SyncSource = (typeof SYNC_SOURCES)[number];
 

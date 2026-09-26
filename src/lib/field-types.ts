@@ -315,6 +315,8 @@ export type FieldProperty = {
   address: string;
   city: string | null;
   kind: PropertyKind;
+  /** Ops scope (properties.region). Field only ever loads cape_ann rows. */
+  region: string | null;
   latitude: number | null;
   longitude: number | null;
   inspection_base_price_cents: number; // effective per-stop base (size-aware; see field-pricing)

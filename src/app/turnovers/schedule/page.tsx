@@ -12,11 +12,11 @@ import {
   addDays,
   formatTime12,
   adjustmentSourceLabel,
-  SCHEDULE_EXCLUDED_PROPERTY_IDS,
   type CheckoutAdjustment,
   type ScheduleDay,
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
+import { isCapeAnnOps } from '@/lib/property-scope';
 import { listScheduleRecipients, portalLink, type DigestRow } from '@/lib/cleaner-digest';
 import {
   loadVendorAppointments,
@@ -216,7 +216,7 @@ export default async function CheckoutSchedulePage({
       .limit(30),
     supabase
       .from('properties')
-      .select('id, name, default_checkout_time, default_checkin_time, is_active, kind')
+      .select('id, name, default_checkout_time, default_checkin_time, is_active, kind, region')
       .order('name'),
     loadVendorAppointments(supabase, today, addDays(today, DAYS - 1)).catch(() => ({
       rows: [],
@@ -229,8 +229,8 @@ export default async function CheckoutSchedulePage({
   const digestByDate = new Map<string, DigestRow>();
   for (const d of (digestsRes.data ?? []) as DigestRow[]) digestByDate.set(d.service_date, d);
   const proposals = (proposalsRes.data ?? []) as CheckoutAdjustment[];
-  const timeProps = ((propsRes.data ?? []) as Array<{ id: string; name: string; default_checkout_time: string | null; default_checkin_time: string | null; is_active: boolean | null; kind: string | null }>)
-    .filter((p) => p.is_active !== false && p.kind !== 'hq' && !SCHEDULE_EXCLUDED_PROPERTY_IDS.has(p.id));
+  const timeProps = ((propsRes.data ?? []) as Array<{ id: string; name: string; default_checkout_time: string | null; default_checkin_time: string | null; is_active: boolean | null; kind: string | null; region: string | null }>)
+    .filter((p) => p.is_active !== false && p.kind !== 'hq' && isCapeAnnOps(p));
   const propNames = new Map(timeProps.map((p) => [p.id, p.name]));
   // The vendor's own schedule, judged only on days it has actually
   // announced (reminders run ~2 days out; past that, silence is not a
