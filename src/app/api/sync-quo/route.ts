@@ -16,16 +16,26 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 // guesty_reservations with no status filter, no canonical-row filter and no
 // asOf, so the two Quo paths disagreed about which checkout a cleaner's
 // text belonged to. See its docblock in quo-ingest.ts.
-import { mostRecentCheckout } from '@/lib/quo-ingest';
+import { mostRecentCheckout, createCleanerIssueSlip, looksLikeIssue } from '@/lib/quo-ingest';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
 //
 // Quo's REST API requires `phoneNumberId` + `participants` on every
 // list call, so backfill is necessarily per-thread. We iterate over
-// every known contact phone + cleaner phone, pull the last N days for
-// each phone-number-of-ours, and pipe results through the same
-// in-memory dispatcher the webhook uses.
+// every known contact phone + cleaner phone and pull the last N days for
+// each phone-number-of-ours.
+//
+// This does NOT share the webhook's dispatcher, whatever this comment used
+// to claim. `ingestInboundMessage` below is its own implementation, and it
+// covers less: contact touches, cleaning completions, and (since the gap
+// was found) cleaner-issue work slips. It still does NOT capture unknown
+// inbound numbers, stamp owner last-contacted, or mirror cleaning sessions.
+//
+// Owner stamping is left off deliberately rather than forgotten: it is
+// last-write-wins on `owner_last_contacted_at`, so a backfill walking
+// history could move that timestamp BACKWARDS over a newer live one. That
+// needs an as-of guard before it can ride here.
 
 
 type ContactRow = {
@@ -301,6 +311,15 @@ async function ingestInboundMessage(
   if (target.cleaner) {
     const propertyId = await attributeCleaningProperty(msg.text ?? '', target.cleaner.property_ids);
     if (propertyId) {
+      // A cleaner reporting a problem becomes a work slip, the same as on
+      // the live path. This route is the safety net for a missed webhook
+      // delivery, and without this a cleaner's reported problem was the one
+      // thing it did NOT heal: the completion landed, the slip never did.
+      // Idempotent on from_quo_message_id (unique index in production), so
+      // a message the webhook already handled is swallowed as a replay.
+      if (looksLikeIssue(msg.text ?? '')) {
+        await createCleanerIssueSlip(propertyId, msg.text ?? '', msg.from, msg.id);
+      }
       // asOf the message, not today: this route sweeps Quo history, so a
       // backfilled completion must land on the turnover it actually
       // finished rather than the most recent one now.

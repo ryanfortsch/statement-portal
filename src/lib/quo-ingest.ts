@@ -527,14 +527,22 @@ function looksLikeCompletion(body: string): boolean {
   return COMPLETION_RE.test(body);
 }
 
-function looksLikeIssue(body: string): boolean {
+export function looksLikeIssue(body: string): boolean {
   return ISSUE_RE.test(body);
 }
 
 // Auto-open a maintenance slip from a cleaner's issue text. Idempotent on
 // from_quo_message_id so replays never duplicate. Fails safe if the column
 // isn't migrated yet.
-async function createCleanerIssueSlip(
+/**
+ * A cleaner reporting a problem becomes a work slip.
+ *
+ * Exported so the /api/sync-quo backfill can do it too. Idempotent on
+ * `from_quo_message_id`, which carries a unique index in production, so a
+ * message the webhook already handled is swallowed as a 23505 replay rather
+ * than filed twice.
+ */
+export async function createCleanerIssueSlip(
   propertyId: string,
   body: string,
   fromPhone: string,
