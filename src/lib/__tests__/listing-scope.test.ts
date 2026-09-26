@@ -8,7 +8,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { exportLiveSince, guestyEchoPropertyIds, type ListingScopeRow } from '../listing-scope.ts';
+import { exportLiveSince, guestyEchoPropertyIds, importFeedStateOf, ownedByFeed, type ListingScopeRow } from '../listing-scope.ts';
 
 const l = (property_id: string, channel: string, patch: Partial<ListingScopeRow> = {}): ListingScopeRow => ({
   property_id,
@@ -56,5 +56,31 @@ describe('exportLiveSince', () => {
     const m = exportLiveSince([l('h', 'airbnb', { export_subscribed: true })]);
     assert.equal(m.has('h'), true);
     assert.equal(m.get('h'), null);
+  });
+});
+
+describe('importFeedStateOf and ownedByFeed: a stay on a feed Helm no longer reads can be cancelled', () => {
+  const feedRow = { source: 'ical_import', channel_listing_id: 'L1' };
+  const listing = (patch: Record<string, unknown> = {}) => ({ channel: 'vrbo', is_active: true, ical_import_enabled: true, ical_import_url: 'https://vrbo.example/ical', ...patch });
+  test('where a row stands', () => {
+    assert.equal(importFeedStateOf({ source: 'manual', channel_listing_id: null }, null), 'none');
+    assert.equal(importFeedStateOf(feedRow, listing()), 'read');
+    assert.equal(importFeedStateOf(feedRow, listing({ channel: 'guesty' })), 'aggregate');
+    for (const p of [{ is_active: false }, { ical_import_enabled: false }, { ical_import_url: null }]) {
+      assert.equal(importFeedStateOf(feedRow, listing(p)), 'unread', JSON.stringify(p));
+    }
+    assert.equal(importFeedStateOf(feedRow, null), 'unread', 'its feed row was deleted');
+    assert.equal(importFeedStateOf({ ...feedRow, channel_listing_id: null }, null), 'unread');
+    assert.equal(importFeedStateOf(feedRow, 'failed'), 'unknown');
+  });
+  test('the feed owns what it still reads, and a failed read refuses', () => {
+    assert.equal(ownedByFeed('read', {}), true);
+    assert.equal(ownedByFeed('unknown', {}), true);
+    assert.equal(ownedByFeed('aggregate', {}), false);
+    assert.equal(ownedByFeed('none', {}), false);
+  });
+  test("a stay on a retired feed is the operator's to cancel; an OTA closure there is released from the hub", () => {
+    assert.equal(ownedByFeed('unread', { hold_kind: null }), false);
+    assert.equal(ownedByFeed('unread', { hold_kind: 'ota' }), true);
   });
 });

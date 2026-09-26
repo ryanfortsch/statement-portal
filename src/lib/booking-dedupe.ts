@@ -3,14 +3,15 @@
  *
  * The pure half of `dedupeAllBookings` in ical-sync.ts: same-stay
  * clustering, a cluster's effective status, the canonical pick and the
- * enrichment pooling. Import-free at runtime on purpose, so `npm test` can
- * exercise every rule with no bundler and no database (lib/ical's
- * placeholder-name test is injected for the same reason). The loader that
- * pages `bookings` and the writer that applies the plan stay in
- * ical-sync.ts.
+ * enrichment pooling. Import-free at runtime on purpose (apart from
+ * lib/echo-cause, which is itself import-free), so `npm test` can exercise
+ * every rule with no bundler and no database (lib/ical's placeholder-name
+ * test is injected for the same reason). The loader that pages `bookings`
+ * and the writer that applies the plan stay in ical-sync.ts.
  */
 
 import type { BookingSource } from '@/lib/channels-types';
+import { echoExplained, type CoverRow } from './echo-cause.ts';
 
 /**
  * Canonical-source priority. When the same physical stay appears in
@@ -136,6 +137,8 @@ export type DedupOptions = {
   strictChannelPropertyIds?: ReadonlySet<string>;
   /** properties.cutover_at per Helm-run home (see strictChannelPropertyIds). */
   cutoverAtByProperty?: ReadonlyMap<string, string>;
+  /** The clock pass four judges echo lag against; absent, the real one. */
+  now?: Date;
 };
 
 export type DedupPlan = {
@@ -520,6 +523,15 @@ function nightsCovered(target: DedupRow, covers: DedupRow[]): boolean {
   return edge >= target.check_out;
 }
 
+/** Every night of a row, [check_in, check_out). */
+function nightsOf(r: DedupRow): string[] {
+  const out: string[] = [];
+  for (let t = Date.parse(`${r.check_in}T00:00:00Z`), end = Date.parse(`${r.check_out}T00:00:00Z`); t < end && out.length < 1100; t += 86_400_000) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
 /** Statuses a canonical row must carry to cover an echo's nights. */
 const COVERING_STATUSES = new Set(['confirmed', 'completed', 'block']);
 
@@ -586,7 +598,16 @@ function createdGap(a: DedupRow, b: DedupRow): number {
  * UNION: Airbnb coalesces adjacent unavailability into one span, so one
  * "Not available" 09-01..09-10 over a VRBO stay 09-01..09-05 and a Helm
  * block 09-05..09-10 is an echo of both. Partial coverage stays canonical:
- * that is a real hold the operator set on the OTA. Echo candidates never
+ * that is a real hold the operator set on the OTA. Coverage is also judged
+ * over time (lib/echo-cause): each night must have been held from before
+ * the closure appeared until now, by rows of other sources or listings
+ * that took over from one another within the echo lag. A row that began
+ * holding the nights later (an owner hold typed over a Booking.com
+ * closure, an Airbnb stay moved onto its nights) is not its cause, and
+ * filed under it a Booking.com guest vanished from the calendar and the
+ * hub; the cutover handover asks the same question of the same rows, so
+ * a closure is on the calendar exactly when the hub calls it
+ * unexplained. Echo candidates never
  * cover each other (two OTAs echoing one another would otherwise both
  * vanish), and pass four never unions clusters, so no status or
  * enrichment pooling crosses an echo. It lives here, not in a reader,
@@ -861,31 +882,37 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
     // nights and is not itself such a hold. A cancelled hold holds no nights
     // and echoes nothing; it stands as its own cancelled row.
     const canonicalRows = list.filter((r) => (desired.get(r.id) ?? null) === null);
-    const echoes = canonicalRows.filter(
-      (r) =>
-        r.source === 'ical_import' &&
-        isBlockLike(r) &&
-        !isFromAggregateFeed(r) &&
-        COVERING_STATUSES.has(r.status),
-    );
+    const isEcho = (r: DedupRow): boolean => r.source === 'ical_import' && isBlockLike(r) && !isFromAggregateFeed(r);
+    const echoes = canonicalRows.filter((r) => isEcho(r) && COVERING_STATUSES.has(r.status));
     if (echoes.length > 0) {
       const echoIds = new Set(echoes.map((r) => r.id));
       const covers = canonicalRows.filter((c) => !echoIds.has(c.id) && COVERING_STATUSES.has(c.status));
+      // Rows that held nights until their cancel: links in a chain of cover
+      // (a cancelled stay and the rebook that took its nights inside the
+      // OTA's pull lag), never a closure's cause on their own.
+      const withdrawn = canonicalRows.filter((c) => c.status === 'cancelled' && !!c.cancelled_at && !isEcho(c));
+      const now = (opts.now ?? new Date()).getTime();
       for (const echo of echoes) {
-        // A closure echoes only what existed before it: Helm had to hold
-        // the nights, export them, and the OTA had to pull, before the OTA
-        // could close them. A row made later (an owner hold typed over a
-        // Booking.com closure) is not its cause, and filed under it a
-        // Booking.com guest vanished from the calendar and the hub.
-        const echoAt = Date.parse(echo.live_since ?? echo.created_at);
-        const candidates = covers.filter(
-          (c) =>
-            (c.source !== 'ical_import' || c.channel_listing_id !== echo.channel_listing_id) &&
-            overlapNights(echo, c) > 0 &&
-            !(Number.isFinite(echoAt) && Date.parse(c.created_at) > echoAt),
+        // A closure echoes only what held its nights before it appeared and
+        // has held them since (lib/echo-cause): Helm had to hold the
+        // nights, export them, and the OTA had to pull, before the OTA
+        // could close them.
+        const candidates = [...covers, ...withdrawn].filter(
+          (c) => (c.source !== 'ical_import' || c.channel_listing_id !== echo.channel_listing_id) && overlapNights(echo, c) > 0,
         );
-        if (candidates.length === 0 || !nightsCovered(echo, candidates)) continue;
-        const target = [...candidates].sort(
+        if (candidates.length === 0) continue;
+        const judged = echoExplained({
+          closure: echo,
+          nights: nightsOf(echo),
+          covers: candidates as CoverRow[],
+          now,
+          allowRecentWithdrawal: false,
+        });
+        if (!judged.explained) continue;
+        const causeIds = new Set(judged.causes.map((c) => c.id));
+        const causes = candidates.filter((c) => causeIds.has(c.id));
+        if (causes.length === 0 || !nightsCovered(echo, causes)) continue;
+        const target = [...causes].sort(
           (a, b) => overlapNights(echo, b) - overlapNights(echo, a) || a.created_at.localeCompare(b.created_at),
         )[0];
         desired.set(echo.id, target.id);

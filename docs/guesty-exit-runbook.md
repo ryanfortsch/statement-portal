@@ -181,7 +181,13 @@ tick below, an OTA's leftover copy of a Guesty hold is imported too, and a
 Booking.com leftover that nothing in Helm explains refuses a new hold over
 it until it is opened in the extranet, which would reopen the owner's
 nights in between. Set the rate plan's booking window to what the
-preflight asks as well.
+preflight asks as well (never unlimited: Guesty's "all future dates"
+arrives from the seed as -1, and the preflight refuses it). On a home with
+no Guesty aggregate feed, Helm's copy of Guesty's calendar stops about a
+year out; the preflight names the first night past it, and before you
+delete the Guesty listing, look at Guesty's calendar from that night on
+for owner holds and re-enter any as Helm blocks (the disconnect
+acknowledgement asks for this).
 
 In Guesty, for the Calderwood listing only: turn off its message automations,
 disconnect the Airbnb, VRBO and Booking.com channels, unlist and delete the
@@ -234,16 +240,28 @@ check is green:
     block type: in each event's UID on the aggregate feed, and on a home
     without one in Guesty's calendar mirror, which records the rule type of
     every closed night (a closed night with no recorded type counts as a
-    hold). A hold is carried to its own end however far out; a closure that
-    runs to Guesty's rolling horizon only as far as Helm could sell. The flip
-    cancels every Guesty block;
+    hold, and so does a rule type Helm does not recognise). A hold is
+    carried to its own end however far out (past the mirror's edge, to the
+    end Guesty's hold record gives); a closure that runs to Guesty's
+    rolling horizon, on the aggregate feed or in the mirror, as far as Helm
+    could sell (540 days, or the booking window if wider). Carried as a
+    block, a season "closed from a fixed date" ends there: before the
+    booking window reaches that end, extend the block (a Rental season
+    closes Helm's own sales, but only a block reaches the OTAs through the
+    export). The flip cancels every Guesty block;
   - the rate plan's booking window is no wider than Guesty's rolling one
     (Guesty closed 21 Horton 270 days out; a 365-day plan would sell the
     rest on staycapeann.com the moment the rule is gone). Set the same
     window on each OTA;
 - Booking.com reconciled: every Booking.com closure ahead has a reservation
-  on file or a Helm row behind it, and none sits on a feed Helm stopped
-  reading;
+  on file, or is Booking.com echoing what Helm sent it: rows that held its
+  nights from before Booking.com closed them and have held them since, one
+  taking over from the next within the echo lag (a rebook of the same
+  nights before Booking.com's next pull keeps it explained; a stay moved
+  onto the nights, or a hold typed after the closure, does not). None may
+  sit on a feed Helm stopped reading. For each one listed, check the
+  extranet: enter a reservation if one is there, and open the nights only
+  if there is none;
 - Luana scoped, automations reviewed, Guesty disconnect acknowledged.
 
 The flip cancels the Guesty aggregate feed's blocks, retires the Guesty
@@ -288,7 +306,10 @@ reopens at its next pull, Helm cancels the closure on the two-look rule,
 Airbnb and VRBO reopen at theirs); the channel hub's Needs attention panel
 and the Helm-run homes section on `/today` list what needs a person
 (Booking.com bookings to enter or cancel, feeds read on the wrong line,
-closures stranded on a retired feed); a feed that goes empty or loses many
+closures stranded on a retired feed, stays from a feed Helm no longer
+reads, which no feed will cancel and which you can cancel from the record);
+Helm's export has no forward horizon, so a hold or stay however far out
+closes the night on every OTA that imports it; a feed that goes empty or loses many
 stays at once holds its cancels until you release it on the hub (on
 Booking.com this includes closures that only mirrored a stay Helm sent it,
 since a Booking.com closure may be a guest; a release answers only the

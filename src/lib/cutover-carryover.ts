@@ -52,6 +52,9 @@
 
 import { exportableBooking, isOtaHold } from './ical-export.ts';
 import { isRealHoldType } from './calendar-holds.ts';
+import { ECHO_LAG_GRACE_MS, echoExplained } from './echo-cause.ts';
+
+export { ECHO_LAG_GRACE_MS };
 
 export type CarryRow = {
   id: string;
@@ -121,28 +124,36 @@ export type MirrorDay = {
   block_rule_type?: string | null;
   block_ref_id: string | null;
   block_note: string | null;
+  /** The covering hold ref's last night (Guesty's endDate, inclusive). */
+  block_end?: string | null;
   synced_at?: string | null;
 };
 
 /**
  * Group a home's calendar-mirror nights (ordered by date, from today) into
  * the runs the handover must carry, plus the first night of Guesty's
- * rolling booking window. See loadGuestyMirrorHolds in lib/cutover.ts:
+ * rolling booking window and the mirror's last night. See
+ * loadGuestyMirrorHolds in lib/cutover.ts:
  *   - a real hold (block_type m, o, ...) is a hold, one run per Guesty
  *     block ref;
  *   - a night Guesty's "closed from a fixed date" rule closes ('bd') is a
  *     closed_from_date run;
  *   - a closed night with no recorded type (mirror rows written before
- *     block_rule_type existed) is an unknown run, carried like a hold,
- *     except a lone night today or tomorrow, which is advance notice;
+ *     block_rule_type existed), or with a rule type nobody has classified,
+ *     is an unknown run, carried like a hold, except a lone night today or
+ *     tomorrow, which is advance notice (ruleTypeOf promises an unknown
+ *     rule reads as a rule, never as an open night);
  *   - 'bw' marks the rolling window (its first night is returned apart);
- *     advance notice, padding and any other rule are skipped.
- * A run that reaches the last mirrored night has a rolling end.
+ *     advance notice ('an') and reservation padding ('b', 'a') are skipped.
+ * The mirror stops about a year out (the Guesty sync's window). A hold run
+ * that reaches its last night ends where its Guesty ref says (block_end);
+ * any other run that reaches it has a rolling end, which the handover
+ * carries to its own horizon.
  */
 export function mirrorRunsFromDays(
   rows: readonly MirrorDay[],
   todayIso: string,
-): { holds: MirrorHold[]; bw: { check_in: string; seen_at: string } | null } {
+): { holds: MirrorHold[]; bw: { check_in: string; seen_at: string } | null; lastDate: string | null } {
   const next = (d: string) => shiftDay(d, 1);
   const lastDate = rows.length > 0 ? String(rows[rows.length - 1].date).slice(0, 10) : null;
   const tomorrow = next(todayIso);
@@ -153,17 +164,21 @@ export function mirrorRunsFromDays(
     const rule = r.block_rule_type ?? null;
     if (rule === 'bd') return 'closed_from_date';
     if (rule === 'bw') return 'bw';
-    if (rule) return 'skip';
+    if (rule === 'an' || rule === 'b' || rule === 'a') return 'skip';
     return 'unknown';
   };
   const out: MirrorHold[] = [];
   let bw: { check_in: string; seen_at: string } | null = null;
-  let run: (MirrorHold & { key: string; last: string }) | null = null;
+  let run: (MirrorHold & { key: string; last: string; blockEnd: string | null }) | null = null;
   const flush = () => {
     if (!run) return;
     const oneNightNotice = run.kind === 'unknown' && run.check_out === next(run.check_in) && run.check_in <= tomorrow;
     if (!oneNightNotice) {
-      out.push({ check_in: run.check_in, check_out: run.check_out, block_type: run.block_type, note: run.note, kind: run.kind, rolling: !!lastDate && run.last === lastDate });
+      const atEdge = !!lastDate && run.last === lastDate;
+      // A hold past the mirror's edge ends where its Guesty ref says.
+      const refEnd = run.kind === 'hold' && run.blockEnd ? next(run.blockEnd) : null;
+      const check_out = atEdge && refEnd && refEnd > run.check_out ? refEnd : run.check_out;
+      out.push({ check_in: run.check_in, check_out, block_type: run.block_type, note: run.note, kind: run.kind, rolling: atEdge && !refEnd });
     }
     run = null;
   };
@@ -180,16 +195,19 @@ export function mirrorRunsFromDays(
       continue;
     }
     const key = `${kind}|${kind === 'hold' ? r.block_ref_id ?? '' : ''}`;
+    const blockEnd = r.block_end ? String(r.block_end).slice(0, 10) : null;
     if (run && run.key === key && next(run.last) === date) {
       run.last = date;
       run.check_out = next(date);
+      if (blockEnd) run.blockEnd = blockEnd;
       continue;
     }
     flush();
-    run = { check_in: date, check_out: next(date), block_type: r.block_type, note: r.block_note, kind, rolling: false, key, last: date };
+    const note = r.block_note ?? (kind === 'unknown' && r.block_rule_type ? `Guesty rule ${r.block_rule_type}` : null);
+    run = { check_in: date, check_out: next(date), block_type: r.block_type, note, kind, rolling: false, key, last: date, blockEnd };
   }
   flush();
-  return { holds: out, bw };
+  return { holds: out, bw, lastDate };
 }
 
 /** Guesty's rolling booking window versus the rate plan's, when they disagree. */
@@ -216,6 +234,15 @@ export type Carryover = {
   guestyHoldsUncarried: CarryRow[];
   /** Guesty's rolling window reached less far than the rate plan would. */
   bookingWindowGap: BookingWindowGap | null;
+  /** On a home Guesty runs with no aggregate feed, the first night past
+   *  Guesty's calendar mirror, when Helm could sell further than it reaches:
+   *  a hold that starts after it cannot be seen. Null otherwise. */
+  mirrorBlindFrom: string | null;
+  /** Upcoming stays from a direct feed Helm no longer reads (retired,
+   *  switched off or deleted): nothing will cancel them if the guest does.
+   *  For a person to check; not a flip blocker (an 'other' platform's feed
+   *  is retired before the flip by design, and its stays are real). */
+  unreadFeedStays: CarryRow[];
 };
 
 /** How far ahead a closure whose END is Guesty's rolling horizon (a
@@ -240,14 +267,6 @@ function daysBetween(from: string, to: string): number {
 /** A hand-entered Booking.com booking gets this long before its absence from
  *  Booking.com's feed means anything: the feed is read every 30 minutes. */
 export const NOT_SHOWN_GRACE_MS = 2 * 3_600_000;
-
-/**
- * How long after a row Helm sent Booking.com is cancelled that Booking.com's
- * closure of it is still expected: Booking.com has to pull, reopen, and Helm
- * has to see the closure gone twice. Until then the closure is the accepted
- * echo lag, not a Booking.com booking nobody entered.
- */
-export const ECHO_LAG_GRACE_MS = 8 * 3_600_000;
 
 /**
  * The block type Guesty writes into each iCal UID
@@ -323,6 +342,9 @@ export function evaluateCarryover(input: {
   /** Guesty's rolling window from its calendar mirror: the first closed night
    *  and when the mirror saw it (a home with no aggregate 'bw' row). */
   mirrorBookingWindow?: { check_in: string; seen_at: string } | null;
+  /** The calendar mirror's last night (mirrorRunsFromDays lastDate); null
+   *  when it has none. Absent: not known (older callers), nothing reported. */
+  mirrorLastDate?: string | null;
   /** property_rate_plans.booking_window_days; null or 0 = unlimited. */
   planWindowDays?: number | null;
 }): Carryover {
@@ -435,26 +457,21 @@ export function evaluateCarryover(input: {
   const bcomReservations = rows.filter(
     (r) => r.channel === 'booking_com' && STAY.has(r.status) && !isOtaHold(r) && effectivelyLive(r),
   );
+  const bcomReservationNights = new Set<string>();
+  for (const r of bcomReservations) for (const n of nights(r.check_in, r.check_out)) bcomReservationNights.add(n);
+  // What Booking.com was sent: every row Helm's export gives it now, and
+  // every row it gave it until its cancel (what it was before: a hold if it
+  // has a kind, else a stay; exportableBooking then says whether Booking.com
+  // was sent it, and an OTA's own closure never was). lib/echo-cause judges
+  // whether they held the closure's nights from before it appeared until now.
   const sentToBcom = rows.filter((r) => exportableBooking(r, { channel: 'booking_com', listingId: null }));
-  /** A stay made after the closure appeared cannot be what Booking.com is
-   *  echoing: that is two guests on the same nights, which is exactly what
-   *  must stay visible. (A hold made later may be: re-entering a Guesty
-   *  hold whose Booking.com copy is still up.) */
-  const couldCause = (explainer: CarryRow, closure: CarryRow): boolean =>
-    !STAY.has(explainer.status === 'cancelled' ? (explainer.hold_kind ? 'block' : 'confirmed') : explainer.status) ||
-    !(Date.parse(explainer.created_at) > Date.parse(closure.live_since ?? closure.created_at));
-  // Rows Helm was sending Booking.com until a moment ago: their closures are
-  // the echo lag (ECHO_LAG_GRACE_MS), not a booking nobody entered.
-  const recentlyWithdrawn = rows.filter((r) => {
-    if (r.status !== 'cancelled' || !r.cancelled_at) return false;
-    const at = Date.parse(r.cancelled_at);
-    if (!Number.isFinite(at) || now.getTime() - at > ECHO_LAG_GRACE_MS) return false;
-    // What it was before the cancel: a hold if it has a kind, else a stay.
-    // exportableBooking then says whether Booking.com was sent it; an OTA's
-    // own closure never was (Booking.com's own are left out of its feed,
-    // the others go to no feed at all).
-    return exportableBooking({ ...r, status: r.hold_kind ? 'block' : 'confirmed' }, { channel: 'booking_com', listingId: null });
-  });
+  const withdrawnFromBcom = rows.filter(
+    (r) =>
+      r.status === 'cancelled' &&
+      !!r.cancelled_at &&
+      exportableBooking({ ...r, status: r.hold_kind ? 'block' : 'confirmed' }, { channel: 'booking_com', listingId: null }),
+  );
+  const bcomCovers = [...sentToBcom, ...withdrawnFromBcom];
   const bookingComUnexplained: CarryRow[] = [];
   const bookingComOrphaned: CarryRow[] = [];
   for (const h of closuresImported ? rows : []) {
@@ -468,8 +485,11 @@ export function evaluateCarryover(input: {
     // out (or held by a cancel guard, which the feed card shows), and
     // "Booking.com shows these nights closed" would be false.
     if (h.missing_since) continue;
-    const explainers = [...sentToBcom, ...recentlyWithdrawn].filter((x) => couldCause(x, h));
-    if (!coveredBy(nightsAhead(h, todayIso), [...bcomReservations, ...explainers])) bookingComUnexplained.push(h);
+    // A Booking.com reservation on file is the closure's cause outright;
+    // every other night must be Booking.com echoing what Helm sent it.
+    const echoNights = nightsAhead(h, todayIso).filter((n) => !bcomReservationNights.has(n));
+    const echo = echoExplained({ closure: h, nights: echoNights, covers: bcomCovers, now: now.getTime(), allowRecentWithdrawal: true });
+    if (!echo.explained) bookingComUnexplained.push(h);
   }
 
   // 4. Upcoming holds on the Guesty aggregate feed: all cancelled by the
@@ -495,11 +515,17 @@ export function evaluateCarryover(input: {
     (r) => !isGuestyRule(r) && !coveredBy(nightsToCarry(r, rollingEnd(r)), carriers),
   );
   // A home with no Guesty aggregate feed: the only record of Guesty's holds
-  // is its calendar mirror (MirrorHold).
-  if (aggregateIds.size === 0 && input.calendarAuthority !== 'helm') {
+  // is its calendar mirror (MirrorHold). The mirror stops about a year out,
+  // so a run with a rolling end is carried to horizonEnd, not to the
+  // mirror's edge: stopped there, the flip sold the rest of a closed season
+  // and the hub's own "re-enter" link pre-filled the short range.
+  const mirrorOnly = aggregateIds.size === 0 && input.calendarAuthority !== 'helm';
+  let mirrorBlindFrom: string | null = null;
+  if (mirrorOnly) {
     for (const m of input.mirrorHolds ?? []) {
       if (m.check_out <= todayIso) continue;
-      if (coveredBy(nightsToCarry(m, !!m.rolling), carriers)) continue;
+      const end = m.rolling ? horizonEnd : m.check_out;
+      if (coveredBy(nights(m.check_in > todayIso ? m.check_in : todayIso, end), carriers)) continue;
       guestyHoldsUncarried.push({
         id: `mirror:${m.check_in}`,
         // Shown to the operator: say what it was on Guesty's calendar.
@@ -509,13 +535,21 @@ export function evaluateCarryover(input: {
         channel: 'block',
         status: 'block',
         check_in: m.check_in,
-        check_out: m.check_out,
+        check_out: end,
         duplicate_of: null,
         hold_kind: null,
         channel_listing_id: null,
         created_at: '',
         guest_name: m.note ?? null,
       });
+    }
+    // Past the mirror's last night nobody has read Guesty's calendar: a
+    // fixed hold that starts out there is not listed. Say from where, so
+    // a person checks Guesty before it goes (the disconnect acknowledgement
+    // carries it).
+    if (input.mirrorLastDate !== undefined) {
+      const from = input.mirrorLastDate ? shiftDay(input.mirrorLastDate, 1) : todayIso;
+      if (from < horizonEnd) mirrorBlindFrom = from;
     }
   }
 
@@ -544,6 +578,16 @@ export function evaluateCarryover(input: {
     }
   }
 
+  // 5. Stays from a direct feed Helm no longer reads.
+  const unreadFeedStays = rows.filter(
+    (r) =>
+      r.source === 'ical_import' &&
+      r.duplicate_of == null &&
+      STAY.has(r.status) &&
+      upcoming(r) &&
+      !(r.channel_listing_id && (aggregateIds.has(r.channel_listing_id) || readingIds.has(r.channel_listing_id))),
+  );
+
   const byDate = (a: CarryRow, b: CarryRow) => a.check_in.localeCompare(b.check_in) || a.id.localeCompare(b.id);
   return {
     untwinnedGuestyStays: untwinnedGuestyStays.sort(byDate),
@@ -554,11 +598,14 @@ export function evaluateCarryover(input: {
     guestyBlocks: guestyBlocks.sort(byDate),
     guestyHoldsUncarried: guestyHoldsUncarried.sort(byDate),
     bookingWindowGap,
+    mirrorBlindFrom,
+    unreadFeedStays: unreadFeedStays.sort(byDate),
   };
 }
 
-/** True when nothing needs a person. guestyBlocks themselves are the
- *  flip's to cancel; only the uncarried ones need someone. */
+/** True when nothing blocks the flip. guestyBlocks themselves are the
+ *  flip's to cancel; only the uncarried ones need someone. unreadFeedStays
+ *  are listed on the hub but never block (see Carryover). */
 export function carryoverClear(c: Carryover): boolean {
   return (
     c.untwinnedGuestyStays.length === 0 &&

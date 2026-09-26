@@ -106,6 +106,9 @@ describe('every reader that holds nights sees duplicate OTA closures', () => {
     assert.ok(!src.includes(".is('duplicate_of', null)"), 'the route must not drop duplicates before the builder sees them');
     assert.ok(src.includes(".gt('check_out', fromIso)"));
     assert.ok(!src.includes(".gte('check_in', fromIso)"), 'windowing by check-in drops a long stay in progress');
+    // No forward bound: Helm holds and sells with no horizon, and a row the
+    // export leaves out is an open night on every OTA that imports it.
+    assert.ok(!/\.(lte|lt)\('check_in'/.test(src), 'the export must not stop at a horizon');
   });
 
   test('the availability bridge reads duplicate OTA holds, and only imported ones', () => {
@@ -180,7 +183,11 @@ describe('round 6: Guesty passes, live_since, the record form and the rule type'
   });
   test('the sync stamps live_since when a row is inserted, revived or moved', () => {
     const src = squash(read('src/lib/ical-sync.ts'));
-    assert.ok(src.includes("return !prior || prior.status === 'cancelled' || prior.check_in !== r.check_in || prior.check_out !== r.check_out;"));
+    // freshSince (lib/echo-cause) decides; a row re-attached from another
+    // listing is judged against what it was there, not taken as new.
+    assert.ok(src.includes('freshSince(existingByUid.get(r.ical_uid) ?? reattachedPrior.get(`${r.channel}|${r.ical_uid}`) ?? null, r, startedAt)'))
+    assert.ok(src.includes('const reattachedPrior = await loadReattachedPrior(sb, reattached);'))
+    assert.ok(src.includes(".select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary, hold_kind, cancelled_at')"));
     assert.ok(src.includes('fresh.map((r) => ({ ...r, live_since: startedAt.toISOString() }))'));
     assert.ok(src.includes('live_since: startedAt.toISOString(),'));
   });

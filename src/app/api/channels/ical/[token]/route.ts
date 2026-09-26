@@ -65,10 +65,13 @@ export async function GET(
   if (propErr) return new NextResponse(`db error: ${propErr.message}`, { status: 500 });
   if (!prop) return new NextResponse('Not found', { status: 404 });
 
-  // 18-month forward + 90 days back, plenty for OTA inbound subscriptions.
+  // 90 days back, and no forward bound: the export is the only thing that
+  // closes a night on the OTAs Helm does not run, and Helm itself holds and
+  // sells with no horizon (the writer takes any date; an owner hold carried
+  // from Guesty may sit two years out). Cut at 540 days, an owner's week or
+  // a direct stay past it was open on Airbnb, which imports two years.
   const today = new Date();
   const fromIso = new Date(today.getTime() - 90 * 86400_000).toISOString().slice(0, 10);
-  const toIso = new Date(today.getTime() + 540 * 86400_000).toISOString().slice(0, 10);
 
   // Who this feed is for (lib/ical-export resolveExportAudience): the URL's
   // listing= or for=, checked against the user agent. A feed for a named
@@ -97,7 +100,6 @@ export async function GET(
           .select('*')
           .eq('property_id', prop.id)
           .gt('check_out', fromIso)
-          .lte('check_in', toIso)
           .in('status', [...EXPORTABLE_STATUSES])
           .order('check_in', { ascending: true })
           .order('id', { ascending: true })

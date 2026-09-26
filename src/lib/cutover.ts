@@ -132,6 +132,9 @@ export type CutoverFacts = {
   mirrorHolds?: MirrorHold[];
   /** Guesty's rolling booking window as its calendar mirror shows it. */
   mirrorBookingWindow?: { check_in: string; seen_at: string } | null;
+  /** The calendar mirror's last night while Guesty runs the home (null: no
+   *  rows). Absent in older fixtures: the unmirrored range is not reported. */
+  mirrorLastDate?: string | null;
   recipients: CutoverRecipientFact[];
   automations: CutoverAutomationFacts;
   acknowledgements: CutoverAcknowledgements;
@@ -214,14 +217,21 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
   // 1. rate plan
   if (facts.ratePlan) {
     const base = facts.ratePlan.base_nightly_cents;
+    // An unlimited window (0 or less; Guesty's "all future dates" is seeded
+    // as -1) sells every night ahead, past the horizon the handover carries
+    // Guesty's rolling closures to, and past anything a person has looked at.
+    const window = facts.ratePlan.booking_window_days;
+    const unlimited = window != null && window <= 0;
     checks.push({
       key: 'rate_plan',
       label: 'Rate plan',
-      ok: base > 0,
+      ok: base > 0 && !unlimited,
       detail:
-        base > 0
-          ? `Base $${Math.round(base / 100).toLocaleString('en-US')} a night, ${facts.ratePlan.min_nights_default} night minimum.`
-          : 'A plan row exists but its base rate is zero. Set it on the Rates tab.',
+        base <= 0
+          ? 'A plan row exists but its base rate is zero. Set it on the Rates tab.'
+          : unlimited
+          ? 'The booking window is unlimited, so Helm would sell every night ahead, however far. Set how many days ahead a stay may start on the Rates tab (and the same window on each OTA).'
+          : `Base $${Math.round(base / 100).toLocaleString('en-US')} a night, ${facts.ratePlan.min_nights_default} night minimum${window != null ? `, bookable ${window} days ahead` : ''}.`,
       acknowledgement: false,
       href: ratesHref,
     });
@@ -429,6 +439,11 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       );
     }
     const rulesDropped = carry.guestyBlocks.filter((r) => isGuestyRule(r)).length;
+    // Not a failure (nothing Helm can read would clear it): the disconnect
+    // acknowledgement asks for the check.
+    const blind = carry.mirrorBlindFrom
+      ? ` Helm's copy of Guesty's calendar stops before ${carry.mirrorBlindFrom}: check Guesty's calendar from that date on for holds before you disconnect, and re-enter any as Helm blocks.`
+      : '';
     const compared = facts.feeds.some((f) => f.is_active && f.channel === 'booking_com' && !!f.ical_import_url);
     checks.push({
       key: 'guesty_stays_carried',
@@ -441,12 +456,13 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       acknowledgement: false,
       href: attentionHref,
     });
+    if (blind) checks[checks.length - 1].detail += blind;
   }
   {
     const problems: string[] = [];
     if (carry.bookingComUnexplained.length > 0) {
       problems.push(
-        `Booking.com shows ${carry.bookingComUnexplained.length} closure${carry.bookingComUnexplained.length === 1 ? '' : 's'} with no reservation on file behind ${carry.bookingComUnexplained.length === 1 ? 'it' : 'them'}: ${listRows(carry.bookingComUnexplained)}. Enter each Booking.com booking from its confirmation email, or open the nights in the extranet if it is a leftover`,
+        `Booking.com shows ${carry.bookingComUnexplained.length} closure${carry.bookingComUnexplained.length === 1 ? '' : 's'} with no reservation on file behind ${carry.bookingComUnexplained.length === 1 ? 'it' : 'them'}: ${listRows(carry.bookingComUnexplained)}. Check each in the extranet: enter a Booking.com booking from its confirmation email; open the nights only if Booking.com shows no reservation there`,
       );
     }
     if (carry.bookingComOrphaned.length > 0) {
@@ -495,6 +511,10 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
   });
 
   // 8. Guesty disconnect acknowledged (acknowledgement)
+  const blindFrom = carry.mirrorBlindFrom;
+  const blindAsk = blindFrom
+    ? ` Before deleting the Guesty listing, check its calendar from ${blindFrom} on for owner holds (Helm's copy of it stops there) and re-enter any as Helm blocks.`
+    : '';
   const guestyRowActive = facts.feeds.some((f) => f.is_active && String(f.channel).toLowerCase() === 'guesty');
   const guestyNote = facts.guestyListingId
     ? `Guesty listing ${facts.guestyListingId} is still mapped; the flip parks that id and deletes Helm's guesty_listings row.`
@@ -505,7 +525,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     ok: facts.acknowledgements.guesty_disconnect,
     detail: facts.acknowledgements.guesty_disconnect
       ? `Acknowledged. ${guestyNote}${guestyRowActive ? ' The active Guesty aggregate feed row is retired by the flip.' : ''}`
-      : `Tick the box once the Airbnb, VRBO and Booking.com connections are disconnected in Guesty and each OTA imports Helm's export. ${guestyNote}${guestyRowActive ? ' The active Guesty aggregate feed row will be retired by the flip.' : ''}`,
+      : `Tick the box once the Airbnb, VRBO and Booking.com connections are disconnected in Guesty and each OTA imports Helm's export.${blindAsk} ${guestyNote}${guestyRowActive ? ' The active Guesty aggregate feed row will be retired by the flip.' : ''}`,
     acknowledgement: true,
   });
 
@@ -534,6 +554,7 @@ export function carryoverFor(facts: CutoverFacts): Carryover {
     now: facts.now,
     mirrorHolds: facts.mirrorHolds ?? [],
     mirrorBookingWindow: facts.mirrorBookingWindow ?? null,
+    mirrorLastDate: facts.mirrorLastDate,
     planWindowDays: facts.ratePlan?.booking_window_days ?? null,
   });
 }
@@ -583,22 +604,25 @@ const LOOKAHEAD_DAYS = 540;
  *     mirror rows carry no type), EXCEPT one night today or tomorrow, which
  *     is Guesty's advance-notice rule;
  * and, apart, the first night of Guesty's rolling booking window ('bw'),
- * with the day the mirror saw it, for the booking-window check. Advance
- * notice and padding are skipped. A run that reaches the mirror's last
- * night is flagged `rolling`: its end is Guesty's horizon, which moves every
- * day. The flip rewrites the mirror with Helm's, so this is read while Guesty
- * still runs the home; the mirror keeps its last rows once the Guesty listing
- * is deleted (calendar-days writes nothing for a listing that 404s).
+ * with the day the mirror saw it, for the booking-window check, and the
+ * mirror's last night. Advance notice and padding are skipped; any rule
+ * type Helm does not recognise is carried. The mirror stops about a year
+ * out (the Guesty sync's window): a hold that reaches its last night ends
+ * where its Guesty ref says, and any other run that does is flagged
+ * `rolling` and carried to the handover's horizon. The flip rewrites the
+ * mirror with Helm's, so this is read while Guesty still runs the home; the
+ * mirror keeps its last rows once the Guesty listing is deleted
+ * (calendar-days writes nothing for a listing that 404s).
  */
 export async function loadGuestyMirrorHolds(
   propertyId: string,
   todayIso: string,
-): Promise<{ holds: MirrorHold[]; bw: { check_in: string; seen_at: string } | null }> {
+): Promise<{ holds: MirrorHold[]; bw: { check_in: string; seen_at: string } | null; lastDate: string | null }> {
   const rows = await selectAllPaged<MirrorDay>(
     (from, to) =>
       supabaseAdmin
         .from('property_calendar_days')
-        .select('date, status, block_type, block_rule_type, block_ref_id, block_note, synced_at')
+        .select('date, status, block_type, block_rule_type, block_ref_id, block_note, block_end, synced_at')
         .eq('property_id', propertyId)
         .gte('date', todayIso)
         .order('date', { ascending: true })
@@ -763,6 +787,7 @@ export async function loadCutoverFacts(
     // Only while Guesty runs the home is the calendar mirror Guesty's.
     mirrorHolds: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds.holds : [],
     mirrorBookingWindow: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds.bw : null,
+    mirrorLastDate: mirrorHolds.lastDate,
     recipients: ((recipientsRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
       display_name: String(r.display_name ?? ''),
       enabled: !!r.enabled,

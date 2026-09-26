@@ -56,3 +56,43 @@ export function guestyEchoPropertyIds(
   return out;
 }
 
+
+/**
+ * Where an imported row stands with the feed it came from:
+ *   none       not imported (Helm's own row, a Guesty record);
+ *   aggregate  the Guesty aggregate feed, which nothing moves after the flip;
+ *   read       a direct feed Helm still reads (active, import on, a URL);
+ *   unread     a feed row retired, switched off, emptied or deleted;
+ *   unknown    the listing read failed.
+ */
+export type ImportFeedState = 'none' | 'aggregate' | 'read' | 'unread' | 'unknown';
+
+export function importFeedStateOf(
+  row: { source: string; channel_listing_id: string | null },
+  listing:
+    | { channel: string; is_active: boolean | null; ical_import_enabled?: boolean | null; ical_import_url: string | null }
+    | null
+    | 'failed',
+): ImportFeedState {
+  if (row.source !== 'ical_import') return 'none';
+  if (!row.channel_listing_id) return 'unread';
+  if (listing === 'failed') return 'unknown';
+  if (!listing) return 'unread';
+  if (listing.channel === 'guesty') return 'aggregate';
+  return listing.is_active && listing.ical_import_enabled !== false && !!listing.ical_import_url ? 'read' : 'unread';
+}
+
+/**
+ * Whether the feed owns an imported row, so Helm must not move or cancel
+ * it (lib/bookings-write isFeedOwned). A feed Helm still reads does: the
+ * next sync would put the row back, and in between its nights read as
+ * free. A failed read refuses too. A feed Helm no longer reads does not:
+ * nothing will cancel its stays any more, so the operator must be able to
+ * (they were stranded confirmed, exported and reserved until checkout).
+ * Except an OTA's own closure, which may be a Booking.com guest: that is
+ * released from the channel hub's list, not cancelled from its record.
+ */
+export function ownedByFeed(state: ImportFeedState, row: { hold_kind?: string | null }): boolean {
+  if (state === 'read' || state === 'unknown') return true;
+  return state === 'unread' && row.hold_kind === 'ota';
+}

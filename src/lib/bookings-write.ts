@@ -36,6 +36,7 @@ import type { Booking, BookingChannel, BookingSource, BookingStatus } from '@/li
 import { refreshMirrorForBooking, writeHelmCalendarMirror } from '@/lib/helm-calendar-mirror';
 import { upsertGuestForBooking } from '@/lib/guests-identity';
 import { shiftIsoDay } from '@/lib/sca-quotes-types';
+import { importFeedStateOf, ownedByFeed, type ImportFeedState } from '@/lib/listing-scope';
 import {
   mintHelmConfirmationCode,
   diffForEvent,
@@ -331,22 +332,33 @@ export type MoveBookingInput = {
  * refreshed over the union of the old and new nights so a hold that moved
  * away from a week does not linger there until the cron.
  */
+/** Where an imported row stands with its feed (lib/listing-scope importFeedStateOf). */
+export async function importFeedState(row: Pick<Booking, 'source' | 'channel_listing_id'>): Promise<ImportFeedState> {
+  if (row.source !== 'ical_import' || !row.channel_listing_id) return importFeedStateOf(row, null);
+  const { data, error } = await supabaseAdmin
+    .from('channel_listings')
+    .select('channel, is_active, ical_import_enabled, ical_import_url')
+    .eq('id', row.channel_listing_id)
+    .maybeSingle();
+  if (error) return 'unknown';
+  return importFeedStateOf(row, (data as Parameters<typeof importFeedStateOf>[1]) ?? null);
+}
+
 /**
- * Does a feed own this row? A row imported from a direct OTA feed is the
- * feed's to move and cancel: it comes straight back on the next sync, and
- * in between a Booking.com closure (possibly a guest) leaves the export
- * Airbnb and VRBO read and the availability staycapeann.com reads. A row of
- * the Guesty aggregate feed is not: after the flip nothing moves it, and an
- * operator cancel is how a Booking.com reservation Booking.com reopened is
- * retired (lib/booking-dedupe trusts that cancel on a Helm-run home).
- * Unknown listing (a failed read) reads as owned: refusing is the safe side.
+ * Does a feed own this row? A row imported from a direct OTA feed Helm
+ * still reads is the feed's to move and cancel: it comes straight back on
+ * the next sync, and in between a Booking.com closure (possibly a guest)
+ * leaves the export Airbnb and VRBO read and the availability
+ * staycapeann.com reads. A row of the Guesty aggregate feed is not: after
+ * the flip nothing moves it, and an operator cancel is how a Booking.com
+ * reservation Booking.com reopened is retired (lib/booking-dedupe trusts
+ * that cancel on a Helm-run home). Nor is a stay from a feed Helm no longer
+ * reads (lib/listing-scope ownedByFeed). A failed read reads as owned:
+ * refusing is the safe side.
  */
 export async function isFeedOwned(row: Pick<Booking, 'source' | 'channel_listing_id'>): Promise<boolean> {
-  if (row.source !== 'ical_import') return false;
-  if (!row.channel_listing_id) return true;
-  const { data, error } = await supabaseAdmin.from('channel_listings').select('channel').eq('id', row.channel_listing_id).maybeSingle();
-  if (error || !data) return true;
-  return (data as { channel: string }).channel !== 'guesty';
+  // select('*') rows carry hold_kind; the Booking type predates the column.
+  return ownedByFeed(await importFeedState(row), row as { hold_kind?: string | null });
 }
 
 const FEED_OWNED_MESSAGE =

@@ -325,3 +325,22 @@ describe('evaluateCutoverPreflight', () => {
     assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /Guesty aggregate feed row is retired by the flip/);
   });
 });
+
+describe('round 7: the booking window and the range past the mirror', () => {
+  test("an unlimited booking window (Guesty's all-future-dates, seeded -1) fails the rate plan check", () => {
+    for (const w of [-1, 0]) {
+      const r = evaluateCutoverPreflight(greenFacts({ ratePlan: { base_nightly_cents: 35000, min_nights_default: 3, booking_window_days: w } }));
+      assert.ok(failing(greenFacts({ ratePlan: { base_nightly_cents: 35000, min_nights_default: 3, booking_window_days: w } })).includes('rate_plan'), String(w));
+      assert.match(byKey(r, 'rate_plan').detail, /unlimited/);
+    }
+    assert.ok(!failing(greenFacts({ ratePlan: { base_nightly_cents: 35000, min_nights_default: 3, booking_window_days: 365 } })).includes('rate_plan'));
+  });
+
+  test("the range past Guesty's calendar mirror is named in the handover detail and the disconnect acknowledgement, without failing either", () => {
+    const facts = greenFacts({ mirrorHolds: [], mirrorLastDate: '2027-09-28', acknowledgements: { automations_reviewed: true, guesty_disconnect: false } });
+    const r = evaluateCutoverPreflight(facts);
+    assert.match(byKey(r, 'guesty_stays_carried').detail, /stops before 2027-09-29/);
+    assert.equal(byKey(r, 'guesty_stays_carried').ok, true);
+    assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /from 2027-09-29 on/);
+  });
+});

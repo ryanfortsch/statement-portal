@@ -278,10 +278,40 @@ describe('a stay made after a Booking.com closure never explains it', () => {
     assert.deepEqual(ids(run([closure, after]).bookingComUnexplained), [closure.id], 'a stay that came after it');
   });
 
-  test('a hold made after it still explains it (re-entering a Guesty hold whose Booking.com copy is up)', () => {
+  test('a hold made after it explains it only by taking over cover that predates it (a Guesty block re-entered in Helm)', () => {
     const closure = bcomHold({ created_at: '2026-09-20T00:00:00Z' });
     const helm = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, created_at: '2026-09-25T00:00:00Z' });
-    assert.deepEqual(run([closure, helm]).bookingComUnexplained, []);
+    // On its own a later hold is no cause: the booking writer refuses one
+    // over an unexplained Booking.com closure, so it can only be a hold
+    // typed over a real guest.
+    assert.deepEqual(ids(run([closure, helm]).bookingComUnexplained), [closure.id]);
+    // Over the Guesty aggregate block Booking.com was echoing, it carries on
+    // after the flip cancels that block.
+    const guesty = row({ channel: 'block', status: 'cancelled', hold_kind: 'guesty', channel_listing_id: 'L-guesty', created_at: OLD, cancelled_at: '2026-09-28T00:00:00Z' });
+    assert.deepEqual(run([closure, helm, guesty]).bookingComUnexplained, []);
+  });
+});
+
+describe('round 7: Booking.com closures judged by continuous cover (lib/echo-cause)', () => {
+  test("a same-dates rebook inside Booking.com's pull lag stays explained until checkout", () => {
+    const closure = bcomHold({ created_at: '2026-09-15T00:00:00Z', live_since: '2026-09-15T00:00:00Z' });
+    const first = row({ created_at: '2026-09-10T00:00:00Z', status: 'cancelled', cancelled_at: '2026-09-30T01:00:00Z' });
+    const rebook = row({ created_at: '2026-09-30T01:30:00Z', channel_listing_id: 'L-vrbo', channel: 'vrbo' });
+    assert.deepEqual(run([closure, first, rebook]).bookingComUnexplained, []);
+    const later = evaluateCarryover({ rows: [closure, first, rebook], listings: LISTINGS, todayIso: '2026-10-12', now: new Date('2026-10-12T12:00:00Z') });
+    assert.deepEqual(later.bookingComUnexplained, []);
+  });
+
+  test("an Airbnb stay moved onto a Booking.com guest's nights after the closure appeared is listed", () => {
+    const closure = bcomHold({ created_at: '2026-09-30T10:00:00Z', live_since: '2026-09-30T10:00:00Z' });
+    const moved = row({ created_at: '2026-09-15T00:00:00Z', live_since: '2026-09-30T12:00:00Z' });
+    assert.deepEqual(ids(run([closure, moved]).bookingComUnexplained), [closure.id]);
+  });
+
+  test('a stay extended within the echo lag is not listed while Booking.com catches up', () => {
+    const closure = bcomHold({ created_at: '2026-09-16T00:00:00Z', live_since: '2026-09-16T00:00:00Z', check_out: '2026-10-13' });
+    const extended = row({ created_at: '2026-09-15T00:00:00Z', live_since: '2026-10-01T13:00:00Z' });
+    assert.deepEqual(run([closure, extended]).bookingComUnexplained, []);
   });
 });
 
@@ -390,7 +420,7 @@ describe('the preflight carries both checks', () => {
   test('an unexplained or orphaned Booking.com closure turns the reconciliation check red', () => {
     const r = evaluateCutoverPreflight(facts([bcomHold({})]));
     assert.deepEqual(r.failing, ['booking_com_reconciled']);
-    assert.match(r.checks.find((x) => x.key === 'booking_com_reconciled')!.detail, /Enter each Booking.com booking/);
+    assert.match(r.checks.find((x) => x.key === 'booking_com_reconciled')!.detail, /Check each in the extranet/);
   });
 });
 
@@ -423,11 +453,44 @@ describe('round 6: what Guesty closed, read off its calendar mirror', () => {
     assert.deepEqual(bw, { check_in: '2027-06-23', seen_at: '2026-10-01T08:30:00Z' });
   });
 
-  test("a home with no aggregate feed flips only once its closed season is carried (16 Waterman's shape)", () => {
-    const { holds } = mirrorRunsFromDays(range('2026-11-02', '2027-09-30'), TODAY);
+  test("a home with no aggregate feed flips only once its closed season is carried to the horizon, not to the mirror's edge (16 Waterman's shape)", () => {
+    const { holds, lastDate } = mirrorRunsFromDays(range('2026-11-02', '2027-09-30'), TODAY);
     assert.equal(holds[0].rolling, true, 'it runs to the end of the mirror');
-    const c = evaluateCarryover({ rows: [], listings: LISTINGS, todayIso: TODAY, now: NOW, mirrorHolds: holds });
-    assert.deepEqual(c.guestyHoldsUncarried.map((r) => [r.check_in, r.check_out]), [['2026-11-02', '2027-09-30']]);
+    assert.equal(lastDate, '2027-09-29');
+    const c = evaluateCarryover({ rows: [], listings: LISTINGS, todayIso: TODAY, now: NOW, mirrorHolds: holds, mirrorLastDate: lastDate });
+    // today + 540: the hub's "re-enter" link pre-fills this range.
+    assert.deepEqual(c.guestyHoldsUncarried.map((r) => [r.check_in, r.check_out]), [['2026-11-02', '2028-03-24']]);
+    const toMirrorEdge = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in: '2026-11-02', check_out: '2027-09-30' });
+    const toHorizon = { ...toMirrorEdge, id: 'H2', check_out: '2028-03-24' };
+    const carried = (rows: CarryRow[]) => evaluateCarryover({ rows, listings: LISTINGS, todayIso: TODAY, now: NOW, mirrorHolds: holds, mirrorLastDate: lastDate }).guestyHoldsUncarried;
+    assert.equal(carried([toMirrorEdge]).length, 1, "a block to the mirror's edge sold the rest of the season");
+    assert.deepEqual(carried([toHorizon]), []);
+    // A wider plan window widens the horizon with it.
+    const wide = evaluateCarryover({ rows: [toHorizon], listings: LISTINGS, todayIso: TODAY, now: NOW, mirrorHolds: holds, mirrorLastDate: lastDate, planWindowDays: 700 });
+    assert.deepEqual(wide.guestyHoldsUncarried.map((r) => r.check_out), ['2028-09-01']);
+  });
+
+  test("a hold that runs past the mirror's edge is carried to its Guesty ref's end", () => {
+    const rows = range('2027-09-20', '2027-09-30', { block_type: 'o', block_ref_id: 'ref-owner', block_end: '2027-10-09' });
+    const { holds } = mirrorRunsFromDays(rows, TODAY);
+    assert.deepEqual(holds.map((h) => [h.kind, h.check_in, h.check_out, !!h.rolling]), [['hold', '2027-09-20', '2027-10-10', false]]);
+    const noRef = mirrorRunsFromDays(range('2027-09-20', '2027-09-30', { block_type: 'o', block_ref_id: 'ref-owner' }), TODAY).holds;
+    assert.equal(noRef[0].rolling, true, 'with no end on record it is carried to the horizon');
+  });
+
+  test('a Guesty rule type nobody classified is carried and named, never read as an open night', () => {
+    const { holds } = mirrorRunsFromDays([...range('2026-12-31', '2027-02-01', { block_rule_type: 'r' }), ...range('2027-03-01', '2027-03-05', { block_rule_type: 'an' })], TODAY);
+    assert.deepEqual(holds.map((h) => [h.kind, h.check_in, h.check_out, h.note]), [['unknown', '2026-12-31', '2027-02-01', 'Guesty rule r']]);
+  });
+
+  test("the range past Guesty's calendar mirror is reported while Guesty runs a home with no aggregate feed", () => {
+    const base = { rows: [], listings: LISTINGS, todayIso: TODAY, now: NOW, mirrorHolds: [] };
+    assert.equal(evaluateCarryover({ ...base, mirrorLastDate: '2027-09-28' }).mirrorBlindFrom, '2027-09-29');
+    assert.equal(evaluateCarryover({ ...base, mirrorLastDate: null }).mirrorBlindFrom, TODAY, 'no mirror at all: blind from today');
+    assert.equal(evaluateCarryover({ ...base, mirrorLastDate: '2028-06-01' }).mirrorBlindFrom, null, 'the mirror reaches past the horizon');
+    assert.equal(evaluateCarryover({ ...base, mirrorLastDate: '2027-09-28', calendarAuthority: 'helm' }).mirrorBlindFrom, null);
+    assert.equal(evaluateCarryover({ ...base, listings: [listing('guesty'), ...LISTINGS], mirrorLastDate: '2027-09-28' }).mirrorBlindFrom, null, 'the aggregate feed reaches the horizon');
+    assert.equal(carryoverClear(evaluateCarryover({ ...base, mirrorLastDate: '2027-09-28' })), true, 'a note for the acknowledgement, not a blocker');
   });
 
   test("a fixed owner hold beyond the plan's window must still be carried: the window reaches it later", () => {
@@ -472,3 +535,28 @@ function gBlockFor(tag: string | null, check_in: string, check_out: string) {
     ical_uid: tag ? `668c635d25b8180012fd30b7_${tag}_${check_in}_${check_out}@guesty.com_x=` : `c0ffee-${check_in}@guesty.com`,
   });
 }
+
+describe('round 7: stays from a feed Helm no longer reads', () => {
+  test('are listed for a person, and never block the flip', () => {
+    const stay = row({ channel: 'vrbo', channel_listing_id: 'L-vrbo' });
+    const retired = [listing('airbnb'), listing('vrbo', { is_active: false }), listing('booking_com')];
+    const c = run([stay], retired);
+    assert.deepEqual(ids(c.unreadFeedStays), [stay.id]);
+    assert.equal(carryoverClear(c), true);
+    assert.deepEqual(run([stay]).unreadFeedStays, [], 'its feed is read');
+    const deleted = row({ channel: 'other', channel_listing_id: null });
+    assert.deepEqual(ids(run([deleted]).unreadFeedStays), [deleted.id], 'its feed row was deleted');
+  });
+
+  test('leave out duplicates, closures, cancelled or past stays, and the Guesty aggregate feed', () => {
+    const retired = [listing('airbnb', { is_active: false }), listing('guesty', { is_active: false }), listing('vrbo'), listing('booking_com')];
+    const rows = [
+      row({ duplicate_of: 'x' }),
+      row({ status: 'block', hold_kind: 'ota' }),
+      row({ status: 'cancelled' }),
+      row({ check_in: '2026-09-20', check_out: '2026-09-25' }),
+      row({ channel_listing_id: 'L-guesty' }),
+    ];
+    assert.deepEqual(run(rows, retired).unreadFeedStays, []);
+  });
+});

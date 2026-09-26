@@ -14,7 +14,8 @@ import {
   listThreadsForBooking,
   type BookingEx,
 } from '@/lib/channels';
-import { countDownstreamArtifacts, isFeedOwned, listBookingEvents, type BookingEventRow, type DownstreamArtifacts } from '@/lib/bookings-write';
+import { countDownstreamArtifacts, importFeedState, listBookingEvents, type BookingEventRow, type DownstreamArtifacts } from '@/lib/bookings-write';
+import { ownedByFeed, type ImportFeedState } from '@/lib/listing-scope';
 import { conflictFromSearchParams, describeConflict } from '@/lib/bookings-write-core';
 import { BOOKING_STATUSES, CHANNEL_LABELS, STATUS_LABELS, type BookingFinance, type BookingStatus } from '@/lib/channels-types';
 import { authorityBadge, channelColor, relativeAge, sourceGlyph } from '@/lib/calendar-model';
@@ -47,7 +48,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   const conflict = conflictFromSearchParams(sp);
   const kept = one(sp.kept) === 'cancelled';
 
-  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedOwned] = await Promise.all([
+  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedState] = await Promise.all([
     getFleetProperty(booking.property_id),
     safe(() => listBookingEvents(id), [] as BookingEventRow[]),
     safe(() => getBookingFinance(id), null as BookingFinance | null),
@@ -57,10 +58,12 @@ export default async function BookingDetailPage({ params, searchParams }: { para
     safe(() => listEchoesOf(id), [] as BookingEx[]),
     safe(() => countDownstreamArtifacts(id), null as DownstreamArtifacts | null),
     booking.duplicate_of ? safe(() => getBookingEx(booking.duplicate_of!), null) : Promise.resolve(null),
-    // A failed read reads as feed-owned: the page then offers no write the
-    // server would refuse anyway.
-    safe(() => isFeedOwned(booking), true),
+    // A failed read reads as feed-owned ('unknown'): the page then offers no
+    // write the server would refuse anyway.
+    safe(() => importFeedState(booking), 'unknown' as ImportFeedState),
   ]);
+  const feedOwned = ownedByFeed(feedState, booking);
+  const feedUnread = feedState === 'unread';
 
   const isBlock = booking.status === 'block';
   const isCancelled = booking.status === 'cancelled';
@@ -221,10 +224,21 @@ export default async function BookingDetailPage({ params, searchParams }: { para
           </div>
         </form>
 
-        {feedOwned && !isCancelled && (
+        {feedOwned && !isCancelled && !feedUnread && (
           <p style={{ marginTop: 22, borderTop: '1px solid var(--rule)', paddingTop: 16, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
             This row came from the {CHANNEL_LABELS[booking.channel] ?? booking.channel} feed. The feed moves and cancels it when the channel does; Helm will not, because the next sync would put it back and in between its nights would read as free.
-            {bcomClosure ? ' If Booking.com shows nothing booked on these nights, open them in the extranet; if the feed is retired, release the closure on the channel hub.' : ''}
+            {bcomClosure ? ' If Booking.com shows nothing booked on these nights, open them in the extranet.' : ''}
+          </p>
+        )}
+        {feedOwned && !isCancelled && feedUnread && (
+          <p style={{ marginTop: 22, borderTop: '1px solid var(--rule)', paddingTop: 16, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            This closure came from a {CHANNEL_LABELS[booking.channel] ?? booking.channel} feed Helm no longer reads, so nothing will ever cancel it, and on Booking.com a closure may be a guest. Check the channel, then release it from the{' '}
+            <Link href={`/channels/${booking.property_id}#attention`} style={{ color: 'var(--ink)' }}>channel hub</Link> if nothing is booked.
+          </p>
+        )}
+        {!isCancelled && !feedOwned && feedUnread && (
+          <p style={{ marginTop: 22, marginBottom: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            Helm no longer reads the {CHANNEL_LABELS[booking.channel] ?? booking.channel} feed this came from, so it will not see the guest cancel. Check the booking on {CHANNEL_LABELS[booking.channel] ?? booking.channel} and cancel it here if it is gone.
           </p>
         )}
         {!isCancelled && !feedOwned && (

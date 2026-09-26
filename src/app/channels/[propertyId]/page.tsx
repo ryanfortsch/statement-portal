@@ -478,6 +478,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
     carry.bookingComOrphaned.length === 0 &&
     carry.guestyHoldsUncarried.length === 0 &&
     carry.bookingWindowGap === null &&
+    carry.unreadFeedStays.length === 0 &&
     !pullsRed;
   if (empty) return null;
   const rowLine = (r: CarryRow) => (
@@ -500,7 +501,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
         {carry.bookingComUnexplained.length > 0 && (
           <Item
             title="Booking.com shows these nights closed, and Helm has no reservation for them"
-            why="Booking.com publishes every booking as a bare closed night. Each of these is either a Booking.com guest nobody has entered (no turnover, no cleaner line, no stay record) or a closure left behind in the extranet, which Helm still passes to Airbnb and VRBO. Enter the booking from its confirmation email, or open the nights in the extranet."
+            why="Booking.com publishes every booking as a bare closed night. Each of these is either a Booking.com guest nobody has entered (no turnover, no cleaner line, no stay record) or a closure left behind in the extranet, which Helm still passes to Airbnb and VRBO. Check the extranet first: if Booking.com shows a reservation, enter it from its confirmation email; open the nights only if it shows none. A hold typed in Helm after Booking.com closed the nights is no explanation: it may be sitting on a guest."
           >
             {carry.bookingComUnexplained.map((r) => (
               <li key={r.id}>
@@ -588,6 +589,19 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
                   <input type="hidden" name="id" value={r.id} />
                   <SubmitButton label="Release" busyLabel="Releasing…" spinnerTone="ink" style={linkButton} />
                 </form>
+              </li>
+            ))}
+          </Item>
+        )}
+        {carry.unreadFeedStays.length > 0 && (
+          <Item
+            title="Stays from a feed Helm no longer reads"
+            why="Their feed row was retired, switched off or deleted, so Helm will not see these guests cancel, and until someone does the nights stay closed on every channel and the turnovers stay booked. Check each one on its channel and cancel it here if it is gone, or wire the feed again."
+          >
+            {carry.unreadFeedStays.map((r) => (
+              <li key={r.id}>
+                {rowLine(r)} <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>{CHANNEL_LABELS[r.channel as BookingChannel] ?? r.channel}</span>{' '}
+                <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the stay →</Link>
               </li>
             ))}
           </Item>

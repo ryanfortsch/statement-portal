@@ -25,6 +25,7 @@ import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
 import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, releaseAnswers, type CancelGuard } from '@/lib/ical-cancel-policy';
+import { freshSince, type PriorRow } from '@/lib/echo-cause';
 import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadStrictDedupeHomes, guestyEchoPropertyIds, type ListingScopeRow } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
@@ -75,6 +76,27 @@ export type SyncListingResult = {
  *  maxDuration, and every listing after it went unsynced that beat. */
 export const FEED_FETCH_TIMEOUT_MS = 20_000;
 
+/** The on-file state of rows the insert found under another listing, keyed
+ *  `<channel>|<ical_uid>`. Throws on a failed read: guessed, a re-attached
+ *  closure could restart its age and read as caused by a later stay. */
+async function loadReattachedPrior(sb: SupabaseClient, rows: readonly UpsertRow[]): Promise<Map<string, PriorRow>> {
+  const out = new Map<string, PriorRow>();
+  const byChannel = new Map<string, string[]>();
+  for (const r of rows) byChannel.set(r.channel, [...(byChannel.get(r.channel) ?? []), r.ical_uid]);
+  for (const [channel, uids] of byChannel) {
+    for (const part of chunk(uids, ID_WRITE_CHUNK)) {
+      const { data, error } = await sb
+        .from('bookings')
+        .select('ical_uid, status, check_in, check_out, cancelled_at')
+        .eq('channel', channel)
+        .in('ical_uid', part);
+      if (error) throw new Error(`read re-attached rows: ${error.message}`);
+      for (const p of (data ?? []) as Array<PriorRow & { ical_uid: string }>) out.set(`${channel}|${p.ical_uid}`, p);
+    }
+  }
+  return out;
+}
+
 /** Ids per `.in('id', ...)` write, so a large cancel set never builds an
  *  over-long request URL. */
 const ID_WRITE_CHUNK = 200;
@@ -89,6 +111,7 @@ type ExistingRow = {
   missing_since: string | null;
   raw_summary: string | null;
   hold_kind: string | null;
+  cancelled_at: string | null;
 };
 
 /** What the sync writes per event. booked_at is added on the insert only. */
@@ -270,7 +293,7 @@ export async function syncListing(opts: {
       (from, to) =>
         sb
           .from('bookings')
-          .select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary, hold_kind')
+          .select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary, hold_kind, cancelled_at')
           .eq('channel_listing_id', opts.listing_id)
           .eq('source', 'ical_import')
           .order('id', { ascending: true })
@@ -398,6 +421,7 @@ export async function syncListing(opts: {
       // insert did not create joins the update write instead.
       const newRows = rows.filter((r) => !existingByUid.has(r.ical_uid));
       const updates = rows.filter((r) => existingByUid.has(r.ical_uid));
+      const reattached: UpsertRow[] = [];
       let added = 0;
       if (newRows.length > 0) {
         const firstImport = existing.length === 0 && !(await hasSucceededBefore(sb, opts.listing_id));
@@ -418,19 +442,20 @@ export async function syncListing(opts: {
           if (created.has(`${r.channel}|${r.ical_uid}`)) added += 1;
           else {
             updates.push(r);
+            reattached.push(r);
             updated += 1;
           }
         }
       }
-      // A row whose nights just (re)appeared (a cancelled UID the feed
-      // publishes again, dates that moved, or a row re-attached from another
-      // listing) gets live_since = now: feeds reuse UIDs, so created_at only
-      // says when the UID was first seen. Two batches, because PostgREST
-      // takes one column list per write.
-      const fresh = updates.filter((r) => {
-        const prior = existingByUid.get(r.ical_uid);
-        return !prior || prior.status === 'cancelled' || prior.check_in !== r.check_in || prior.check_out !== r.check_out;
-      });
+      // A row whose nights just (re)appeared gets live_since = now: feeds
+      // reuse UIDs, so created_at only says when the UID was first seen
+      // (freshSince). A row re-attached from another listing (its feed row
+      // was deleted and re-added) is judged against what it was there.
+      // Two batches, because PostgREST takes one column list per write.
+      const reattachedPrior = await loadReattachedPrior(sb, reattached);
+      const fresh = updates.filter((r) =>
+        freshSince(existingByUid.get(r.ical_uid) ?? reattachedPrior.get(`${r.channel}|${r.ical_uid}`) ?? null, r, startedAt),
+      );
       const steady = updates.filter((r) => !fresh.includes(r));
       if (fresh.length > 0) {
         const { error: freshErr } = await sb

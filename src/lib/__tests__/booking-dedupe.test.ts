@@ -775,6 +775,26 @@ describe('round 6: a revived closure and a deleted inquiry', () => {
   });
 });
 
+describe('round 7: pass four judges a closure by continuous cover (lib/echo-cause)', () => {
+  const NOW = new Date('2026-10-20T12:00:00Z');
+  const closure = (over: Partial<DedupRow> = {}) =>
+    row({ id: 'C', property_id: '65_calderwood', channel: 'booking_com', channel_listing_id: 'listing-bcom', status: 'block', raw_summary: 'CLOSED - Not available', created_at: '2026-10-01T10:00:00Z', live_since: '2026-10-01T10:00:00Z', check_in: '2026-11-10', check_out: '2026-11-14', ...over });
+
+  test("an Airbnb stay moved onto a Booking.com guest's nights never hides the closure", () => {
+    const moved = row({ id: 'S', property_id: '65_calderwood', channel: 'airbnb', channel_listing_id: 'listing-airbnb', external_confirmation_code: 'HMMOVED001', created_at: '2026-09-15T00:00:00Z', live_since: '2026-10-01T12:00:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    assert.equal(canonicalOf(planDedupe([closure(), moved], { ...optsWithHolds, now: NOW }), 'C'), 'C');
+  });
+
+  test("a rebook inside Booking.com's pull lag takes over: the closure is filed under it", () => {
+    const first = row({ id: 'A', property_id: '65_calderwood', channel: 'airbnb', channel_listing_id: 'listing-airbnb', external_confirmation_code: 'HMFIRST001', created_at: '2026-09-20T00:00:00Z', status: 'cancelled', cancelled_at: '2026-10-15T01:00:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const rebook = row({ id: 'B', property_id: '65_calderwood', channel: 'vrbo', channel_listing_id: 'listing-vrbo', external_confirmation_code: 'HAREBOOK01', created_at: '2026-10-15T01:30:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const strict = { ...optsWithHolds, now: NOW, strictChannelPropertyIds: new Set(['65_calderwood']) };
+    assert.equal(canonicalOf(planDedupe([closure(), first, rebook], strict), 'C'), 'B');
+    const tooLate = { ...rebook, created_at: '2026-10-15T12:00:00Z' };
+    assert.equal(canonicalOf(planDedupe([closure(), first, tooLate], strict), 'C'), 'C', 'a rebook after the lag ran out is a second guest');
+  });
+});
+
 describe("fleet parity: Guesty's cancelled aggregate blocks cluster as they always have", () => {
   test('on a Guesty-run home a cancelled "Blocked by Guesty" row is not read as a hold by its summary', () => {
     // 1,625 such rows stood up as canonical rows when the summary test was

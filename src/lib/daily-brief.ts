@@ -1413,7 +1413,7 @@ async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
       const items: string[] = [];
       const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
       if (c.bookingComUnexplained.length > 0) {
-        items.push(`${n(c.bookingComUnexplained.length, 'Booking.com closure', 'Booking.com closures')} with no reservation on file (first ${c.bookingComUnexplained[0].check_in}): enter the booking or open the nights in the extranet`);
+        items.push(`${n(c.bookingComUnexplained.length, 'Booking.com closure', 'Booking.com closures')} with no reservation on file (first ${c.bookingComUnexplained[0].check_in}): check the extranet, then enter the booking or open the nights`);
       }
       if (c.bookingComNotShown.length > 0) {
         items.push(`${n(c.bookingComNotShown.length, 'reservation', 'reservations')} Booking.com no longer shows (first ${c.bookingComNotShown[0].check_in}): cancelled there?`);
@@ -1426,6 +1426,9 @@ async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
       }
       if (c.bookingComOrphaned.length > 0) {
         items.push(`${n(c.bookingComOrphaned.length, 'Booking.com closure', 'Booking.com closures')} on a feed Helm no longer reads: release once checked`);
+      }
+      if (c.unreadFeedStays.length > 0) {
+        items.push(`${n(c.unreadFeedStays.length, 'stay', 'stays')} from a feed Helm no longer reads (first ${c.unreadFeedStays[0].check_in}): a cancellation cannot reach Helm, check each on its channel`);
       }
       const unfiltered = facts.pulls.filter(
         (p) =>
