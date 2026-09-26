@@ -73,11 +73,12 @@ export const SCA_STRIPE_WEBHOOK_EVENTS: ReadonlyArray<string> = [
  * verified locally (constructEvent), the dispute object arrives embedded in the
  * event, and no call expands balance_transaction.
  *
- * CAVEAT, surfaced in the UI beside this list. Two SCA admin diagnostics,
- * /api/admin/stripe-live-validate and /api/admin/stripe-mode-check, gate on a
- * literal `sk_live_` prefix, so an rk_live_ key reads as "wrong prefix" in both
- * even though money moves fine. The booking path does not care: getStripeForListing
- * and getStripeForAccountKey hand the env var straight to `new Stripe()`.
+ * Both SCA admin diagnostics accept an rk_ key as of stay-cape-ann #69; they
+ * used to test for a literal `sk_live_` and report a working restricted key as
+ * "wrong prefix". The one thing scoping this tightly costs, surfaced in the UI
+ * beside this list: the key cannot read the account object, so
+ * /api/admin/stripe-live-validate confirms the key authenticates but cannot
+ * print the account name back for the operator to eyeball against the owner.
  */
 export const SCA_STRIPE_KEY_PERMISSIONS: ReadonlyArray<{
   resource: string;
