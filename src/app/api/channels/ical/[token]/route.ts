@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
-import { buildIcalExport, EXPORTABLE_STATUSES } from '@/lib/ical-export';
+import { buildIcalExport, EXPORTABLE_STATUSES, EXPORT_HOLD_FILTER, resolveExportAudience, type ExportBooking } from '@/lib/ical-export';
 import { recordExportPull } from '@/lib/ical-export-pulls';
-import type { Booking } from '@/lib/channels-types';
 
 export const dynamic = 'force-dynamic';
 // Public-facing feed. No maxDuration override needed; the query is fast.
@@ -21,7 +20,16 @@ export const dynamic = 'force-dynamic';
  * non-cancelled row, so an inquiry or a pending request, and every
  * duplicate of a stay, blocked the dates on the other OTAs; and it printed
  * the guest's name and the operator's notes into DESCRIPTION. The builder
- * filters again (exportableBooking) and writes channel + Helm id only.
+ * writes channel + Helm id only.
+ *
+ * Each OTA imports its own URL (?for=airbnb|vrbo|booking_com, or
+ * ?listing=<channel_listings id>, the only form for an 'other' platform).
+ * Its feed leaves out that OTA's own rows, so an owner block lifted in the
+ * Airbnb app never comes back to Airbnb from Helm. An OTA hold stamped as an
+ * echo of Helm's own export at import (bookings.echo_seen_at,
+ * lib/ical-echo.ts) goes to no feed. A URL whose for= disagrees with the
+ * puller's user agent is served unfiltered and logged as a mismatch; a bare
+ * URL is attributed by user agent. lib/ical-export.ts holds the rules.
  *
  * Every pull is logged to ical_export_pulls (recordExportPull), and the
  * response is `no-store`: the old `public, s-maxage=300` let the CDN answer
@@ -55,25 +63,48 @@ export async function GET(
   const fromIso = new Date(today.getTime() - 90 * 86400_000).toISOString().slice(0, 10);
   const toIso = new Date(today.getTime() + 540 * 86400_000).toISOString().slice(0, 10);
 
-  const { data: bookings, error: bErr } = await sb
+  // Who this feed is for (lib/ical-export resolveExportAudience): the URL's
+  // listing= or for=, checked against the user agent. A feed for a named
+  // OTA leaves out that OTA's own rows; a mismatched pull (the Airbnb line
+  // pasted into VRBO) is served for nobody, every row but stamped echoes.
+  const userAgent = request.headers.get('user-agent');
+  const { data: listingRows } = await sb.from('channel_listings').select('id, channel').eq('property_id', prop.id);
+  const audience = resolveExportAudience({
+    forParam: request.nextUrl.searchParams.get('for'),
+    listingParam: request.nextUrl.searchParams.get('listing'),
+    userAgent,
+    listings: (listingRows ?? []) as Array<{ id: string; channel: string }>,
+  });
+
+  let q = sb
     .from('bookings')
     .select('*')
     .eq('property_id', prop.id)
     .gte('check_in', fromIso)
     .lte('check_in', toIso)
     .in('status', [...EXPORTABLE_STATUSES])
+    .or(EXPORT_HOLD_FILTER)
     .is('duplicate_of', null);
+  if (audience.channel && audience.channel !== 'other') q = q.neq('channel', audience.channel);
+  const { data: bookings, error: bErr } = await q;
   if (bErr) return new NextResponse(`db error: ${bErr.message}`, { status: 500 });
 
   const body = buildIcalExport({
     propertyName: prop.name,
     propertyAddress: prop.address,
-    bookings: (bookings ?? []) as Booking[],
+    bookings: (bookings ?? []) as ExportBooking[],
+    forChannel: audience.channel,
+    forListingId: audience.listingId,
   });
 
   // The pull is the evidence the OTA is subscribed; log it before the body
   // goes out so a client that hangs up early is still counted.
-  await recordExportPull(prop.id, { userAgent: request.headers.get('user-agent') });
+  await recordExportPull(prop.id, {
+    userAgent,
+    channel: audience.mismatch ? audience.uaGuess : audience.channel,
+    requestedFor: audience.requestedFor,
+    uaGuess: audience.uaGuess,
+  });
 
   return new NextResponse(body, {
     status: 200,

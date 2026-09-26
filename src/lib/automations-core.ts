@@ -91,6 +91,8 @@ export type AutomationBooking = {
   guest_id?: string | null;
   duplicate_of: string | null;
   first_seen_at: string;
+  /** When the guest committed (the writer's stamp, or the feed's first sight). Null when unknown. */
+  booked_at?: string | null;
   external_confirmation_code?: string | null;
   num_guests?: number | null;
 };
@@ -438,6 +440,49 @@ function tidy(s: string): string {
   return s.replace(/[ \t]{2,}/g, ' ').replace(/ +([.,!?])/g, '$1').trim();
 }
 
+export const DEFAULT_SUBJECT = 'A note about your stay at {{property_title}}';
+
+/**
+ * An email subject is a template like the body and renders to the same
+ * masked / unmasked pair: `.text` goes to Resend, `.masked` is what the
+ * ledger, the inbox copy and the panel preview hold. A blank subject falls
+ * back to the default.
+ */
+export function renderSubject(subject: string | null | undefined, ctx: MergeContext): Rendered {
+  return renderTemplate((subject ?? '').trim() || DEFAULT_SUBJECT, ctx);
+}
+
+/**
+ * What renderTemplate leaves behind for a merge field the context could not
+ * fill: `[door_code]`, `[guest_first]`. Only real merge-field names count, so
+ * an operator's own bracketed word ("[see map]", "[here]") is left alone.
+ */
+function unfilledMarker(s: string): string | null {
+  for (const m of s.matchAll(/\[([a-z][a-z0-9_]*)\]/g)) {
+    if ((MERGE_FIELDS as readonly string[]).includes(m[1])) return m[0];
+  }
+  return null;
+}
+
+/**
+ * Why an operator-edited body must not go out as written, or null when it
+ * may. The stored render is MASKED (door code and wifi as ••••) and carries
+ * [field] markers for anything unfilled; a draft seeded from it and sent
+ * verbatim would text the guest the mask. The editable draft is seeded from
+ * the rule template instead, and this is the server-side belt to that brace.
+ */
+export function overrideBodyProblem(body: string | null | undefined): string | null {
+  const s = body ?? '';
+  if (s.includes(MASK)) {
+    return `The draft still carries a masked value (${MASK}). Edit the template text instead: {{door_code}} and {{wifi_password}} fill with the real value at send time.`;
+  }
+  const marker = unfilledMarker(s);
+  if (marker) {
+    return `The draft still carries an unfilled field ${marker}. Fill the property record, or write the value into the text, or take the field out.`;
+  }
+  return null;
+}
+
 function utcDateOf(iso: string): Date {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d));
@@ -692,20 +737,69 @@ export type PlanInput = {
   plans: Readonly<Record<string, StayPlanLike>>;
   /** `${property_id}|${check_in}` -> the active adjustment. */
   adjustments: Readonly<Record<string, CheckoutAdjustmentLike>>;
+  /**
+   * property_id -> properties.automations_enabled_at. When given, a
+   * booking_confirmed rule fires only for a stay first seen at or after the
+   * home's enable moment; a home with no stamp (null, or absent from the
+   * map after a failed read) gets no confirmations until the switch is
+   * cycled, which stamps it. Omit the map entirely to skip the gate.
+   */
+  enabledAt?: Readonly<Record<string, string | null>>;
+  /**
+   * sendKey(booking_id, automation_id) of ledger rows the ENGINE paused
+   * (isResumablePause). Such a booking_confirmed row skips the enable-stamp
+   * gate, never the 24h booked window: the switch going off and on again
+   * re-stamps automations_enabled_at, and a confirmation the switch itself
+   * paused is not "a stay already on the calendar" in that gate's sense.
+   */
+  resumable?: ReadonlySet<string>;
   now: Date;
 };
+
+/** The per-stay dedupe key the ledger is UNIQUE on: (booking_id, automation_id). */
+export function sendKey(bookingId: string, automationId: string): string {
+  return `${bookingId}|${automationId}`;
+}
 
 export function adjustmentKey(propertyId: string, checkIn: string): string {
   return `${propertyId}|${checkIn}`;
 }
 
 /**
+ * Is this stay's booking moment inside the confirmation window, and did it
+ * arrive after the home's automations were switched on? booked_at is the
+ * guest's commitment when the writer knows it (the SCA flow, the operator),
+ * falling back to first sight; so a feed's first pull of nine old stays, or
+ * a re-added channel, never reads as nine new bookings. The enable stamp is
+ * the second gate: a stay already on the calendar when the switch went on
+ * is not confirmed by the switch.
+ */
+export function isFreshlyBooked(
+  b: Pick<AutomationBooking, 'property_id' | 'first_seen_at' | 'booked_at'>,
+  nowMs: number,
+  enabledAt: PlanInput['enabledAt'],
+): boolean {
+  const firstSeen = Date.parse(b.first_seen_at);
+  const booked = b.booked_at ? Date.parse(b.booked_at) : firstSeen;
+  if (!Number.isFinite(booked) || nowMs - booked > CONFIRMED_WINDOW_MS) return false;
+  if (enabledAt !== undefined) {
+    const stamp = enabledAt[b.property_id];
+    const enabledMs = stamp ? Date.parse(stamp) : NaN;
+    if (!Number.isFinite(enabledMs) || !Number.isFinite(firstSeen) || firstSeen < enabledMs) return false;
+  }
+  return true;
+}
+
+/**
  * The rows the planner wants for a batch of canonical stays. Excluded
  * channels and short stays produce nothing; a fire time already more than
  * 12h gone produces a skipped_cancelled row with a note, so the ledger says
- * why nothing went out. booking_confirmed rules only apply to stays first
- * seen in the last 24h: enabling automations on a home must never confirm
- * every stay already on its calendar.
+ * why nothing went out. booking_confirmed rules only apply to stays BOOKED
+ * in the last 24h (booked_at, else first sight) and first seen after the
+ * home's automations_enabled_at: enabling automations on a home, or wiring
+ * a new feed to one, must never confirm every stay already on its calendar.
+ * A confirmation the engine itself paused (input.resumable) is exempt from
+ * the enable stamp only, so an off/on inside the window resumes it.
  */
 export function planAutomationSends(input: PlanInput): PlannedSend[] {
   const out: PlannedSend[] = [];
@@ -724,13 +818,14 @@ export function planAutomationSends(input: PlanInput): PlannedSend[] {
     const plan = input.plans[b.property_id] ?? null;
     const flags = continuationFlags(b, input.bookings, adjustment);
     const nights = nightsBetween(b.check_in, effectiveCheckOut(b, adjustment));
-    const firstSeen = Date.parse(b.first_seen_at);
+    const freshlyBooked = isFreshlyBooked(b, nowMs, input.enabledAt);
     for (const rule of rules) {
       if (!triggerAppliesTo(rule, b, flags)) continue;
       if (rule.channel_exclusions.includes(b.channel)) continue;
       if (rule.min_nights !== null && rule.min_nights !== undefined && nights < rule.min_nights) continue;
-      if (rule.trigger === 'booking_confirmed') {
-        if (!Number.isFinite(firstSeen) || nowMs - firstSeen > CONFIRMED_WINDOW_MS) continue;
+      if (rule.trigger === 'booking_confirmed' && !freshlyBooked) {
+        const paused = input.resumable?.has(sendKey(b.id, rule.id)) ?? false;
+        if (!paused || !isFreshlyBooked(b, nowMs, undefined)) continue;
       }
       const fireAt = fireAtFor(rule, b, plan, adjustment, input.now);
       const base = {
@@ -765,6 +860,8 @@ export type ExistingSend = {
   automation_id: string;
   fire_at: string;
   status: string;
+  /** The ledger note; for a cancelled row, who or what cancelled it. */
+  error?: string | null;
   planned_check_in: string;
   planned_check_out: string;
 };
@@ -772,31 +869,83 @@ export type ExistingSend = {
 /** Statuses the planner may re-time. Anything else is history and stays put. */
 export const REPLANNABLE_STATUSES: ReadonlySet<string> = new Set(['scheduled', 'skipped_dates_moved']);
 
+/** The engine's own two cancel reasons: a pause, not a verdict. */
+export const PAUSE_REASON_DISABLED_PREFIX = 'automations disabled by ';
+export const PAUSE_REASON_SUPERSEDED = 'rule superseded or disabled';
+
+/**
+ * A cancelled row the ENGINE parked (the home's switch went off, or the rule
+ * was superseded by an override or disabled): the planner may resume it
+ * once the rule applies again, so a 20-minute off/on does not strand every
+ * stay in the window. An operator's skip ('skipped by ...'), a stay that
+ * died, or anything sent is history and is never resumed.
+ */
+export function isResumablePause(row: Pick<ExistingSend, 'status' | 'error'>): boolean {
+  if (row.status !== 'cancelled') return false;
+  const reason = row.error ?? '';
+  return reason === PAUSE_REASON_SUPERSEDED || reason.startsWith(PAUSE_REASON_DISABLED_PREFIX);
+}
+
+/** sendKey of every ledger row the engine paused, for PlanInput.resumable. */
+export function resumableKeys(existing: readonly ExistingSend[]): Set<string> {
+  const out = new Set<string>();
+  for (const e of existing) if (isResumablePause(e)) out.add(sendKey(e.booking_id, e.automation_id));
+  return out;
+}
+
 export type PlanDiff = {
   inserts: PlannedSend[];
-  updates: Array<{ id: string; patch: Pick<PlannedSend, 'fire_at' | 'status' | 'error' | 'planned_check_in' | 'planned_check_out'> }>;
+  updates: Array<{
+    id: string;
+    patch: Pick<PlannedSend, 'fire_at' | 'status' | 'error' | 'planned_check_in' | 'planned_check_out'>;
+    /**
+     * Null for an ordinary re-time of a scheduled row. For a paused row it
+     * is the exact pause reason on the row, so the write can guard on
+     * status = 'cancelled' AND error = <reason> and never revive a row an
+     * operator skipped in the meantime.
+     */
+    resumeFrom: string | null;
+  }>;
   unchanged: number;
   frozen: number;
+  /** How many of `updates` resume a paused row. */
+  resumed: number;
 };
 
 /**
  * Reconcile a fresh plan against the ledger. UNIQUE(booking_id, automation_id)
  * is the per-stay dedupe, so a planned row either inserts, re-times a
- * scheduled (or dates-moved) row, or leaves a sent / skipped / awaiting row
- * alone. Within a minute counts as unchanged so a 15-minute cron does not
- * churn booking_confirmed rows whose fire_at is "now".
+ * scheduled (or dates-moved) row, resumes a row the engine itself paused,
+ * or leaves a sent / skipped / awaiting row alone. A resumed row takes the
+ * planned fire_at and status directly (a stale one lands as
+ * skipped_cancelled), so it is never briefly 'scheduled' at an old time
+ * where the dispatcher could claim it. Within a minute counts as unchanged
+ * so a 15-minute cron does not churn booking_confirmed rows whose fire_at
+ * is "now".
  */
 export function diffPlan(planned: readonly PlannedSend[], existing: readonly ExistingSend[]): PlanDiff {
   const byKey = new Map<string, ExistingSend>();
-  for (const e of existing) byKey.set(`${e.booking_id}|${e.automation_id}`, e);
-  const diff: PlanDiff = { inserts: [], updates: [], unchanged: 0, frozen: 0 };
+  for (const e of existing) byKey.set(sendKey(e.booking_id, e.automation_id), e);
+  const diff: PlanDiff = { inserts: [], updates: [], unchanged: 0, frozen: 0, resumed: 0 };
   for (const p of planned) {
-    const e = byKey.get(`${p.booking_id}|${p.automation_id}`);
+    const e = byKey.get(sendKey(p.booking_id, p.automation_id));
     if (!e) {
       diff.inserts.push(p);
       continue;
     }
+    const patch = {
+      fire_at: p.fire_at,
+      status: p.status,
+      error: p.error,
+      planned_check_in: p.planned_check_in,
+      planned_check_out: p.planned_check_out,
+    };
     if (!REPLANNABLE_STATUSES.has(e.status)) {
+      if (isResumablePause(e)) {
+        diff.resumed += 1;
+        diff.updates.push({ id: e.id, patch, resumeFrom: e.error ?? '' });
+        continue;
+      }
       diff.frozen += 1;
       continue;
     }
@@ -806,16 +955,7 @@ export function diffPlan(planned: readonly PlannedSend[], existing: readonly Exi
       diff.unchanged += 1;
       continue;
     }
-    diff.updates.push({
-      id: e.id,
-      patch: {
-        fire_at: p.fire_at,
-        status: p.status,
-        error: p.error,
-        planned_check_in: p.planned_check_in,
-        planned_check_out: p.planned_check_out,
-      },
-    });
+    diff.updates.push({ id: e.id, patch, resumeFrom: null });
   }
   return diff;
 }

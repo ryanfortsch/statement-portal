@@ -10,6 +10,7 @@ import { regionLabel } from '@/lib/property-scope';
 import { listChannelListingsByProperty, type ChannelListingEx } from '@/lib/channels';
 import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
 import { CHANNEL_LABELS, ICAL_HINTS, PRIMARY_CHANNELS, type BookingChannel } from '@/lib/channels-types';
+import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
 import { authorityBadge, importFreshness, pullFreshness, relativeAge, type Freshness } from '@/lib/calendar-model';
 import { deleteListing, saveListing, syncOneListing, tickExportSubscribed, toggleListingActive } from './actions';
 
@@ -104,7 +105,7 @@ export default async function ChannelsListingsPage({ searchParams }: { searchPar
 
         <div style={{ marginTop: 36 }}>
           {shown.map((p) => (
-            <PropertyCard key={p.id} property={p} listings={byProperty[p.id] ?? []} pulls={pulls.get(p.id) ?? []} origin={origin} now={now} />
+            <PropertyCard key={p.id} property={p} listings={byProperty[p.id] ?? []} pulls={pulls.get(p.id) ?? []} pullsKnown={pulls.has(p.id)} origin={origin} now={now} />
           ))}
           {shown.length === 0 && <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No homes in this region.</p>}
         </div>
@@ -115,7 +116,7 @@ export default async function ChannelsListingsPage({ searchParams }: { searchPar
   );
 }
 
-function PropertyCard({ property, listings, pulls, origin, now }: { property: FleetProperty; listings: ChannelListingEx[]; pulls: ExportPull[]; origin: string; now: Date }) {
+function PropertyCard({ property, listings, pulls, pullsKnown, origin, now }: { property: FleetProperty; listings: ChannelListingEx[]; pulls: ExportPull[]; pullsKnown: boolean; origin: string; now: Date }) {
   const byChannel = new Map(listings.map((l) => [l.channel, l]));
   const exportUrl = property.ical_export_token ? `${origin}/api/channels/ical/${property.ical_export_token}` : null;
   const helmRun = property.calendar_authority === 'helm';
@@ -157,10 +158,25 @@ function PropertyCard({ property, listings, pulls, origin, now }: { property: Fl
         <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--paper-2)', border: '1px dashed var(--rule)' }}>
           <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 6 }}>Helm → channels · the export each OTA imports</div>
           <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: 8 }}>
-            Canonical confirmed, completed and block rows only, no guest names.{' '}
-            {pulls.length > 0 ? `Last pulled ${relativeAge(pulls[0].pulled_at, now)}${pulls[0].channel_guess ? ` by ${CHANNEL_LABELS[pulls[0].channel_guess as BookingChannel] ?? pulls[0].channel_guess}` : ''}.` : 'Never pulled yet.'}
+            One line per OTA: each feed leaves out that OTA&rsquo;s own bookings and holds. Canonical confirmed, completed and block rows only, no guest names.{' '}
+            {pulls.length > 0 ? `Last pulled ${relativeAge(pulls[0].pulled_at, now)}${pulls[0].channel_guess ? ` by ${CHANNEL_LABELS[pulls[0].channel_guess as BookingChannel] ?? pulls[0].channel_guess}` : ''}.` : pullsKnown ? 'Never pulled yet.' : 'Pull history unavailable right now.'}
           </p>
-          <CopyableUrl value={exportUrl} />
+          <div style={{ display: 'grid', gap: 8 }}>
+            {EXPORT_FOR_CHANNELS.map((ch) => (
+              <div key={ch} style={{ display: 'grid', gridTemplateColumns: '96px 1fr', alignItems: 'center', gap: 10 }}>
+                <span className="eyebrow" style={{ color: 'var(--ink-2)' }}>{CHANNEL_LABELS[ch]}</span>
+                <CopyableUrl value={exportUrlFor(exportUrl, ch)} />
+              </div>
+            ))}
+            {listings
+              .filter((l) => l.channel === 'other' && l.is_active)
+              .map((l) => (
+                <div key={l.id} style={{ display: 'grid', gridTemplateColumns: '96px 1fr', alignItems: 'center', gap: 10 }}>
+                  <span className="eyebrow" style={{ color: 'var(--ink-2)' }}>{l.display_name || 'Other'}</span>
+                  <CopyableUrl value={exportUrlForListing(exportUrl, l.id)} />
+                </div>
+              ))}
+          </div>
         </div>
       )}
     </div>

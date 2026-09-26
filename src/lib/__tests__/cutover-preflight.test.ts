@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   evaluateCutoverPreflight,
   isOtaFeedChannel,
+  isUnclassifiedChannel,
   latestPullFor,
   NO_ACKNOWLEDGEMENTS,
   type CutoverCheckKey,
@@ -168,6 +169,78 @@ describe('evaluateCutoverPreflight', () => {
     assert.equal(latestPullFor([{ channel_guess: null, pulled_at: hoursAgo(1) }], 'airbnb'), null);
   });
 
+  test("export: an 'other' feed passes only on a pull of its own listing line", () => {
+    assert.equal(isUnclassifiedChannel('other'), true);
+    assert.equal(isUnclassifiedChannel('airbnb'), false);
+    assert.equal(isOtaFeedChannel('other'), true);
+
+    // A fourth OTA wired as 'other' pulls its own ?listing= line, which the
+    // route credits 'other'. The flip passes.
+    const otherFeeds = [feed('airbnb'), feed('other')];
+    const green = evaluateCutoverPreflight(
+      greenFacts({
+        feeds: otherFeeds,
+        pulls: [
+          { channel_guess: 'airbnb', pulled_at: hoursAgo(2) },
+          { channel_guess: 'other', requested_for: 'other', pulled_at: hoursAgo(1) },
+        ],
+      }),
+    );
+    assert.equal(green.checks[3].ok, true, green.checks[3].detail);
+    assert.match(green.checks[3].detail, /Other pulled 1h ago \(its own listing line\)/);
+    assert.equal(green.ok, true);
+
+    // A bare-URL pull (no guess) does NOT count: that feed carries the
+    // platform's own holds back to it, the stuck-block loop.
+    const bare = evaluateCutoverPreflight(
+      greenFacts({
+        feeds: otherFeeds,
+        pulls: [
+          { channel_guess: 'airbnb', pulled_at: hoursAgo(2) },
+          { channel_guess: null, pulled_at: hoursAgo(1) },
+        ],
+      }),
+    );
+    assert.deepEqual(bare.failing, ['export_subscribed']);
+    assert.match(bare.checks[3].detail, /Other: never pulled its own export line/);
+
+    // A stale own-line pull is stale like any other.
+    const stale = evaluateCutoverPreflight(
+      greenFacts({
+        feeds: otherFeeds,
+        pulls: [
+          { channel_guess: 'airbnb', pulled_at: hoursAgo(2) },
+          { channel_guess: 'other', requested_for: 'other', pulled_at: hoursAgo(30) },
+        ],
+      }),
+    );
+    assert.match(stale.checks[3].detail, /Other: last pull 30h ago, older than 24h/);
+
+    // latestPullFor: 'other' takes only 'other' pulls; a named OTA never takes a null guess.
+    const pulls = [
+      { channel_guess: 'airbnb', pulled_at: hoursAgo(1) },
+      { channel_guess: null, pulled_at: hoursAgo(6) },
+      { channel_guess: 'other', pulled_at: hoursAgo(8) },
+    ];
+    assert.equal(latestPullFor(pulls, 'other')?.pulled_at, hoursAgo(8));
+    assert.equal(latestPullFor(pulls, 'vrbo'), null);
+    assert.equal(latestPullFor(pulls, 'airbnb')?.pulled_at, hoursAgo(1));
+  });
+
+  test('export: a pull of another OTA\'s line (the Airbnb URL pasted into VRBO) fails that channel', () => {
+    const feeds = [feed('airbnb'), feed('vrbo')];
+    const facts = greenFacts({
+      feeds,
+      pulls: [
+        { channel_guess: 'airbnb', requested_for: 'airbnb', ua_guess: 'airbnb', pulled_at: hoursAgo(2) },
+        // VRBO's fetcher pulled the ?for=airbnb URL: the route credits the user agent.
+        { channel_guess: 'vrbo', requested_for: 'airbnb', ua_guess: 'vrbo', pulled_at: hoursAgo(1) },
+      ],
+    });
+    const r = evaluateCutoverPreflight(facts);
+    assert.deepEqual(r.failing, ['export_subscribed']);
+    assert.match(r.checks[3].detail, /VRBO is importing the Airbnb line/);
+  });
   test('two stays sharing a night is red; a block over a stay and a same-day turnover are not', () => {
     const r = evaluateCutoverPreflight(
       greenFacts({

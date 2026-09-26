@@ -42,7 +42,8 @@ alter table public.properties
   add column if not exists calendar_authority text not null default 'guesty',
   add column if not exists cutover_at timestamptz,
   add column if not exists former_guesty_listing_id text,
-  add column if not exists automations_enabled boolean not null default false;
+  add column if not exists automations_enabled boolean not null default false,
+  add column if not exists automations_enabled_at timestamptz;
 alter table public.properties drop constraint if exists properties_calendar_authority_check;
 alter table public.properties add constraint properties_calendar_authority_check
   check (calendar_authority in ('guesty','helm'));
@@ -89,7 +90,15 @@ alter table public.channel_listings
   add column if not exists external_room_id text,
   add column if not exists rates_managed_by text not null default 'guesty',
   add column if not exists export_subscribed boolean not null default false,
-  add column if not exists export_subscribed_at timestamptz;
+  add column if not exists export_subscribed_at timestamptz,
+  -- Operator release for the mass-cancel guard: stamped from the channel hub
+  -- ("these cancellations are real"), consumed by the next sync of that
+  -- listing, then cleared.
+  add column if not exists mass_cancel_acknowledged_at timestamptz;
+alter table public.ical_sync_runs
+  add column if not exists bookings_deferred integer not null default 0,
+  add column if not exists bookings_reclassified integer not null default 0,
+  add column if not exists guard text;               -- 'mass_cancel' when the run held its cancels
 alter table public.channel_listings drop constraint if exists channel_listings_rates_managed_by_check;
 alter table public.channel_listings add constraint channel_listings_rates_managed_by_check
   check (rates_managed_by in ('guesty','pricelabs','ota_ui','helm'));
@@ -104,8 +113,12 @@ create table if not exists public.ical_export_pulls (
   property_id text not null references public.properties(id) on delete cascade,
   pulled_at timestamptz not null default now(),
   user_agent text,
-  channel_guess text                      -- airbnb | vrbo | booking_com | null, from the user agent
+  channel_guess text,                     -- who pulled: the URL's for= / listing= when it agrees with the user agent, else the user agent's guess
+  requested_for text,                     -- the channel the URL named (for= or the listing='s channel); null for a bare URL
+  ua_guess text                           -- airbnb | vrbo | booking_com | null, from the user agent alone
 );
+alter table public.ical_export_pulls add column if not exists requested_for text;
+alter table public.ical_export_pulls add column if not exists ua_guess text;
 create index if not exists idx_ical_export_pulls_property
   on public.ical_export_pulls(property_id, pulled_at desc);
 
@@ -137,7 +150,16 @@ alter table public.bookings
   add column if not exists created_by text,         -- operator email | 'sca' | 'concierge' | 'ical-sync'
   add column if not exists cancel_reason text,
   add column if not exists cancelled_by text,
-  add column if not exists source_ref text;         -- quote id | stripe payment_intent id | sca token
+  add column if not exists source_ref text,         -- quote id | stripe payment_intent id | sca token
+  add column if not exists missing_since timestamptz, -- first sync run that saw an iCal row absent; cleared when seen again
+  -- Set once, when ical-sync first inserts an OTA hold (hold_kind 'ota') on
+  -- nights Helm was already holding: the OTA is echoing Helm's own export.
+  -- A stamped echo is never exported again, which is what keeps a cancelled
+  -- stay's echoes from holding its nights closed on every OTA for good. A
+  -- hold that appeared on open nights (an owner block set in the Airbnb app,
+  -- a Booking.com reservation) stays unstamped and exports to the other
+  -- channels. See src/lib/ical-echo.ts.
+  add column if not exists echo_seen_at timestamptz;
 alter table public.bookings drop constraint if exists bookings_hold_kind_check;
 alter table public.bookings add constraint bookings_hold_kind_check
   check (hold_kind is null or hold_kind in ('owner','maintenance','ota','other'));
@@ -502,7 +524,7 @@ begin
   if p_status in ('confirmed','completed','block') and not p_allow_overlap then
     select * into v_conflict from public.bookings b
      where b.property_id = v_before.property_id and b.id <> p_booking_id
-       and (b.duplicate_of is null or b.duplicate_of <> p_booking_id)
+       and b.duplicate_of is null
        and b.status in ('confirmed','completed','block')
        and b.check_in < p_check_out and b.check_out > p_check_in limit 1;
     if found then

@@ -46,6 +46,8 @@ import {
   AUTOMATION_DELIVERIES,
   AUTOMATION_TRIGGERS,
   CONFIRMED_WINDOW_MS,
+  PAUSE_REASON_DISABLED_PREFIX,
+  PAUSE_REASON_SUPERSEDED,
   PLAN_WINDOW_DAYS,
   SECRET_FIELDS,
   addDays,
@@ -59,11 +61,14 @@ import {
   guestEmailOf,
   guestNameIdentity,
   guestPhoneOf,
+  overrideBodyProblem,
   pickRail,
   planAutomationSends,
   recipientsCovering,
+  renderSubject,
   renderTemplate,
   resolveAutomationsFor,
+  resumableKeys,
   templateFields,
   templateHasDoorCode,
   type AutomationBooking,
@@ -98,13 +103,13 @@ const RULE_COLS =
   'id, key, property_id, audience, trigger, offset_days, at_local, timezone, channel_exclusions, delivery, send_mode, min_nights, subject, body, enabled, configured_in_ota, created_by, created_at, updated_at';
 
 const BOOKING_COLS =
-  'id, property_id, channel, status, check_in, check_out, guest_name, guest_phone, guest_email, guest_id, duplicate_of, first_seen_at, external_confirmation_code, num_guests';
+  'id, property_id, channel, status, check_in, check_out, guest_name, guest_phone, guest_email, guest_id, duplicate_of, first_seen_at, booked_at, external_confirmation_code, num_guests';
 
 const SEND_COLS =
   'id, booking_id, automation_id, property_id, fire_at, status, delivery_used, to_address, subject_rendered, body_rendered, secrets_sent, missing_fields, provider_message_id, guest_message_id, error, planned_check_in, planned_check_out, approved_by, approved_at, sent_at, created_at, updated_at';
 
 const PROPERTY_COLS =
-  'id, name, title, address, city, region, calendar_authority, automations_enabled, timezone, wifi_name, parking, parking_regulations, trash_day, recycling_day, is_active';
+  'id, name, title, address, city, region, calendar_authority, automations_enabled, automations_enabled_at, timezone, wifi_name, parking, parking_regulations, trash_day, recycling_day, is_active';
 
 // ── Shapes ──────────────────────────────────────────────────────────────
 
@@ -142,6 +147,8 @@ type PropertyRow = {
   region: string | null;
   calendar_authority: string | null;
   automations_enabled: boolean | null;
+  /** When the switch last went on. Null on a home enabled before the stamp existed. */
+  automations_enabled_at: string | null;
   timezone: string | null;
   wifi_name: string | null;
   parking: string | null;
@@ -374,9 +381,23 @@ async function mergeContextFor(
   });
 }
 
-function renderSubject(rule: AutomationRule, ctx: MergeContext): string {
-  const fallback = `A note about your stay at {{property_title}}`;
-  return renderTemplate(rule.subject?.trim() || fallback, ctx).text;
+/**
+ * properties.automations_enabled_at for the homes in a run. A home missing
+ * from the result (or carrying null) gets no booking_confirmed sends: the
+ * pure planner reads an unknown enable moment as "not yet", never as
+ * "long ago".
+ */
+async function loadEnabledAt(propertyIds: readonly string[]): Promise<Record<string, string | null>> {
+  const out: Record<string, string | null> = {};
+  for (const ids of chunk(propertyIds)) {
+    const { data, error } = await supabaseAdmin.from('properties').select('id, automations_enabled_at').in('id', ids);
+    if (error) {
+      console.error('[automations] automations_enabled_at read failed', error.message);
+      continue;
+    }
+    for (const r of (data ?? []) as Array<{ id: string; automations_enabled_at: string | null }>) out[r.id] = r.automations_enabled_at;
+  }
+  return out;
 }
 
 // ── Planner ─────────────────────────────────────────────────────────────
@@ -387,6 +408,10 @@ export type PlanSummary = {
   planned: number;
   inserted: number;
   retimed: number;
+  /** Rows the engine had paused (switch off, rule superseded) and this run put back on the calendar. */
+  resumed: number;
+  /** Rows this run wrote as scheduled to go out (inserted, re-timed or resumed); the honest "planned" for an operator. */
+  queued: number;
   stale: number;
   unchanged: number;
   frozen: number;
@@ -394,7 +419,7 @@ export type PlanSummary = {
   dry: boolean;
 };
 
-const EMPTY_PLAN: PlanSummary = { properties: 0, bookings: 0, planned: 0, inserted: 0, retimed: 0, stale: 0, unchanged: 0, frozen: 0, superseded: 0, dry: false };
+const EMPTY_PLAN: PlanSummary = { properties: 0, bookings: 0, planned: 0, inserted: 0, retimed: 0, resumed: 0, queued: 0, stale: 0, unchanged: 0, frozen: 0, superseded: 0, dry: false };
 
 export async function planAutomations(opts: { now?: Date; propertyId?: string | null; dry?: boolean } = {}): Promise<PlanSummary> {
   const now = opts.now ?? new Date();
@@ -459,26 +484,38 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       plans[id] = await loadPlan(id);
     }),
   );
-  const adjustments = await loadAdjustments(activeIds, addDays(today, -60));
+  const [adjustments, enabledAt] = await Promise.all([loadAdjustments(activeIds, addDays(today, -60)), loadEnabledAt(activeIds)]);
 
-  const planned = planAutomationSends({ bookings, rules, plans, adjustments, now });
-
-  // The ledger for these stays, so the plan reconciles instead of inserting blind.
-  const bookingIds = [...new Set(planned.map((p) => p.booking_id))];
+  // The ledger for these stays, read BEFORE planning so the plan reconciles
+  // instead of inserting blind. `error` rides along so a row the engine
+  // paused (the switch went off, or the rule was superseded) is recognised:
+  // the planner lets a paused confirmation past the enable stamp (which the
+  // off/on just moved), and diffPlan resumes it rather than freezing it.
+  const bookingIds = bookings.map((b) => b.id);
   const existing: ExistingSend[] = [];
   for (const ids of chunk(bookingIds)) {
-    const { data, error } = await supabaseAdmin
-      .from('automation_sends')
-      .select('id, booking_id, automation_id, fire_at, status, planned_check_in, planned_check_out')
-      .in('booking_id', ids);
-    if (error) throw new Error(`automation_sends read: ${error.message}`);
-    for (const r of (data ?? []) as ExistingSend[]) existing.push(r);
+    // Paged: 150 stays times a handful of rules each can pass the 1000-row
+    // cap, and a truncated ledger would silently miss re-times and resumes.
+    const rows = await selectAllPaged<ExistingSend>(
+      (from, to) =>
+        supabaseAdmin
+          .from('automation_sends')
+          .select('id, booking_id, automation_id, fire_at, status, error, planned_check_in, planned_check_out')
+          .in('booking_id', ids)
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'automation_sends read' },
+    );
+    for (const r of rows) existing.push(r);
   }
+
+  const planned = planAutomationSends({ bookings, rules, plans, adjustments, enabledAt, resumable: resumableKeys(existing), now });
   const diff = diffPlan(planned, existing);
 
   // Rows waiting on a rule that no longer applies to the home (an override
-  // arrived, or the rule was disabled) are cancelled so a fleet row and its
-  // override never both fire for one stay.
+  // arrived, or the rule was disabled) are paused so a fleet row and its
+  // override never both fire for one stay. The pause reason is what lets
+  // diffPlan resume them if the rule applies again.
   let superseded = 0;
   for (const ids of chunk(propertyIds)) {
     const { data } = await supabaseAdmin
@@ -494,7 +531,7 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       for (const part of chunk(stale.map((r) => r.id))) {
         await supabaseAdmin
           .from('automation_sends')
-          .update({ status: 'cancelled', error: 'rule superseded or disabled', updated_at: now.toISOString() })
+          .update({ status: 'cancelled', error: PAUSE_REASON_SUPERSEDED, updated_at: now.toISOString() })
           .in('id', part)
           .in('status', ['scheduled', 'awaiting_approval']);
       }
@@ -521,11 +558,15 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       if (error) throw new Error(`automation_sends insert: ${error.message}`);
     }
     for (const u of diff.updates) {
-      const { error } = await supabaseAdmin
-        .from('automation_sends')
-        .update({ ...u.patch, updated_at: now.toISOString() })
-        .eq('id', u.id)
-        .in('status', ['scheduled', 'skipped_dates_moved']);
+      // A re-time only lands on a row still scheduled (or dates-moved); a
+      // resume only on a row still cancelled FOR THE SAME PAUSE REASON, so a
+      // row an operator skipped, or one that sent, between read and write is
+      // never touched.
+      const base = supabaseAdmin.from('automation_sends').update({ ...u.patch, updated_at: now.toISOString() }).eq('id', u.id);
+      const { error } =
+        u.resumeFrom !== null
+          ? await base.eq('status', 'cancelled').eq('error', u.resumeFrom)
+          : await base.in('status', ['scheduled', 'skipped_dates_moved']);
       if (error) throw new Error(`automation_sends retime: ${error.message}`);
     }
   }
@@ -535,7 +576,10 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
     bookings: bookings.length,
     planned: planned.length,
     inserted: diff.inserts.length,
-    retimed: diff.updates.length,
+    retimed: diff.updates.length - diff.resumed,
+    resumed: diff.resumed,
+    queued:
+      diff.inserts.filter((p) => p.status === 'scheduled').length + diff.updates.filter((u) => u.patch.status === 'scheduled').length,
     stale: planned.filter((p) => p.status === 'skipped_cancelled').length,
     unchanged: diff.unchanged,
     frozen: diff.frozen,
@@ -620,11 +664,21 @@ type Delivered = {
   note: string | null;
 };
 
-async function deliverSms(to: string, rendered: Rendered, row: AutomationSendRow, rule: AutomationRule, now: Date): Promise<Delivered> {
+async function deliverSms(
+  to: string,
+  rendered: Rendered,
+  row: AutomationSendRow,
+  rule: AutomationRule,
+  booking: AutomationBooking,
+  now: Date,
+): Promise<Delivered> {
   const msg = await sendMessage({ from: quoFromNumber('guests'), to, content: rendered.text });
   const providerMessageId = (msg as { id?: string } | null)?.id ?? null;
   let guestMessageId: string | null = null;
   try {
+    // The stay is handed over by id: a phone lookup alone is bounded by the
+    // inbox's 60-day contact window, so a booking_confirmed text for a stay
+    // 90 days out would otherwise file on a thread with no stay or home.
     const r = await recordOutboundSms({
       phone: to,
       body: rendered.masked,
@@ -633,6 +687,9 @@ async function deliverSms(to: string, rendered: Rendered, row: AutomationSendRow
       senderKind: 'automation',
       senderLabel: `Automation: ${rule.key}`,
       source: 'automation',
+      bookingId: booking.id,
+      propertyId: booking.property_id,
+      guestName: guestNameIdentity(booking.guest_name) ? booking.guest_name : null,
       automationSendId: row.id,
       deliveryStatus: 'sent',
       createForStranger: true,
@@ -646,7 +703,7 @@ async function deliverSms(to: string, rendered: Rendered, row: AutomationSendRow
 
 async function deliverEmail(
   to: string,
-  subject: string,
+  subject: Rendered,
   rendered: Rendered,
   row: AutomationSendRow,
   rule: AutomationRule,
@@ -654,9 +711,11 @@ async function deliverEmail(
   bundle: PropertyBundle,
   now: Date,
 ): Promise<Delivered> {
+  // The subject is a template like the body: its real text goes to Resend
+  // and nowhere else; the inbox copy gets the masked pair.
   const ok = await sendTransactionalViaResend({
     to,
-    subject,
+    subject: subject.text,
     html: textToHtml(rendered.text),
     text: rendered.text,
     fromName: bundle.property.title?.trim() || bundle.property.name,
@@ -668,7 +727,7 @@ async function deliverEmail(
     const r = await recordOutboundEmail({
       email: to,
       body: rendered.masked,
-      subject,
+      subject: subject.masked,
       at: now.toISOString(),
       provider: 'resend',
       senderKind: 'automation',
@@ -741,7 +800,8 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
   const ctx = booking && bundle ? await mergeContextFor(booking, bundle, guest, adjustment) : {};
   const body = opts.bodyOverride?.trim() || rule?.body || '';
   const rendered = renderTemplate(body, ctx);
-  const subject = rule ? renderSubject(rule, ctx) : null;
+  // Rendered pair: .text for the wire only, .masked for the ledger and the inbox.
+  const subject = rule ? renderSubject(rule.subject, ctx) : null;
 
   const decision = decideDispatch({
     row,
@@ -776,7 +836,7 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
   const common = {
     delivery_used: decision.rail,
     to_address: toFor(decision.rail),
-    subject_rendered: subject,
+    subject_rendered: subject?.masked ?? null,
     body_rendered: rendered.masked,
     missing_fields: rendered.missing,
     ...(opts.approved && opts.actor ? { approved_by: opts.actor, approved_at: nowIso } : {}),
@@ -797,20 +857,23 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
     return finish({ ...common, status: 'failed', error: 'dispatch invariant: send decided without a stay, rule or rail' });
   }
 
-  const secretsPresent = templateFields(body).some((f) => SECRET_FIELDS.has(f) && !rendered.missing.includes(f));
+  const subjectRendered = subject ?? renderSubject(rule.subject, ctx);
+  const secretsPresent =
+    templateFields(body).some((f) => SECRET_FIELDS.has(f) && !rendered.missing.includes(f)) ||
+    templateFields(rule.subject).some((f) => SECRET_FIELDS.has(f) && !subjectRendered.missing.includes(f));
   try {
     let delivered: Delivered;
     switch (decision.rail) {
       case 'sms': {
         const to = guestPhoneOf(booking, guest);
         if (!to) throw new Error('no phone at send time');
-        delivered = await deliverSms(to, rendered, row, rule, opts.now);
+        delivered = await deliverSms(to, rendered, row, rule, booking, opts.now);
         break;
       }
       case 'email': {
         const to = guestEmailOf(booking, guest);
         if (!to) throw new Error('no email at send time');
-        delivered = await deliverEmail(to, subject ?? 'A note about your stay', rendered, row, rule, booking, bundle, opts.now);
+        delivered = await deliverEmail(to, subjectRendered, rendered, row, rule, booking, bundle, opts.now);
         break;
       }
       case 'cleaner_sms':
@@ -908,10 +971,15 @@ export type SendVerbResult = { ok: true; status: string } | { ok: false; error: 
 /**
  * Approve a parked row: send it now on its rail (or, for an OTA row, record
  * that the operator pasted it) and stamp approved_by. An optional edited
- * body replaces the template for this one send.
+ * body replaces the template for this one send; it may carry merge fields,
+ * which fill at send time. A body that still holds the stored render's mask
+ * or an unfilled [field] marker is refused before the row is touched: the
+ * guest would otherwise receive the mask in place of the door code.
  */
 export async function approveSend(id: string, actor: string, opts: { body?: string | null } = {}): Promise<SendVerbResult> {
   if (!isServiceConfigured) return { ok: false, error: 'Service role is not configured.' };
+  const problem = overrideBodyProblem(opts.body);
+  if (problem) return { ok: false, error: problem };
   const now = new Date();
   const { data, error } = await supabaseAdmin
     .from('automation_sends')
@@ -953,8 +1021,11 @@ export type SwitchResult = { ok: true; enabled: boolean; planned?: PlanSummary }
 /**
  * The automations_enabled switch. Enabling requires calendar_authority =
  * 'helm' (a Guesty-run home would receive duplicates of Guesty's own
- * automations) and plans the home at once; disabling cancels every row that
- * has not gone out.
+ * automations), stamps automations_enabled_at (the booking_confirmed gate:
+ * a stay already on the calendar at this moment is never "confirmed" by the
+ * switch) and plans the home at once. Disabling PAUSES every row that has
+ * not gone out: the rows read cancelled with the engine's own reason, and
+ * the planner resumes them, re-timed, when the switch goes back on.
  */
 export async function setAutomationsEnabled(propertyId: string, enabled: boolean, actor: string): Promise<SwitchResult> {
   if (!isServiceConfigured) return { ok: false, error: 'Service role is not configured.' };
@@ -963,15 +1034,16 @@ export async function setAutomationsEnabled(propertyId: string, enabled: boolean
   if (enabled && property.calendar_authority !== 'helm') {
     return { ok: false, error: 'Automations run only once Helm is this home\'s calendar authority. Cut the home over on its Channels page first.' };
   }
+  const nowIso = new Date().toISOString();
   const { error } = await supabaseAdmin
     .from('properties')
-    .update({ automations_enabled: enabled, updated_at: new Date().toISOString() })
+    .update(enabled ? { automations_enabled: true, automations_enabled_at: nowIso, updated_at: nowIso } : { automations_enabled: false, updated_at: nowIso })
     .eq('id', propertyId);
   if (error) return { ok: false, error: error.message };
   if (!enabled) {
     await supabaseAdmin
       .from('automation_sends')
-      .update({ status: 'cancelled', error: `automations disabled by ${actor}`, updated_at: new Date().toISOString() })
+      .update({ status: 'cancelled', error: `${PAUSE_REASON_DISABLED_PREFIX}${actor}`, updated_at: nowIso })
       .eq('property_id', propertyId)
       .in('status', ['scheduled', 'awaiting_approval']);
     return { ok: true, enabled: false };
@@ -1170,6 +1242,7 @@ function sampleStay(propertyId: string): AutomationBooking {
     guest_id: null,
     duplicate_of: null,
     first_seen_at: new Date().toISOString(),
+    booked_at: new Date().toISOString(),
     external_confirmation_code: null,
     num_guests: 2,
   };
@@ -1223,8 +1296,16 @@ export type PanelSend = {
   status: string;
   delivery_used: string | null;
   to_address: string | null;
+  /** Masked: a secret in the subject reads as •••• here. */
   subject_rendered: string | null;
+  /** Masked: door code and wifi read as ••••, unfilled fields as [field]. Display only, never a send body. */
   body_rendered: string | null;
+  /**
+   * The rule's body with its {{merge fields}} intact. The editable draft on a
+   * parked row seeds from THIS, so an operator's edit still fills the real
+   * door code at send time instead of texting the mask.
+   */
+  template_body: string | null;
   missing_fields: string[];
   error: string | null;
   sent_at: string | null;
@@ -1239,6 +1320,8 @@ export type AutomationsPanelView = {
     title: string | null;
     calendar_authority: string;
     automations_enabled: boolean;
+    /** Null on a home switched on before the stamp existed: booking_confirmed waits for an off/on. */
+    automations_enabled_at: string | null;
     region: string;
   };
   helmRun: boolean;
@@ -1278,7 +1361,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
       const rendered = renderTemplate(r.body, ctx);
       const fireAt = fireAtFor(r, nextStay, bundle.plan, adjustment, now);
       preview = {
-        subject: r.delivery === 'email' || r.delivery === 'sms_then_email' ? renderSubject(r, ctx) : null,
+        subject: r.delivery === 'email' || r.delivery === 'sms_then_email' ? renderSubject(r.subject, ctx).masked : null,
         masked: rendered.masked,
         missing: rendered.missing,
         fireAt: fireAt ? fireAt.toISOString() : null,
@@ -1296,7 +1379,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
     };
   });
 
-  const keyById = new Map(rules.map((r) => [r.id, r.key]));
+  const ruleById = new Map(rules.map((r) => [r.id, r]));
   const bookingIds = [...new Set(sendRows.map((s) => s.booking_id))];
   const bookings = new Map<string, AutomationBooking>();
   for (const ids of chunk(bookingIds)) {
@@ -1306,10 +1389,11 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
   const sends: PanelSend[] = sendRows.map((s) => {
     const b = bookings.get(s.booking_id);
     const ota = b ? otaChannelOfBooking(b.channel) : null;
+    const rule = ruleById.get(s.automation_id);
     return {
       id: s.id,
       automation_id: s.automation_id,
-      key: keyById.get(s.automation_id) ?? 'rule',
+      key: rule?.key ?? 'rule',
       booking_id: s.booking_id,
       guest_name: b ? guestNameIdentity(b.guest_name) ? (b.guest_name ?? '').trim() : 'Guest' : 'Guest',
       check_in: b?.check_in ?? s.planned_check_in,
@@ -1321,6 +1405,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
       to_address: s.to_address,
       subject_rendered: s.subject_rendered,
       body_rendered: s.body_rendered,
+      template_body: rule?.body ?? null,
       missing_fields: Array.isArray(s.missing_fields) ? s.missing_fields : [],
       error: s.error,
       sent_at: s.sent_at,
@@ -1336,6 +1421,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
       title: bundle.property.title,
       calendar_authority: bundle.property.calendar_authority ?? 'guesty',
       automations_enabled: !!bundle.property.automations_enabled,
+      automations_enabled_at: bundle.property.automations_enabled_at ?? null,
       region: bundle.property.region ?? 'cape_ann',
     },
     helmRun: bundle.property.calendar_authority === 'helm',

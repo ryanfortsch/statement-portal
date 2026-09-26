@@ -243,6 +243,8 @@ function CoverageGrid({
           const badge = authorityBadge(p, hasDirectFeed);
           const helmRun = p.calendar_authority === 'helm';
           const propPulls = pulls.get(p.id) ?? [];
+          // Absent from the map means the pull read failed, not that nothing pulled.
+          const pullsKnown = pulls.has(p.id);
           const guestyRow = propListings.find((l) => l.channel === 'guesty');
           return (
             <div key={p.id} style={{ display: 'grid', gridTemplateColumns: cols, padding: '13px 0', alignItems: 'center', borderBottom: '1px solid var(--rule)' }}>
@@ -265,7 +267,7 @@ function CoverageGrid({
                 const pull = propPulls.find((x) => x.channel_guess === c) ?? null;
                 return (
                   <div key={c} style={{ textAlign: 'center' }}>
-                    <CoverageCell channel={c} listing={l} pull={pull} helmRun={helmRun} now={now} />
+                    <CoverageCell pullsKnown={pullsKnown} channel={c} listing={l} pull={pull} helmRun={helmRun} now={now} />
                   </div>
                 );
               })}
@@ -284,7 +286,7 @@ function freshnessColor(f: Freshness): string {
   return f === 'fresh' ? 'var(--positive)' : f === 'aging' ? 'var(--signal)' : f === 'stale' ? 'var(--negative)' : 'var(--paper-2)';
 }
 
-function CoverageCell({ channel, listing, pull, helmRun, now }: { channel: BookingChannel; listing: ChannelListingEx | undefined; pull: ExportPull | null; helmRun: boolean; now: Date }) {
+function CoverageCell({ channel, listing, pull, pullsKnown = true, helmRun, now }: { channel: BookingChannel; listing: ChannelListingEx | undefined; pull: ExportPull | null; pullsKnown?: boolean; helmRun: boolean; now: Date }) {
   if (channel === 'direct') {
     return <span title={listing ? 'Direct stays land in Helm' : 'Not configured'} style={{ fontSize: 10, color: 'var(--ink-4)' }}>{listing ? 'Helm' : '-'}</span>;
   }
@@ -304,13 +306,15 @@ function CoverageCell({ channel, listing, pull, helmRun, now }: { channel: Booki
   const pullState: Freshness = pull ? pullFreshness(pull.pulled_at, now) : 'never';
   const pullTitle = !showPull
     ? 'OTA reads Guesty, not Helm'
+    : !pullsKnown
+    ? `${CHANNEL_LABELS[channel]}: pull history unavailable right now (the read failed; this is not "never pulled")`
     : pull
     ? `${CHANNEL_LABELS[channel]} pulled Helm ${relativeAge(pull.pulled_at, now)} (${pullState})`
     : `${CHANNEL_LABELS[channel]} has never pulled Helm's export${listing.export_subscribed ? '' : ' (not ticked as subscribed)'}`;
   return (
     <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }} title={`${CHANNEL_LABELS[channel]}: ${importTitle} · ${pullTitle}`}>
       <Dot color={freshnessColor(importState)} border={importState === 'never'} title={importTitle} />
-      {showPull ? (
+      {showPull && pullsKnown ? (
         <Dot color={freshnessColor(pullState)} border={pullState === 'never'} title={pullTitle} />
       ) : (
         <span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: '1px dashed var(--rule)' }} />

@@ -45,7 +45,15 @@ home is Helm-run.
 1. Address of record: 65 Calderwood Court, Bridgeport, CT 06605 (Guesty's
    address; Books still labels the LLC "Fairfield CT", left alone).
 2. Keep the Booking.com listing (hotel 11763446) and move it to iCal at the
-   flip, or drop it.
+   flip, or drop it. Know the cost of keeping it: Booking.com's iCal publishes
+   every closed night as "CLOSED - Not available", real reservations
+   included, with no guest name. Helm therefore imports a Booking.com
+   booking as a hold. The hold still closes Airbnb, VRBO and
+   staycapeann.com for those nights (it is exported to every other channel),
+   but it is not a stay: no turnover, no line in Luana's digest, no guest
+   automation. Each Booking.com booking has to be entered in Helm by hand
+   from its confirmation email (`/channels/bookings/new`, channel
+   Booking.com) until a notification-email parser exists.
 3. Is there a Seam-connected lock at the house? If not, the door code rides
    the pre-arrival automation from `property_access.smart_lock_code` in
    approve mode, and guest PINs / cleaning sessions do not apply.
@@ -60,10 +68,15 @@ home is Helm-run.
 
 ## Step 1. Ship the plumbing with the fleet unchanged
 
-Merge the PMS branch. Gate: `npx tsc --noEmit && npm test`. Then apply
-`supabase/migrations/20260926200000_helm_pms_plumbing.sql` with the linked CLI.
-Every default reproduces today: every property is `region = cape_ann`,
-`calendar_authority = guesty`, every automation is disabled.
+Order matters. Apply `supabase/migrations/20260926200000_helm_pms_plumbing.sql`
+with the linked CLI FIRST, then merge the PMS branch (gate: `npx tsc --noEmit
+&& npm test`). The migration is purely additive and every reader on the
+running build already uses the service role, so applying it under the old
+code changes nothing; merging first would deploy code that selects the new
+columns a few minutes before they exist, and the turnover rail, the cleaner
+schedule, Field packets, /book and the iCal sync would all fail for that
+window. Every default reproduces today: every property is `region =
+cape_ann`, `calendar_authority = guesty`, every automation is disabled.
 
 Verify:
 
@@ -146,8 +159,13 @@ row stays `pricelabs` so the calendar labels OTA prices honestly.
 
 In Guesty, for the Calderwood listing only: turn off its message automations,
 disconnect the Airbnb, VRBO and Booking.com channels, unlist and delete the
-listing. Immediately, in each OTA host account, import
-`https://helm.risingtidestr.com/api/channels/ical/<token>` and tick "OTA
+listing. Immediately, in each OTA host account, import that OTA's own line
+from the channel hub: `https://helm.risingtidestr.com/api/channels/ical/<token>?for=airbnb`
+in Airbnb, `?for=vrbo` in VRBO, `?for=booking_com` in Booking.com. Each
+feed leaves out that OTA's own bookings and holds, so an owner block lifted
+in the Airbnb app is never sent back to Airbnb by Helm; a hold that first
+appeared as an echo of Helm's own export (stamped `echo_seen_at` at import)
+is sent to nobody, so a cancelled stay's nights reopen everywhere. Tick "OTA
 imports Helm's export" per channel on `/channels/listings`. Re-onboard VRBO
 (rates, rules, cancellation policy, agreement, payout details). Recreate the
 confirmation, pre-arrival and checkout messages in Airbnb Scheduled Messages

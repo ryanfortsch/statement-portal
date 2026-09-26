@@ -10,6 +10,7 @@ import {
   setPropertyRuleFlags,
   skipSend,
   upsertPropertyRule,
+  type PlanSummary,
   type RuleInput,
 } from '@/lib/automations';
 import type { AutomationDelivery, AutomationTrigger, SendMode } from '@/lib/automations-core';
@@ -39,10 +40,20 @@ export async function setAutomationsEnabledAction(propertyId: string, enabled: b
   const r = await setAutomationsEnabled(propertyId, enabled, who);
   bump(propertyId);
   if (!r.ok) return { ok: false, message: r.error };
-  if (!r.enabled) return { ok: true, message: 'Automations are off for this home. Anything still scheduled was cancelled.' };
-  const p = r.planned;
-  const planned = p ? `${p.planned} message${p.planned === 1 ? '' : 's'} planned across ${p.bookings} stay${p.bookings === 1 ? '' : 's'}` : 'planning runs on the next cron pass';
-  return { ok: true, message: `Automations are on. ${planned}.` };
+  if (!r.enabled) return { ok: true, message: 'Automations are off for this home. Anything still scheduled is paused until you turn them back on.' };
+  return { ok: true, message: `Automations are on. ${planReport(r.planned)}.` };
+}
+
+/**
+ * What this run actually wrote, not the whole planned set: a row already on
+ * the ledger (sent, skipped, unchanged) is not news, and counting it read
+ * "14 messages planned" over a ledger with nothing scheduled.
+ */
+function planReport(p: PlanSummary | undefined): string {
+  if (!p) return 'Planning runs on the next cron pass';
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const resumed = p.resumed > 0 ? ` (${p.resumed} picked back up from the pause)` : '';
+  return `${plural(p.queued, 'message')} scheduled across ${plural(p.bookings, 'stay')} in the window${resumed}`;
 }
 
 export type RuleFormInput = {

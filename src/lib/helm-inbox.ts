@@ -383,6 +383,13 @@ export type OutboundSmsInput = {
   /** Record on this thread instead of the (sms, E.164) one: a Helm composer
    * send from an OTA thread that happens to know the guest's phone. */
   threadId?: string | null;
+  /** Link the thread to this stay when the (sms) thread is new or has no
+   * stay yet. The phone lookup alone is bounded by the 60-day contact
+   * window, so a sender that already holds the stay (an automation) hands
+   * it over by id. Mirrors OutboundEmailInput. */
+  bookingId?: string | null;
+  propertyId?: string | null;
+  guestName?: string | null;
   createForStranger?: boolean;
 };
 
@@ -403,13 +410,28 @@ export async function recordOutboundSms(input: OutboundSmsInput): Promise<Outbou
     thread = await findThreadByKey('sms', e164);
     if (!thread) {
       const today = todayEastern();
+      // The stay by id when the caller knows it, else (or when that id no
+      // longer resolves) the phone lookup inside the contact window.
+      const byPhone = () => bookingsForPhone(e164, today).then((rows) => pickBookingForContact(rows, today));
       const [booking, guest] = await Promise.all([
-        bookingsForPhone(e164, today).then((rows) => pickBookingForContact(rows, today)),
+        input.bookingId ? getBooking(input.bookingId).then((b) => b ?? byPhone()) : byPhone(),
         guestByPhone(e164),
       ]);
       if (!booking && !guest && !input.createForStranger) return { recorded: false, reason: 'no_match' };
-      thread = await createThread({ channel: 'sms', key: e164, booking, guest });
+      thread = await createThread({
+        channel: 'sms',
+        key: e164,
+        booking,
+        guest,
+        guestName: input.guestName ?? null,
+        propertyId: input.propertyId ?? null,
+      });
       if (!thread) return { recorded: false, reason: 'no_match' };
+    } else if (input.bookingId && !thread.booking_id) {
+      // A thread that predates the stay (the guest texted before booking,
+      // or an earlier send landed before the stay was in the window).
+      const booking = await getBooking(input.bookingId);
+      if (booking) thread = await attachStayIfMissing(thread, booking, null);
     }
   }
 

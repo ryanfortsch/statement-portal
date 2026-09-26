@@ -26,7 +26,9 @@
  *                      import succeeded within two hours
  *   export_subscribed  each of those rows is ticked export_subscribed AND the
  *                      OTA has pulled Helm's export within 24 hours
- *                      (ical_export_pulls, matched by channel_guess)
+ *                      (ical_export_pulls, matched by channel_guess; an
+ *                      'other' row has no user-agent signature, so it is
+ *                      matched to the pulls the guess could not classify)
  *   no_double_bookings findDoubleBookings over the home's canonical stays is
  *                      empty
  *   cleaner_recipient  an ENABLED cleaner_schedule_recipients row covers the
@@ -70,6 +72,11 @@ export type CutoverFeedFact = {
 export type CutoverPullFact = {
   channel_guess: string | null;
   pulled_at: string;
+  /** The channel the pulled URL named (for= or listing=); null for a bare URL. */
+  requested_for?: string | null;
+  /** The user agent's own guess. When it names another OTA than the URL
+   *  did, the wrong line was pasted into that OTA. */
+  ua_guess?: string | null;
 };
 
 export type CutoverRecipientFact = {
@@ -296,19 +303,30 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       const name = channelName(f.channel);
       const pull = latestPullFor(facts.pulls, f.channel);
       const pullAge = hoursSince(pull?.pulled_at, now);
+      // 'other' is any feed whose user agent guessChannelFromUserAgent cannot
+      // name, so its evidence is a pull with no channel guess; say so.
+      const unclassified = isUnclassifiedChannel(f.channel);
       if (!f.export_subscribed) {
         problems.push(`${name}: export not ticked as subscribed`);
         continue;
       }
       if (pullAge == null) {
-        problems.push(`${name}: never pulled Helm's export`);
+        problems.push(
+          unclassified
+            ? `${name}: never pulled its own export line (the hub's ?listing= URL for this feed)`
+            : `${name}: never pulled Helm's export`,
+        );
+        continue;
+      }
+      if (pull?.requested_for && pull.ua_guess && pull.requested_for !== pull.ua_guess) {
+        problems.push(`${name} is importing the ${channelName(pull.requested_for)} line; paste ${name}'s own line from the hub`);
         continue;
       }
       if (pullAge > PULL_FRESH_HOURS) {
         problems.push(`${name}: last pull ${relativeAge(pull?.pulled_at, now)}, older than ${PULL_FRESH_HOURS}h`);
         continue;
       }
-      fine.push(`${name} pulled ${relativeAge(pull?.pulled_at, now)}`);
+      fine.push(`${name} pulled ${relativeAge(pull?.pulled_at, now)}${unclassified ? ' (its own listing line)' : ''}`);
     }
     checks.push({
       key: 'export_subscribed',
@@ -387,11 +405,29 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
   return { ok: failing.length === 0, checks, dataOk, failing };
 }
 
-/** The most recent pull that the user agent says came from this channel. */
+/** The channel_listings channel with no user-agent signature: any OTA that is
+ * not Airbnb, VRBO or Booking.com. Its pulls are credited 'other' only when
+ * it imports its own ?listing= line from the hub. */
+export function isUnclassifiedChannel(channel: string): boolean {
+  return String(channel ?? '').toLowerCase() === 'other';
+}
+
+/**
+ * The most recent pull credited to this channel. For 'other' that is a pull
+ * of the feed's own ?listing= line (credited 'other' by the route); a
+ * bare-URL pull with no guess never counts, because that feed would carry
+ * the platform's own holds back to it. A null guess never counts for a
+ * named OTA either.
+ */
 export function latestPullFor(pulls: readonly CutoverPullFact[], channel: string): CutoverPullFact | null {
+  const unclassified = isUnclassifiedChannel(channel);
   let best: CutoverPullFact | null = null;
   for (const p of pulls) {
-    if (p.channel_guess !== channel) continue;
+    // An 'other' platform counts only once it pulls its own ?listing= line
+    // (credited 'other'). A bare-URL pull (no guess) would feed it its own
+    // holds back, which is the stuck-block loop the per-listing URL prevents.
+    const matches = unclassified ? p.channel_guess === 'other' : p.channel_guess === channel;
+    if (!matches) continue;
     if (!best || p.pulled_at > best.pulled_at) best = p;
   }
   return best;
@@ -450,7 +486,7 @@ export async function loadCutoverFacts(
       .order('channel'),
     supabaseAdmin
       .from('ical_export_pulls')
-      .select('channel_guess, pulled_at')
+      .select('channel_guess, pulled_at, requested_for, ua_guess')
       .eq('property_id', propertyId)
       .gte('pulled_at', pullsSince)
       .order('pulled_at', { ascending: false })
@@ -519,7 +555,9 @@ export async function loadCutoverFacts(
       export_subscribed: !!f.export_subscribed,
       export_subscribed_at: (f.export_subscribed_at as string | null) ?? null,
     })),
-    pulls: ((pullsRes.data ?? []) as Array<{ channel_guess: string | null; pulled_at: string }>).map((p) => ({
+    pulls: ((pullsRes.data ?? []) as Array<{ channel_guess: string | null; pulled_at: string; requested_for?: string | null; ua_guess?: string | null }>).map((p) => ({
+      requested_for: p.requested_for ?? null,
+      ua_guess: p.ua_guess ?? null,
       channel_guess: p.channel_guess ?? null,
       pulled_at: p.pulled_at,
     })),

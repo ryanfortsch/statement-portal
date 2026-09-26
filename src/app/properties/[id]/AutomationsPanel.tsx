@@ -103,7 +103,10 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
           </div>
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4, lineHeight: 1.5 }}>
             {helmRun ? (
-              <>Helm runs this calendar, so Helm may message its guests. Turning this off cancels anything still scheduled.</>
+              <>
+                Helm runs this calendar, so Helm may message its guests. Turning this off pauses anything still scheduled; turning it
+                back on resumes it, re-timed.
+              </>
             ) : (
               <>
                 Requires Helm as the calendar authority. This home is still <span className="font-mono">{property.calendar_authority}</span>-run,
@@ -231,7 +234,9 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
             pending={pending}
             busy={busy}
             onApprove={() =>
-              run(`ap:${s.id}`, () => approveSendAction(propertyId, s.id, draft[s.id] && draft[s.id] !== s.body_rendered ? draft[s.id] : null))
+              // The draft is the TEMPLATE (merge fields intact), never the
+              // masked render: an unchanged draft sends the rule's own body.
+              run(`ap:${s.id}`, () => approveSendAction(propertyId, s.id, draft[s.id] && draft[s.id] !== s.template_body ? draft[s.id] : null))
             }
             onSkip={() => run(`sk:${s.id}`, () => skipSendAction(propertyId, s.id))}
           />
@@ -397,8 +402,11 @@ function SendRow({
 }) {
   const tone = s.status === 'awaiting_approval' ? 'signal' : s.status === 'sent' ? 'pos' : s.status === 'scheduled' || s.status === 'sending' ? 'muted' : s.status === 'failed' || s.status === 'skipped_no_contact' ? 'neg' : 'muted';
   const isOta = s.delivery_used === 'ota_manual';
-  const canEdit = s.status === 'awaiting_approval' && !isOta && !!onDraft;
-  const body = draft ?? s.body_rendered ?? '';
+  // Editing works on the rule's template, merge fields intact, so the door
+  // code fills at send time. The stored render is masked and is display only;
+  // a row whose rule is gone has no template and is approve-or-skip as is.
+  const canEdit = s.status === 'awaiting_approval' && !isOta && !!onDraft && s.template_body !== null;
+  const template = draft ?? s.template_body ?? '';
   return (
     <div style={{ padding: '12px 0', borderBottom: '1px solid var(--rule)' }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap', cursor: 'pointer' }} onClick={onOpen}>
@@ -417,13 +425,27 @@ function SendRow({
       {(open || s.status === 'awaiting_approval') && (
         <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.55 }}>
           {s.error && <div style={{ color: s.status === 'sent' ? 'var(--ink-3)' : 'var(--negative)', marginBottom: 6 }}>{s.error}</div>}
-          {s.missing_fields.length > 0 && <div style={{ color: 'var(--negative)', marginBottom: 6 }}>Missing: {s.missing_fields.join(', ')}. Fill the property record or edit the text.</div>}
+          {s.missing_fields.length > 0 && (
+            <div style={{ color: 'var(--negative)', marginBottom: 6 }}>
+              Missing: {s.missing_fields.join(', ')}. Fill the property record{canEdit ? ', or edit the template below to take the field out' : ''}.
+            </div>
+          )}
           {s.to_address && !isOta && <div style={{ color: 'var(--ink-4)', marginBottom: 6 }}>To {s.to_address}</div>}
           {s.subject_rendered && (s.delivery_used === 'email') && <div style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{s.subject_rendered}</div>}
-          {canEdit ? (
-            <textarea value={body} onChange={(e) => onDraft?.(e.target.value)} rows={4} style={{ ...inputStyle, width: '100%', fontFamily: 'inherit', lineHeight: 1.5 }} />
-          ) : (
-            <div style={{ color: 'var(--ink)', whiteSpace: 'pre-wrap', background: 'var(--paper-2)', padding: '8px 12px', borderLeft: '3px solid var(--rule)' }}>{s.body_rendered}</div>
+          <div style={{ color: 'var(--ink)', whiteSpace: 'pre-wrap', background: 'var(--paper-2)', padding: '8px 12px', borderLeft: '3px solid var(--rule)' }}>{s.body_rendered}</div>
+          {canEdit && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ color: 'var(--ink-4)', marginBottom: 4 }}>
+                Edit for this send only. Keep the merge fields: <span className="font-mono">{'{{door_code}}'}</span> and{' '}
+                <span className="font-mono">{'{{wifi_password}}'}</span> fill with the real value when it goes out.
+              </div>
+              <textarea
+                value={template}
+                onChange={(e) => onDraft?.(e.target.value)}
+                rows={4}
+                style={{ ...inputStyle, width: '100%', fontFamily: 'inherit', lineHeight: 1.5 }}
+              />
+            </div>
           )}
           {s.status === 'awaiting_approval' && (
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>

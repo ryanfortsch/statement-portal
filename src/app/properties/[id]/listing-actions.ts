@@ -1,7 +1,6 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { put } from '@vercel/blob';
 import { auth } from '@/auth';
 import { isServiceConfigured } from '@/lib/supabase-admin';
 import {
@@ -27,8 +26,9 @@ import {
 export type ListingFormState = { error: string | null; ok?: boolean; message?: string | null };
 export type ListingActionResult = { ok: true; message?: string } | { ok: false; error: string };
 
-const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
-const PHOTO_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+// Public Vercel Blob URLs read <store>.public.blob.vercel-storage.com/<path>.
+const BLOB_HOST_SUFFIX = '.blob.vercel-storage.com';
+const PROPERTY_ID = /^[a-z0-9_]{1,60}$/;
 
 const str = (fd: FormData, key: string): string => (fd.get(key) ?? '').toString().replace(/\r\n/g, '\n').trim();
 const textOrNull = (fd: FormData, key: string): string | null => str(fd, key) || null;
@@ -54,6 +54,28 @@ function safeUrl(raw: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** A public Vercel Blob URL inside this property's listings/ folder, or null.
+ *  The token route pins uploads to that folder; this is the same rule read
+ *  back, so the record action cannot file an arbitrary link as an upload. */
+function listingBlobUrl(raw: string, propertyId: string): string | null {
+  if (!PROPERTY_ID.test(propertyId)) return null;
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== 'https:') return null;
+    if (!u.hostname.endsWith(BLOB_HOST_SUFFIX)) return null;
+    if (!u.pathname.startsWith(`/listings/${propertyId}/`)) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** A positive whole pixel count, or null when the browser could not decode. */
+function dimension(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isInteger(n) && n > 0 && n <= 50000 ? n : null;
 }
 
 // ── Content ─────────────────────────────────────────────────────────────────
@@ -136,29 +158,35 @@ export async function addPhotoUrlAction(propertyId: string, input: { url: string
 }
 
 /**
- * Upload a file to Vercel Blob under listings/<property>/ and add it to the
- * gallery. Needs BLOB_READ_WRITE_TOKEN (Vercel injects it once a Blob store
- * is attached); without it the action says so instead of failing quietly.
+ * Record a photo the browser has already put on Vercel Blob. The bytes never
+ * come through here: ListingPanel.tsx uploads client-direct on a token from
+ * /api/blob/listing-photo (which pins the path to listings/<property>/,
+ * image types and 12 MB), then calls this with the URL Blob returned. A
+ * server action's body is capped at 4 MB (next.config.ts), so a file in the
+ * body was refused before any size message could run; only the URL, the
+ * caption and the pixel size travel this way.
  */
-export async function uploadPhotoAction(propertyId: string, fd: FormData): Promise<ListingActionResult> {
+export async function recordUploadedPhotoAction(
+  propertyId: string,
+  input: { url: string; caption?: string | null; width?: number | null; height?: number | null },
+): Promise<ListingActionResult> {
   const by = await actor();
   if (!by) return { ok: false, error: 'Not signed in' };
   if (!isServiceConfigured) return { ok: false, error: 'Service role not configured' };
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return { ok: false, error: 'Photo storage is not configured (BLOB_READ_WRITE_TOKEN). Add by URL instead.' };
-  const file = fd.get('file');
-  if (!(file instanceof File) || file.size === 0) return { ok: false, error: 'Pick a photo first.' };
-  if (!PHOTO_TYPES.has(file.type)) return { ok: false, error: `Unsupported type ${file.type || 'unknown'}; JPEG, PNG, WebP or HEIC.` };
-  if (file.size > MAX_PHOTO_BYTES) return { ok: false, error: 'Photo is over 12 MB.' };
-  const caption = (fd.get('caption') ?? '').toString().trim() || null;
+  const url = listingBlobUrl(String(input.url ?? ''), propertyId);
+  if (!url) return { ok: false, error: 'That URL is not a Blob upload for this property.' };
+  const caption = input.caption?.trim() || null;
   try {
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-    const blob = await put(`listings/${propertyId}/${Date.now()}.${ext}`, file, {
-      access: 'public',
-      addRandomSuffix: true,
-      contentType: file.type,
-    });
     const existing = await getListingPhotos(propertyId);
-    await upsertPhoto({ property_id: propertyId, url: blob.url, caption, source: 'helm', is_hero: existing.length === 0 });
+    await upsertPhoto({
+      property_id: propertyId,
+      url,
+      caption,
+      source: 'helm',
+      is_hero: existing.length === 0,
+      width: dimension(input.width),
+      height: dimension(input.height),
+    });
     revalidatePath(`/properties/${propertyId}`);
     return { ok: true, message: 'Photo uploaded.' };
   } catch (e) {

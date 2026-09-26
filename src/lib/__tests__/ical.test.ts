@@ -18,6 +18,10 @@ import {
   isBlockSummary,
   guessGuestNameFromIcal,
   isPlaceholderGuestName,
+  parseIcalTimestamp,
+  bookedAtForImport,
+  FEED_STAMP_SLACK_MS,
+  FIRST_IMPORT_BOOKED_AT_OFFSET_MS,
   type IcalEvent,
 } from '../ical.ts';
 
@@ -247,5 +251,81 @@ describe('isBlockSummary: the same hold test over a stored raw_summary', () => {
       assert.equal(classifyIcalEvent(ev(summary), channel), 'stay');
       assert.equal(isBlockSummary(summary), false);
     }
+  });
+});
+
+describe('CREATED and DTSTAMP: when a stay was booked, for bookings.booked_at', () => {
+  test('parseIcal exposes both as ISO timestamps, null when absent', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'UID:with-created@vrbo',
+      'DTSTAMP:20260926T140000Z',
+      'CREATED:20260702T183015Z',
+      'DTSTART;VALUE=DATE:20261010',
+      'DTEND;VALUE=DATE:20261014',
+      'SUMMARY:Reserved',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:bare@airbnb.com',
+      'DTSTART;VALUE=DATE:20261020',
+      'DTEND;VALUE=DATE:20261024',
+      'SUMMARY:Reserved',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const [a, b] = parseIcal(ics);
+    assert.equal(a.created, '2026-07-02T18:30:15.000Z');
+    assert.equal(a.dtstamp, '2026-09-26T14:00:00.000Z');
+    assert.equal(b.created, null);
+    assert.equal(b.dtstamp, null);
+  });
+
+  test('parseIcalTimestamp reads DATE-TIME with or without Z, and DATE', () => {
+    assert.equal(parseIcalTimestamp('20260921T120000Z'), '2026-09-21T12:00:00.000Z');
+    assert.equal(parseIcalTimestamp('20260921T120000'), '2026-09-21T12:00:00.000Z');
+    assert.equal(parseIcalTimestamp('20260921'), '2026-09-21T00:00:00.000Z');
+    assert.equal(parseIcalTimestamp(' 20260921T120000Z '), '2026-09-21T12:00:00.000Z');
+    assert.equal(parseIcalTimestamp('2026-09-21'), null);
+    assert.equal(parseIcalTimestamp('garbage'), null);
+    assert.equal(parseIcalTimestamp(''), null);
+    assert.equal(parseIcalTimestamp(null), null);
+  });
+
+  const FETCHED = new Date('2026-09-26T15:00:00Z');
+  const iso = (msAgo: number) => new Date(FETCHED.getTime() - msAgo).toISOString();
+
+  test('CREATED wins: that is the booking moment, first import or not', () => {
+    const created = '2026-07-02T18:30:15.000Z';
+    assert.equal(bookedAtForImport({ created, dtstamp: FETCHED.toISOString() }, { fetchedAt: FETCHED, firstImport: false }), created);
+    assert.equal(bookedAtForImport({ created, dtstamp: null }, { fetchedAt: FETCHED, firstImport: true }), created);
+  });
+
+  test('a CREATED after the fetch is clamped to the fetch', () => {
+    const future = new Date(FETCHED.getTime() + 3_600_000).toISOString();
+    assert.equal(bookedAtForImport({ created: future }, { fetchedAt: FETCHED, firstImport: false }), FETCHED.toISOString());
+  });
+
+  test('a DTSTAMP clearly older than the fetch is used', () => {
+    const old = iso(3 * 86_400_000);
+    assert.equal(bookedAtForImport({ created: null, dtstamp: old }, { fetchedAt: FETCHED, firstImport: false }), old);
+  });
+
+  test("a DTSTAMP at the fetch is the feed's generation time and says nothing", () => {
+    // Airbnb stamps every event with the moment it generated the calendar.
+    const genTime = iso(60_000);
+    assert.ok(FETCHED.getTime() - Date.parse(genTime) < FEED_STAMP_SLACK_MS);
+    assert.equal(bookedAtForImport({ dtstamp: genTime }, { fetchedAt: FETCHED, firstImport: false }), FETCHED.toISOString());
+  });
+
+  test("a listing's first import dates every stay 25 hours back, outside the 24-hour confirmation window", () => {
+    const bookedAt = bookedAtForImport({ dtstamp: iso(60_000) }, { fetchedAt: FETCHED, firstImport: true });
+    assert.equal(bookedAt, iso(FIRST_IMPORT_BOOKED_AT_OFFSET_MS));
+    assert.ok(FETCHED.getTime() - Date.parse(bookedAt) > 24 * 3_600_000);
+    assert.equal(bookedAtForImport({}, { fetchedAt: FETCHED, firstImport: true }), iso(25 * 3_600_000));
+  });
+
+  test('a new UID on a feed Helm already follows is booked now', () => {
+    assert.equal(bookedAtForImport({}, { fetchedAt: FETCHED, firstImport: false }), FETCHED.toISOString());
   });
 });

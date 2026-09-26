@@ -53,19 +53,43 @@ function backTarget(formData: FormData, anchor: string): string {
   return `${base}${anchor}`;
 }
 
+/** Append key=value to a '?a=b' query string (or start one). */
+function withParam(query: string, key: string, value: string): string {
+  return `${query ? `${query}&` : '?'}${key}=${encodeURIComponent(value)}`;
+}
+
+/** A digest exit, anchored on the digest that was acted on. The
+ *  /cleaner-messaging card is one card, #schedule-digest; the schedule
+ *  page has one section per region, #digest-<region>, so its forms post
+ *  a hidden region (none = Cape Ann, whose card always renders). The page
+ *  landing also carries region=<region> so the outcome notice renders in
+ *  that region's section, where the anchor puts the operator. */
+function digestLanding(base: typeof CARD | typeof PAGE, formData: FormData, query = ''): string {
+  if (base === CARD) return `${CARD}${query}#schedule-digest`;
+  const region = regionFrom(formData);
+  return `${PAGE}${withParam(query, 'region', region)}#digest-${region}`;
+}
+
+/** Digest exits for the shared actions: back=card lands on the card,
+ *  anything else on the schedule page (the backTarget rule). */
+function digestBack(formData: FormData, query = ''): string {
+  return digestLanding(String(formData.get('back') || '') === 'card' ? CARD : PAGE, formData, query);
+}
+
 // ─── digest card ──────────────────────────────────────────────────────
 
-/** Where an approval lands. The card is the default (it never posts
- *  `back`); the per-region cards on the schedule page post back=page. */
-function approveLanding(formData: FormData, anchor: string): string {
-  return `${String(formData.get('back') || '') === 'page' ? PAGE : CARD}${anchor}`;
+/** Where an approval lands. The card is the default (older card markup
+ *  never posted `back`); the per-region cards on the schedule page post
+ *  back=page and their region. */
+function approveLanding(formData: FormData, query: string): string {
+  return digestLanding(String(formData.get('back') || '') === 'page' ? PAGE : CARD, formData, query);
 }
 
 export async function approveAndSendDigest(formData: FormData): Promise<void> {
   const email = await requireEmail();
   const digestId = String(formData.get('digestId') || '');
   const body = String(formData.get('body') || '').trim();
-  if (!digestId || !body) redirect(approveLanding(formData, '?err=digest_empty#schedule-digest'));
+  if (!digestId || !body) redirect(approveLanding(formData, '?err=digest_empty'));
 
   // Staleness guard: if the operator did NOT edit the drafted text, send
   // the LIVE schedule composed right now, not the cron-time snapshot - an
@@ -99,14 +123,14 @@ export async function approveAndSendDigest(formData: FormData): Promise<void> {
   });
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  if (!res.ok) redirect(approveLanding(formData, `?err=${res.error}#schedule-digest`));
-  redirect(approveLanding(formData, `?sent=${res.sentCount}${res.failed.length ? `&failed=${res.failed.length}` : ''}#schedule-digest`));
+  if (!res.ok) redirect(approveLanding(formData, `?err=${res.error}`));
+  redirect(approveLanding(formData, `?sent=${res.sentCount}${res.failed.length ? `&failed=${res.failed.length}` : ''}`));
 }
 
 export async function sendDigestUpdate(formData: FormData): Promise<void> {
   const email = await requireEmail();
   const digestId = String(formData.get('digestId') || '');
-  if (!digestId) redirect(CARD_ANCHOR);
+  if (!digestId) redirect(digestBack(formData));
 
   // An update exists to carry CHANGED truth: sendDigest composes it fresh
   // per recipient (with the update marker and the row's note) and refuses
@@ -116,8 +140,8 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
   const res = await sendDigest(supabase, { digestId, operatorEmail: email, kind: 'update' });
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  if (!res.ok) redirect(backTarget(formData, `?err=${res.error}#schedule-digest`));
-  redirect(backTarget(formData, `?sent=${res.sentCount}#schedule-digest`));
+  if (!res.ok) redirect(digestBack(formData, `?err=${res.error}`));
+  redirect(digestBack(formData, `?sent=${res.sentCount}${res.failed.length ? `&failed=${res.failed.length}` : ''}`));
 }
 
 /** "Skip this day": nothing goes out and the card clears. Reversible with
@@ -128,7 +152,7 @@ export async function toggleAutosendAction(formData: FormData): Promise<void> {
   await setAutosend(supabase, String(formData.get('enabled') || '') === 'true', email);
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  redirect(backTarget(formData, '#schedule-digest'));
+  redirect(digestBack(formData));
 }
 
 export async function skipDigestAction(formData: FormData): Promise<void> {
@@ -143,13 +167,13 @@ export async function skipDigestAction(formData: FormData): Promise<void> {
   }
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  redirect(backTarget(formData, '?skipped=1#schedule-digest'));
+  redirect(digestBack(formData, '?skipped=1'));
 }
 
 export async function refreshDigestDraft(formData: FormData): Promise<void> {
   await requireEmail();
   const serviceDate = String(formData.get('serviceDate') || tomorrowET());
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) redirect(CARD_ANCHOR);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) redirect(digestBack(formData));
   // Refreshing the schedule must not silently discard a note already typed.
   const digestId = String(formData.get('digestId') || '');
   if (digestId) {
@@ -161,12 +185,12 @@ export async function refreshDigestDraft(formData: FormData): Promise<void> {
   try {
     await upsertDigestDraft(supabase, serviceDate, regionFrom(formData));
   } catch (err) {
-    if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
+    if (err instanceof ScheduleUnavailableError) redirect(digestBack(formData, '?err=schedule_unavailable'));
     throw err;
   }
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  redirect(backTarget(formData, '#schedule-digest'));
+  redirect(digestBack(formData));
 }
 
 /** The card's "Re-scan messages": a bounded mining pass so an agreement
@@ -188,13 +212,13 @@ export async function rescanMessagesAction(formData: FormData): Promise<void> {
     try {
       await upsertDigestDraft(supabase, serviceDate, regionFrom(formData));
     } catch (err) {
-      if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
+      if (err instanceof ScheduleUnavailableError) redirect(digestBack(formData, '?err=schedule_unavailable'));
       throw err;
     }
   }
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  redirect(backTarget(formData, '#schedule-digest'));
+  redirect(digestBack(formData));
 }
 
 /** Put a mined turnover note into tomorrow's message, or drop it. Nothing
@@ -205,7 +229,7 @@ export async function addTurnoverNoteAction(formData: FormData): Promise<void> {
   if (id) await decideTurnoverNote(supabase, id, 'added', email);
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  redirect(backTarget(formData, '#schedule-digest'));
+  redirect(digestBack(formData));
 }
 
 export async function dismissTurnoverNoteAction(formData: FormData): Promise<void> {
@@ -214,7 +238,7 @@ export async function dismissTurnoverNoteAction(formData: FormData): Promise<voi
   if (id) await decideTurnoverNote(supabase, id, 'dismissed', email);
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  redirect(backTarget(formData, '#schedule-digest'));
+  redirect(digestBack(formData));
 }
 
 export async function toggleRecipientAction(formData: FormData): Promise<void> {
@@ -412,7 +436,7 @@ export async function ensureTomorrowDraft(formData?: FormData): Promise<void> {
     await upsertDigestDraft(supabase, tomorrowET(), region);
   } catch (err) {
     if (err instanceof ScheduleUnavailableError && formData) {
-      redirect(backTarget(formData, `?err=schedule_unavailable#digest-${region}`));
+      redirect(digestBack(formData, '?err=schedule_unavailable'));
     }
     throw err;
   }
@@ -435,7 +459,9 @@ export async function ensureTomorrowDraft(formData?: FormData): Promise<void> {
  */
 export async function saveRecipientAction(formData: FormData): Promise<void> {
   await requireEmail();
-  const anchor = '#schedule-recipients';
+  // at=recipients: the outcome notice renders in the recipients section,
+  // where the anchor lands, not in the page head above the fold.
+  const anchor = '&at=recipients#schedule-recipients';
   const originalPhone = String(formData.get('originalPhone') || '').trim();
   const digits = normalizePhone(String(formData.get('phone') || ''));
   if (digits.length !== 10) redirect(`${PAGE}?err=bad_phone${anchor}`);
@@ -492,5 +518,5 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
   }
   revalidatePath(PAGE);
   revalidatePath(CARD);
-  redirect(`${PAGE}?saved=1${anchor}`);
+  redirect(`${PAGE}?saved=recipient${anchor}`);
 }

@@ -714,3 +714,85 @@ describe('pass four: an OTA block that echoes nights Helm already holds', () => 
     assert.equal(plan.clusters, 0);
   });
 });
+
+// A Helm-run home: every row comes from an independent OTA feed or from Helm
+// itself, so a date join across channels joins two different guests. The
+// adversarial review reproduced each case below against the planner: the
+// live stay became a duplicate of the cancelled one, vanished from the
+// export, the availability bridge and the booking writer's overlap check,
+// and the same nights could be sold twice.
+describe('Helm-run homes: a date join never crosses channels', () => {
+  const HELM_HOME = '65_calderwood';
+  const strict = { ...opts, strictChannelPropertyIds: new Set([HELM_HOME]) };
+  const VRBO_FEED = 'listing-vrbo';
+  const cancelledVrbo = (over: Partial<DedupRow> = {}) =>
+    row({
+      id: 'VS',
+      property_id: HELM_HOME,
+      channel: 'vrbo',
+      channel_listing_id: VRBO_FEED,
+      status: 'cancelled',
+      check_in: '2026-10-10',
+      check_out: '2026-10-14',
+      cancelled_at: '2026-10-01T00:00:00Z',
+      created_at: '2026-09-01T00:00:00Z',
+      ...over,
+    });
+
+  test('D2: an Airbnb stay filling a cancelled VRBO stay\'s nights stays canonical and live', () => {
+    const rows = [
+      cancelledVrbo(),
+      row({ id: 'AB', property_id: HELM_HOME, channel: 'airbnb', check_in: '2026-10-10', check_out: '2026-10-14', external_confirmation_code: 'HMABCDEF12', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    const plan = planDedupe(rows, strict);
+    assert.equal(canonicalOf(plan, 'AB'), 'AB');
+    assert.equal(canonicalOf(plan, 'VS'), 'VS');
+  });
+
+  test('D1/D3: a named VRBO stay filling a cancelled Airbnb stay\'s nights stays canonical', () => {
+    const rows = [
+      row({ id: 'AC', property_id: HELM_HOME, channel: 'airbnb', status: 'cancelled', check_in: '2026-10-10', check_out: '2026-10-14', cancelled_at: '2026-10-01T00:00:00Z' }),
+      row({ id: 'VN', property_id: HELM_HOME, channel: 'vrbo', channel_listing_id: VRBO_FEED, check_in: '2026-10-10', check_out: '2026-10-14', guest_name: 'Pat Doe', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    const plan = planDedupe(rows, strict);
+    assert.equal(canonicalOf(plan, 'VN'), 'VN');
+  });
+
+  test('E: a direct booking over a cancelled unnamed VRBO stay stays canonical, so the overlap check still sees it', () => {
+    const rows = [
+      cancelledVrbo(),
+      row({ id: 'SCA1', property_id: HELM_HOME, channel: 'direct', source: 'direct_booking', channel_listing_id: null, check_in: '2026-10-10', check_out: '2026-10-14', external_confirmation_code: 'HELM-7K2P9Q', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    const plan = planDedupe(rows, strict);
+    assert.equal(canonicalOf(plan, 'SCA1'), 'SCA1');
+  });
+
+  test('the one-day endpoint tolerance does not fuse across channels either', () => {
+    const rows = [
+      cancelledVrbo({ check_in: '2026-11-10', check_out: '2026-11-14' }),
+      row({ id: 'AB2', property_id: HELM_HOME, channel: 'airbnb', check_in: '2026-11-11', check_out: '2026-11-14', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    const plan = planDedupe(rows, strict);
+    assert.equal(canonicalOf(plan, 'AB2'), 'AB2');
+  });
+
+  test('the same stay seen by two sources on the same channel still joins on a Helm-run home', () => {
+    const rows = [
+      row({ id: 'feed', property_id: HELM_HOME, channel: 'airbnb', check_in: '2026-10-10', check_out: '2026-10-14', external_confirmation_code: 'HMSAME0001' }),
+      row({ id: 'legacy', property_id: HELM_HOME, channel: 'airbnb', source: 'guesty_legacy', channel_listing_id: null, check_in: '2026-10-10', check_out: '2026-10-14', guest_name: 'Sam Lee', created_at: '2026-08-02T00:00:00Z' }),
+    ];
+    const plan = planDedupe(rows, strict);
+    assert.equal(canonicalOf(plan, 'feed'), canonicalOf(plan, 'legacy'));
+  });
+
+  test('a Guesty-run home keeps today\'s joins: the same cross-channel pair on a non-strict property still fuses', () => {
+    const rows = [
+      cancelledVrbo({ property_id: '20_hammond' }),
+      row({ id: 'AB', property_id: '20_hammond', channel: 'airbnb', check_in: '2026-10-10', check_out: '2026-10-14', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    const withStrictElsewhere = planDedupe(rows, strict);
+    const withoutOption = planDedupe(rows, opts);
+    assert.equal(canonicalOf(withStrictElsewhere, 'AB'), canonicalOf(withoutOption, 'AB'));
+    assert.equal(canonicalOf(withStrictElsewhere, 'VS'), canonicalOf(withoutOption, 'VS'));
+  });
+});

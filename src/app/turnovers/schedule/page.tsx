@@ -72,6 +72,80 @@ function fmtDayHead(date: string, today: string): string {
   return base;
 }
 
+// ─── outcome notices ──────────────────────────────────────────────────
+// Every action in ./actions.ts lands back here with ?err=<code> or a
+// success param. A digest exit also carries region=<region> and a recipient
+// save at=recipients, so the notice renders in the section the anchor
+// scrolls to; everything else renders in the page head.
+
+const ERR_COPY: Record<string, string> = {
+  bad_time: 'That time did not parse - use HH:MM or "11am".',
+  bad_date: 'That date did not parse.',
+  nothing_set: 'Set a time or a date (or both) before saving.',
+  date_before_checkin: 'Checkout cannot land before check-in.',
+  bad_stay: 'That stay could not be read from the form.',
+  bad_phone: 'That phone did not parse - ten digits, US.',
+  bad_name: 'A recipient needs a display name.',
+  bad_property: 'One of those property ids is not in the registry.',
+  bad_region: 'That region is not in the registry.',
+  phone_taken: 'A recipient with that phone already exists.',
+  recipient_gone: 'That recipient no longer exists.',
+  save_failed: 'That did not save.',
+  proposal_gone: 'That proposal was already applied or dismissed.',
+  apply_failed: 'The proposal did not apply; the standing adjustment is unchanged.',
+  digest_empty: 'Nothing sent: that digest had no text.',
+  not_found: 'Nothing sent: that digest no longer exists.',
+  schedule_unavailable: 'The schedule could not be read, so nothing was drafted or sent.',
+  no_recipients: 'Nothing sent: that region has no enabled recipient.',
+  quo_unconfigured: 'Nothing sent: QUO_API_KEY is not set in this environment.',
+  all_failed: 'Nothing sent: Quo rejected every text. Try again.',
+  raced: 'That digest was already being sent (another tab or the evening send). This is the fresh state.',
+};
+
+type Notice = { tone: 'ok' | 'bad'; text: string };
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The outcome of a digest action (send, update, skip, draft). */
+function digestNotice(p: { err?: string; sent?: string; failed?: string; skipped?: string }): Notice | null {
+  if (p.err) return { tone: 'bad', text: ERR_COPY[p.err] ?? `Error: ${p.err}` };
+  if (p.sent != null) {
+    const sent = Math.max(0, Number(p.sent) || 0);
+    const failed = Math.max(0, Number(p.failed) || 0);
+    if (failed > 0) {
+      return {
+        tone: 'bad',
+        text: `Sent to ${plural(sent, 'recipient')}, but ${plural(failed, 'text')} did not go through. The digest still reads "sent"; check Quo for who missed it.`,
+      };
+    }
+    return { tone: 'ok', text: `Sent to ${plural(sent, 'recipient')}.` };
+  }
+  if (p.skipped) return { tone: 'ok', text: 'Skipped. Nothing goes out for this day.' };
+  return null;
+}
+
+/** The page-head outcome for everything that is not a digest or a recipient. */
+function headNotice(p: { err?: string; saved?: string; applied?: string; removed?: string; dismissed?: string }): Notice | null {
+  if (p.err) return { tone: 'bad', text: ERR_COPY[p.err] ?? `Error: ${p.err}` };
+  if (p.applied) return { tone: 'ok', text: 'Applied. The adjustment is live on the schedule and in the next digest.' };
+  if (p.removed) return { tone: 'ok', text: 'Adjustment removed. The stay is back to the booking times.' };
+  if (p.dismissed) return { tone: 'ok', text: 'Proposal dismissed.' };
+  if (p.saved) return { tone: 'ok', text: 'Saved.' };
+  return null;
+}
+
+function NoticeLine({ notice, style }: { notice: Notice | null; style?: React.CSSProperties }) {
+  if (!notice) return null;
+  return (
+    <div
+      role={notice.tone === 'bad' ? 'alert' : 'status'}
+      style={{ fontSize: 13, fontWeight: 600, color: notice.tone === 'bad' ? 'var(--signal)' : 'var(--positive)', ...style }}
+    >
+      {notice.text}
+    </div>
+  );
+}
+
 const inputStyle: React.CSSProperties = {
   fontSize: 13,
   fontFamily: 'var(--font-mono), monospace',
@@ -280,6 +354,20 @@ export default async function CheckoutSchedulePage({
   const sp = await searchParams;
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const err = first(sp.err);
+  // Where the outcome belongs: a region's digest section, the recipients
+  // section, or the page head (see the notice helpers above).
+  const noticeRegion = first(sp.region) || null;
+  const recipientNotice =
+    first(sp.at) === 'recipients'
+      ? err
+        ? ({ tone: 'bad', text: ERR_COPY[err] ?? `Error: ${err}` } satisfies Notice)
+        : first(sp.saved)
+          ? ({ tone: 'ok', text: 'Recipient saved.' } satisfies Notice)
+          : null
+      : null;
+  const regionNotice = noticeRegion
+    ? digestNotice({ err, sent: first(sp.sent), failed: first(sp.failed), skipped: first(sp.skipped) })
+    : null;
   const today = todayET();
 
   const [daysRes, recipients, digestsRes, proposalsRes, propsRes, vendorData] = await Promise.all([
@@ -359,6 +447,22 @@ export default async function CheckoutSchedulePage({
     vendorByDate.set(day.date, reconcileDay(day, vendorData.rows, vendorData.horizon, propNames));
   }
   const enabledRecipient = recipients.find((r) => r.enabled) ?? recipients[0];
+  // A digest or recipient outcome renders in its own section; the head
+  // takes the rest, and a digest outcome whose region card is not on the
+  // page any more (or an older link with no region) falls back to it.
+  const regionCardShown = !!noticeRegion && regionCards.some((c) => c.region === noticeRegion);
+  const pageNotice: Notice | null =
+    recipientNotice || regionCardShown
+      ? null
+      : (noticeRegion ? regionNotice : null) ??
+        headNotice({
+          err,
+          saved: first(sp.saved),
+          applied: first(sp.applied),
+          removed: first(sp.removed),
+          dismissed: first(sp.dismissed),
+        }) ??
+        digestNotice({ sent: first(sp.sent), failed: first(sp.failed), skipped: first(sp.skipped) });
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -386,25 +490,7 @@ export default async function CheckoutSchedulePage({
           Guesty bookings merged with everything Helm knows on top: late checkouts agreed in guest messaging, extensions
           that have not landed in Guesty yet, and your own adjustments. What you see here is exactly what Rosa&rsquo;s
           page and the daily digest text show.
-          {err && (
-            <div style={{ marginTop: 8, color: 'var(--signal)', fontWeight: 600 }}>
-              {err === 'bad_time' && 'That time did not parse - use HH:MM or "11am".'}
-              {err === 'bad_date' && 'That date did not parse.'}
-              {err === 'nothing_set' && 'Set a time or a date (or both) before saving.'}
-              {err === 'date_before_checkin' && 'Checkout cannot land before check-in.'}
-              {err === 'bad_phone' && 'That phone did not parse - ten digits, US.'}
-              {err === 'bad_name' && 'A recipient needs a display name.'}
-              {err === 'bad_property' && 'One of those property ids is not in the registry.'}
-              {err === 'bad_region' && 'That region is not in the registry.'}
-              {err === 'phone_taken' && 'A recipient with that phone already exists.'}
-              {err === 'recipient_gone' && 'That recipient no longer exists.'}
-              {err === 'save_failed' && 'The recipient did not save.'}
-              {err === 'schedule_unavailable' && 'The schedule could not be read, so nothing was drafted or sent.'}
-              {err === 'no_recipients' && 'That region has no enabled recipient.'}
-              {err === 'raced' && 'That digest was already being sent.'}
-              {!['bad_time', 'bad_date', 'nothing_set', 'date_before_checkin', 'bad_phone', 'bad_name', 'bad_property', 'bad_region', 'phone_taken', 'recipient_gone', 'save_failed', 'schedule_unavailable', 'no_recipients', 'raced'].includes(err) && `Error: ${err}`}
-            </div>
-          )}
+          <NoticeLine notice={pageNotice} style={{ marginTop: 8 }} />
         </div>
       </Section>
 
@@ -532,6 +618,7 @@ export default async function CheckoutSchedulePage({
             paddingBottom={12}
           >
             <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {region === noticeRegion && <NoticeLine notice={regionNotice} />}
               <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
                 {enabledHere.length === 0 ? (
                   <span>No enabled recipient in {regionLabel(region)}. Nothing can be sent here until one is added below.</span>
@@ -598,6 +685,7 @@ export default async function CheckoutSchedulePage({
                     <input type="hidden" name="body" value={digest.body} />
                     <input type="hidden" name="draftedBody" value={digest.body} />
                     <input type="hidden" name="note" value={digest.operator_note ?? ''} />
+                    <input type="hidden" name="region" value={region} />
                     <input type="hidden" name="back" value="page" />
                     <SubmitButton
                       label={`Send to ${enabledHere.map((r) => r.display_name).join(', ')}`}
@@ -609,6 +697,7 @@ export default async function CheckoutSchedulePage({
                 {digest && pending && (
                   <form action={skipDigestAction}>
                     <input type="hidden" name="digestId" value={digest.id} />
+                    <input type="hidden" name="region" value={region} />
                     <input type="hidden" name="back" value="page" />
                     <SubmitButton
                       label="Skip this day"
@@ -621,6 +710,7 @@ export default async function CheckoutSchedulePage({
                 {digest && sent && enabledHere.length > 0 && !preview.error && (
                   <form action={sendDigestUpdate}>
                     <input type="hidden" name="digestId" value={digest.id} />
+                    <input type="hidden" name="region" value={region} />
                     <input type="hidden" name="back" value="page" />
                     <SubmitButton
                       label="Send an update (schedule changed)"
@@ -638,6 +728,7 @@ export default async function CheckoutSchedulePage({
 
       <Section id="schedule-recipients" title="Who gets the daily text" eyebrow="Via Quo, after your approval" paddingTop={8} paddingBottom={12}>
         <div style={{ borderTop: '1px solid var(--ink)' }}>
+          <NoticeLine notice={recipientNotice} style={{ padding: '10px 0 0' }} />
           {recipients.length === 0 && (
             <div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '14px 0' }}>
               No recipients yet. Add one below.

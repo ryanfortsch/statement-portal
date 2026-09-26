@@ -34,6 +34,13 @@ export type ChannelListingEx = ChannelListing & {
   rates_managed_by: 'guesty' | 'pricelabs' | 'ota_ui' | 'helm';
   export_subscribed: boolean;
   export_subscribed_at: string | null;
+  /**
+   * The operator's release for the mass-cancel guard ("these cancellations
+   * are real"), stamped by acknowledgeMassCancel on the hub. The next sync
+   * of the listing skips the guard once and clears it, so a value here
+   * means a release is waiting for a sync to consume it.
+   */
+  mass_cancel_acknowledged_at: string | null;
 };
 
 /** Likewise for the bookings columns the plumbing added. */
@@ -72,6 +79,7 @@ export function shapeListing(raw: Record<string, unknown>): ChannelListingEx {
     rates_managed_by: (['guesty', 'pricelabs', 'ota_ui', 'helm'].includes(rm) ? rm : 'guesty') as ChannelListingEx['rates_managed_by'],
     export_subscribed: !!r.export_subscribed,
     export_subscribed_at: r.export_subscribed_at ?? null,
+    mass_cancel_acknowledged_at: r.mass_cancel_acknowledged_at ?? null,
   };
 }
 
@@ -351,16 +359,86 @@ export async function listEchoesOf(bookingId: string): Promise<BookingEx[]> {
   return data as BookingEx[];
 }
 
+/**
+ * The newest ical_sync_runs row of a listing, reduced to what the feed card
+ * reads. guard, bookings_deferred and bookings_reclassified arrived with the
+ * PMS plumbing migration; a run logged before it, or a database the
+ * migration has not reached, reads as no guard and zero counts.
+ */
+export type LastSyncRun = {
+  id: string;
+  started_at: string;
+  success: boolean | null;
+  error_message: string | null;
+  /** 'mass_cancel' when the run held its upcoming cancels instead of writing them. */
+  guard: string | null;
+  /** Upcoming rows missing from the feed that this run did not cancel (held or waiting a second look). */
+  bookings_deferred: number;
+  /** Rows the run re-read as holds rather than stays. */
+  bookings_reclassified: number;
+  bookings_cancelled: number;
+};
+
+function shapeLastRun(raw: Record<string, unknown> | null | undefined): LastSyncRun | null {
+  if (!raw || !raw.id) return null;
+  const n = (v: unknown) => {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : 0;
+  };
+  return {
+    id: String(raw.id),
+    started_at: String(raw.started_at ?? ''),
+    success: typeof raw.success === 'boolean' ? raw.success : null,
+    error_message: (raw.error_message as string | null) ?? null,
+    guard: typeof raw.guard === 'string' && raw.guard ? raw.guard : null,
+    bookings_deferred: n(raw.bookings_deferred),
+    bookings_reclassified: n(raw.bookings_reclassified),
+    bookings_cancelled: n(raw.bookings_cancelled),
+  };
+}
+
+/**
+ * Newest run per listing id. One small query per listing (a home carries a
+ * handful of channel rows) because PostgREST has no DISTINCT ON. select('*')
+ * rather than the named columns so a database the plumbing migration has not
+ * reached still answers, with the new columns simply absent. A failed read
+ * is a null run, never a throw: the feed card must render without its log.
+ */
+async function latestSyncRuns(listingIds: readonly string[]): Promise<Map<string, LastSyncRun | null>> {
+  const out = new Map<string, LastSyncRun | null>();
+  await Promise.all(
+    listingIds.map(async (id) => {
+      try {
+        const { data, error } = await supabase
+          .from('ical_sync_runs')
+          .select('*')
+          .eq('channel_listing_id', id)
+          .order('started_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        out.set(id, error ? null : shapeLastRun(data as Record<string, unknown> | null));
+      } catch {
+        out.set(id, null);
+      }
+    }),
+  );
+  return out;
+}
+
 export type FeedHealth = ChannelListingEx & {
   /** The OTA's most recent pull of Helm's export, when the user agent named this channel. */
   last_pull: ExportPull | null;
+  /** The newest sync run of this listing's import, or null when none has run (or the log is unreadable). */
+  last_run: LastSyncRun | null;
 };
 
 /**
- * Every channel_listings row of a property with its import state and the
- * last time that OTA pulled Helm's export. The pull is matched by the user
- * agent's channel guess; a pull the agent did not identify is not credited
- * to any channel (it shows on the hub as an anonymous pull instead).
+ * Every channel_listings row of a property with its import state, the last
+ * time that OTA pulled Helm's export, and its newest sync run. The pull is
+ * matched by the user agent's channel guess; a pull the agent did not
+ * identify is not credited to any channel (it shows on the hub as an
+ * anonymous pull instead). The run carries the mass-cancel guard and the
+ * deferred count the feed card renders.
  */
 export async function loadFeedHealth(propertyId: string): Promise<FeedHealth[]> {
   if (!isConfigured || !propertyId) return [];
@@ -369,12 +447,14 @@ export async function loadFeedHealth(propertyId: string): Promise<FeedHealth[]> 
     lastPullsByProperty([propertyId]),
   ]);
   if (error) throw new Error(`channel_listings ${propertyId}: ${error.message}`);
+  const listings = ((data ?? []) as Array<Record<string, unknown>>).map(shapeListing);
+  const runs = await latestSyncRuns(listings.map((l) => l.id));
   const propertyPulls = pulls.get(propertyId) ?? [];
-  return ((data ?? []) as Array<Record<string, unknown>>).map((raw) => {
-    const l = shapeListing(raw);
-    const last_pull = propertyPulls.find((p) => p.channel_guess === l.channel) ?? null;
-    return { ...l, last_pull };
-  });
+  return listings.map((l) => ({
+    ...l,
+    last_pull: propertyPulls.find((p) => p.channel_guess === l.channel) ?? null,
+    last_run: runs.get(l.id) ?? null,
+  }));
 }
 
 /** Pulls for a property the user agent did not attribute to a channel, newest first. */

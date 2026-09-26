@@ -7,6 +7,7 @@
  */
 
 import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from './supabase-admin';
+import { CHANNEL_LABELS, type BookingChannel } from './channels-types';
 import type {
   GuestContact,
   GuestSegment,
@@ -169,14 +170,21 @@ export type ContactStayLookup = {
 };
 
 /**
- * Past + upcoming stays for a contact. Helm-native first: the contact's
- * email finds the guests row (lower(trim) match) and every canonical booking
- * stamped with that guest_id. When that yields nothing, fall back to the
- * legacy guesty_reservations join on guesty_guest_id so history from before
- * the Helm-native ledger still shows.
+ * Past + upcoming stays for a contact, from both ledgers merged into one
+ * list. The Helm-native read: the contact's email finds the guests row
+ * (lower(trim) match) and every canonical booking stamped with that
+ * guest_id. The legacy read: guesty_reservations joined on guesty_guest_id,
+ * the history from before the Helm-native ledger.
+ *
+ * The two sources describe DIFFERENT stays, not the same stays twice: a
+ * returning guest with five Guesty stays who files one /book inquiry gets a
+ * guests row and one linked booking, and the five real stays must still
+ * show. So both reads run and mergeContactStays dedupes the overlap (a
+ * Guesty stay mirrored into bookings appears in both) by confirmation code,
+ * else by property + check-in, with the native row winning a collision.
  *
  * Accepts the old bare guesty_guest_id argument so existing callers keep
- * working; pass { email, guesty_guest_id } to get the Helm-native path.
+ * working; pass { email, guesty_guest_id } to get both ledgers.
  *
  * Joined to properties for the short name (e.g. "21 Horton"). Internal
  * Helm UI, so showing the property name is fine here even though it
@@ -189,10 +197,55 @@ export async function listContactStays(
   const input: ContactStayLookup =
     typeof lookup === 'string' || lookup == null ? { guesty_guest_id: lookup ?? null } : lookup;
 
-  const native = await listHelmContactStays(input.email);
-  if (native.length > 0) return native;
+  const [native, legacy] = await Promise.all([
+    listHelmContactStays(input.email),
+    listGuestyContactStays(input.guesty_guest_id),
+  ]);
+  return mergeContactStays(native, legacy);
+}
 
-  return listGuestyContactStays(input.guesty_guest_id);
+/**
+ * One list from the two ledgers. Pure. A stay is keyed by its confirmation
+ * code when it has one (bookings.external_confirmation_code and
+ * guesty_reservations.confirmation_code carry the same OTA code for a
+ * mirrored stay), else by `${property_id}|${check_in}`. On a collision the
+ * Helm-native row wins. Sorted by check_in descending, undated rows last.
+ */
+export function mergeContactStays(
+  native: readonly ContactStay[],
+  legacy: readonly ContactStay[],
+): ContactStay[] {
+  const seen = new Set<string>();
+  const out: ContactStay[] = [];
+  for (const stay of [...native, ...legacy]) {
+    const key = contactStayKey(stay);
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(stay);
+  }
+  return out.sort((a, b) => {
+    if (a.check_in === b.check_in) return 0;
+    if (a.check_in == null) return 1;
+    if (b.check_in == null) return -1;
+    return a.check_in < b.check_in ? 1 : -1;
+  });
+}
+
+function contactStayKey(stay: ContactStay): string | null {
+  const code = (stay.confirmation_code ?? '').trim().toUpperCase();
+  if (code) return `code:${code}`;
+  if (stay.property_id && stay.check_in) return `stay:${stay.property_id}|${stay.check_in}`;
+  return null;
+}
+
+/** bookings.channel is the enum token ('booking_com'); guesty_reservations
+ * carries the display label ('Booking.com'). The merged list shows one
+ * vocabulary, the label. */
+function channelLabelOf(channel: string | null): string | null {
+  if (!channel) return null;
+  return CHANNEL_LABELS[channel as BookingChannel] ?? channel;
 }
 
 /** bookings.guest_id via guests, matched by email. Empty when the contact
@@ -246,7 +299,7 @@ async function listHelmContactStays(email: string | null | undefined): Promise<C
         check_in: row.check_in,
         check_out: row.check_out,
         nights: row.nights,
-        channel: row.channel,
+        channel: channelLabelOf(row.channel),
         confirmation_code: row.external_confirmation_code,
         status: row.status,
       };

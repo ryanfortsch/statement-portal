@@ -62,6 +62,8 @@ async function handle(request: NextRequest) {
           planned: plan.planned,
           inserted: plan.inserted,
           retimed: plan.retimed,
+          resumed: plan.resumed,
+          queued: plan.queued,
           stale: plan.stale,
           superseded: plan.superseded,
           claimed: dispatch.claimed,

@@ -47,6 +47,9 @@ export type DedupRow = {
   // "Airbnb (Not available)"). Read through the injected isBlockSummary to
   // tell a hold a direct feed stored as confirmed from a stay.
   raw_summary: string | null;
+  // bookings.channel. Read only for a property named in
+  // strictChannelPropertyIds; optional so fixtures that predate it load.
+  channel?: string | null;
   // Enrichment fields: a deduped cluster pools these onto the canonical row,
   // since no single source has all of them (Airbnb/Guesty iCal lack the guest
   // name; the guesty_legacy backfill lacks the confirmation code, etc).
@@ -83,6 +86,20 @@ export type DedupOptions = {
    *  reason. Optional, default never: every caller and test that predates
    *  it sees exactly the old plan. */
   isBlockSummary?: (raw: string | null) => boolean;
+  /**
+   * Properties whose date joins must never cross channels: the homes Helm
+   * runs (properties.calendar_authority = 'helm'). There every row comes
+   * from an independent OTA feed or from Helm itself, so a VRBO stay and an
+   * Airbnb stay on the same dates are two guests, typically one freeing the
+   * nights and the other taking them. Joined, the live stay became a
+   * duplicate of the cancelled one and vanished from every reader that
+   * filters duplicate_of (the export, the availability bridge, the booking
+   * writer's overlap check), so the same nights could be sold twice. Guesty-
+   * run homes keep today's joins: Guesty relabels the same stay across its
+   * records often enough that a cross-channel join there is usually right.
+   * Absent: no property is strict (every existing caller and test).
+   */
+  strictChannelPropertyIds?: ReadonlySet<string>;
 };
 
 export type DedupPlan = {
@@ -509,6 +526,7 @@ function createdGap(a: DedupRow, b: DedupRow): number {
 export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
   const { isFromAggregateFeed, isPlaceholderGuestName: isPlaceholder } = opts;
   const isBlockSummary = opts.isBlockSummary ?? (() => false);
+  const strictChannels: ReadonlySet<string> = opts.strictChannelPropertyIds ?? new Set();
   /** A hold, by status or by what the feed called it. */
   const isBlockLike = (r: DedupRow): boolean =>
     r.status === 'block' || (r.source === 'ical_import' && isBlockSummary(r.raw_summary));
@@ -582,6 +600,9 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       // confirmed) are distinct calendar entities; only ever fold them in
       // by a shared id, never by a bare date overlap.
       if (isBlockLike(a) || isBlockLike(b)) return false;
+      // On a Helm-run home a date join never crosses channels: two channels,
+      // two guests (see DedupOptions.strictChannelPropertyIds).
+      if (strictChannels.has(a.property_id) && a.channel && b.channel && a.channel !== b.channel) return false;
       // Identical dates and nothing saying these are different people: one
       // stay, whatever the ids claim. Runs BEFORE conflictingIdentity,
       // because reissued Guesty ids are exactly what that guard mistakes

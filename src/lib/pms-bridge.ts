@@ -51,6 +51,7 @@ import { loadPricingBundle, type PricingBundle } from './property-rates.ts';
 import { buildAvailability, checkRange, nightHolds, type AvailabilityBooking, type HelmAvailabilityDay, type RangeCheck } from './availability.ts';
 import { isOpenOn } from './rental-periods.ts';
 import { getListingRecord, toScaListing, type ScaListing } from './listing-content.ts';
+import { EXPORT_FOR_CHANNELS, exportUrlFor, type ExportForChannel } from './ical-export.ts';
 import { channelLabel, helmConversationId, HELM_SMS_MODULE } from './helm-inbox-core.ts';
 import { toE164Phone } from './guests-identity-core.ts';
 import { isHelmCode, type BookingConflict } from './bookings-write-core.ts';
@@ -623,15 +624,34 @@ export async function resolveReservation(idOrCode: string): Promise<BookingEx | 
   return data[0] as BookingEx;
 }
 
+/**
+ * The one status under which a bookings row stops standing for its
+ * source_ref. A soft cancel (cancelReservationFromBridge, helm_cancel_booking)
+ * leaves source_ref on the row for history, but the row holds no nights, so
+ * it must never satisfy the create path's idempotency lookup: a retry on the
+ * same key (the site re-authorizing a card after a failed capture) has to
+ * re-price, re-check the holds and mint a fresh confirmed row, or another
+ * guest can book the nights while the caller believes it did.
+ */
+export const SOURCE_REF_RETIRED_STATUS = 'cancelled';
+
+/** Does this row still stand for its source_ref? Pure; the query below
+ * applies the same rule server-side so the oldest LIVE row wins. */
+export function sourceRefRowIsLive(row: { status: string | null | undefined }): boolean {
+  return String(row.status ?? '').toLowerCase() !== SOURCE_REF_RETIRED_STATUS;
+}
+
 async function findBySourceRef(sourceRef: string): Promise<BookingEx | null> {
   const { data, error } = await supabaseAdmin
     .from('bookings')
     .select('*')
     .eq('source_ref', sourceRef)
+    .neq('status', SOURCE_REF_RETIRED_STATUS)
     .order('created_at', { ascending: true })
     .limit(1);
   if (error || !data || data.length === 0) return null;
-  return data[0] as BookingEx;
+  const row = data[0] as BookingEx;
+  return sourceRefRowIsLive(row) ? row : null;
 }
 
 export type BridgeGuest = {
@@ -709,8 +729,10 @@ const centsToDollarsOrNull = (v: number | null | undefined): number | null => (v
 /**
  * Create a confirmed direct booking for a Helm-run home.
  *
- *   1. idempotent on bookings.source_ref: the same key returns the row it
- *      made before with created: false and never a second hold;
+ *   1. idempotent on bookings.source_ref: the same key returns the LIVE row
+ *      it made before with created: false and never a second hold. A row
+ *      since cancelled does not count (sourceRefRowIsLive): the retry runs
+ *      the whole path again and the cancelled row keeps its history;
  *   2. a quote_id is verified (410 expired, 400 tampered or for another
  *      stay), then the stay is re-priced and a changed total is
  *      'quote_drift' rather than a silently different charge;
@@ -1110,6 +1132,8 @@ export type BridgePropertyDescription = {
   listing: ScaListing | null;
   channels: BridgeChannelLink[];
   ical_export_url: string | null;
+  /** One URL per OTA; each leaves out that OTA's own rows (lib/ical-export.ts). */
+  ical_export_urls: Record<ExportForChannel, string> | null;
 };
 
 /** Where Helm lives, for absolute URLs handed to other services. */
@@ -1155,6 +1179,7 @@ export async function describePropertyForBridge(
     if (!(err instanceof TaxJurisdictionUnknownError)) throw err;
   }
 
+  const exportBase = property.ical_export_token ? `${helmOrigin()}/api/channels/ical/${property.ical_export_token}` : null;
   return {
     property_id: property.id,
     name: property.name,
@@ -1169,7 +1194,10 @@ export async function describePropertyForBridge(
     tax,
     listing: record ? toScaListing(record, bundle.plan) : null,
     channels: opts.channels ?? [],
-    ical_export_url: property.ical_export_token ? `${helmOrigin()}/api/channels/ical/${property.ical_export_token}` : null,
+    ical_export_url: exportBase,
+    ical_export_urls: exportBase
+      ? (Object.fromEntries(EXPORT_FOR_CHANNELS.map((ch) => [ch, exportUrlFor(exportBase, ch)])) as Record<ExportForChannel, string>)
+      : null,
   };
 }
 

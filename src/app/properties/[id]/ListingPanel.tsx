@@ -1,14 +1,15 @@
 'use client';
 
 import { useActionState, useRef, useState, useTransition } from 'react';
+import { upload } from '@vercel/blob/client';
 import {
   addPhotoUrlAction,
   deletePhotoAction,
   movePhotoAction,
+  recordUploadedPhotoAction,
   saveListingContentAction,
   setHeroAction,
   updatePhotoAction,
-  uploadPhotoAction,
   type ListingActionResult,
   type ListingFormState,
 } from './listing-actions';
@@ -56,7 +57,7 @@ export function ListingPanel({ propertyId, content, photos, rooms, bedSummaryTex
         Per-channel copy (Airbnb, Vrbo, Booking.com) is edited in each OTA until a push layer exists. Each field below says who reads it today.
         {content?.source === 'guesty_seed' && (
           <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
-            Seeded from Guesty listing <span className="font-mono">{content.source_ref}</span>; edits here make it Helm's.
+            Seeded from Guesty listing <span className="font-mono">{content.source_ref}</span>; edits here make it Helm&rsquo;s.
           </div>
         )}
       </div>
@@ -193,6 +194,74 @@ function Small({ name, label, defaultValue, placeholder, consumers, numeric }: {
 
 // ── Gallery ─────────────────────────────────────────────────────────────────
 
+// The photo goes browser to Vercel Blob on a token from this route, never
+// through a server action (their body is capped at 4 MB, next.config.ts).
+// The route enforces the same cap, types and listings/<property>/ folder;
+// the checks below only spare the operator a doomed upload.
+const PHOTO_UPLOAD_ROUTE = '/api/blob/listing-photo';
+const MAX_PHOTO_BYTES = 12 * 1024 * 1024;
+const PHOTO_EXT_BY_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+};
+const PHOTO_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif']);
+
+/** Extension for the Blob pathname, or null when the file is not a photo type
+ *  the token accepts. Some browsers hand HEIC over with an empty type, so the
+ *  file name decides then. */
+function photoExt(f: File): string | null {
+  const named = (f.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8);
+  if (f.type) {
+    const byType = PHOTO_EXT_BY_TYPE[f.type.toLowerCase()];
+    if (!byType) return null;
+    return PHOTO_EXTS.has(named) ? named : byType;
+  }
+  return PHOTO_EXTS.has(named) ? named : null;
+}
+
+/** Pixel size as the browser decodes it, or null (HEIC in Chrome, a corrupt
+ *  file). Never blocks the upload. */
+function readPixelSize(f: File): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    let objectUrl: string | null = null;
+    const done = (v: { width: number; height: number } | null) => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+      resolve(v);
+    };
+    try {
+      objectUrl = URL.createObjectURL(f);
+      const img = new Image();
+      const timer = window.setTimeout(() => done(null), 8000);
+      img.onload = () => {
+        window.clearTimeout(timer);
+        done(img.naturalWidth > 0 && img.naturalHeight > 0 ? { width: img.naturalWidth, height: img.naturalHeight } : null);
+      };
+      img.onerror = () => {
+        window.clearTimeout(timer);
+        done(null);
+      };
+      img.src = objectUrl;
+    } catch {
+      done(null);
+    }
+  });
+}
+
+/** The Blob client only says "Failed to retrieve the client token" whatever
+ *  the route answered, so name the likely causes instead of echoing that. */
+function uploadErrorText(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e ?? '');
+  if (/client token/i.test(raw)) {
+    return 'Helm could not open an upload for this photo (signed out, photo storage not configured, or the type or size was refused). Add by URL instead, or reload and retry.';
+  }
+  return raw ? `Upload failed: ${raw}` : 'Upload failed.';
+}
+
 function Gallery({ propertyId, photos, consumers }: { propertyId: string; photos: ListingPhotoRow[]; consumers: Record<string, string[]> }) {
   const [pending, start] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
@@ -201,13 +270,65 @@ function Gallery({ propertyId, photos, consumers }: { propertyId: string; photos
   const [urlCaption, setUrlCaption] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [fileCaption, setFileCaption] = useState('');
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
 
+  // A thrown action (deploy skew, a dropped connection) lands as a message
+  // here rather than escaping the transition to the page's error boundary.
   const run = (id: string, fn: () => Promise<ListingActionResult>) => {
     setBusy(id);
     start(async () => {
-      const r = await fn();
-      setMsg(r.ok ? (r.message ? { ok: true, text: r.message } : null) : { ok: false, text: r.error });
-      setBusy(null);
+      try {
+        const r = await fn();
+        setMsg(r.ok ? (r.message ? { ok: true, text: r.message } : null) : { ok: false, text: r.error });
+      } catch (e) {
+        setMsg({ ok: false, text: e instanceof Error && e.message ? e.message : 'That did not go through. Reload and try again.' });
+      } finally {
+        setBusy(null);
+      }
+    });
+  };
+
+  const uploadPhoto = (f: File) => {
+    const ext = photoExt(f);
+    if (!ext) {
+      setMsg({ ok: false, text: `Unsupported type ${f.type || f.name}; JPEG, PNG, WebP or HEIC.` });
+      return;
+    }
+    if (f.size > MAX_PHOTO_BYTES) {
+      setMsg({ ok: false, text: `Photo is ${(f.size / (1024 * 1024)).toFixed(1)} MB; the limit is 12 MB.` });
+      return;
+    }
+    const caption = fileCaption;
+    run('upload', async () => {
+      setUploadPct(0);
+      try {
+        const size = await readPixelSize(f);
+        let blobUrl: string;
+        try {
+          const put = await upload(`listings/${propertyId}/${Date.now()}.${ext}`, f, {
+            access: 'public',
+            handleUploadUrl: PHOTO_UPLOAD_ROUTE,
+            contentType: f.type || undefined,
+            onUploadProgress: (p) => setUploadPct(Math.round(p.percentage)),
+          });
+          blobUrl = put.url;
+        } catch (e) {
+          return { ok: false, error: uploadErrorText(e) };
+        }
+        const r = await recordUploadedPhotoAction(propertyId, {
+          url: blobUrl,
+          caption,
+          width: size?.width ?? null,
+          height: size?.height ?? null,
+        });
+        if (r.ok) {
+          if (fileRef.current) fileRef.current.value = '';
+          setFileCaption('');
+        }
+        return r;
+      } finally {
+        setUploadPct(null);
+      }
     });
   };
 
@@ -263,21 +384,15 @@ function Gallery({ propertyId, photos, consumers }: { propertyId: string; photos
                 setMsg({ ok: false, text: 'Pick a photo first.' });
                 return;
               }
-              const fd = new FormData();
-              fd.set('file', f);
-              fd.set('caption', fileCaption);
-              run('upload', async () => {
-                const r = await uploadPhotoAction(propertyId, fd);
-                if (r.ok) {
-                  if (fileRef.current) fileRef.current.value = '';
-                  setFileCaption('');
-                }
-                return r;
-              });
+              uploadPhoto(f);
             }}
             style={{ ...primaryBtn, alignSelf: 'flex-start', opacity: pending ? 0.6 : 1 }}
           >
-            {busy === 'upload' && pending ? 'Uploading…' : 'Upload to gallery'}
+            {busy === 'upload' && pending
+              ? uploadPct != null && uploadPct > 0 && uploadPct < 100
+                ? `Uploading ${uploadPct}%`
+                : 'Uploading…'
+              : 'Upload to gallery'}
           </button>
           <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Stored on Vercel Blob under listings/{propertyId}/. JPEG, PNG, WebP or HEIC, 12 MB max.</span>
         </div>

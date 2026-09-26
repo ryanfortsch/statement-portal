@@ -282,7 +282,15 @@ descriptors still name them.
   are status `block` with `hold_kind` (`owner` | `maintenance` | `ota` |
   `other`); `booked_at`, `created_by`, `cancel_reason`, `cancelled_by` and
   `source_ref` (quote id, Stripe payment_intent, SCA token) carry the
-  Helm-native provenance.
+  Helm-native provenance. Two iCal bookkeeping columns: `missing_since`
+  (the first sync that saw an imported row absent from its feed; a stay
+  cancels only on a later sync that still misses it, and the stamp clears
+  when the row reappears) and `echo_seen_at` (set once, at first import, on
+  an OTA hold whose nights Helm was already holding: an echo of Helm's own
+  export, never exported again; `src/lib/ical-echo.ts`). An unstamped OTA
+  hold is real (a Booking.com reservation, published as "CLOSED - Not
+  available", or an owner block set in an OTA app) and is exported to
+  every other channel.
 - **`property_calendar_days`**: the per-night day grid (holds, prices,
   availability) that the turnovers pipeline, Field packets, extension
   holds and the checkout schedule read. **Who writes it depends on

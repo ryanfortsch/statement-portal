@@ -33,7 +33,16 @@ import {
   templateHasSecret,
   triggerAppliesTo,
   zonedTimeToMs,
+  isFreshlyBooked,
+  isResumablePause,
+  overrideBodyProblem,
+  renderSubject,
+  resumableKeys,
+  sendKey,
+  DEFAULT_SUBJECT,
   MASK,
+  PAUSE_REASON_DISABLED_PREFIX,
+  PAUSE_REASON_SUPERSEDED,
   STALE_AFTER_MS,
   type AutomationBooking,
   type AutomationRule,
@@ -78,6 +87,7 @@ function booking(over: Partial<AutomationBooking> = {}): AutomationBooking {
     guest_id: over.guest_id ?? null,
     duplicate_of: over.duplicate_of ?? null,
     first_seen_at: over.first_seen_at ?? '2026-07-01T12:00:00Z',
+    booked_at: over.booked_at ?? null,
     external_confirmation_code: over.external_confirmation_code ?? null,
     num_guests: over.num_guests ?? 2,
   };
@@ -266,6 +276,72 @@ describe('renderTemplate', () => {
   });
 });
 
+describe('renderSubject', () => {
+  test('a secret in the subject reaches the wire only; the stored copy is masked', () => {
+    const r = renderSubject('Your door code {{door_code}} for {{property_title}}', {
+      door_code: '4321',
+      property_title: 'Stay at Black Rock Harbor',
+    });
+    assert.equal(r.text, 'Your door code 4321 for Stay at Black Rock Harbor');
+    assert.equal(r.masked, `Your door code ${MASK} for Stay at Black Rock Harbor`);
+    assert.ok(!r.masked.includes('4321'));
+    assert.deepEqual(r.missing, []);
+  });
+
+  test('the wifi password is masked in a subject too', () => {
+    const r = renderSubject('Wifi {{wifi_name}}: {{wifi_password}}', { wifi_name: 'HarborNet', wifi_password: 'tide2026' });
+    assert.equal(r.masked, `Wifi HarborNet: ${MASK}`);
+    assert.ok(!r.masked.includes('tide2026'));
+  });
+
+  test('a blank subject falls back to the default, rendered', () => {
+    assert.equal(renderSubject('   ', { property_title: 'Stay at Rocky Neck' }).text, 'A note about your stay at Stay at Rocky Neck');
+    assert.equal(renderSubject(null, { property_title: 'Stay at Rocky Neck' }).masked, 'A note about your stay at Stay at Rocky Neck');
+    assert.ok(DEFAULT_SUBJECT.includes('{{property_title}}'));
+  });
+});
+
+describe('overrideBodyProblem', () => {
+  const template = 'Door code: {{door_code}}. See you {{check_in_long}}.';
+  const ctx = { door_code: '4821', check_in_long: 'Friday, October 16' };
+
+  test('a draft edited from the MASKED render is refused, so the guest never gets the mask', () => {
+    const stored = renderTemplate(template, ctx).masked;
+    assert.equal(stored, `Door code: ${MASK}. See you Friday, October 16.`);
+    const edited = `${stored} Enjoy!`;
+    // Re-rendering the edited text finds no tokens, so without the guard it would go out verbatim.
+    const reRendered = renderTemplate(edited, ctx);
+    assert.deepEqual(reRendered.missing, []);
+    assert.ok(reRendered.text.includes(MASK));
+    const problem = overrideBodyProblem(edited);
+    assert.ok(problem);
+    assert.match(problem, /masked value/);
+  });
+
+  test('an unfilled [field] marker copied from the render is refused', () => {
+    const stored = renderTemplate('Hi {{guest_first}}, welcome.', { guest_first: '' }).masked;
+    assert.equal(stored, 'Hi [guest_first], welcome.');
+    const problem = overrideBodyProblem(stored);
+    assert.ok(problem);
+    assert.match(problem, /\[guest_first\]/);
+    assert.ok(overrideBodyProblem('Code [door_code] at the side door'));
+  });
+
+  test('a draft edited from the TEMPLATE passes and fills the real value at send time', () => {
+    const edited = `${template} Enjoy!`;
+    assert.equal(overrideBodyProblem(edited), null);
+    const r = renderTemplate(edited, ctx);
+    assert.equal(r.text, 'Door code: 4821. See you Friday, October 16. Enjoy!');
+    assert.equal(r.masked, `Door code: ${MASK}. See you Friday, October 16. Enjoy!`);
+  });
+
+  test('an operator\'s own bracketed words, and no draft at all, are fine', () => {
+    assert.equal(overrideBodyProblem('Parking [see map] and the [blue] door.'), null);
+    assert.equal(overrideBodyProblem(null), null);
+    assert.equal(overrideBodyProblem(''), null);
+  });
+});
+
 // ── Rails ────────────────────────────────────────────────────────────────
 
 describe('pickRail', () => {
@@ -365,6 +441,55 @@ describe('planAutomationSends', () => {
     assert.equal(rows[0].fire_at, now.toISOString());
   });
 
+  test('booked_at gate: a stay first seen now but booked days ago is not a new booking', () => {
+    const imported = booking({ id: 'imported', first_seen_at: '2026-07-10T11:00:00Z', booked_at: '2026-06-02T09:00:00Z' });
+    const bookedNow = booking({ id: 'booked-now', first_seen_at: '2026-07-10T11:00:00Z', booked_at: '2026-07-10T10:59:00Z' });
+    const unknown = booking({ id: 'unknown', first_seen_at: '2026-07-10T11:00:00Z', booked_at: null });
+    const rows = planAutomationSends({ bookings: [imported, bookedNow, unknown], rules: [confirm], plans: {}, adjustments: {}, now });
+    // No booked_at falls back to first sight.
+    assert.deepEqual(rows.map((r) => r.booking_id).sort(), ['booked-now', 'unknown']);
+    assert.equal(isFreshlyBooked(imported, now.getTime(), undefined), false);
+  });
+
+  test('enable-stamp gate: a stay already on the calendar when the switch went on is never confirmed', () => {
+    const before = booking({ id: 'before', first_seen_at: '2026-07-10T08:00:00Z' });
+    const after = booking({ id: 'after', first_seen_at: '2026-07-10T10:30:00Z' });
+    const enabledAt = { '65_calderwood': '2026-07-10T10:00:00Z' };
+    const rows = planAutomationSends({ bookings: [before, after], rules: [confirm], plans: {}, adjustments: {}, enabledAt, now });
+    assert.deepEqual(rows.map((r) => r.booking_id), ['after']);
+  });
+
+  test('enable-stamp gate reads an unknown stamp as "not yet", never "long ago"', () => {
+    const b = booking({ id: 'b', first_seen_at: '2026-07-10T10:30:00Z' });
+    const plan = (enabledAt: Record<string, string | null>) =>
+      planAutomationSends({ bookings: [b], rules: [confirm], plans: {}, adjustments: {}, enabledAt, now });
+    assert.deepEqual(plan({ '65_calderwood': null }), []);
+    assert.deepEqual(plan({}), []);
+    // Only booking_confirmed is gated: a pre_arrival rule still plans for the same stay.
+    const pre = planAutomationSends({ bookings: [b], rules: [rule({ id: 'f-pre' })], plans: {}, adjustments: {}, enabledAt: {}, now });
+    assert.equal(pre.length, 1);
+  });
+
+  test('both gates hold together: booked in the window AND first seen after the enable stamp', () => {
+    const enabledAt = { '65_calderwood': '2026-07-10T10:00:00Z' };
+    const ms = now.getTime();
+    assert.equal(isFreshlyBooked(booking({ first_seen_at: '2026-07-10T10:30:00Z', booked_at: '2026-07-10T10:29:00Z' }), ms, enabledAt), true);
+    assert.equal(isFreshlyBooked(booking({ first_seen_at: '2026-07-10T10:30:00Z', booked_at: '2026-07-01T10:29:00Z' }), ms, enabledAt), false);
+    assert.equal(isFreshlyBooked(booking({ first_seen_at: '2026-07-10T09:30:00Z', booked_at: '2026-07-10T09:29:00Z' }), ms, enabledAt), false);
+  });
+
+  test('a confirmation the engine paused skips the enable stamp an off/on just moved, never the booked window', () => {
+    const b = booking({ id: 'paused', first_seen_at: '2026-07-10T08:00:00Z' });
+    const enabledAt = { '65_calderwood': '2026-07-10T11:40:00Z' };
+    const resumable = new Set([sendKey('paused', 'f-conf')]);
+    const base = { bookings: [b], rules: [confirm], plans: {}, adjustments: {}, enabledAt, now };
+    assert.deepEqual(planAutomationSends(base), []);
+    assert.deepEqual(planAutomationSends({ ...base, resumable }).map((r) => r.booking_id), ['paused']);
+    // Booked three days ago: a pause never revives a stale confirmation.
+    const old = booking({ id: 'paused', first_seen_at: '2026-07-07T08:00:00Z' });
+    assert.deepEqual(planAutomationSends({ ...base, bookings: [old], resumable }), []);
+  });
+
   test('a cancelled or duplicate stay is never planned; min_nights filters', () => {
     const rows = planAutomationSends({
       bookings: [
@@ -447,6 +572,65 @@ describe('diffPlan', () => {
 
     const datesMoved: ExistingSend = { ...moved, status: 'skipped_dates_moved' };
     assert.equal(diffPlan(planned, [datesMoved]).updates[0]?.patch.status, 'scheduled');
+  });
+
+  const paused = (error: string | null): ExistingSend => ({
+    id: 'p',
+    booking_id: 'bk-1',
+    automation_id: 'f-pre',
+    fire_at: '2026-07-14T14:00:00.000Z',
+    status: 'cancelled',
+    error,
+    planned_check_in: '2026-07-15',
+    planned_check_out: '2026-07-18',
+  });
+
+  test('switching automations off then on resumes the paused rows, re-timed, guarded on the exact reason', () => {
+    const reason = `${PAUSE_REASON_DISABLED_PREFIX}dotti@risingtidestr.com`;
+    const d = diffPlan(planned, [paused(reason)]);
+    assert.equal(d.frozen, 0);
+    assert.equal(d.resumed, 1);
+    assert.equal(d.updates.length, 1);
+    assert.equal(d.updates[0].resumeFrom, reason);
+    assert.equal(d.updates[0].patch.status, 'scheduled');
+    assert.equal(d.updates[0].patch.error, null);
+    assert.equal(d.updates[0].patch.fire_at, '2026-07-14T14:00:00.000Z');
+  });
+
+  test('a row superseded by an override resumes when the rule applies again', () => {
+    const d = diffPlan(planned, [paused(PAUSE_REASON_SUPERSEDED)]);
+    assert.equal(d.resumed, 1);
+    assert.equal(d.updates[0].resumeFrom, PAUSE_REASON_SUPERSEDED);
+  });
+
+  test('an operator skip, a dead stay and an ordinary re-time are not resumes', () => {
+    assert.equal(diffPlan(planned, [paused('skipped by dotti@risingtidestr.com')]).frozen, 1);
+    assert.equal(diffPlan(planned, [paused(null)]).frozen, 1);
+    assert.equal(isResumablePause({ status: 'sent', error: PAUSE_REASON_SUPERSEDED }), false);
+    const retime = diffPlan(planned, [{ ...paused(null), status: 'scheduled', fire_at: '2026-07-13T14:00:00.000Z' }]);
+    assert.equal(retime.resumed, 0);
+    assert.equal(retime.updates[0].resumeFrom, null);
+  });
+
+  test('a paused row whose moment has passed resumes straight to skipped, never briefly scheduled', () => {
+    const late = planAutomationSends({
+      bookings: [booking()],
+      rules: [rule({ id: 'f-pre' })],
+      plans: {},
+      adjustments: {},
+      now: new Date('2026-07-16T12:00:00Z'),
+    });
+    const d = diffPlan(late, [paused(PAUSE_REASON_SUPERSEDED)]);
+    assert.equal(d.updates[0].patch.status, 'skipped_cancelled');
+  });
+
+  test('resumableKeys collects only the engine\'s own pauses', () => {
+    const keys = resumableKeys([
+      paused(PAUSE_REASON_SUPERSEDED),
+      { ...paused('skipped by x'), automation_id: 'f-other' },
+      { ...paused(`${PAUSE_REASON_DISABLED_PREFIX}x`), booking_id: 'bk-2' },
+    ]);
+    assert.deepEqual([...keys].sort(), [sendKey('bk-1', 'f-pre'), sendKey('bk-2', 'f-pre')]);
   });
 });
 

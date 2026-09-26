@@ -14,6 +14,12 @@
  * reserved night, while an owner block or a closed season is just not on
  * sale. Only a stay sets it; a block never does.
  *
+ * A block imported from an OTA's own feed (hold_kind 'ota') holds its
+ * nights here like any other block: it may be an echo of Helm's export, a
+ * Booking.com reservation (published as "CLOSED - Not available") or an
+ * owner block set in the Airbnb app, and a night nobody can tell is free
+ * is not sold. See nightHolds.
+ *
  * Pure: relative imports only, so node:test can load it
  * (src/lib/__tests__/availability.test.ts). The database edge is
  * property-rates.ts (loadPricingBundle) plus a canonical bookings read.
@@ -45,6 +51,8 @@ export type AvailabilityBooking = {
   check_in: string;
   check_out: string;
   duplicate_of?: string | null;
+  /** bookings.hold_kind; a block with 'ota' came from an OTA's feed. */
+  hold_kind?: string | null;
 };
 
 const STAY_STATUSES: ReadonlySet<string> = new Set(['confirmed', 'completed']);
@@ -63,7 +71,17 @@ export type BuildAvailabilityInput = {
   timeZone?: string;
 };
 
-/** Which canonical rows hold a night: reserved (a stay) or blocked (a hold). */
+/**
+ * Which canonical rows hold a night: reserved (a stay) or blocked (any
+ * hold). A block imported from an OTA's feed (hold_kind 'ota') holds its
+ * nights too, deliberately: it may be an echo of Helm's own export, but it
+ * may be a Booking.com reservation (its iCal publishes every closed night,
+ * bookings included, as "CLOSED - Not available") or an owner block set in
+ * the Airbnb app. Selling a night nobody can tell is free is the failure
+ * that costs a double booking; holding one that is free costs a few hours
+ * until the echo's source drops it. The export loop an echo could cause is
+ * closed in lib/ical-export.ts, not here.
+ */
 export function nightHolds(bookings: readonly AvailabilityBooking[]): {
   reserved: Set<string>;
   blocked: Set<string>;

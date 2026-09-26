@@ -17,13 +17,16 @@ import {
   guessGuestNameFromIcal,
   isPlaceholderGuestName,
   airbnbConfirmationCode,
+  bookedAtForImport,
+  type IcalEvent,
 } from '@/lib/ical';
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
-import { planCancelPass, type CancelGuard } from '@/lib/ical-cancel-policy';
-import { loadAggregateFeedPropertyIds, hasAggregateFeed } from '@/lib/pms-guards';
+import { ECHO_COVER_STATUSES, echoDecisionTargets, isEchoAtFirstSight, type EchoCover } from '@/lib/ical-echo';
+import { planCancelPass, keepsEmptyFeedGuardUp, type CancelGuard } from '@/lib/ical-cancel-policy';
+import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadHelmRunPropertyIds } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -45,20 +48,34 @@ export type SyncListingResult = {
   bookings_added: number;
   bookings_updated: number;
   /** Rows marked cancelled as stays or holds that left the feed (rolled-off
-   *  past rows, and upcoming rows missing two runs running). */
+   *  past rows, and upcoming rows observed missing on two separate runs at
+   *  least CANCEL_AFTER_MISSING_MS apart). */
   bookings_cancelled: number;
-  /** Upcoming rows missing this run but not yet long enough to cancel, plus
-   *  any the mass-cancel guard held. Nothing written for these. */
+  /** Upcoming rows missing this run but not yet observed missing long enough
+   *  to cancel, plus any the mass-cancel guard held. Only missing_since is
+   *  written for these (on the first observation). */
   bookings_deferred: number;
   /** Rows a direct feed had stored as confirmed whose summary was a hold,
    *  cancelled now as a reclassification (never a stay cancel). */
   bookings_reclassified: number;
-  /** 'mass_cancel' when too many upcoming rows vanished at once and the
+  /** 'mass_cancel' when too many upcoming stays vanished at once and the
    *  upcoming cancel set was held for review; null otherwise. */
   guard: CancelGuard;
+  /** True when the operator's release (mass_cancel_acknowledged_at) let a
+   *  set the guard would have held cancel this run. */
+  mass_cancel_released: boolean;
   error: string | null;
   duration_ms: number;
 };
+
+/** How long one feed fetch may take, body included. A hung OTA endpoint
+ *  used to hold the sequential listing loop until the cron function died at
+ *  maxDuration, and every listing after it went unsynced that beat. */
+export const FEED_FETCH_TIMEOUT_MS = 20_000;
+
+/** Ids per `.in('id', ...)` write, so a large cancel set never builds an
+ *  over-long request URL. */
+const ID_WRITE_CHUNK = 200;
 
 /** The columns the cancel pass reads off an existing ical_import row. */
 type ExistingRow = {
@@ -67,11 +84,11 @@ type ExistingRow = {
   status: string;
   check_in: string;
   check_out: string;
-  last_seen_at: string | null;
+  missing_since: string | null;
   raw_summary: string | null;
 };
 
-/** What the sync writes per event. booked_at is added on first sight only. */
+/** What the sync writes per event. booked_at is added on the insert only. */
 type UpsertRow = {
   property_id: string;
   channel_listing_id: string;
@@ -89,6 +106,9 @@ type UpsertRow = {
   raw_description: string | null;
   raw_url: string | null;
   last_seen_at: string;
+  /** Always null: the event is in the feed, so any earlier "first seen
+   *  missing" observation is void (lib/ical-cancel-policy rule 3). */
+  missing_since: null;
 };
 
 /**
@@ -97,6 +117,14 @@ type UpsertRow = {
  * `aggregateFeedPropertyIds` is the set of property ids that still carry an
  * active Guesty aggregate feed (loadAggregateFeedPropertyIds); syncAllListings
  * loads it once per run. Absent, it is loaded here.
+ *
+ * `massCancelAcknowledgedAt` is channel_listings.mass_cancel_acknowledged_at,
+ * the operator's release for the mass-cancel guard; syncAllListings passes
+ * the value it read with the listing. Absent (undefined), it is read here.
+ * A run that reaches the cancel pass consumes it: the guard is skipped for
+ * that one run and the stamp is cleared, so it never stands as an exemption
+ * for the next broken feed. A run that fails before the cancel pass leaves
+ * it for the next one.
  */
 export async function syncListing(opts: {
   listing_id: string;
@@ -105,6 +133,7 @@ export async function syncListing(opts: {
   display_name: string | null;
   ical_import_url: string;
   aggregateFeedPropertyIds?: Set<string>;
+  massCancelAcknowledgedAt?: string | null;
 }): Promise<SyncListingResult> {
   const startedAt = new Date();
   const sb = getServiceClient();
@@ -122,6 +151,7 @@ export async function syncListing(opts: {
     bookings_deferred: 0,
     bookings_reclassified: 0,
     guard: null,
+    mass_cancel_released: false,
     error: null,
     duration_ms: 0,
   };
@@ -131,15 +161,27 @@ export async function syncListing(opts: {
 
   try {
     // --- Fetch ---
-    const res = await fetch(opts.ical_import_url, {
-      headers: { Accept: 'text/calendar, text/plain;q=0.8, */*;q=0.5' },
-      cache: 'no-store',
-    });
-    httpStatus = res.status;
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} from ${maskUrl(opts.ical_import_url)}`);
+    // Bounded (FEED_FETCH_TIMEOUT_MS covers the body too): one hung OTA must
+    // not starve every later listing of the run.
+    let text: string;
+    try {
+      const res = await fetch(opts.ical_import_url, {
+        headers: { Accept: 'text/calendar, text/plain;q=0.8, */*;q=0.5' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(FEED_FETCH_TIMEOUT_MS),
+      });
+      httpStatus = res.status;
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} from ${maskUrl(opts.ical_import_url)}`);
+      }
+      text = await res.text();
+    } catch (err) {
+      const name = err && typeof err === 'object' && 'name' in err ? String((err as { name: unknown }).name) : '';
+      if (name === 'TimeoutError' || name === 'AbortError') {
+        throw new Error(`timed out after ${FEED_FETCH_TIMEOUT_MS / 1000}s fetching ${maskUrl(opts.ical_import_url)}`);
+      }
+      throw err;
     }
-    const text = await res.text();
     responseSize = text.length;
 
     // --- Parse ---
@@ -164,6 +206,8 @@ export async function syncListing(opts: {
     const aggregateFeeds = opts.aggregateFeedPropertyIds ?? (await loadAggregateFeedPropertyIds(sb));
     const dropDirectBlocks = !isGuestyFeed && hasAggregateFeed(aggregateFeeds, opts.property_id);
     const rows: UpsertRow[] = [];
+    // CREATED / DTSTAMP per uid, for booked_at on the rows that turn out new.
+    const stampsByUid = new Map<string, Pick<IcalEvent, 'created' | 'dtstamp'>>();
     for (const e of events) {
       const kind = classifyIcalEvent(e, opts.channel);
       if (kind === 'skip') continue;
@@ -204,34 +248,42 @@ export async function syncListing(opts: {
         raw_description: e.description,
         raw_url: e.url,
         last_seen_at: startedAt.toISOString(),
+        missing_since: null,
         // first_seen_at intentionally unset: the DB default applies on
         // insert, the upsert path below preserves the existing value on
         // update. booked_at is added on the insert set only, below.
       });
+      stampsByUid.set(e.uid, { created: e.created ?? null, dtstamp: e.dtstamp ?? null });
     }
 
     // --- Diff to count adds/updates/cancels ---
+    // Paged: cancelled rows are kept forever as history, so a busy listing
+    // outgrows PostgREST's silent 1000-row cap. A short read here would send
+    // live rows down the insert path (overcounting adds) and hide them from
+    // the cancel pass, so a stay past the cap could never cancel.
     const incomingUids = new Set(rows.map((r) => r.ical_uid));
-    const { data: existingData, error: existingErr } = await sb
-      .from('bookings')
-      .select('id, ical_uid, status, check_in, check_out, last_seen_at, raw_summary')
-      .eq('channel_listing_id', opts.listing_id)
-      .eq('source', 'ical_import');
-    if (existingErr) throw new Error(`select existing: ${existingErr.message}`);
-    const existing = (existingData ?? []) as ExistingRow[];
+    const existing = await selectAllPaged<ExistingRow>(
+      (from, to) =>
+        sb
+          .from('bookings')
+          .select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary')
+          .eq('channel_listing_id', opts.listing_id)
+          .eq('source', 'ical_import')
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'select existing' },
+    );
 
     const existingByUid = new Map<string, ExistingRow>(existing.map((r) => [r.ical_uid, r]));
 
-    let added = 0;
     let updated = 0;
     for (const row of rows) {
       const prior = existingByUid.get(row.ical_uid);
-      if (!prior) {
-        added += 1;
-      } else if (
-        prior.check_in !== row.check_in ||
-        prior.check_out !== row.check_out ||
-        prior.status !== row.status
+      if (
+        prior &&
+        (prior.check_in !== row.check_in ||
+          prior.check_out !== row.check_out ||
+          prior.status !== row.status)
       ) {
         updated += 1;
       }
@@ -262,9 +314,9 @@ export async function syncListing(opts: {
     // reads guesty_reservations, never bookings. The stays this still declines
     // to act on are the ones worth protecting: real upcoming reservations.
     const cutoff = startedAt.toISOString().slice(0, 10);
-    const liveExisting = existing.filter(
-      (r) => r.status !== 'cancelled' && String(r.check_out) >= cutoff,
-    );
+    // Stays only: a lifted hold that was the feed's last event must be able
+    // to cancel (lib/ical-cancel-policy keepsEmptyFeedGuardUp).
+    const liveExisting = existing.filter((r) => keepsEmptyFeedGuardUp(r, cutoff, isBlockSummary));
     if (rows.length === 0 && liveExisting.length > 0) {
       result.bookings_added = 0;
       result.bookings_updated = 0;
@@ -274,10 +326,16 @@ export async function syncListing(opts: {
     } else {
       // Anything previously imported but missing this run has disappeared.
       // planCancelPass (lib/ical-cancel-policy) decides what that means:
-      // a rolled-off past row and a hold stored as confirmed cancel now, an
-      // upcoming row only once it has been missing longer than one cron
-      // beat, and none of the upcoming set when too many vanish at once.
-      // Mark cancelled rather than delete, to keep history.
+      // a rolled-off past row and a hold stored as confirmed cancel now; an
+      // upcoming row is stamped missing_since on its first observed absence
+      // and cancels only on a later run that still misses it; and no upcoming
+      // stay cancels when too many vanish at once, unless the operator has
+      // released the guard. Mark cancelled rather than delete, to keep history.
+      // The operator's release, when one is waiting: skip the guard once.
+      const ackAt =
+        opts.massCancelAcknowledgedAt === undefined
+          ? await readMassCancelAck(sb, opts.listing_id)
+          : opts.massCancelAcknowledgedAt;
       const plan = planCancelPass({
         existing,
         incomingUids,
@@ -285,22 +343,63 @@ export async function syncListing(opts: {
         now: startedAt,
         todayIso: cutoff,
         isBlockSummary,
+        allowMassCancel: !!ackAt,
       });
 
+      // --- Echo decisions (lib/ical-echo) ---
+      // Taken before anything is written: an OTA hold seen for the first
+      // time, or one that came back to life or moved its dates, is judged
+      // against the rows Helm was exporting to that OTA. A failed read throws
+      // and fails this listing's run, so nothing is written unjudged and the
+      // next beat decides it; an echo inserted unstamped could, with a second
+      // one, hold nights closed on two OTAs forever.
+      const echoTargets = echoDecisionTargets(rows, existingByUid);
+      const echoUids = await decideEchoes(sb, opts.property_id, opts.listing_id, opts.channel, [
+        ...echoTargets.insert,
+        ...echoTargets.redecide,
+      ]);
+
       // --- Upsert ---
-      // Two writes, because PostgREST takes the column list from the first
-      // object: a row seen for the first time gets booked_at (first sight,
-      // never overwritten), a row already on file does not carry the key at
-      // all so its stamp stands.
-      const inserts = rows
-        .filter((r) => !existingByUid.has(r.ical_uid))
-        .map((r) => ({ ...r, booked_at: startedAt.toISOString() }));
+      // booked_at is written on a genuine insert and never again. PostgREST
+      // takes the column list from the first object, so rows already on
+      // file go in a separate write that does not carry the key at all.
+      // The insert itself is ON CONFLICT DO NOTHING: a row the listing read
+      // did not return can still exist under (channel, ical_uid) (its
+      // channel_listing_id was nulled when a feed row was deleted and
+      // re-added), and an upsert would overwrite its stamp. Whatever the
+      // insert did not create joins the update write instead.
+      const newRows = rows.filter((r) => !existingByUid.has(r.ical_uid));
       const updates = rows.filter((r) => existingByUid.has(r.ical_uid));
-      if (inserts.length > 0) {
-        const { error: insertErr } = await sb
+      let added = 0;
+      const reattachedHolds: string[] = [];
+      if (newRows.length > 0) {
+        const firstImport = existing.length === 0 && !(await hasSucceededBefore(sb, opts.listing_id));
+        // echo_seen_at rides every insert row (the stamp or null) so the
+        // column list is uniform; the update write below never carries it.
+        const inserts = newRows.map((r) => ({
+          ...r,
+          booked_at: bookedAtForImport(stampsByUid.get(r.ical_uid) ?? {}, { fetchedAt: startedAt, firstImport }),
+          echo_seen_at: echoUids.has(r.ical_uid) ? startedAt.toISOString() : null,
+        }));
+        const { data: insertedData, error: insertErr } = await sb
           .from('bookings')
-          .upsert(inserts, { onConflict: 'channel,ical_uid' });
-        if (insertErr) throw new Error(`upsert bookings (new): ${insertErr.message}`);
+          .upsert(inserts, { onConflict: 'channel,ical_uid', ignoreDuplicates: true })
+          .select('channel, ical_uid');
+        if (insertErr) throw new Error(`insert bookings (new): ${insertErr.message}`);
+        const created = new Set(
+          ((insertedData ?? []) as Array<{ channel: string; ical_uid: string }>).map((r) => `${r.channel}|${r.ical_uid}`),
+        );
+        for (const r of newRows) {
+          if (created.has(`${r.channel}|${r.ical_uid}`)) added += 1;
+          else {
+            updates.push(r);
+            updated += 1;
+            // Re-attached to this listing after its row was orphaned (the
+            // listing was deleted and re-added): judged as a first sight
+            // above, so write that verdict onto the row that exists.
+            if (r.status === 'block' && r.hold_kind === 'ota') reattachedHolds.push(r.ical_uid);
+          }
+        }
       }
       if (updates.length > 0) {
         const { error: upsertErr } = await sb
@@ -308,8 +407,44 @@ export async function syncListing(opts: {
           .upsert(updates, { onConflict: 'channel,ical_uid' });
         if (upsertErr) throw new Error(`upsert bookings: ${upsertErr.message}`);
       }
+      // A hold that came back to life or moved gets its verdict rewritten,
+      // either way: the old one described nights it no longer holds.
+      const restamp = echoTargets.redecide.filter((r) => echoUids.has(r.ical_uid)).map((r) => r.prior_id);
+      const unstamp = echoTargets.redecide.filter((r) => !echoUids.has(r.ical_uid)).map((r) => r.prior_id);
+      for (const ids of chunk(restamp, ID_WRITE_CHUNK)) {
+        const { error: e } = await sb.from('bookings').update({ echo_seen_at: startedAt.toISOString() }).in('id', ids);
+        if (e) throw new Error(`restamp echo: ${e.message}`);
+      }
+      for (const ids of chunk(unstamp, ID_WRITE_CHUNK)) {
+        const { error: e } = await sb.from('bookings').update({ echo_seen_at: null }).in('id', ids);
+        if (e) throw new Error(`unstamp echo: ${e.message}`);
+      }
+      for (const [uids, stamp] of [
+        [reattachedHolds.filter((u) => echoUids.has(u)), startedAt.toISOString()],
+        [reattachedHolds.filter((u) => !echoUids.has(u)), null],
+      ] as const) {
+        for (const part of chunk([...uids], ID_WRITE_CHUNK)) {
+          const { error: e } = await sb
+            .from('bookings')
+            .update({ echo_seen_at: stamp })
+            .eq('channel', opts.channel)
+            .in('ical_uid', part);
+          if (e) throw new Error(`reattached echo verdict: ${e.message}`);
+        }
+      }
 
-      if (plan.cancelNow.length > 0) {
+      // First observation of an absence: stamp it, so the next run that
+      // still misses the row can count a second look (rule 3). Only where
+      // unset, so a concurrent run cannot push an earlier stamp later.
+      for (const ids of chunk(plan.stampMissing, ID_WRITE_CHUNK)) {
+        const { error: stampErr } = await sb
+          .from('bookings')
+          .update({ missing_since: startedAt.toISOString() })
+          .in('id', ids)
+          .is('missing_since', null);
+        if (stampErr) throw new Error(`stamp missing: ${stampErr.message}`);
+      }
+      for (const ids of chunk(plan.cancelNow, ID_WRITE_CHUNK)) {
         const { error: cancelErr } = await sb
           .from('bookings')
           .update({
@@ -318,10 +453,10 @@ export async function syncListing(opts: {
             cancelled_by: 'ical-sync',
             cancel_reason: 'missing_from_feed',
           })
-          .in('id', plan.cancelNow);
+          .in('id', ids);
         if (cancelErr) throw new Error(`cancel bookings: ${cancelErr.message}`);
       }
-      if (plan.reclassified.length > 0) {
+      for (const ids of chunk(plan.reclassified, ID_WRITE_CHUNK)) {
         const { error: reclassErr } = await sb
           .from('bookings')
           .update({
@@ -330,7 +465,7 @@ export async function syncListing(opts: {
             cancelled_by: 'ical-sync',
             cancel_reason: 'reclassified_hold',
           })
-          .in('id', plan.reclassified);
+          .in('id', ids);
         if (reclassErr) throw new Error(`reclassify holds: ${reclassErr.message}`);
       }
 
@@ -340,12 +475,28 @@ export async function syncListing(opts: {
       result.bookings_deferred = plan.deferred.length;
       result.bookings_reclassified = plan.reclassified.length;
       result.guard = plan.guard;
+      result.mass_cancel_released = plan.released;
       if (plan.guard === 'mass_cancel') {
         const d = plan.guardDetail;
         result.success = false;
-        result.error = `mass-cancel guard: ${d.upcoming_missing} of ${d.upcoming_live} upcoming booking(s) vanished from the feed (threshold ${d.threshold}); held them and skipped the upcoming cancel pass (suspected transient or broken feed)`;
+        result.error = `mass-cancel guard: ${d.upcoming_missing} of ${d.upcoming_live} upcoming stay(s) vanished from the feed (threshold ${d.threshold}); held them and skipped the upcoming cancel pass (suspected transient or broken feed)`;
       } else {
         result.success = true;
+      }
+
+      // The release answered this run; consume it. Conditional on the value
+      // read, so a newer click made while this run was in flight survives
+      // for the next one.
+      if (ackAt) {
+        const { error: clearErr } = await sb
+          .from('channel_listings')
+          .update({ mass_cancel_acknowledged_at: null })
+          .eq('id', opts.listing_id)
+          .lte('mass_cancel_acknowledged_at', ackAt);
+        if (clearErr) {
+          result.success = false;
+          result.error = `mass-cancel release applied but its stamp could not be cleared: ${clearErr.message}`;
+        }
       }
     }
   } catch (err) {
@@ -371,6 +522,9 @@ export async function syncListing(opts: {
     // Every row this run marked cancelled, reclassified holds included; the
     // result splits them, the run log records what happened to the table.
     bookings_cancelled: result.bookings_cancelled + result.bookings_reclassified,
+    bookings_deferred: result.bookings_deferred,
+    bookings_reclassified: result.bookings_reclassified,
+    guard: result.guard,
     raw_response_size: responseSize,
   });
 
@@ -424,7 +578,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     const sb = getServiceClient();
     let q = sb
       .from('channel_listings')
-      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active');
+      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at');
     if (opts.onlyListingId) q = q.eq('id', opts.onlyListingId);
 
     const { data, error } = await q;
@@ -447,6 +601,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
         display_name: l.display_name as string | null,
         ical_import_url: l.ical_import_url as string,
         aggregateFeedPropertyIds,
+        massCancelAcknowledgedAt: (l.mass_cancel_acknowledged_at as string | null) ?? null,
       });
       results.push(r);
     }
@@ -531,7 +686,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },
@@ -564,7 +719,14 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     enrichPatches,
     clusters: clusterCount,
     duplicates: dupCount,
-  } = planDedupe(rows, { isFromAggregateFeed, isPlaceholderGuestName, isBlockSummary });
+  } = planDedupe(rows, {
+    isFromAggregateFeed,
+    isPlaceholderGuestName,
+    isBlockSummary,
+    // Helm-run homes: a date join never crosses channels. Empty on a failed
+    // read, which is today's behaviour everywhere.
+    strictChannelPropertyIds: await loadHelmRunPropertyIds(sb),
+  });
 
   // Write only changed rows, batched by target value to minimize round trips.
   const loadedIds = new Set(rows.map((r) => r.id));
@@ -635,6 +797,81 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     enriched,
     skipped_unverifiable: skippedUnverifiable,
   };
+}
+
+/**
+ * The ical_uids, among `holds`, that are echoes of Helm's own export to
+ * `channel` (lib/ical-echo.ts). Throws on a failed read, so the caller's run
+ * fails before writing anything: a hold is never inserted unjudged.
+ */
+async function decideEchoes(
+  sb: SupabaseClient,
+  propertyId: string,
+  listingId: string,
+  channel: string,
+  holds: ReadonlyArray<{ ical_uid: string; check_in: string; check_out: string }>,
+): Promise<Set<string>> {
+  if (holds.length === 0) return new Set();
+  const from = holds.reduce((m, r) => (r.check_in < m ? r.check_in : m), holds[0].check_in);
+  const to = holds.reduce((m, r) => (r.check_out > m ? r.check_out : m), holds[0].check_out);
+  const covers = await selectAllPaged<EchoCover>(
+    (lo, hi) =>
+      sb
+        .from('bookings')
+        .select('status, check_in, check_out, duplicate_of, source, channel_listing_id, channel, hold_kind, echo_seen_at')
+        .eq('property_id', propertyId)
+        .in('status', [...ECHO_COVER_STATUSES])
+        .is('duplicate_of', null)
+        .lt('check_in', to)
+        .gt('check_out', from)
+        .order('id', { ascending: true })
+        .range(lo, hi),
+    { label: 'echo covers' },
+  );
+  const out = new Set<string>();
+  for (const h of holds) {
+    if (isEchoAtFirstSight({ check_in: h.check_in, check_out: h.check_out, channel, channel_listing_id: listingId }, covers)) {
+      out.add(h.ical_uid);
+    }
+  }
+  return out;
+}
+
+/** channel_listings.mass_cancel_acknowledged_at for one listing; null on a
+ *  failed read, so a read error never releases the guard. */
+async function readMassCancelAck(sb: SupabaseClient, listingId: string): Promise<string | null> {
+  const { data, error } = await sb
+    .from('channel_listings')
+    .select('mass_cancel_acknowledged_at')
+    .eq('id', listingId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return ((data as { mass_cancel_acknowledged_at?: string | null }).mass_cancel_acknowledged_at as string | null) ?? null;
+}
+
+/**
+ * Has this listing ever completed a successful import? A listing with no
+ * rows on file AND no successful run is on its first import, where every
+ * stay already on the calendar is new to Helm but not newly booked
+ * (bookedAtForImport). A listing that imported an empty calendar before is
+ * not: its next new UID really is a new booking. A failed read answers
+ * false, the side that keeps nine stale "new booking" texts from going out.
+ */
+async function hasSucceededBefore(sb: SupabaseClient, listingId: string): Promise<boolean> {
+  const { data, error } = await sb
+    .from('ical_sync_runs')
+    .select('id')
+    .eq('channel_listing_id', listingId)
+    .eq('success', true)
+    .limit(1);
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
 }
 
 function nightsBetween(checkIn: string, checkOut: string): number | null {

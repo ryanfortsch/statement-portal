@@ -27,6 +27,7 @@ import {
 import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
+import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 
 let _serviceSupabase: SupabaseClient | null = null;
 function serviceSupabase(): SupabaseClient {
@@ -1152,13 +1153,16 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     contactById.set(c.id, c);
   }
 
-  // An iCal-imported stay can carry no guest name (Airbnb's feed withholds
-  // it); the brief still needs a line for the stay, so it reads 'Guest'.
+  // bookings.channel is the enum token ('booking_com'); the brief and /today
+  // print the display label ('Booking.com'), the vocabulary the old
+  // guesty_reservations read handed them. An iCal-imported stay can carry no
+  // guest name (Airbnb's feed withholds it): the name stays null so the
+  // renderer hides the span rather than printing a placeholder.
   const toStay = (r: ReservationPick): BriefStay => ({
     propertyId: r.property_id,
     propertyName: propertyById.get(r.property_id) ?? r.property_id,
-    guestName: r.guest_name?.trim() || 'Guest',
-    channel: r.channel,
+    guestName: r.guest_name?.trim() || null,
+    channel: r.channel ? (CHANNEL_LABELS[r.channel as BookingChannel] ?? r.channel) : null,
     checkIn: r.check_in,
     checkOut: r.check_out,
   });

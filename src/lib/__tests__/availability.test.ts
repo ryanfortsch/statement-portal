@@ -6,7 +6,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAvailability, checkRange, type AvailabilityBooking } from '../availability.ts';
+import { buildAvailability, checkRange, nightHolds, type AvailabilityBooking } from '../availability.ts';
 import { rateDayMap, type RateDayRow, type RatePlanRow } from '../rate-plan.ts';
 import type { RentalPeriod } from '../rental-periods.ts';
 
@@ -209,5 +209,41 @@ describe('checkRange', () => {
   test('an empty or reversed range is not available', () => {
     assert.equal(checkRange(days, '2026-10-22', '2026-10-22').available, false);
     assert.equal(checkRange(days, '2026-10-23', '2026-10-22').available, false);
+  });
+});
+
+describe('a hold imported from an OTA feed holds its nights (fail closed)', () => {
+  // hold_kind 'ota': an OTA's own "Not available" / "Blocked" / "CLOSED".
+  // Maybe an echo of Helm's export, maybe a Booking.com reservation or an
+  // owner block set in the Airbnb app. A night nobody can tell is free is
+  // not sold.
+  const rows: AvailabilityBooking[] = [
+    { status: 'block', check_in: '2026-10-10', check_out: '2026-10-14', hold_kind: 'ota' },
+    { status: 'block', check_in: '2026-10-20', check_out: '2026-10-22', hold_kind: 'owner' },
+    { status: 'block', check_in: '2026-10-22', check_out: '2026-10-23', hold_kind: null },
+    { status: 'confirmed', check_in: '2026-10-30', check_out: '2026-11-01', hold_kind: 'ota' },
+  ];
+
+  test('nightHolds counts ota blocks as blocked like every other hold', () => {
+    const { reserved, blocked } = nightHolds(rows);
+    for (const iso of ['2026-10-10', '2026-10-11', '2026-10-12', '2026-10-13']) assert.equal(blocked.has(iso), true, iso);
+    assert.equal(blocked.has('2026-10-14'), false);
+    assert.deepEqual([...reserved].sort(), ['2026-10-30', '2026-10-31']);
+  });
+
+  test('a Booking.com reservation published as CLOSED keeps the nights off sale on Helm and staycapeann.com', () => {
+    const days = buildAvailability({
+      bookings: [{ status: 'block', check_in: '2026-10-10', check_out: '2026-10-14', hold_kind: 'ota' }],
+      plan,
+      rateDays: new Map(),
+      rentalPeriods: [],
+      start: '2026-10-10',
+      end: '2026-10-13',
+      now: NOW,
+    });
+    assert.deepEqual(days.map((d) => d.available), [false, false, false, false]);
+    // A hold, not a guest Helm knows of: never flagged reserved.
+    assert.deepEqual(days.map((d) => !!d.reserved), [false, false, false, false]);
+    assert.equal(checkRange(days, '2026-10-10', '2026-10-14').available, false);
   });
 });

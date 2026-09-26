@@ -8,15 +8,19 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   signQuote,
   verifyQuote,
   isQuoteId,
   bridgeStatus,
   ratePlanChannelFor,
+  sourceRefRowIsLive,
   toBridgePick,
   QUOTE_ID_PREFIX,
   QUOTE_TTL_SECONDS,
+  SOURCE_REF_RETIRED_STATUS,
   type QuotePayloadInput,
 } from '../pms-bridge.ts';
 
@@ -151,6 +155,35 @@ describe('ratePlanChannelFor', () => {
     assert.equal(ratePlanChannelFor('concierge'), 'direct');
     assert.equal(ratePlanChannelFor('direct'), 'direct');
     assert.equal(ratePlanChannelFor(undefined), 'sca');
+  });
+});
+
+describe('source_ref idempotency', () => {
+  test('a cancelled row no longer stands for its source_ref; every other status does', () => {
+    assert.equal(SOURCE_REF_RETIRED_STATUS, 'cancelled');
+    assert.equal(sourceRefRowIsLive({ status: 'cancelled' }), false);
+    assert.equal(sourceRefRowIsLive({ status: 'CANCELLED' }), false);
+    for (const status of ['confirmed', 'pending', 'inquiry', 'completed']) {
+      assert.equal(sourceRefRowIsLive({ status }), true, status);
+    }
+    // No status at all is not a cancel.
+    assert.equal(sourceRefRowIsLive({ status: null }), true);
+    assert.equal(sourceRefRowIsLive({ status: undefined }), true);
+  });
+
+  test('findBySourceRef excludes the retired status server-side, so a soft-cancelled row never answers a retry', () => {
+    // The guard is one line in a database query; this reads the source and
+    // asserts it is still there. Without it, the site re-authorizing a card
+    // after a failed capture gets ok:true, created:false against a row that
+    // holds no nights, and another guest can book them.
+    const src = readFileSync(join(import.meta.dirname, '..', 'pms-bridge.ts'), 'utf8');
+    const start = src.indexOf('async function findBySourceRef(');
+    assert.ok(start > 0, 'findBySourceRef is defined');
+    const end = src.indexOf('\n}\n', start);
+    const body = src.slice(start, end);
+    assert.match(body, /\.eq\('source_ref', sourceRef\)/);
+    assert.match(body, /\.neq\('status', SOURCE_REF_RETIRED_STATUS\)/);
+    assert.match(body, /sourceRefRowIsLive\(row\)/);
   });
 });
 

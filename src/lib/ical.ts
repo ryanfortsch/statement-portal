@@ -25,6 +25,13 @@ export type IcalEvent = {
   /** Exclusive check-out date, YYYY-MM-DD (matches iCal semantics). */
   dtend: string;
   cancelled: boolean;
+  /** The VEVENT's CREATED property as an ISO timestamp, when the feed
+   *  carries one and it parses. The booking moment, where an OTA says so. */
+  created?: string | null;
+  /** The VEVENT's DTSTAMP as an ISO timestamp, when it parses. Airbnb
+   *  stamps every event with the feed's generation time, so a reader must
+   *  not take this as the booking moment on its own: see bookedAtForImport. */
+  dtstamp?: string | null;
   /** Raw property -> first-occurrence value, for debugging unusual feeds. */
   raw: Record<string, string>;
 };
@@ -49,6 +56,8 @@ export function parseIcal(text: string): IcalEvent[] {
           dtstart: current.dtstart,
           dtend: current.dtend,
           cancelled: current.cancelled ?? false,
+          created: current.created ?? null,
+          dtstamp: current.dtstamp ?? null,
           raw: current.raw,
         });
       }
@@ -85,12 +94,81 @@ export function parseIcal(text: string): IcalEvent[] {
       case 'DTEND':
         current.dtend = parseIcalDate(rhs);
         break;
+      case 'CREATED':
+        current.created = parseIcalTimestamp(rhs);
+        break;
+      case 'DTSTAMP':
+        current.dtstamp = parseIcalTimestamp(rhs);
+        break;
       case 'STATUS':
         if (rhs.trim().toUpperCase() === 'CANCELLED') current.cancelled = true;
         break;
     }
   }
   return events;
+}
+
+/**
+ * An RFC 5545 DATE-TIME ("20260921T120000Z", "20260921T120000") or DATE
+ * ("20260921") as an ISO timestamp, or null when it is neither. A form
+ * with no Z is read as UTC: the OTA feeds stamp in UTC, and a TZID
+ * parameter (already stripped from the property name by the caller) is
+ * not honoured, which is at worst a few hours off on a value only ever
+ * compared against a 24-hour window.
+ */
+export function parseIcalTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const m = value.trim().match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?Z?)?$/);
+  if (!m) return null;
+  const [, yyyy, mm, dd, HH = '00', MM = '00', SS = '00'] = m;
+  const iso = `${yyyy}-${mm}-${dd}T${HH}:${MM}:${SS}Z`;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
+/**
+ * A DTSTAMP within this much of the fetch is the feed's generation time,
+ * not the moment the guest booked. Airbnb regenerates the whole calendar
+ * on every pull and stamps every event with that instant.
+ */
+export const FEED_STAMP_SLACK_MS = 60 * 60_000;
+
+/** How far before the fetch a stay met on a listing's first import is dated. */
+export const FIRST_IMPORT_BOOKED_AT_OFFSET_MS = 25 * 60 * 60_000;
+
+/**
+ * When a stay that just appeared in a feed was booked, for
+ * `bookings.booked_at` on insert. The automations gate booking_confirmed
+ * (and the cleaner's new-booking text) on this moment, so a wrong answer
+ * here is nine "new booking" texts for stays booked months ago.
+ *
+ *   1. CREATED, when the OTA publishes it: that is the booking moment.
+ *   2. DTSTAMP, only when it is clearly older than the fetch
+ *      (FEED_STAMP_SLACK_MS). A stamp at the fetch time is the feed being
+ *      generated, which says nothing about the booking.
+ *   3. On a listing's FIRST successful import (no rows on file for it),
+ *      the fetch time minus FIRST_IMPORT_BOOKED_AT_OFFSET_MS: every stay
+ *      already on the calendar is "seen now" but was booked earlier, and
+ *      25 hours puts each of them outside the 24-hour window.
+ *   4. Otherwise the fetch time: a UID new to a feed Helm already follows
+ *      appeared since the last run, within one cron beat.
+ *
+ * Only ever written on insert; the sync never overwrites a stored stamp.
+ */
+export function bookedAtForImport(
+  event: Pick<IcalEvent, 'created' | 'dtstamp'>,
+  opts: { fetchedAt: Date; firstImport: boolean },
+): string {
+  const fetched = opts.fetchedAt.getTime();
+  const created = event.created ? Date.parse(event.created) : NaN;
+  // A CREATED after the fetch is a clock the feed got wrong; the booking
+  // cannot postdate the moment Helm first saw it.
+  if (Number.isFinite(created)) return new Date(Math.min(created, fetched)).toISOString();
+  const stamp = event.dtstamp ? Date.parse(event.dtstamp) : NaN;
+  if (Number.isFinite(stamp) && fetched - stamp > FEED_STAMP_SLACK_MS) return new Date(stamp).toISOString();
+  if (opts.firstImport) return new Date(fetched - FIRST_IMPORT_BOOKED_AT_OFFSET_MS).toISOString();
+  return opts.fetchedAt.toISOString();
 }
 
 /**

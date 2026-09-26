@@ -16,6 +16,7 @@ import {
   type AutomationSendRow,
   type BookingEx,
   type FeedHealth,
+  type LastSyncRun,
 } from '@/lib/channels';
 import { evaluateCutoverPreflight, listPmsEvents, loadCutoverFacts, type CutoverCheck, type CutoverPreflight, type PmsEvent } from '@/lib/cutover';
 import { loadPricingBundle, type PricingBundle } from '@/lib/property-rates';
@@ -39,10 +40,11 @@ import {
   type Freshness,
 } from '@/lib/calendar-model';
 import { CHANNEL_LABELS, PRIMARY_CHANNELS, STATUS_LABELS, type BookingChannel } from '@/lib/channels-types';
+import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
 import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
 import { flipCalendarAuthorityAction } from './cutover-actions';
-import { syncOneListing, tickExportSubscribed } from '../listings/actions';
+import { acknowledgeMassCancel, syncOneListing, tickExportSubscribed } from '../listings/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -356,10 +358,25 @@ export default async function ChannelsPropertyPage({
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
           <div className="eyebrow" style={{ marginBottom: 14 }}>Helm → channels · the export every OTA should import</div>
           <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0' }}>
-            <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 12, maxWidth: 720, lineHeight: 1.55 }}>
-              Canonical confirmed, completed and block rows only, no guest names. Every pull is logged, and the last pull per OTA is the second dot on each channel row above. After the flip this feed is the only thing keeping Airbnb, VRBO and Booking.com from selling the same night twice.
+            <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, maxWidth: 720, lineHeight: 1.55 }}>
+              Give each OTA its own line. Its feed leaves out that OTA&rsquo;s own bookings and holds, so an owner block you lift in the Airbnb app never comes back to Airbnb from Helm, and a hold that only echoes Helm&rsquo;s own export goes to nobody. Canonical confirmed, completed and block rows only, no guest names. Every pull is logged; the last pull per OTA is the second dot on each channel row above. After the flip these feeds are the only thing keeping the OTAs from selling the same night twice.
             </p>
-            <CopyableUrl value={exportUrl} />
+            <div style={{ display: 'grid', gap: 10 }}>
+              {EXPORT_FOR_CHANNELS.map((ch) => (
+                <div key={ch} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', alignItems: 'center', gap: 12 }}>
+                  <span className="eyebrow" style={{ color: 'var(--ink-2)' }}>{CHANNEL_LABELS[ch]}</span>
+                  <CopyableUrl value={exportUrlFor(exportUrl, ch)} />
+                </div>
+              ))}
+              {feeds
+                .filter((f) => f.channel === 'other' && f.is_active)
+                .map((f) => (
+                  <div key={f.id} style={{ display: 'grid', gridTemplateColumns: '120px 1fr', alignItems: 'center', gap: 12 }}>
+                    <span className="eyebrow" style={{ color: 'var(--ink-2)' }}>{f.display_name || 'Other'}</span>
+                    <CopyableUrl value={exportUrlForListing(exportUrl, f.id)} />
+                  </div>
+                ))}
+            </div>
           </div>
         </section>
       )}
@@ -498,6 +515,21 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
   const label = CHANNEL_LABELS[channel as BookingChannel] ?? channel;
   const importState: Freshness = !feed || !feed.ical_import_url ? 'never' : feed.last_import_status === 'error' ? 'stale' : importFreshness(feed.last_imported_at, now);
   const pullState: Freshness = feed?.last_pull ? pullFreshness(feed.last_pull.pulled_at, now) : 'never';
+
+  // The newest sync run carries the cancel policy's verdict. A tripped
+  // mass-cancel guard gets the release alert; a plain deferral gets one quiet
+  // line. Both only for a feed the sync will actually visit, since the
+  // release runs a sync and a retired or unwired row would stamp and stall.
+  const lastRun = feed?.last_run ?? null;
+  const importable = !!feed && feed.is_active && feed.ical_import_enabled && !!feed.ical_import_url;
+  const guardTripped = importable && lastRun?.guard === 'mass_cancel';
+  const deferredCount = lastRun?.bookings_deferred ?? 0;
+  const showDeferred = importable && !guardTripped && deferredCount > 0;
+  // A release the operator stamped that no sync has consumed yet (the sync
+  // after it failed before reaching the cancel pass, say). The alert shows it
+  // while the guard is up; once a later run clears the guard it still waits.
+  const pendingRelease = !guardTripped ? feed?.mass_cancel_acknowledged_at ?? null : null;
+
   const subtitle = !feed
     ? 'not configured'
     : isDirect
@@ -506,6 +538,8 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
     ? `retired${feed.updated_at ? ` ${relativeAge(feed.updated_at, now)}` : ''}`
     : !feed.ical_import_url
     ? 'iCal URL not set'
+    : guardTripped && lastRun
+    ? `synced ${relativeAge(lastRun.started_at, now)} · ${feed.last_import_event_count ?? 0} events · cancels held`
     : feed.last_import_status === 'error'
     ? `error ${relativeAge(feed.last_imported_at, now)}: ${feed.last_import_error ?? 'unknown'}`
     : feed.last_imported_at
@@ -513,60 +547,126 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
     : 'configured · awaiting first sync';
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 220px 190px auto', gap: 14, padding: '13px 0', alignItems: 'baseline', borderBottom: '1px solid var(--rule)', opacity: feed && !feed.is_active ? 0.6 : 1 }}>
-      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ display: 'inline-block', width: 6, height: 18, background: channelColor(channel, false), transform: 'translateY(3px)' }} />
-        <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase' }}>{label}</span>
-      </span>
-      <span style={{ fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        {!isDirect && <Dot color={dotColor(importState)} title={`Helm import: ${importState}`} />}
-        <span>{subtitle}</span>
-        {feed?.external_listing_url && (
-          <a href={feed.external_listing_url} target="_blank" rel="noreferrer" style={{ color: 'var(--ink-3)', textDecoration: 'underline' }}>
-            open in {label} ↗
-          </a>
-        )}
-        {feed?.external_listing_id && <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>{feed.external_listing_id}</span>}
-        {feed && !isDirect && !isGuesty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>rates: {feed.rates_managed_by}</span>}
-      </span>
-      <span style={{ fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
-        {feed && !isDirect && !isGuesty ? (
-          <>
-            <Dot color={dotColor(pullState)} title={`OTA pull of Helm's export: ${pullState}`} />
-            <span>{feed.last_pull ? `pulled ${relativeAge(feed.last_pull.pulled_at, now)}` : helmRun ? 'never pulled Helm' : 'reads Guesty, not Helm'}</span>
-          </>
-        ) : (
-          <span style={{ color: 'var(--ink-4)' }}>-</span>
-        )}
-      </span>
-      <span style={{ fontSize: 11 }}>
-        {feed && !isDirect && !isGuesty ? (
-          <form action={tickExportSubscribed} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+    <div style={{ borderBottom: '1px solid var(--rule)', opacity: feed && !feed.is_active ? 0.6 : 1 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr 220px 190px auto', gap: 14, padding: '13px 0', alignItems: 'baseline' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ display: 'inline-block', width: 6, height: 18, background: channelColor(channel, false), transform: 'translateY(3px)' }} />
+          <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase' }}>{label}</span>
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          {!isDirect && <Dot color={dotColor(importState)} title={`Helm import: ${importState}`} />}
+          <span>{subtitle}</span>
+          {feed?.external_listing_url && (
+            <a href={feed.external_listing_url} target="_blank" rel="noreferrer" style={{ color: 'var(--ink-3)', textDecoration: 'underline' }}>
+              open in {label} ↗
+            </a>
+          )}
+          {feed?.external_listing_id && <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-4)' }}>{feed.external_listing_id}</span>}
+          {feed && !isDirect && !isGuesty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>rates: {feed.rates_managed_by}</span>}
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+          {feed && !isDirect && !isGuesty ? (
+            <>
+              <Dot color={dotColor(pullState)} title={`OTA pull of Helm's export: ${pullState}`} />
+              <span>{feed.last_pull ? `pulled ${relativeAge(feed.last_pull.pulled_at, now)}` : helmRun ? 'never pulled Helm' : 'reads Guesty, not Helm'}</span>
+            </>
+          ) : (
+            <span style={{ color: 'var(--ink-4)' }}>-</span>
+          )}
+        </span>
+        <span style={{ fontSize: 11 }}>
+          {feed && !isDirect && !isGuesty ? (
+            <form action={tickExportSubscribed} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+              <input type="hidden" name="id" value={feed.id} />
+              <input type="hidden" name="export_subscribed" value={feed.export_subscribed ? 'false' : 'true'} />
+              <SubmitButton
+                label={feed.export_subscribed ? '☑ imports Helm' : '☐ imports Helm'}
+                busyLabel="Saving…"
+                spinnerTone="ink"
+                style={{ ...linkButton, color: feed.export_subscribed ? 'var(--positive)' : 'var(--ink-3)' }}
+              />
+              {feed.export_subscribed && feed.export_subscribed_at && <span style={{ color: 'var(--ink-4)' }}>{feed.export_subscribed_at.slice(0, 10)}</span>}
+            </form>
+          ) : (
+            <span style={{ color: 'var(--ink-4)' }}>-</span>
+          )}
+        </span>
+        <span style={{ display: 'inline-flex', gap: 12, alignItems: 'baseline' }}>
+          {feed && feed.is_active && feed.ical_import_url && (
+            <form action={syncOneListing}>
+              <input type="hidden" name="id" value={feed.id} />
+              <SubmitButton label="sync" busyLabel="syncing…" spinnerTone="ink" style={linkButton} />
+            </form>
+          )}
+          <Link href="/channels/listings" style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'underline' }}>
+            wiring →
+          </Link>
+        </span>
+      </div>
+      {guardTripped && feed && lastRun && <MassCancelAlert feed={feed} run={lastRun} label={label} now={now} />}
+      {showDeferred && (
+        <p style={{ margin: '0 0 12px 164px', fontSize: 12, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <Dot color="var(--signal)" title="Missing from the feed on the last run" />
+          <span>
+            {deferredCount} cancellation{deferredCount === 1 ? '' : 's'} waiting for a second look
+          </span>
+          <span style={{ color: 'var(--ink-4)' }}>· an upcoming stay cancels only after two syncs in a row miss it</span>
+        </p>
+      )}
+      {pendingRelease && (
+        <p style={{ margin: '0 0 12px 164px', fontSize: 12, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <Dot color="var(--signal)" title="Mass-cancel release not yet applied" />
+          <span>Mass-cancel release stamped {relativeAge(pendingRelease, now)}, not yet applied</span>
+          <span style={{ color: 'var(--ink-4)' }}>· the next sync of this feed skips the guard once, then clears it</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The mass-cancel guard tripped on this feed's newest run: too many upcoming
+ * stays left the feed at once, so the cancel policy held every one of them
+ * (and keeps holding them; the same rows recount above the threshold on
+ * every later run). This is the one place a human releases the hold. The
+ * button stamps the listing and syncs it on the spot; while a stamp is
+ * waiting for a sync to consume it, the card says so instead of offering a
+ * second stamp.
+ */
+function MassCancelAlert({ feed, run, label, now }: { feed: FeedHealth; run: LastSyncRun; label: string; now: Date }) {
+  const held = run.bookings_deferred;
+  const pending = feed.mass_cancel_acknowledged_at;
+  return (
+    <div style={{ margin: '0 0 16px 164px', borderLeft: '3px solid var(--signal)', background: 'var(--paper-2)', padding: '16px 20px 18px' }}>
+      <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 8 }}>
+        Mass-cancel guard · tripped on the last sync, {relativeAge(run.started_at, now)}
+      </div>
+      <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', marginBottom: 8 }}>
+        {held > 0 ? `${held} upcoming stay${held === 1 ? ' is' : 's are'} being held.` : 'Upcoming stays are being held.'}
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 640, margin: '0 0 14px' }}>
+        Too many of this home&apos;s upcoming {label} stays left the feed at once. That pattern usually means the listing was paused or the feed broke, not that every guest cancelled, so Helm keeps the stays confirmed: they stay on the turnover rail and the cleaner schedule, and the export still shows those nights as Reserved to the other channels. The hold lasts until you release it or each stay&apos;s dates pass. Check the listing in {label} first.
+      </p>
+      {pending ? (
+        <p style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.5, margin: 0 }}>
+          Released {relativeAge(pending, now)}, not yet applied. The next sync of this feed cancels the held stays; use sync above to run it now.
+        </p>
+      ) : (
+        <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
+          <form action={acknowledgeMassCancel}>
             <input type="hidden" name="id" value={feed.id} />
-            <input type="hidden" name="export_subscribed" value={feed.export_subscribed ? 'false' : 'true'} />
             <SubmitButton
-              label={feed.export_subscribed ? '☑ imports Helm' : '☐ imports Helm'}
-              busyLabel="Saving…"
+              label="These cancellations are real"
+              busyLabel="Cancelling and syncing…"
               spinnerTone="ink"
-              style={{ ...linkButton, color: feed.export_subscribed ? 'var(--positive)' : 'var(--ink-3)' }}
+              style={{ ...secondaryButton, borderColor: 'var(--signal)', color: 'var(--signal)' }}
             />
-            {feed.export_subscribed && feed.export_subscribed_at && <span style={{ color: 'var(--ink-4)' }}>{feed.export_subscribed_at.slice(0, 10)}</span>}
           </form>
-        ) : (
-          <span style={{ color: 'var(--ink-4)' }}>-</span>
-        )}
-      </span>
-      <span style={{ display: 'inline-flex', gap: 12, alignItems: 'baseline' }}>
-        {feed && feed.is_active && feed.ical_import_url && (
-          <form action={syncOneListing}>
-            <input type="hidden" name="id" value={feed.id} />
-            <SubmitButton label="sync" busyLabel="syncing…" spinnerTone="ink" style={linkButton} />
-          </form>
-        )}
-        <Link href="/channels/listings" style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'underline' }}>
-          wiring →
-        </Link>
-      </span>
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 360 }}>
+            Cancels the held stays on this feed now. If only some are real, cancel those one at a time from the upcoming list below instead.
+          </span>
+        </div>
+      )}
     </div>
   );
 }
