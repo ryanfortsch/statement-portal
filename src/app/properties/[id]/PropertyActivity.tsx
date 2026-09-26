@@ -4,7 +4,7 @@ import { displayNameForEmail } from '@/lib/team';
 import { stampActorNames } from '@/lib/actor-names';
 import type { HelmPropertyRow } from '@/lib/properties';
 
-type ActivityKind =
+export type ActivityKind =
   | 'slip-created'
   | 'slip-done'
   | 'slip-snoozed'
@@ -27,10 +27,6 @@ export type ActivityEvent = {
   label: string;          // primary text, e.g. "Filed kitchen leak"
   secondary?: string;     // small grey text, e.g. "in_progress · high"
   href?: string;          // click target
-};
-
-type Props = {
-  property: HelmPropertyRow;
 };
 
 const KIND_GLYPH: Record<ActivityKind, string> = {
@@ -59,44 +55,62 @@ const KIND_COLOR: Record<ActivityKind, string> = {
   'contact-touch': 'var(--signal)',
 };
 
+/** Human labels for the filter chips on the full feed. */
+export const KIND_LABEL: Record<ActivityKind, string> = {
+  'slip-created': 'Slip filed',
+  'slip-done': 'Slip closed',
+  'slip-snoozed': 'Slip snoozed',
+  'slip-owner-contacted': 'Owner contacted about a slip',
+  'inspection-completed': 'Inspection',
+  'plan-created': 'Inspection planned',
+  'property-note-created': 'Note added',
+  'property-note-resolved': 'Note resolved',
+  'property-contacted': 'Owner contacted',
+  'contact-touch': 'Contact touch',
+};
+
 /**
- * Property-scoped activity feed: rolls up slip lifecycle, owner contact
- * touches, inspections, plans, and property notes into a single time-
- * ordered list. Read-only — every event is sourced from data already
- * written by other Helm features. No new schema.
- *
- * Caps at the last 30 events so the list doesn't dominate the page on
- * properties with deep history.
+ * The coarse groups the filter offers. Ten kinds is too many chips to scan,
+ * and an operator filtering an audit log is asking "show me the work" or
+ * "show me the conversations", not one lifecycle transition.
  */
-export async function PropertyActivity({ property }: Props) {
-  const events = await loadActivity(property);
-  return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
-      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-          Activity
-        </h2>
-        <span className="eyebrow">
-          {events.length === 0 ? 'no activity' : `last ${Math.min(events.length, 30)} of ${events.length}`}
-        </span>
-      </div>
-      <PropertyActivityList events={events} />
-    </section>
-  );
-}
+export const KIND_GROUPS: Record<string, { label: string; kinds: ActivityKind[] }> = {
+  work: {
+    label: 'Work',
+    kinds: ['slip-created', 'slip-done', 'slip-snoozed', 'slip-owner-contacted'],
+  },
+  inspections: { label: 'Inspections', kinds: ['inspection-completed', 'plan-created'] },
+  notes: { label: 'Notes', kinds: ['property-note-created', 'property-note-resolved'] },
+  contact: { label: 'Contact', kinds: ['property-contacted', 'contact-touch'] },
+};
 
 /** Loads the same event stream the full PropertyActivity component renders.
  *  Exported so callers (e.g. the property page's CollapsibleSection wrapping)
  *  can derive their own summary chip without doing the queries twice. */
-export async function loadPropertyActivity(property: HelmPropertyRow): Promise<ActivityEvent[]> {
-  return loadActivity(property);
+export async function loadPropertyActivity(
+  property: HelmPropertyRow,
+  win: ActivityWindow = {},
+): Promise<ActivityEvent[]> {
+  return loadActivity(property, win);
 }
 
 /** Body-only renderer — no `<section>`, no header, no eyebrow chip. The
  *  parent supplies the title (typically a CollapsibleSection summary line).
- *  Caps display at the most recent 30 events. */
-export function PropertyActivityList({ events }: { events: ActivityEvent[] }) {
-  const visible = events.slice(0, 30);
+ *
+ *  `max` caps what is drawn. When it bites, the list says so: wrapping this
+ *  renderer used to drop the standalone component's "last 30 of N" line, so
+ *  the property page advertised the full count above a silently truncated
+ *  body. `more` is where the rest lives. */
+export function PropertyActivityList({
+  events,
+  max = 30,
+  more,
+}: {
+  events: ActivityEvent[];
+  max?: number;
+  more?: string;
+}) {
+  const visible = events.slice(0, max);
   if (events.length === 0) {
     return (
       <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
@@ -109,6 +123,18 @@ export function PropertyActivityList({ events }: { events: ActivityEvent[] }) {
       {visible.map((e, i) => (
         <ActivityRow key={`${e.kind}-${e.at}-${i}`} event={e} />
       ))}
+      {(events.length > visible.length || more) && (
+        <div style={{ padding: '12px 0 4px', fontSize: 12, color: 'var(--ink-3)' }}>
+          {events.length > visible.length
+            ? `Showing ${visible.length} of ${events.length} in this window. `
+            : ''}
+          {more && (
+            <Link href={more} style={{ color: 'var(--signal)', textDecoration: 'none' }}>
+              Full activity →
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -168,12 +194,28 @@ function ActivityRow({ event: e }: { event: ActivityEvent }) {
   return inner;
 }
 
-async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
+/**
+ * How much history to pull. Callers choose their own cost: the property
+ * page's peek wants a handful of recent rows and pays for a short window,
+ * while the full feed at /properties/<id>/activity pays for the range the
+ * operator asked for. Before this was a parameter, every arrival at the
+ * property record paid for 90 days and up to 160 rows to fill a section
+ * that renders collapsed.
+ */
+export type ActivityWindow = {
+  /** Days of history. Defaults to 90, the original behaviour. */
+  windowDays?: number;
+  /** Rows per source. Scaled from the defaults (60/20/20/20/40). */
+  scale?: number;
+};
+
+async function loadActivity(p: HelmPropertyRow, win: ActivityWindow = {}): Promise<ActivityEvent[]> {
   const events: ActivityEvent[] = [];
 
-  // Pull every active + recent slip for this property (last 90 days of done
-  // slips so the feed shows historical lifecycle, not just open work).
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const windowDays = win.windowDays ?? 90;
+  const scale = win.scale ?? 1;
+  const cap = (n: number) => Math.max(1, Math.round(n * scale));
+  const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
 
   // Pull contact ids whose linked_property_ids includes this property.
   // Used as a key list for the contact_touches join below.
@@ -191,39 +233,39 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
       .from('work_slips')
       .select('id, title, status, priority, created_at, created_by_email, completed_at, closed_by_email, owner_last_contacted_at, owner_action_type, owner_action_required, snoozed_at, snoozed_until, snoozed_by_email')
       .eq('property_id', p.id)
-      .or(`created_at.gte.${ninetyDaysAgo},completed_at.gte.${ninetyDaysAgo},owner_last_contacted_at.gte.${ninetyDaysAgo},snoozed_at.gte.${ninetyDaysAgo}`)
-      .limit(60),
+      .or(`created_at.gte.${since},completed_at.gte.${since},owner_last_contacted_at.gte.${since},snoozed_at.gte.${since}`)
+      .limit(cap(60)),
     supabase
       .from('inspections')
       .select('id, inspector_name, completed_at, started_at, total_items, issue_count')
       .eq('property_id', p.id)
       .not('completed_at', 'is', null)
-      .gte('completed_at', ninetyDaysAgo)
+      .gte('completed_at', since)
       .order('completed_at', { ascending: false })
-      .limit(20),
+      .limit(cap(20)),
     supabase
       .from('inspection_plans')
       .select('id, planned_for_date, planned_by_email, assigned_to_email, created_at, checkin_date')
       .eq('property_id', p.id)
-      .gte('created_at', ninetyDaysAgo)
+      .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .limit(20),
+      .limit(cap(20)),
     supabase
       .from('inspection_notes')
       .select('id, note_text, created_at, author_email, resolved_at, resolved_by_email')
       .eq('property_id', p.id)
       .eq('note_type', 'PROPERTY_NOTE')
-      .gte('created_at', ninetyDaysAgo)
+      .gte('created_at', since)
       .order('created_at', { ascending: false })
-      .limit(20),
+      .limit(cap(20)),
     linkedContactIds.length > 0
       ? supabase
           .from('contact_touches')
           .select('id, contact_id, touched_at, channel, summary, by_email, direction')
           .in('contact_id', linkedContactIds)
-          .gte('touched_at', ninetyDaysAgo)
+          .gte('touched_at', since)
           .order('touched_at', { ascending: false })
-          .limit(40)
+          .limit(cap(40))
       : Promise.resolve({ data: [] as Array<{
           id: string; contact_id: string; touched_at: string;
           channel: string; summary: string; by_email: string;
@@ -242,7 +284,7 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
     snoozed_until: string | null;
     snoozed_by_email: string | null;
   }>) {
-    if (s.created_at && s.created_at >= ninetyDaysAgo) {
+    if (s.created_at && s.created_at >= since) {
       events.push({
         at: s.created_at,
         kind: 'slip-created',
@@ -335,7 +377,7 @@ async function loadActivity(p: HelmPropertyRow): Promise<ActivityEvent[]> {
   }
 
   // Property-level off-thread contact (latest only — the column is overwritten).
-  if (p.owner_last_contacted_at && p.owner_last_contacted_at >= ninetyDaysAgo) {
+  if (p.owner_last_contacted_at && p.owner_last_contacted_at >= since) {
     const channel = p.owner_last_contacted_via ?? 'other';
     events.push({
       at: p.owner_last_contacted_at,

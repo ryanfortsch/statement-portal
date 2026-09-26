@@ -23,6 +23,7 @@ import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { TaxCertEditor } from './TaxCertEditor';
 import { MultiMonthBookingsSection } from './MultiMonthBookingsSection';
+import { Suspense } from 'react';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
@@ -423,7 +424,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -431,7 +432,6 @@ export default async function PropertyDetailPage({
     getLatestOwnerContact(p.id, p),
     getCrmContactsFullForProperty(p.id),
     getCrmTouchesForProperty(p.id),
-    loadPropertyActivity(p),
     getPropertyNotices(p.id),
     getPropertyNotes(p.id),
     getPropertyDocuments(p.id),
@@ -637,10 +637,6 @@ export default async function PropertyDetailPage({
     const issues = last.issue_count;
     return `${date} · ${issues} ${issues === 1 ? 'issue' : 'issues'}`;
   })();
-  const activitySummary =
-    activityEvents.length === 0
-      ? 'quiet'
-      : `${activityEvents.length} ${activityEvents.length === 1 ? 'event' : 'events'} · last ${formatRelative(activityEvents[0].at)}`;
 
   // CRM section summary: contact count + most-recent touch across the
   // whole set, so the closed-state chip reads like "3 contacts · last
@@ -2058,8 +2054,16 @@ export default async function PropertyDetailPage({
         <DocumentsPanel propertyId={p.id} documents={documents} />
       </CollapsibleSection>
       {/* ACTIVITY FEED */}
-      <CollapsibleSection title="Activity" summary={activitySummary}>
-        <PropertyActivityList events={activityEvents} />
+      <CollapsibleSection title="Activity" summary="recent · full log on its own page">
+        <Suspense
+          fallback={
+            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+              Loading recent activity…
+            </div>
+          }
+        >
+          <ActivityPeek property={p} />
+        </Suspense>
       </CollapsibleSection>
 
       {/* INSPECTION HISTORY (Helm-native) */}
@@ -2241,6 +2245,28 @@ const actionLinkStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
 };
+
+/**
+ * The last few things that happened here, streamed.
+ *
+ * Deliberately narrow: 21 days and a fifth of the usual row allowance, which
+ * is enough to answer "has anyone touched this house lately" and nothing
+ * more. Anything else is a question for the full log, which this links to.
+ *
+ * It is its own async component so the page's own await never waits on it.
+ * Rendered inside a Suspense boundary below the notFound() check, so a miss
+ * still 404s properly rather than streaming a 200 with an error in the body.
+ */
+async function ActivityPeek({ property }: { property: HelmPropertyRow }) {
+  const events = await loadPropertyActivity(property, { windowDays: 21, scale: 0.2 });
+  return (
+    <PropertyActivityList
+      events={events}
+      max={5}
+      more={`/properties/${property.id}/activity`}
+    />
+  );
+}
 
 /** Micro-pill factory — the house 9px uppercase chip, outline form.
  *  Pass `solid` for the inverted (colored bg) emphasis form. */
