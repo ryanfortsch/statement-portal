@@ -377,12 +377,15 @@ export async function ScheduleDigestCard({
   // what she reads and what Rosa receives the same string by construction,
   // and draftedBody carries it too so the unedited-check still holds.
   const shownBody = pending && day ? await composeDigestBodyLive(supabase, day) : digest.body;
-  // The note as it will actually go out: Portuguese, with the English
-  // underneath. Rendered when the note was saved, so this is the real tail
-  // rather than a guess at one. `noteStale` means the typed text moved on
-  // from the rendering and the send will re-derive it.
-  const noteBlock = formatOperatorNote(digest.operator_note_pt, digest.operator_note_en);
+  // The note as it will actually go out: Portuguese, nothing else.
+  // Rendered when the note was saved, so this is the real tail rather than
+  // a guess at one. `noteStale` means the typed text moved on from the
+  // rendering and the send will re-derive it.
+  const noteBlock = formatOperatorNote(digest.operator_note_pt);
   const noteStale = noteRenderingIsStale(digest);
+  // The same instruction read back in English. An operator check on the
+  // translation, shown beside the note field and NEVER sent.
+  const noteBackInEnglish = noteStale ? '' : (digest.operator_note_en ?? '').trim();
   const lastBatch = digest.sent_log?.[digest.sent_log.length - 1];
   const enabledList = recipients.filter((r) => r.enabled);
   const anyEnabled = enabledList.length > 0;
@@ -565,10 +568,20 @@ export async function ScheduleDigestCard({
                 Puts it into Portuguese and shows it below, exactly as it will be sent.
               </span>
             </div>
+            {noteBackInEnglish && (
+              // Your side of the glass. The crew never sees this line; it
+              // is here so a translation can be checked before it is sent.
+              <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '0 0 10px', lineHeight: 1.55 }}>
+                <span style={{ letterSpacing: '.1em', textTransform: 'uppercase', fontWeight: 700 }}>
+                  Read back in English · not sent
+                </span>
+                <div style={{ color: 'var(--ink-3)', marginTop: 2 }}>{noteBackInEnglish}</div>
+              </div>
+            )}
             <div style={{ fontSize: 11, color: 'var(--ink-4)', margin: '0 0 12px' }}>
-              Write it in whichever language you think in. It goes out in Portuguese with your English underneath, after
-              the schedule. Unlike editing the text above, a note here does not freeze the schedule -- it still
-              recomposes live at send time. It sticks through Refresh draft and Re-scan.
+              Write it in whichever language you think in. It goes out in Portuguese only. Unlike editing the text
+              above, a note here does not freeze the schedule -- it still recomposes live at send time. It sticks
+              through Refresh draft and Re-scan.
             </div>
 
             {/* The tail nobody could see. The note is stored apart from the
