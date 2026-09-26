@@ -140,7 +140,7 @@ export default async function PropertyEditPage({
           </Row>
           <Row>
             <Field name="cable_provider" label="Cable / TV provider" defaultValue={p.cable_provider} />
-            <Field name="wifi_name" label="Wi-Fi name" defaultValue={p.wifi_name} />
+            <Field name="wifi_name" label="Wi-Fi name" defaultValue={p.wifi_name} id="wifi" />
             <Field name="wifi_password" label="Wi-Fi password" defaultValue={p.wifi_password} />
           </Row>
           {/* Two-unit homes get a second network. Labels name the unit
@@ -257,7 +257,7 @@ export default async function PropertyEditPage({
             hint="Primary + secondary egress"
             textarea
           />
-          <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} hint="If known. e.g. 2027-04-30" />
+          <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} id="permit" hint="If known. e.g. 2027-04-30" />
         </Group>
 
         {/* ── Billing ── */}

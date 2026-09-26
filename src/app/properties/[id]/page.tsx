@@ -47,6 +47,7 @@ import { getRentalPeriods } from '@/lib/property-rental-periods';
 import { describePeriods } from '@/lib/rental-periods';
 import { describeOperatingWindow } from '@/lib/forecast-operating-windows';
 import { getGuestCodeView } from '@/lib/guest-locks';
+import { getPropertyCleaners } from '@/lib/property-crew';
 import type { PaymentVerifySignal } from '@/lib/sca-launch';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
@@ -55,6 +56,7 @@ import { getPropertyNotes } from '@/lib/property-notes';
 import { loadLaunchForProperty } from '@/lib/launch-context';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
+import { PropertyMasthead, type PropertyAlert } from './PropertyMasthead';
 import { OwnersEditor } from './OwnersEditor';
 import { OnboardingItemToggle } from './OnboardingItemToggle';
 import { RoomsEditor } from './RoomsEditor';
@@ -421,7 +423,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -453,6 +455,7 @@ export default async function PropertyDetailPage({
     getClimateProfile(p.id),
     listSeamThermostatsSafe(),
     getGuestCodeView(p.id),
+    getPropertyCleaners(p.id),
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
@@ -476,6 +479,74 @@ export default async function PropertyDetailPage({
   const activeContractAttention = activeContract
     ? contractAttention(activeContract, contractTodayIso)
     : null;
+
+  /**
+   * The header band's alert lane. Each of these was already detectable on
+   * this page and each was rendered inside a fold, so the expensive ones
+   * were the easiest to miss. Cap at five is enforced by the component.
+   *
+   * 3 Locust has no owner and never will (is_rising_tide_owned), so the
+   * missing-contract chip would be permanently wrong there.
+   */
+  const mastheadAlerts: PropertyAlert[] = [];
+  if (scaLaunch?.status === 'live' && scaLaunch.payment_verify_signal === 'demo_mode') {
+    mastheadAlerts.push({
+      key: 'sca-demo',
+      tone: 'negative',
+      text: 'Stay Cape Ann is live in demo mode: bookings collect nothing',
+      href: `/properties/${p.id}/stay-cape-ann`,
+    });
+  }
+  if (
+    activeContract?.fee_pct != null &&
+    p.management_fee_pct != null &&
+    Number(p.management_fee_pct) !== Number(activeContract.fee_pct)
+  ) {
+    mastheadAlerts.push({
+      key: 'fee-mismatch',
+      tone: 'negative',
+      text: `Contract says ${activeContract.fee_pct}%, Helm bills ${p.management_fee_pct}%`,
+      href: `/properties/${p.id}?tab=records`,
+    });
+  }
+  if (!activeContract && !p.is_rising_tide_owned && p.is_active) {
+    mastheadAlerts.push({
+      key: 'no-contract',
+      tone: 'negative',
+      text: 'Operating with no live contract',
+      href: `/properties/${p.id}?tab=records`,
+    });
+  }
+  if (activeContractAttention?.kind === 'notice_window') {
+    mastheadAlerts.push({
+      key: 'notice-window',
+      tone: 'signal',
+      text: `Non-renewal notice closes ${fmtTermDate(activeContractAttention.deadline)}`,
+      href: `/properties/${p.id}?tab=records`,
+    });
+  }
+  if (p.str_permit_expires) {
+    const daysLeft = daysUntil(p.str_permit_expires, contractTodayIso);
+    if (daysLeft != null && daysLeft <= 60) {
+      mastheadAlerts.push({
+        key: 'permit',
+        tone: daysLeft <= 0 ? 'negative' : 'signal',
+        text:
+          daysLeft <= 0
+            ? `STR permit expired ${fmtTermDate(p.str_permit_expires)}`
+            : `STR permit expires in ${daysLeft}d`,
+        href: `/properties/${p.id}/edit#permit`,
+      });
+    }
+  }
+  if (scaLaunch?.snapshot_refresh_error) {
+    mastheadAlerts.push({
+      key: 'sca-stale',
+      tone: 'signal',
+      text: 'Stay Cape Ann snapshot refresh is failing',
+      href: `/properties/${p.id}/stay-cape-ann`,
+    });
+  }
 
   // Launch progress for the Today tab launch chip: the shared resolver's
   // summary, so the chip and the launch page never disagree (the
@@ -684,22 +755,33 @@ export default async function PropertyDetailPage({
         )}
       </section>
 
-      {/* STAT GRID — shared Stat cells (the local copy dropped the
-          rt-helm-stat class, so the mobile border-patch rules in
-          globals.css never matched and phone cells drew wrong rules). */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 20, width: '100%' }}>
-        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
-          <div className="rt-helm-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <Stat label="Mgmt Fee" value={`${p.management_fee_pct}%`} />
-            <Stat
-              label="Cleaning Est"
-              value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : '—'}
-            />
-            <Stat label="Bank" value={p.bank_last4 ? `**${p.bank_last4}` : '—'} href={`/properties/${p.id}/edit#bank`} />
-            <Stat label="Owner" value={p.owner_last} last />
-          </div>
-        </div>
-      </section>
+      {/* HEADER BAND — replaces the four stat tiles (Mgmt Fee / Cleaning Est
+          / Bank / Owner), which were config rather than state and rendered
+          two hand-written dashes on a live property. Those four now live in
+          the Owner block on the People tab, beside the rest of the deal.
+
+          What takes their place is what an operator actually arrives for:
+          who is in the house, and one fact to read out loud. See the
+          component docblock for why this sits above the tabs. */}
+      <PropertyMasthead
+        propertyId={p.id}
+        isActive={!!p.is_active}
+        todayIso={contractTodayIso}
+        bookings={guestCodeView.bookingRows}
+        lockCodes={guestCodeView.lockCodes}
+        cleaners={propertyCleaners}
+        wifiName={p.wifi_name}
+        wifiPassword={p.wifi_password}
+        keyCodeLocation={p.key_code_location}
+        ownerName={p.owner_full || p.owner_last}
+        ownerPhone={p.owner_phone}
+        ownerEmail={p.owner_emails?.[0] ?? null}
+        ownerPreferredContact={p.owner_preferred_contact}
+        openSlipCount={openSlips.length}
+        lastInspectionAt={recentInspections[0]?.completed_at ?? recentInspections[0]?.started_at ?? null}
+        seasonNote={describeOperatingWindow(p.id) ?? describePeriods(rentalPeriods)}
+        alerts={mastheadAlerts}
+      />
 
       {/* Cross-month bookings -- inline action to split a long stay across
           the months it spans. Hidden when this property has no qualifying
@@ -1087,6 +1169,7 @@ export default async function PropertyDetailPage({
       </CollapsibleSection>
 
       <CollapsibleSection
+        id="guest-codes"
         title="Guest door codes"
         summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
       >
@@ -1248,6 +1331,35 @@ export default async function PropertyDetailPage({
         <TabSection tab="people">
       {/* OWNER */}
       <CollapsibleSection title="Owner" summary={ownerSummary} defaultOpen>
+        {/* The deal terms that used to lead every visit as four stat tiles.
+            They are owner facts, not live state, so they belong beside the
+            owner rather than above the tab strip. Cleaning Est is a manual
+            fallback that revenue snapshots override with a real rolling
+            figure once the property has closed statements, so it is labelled
+            as the estimate it is rather than presented as a measured cost. */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            borderTop: '1px solid var(--rule)',
+            borderBottom: '1px solid var(--rule)',
+            marginBottom: 18,
+          }}
+        >
+          <Stat label="Mgmt Fee" value={p.is_rising_tide_owned ? 'RT owned' : `${p.management_fee_pct}%`} />
+          <Stat
+            label="Cleaning Est"
+            value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : 'Not set'}
+            sub={p.cleaning_cost_estimate != null ? 'manual fallback' : undefined}
+            href={`/properties/${p.id}/edit#cleaning`}
+          />
+          <Stat
+            label="Bank"
+            value={p.bank_last4 ? `**${p.bank_last4}` : 'Not set'}
+            href={`/properties/${p.id}/edit#bank`}
+          />
+          <Stat label="Owner" value={p.owner_last || 'Not set'} last />
+        </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
           <Link
             href={`/properties/${p.id}/edit`}
