@@ -43,6 +43,11 @@ export async function submitBookingInquiry(formData: FormData) {
     .from('bookings')
     .select('id, check_in, check_out, status')
     .eq('property_id', propertyId)
+    // Canonical rows only. `bookings` holds duplicate rows per stay by
+    // design, and a superseded twin can carry the OLD dates of a stay that
+    // has since moved (an altered Airbnb reservation, a rebooked pair). Left
+    // unfiltered, this refuses a real booking on nights nothing occupies.
+    .is('duplicate_of', null)
     .neq('status', 'cancelled')
     .lt('check_in', checkOut)
     .gt('check_out', checkIn);

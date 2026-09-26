@@ -161,6 +161,10 @@ async function fetchBlockedRanges(propertyId: string): Promise<Array<{ check_in:
     .from('bookings')
     .select('check_in, check_out, status')
     .eq('property_id', propertyId)
+    // Canonical rows only: a superseded twin greys out nights on the public
+    // calendar that are actually free. Same guard as the conflict check in
+    // this route's actions.ts, which must agree with what the guest sees.
+    .is('duplicate_of', null)
     .gte('check_in', today)
     .lte('check_in', horizon)
     .neq('status', 'cancelled')

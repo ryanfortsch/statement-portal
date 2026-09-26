@@ -99,6 +99,9 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
     supabase
       .from('bookings')
       .select('property_id, check_in, check_out, status')
+      // Canonical rows only, or a deduped stay counts twice toward the
+      // occupancy this targeting reads.
+      .is('duplicate_of', null)
       .in('status', ['confirmed', 'tentative'])
       .lt('check_in', windowEnd)
       .gt('check_out', windowStart),
