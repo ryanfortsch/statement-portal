@@ -46,6 +46,21 @@ export type StatementFeeInput = {
   mgmtFraction: number;
 };
 
+/**
+ * How far below zero the remainder may fall before it is read as a real
+ * disagreement rather than rounding.
+ *
+ * The card's revenue is rounded to cents before the statement's own revenue is
+ * subtracted from it, so on an all-statement range the remainder lands a
+ * fraction of a cent either side of zero rather than exactly on it. A strict
+ * `< 0` test therefore fell back or did not depending on which way the last
+ * cent rounded: 19 Rackliffe and 84 Thatcher billed their statements while
+ * 4 Brier Neck silently reverted to the recompute it was meant to replace,
+ * showing $5,832.10 against the $5,321.81 it had billed. A dollar is far above
+ * that noise and far below any disagreement worth honouring.
+ */
+export const REMAINDER_TOLERANCE = 1;
+
 export type StatementFeeResult = {
   /** The fee to display. */
   fee: number;
@@ -109,16 +124,19 @@ export function resolveManagementFee(input: StatementFeeInput): StatementFeeResu
     return { fee: recompute, usedStatementFee: false, tilesRange };
   }
 
-  // Revenue belonging to the months no statement covered. Negative means the
-  // card's revenue and the statements disagree about their own months, which
-  // is not a situation to paper over with arithmetic.
+  // Revenue belonging to the months no statement covered. Meaningfully
+  // negative means the card's revenue and the statements disagree about their
+  // own months, which is not a situation to paper over with arithmetic. A
+  // hair below zero is just the rounding described on REMAINDER_TOLERANCE,
+  // and clamping it is what keeps an all-statement range billing its
+  // statements no matter which way the last cent went.
   const remainder = totalRevenue - statementRevenue;
-  if (remainder < 0) {
+  if (remainder < -REMAINDER_TOLERANCE) {
     return { fee: recompute, usedStatementFee: false, tilesRange };
   }
 
   return {
-    fee: statementFee + remainder * mgmtFraction,
+    fee: statementFee + Math.max(0, remainder) * mgmtFraction,
     usedStatementFee: true,
     tilesRange,
   };
