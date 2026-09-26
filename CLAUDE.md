@@ -760,6 +760,25 @@ The gate before shipping is `npx tsc --noEmit` **and `npm test`**. Run both. Cha
    on `bookings.id`; filter `duplicate_of is null` for canonical rows.
 8. The legacy `/api/statement` route was deleted long ago. All statement rendering goes through
    `/statements/render`.
+9. **Writing an EVENT's timestamp needs a forward-only guard; writing `now` does not.** A column
+   holding when something *happened* (a message's `createdAt`, a cleaner's finish) can be written
+   out of order: the feed delivers late, an operator promotes an unknown number and the events
+   replay, or a six-hourly backfill walks history. A blind `update`/`upsert` then moves the
+   column BACKWARDS, and nothing fails. This produced four bugs in one corner of the Quo ingest
+   (#1627, #1634, #1635, #1636): the checkout resolver needed an `as-of`, owner last-contacted
+   and the unknown-number capture needed forward-only guards, and the cleaning finish needed
+   both plus a provenance rule (estimate < quo < manual, so a backfill never overwrites an
+   operator's own confirm).
+
+   The guard belongs in the WRITER, not the callers, as an `or` filter on the update's where
+   clause: `.or('col.is.null,col.lt.<value>')`. A losing write then matches no rows instead of
+   depending on three call sites remembering. Seed the row first with
+   `upsert(..., { ignoreDuplicates: true })` when it may not exist.
+
+   A `now`-based stamp (`last_seen_at`, `gmail_synced_at`, a sync run's `cancelled_at`) is
+   monotonic by construction and needs none of this. Audited 2026-09-26: every other timestamp
+   write in the cron and sync paths is `now`-based, so the Quo ingest was the only place the
+   hazard lived.
 
 # Style
 
