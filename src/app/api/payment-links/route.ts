@@ -5,6 +5,7 @@ import {
   checkPaymentLinkPaid,
   deactivatePaymentLink,
   deactivatePaymentLinkById,
+  listLinksForReservation,
   loadPaymentLinkLite,
   mintPaymentLink,
   recordLinkDelivery,
@@ -26,7 +27,7 @@ import {
  * (x-stay-concierge-key), matching /api/achieved-rates. No ?key= form:
  * query-string secrets leak through URL logging (the 8/20 rotation was
  * traced to exactly that in httpx). Non-secret query params (?status_key=,
- * ?scopes=1) still ride the query string.
+ * ?reservation_id=, ?scopes=1) still ride the query string.
  *
  * POST /api/payment-links     (secret in the x-stay-concierge-key header)
  *   { property_id, label, amount_cents, guest_name?, request_key, save_card?, taxable? }
@@ -76,6 +77,34 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   const { searchParams } = new URL(req.url);
+
+  // Links already minted for one stay: ?reservation_id=<guesty id>. The
+  // concierge asks before it cards a fee we promised a guest who had not
+  // booked yet (fee_promises.py), so a stay the operator already charged by
+  // hand is never sent a second link. ok:false means "could not look", which
+  // the caller treats as a reason to wait, never as "none".
+  const reservationId = searchParams.get('reservation_id');
+  if (reservationId !== null) {
+    if (!/^[0-9a-f]{24}$/i.test(reservationId)) {
+      return NextResponse.json({ ok: false, error: 'bad_reservation_id' }, { status: 200 });
+    }
+    const links = await listLinksForReservation(reservationId);
+    if (!links) return NextResponse.json({ ok: false, error: 'lookup_failed' }, { status: 200 });
+    return NextResponse.json({
+      ok: true,
+      links: links.map((r) => ({
+        request_key: r.request_key,
+        label: r.label,
+        base_cents: r.base_cents,
+        amount_cents: r.amount_cents,
+        source: r.source,
+        created_at: r.created_at,
+        sent_at: r.sent_at,
+        paid_at: r.paid_at,
+        deactivated_at: r.deactivated_at,
+      })),
+    });
+  }
 
   // Paid-status lookup for the concierge poller: ?status_key=<request_key>.
   // Resolves the minted link via payment_link_requests, then asks the

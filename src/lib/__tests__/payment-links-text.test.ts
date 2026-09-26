@@ -10,6 +10,7 @@ import {
   toE164,
   helmRequestKey,
   reservationIdFromRequestKey,
+  linkBelongsToReservation,
   paymentLinkStatus,
   money,
   stripeKeyFixUrl,
@@ -96,6 +97,28 @@ test('request keys: anchor, suffix, and the reservation id read back', () => {
   // An approval uuid anchor is not a reservation.
   assert.equal(reservationIdFromRequestKey('addon:0f9f6f4e-1c2b-4c3d-9e8f-000000000000:pet:100'), '');
   assert.equal(reservationIdFromRequestKey('ffdeposit:x'), '');
+});
+
+test('a link belongs to a stay by its column, or by its key when the column is empty', () => {
+  // Christie Cheyne's 20 Enon stay: the operator's pet-fee link, 2026-09-26.
+  const stay = '6ab74da08b2e8cbe286736f0';
+  assert.equal(linkBelongsToReservation({ request_key: `helm:${stay}:pet-fee:20000`, reservation_id: stay }, stay), true);
+  // Concierge bridge rows leave reservation_id empty; the key carries it.
+  assert.equal(linkBelongsToReservation({ request_key: `addon:${stay}:pet-fee:20000`, reservation_id: '' }, stay), true);
+  assert.equal(linkBelongsToReservation({ request_key: `addon:${stay}:pet-fee:20000`, reservation_id: null }, stay), true);
+  // A card with no reservation minted against its approval uuid: not this stay.
+  assert.equal(
+    linkBelongsToReservation({ request_key: 'addon:f2cec23b-1d2b-4f91-a8c0-9c6885c4ab62:pet-fee:20000', reservation_id: '' }, stay),
+    false,
+  );
+  // Another stay at the same home.
+  assert.equal(
+    linkBelongsToReservation({ request_key: 'helm:6a63edbe0693123c468fc254:pet-fee:20000', reservation_id: '6a63edbe0693123c468fc254' }, stay),
+    false,
+  );
+  // A blank or malformed id matches nothing, never everything.
+  assert.equal(linkBelongsToReservation({ request_key: 'helm::pet-fee:1', reservation_id: '' }, ''), false);
+  assert.equal(linkBelongsToReservation({ request_key: 'scopetest:20_enon:20260729', reservation_id: '' }, 'not-an-id'), false);
 });
 
 test('status: paid wins, then cancelled, then delivery evidence, then age', () => {
