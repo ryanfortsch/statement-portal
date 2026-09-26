@@ -4,6 +4,7 @@
 //   node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json --dry
 //   node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json
 //   node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json --force-plan   # overwrite an operator-edited plan / tax row
+//   node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json --force-content   # overwrite operator listing edits and the arrival note
 //
 // Required env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // Optional:     BLOB_READ_WRITE_TOKEN. With it, every Guesty original is copied to
@@ -64,14 +65,15 @@ const CODE_LINE = /\b(key\s*code|keycode|door\s*code|lock\s*code|access\s*code|p
 
 // ── Args ────────────────────────────────────────────────────────────────────
 
-type Args = { dry: boolean; forcePlan: boolean; seedPath: string };
+type Args = { dry: boolean; forcePlan: boolean; forceContent: boolean; seedPath: string };
 
 function parseArgs(argv: readonly string[]): Args {
-  const args: Args = { dry: false, forcePlan: false, seedPath: '' };
+  const args: Args = { dry: false, forcePlan: false, forceContent: false, seedPath: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry' || a === '--dry-run') args.dry = true;
     else if (a === '--force-plan') args.forcePlan = true;
+    else if (a === '--force-content') args.forceContent = true;
     else if (a === '--seed') {
       const v = argv[i + 1];
       if (!v) fail('--seed needs a path');
@@ -278,7 +280,18 @@ function reportDrift(row: RegistryRow, listing: GuestySeedListing, seed: HelmSee
 
 type StepLog = { table: string; action: string; detail?: string };
 
-async function upsertContent(sb: SupabaseClient, seed: HelmSeed, dry: boolean, log: StepLog[]) {
+async function upsertContent(sb: SupabaseClient, seed: HelmSeed, dry: boolean, force: boolean, log: StepLog[]) {
+  // The operator's Listing edits (updated_by is their email) are what
+  // staycapeann.com reads; a re-run (say, to re-host photos) must not put
+  // Guesty's text back over them.
+  const existing = unwrap(
+    await sb.from('property_listing_content').select('property_id, updated_by').eq('property_id', PROPERTY_ID).maybeSingle(),
+    'property_listing_content read',
+  ) as { property_id: string; updated_by: string | null } | null;
+  if (existing?.updated_by && !existing.updated_by.startsWith('seed:') && !force) {
+    log.push({ table: 'property_listing_content', action: 'left alone', detail: `updated_by ${existing.updated_by}; pass --force-content to overwrite` });
+    return;
+  }
   const row = { ...seed.content, updated_by: SEED_BY, updated_at: new Date().toISOString() };
   if (dry) {
     log.push({ table: 'property_listing_content', action: 'would upsert', detail: `${seed.amenities.length} amenities` });
@@ -478,7 +491,7 @@ async function upsertRateDays(sb: SupabaseClient, seed: HelmSeed, dry: boolean, 
   log.push({ table: 'property_rate_days', action: 'upserted', detail: `${rows.length} rows (${keep.size} operator days kept)` });
 }
 
-async function upsertArrivalNote(sb: SupabaseClient, body: string | null, dry: boolean, log: StepLog[]) {
+async function upsertArrivalNote(sb: SupabaseClient, body: string | null, dry: boolean, force: boolean, log: StepLog[]) {
   if (!body) {
     log.push({ table: 'property_notes', action: 'skipped', detail: 'no check-in blurb in customFields' });
     return;
@@ -487,6 +500,12 @@ async function upsertArrivalNote(sb: SupabaseClient, body: string | null, dry: b
     await sb.from('property_notes').select('id').eq('property_id', PROPERTY_ID).eq('title', NOTE_TITLE).is('resolved_at', null).limit(1),
     'property_notes read',
   ) as Array<{ id: string }>;
+  // An existing note is the operator's from here: its text, and whether it
+  // rides the guest KB pipe (guest_facing), are theirs to change.
+  if (existing.length && !force) {
+    log.push({ table: 'property_notes', action: 'left alone', detail: `'${NOTE_TITLE}' exists; pass --force-content to overwrite` });
+    return;
+  }
   if (dry) {
     log.push({ table: 'property_notes', action: existing.length ? 'would update' : 'would insert', detail: `'${NOTE_TITLE}', ${body.length} chars, guest_facing` });
     return;
@@ -644,13 +663,13 @@ async function main() {
 
   console.log(`seed_calderwood: ${args.dry ? 'dry run' : 'writing'} for ${registry.name ?? PROPERTY_ID} (region ${registry.region}, calendar ${registry.calendar_authority}) from ${args.seedPath}`);
 
-  await upsertContent(sb, seed, args.dry, log);
+  await upsertContent(sb, seed, args.dry, args.forceContent, log);
   await upsertRooms(sb, seed, args.dry, log);
   const photos = await seedPhotos(sb, seed, args.dry, log);
   await confirmSeedRow(sb, 'property_rate_plans', seed.ratePlan as unknown as Row, args.dry, args.forcePlan, log);
   await upsertRateDays(sb, seed, args.dry, log);
   await confirmSeedRow(sb, 'property_tax_config', seed.taxConfig as unknown as Row, args.dry, args.forcePlan, log);
-  await upsertArrivalNote(sb, arrivalNoteBody(customFieldText), args.dry, log);
+  await upsertArrivalNote(sb, arrivalNoteBody(customFieldText), args.dry, args.forceContent, log);
   await fillParking(sb, registry, args.dry, log);
   await report(sb, seed, args.dry, photos, drift, log);
 

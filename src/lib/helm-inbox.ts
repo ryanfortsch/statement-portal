@@ -39,6 +39,8 @@ import {
   shouldMoveThreadStay,
   smsRailOf,
   statusAfterInbound,
+  allBeforeOr,
+  isoInstant,
   summarizeThread,
   toReservationPick,
   toThreadMessage,
@@ -78,6 +80,16 @@ async function isHelmRunProperty(propertyId: string | null | undefined): Promise
   const { data, error } = await supabaseAdmin.from('properties').select('calendar_authority').eq('id', propertyId).maybeSingle();
   if (error || !data) return false;
   return (data as { calendar_authority?: string | null }).calendar_authority === 'helm';
+}
+
+/** The rows at homes Helm runs. An outbound re-link picks among these (and
+ *  the stay the send was for): a Helm send never moves a Helm thread onto a
+ *  stay at a Guesty-run home, which the concierge's own conversation owns. */
+async function atHelmRunHomes<T extends { property_id: string | null }>(rows: T[]): Promise<T[]> {
+  const ids = [...new Set(rows.map((r) => r.property_id).filter((v): v is string => !!v))];
+  const helm = new Set<string>();
+  for (const id of ids) if (await isHelmRunProperty(id)) helm.add(id);
+  return rows.filter((r) => !!r.property_id && helm.has(r.property_id));
 }
 
 export async function getHelmThreadRow(threadId: string): Promise<ThreadRow | null> {
@@ -308,22 +320,33 @@ async function insertMessage(
     throw new Error(`record message: ${error.message}`);
   }
 
-  const patch: Record<string, unknown> = {
-    last_preview: previewOf(m.body),
-    updated_at: new Date().toISOString(),
-  };
+  // Every thread stamp here holds when a message HAPPENED, and Quo delivers
+  // out of order, replays on backfill, and runs two webhooks at once. So
+  // each write carries its own forward-only guard (watch-out 9) instead of
+  // comparing against the row this call read earlier: a losing write
+  // matches nothing, and the preview never shows an older message than the
+  // stamps say is newest.
+  const at = isoInstant(m.at);
   if (m.direction === 'inbound') {
-    if (!thread.last_guest_at || thread.last_guest_at < m.at) patch.last_guest_at = m.at;
-    // A fresh guest message reopens a parked thread.
-    const next = statusAfterInbound(thread.status);
-    if (next !== thread.status) {
-      patch.status = next;
-      patch.snoozed_until = null;
-    }
-  } else if (!thread.last_host_at || thread.last_host_at < m.at) {
-    patch.last_host_at = m.at;
+    // A guest message newer than anything on the thread reopens it
+    // (statusAfterInbound: never an archived one); a late or replayed older
+    // one never reopens a thread the team closed. Guarded on the row, not
+    // on the status this call read.
+    await supabaseAdmin
+      .from('guest_threads')
+      .update({ status: statusAfterInbound('done'), snoozed_until: null })
+      .eq('id', thread.id)
+      .in('status', ['snoozed', 'done'])
+      .or(allBeforeOr(['last_guest_at', 'last_host_at'], at));
+    await supabaseAdmin.from('guest_threads').update({ last_guest_at: at }).eq('id', thread.id).or(allBeforeOr(['last_guest_at'], at));
+  } else {
+    await supabaseAdmin.from('guest_threads').update({ last_host_at: at }).eq('id', thread.id).or(allBeforeOr(['last_host_at'], at));
   }
-  await supabaseAdmin.from('guest_threads').update(patch).eq('id', thread.id);
+  await supabaseAdmin
+    .from('guest_threads')
+    .update({ last_preview: previewOf(m.body), last_message_at: at, updated_at: new Date().toISOString() })
+    .eq('id', thread.id)
+    .or(`last_message_at.is.null,last_message_at.lte.${at}`);
 
   return { threadId: thread.id, messageId: (data?.id as string | undefined) ?? null, duplicate: false };
 }
@@ -495,7 +518,7 @@ export async function recordOutboundSms(input: OutboundSmsInput): Promise<Outbou
       // stay the guest is on now, among their stays and the one handed over.
       const today = todayEastern();
       const handed = await getBooking(input.bookingId);
-      const rows = await bookingsForPhone(e164, today);
+      const rows = await atHelmRunHomes(await bookingsForPhone(e164, today));
       const candidate = pickBookingForContact(handed && !rows.some((r) => r.id === handed.id) ? [...rows, handed] : rows, today);
       thread = (await moveThreadToCurrentStay(thread, candidate, today)).thread;
     }
@@ -564,7 +587,7 @@ export async function recordOutboundEmail(input: OutboundEmailInput): Promise<Ou
     // The email thread follows the guest's current stay too.
     const today = todayEastern();
     const handed = input.bookingId ? await getBooking(input.bookingId) : null;
-    const rows = await bookingsForEmail(key, today);
+    const rows = await atHelmRunHomes(await bookingsForEmail(key, today));
     const candidate = pickBookingForContact(handed && !rows.some((r) => r.id === handed.id) ? [...rows, handed] : rows, today);
     thread = thread.booking_id
       ? (await moveThreadToCurrentStay(thread, candidate, today)).thread

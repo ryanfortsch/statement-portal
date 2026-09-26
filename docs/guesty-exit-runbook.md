@@ -127,6 +127,12 @@ codes, lock codes, wifi or check-in instructions, and each calendar day's
 price and rules, never the guest Guesty embeds on a booked day. Seed files
 (`*_guesty_seed.json`) are gitignored.
 
+Running the seed again (for example to re-host photos once
+`BLOB_READ_WRITE_TOKEN` is set) leaves alone anything the team has edited
+since: the rate plan and tax rows (`--force-plan` overwrites them), and the
+Listing text and the "Arrival and parking" note (`--force-content`
+overwrites them). The dry run names every row it would leave alone.
+
 What switches on, deliberately: kb-facts starts feeding the concierge KB;
 reviews already keyed to the property count on the reviews lens; the 04:30
 Guesty sync maps the listing and the 04:45 backfill copies its history into

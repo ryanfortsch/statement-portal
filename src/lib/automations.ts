@@ -48,6 +48,8 @@ import {
   CONFIRMED_WINDOW_MS,
   PAUSE_REASON_DISABLED_PREFIX,
   PAUSE_REASON_SUPERSEDED,
+  PAUSE_REASON_NO_LONGER_APPLIES,
+  withdrawnSends,
   PLAN_WINDOW_DAYS,
   SECRET_FIELDS,
   addDays,
@@ -103,10 +105,10 @@ const RULE_COLS =
   'id, key, property_id, audience, trigger, offset_days, at_local, timezone, channel_exclusions, delivery, send_mode, min_nights, subject, body, enabled, configured_in_ota, created_by, created_at, updated_at';
 
 const BOOKING_COLS =
-  'id, property_id, channel, status, check_in, check_out, guest_name, guest_phone, guest_email, guest_id, duplicate_of, first_seen_at, booked_at, external_confirmation_code, num_guests';
+  'id, property_id, channel, status, check_in, check_out, guest_name, guest_phone, guest_email, guest_id, duplicate_of, first_seen_at, booked_at, external_confirmation_code, num_guests, cancel_reason, cancelled_at';
 
 const SEND_COLS =
-  'id, booking_id, automation_id, property_id, fire_at, status, delivery_used, to_address, subject_rendered, body_rendered, secrets_sent, missing_fields, provider_message_id, guest_message_id, error, planned_check_in, planned_check_out, approved_by, approved_at, sent_at, created_at, updated_at';
+  'id, booking_id, automation_id, automation_key, property_id, fire_at, status, delivery_used, to_address, subject_rendered, body_rendered, secrets_sent, missing_fields, provider_message_id, guest_message_id, error, planned_check_in, planned_check_out, approved_by, approved_at, sent_at, created_at, updated_at';
 
 const PROPERTY_COLS =
   'id, name, title, address, city, region, calendar_authority, automations_enabled, automations_enabled_at, timezone, wifi_name, parking, parking_regulations, trash_day, recycling_day, is_active';
@@ -116,7 +118,9 @@ const PROPERTY_COLS =
 export type AutomationSendRow = {
   id: string;
   booking_id: string;
-  automation_id: string;
+  /** Null once the rule row was deleted (Remove override); the row stays as history. */
+  automation_id: string | null;
+  automation_key?: string | null;
   property_id: string;
   fire_at: string;
   status: string;
@@ -235,7 +239,7 @@ export async function listAutomationRules(propertyIds?: readonly string[]): Prom
   return rows.map(shapeRule);
 }
 
-export async function getAutomationRule(id: string): Promise<AutomationRule | null> {
+export async function getAutomationRule(id: string | null): Promise<AutomationRule | null> {
   if (!isServiceConfigured || !id) return null;
   const { data, error } = await supabaseAdmin.from('message_automations').select(RULE_COLS).eq('id', id).maybeSingle();
   if (error || !data) return null;
@@ -421,10 +425,14 @@ export type PlanSummary = {
   unchanged: number;
   frozen: number;
   superseded: number;
+  /** Waiting rows paused because the plan no longer wants them (a continuation seam, a shorter stay). */
+  withdrawn: number;
+  /** Pairs not inserted because the stay already had that message key settled under another rule row. */
+  keyed: number;
   dry: boolean;
 };
 
-const EMPTY_PLAN: PlanSummary = { properties: 0, bookings: 0, planned: 0, inserted: 0, retimed: 0, resumed: 0, queued: 0, stale: 0, unchanged: 0, frozen: 0, superseded: 0, dry: false };
+const EMPTY_PLAN: PlanSummary = { properties: 0, bookings: 0, planned: 0, inserted: 0, retimed: 0, resumed: 0, queued: 0, stale: 0, unchanged: 0, frozen: 0, superseded: 0, withdrawn: 0, keyed: 0, dry: false };
 
 export async function planAutomations(opts: { now?: Date; propertyId?: string | null; dry?: boolean } = {}): Promise<PlanSummary> {
   const now = opts.now ?? new Date();
@@ -505,7 +513,7 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       (from, to) =>
         supabaseAdmin
           .from('automation_sends')
-          .select('id, booking_id, automation_id, fire_at, status, error, planned_check_in, planned_check_out')
+          .select('id, booking_id, automation_id, automation_key, fire_at, status, error, planned_check_in, planned_check_out')
           .in('booking_id', ids)
           .order('id', { ascending: true })
           .range(from, to),
@@ -543,6 +551,23 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
     }
   }
 
+  // Waiting rows the plan no longer wants for a stay it covered (a guest
+  // who extended must not be told "checkout tomorrow"; a departure cleaner
+  // rule must not send the crew to an occupied house). Paused, not killed:
+  // diffPlan resumes them if the pair is planned again.
+  const allEffective = new Set<string>();
+  for (const ids of effectiveByProperty.values()) for (const id of ids) allEffective.add(id);
+  const withdrawn = withdrawnSends(planned, existing, rules, allEffective);
+  if (!dry && withdrawn.length > 0) {
+    for (const part of chunk(withdrawn)) {
+      await supabaseAdmin
+        .from('automation_sends')
+        .update({ status: 'cancelled', error: PAUSE_REASON_NO_LONGER_APPLIES, updated_at: now.toISOString() })
+        .in('id', part)
+        .in('status', ['scheduled', 'awaiting_approval']);
+    }
+  }
+
   if (!dry) {
     for (const part of chunk(diff.inserts)) {
       const { error } = await supabaseAdmin
@@ -551,6 +576,7 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
           part.map((p) => ({
             booking_id: p.booking_id,
             automation_id: p.automation_id,
+            automation_key: p.automation_key,
             property_id: p.property_id,
             fire_at: p.fire_at,
             status: p.status,
@@ -571,7 +597,12 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
       const { error } =
         u.resumeFrom !== null
           ? await base.eq('status', 'cancelled').eq('error', u.resumeFrom)
-          : await base.in('status', ['scheduled', 'skipped_dates_moved']);
+          : u.movedFrom
+            ? await base
+                .eq('status', 'awaiting_approval')
+                .eq('planned_check_in', u.movedFrom.planned_check_in)
+                .eq('planned_check_out', u.movedFrom.planned_check_out)
+            : await base.in('status', ['scheduled', 'skipped_dates_moved']);
       if (error) throw new Error(`automation_sends retime: ${error.message}`);
     }
   }
@@ -589,6 +620,8 @@ export async function planAutomations(opts: { now?: Date; propertyId?: string | 
     unchanged: diff.unchanged,
     frozen: diff.frozen,
     superseded,
+    withdrawn: withdrawn.length,
+    keyed: diff.keyed,
     dry,
   };
 }
@@ -818,6 +851,8 @@ async function dispatchRow(row: AutomationSendRow, opts: DispatchOptions): Promi
     rendered,
     lockMapped: !!bundle?.lockMapped,
     approved: opts.approved,
+    // The approval is for the rail the card showed.
+    approvedRail: opts.approved ? row.delivery_used : null,
   });
 
   const otaChannel = booking ? otaChannelOfBooking(booking.channel) : null;
@@ -1043,7 +1078,31 @@ export async function otaPasteText(id: string): Promise<{ ok: true; text: string
     rendered,
     lockMapped: !!bundle.lockMapped,
     approved: true,
+    approvedRail: 'ota_manual',
   });
+  // The stay moved: this card was for the old dates. Hand it back to the
+  // planner (skipped_dates_moved is re-planned) instead of telling the
+  // operator to skip, which ended every arrival message for the new dates.
+  if (decision.outcome === 'skipped_dates_moved') {
+    await supabaseAdmin
+      .from('automation_sends')
+      .update({ status: 'skipped_dates_moved', error: decision.reason, updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'awaiting_approval');
+    return { ok: false, error: `The stay moved (${decision.reason}). This message is re-planned for the new dates; nothing to paste now.` };
+  }
+  // The stay has a phone or email now: the message goes on that rail, and
+  // only after an approval that shows who it goes to.
+  if (decision.outcome === 'awaiting_approval' && decision.rail && decision.rail !== 'ota_manual') {
+    const to = decision.rail === 'sms' ? guestPhoneOf(booking, guest) : decision.rail === 'email' ? guestEmailOf(booking, guest) : null;
+    await supabaseAdmin
+      .from('automation_sends')
+      .update({ delivery_used: decision.rail, to_address: to, error: decision.reason, updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'awaiting_approval')
+      .eq('delivery_used', 'ota_manual');
+    return { ok: false, error: `This stay now has ${decision.rail === 'sms' ? 'a phone' : 'an email'} on file, so the message goes by ${decision.rail === 'sms' ? 'SMS' : 'email'}. Reload and approve it there.` };
+  }
   if (decision.outcome !== 'send' || decision.rail !== 'ota_manual') {
     return { ok: false, error: `Not to be sent any more (${decision.reason ?? decision.outcome}): skip this message.` };
   }
@@ -1053,18 +1112,35 @@ export async function otaPasteText(id: string): Promise<{ ok: true; text: string
   return { ok: true, text: rendered.text };
 }
 
-/** Skip a parked or scheduled row. It stays in the ledger as cancelled with the actor's note. */
+/**
+ * Skip a parked or scheduled row. It stays in the ledger as cancelled with
+ * the actor's note. A row whose live stay has moved since it was planned is
+ * the OLD dates' message: it is skipped as skipped_dates_moved, which the
+ * planner re-plans for the new dates, so a skip never silently ends the
+ * arrival message of a stay that is still coming.
+ */
 export async function skipSend(id: string, actor: string): Promise<SendVerbResult> {
   if (!isServiceConfigured) return { ok: false, error: 'Service role is not configured.' };
+  const { data: current } = await supabaseAdmin
+    .from('automation_sends')
+    .select('booking_id, planned_check_in, planned_check_out')
+    .eq('id', id)
+    .maybeSingle();
+  const cur = current as { booking_id: string; planned_check_in: string; planned_check_out: string } | null;
+  const b = cur ? await loadBooking(cur.booking_id) : null;
+  const moved = !!b && !!cur && b.status !== 'cancelled' && !b.duplicate_of && (b.check_in !== cur.planned_check_in || b.check_out !== cur.planned_check_out);
+  const patch = moved
+    ? { status: 'skipped_dates_moved', error: `dates moved to ${b!.check_in}..${b!.check_out}; the old dates' message was skipped by ${actor}` }
+    : { status: 'cancelled', error: `skipped by ${actor}` };
   const { data, error } = await supabaseAdmin
     .from('automation_sends')
-    .update({ status: 'cancelled', error: `skipped by ${actor}`, updated_at: new Date().toISOString() })
+    .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', id)
     .in('status', ['awaiting_approval', 'scheduled'])
     .select('id');
   if (error) return { ok: false, error: error.message };
   if (!data || data.length === 0) return { ok: false, error: 'That message can no longer be skipped.' };
-  return { ok: true, status: 'cancelled' };
+  return { ok: true, status: patch.status };
 }
 
 // ── Property switch ─────────────────────────────────────────────────────
@@ -1338,7 +1414,7 @@ export type PanelRule = {
 
 export type PanelSend = {
   id: string;
-  automation_id: string;
+  automation_id: string | null;
   key: string;
   booking_id: string;
   guest_name: string;
@@ -1442,11 +1518,11 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
   const sends: PanelSend[] = sendRows.map((s) => {
     const b = bookings.get(s.booking_id);
     const ota = b ? otaChannelOfBooking(b.channel) : null;
-    const rule = ruleById.get(s.automation_id);
+    const rule = s.automation_id ? ruleById.get(s.automation_id) : undefined;
     return {
       id: s.id,
       automation_id: s.automation_id,
-      key: rule?.key ?? 'rule',
+      key: rule?.key ?? s.automation_key ?? 'rule',
       booking_id: s.booking_id,
       guest_name: b ? guestNameIdentity(b.guest_name) ? (b.guest_name ?? '').trim() : 'Guest' : 'Guest',
       check_in: b?.check_in ?? s.planned_check_in,

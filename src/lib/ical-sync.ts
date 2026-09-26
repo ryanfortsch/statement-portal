@@ -26,6 +26,7 @@ import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
 import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, releaseAnswers, type CancelGuard } from '@/lib/ical-cancel-policy';
 import { nextAge, type AgeWrite, type HeldAge, type PriorRow } from '@/lib/echo-cause';
+import { PAUSE_REASON_STAY_CANCELLED } from '@/lib/automations-core';
 import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadStrictDedupeHomes, guestyEchoPropertyIds, type ListingScopeRow } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
@@ -166,6 +167,15 @@ export async function syncListing(opts: {
   ical_import_url: string;
   aggregateFeedPropertyIds?: Set<string>;
   massCancelAck?: MassCancelAck | null;
+  /**
+   * When the run read the listings its drop rule came from. last_imported_at
+   * is stamped with it (or this listing's own start), never the completion:
+   * the cutover's "Booking.com read since the first tick" compares it with
+   * the tick, and a tick landing mid-run must not count a read whose drop
+   * rule predates it (every Booking.com reservation then read as "no longer
+   * shown").
+   */
+  rulesReadAt?: Date;
 }): Promise<SyncListingResult> {
   const startedAt = new Date();
   const sb = getServiceClient();
@@ -507,14 +517,20 @@ export async function syncListing(opts: {
           .in('id', ids);
         if (cancelErr) throw new Error(`cancel bookings: ${cancelErr.message}`);
       }
-      // A stay the feed cancelled takes its parked and scheduled messages
-      // with it, as helm_cancel_booking does: left parked, an OTA paste card
-      // for a guest who is no longer one stayed on the panel. Non-fatal (a
-      // home with no automations has no rows).
-      for (const ids of chunk([...plan.cancelNow, ...plan.reclassified], ID_WRITE_CHUNK)) {
+      // A stay the feed cancelled pauses its parked and scheduled messages,
+      // as helm_cancel_booking does: left parked, an OTA paste card for a
+      // guest who is no longer one stayed on the panel. A pause, not a
+      // verdict: the same UID coming back revives the same row, and the
+      // planner resumes them (isResumablePause). A finished stay rolling off
+      // the feed (rule 2, check-out before today) is not a cancel and keeps
+      // its post_checkout (rolledOffAfterStay). Non-fatal (a home with no
+      // automations has no rows).
+      const pastIds = new Set(judged.filter((r) => String(r.check_out) < cutoff).map((r) => r.id));
+      const pausedStays = [...plan.cancelNow.filter((id) => !pastIds.has(id)), ...plan.reclassified];
+      for (const ids of chunk(pausedStays, ID_WRITE_CHUNK)) {
         const { error: sendsErr } = await sb
           .from('automation_sends')
-          .update({ status: 'cancelled', error: 'stay cancelled by its feed', updated_at: startedAt.toISOString() })
+          .update({ status: 'cancelled', error: PAUSE_REASON_STAY_CANCELLED, updated_at: startedAt.toISOString() })
           .in('booking_id', ids)
           .in('status', ['scheduled', 'awaiting_approval']);
         if (sendsErr) console.warn(`[ical-sync] cancel automation sends: ${sendsErr.message}`);
@@ -594,7 +610,7 @@ export async function syncListing(opts: {
   await sb
     .from('channel_listings')
     .update({
-      last_imported_at: completedAt.toISOString(),
+      last_imported_at: (opts.rulesReadAt && opts.rulesReadAt < startedAt ? opts.rulesReadAt : startedAt).toISOString(),
       last_import_status: result.success ? 'success' : 'error',
       last_import_error: result.error,
       last_import_event_count: result.events_total,
@@ -644,6 +660,8 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
       .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at, mass_cancel_ack_run_id, export_subscribed, properties(calendar_authority)');
     if (opts.onlyListingId) q = q.eq('id', opts.onlyListingId);
 
+    // Before the read the drop rule is derived from: see syncListing's rulesReadAt.
+    const rulesReadAt = new Date();
     const { data, error } = await q;
     if (error) throw new Error(`load channel_listings: ${error.message}`);
 
@@ -669,6 +687,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
         display_name: l.display_name as string | null,
         ical_import_url: l.ical_import_url as string,
         aggregateFeedPropertyIds,
+        rulesReadAt,
         massCancelAck: l.mass_cancel_acknowledged_at
           ? { at: l.mass_cancel_acknowledged_at as string, runId: (l.mass_cancel_ack_run_id as string | null) ?? null }
           : null,

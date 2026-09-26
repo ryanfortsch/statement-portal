@@ -11,6 +11,8 @@ import {
   shouldMoveThreadStay,
   replyClaimVerdict,
   REPLY_CLAIM_STALE_MS,
+  allBeforeOr,
+  isoInstant,
   HELM_SMS_MODULE,
   helmConversationId,
   helmThreadIdOf,
@@ -460,5 +462,39 @@ describe('replyClaimVerdict (round 13)', () => {
   });
   test('a row with no status predates the column and was written after a send', () => {
     assert.equal(replyClaimVerdict({ status: null, message_id: null, created_at: null }, now), 'duplicate');
+  });
+});
+
+describe('forward-only thread stamps (round 14, watch-out 9)', () => {
+  const at = '2026-10-01T14:00:40.000Z';
+  test('one column: null or strictly before the event', () => {
+    assert.equal(allBeforeOr(['last_guest_at'], at), `last_guest_at.is.null,last_guest_at.lt.${at}`);
+  });
+  test('two columns: every combination of null-or-before, so both must hold', () => {
+    const f = allBeforeOr(['last_guest_at', 'last_host_at'], at);
+    const clauses = f.split('),').map((c) => c.replace(/^and\(|\)$/g, ''));
+    assert.equal(clauses.length, 4);
+    for (const c of clauses) {
+      const parts = c.split(',');
+      assert.equal(parts.length, 2);
+      assert.ok(parts[0].startsWith('last_guest_at.') && parts[1].startsWith('last_host_at.'));
+    }
+    // Evaluate the filter the way PostgREST would, over a few rows.
+    const holds = (row: Record<string, string | null>) =>
+      clauses.some((c) =>
+        c.split(',').every((p) => {
+          const [col, op, ...rest] = p.split('.');
+          const v = rest.join('.');
+          return op === 'is' ? row[col] === null : row[col] !== null && (row[col] as string) < v;
+        }),
+      );
+    assert.equal(holds({ last_guest_at: null, last_host_at: null }), true);
+    assert.equal(holds({ last_guest_at: '2026-10-01T14:00:00.000Z', last_host_at: null }), true);
+    assert.equal(holds({ last_guest_at: '2026-10-01T14:00:00.000Z', last_host_at: '2026-10-01T14:00:50.000Z' }), false, 'a host reply after it: no reopen');
+    assert.equal(holds({ last_guest_at: '2026-10-01T14:01:00.000Z', last_host_at: null }), false, 'a newer guest message: no reopen');
+  });
+  test('event instants are written as canonical ISO Z', () => {
+    assert.equal(isoInstant('2026-10-01T10:00:40-04:00'), at);
+    assert.equal(isoInstant('not a date'), 'not a date');
   });
 });

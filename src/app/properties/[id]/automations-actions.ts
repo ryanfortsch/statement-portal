@@ -144,7 +144,10 @@ export async function approveSendAction(propertyId: string, sendId: string, body
     case 'sent':
       return { ok: true, message: 'Sent.' };
     case 'awaiting_approval':
-      return { ok: false, message: 'Still waiting: the message has missing fields or no rail. Fill the property record or skip it.' };
+      return {
+        ok: false,
+        message: 'Still waiting: the message has missing fields, or it now goes on another rail (a phone or email arrived since the card was made). Check who it goes to on the card and approve again, or skip it.',
+      };
     case 'skipped_cancelled':
     case 'skipped_dates_moved':
       return { ok: false, message: 'Not sent: the stay changed since this was planned.' };
@@ -173,7 +176,10 @@ export async function skipSendAction(propertyId: string, sendId: string): Promis
   if (!who) return { ok: false, message: 'Not signed in' };
   const r = await skipSend(sendId, who);
   bump(propertyId);
-  return r.ok ? { ok: true, message: 'Skipped.' } : { ok: false, message: r.error };
+  if (!r.ok) return { ok: false, message: r.error };
+  return r.status === 'skipped_dates_moved'
+    ? { ok: true, message: 'Skipped for the old dates. The stay moved, so its message is re-planned for the new dates.' }
+    : { ok: true, message: 'Skipped.' };
 }
 
 export async function sendTestAction(propertyId: string, ruleId: string, phone: string): Promise<AutomationActionResult> {

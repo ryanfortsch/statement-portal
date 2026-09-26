@@ -479,3 +479,26 @@ export function replyClaimVerdict(row: ReplyClaimRow, nowMs: number): 'duplicate
   if (Number.isFinite(at) && nowMs - at > REPLY_CLAIM_STALE_MS) return 'expired';
   return 'in_flight';
 }
+
+// ── Forward-only thread stamps (CLAUDE.md watch-out 9) ──────────────────
+
+/**
+ * A PostgREST `or` filter true when every named column is null or strictly
+ * before `atIso`: the guard an EVENT timestamp's writer puts on its update,
+ * so a late webhook, a replay or a concurrent older message matches no row
+ * instead of moving the thread backwards.
+ */
+export function allBeforeOr(columns: readonly string[], atIso: string): string {
+  if (columns.length === 0) return '';
+  const each = columns.map((c) => [`${c}.is.null`, `${c}.lt.${atIso}`]);
+  if (columns.length === 1) return each[0].join(',');
+  let combos: string[][] = [[]];
+  for (const opts of each) combos = combos.flatMap((acc) => opts.map((o) => [...acc, o]));
+  return combos.map((c) => `and(${c.join(',')})`).join(',');
+}
+
+/** An event instant as a canonical ISO 'Z' string for a filter; the input when it does not parse. */
+export function isoInstant(at: string): string {
+  const ms = Date.parse(at);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : at;
+}

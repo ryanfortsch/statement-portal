@@ -41,7 +41,7 @@ test('a feed cancel takes the stay\'s parked and scheduled messages with it', ()
   const src = read('src/lib/ical-sync.ts');
   const i = src.indexOf(".from('automation_sends')");
   assert.ok(i > 0, 'ical-sync cancels automation_sends');
-  const block = src.slice(src.lastIndexOf('for (const ids of chunk(', i), i + 400);
+  const block = src.slice(src.lastIndexOf('const pausedStays', i), i + 400);
   assert.ok(block.includes('plan.cancelNow'), 'the loop covers the feed cancels');
   assert.ok(block.includes("status: 'cancelled'"));
   assert.ok(block.includes(".in('status', ['scheduled', 'awaiting_approval'])"), 'only unsent rows are cancelled');

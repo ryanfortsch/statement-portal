@@ -359,7 +359,10 @@ create unique index if not exists message_automations_key_scope_uniq
 create table if not exists public.automation_sends (
   id uuid primary key default gen_random_uuid(),
   booking_id uuid not null references public.bookings(id) on delete cascade,
-  automation_id uuid not null references public.message_automations(id) on delete cascade,
+  -- SET NULL, not cascade: removing a per-home override must not erase what
+  -- was sent, or the planner (deduping on the key below) sends it again.
+  automation_id uuid references public.message_automations(id) on delete set null,
+  automation_key text,                  -- the rule's key when planned: the dedupe that outlives the rule row
   property_id text not null references public.properties(id) on delete cascade,
   fire_at timestamptz not null,
   status text not null default 'scheduled' check (status in
@@ -418,6 +421,7 @@ create table if not exists public.guest_threads (
   last_guest_at timestamptz,
   last_host_at timestamptz,
   last_preview text,
+  last_message_at timestamptz,          -- when the previewed message happened; the preview's forward-only guard
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -708,6 +712,10 @@ begin
                              else now() end,
          live_since = case when v_reage then v_live else live_since end,
          held_ages = case when v_reage then v_ages else held_ages end,
+         -- an inquiry becomes a booking when it is confirmed: booked_at is
+         -- that moment (the booking_confirmed gate reads it), not when the
+         -- request was typed
+         booked_at = case when v_before.status in ('inquiry', 'pending') and p_status in ('confirmed', 'completed') then now() else booked_at end,
          updated_at = now()
    where id = p_booking_id returning * into v_row;
   insert into public.booking_events (booking_id, kind, actor, before, after)
@@ -729,7 +737,9 @@ begin
      set status = 'cancelled', cancelled_at = case when v_before.status = 'cancelled' then coalesce(v_before.cancelled_at, now()) else now() end,
          cancel_reason = p_reason, cancelled_by = p_actor, updated_at = now()
    where id = p_booking_id returning * into v_row;
-  update public.automation_sends set status = 'cancelled', updated_at = now()
+  -- a pause the planner resumes if the stay is confirmed again
+  -- (automations-core PAUSE_REASON_STAY_CANCELLED, the same text)
+  update public.automation_sends set status = 'cancelled', error = 'stay cancelled', updated_at = now()
    where booking_id = p_booking_id and status in ('scheduled','awaiting_approval');
   insert into public.booking_events (booking_id, kind, actor, before, after, note)
   values (p_booking_id, 'cancelled', p_actor, to_jsonb(v_before), to_jsonb(v_row), p_reason);

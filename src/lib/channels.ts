@@ -487,7 +487,8 @@ export async function anonymousPulls(propertyId: string): Promise<ExportPull[]> 
 export type AutomationSendRow = {
   id: string;
   booking_id: string;
-  automation_id: string;
+  /** Null once the rule row was deleted; automation_key still names the message. */
+  automation_id: string | null;
   property_id: string;
   fire_at: string;
   status: string;
@@ -509,21 +510,22 @@ export type AutomationSendRow = {
 };
 
 const SEND_COLS =
-  'id, booking_id, automation_id, property_id, fire_at, status, delivery_used, to_address, subject_rendered, body_rendered, missing_fields, error, planned_check_in, planned_check_out, approved_by, approved_at, sent_at';
+  'id, booking_id, automation_id, automation_key, property_id, fire_at, status, delivery_used, to_address, subject_rendered, body_rendered, missing_fields, error, planned_check_in, planned_check_out, approved_by, approved_at, sent_at';
 
 async function decorateSends(rows: Array<Record<string, unknown>>): Promise<AutomationSendRow[]> {
-  const ids = [...new Set(rows.map((r) => String(r.automation_id)))];
+  // A row whose rule was deleted has no id: never put 'null' in the list.
+  const ids = [...new Set(rows.map((r) => r.automation_id).filter((v): v is string => typeof v === 'string' && v.length > 0))];
   const byId = new Map<string, { key: string; audience: string; trigger: string }>();
   if (ids.length > 0) {
     const { data } = await supabase.from('message_automations').select('id, key, audience, trigger').in('id', ids);
     for (const a of (data ?? []) as Array<{ id: string; key: string; audience: string; trigger: string }>) byId.set(a.id, a);
   }
   return rows.map((r) => {
-    const a = byId.get(String(r.automation_id));
+    const a = typeof r.automation_id === 'string' ? byId.get(r.automation_id) : undefined;
     return {
       id: String(r.id),
       booking_id: String(r.booking_id),
-      automation_id: String(r.automation_id),
+      automation_id: typeof r.automation_id === 'string' ? r.automation_id : null,
       property_id: String(r.property_id),
       fire_at: String(r.fire_at),
       status: String(r.status),
@@ -538,7 +540,7 @@ async function decorateSends(rows: Array<Record<string, unknown>>): Promise<Auto
       approved_by: (r.approved_by as string | null) ?? null,
       approved_at: (r.approved_at as string | null) ?? null,
       sent_at: (r.sent_at as string | null) ?? null,
-      automation_key: a?.key ?? null,
+      automation_key: a?.key ?? ((r.automation_key as string | null) ?? null),
       audience: a?.audience ?? null,
       trigger: a?.trigger ?? null,
     };

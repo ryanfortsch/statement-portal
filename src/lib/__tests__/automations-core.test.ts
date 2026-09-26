@@ -13,6 +13,11 @@ import {
   addDays,
   adjustmentKey,
   arrivalWhen,
+  withdrawnSends,
+  rolledOffAfterStay,
+  keyDecided,
+  PAUSE_REASON_STAY_CANCELLED,
+  PAUSE_REASON_NO_LONGER_APPLIES,
   anchorDateFor,
   buildMergeContext,
   continuationFlags,
@@ -93,6 +98,8 @@ function booking(over: Partial<AutomationBooking> = {}): AutomationBooking {
     booked_at: over.booked_at ?? null,
     external_confirmation_code: over.external_confirmation_code ?? null,
     num_guests: over.num_guests ?? 2,
+    cancel_reason: over.cancel_reason ?? null,
+    cancelled_at: over.cancelled_at ?? null,
   };
 }
 
@@ -780,5 +787,129 @@ describe('decideDispatch', () => {
     const luana: RecipientLike = { phone: '203-555-0101', display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct' };
     assert.deepEqual(decideDispatch({ ...clean, rule: cleaner, recipients: [luana] }), { outcome: 'send', rail: 'cleaner_sms', reason: null });
     assert.equal(decideDispatch({ ...clean, rule: cleaner, recipients: [] }).outcome, 'skipped_no_contact');
+  });
+});
+
+describe('round 14: pauses that resume, moved cards, key dedupe, withdrawals', () => {
+  const now = new Date('2026-07-10T12:00:00Z');
+  const pre = rule({ id: 'f-pre', key: 'pre_arrival' });
+  const planned = planAutomationSends({ bookings: [booking()], rules: [pre], plans: {}, adjustments: {}, now });
+  const row = (over: Partial<ExistingSend>): ExistingSend => ({
+    id: 'x',
+    booking_id: 'bk-1',
+    automation_id: 'f-pre',
+    automation_key: 'pre_arrival',
+    fire_at: '2026-07-14T14:00:00.000Z',
+    status: 'scheduled',
+    error: null,
+    planned_check_in: '2026-07-15',
+    planned_check_out: '2026-07-18',
+    ...over,
+  });
+
+  test('a stay cancel is a pause: the same stay coming back resumes its messages', () => {
+    assert.equal(isResumablePause({ status: 'cancelled', error: PAUSE_REASON_STAY_CANCELLED }), true);
+    assert.equal(isResumablePause({ status: 'cancelled', error: PAUSE_REASON_NO_LONGER_APPLIES }), true);
+    assert.equal(isResumablePause({ status: 'cancelled', error: 'skipped by dotti@risingtidestr.com' }), false);
+    const d = diffPlan(planned, [row({ status: 'cancelled', error: PAUSE_REASON_STAY_CANCELLED })]);
+    assert.equal(d.resumed, 1);
+    assert.equal(d.updates[0].resumeFrom, PAUSE_REASON_STAY_CANCELLED);
+    assert.equal(d.updates[0].patch.status, 'scheduled');
+    // The SQL writes the same text (helm_cancel_booking).
+    const sql = readFileSync(new URL('../../../supabase/migrations/20260926200000_helm_pms_plumbing.sql', import.meta.url), 'utf8');
+    assert.ok(sql.includes(`set status = 'cancelled', error = '${PAUSE_REASON_STAY_CANCELLED}'`));
+  });
+
+  test('a parked card for dates the stay no longer has is re-planned, guarded on the old dates', () => {
+    const parked = row({ status: 'awaiting_approval', planned_check_in: '2026-07-02', planned_check_out: '2026-07-05' });
+    const d = diffPlan(planned, [parked]);
+    assert.equal(d.updates.length, 1);
+    assert.deepEqual(d.updates[0].movedFrom, { planned_check_in: '2026-07-02', planned_check_out: '2026-07-05' });
+    assert.equal(d.updates[0].patch.planned_check_in, '2026-07-15');
+    // Same dates: the card is the operator's, left alone.
+    assert.equal(diffPlan(planned, [row({ status: 'awaiting_approval' })]).frozen, 1);
+  });
+
+  test('a message key settled under another rule row is not planned again (Remove override, then on again)', () => {
+    const oldSent = row({ id: 'old', automation_id: null, status: 'sent' });
+    const d = diffPlan(planned, [oldSent]);
+    assert.equal(d.inserts.length, 0);
+    assert.equal(d.keyed, 1);
+    assert.equal(diffPlan(planned, [row({ id: 'old', automation_id: 'gone', status: 'cancelled', error: 'skipped by x' })]).keyed, 1);
+    // A pause, a stale row or a failure under the old row does not settle it.
+    for (const e of [row({ id: 'old', automation_id: 'gone', status: 'cancelled', error: 'rule superseded or disabled' }), row({ id: 'old', automation_id: 'gone', status: 'failed' }), row({ id: 'old', automation_id: 'gone', status: 'skipped_cancelled', error: 'stale: x' })]) {
+      assert.equal(diffPlan(planned, [e]).inserts.length, 1, `${e.status} ${e.error}`);
+    }
+    assert.equal(keyDecided({ status: 'configured_in_ota', error: null }), true);
+    assert.equal(keyDecided({ status: 'awaiting_approval', error: null }), true);
+  });
+
+  test('a continuation seam that appears after planning withdraws the first stay\'s departure messages, never its confirmation', () => {
+    const preCheckout = rule({ id: 'f-out', key: 'pre_checkout', trigger: 'pre_checkout', offset_days: -1, at_local: '17:00' });
+    const confirm = rule({ id: 'f-conf', key: 'booking_confirmed', trigger: 'booking_confirmed', offset_days: 0, at_local: null });
+    const b1 = booking({ id: 'b1', check_in: '2026-07-15', check_out: '2026-07-18' });
+    const b2 = booking({ id: 'b2', check_in: '2026-07-18', check_out: '2026-07-21' });
+    const before = planAutomationSends({ bookings: [b1], rules: [preCheckout], plans: {}, adjustments: {}, now });
+    assert.equal(before.length, 1);
+    const after = planAutomationSends({ bookings: [b1, b2], rules: [preCheckout, confirm], plans: {}, adjustments: {}, now });
+    assert.ok(!after.some((p) => p.booking_id === 'b1' && p.automation_id === 'f-out'), 'the seam hides b1 checkout');
+    const existing = [
+      row({ id: 's-out', booking_id: 'b1', automation_id: 'f-out', automation_key: 'pre_checkout', planned_check_out: '2026-07-18' }),
+      row({ id: 's-conf', booking_id: 'b1', automation_id: 'f-conf', automation_key: 'booking_confirmed', status: 'awaiting_approval' }),
+      row({ id: 's-old', booking_id: 'b1', automation_id: 'superseded-id', status: 'scheduled' }),
+      row({ id: 's-sent', booking_id: 'b1', automation_id: 'f-out', status: 'sent' }),
+    ];
+    const ids = withdrawnSends(after, existing, [preCheckout, confirm], new Set(['f-out', 'f-conf']));
+    assert.deepEqual(ids, ['s-out']);
+    // b2 cancelled later: the pair is planned again and the pause resumes.
+    const d = diffPlan(before, [row({ id: 's-out', booking_id: 'b1', automation_id: 'f-out', status: 'cancelled', error: PAUSE_REASON_NO_LONGER_APPLIES })]);
+    assert.equal(d.resumed, 1);
+  });
+
+  test('an approval is for the rail the card showed: a phone that arrived since parks the message again', () => {
+    const clean = {
+      row: { planned_check_in: '2026-07-15', planned_check_out: '2026-07-18' },
+      booking: booking({ channel: 'vrbo' }),
+      rule: rule({ body: 'Door {{door_code}}', send_mode: 'approve' }),
+      property: { automations_enabled: true, calendar_authority: 'helm' },
+      guest: null,
+      recipients: [],
+      rendered: { missing: [] },
+      lockMapped: true,
+      approved: true,
+    };
+    const d = decideDispatch({ ...clean, approvedRail: 'ota_manual' });
+    assert.equal(d.outcome, 'awaiting_approval');
+    assert.equal(d.rail, 'sms');
+    assert.equal(decideDispatch({ ...clean, approvedRail: 'sms' }).outcome, 'send');
+    assert.equal(decideDispatch({ ...clean, booking: booking({ channel: 'vrbo', guest_phone: null, guest_email: null }), approvedRail: 'ota_manual' }).outcome, 'send');
+  });
+
+  test('a finished stay rolling off its feed still gets post_checkout; a real cancel does not', () => {
+    const post = rule({ key: 'post_checkout', trigger: 'post_checkout', offset_days: 2, send_mode: 'auto' });
+    const base = {
+      row: { planned_check_in: '2026-07-15', planned_check_out: '2026-07-18' },
+      rule: post,
+      property: { automations_enabled: true, calendar_authority: 'helm' },
+      guest: null,
+      recipients: [],
+      rendered: { missing: [] },
+      lockMapped: true,
+      approved: false,
+    };
+    const rolled = booking({ status: 'cancelled', cancel_reason: 'missing_from_feed', cancelled_at: '2026-07-20T00:00:00Z' });
+    assert.equal(rolledOffAfterStay(rolled), true);
+    assert.equal(decideDispatch({ ...base, booking: rolled }).outcome, 'send');
+    assert.equal(decideDispatch({ ...base, rule: rule({ send_mode: 'auto' }), booking: rolled }).outcome, 'skipped_cancelled');
+    const realCancel = booking({ status: 'cancelled', cancel_reason: 'missing_from_feed', cancelled_at: '2026-07-12T00:00:00Z' });
+    assert.equal(rolledOffAfterStay(realCancel), false);
+    assert.equal(decideDispatch({ ...base, booking: realCancel }).outcome, 'skipped_cancelled');
+    assert.equal(rolledOffAfterStay(booking({ status: 'cancelled', cancel_reason: 'guest', cancelled_at: '2026-07-20T00:00:00Z' })), false);
+  });
+
+  test('the ledger labels an engine pause as a pause', () => {
+    assert.equal(sendStatusLabel('cancelled', PAUSE_REASON_STAY_CANCELLED), 'Paused: stay cancelled');
+    assert.equal(sendStatusLabel('cancelled', PAUSE_REASON_NO_LONGER_APPLIES), 'Paused: no longer applies');
+    assert.equal(sendStatusLabel('cancelled', 'skipped by x'), 'Cancelled');
   });
 });

@@ -95,6 +95,9 @@ export type AutomationBooking = {
   booked_at?: string | null;
   external_confirmation_code?: string | null;
   num_guests?: number | null;
+  /** Why and when it was cancelled; a feed roll-off of a finished stay is not a cancel for post_checkout. */
+  cancel_reason?: string | null;
+  cancelled_at?: string | null;
 };
 
 /** The guest-facing times from property_rate_plans (never the cleaner guidance on properties). */
@@ -761,6 +764,8 @@ export type PlannedStatus = 'scheduled' | 'skipped_cancelled';
 export type PlannedSend = {
   booking_id: string;
   automation_id: string;
+  /** The rule's key (pre_arrival, ...): the dedupe that survives an override being removed and re-made. */
+  automation_key: string;
   property_id: string;
   /** ISO instant; a stale plan carries the computed moment and status skipped_cancelled. */
   fire_at: string;
@@ -872,6 +877,7 @@ export function planAutomationSends(input: PlanInput): PlannedSend[] {
       const base = {
         booking_id: b.id,
         automation_id: rule.id,
+        automation_key: rule.key,
         property_id: b.property_id,
         planned_check_in: b.check_in,
         planned_check_out: b.check_out,
@@ -898,7 +904,10 @@ export function planAutomationSends(input: PlanInput): PlannedSend[] {
 export type ExistingSend = {
   id: string;
   booking_id: string;
-  automation_id: string;
+  /** Null once its rule row was deleted (Remove override): the row stays as history. */
+  automation_id: string | null;
+  /** The rule key at planning time; absent on rows read without it. */
+  automation_key?: string | null;
   fire_at: string;
   status: string;
   /** The ledger note; for a cancelled row, who or what cancelled it. */
@@ -910,9 +919,15 @@ export type ExistingSend = {
 /** Statuses the planner may re-time. Anything else is history and stays put. */
 export const REPLANNABLE_STATUSES: ReadonlySet<string> = new Set(['scheduled', 'skipped_dates_moved']);
 
-/** The engine's own two cancel reasons: a pause, not a verdict. */
+/** The engine's own cancel reasons: a pause, not a verdict. */
 export const PAUSE_REASON_DISABLED_PREFIX = 'automations disabled by ';
 export const PAUSE_REASON_SUPERSEDED = 'rule superseded or disabled';
+/** The stay was cancelled (its feed dropped it, or helm_cancel_booking; the
+ *  SQL writes this same text). A stay that comes back resumes its messages. */
+export const PAUSE_REASON_STAY_CANCELLED = 'stay cancelled';
+/** The plan no longer wants this (booking, rule): a continuation seam
+ *  appeared, the stay got too short, its channel was excluded. */
+export const PAUSE_REASON_NO_LONGER_APPLIES = 'no longer applies to this stay';
 
 /**
  * A cancelled row the ENGINE parked (the home's switch went off, or the rule
@@ -924,13 +939,18 @@ export const PAUSE_REASON_SUPERSEDED = 'rule superseded or disabled';
 export function isResumablePause(row: Pick<ExistingSend, 'status' | 'error'>): boolean {
   if (row.status !== 'cancelled') return false;
   const reason = row.error ?? '';
-  return reason === PAUSE_REASON_SUPERSEDED || reason.startsWith(PAUSE_REASON_DISABLED_PREFIX);
+  return (
+    reason === PAUSE_REASON_SUPERSEDED ||
+    reason === PAUSE_REASON_STAY_CANCELLED ||
+    reason === PAUSE_REASON_NO_LONGER_APPLIES ||
+    reason.startsWith(PAUSE_REASON_DISABLED_PREFIX)
+  );
 }
 
 /** sendKey of every ledger row the engine paused, for PlanInput.resumable. */
 export function resumableKeys(existing: readonly ExistingSend[]): Set<string> {
   const out = new Set<string>();
-  for (const e of existing) if (isResumablePause(e)) out.add(sendKey(e.booking_id, e.automation_id));
+  for (const e of existing) if (e.automation_id && isResumablePause(e)) out.add(sendKey(e.booking_id, e.automation_id));
   return out;
 }
 
@@ -946,9 +966,17 @@ export type PlanDiff = {
      * operator skipped in the meantime.
      */
     resumeFrom: string | null;
+    /** For a parked (awaiting_approval) row whose stay moved: the dates it
+     *  was parked for, so the write guards on them and never re-times a card
+     *  an operator acted on in the meantime. */
+    movedFrom?: { planned_check_in: string; planned_check_out: string };
   }>;
   unchanged: number;
   frozen: number;
+  /** Planned pairs not inserted because the same stay already had this
+   *  message KEY sent, handed to the OTA, parked or skipped by an operator
+   *  under another rule row (an override removed and made again). */
+  keyed: number;
   /** How many of `updates` resume a paused row. */
   resumed: number;
 };
@@ -966,11 +994,19 @@ export type PlanDiff = {
  */
 export function diffPlan(planned: readonly PlannedSend[], existing: readonly ExistingSend[]): PlanDiff {
   const byKey = new Map<string, ExistingSend>();
-  for (const e of existing) byKey.set(sendKey(e.booking_id, e.automation_id), e);
-  const diff: PlanDiff = { inserts: [], updates: [], unchanged: 0, frozen: 0, resumed: 0 };
+  const decidedKeys = new Set<string>();
+  for (const e of existing) {
+    if (e.automation_id) byKey.set(sendKey(e.booking_id, e.automation_id), e);
+    if (e.automation_key && keyDecided(e)) decidedKeys.add(`${e.booking_id}|${e.automation_key}`);
+  }
+  const diff: PlanDiff = { inserts: [], updates: [], unchanged: 0, frozen: 0, resumed: 0, keyed: 0 };
   for (const p of planned) {
     const e = byKey.get(sendKey(p.booking_id, p.automation_id));
     if (!e) {
+      if (decidedKeys.has(`${p.booking_id}|${p.automation_key}`)) {
+        diff.keyed += 1;
+        continue;
+      }
       diff.inserts.push(p);
       continue;
     }
@@ -981,16 +1017,29 @@ export function diffPlan(planned: readonly PlannedSend[], existing: readonly Exi
       planned_check_in: p.planned_check_in,
       planned_check_out: p.planned_check_out,
     };
+    const sameDates = e.planned_check_in === p.planned_check_in && e.planned_check_out === p.planned_check_out;
     if (!REPLANNABLE_STATUSES.has(e.status)) {
       if (isResumablePause(e)) {
         diff.resumed += 1;
         diff.updates.push({ id: e.id, patch, resumeFrom: e.error ?? '' });
         continue;
       }
+      // A card parked for dates the stay no longer has: re-plan it for the
+      // new dates (the dispatcher re-parks it with a fresh render). Left as
+      // it was, Copy text said "skip this message" and a Skip ended every
+      // arrival message for the new dates.
+      if (e.status === 'awaiting_approval' && !sameDates) {
+        diff.updates.push({
+          id: e.id,
+          patch,
+          resumeFrom: null,
+          movedFrom: { planned_check_in: e.planned_check_in, planned_check_out: e.planned_check_out },
+        });
+        continue;
+      }
       diff.frozen += 1;
       continue;
     }
-    const sameDates = e.planned_check_in === p.planned_check_in && e.planned_check_out === p.planned_check_out;
     const closeEnough = Math.abs(Date.parse(e.fire_at) - Date.parse(p.fire_at)) < 60_000;
     if (e.status === p.status && sameDates && closeEnough) {
       diff.unchanged += 1;
@@ -999,6 +1048,55 @@ export function diffPlan(planned: readonly PlannedSend[], existing: readonly Exi
     diff.updates.push({ id: e.id, patch, resumeFrom: null });
   }
   return diff;
+}
+
+/**
+ * A ledger row that settles its message KEY for its stay whatever rule row
+ * it came from: the text went (or is going), was handed to the OTA, waits on
+ * an operator, or an operator skipped it. A row the engine paused, a stale
+ * or dates-moved row, or a failure does not.
+ */
+export function keyDecided(e: Pick<ExistingSend, 'status' | 'error'>): boolean {
+  if (e.status === 'sent' || e.status === 'sending' || e.status === 'configured_in_ota' || e.status === 'awaiting_approval') return true;
+  return e.status === 'cancelled' && String(e.error ?? '').startsWith('skipped by ');
+}
+
+/**
+ * Waiting rows (scheduled or parked) of stays this plan covered whose
+ * (booking, rule) pair the plan no longer wants: a continuation seam that
+ * appeared after planning (the guest extended, so "checkout tomorrow" must
+ * not go), a stay now too short, an excluded channel. Rules no longer
+ * effective are the superseded pass's; booking_confirmed is left alone (it
+ * falls out of the plan after 24h by design, and its card may still be
+ * approved). The caller pauses these with PAUSE_REASON_NO_LONGER_APPLIES,
+ * which diffPlan resumes if the pair is planned again.
+ */
+export function withdrawnSends(
+  planned: readonly Pick<PlannedSend, 'booking_id' | 'automation_id'>[],
+  existing: readonly ExistingSend[],
+  rules: readonly Pick<AutomationRule, 'id' | 'trigger'>[],
+  effectiveIds: ReadonlySet<string>,
+): string[] {
+  const want = new Set(planned.map((p) => sendKey(p.booking_id, p.automation_id)));
+  const triggerOf = new Map(rules.map((r) => [r.id, r.trigger]));
+  const out: string[] = [];
+  for (const e of existing) {
+    if (e.status !== 'scheduled' && e.status !== 'awaiting_approval') continue;
+    if (!e.automation_id || !effectiveIds.has(e.automation_id)) continue;
+    if (triggerOf.get(e.automation_id) === 'booking_confirmed') continue;
+    if (!want.has(sendKey(e.booking_id, e.automation_id))) out.push(e.id);
+  }
+  return out;
+}
+
+/**
+ * A stay cancelled only after its checkout day was a feed rolling it off
+ * (ical-cancel-policy rule 2 cancels a past row on the first run that
+ * misses it): the stay happened. post_checkout still goes for it.
+ */
+export function rolledOffAfterStay(b: Pick<AutomationBooking, 'status' | 'check_out' | 'cancel_reason' | 'cancelled_at'>): boolean {
+  if (b.status !== 'cancelled' || b.cancel_reason !== 'missing_from_feed' || !b.cancelled_at) return false;
+  return b.cancelled_at.slice(0, 10) > b.check_out;
 }
 
 // ── Dispatcher decision ─────────────────────────────────────────────────
@@ -1021,7 +1119,7 @@ export type DispatchDecision = {
 
 export type DecisionInput = {
   row: Pick<ExistingSend, 'planned_check_in' | 'planned_check_out'>;
-  booking: Pick<AutomationBooking, 'status' | 'duplicate_of' | 'check_in' | 'check_out' | 'channel' | 'guest_phone' | 'guest_email'> | null;
+  booking: Pick<AutomationBooking, 'status' | 'duplicate_of' | 'check_in' | 'check_out' | 'channel' | 'guest_phone' | 'guest_email' | 'cancel_reason' | 'cancelled_at'> | null;
   rule: AutomationRule | null;
   property: { automations_enabled: boolean; calendar_authority: string } | null;
   guest: GuestLike;
@@ -1030,6 +1128,13 @@ export type DecisionInput = {
   lockMapped: boolean;
   /** An operator already approved this row (approveSend): approve-mode gates are satisfied. */
   approved: boolean;
+  /**
+   * The rail the operator approved on (the row's delivery_used when it was
+   * parked). An approval is for the card they saw: a "Mark pasted" on an OTA
+   * card is not an approval to text the door code to a phone that arrived
+   * since, so a changed rail parks again on the new one.
+   */
+  approvedRail?: Rail | string | null;
 };
 
 /**
@@ -1043,7 +1148,9 @@ export type DecisionInput = {
 export function decideDispatch(input: DecisionInput): DispatchDecision {
   const { row, booking, rule, property } = input;
   if (!booking) return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_missing' };
-  if (booking.status === 'cancelled') return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_cancelled' };
+  if (booking.status === 'cancelled' && !(rule?.trigger === 'post_checkout' && rolledOffAfterStay(booking))) {
+    return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_cancelled' };
+  }
   if (booking.duplicate_of) return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_duplicate' };
   if (booking.check_in !== row.planned_check_in || booking.check_out !== row.planned_check_out) {
     return { outcome: 'skipped_dates_moved', rail: null, reason: `dates moved to ${booking.check_in}..${booking.check_out}` };
@@ -1056,6 +1163,9 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
 
   const rail = pickRail(rule, booking, input.guest, input.recipients);
   if (!rail) return { outcome: 'skipped_no_contact', rail: null, reason: rule.audience === 'cleaner' ? 'no cleaner recipient covers this home' : 'guest has no phone or email on file' };
+  if (input.approved && input.approvedRail && input.approvedRail !== rail) {
+    return { outcome: 'awaiting_approval', rail, reason: `now goes by ${rail === 'sms' ? 'SMS' : rail === 'email' ? 'email' : rail}: approve it again` };
+  }
   if (rail === 'ota_manual') {
     if (input.approved) return { outcome: 'send', rail, reason: null };
     // configured_in_ota means the message was recreated in Airbnb's
@@ -1091,6 +1201,11 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
  *  cancelled" (the stay was not). */
 export function sendStatusLabel(status: string, error?: string | null): string {
   if (status === 'skipped_cancelled' && String(error ?? '').startsWith('stale:')) return 'Missed its time';
+  // The engine's pauses are not verdicts: the row resumes if the stay or rule comes back.
+  if (status === 'cancelled' && error === PAUSE_REASON_STAY_CANCELLED) return 'Paused: stay cancelled';
+  if (status === 'cancelled' && error === PAUSE_REASON_NO_LONGER_APPLIES) return 'Paused: no longer applies';
+  if (status === 'cancelled' && error === PAUSE_REASON_SUPERSEDED) return 'Paused: rule changed';
+  if (status === 'cancelled' && String(error ?? '').startsWith(PAUSE_REASON_DISABLED_PREFIX)) return 'Paused: automations off';
   return SEND_STATUS_LABELS[status] ?? status;
 }
 
