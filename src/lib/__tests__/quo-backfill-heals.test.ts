@@ -73,18 +73,32 @@ describe('quo backfill', () => {
     );
   });
 
-  test('owner stamping is still absent from the backfill, deliberately', () => {
-    const sweep = read(SWEEP);
-    assert.ok(
-      !sweep.includes('stampOwnerContact'),
-      'the sweep now stamps owner last-contacted. It walks history, and that column is ' +
-        'last-write-wins, so this can move the timestamp BACKWARDS over a newer live value. ' +
-        'It needs an as-of guard first.',
-    );
+  test('owner stamping is forward only, in the writer not the callers', () => {
+    const src = read(INGEST);
+    const start = src.indexOf('export async function stampOwnerContact');
+    assert.notEqual(start, -1, 'stampOwnerContact is no longer exported');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+
     assert.match(
-      sweep,
-      /move that timestamp BACKWARDS/,
-      'the comment explaining why owner stamping is absent is gone, so it reads as an oversight',
+      body,
+      /owner_last_contacted_at\.is\.null,owner_last_contacted_at\.lt\./,
+      'stampOwnerContact lost its forward-only guard. It is a blind update again, so an ' +
+        'out-of-order delivery, an event replay, or the six-hourly history sweep can set ' +
+        'owner_last_contacted_at to an OLDER message than the one already recorded.',
     );
   });
+
+  test('the backfill stamps owners, now that it is safe to', () => {
+    const sweep = read(SWEEP);
+    assert.ok(
+      sweep.includes('stampOwnerContact('),
+      'the sweep stopped stamping owner last-contacted, so an owner text that arrives during a ' +
+        'missed webhook delivery never updates the column the owner queue reads',
+    );
+    assert.ok(
+      !/async function stampOwnerContact\s*\(/.test(sweep),
+      'the sweep defined its own stampOwnerContact, which would not carry the guard',
+    );
+  });
+
 });
