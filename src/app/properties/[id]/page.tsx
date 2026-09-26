@@ -17,7 +17,6 @@ import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { displayNameForEmail } from '@/lib/team';
-import { ResolveNoteButton } from './ResolveNoteButton';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
@@ -53,10 +52,12 @@ import { CollapsibleSection, CollapsibleSubSection } from '@/components/properti
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
+import { getPropertyFlags } from '@/lib/property-flags';
 import { loadLaunchForProperty } from '@/lib/launch-context';
 import type { ContactRow, ContactTouchRow } from '@/lib/crm';
 import { PropertyCrmSection } from './PropertyCrmSection';
 import { ClimatePanelLoader } from './ClimatePanelLoader';
+import { ResolveFlagButton } from './ResolveFlagButton';
 import { PropertyMasthead, type PropertyAlert } from './PropertyMasthead';
 import { OwnersEditor } from './OwnersEditor';
 import { OnboardingItemToggle } from './OnboardingItemToggle';
@@ -191,33 +192,6 @@ function fmtTermDate(iso: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   });
-}
-
-type PropertyNoteRow = {
-  id: string;
-  note_text: string;
-  author_email: string;
-  created_at: string;
-  inspection_id: string | null;
-  photo_urls: string[] | null;
-};
-
-async function getPinnedPropertyNotes(propertyId: string): Promise<PropertyNoteRow[]> {
-  if (!isHelmConfigured) return [];
-  try {
-    const { data, error } = await supabase
-      .from('inspection_notes')
-      .select('id, note_text, author_email, created_at, inspection_id, photo_urls')
-      .eq('property_id', propertyId)
-      .eq('note_type', 'PROPERTY_NOTE')
-      .is('resolved_at', null)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (error) throw error;
-    return (data ?? []) as PropertyNoteRow[];
-  } catch {
-    return [];
-  }
 }
 
 type RecentInspectionRow = {
@@ -424,9 +398,9 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
+  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
     getRecentStatements(p.id),
-    getPinnedPropertyNotes(p.id),
+    getPropertyFlags(p.id),
     getRecentInspections(p.id),
     getOpenWorkSlips(p.id),
     getLatestOwnerContact(p.id, p),
@@ -825,8 +799,15 @@ export default async function PropertyDetailPage({
             </Link>
           </TabActions>
 
-      {/* PINNED PROPERTY NOTES (from inspections) */}
-      {pinnedNotes.length > 0 && (
+      {/* FLAGGED AT THE HOUSE — one list over BOTH note tables.
+          inspection_notes (someone flagged it on a walk) and property_notes
+          (someone wrote it down) used to render as two lists on two tabs,
+          under headings that did not distinguish them. Worse, the old
+          heading here read "Pinned from walkthroughs" while rendering
+          inspection_notes: both capture boxes write to property_notes, so
+          nothing a walkthrough dictated ever appeared under it. Source pill,
+          one resolve verb, honest count. */}
+      {propertyFlags.flags.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
             <h2
@@ -839,14 +820,19 @@ export default async function PropertyDetailPage({
                 margin: 0,
               }}
             >
-              Pinned from walkthroughs
+              Flagged at the house
             </h2>
-            <span className="eyebrow">{pinnedNotes.length} pinned</span>
+            <span className="eyebrow">
+              {propertyFlags.total} open
+              {propertyFlags.total > propertyFlags.flags.length
+                ? ` · showing ${propertyFlags.flags.length}`
+                : ''}
+            </span>
           </div>
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {pinnedNotes.map((n) => (
+            {propertyFlags.flags.map((f) => (
               <div
-                key={n.id}
+                key={`${f.source}-${f.id}`}
                 style={{
                   padding: '16px 0',
                   borderBottom: '1px solid var(--rule)',
@@ -856,20 +842,42 @@ export default async function PropertyDetailPage({
                   alignItems: 'baseline',
                 }}
               >
-                <div>
-                  <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
-                    {n.note_text}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <span style={pillStyle(f.source === 'walk' ? 'var(--tide-deep)' : 'var(--ink-4)', true)}>
+                      {f.source === 'walk' ? 'Walk' : 'Note'}
+                    </span>
+                    {f.guestFacing && (
+                      <span
+                        title="Part of the guest-messaging knowledge base"
+                        style={pillStyle('var(--tide-deep)', true)}
+                      >
+                        Guest KB
+                      </span>
+                    )}
+                    <span style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
+                      {f.href ? (
+                        <Link href={f.href} style={{ color: 'inherit', textDecoration: 'none' }}>
+                          {f.text}
+                        </Link>
+                      ) : (
+                        f.text
+                      )}
+                    </span>
                   </div>
-                  {n.photo_urls && n.photo_urls.length > 0 && (
-                    <PhotoThumbs urls={n.photo_urls} size={64} />
+                  {f.detail && f.detail !== f.text && (
+                    <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                      {f.detail.length > 180 ? `${f.detail.slice(0, 180)}…` : f.detail}
+                    </div>
                   )}
+                  {f.photoUrls.length > 0 && <PhotoThumbs urls={f.photoUrls} size={64} />}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {n.author_email.split('@')[0]}
+                  {(f.authorEmail ?? '').split('@')[0] || 'Helm'}
                   <br />
-                  <span style={{ fontSize: 10 }}>{formatDate(n.created_at)}</span>
+                  <span style={{ fontSize: 10 }}>{formatDate(f.createdAt)}</span>
                 </div>
-                <ResolveNoteButton noteId={n.id} />
+                <ResolveFlagButton propertyId={p.id} flagId={f.id} source={f.source} />
               </div>
             ))}
           </div>
@@ -1186,8 +1194,13 @@ export default async function PropertyDetailPage({
       {/* OPERATIONS NOTEBOOK — internal per-property knowledge base
           (property_notes). Each row is a discrete note (quirk / workaround
           / vendor / warning).
-          Closed-state chip surfaces the open count so a single glance
-          tells you whether there's tribal knowledge attached. */}
+
+          This and "Flagged at the house" on Today now share rows, and that
+          is deliberate rather than the old accident: Today answers "what
+          needs attention here", this answers "what do we know about this
+          house". So this one keeps resolved entries and the guest-facing
+          split, which is what makes it a knowledge base rather than a
+          queue. Open rows appear in both because they are both. */}
       <CollapsibleSection
         id="ops-notebook"
         title="Operations notebook"
