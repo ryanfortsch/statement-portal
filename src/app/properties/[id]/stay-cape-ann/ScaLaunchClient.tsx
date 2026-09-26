@@ -6,6 +6,7 @@ import type { ScaFormDraft, ScaLaunchRow, PaymentVerifySignal } from '@/lib/sca-
 import {
   scaStripeEnvVarNames,
   scaStripeWebhookUrl,
+  SCA_STRIPE_KEY_PERMISSIONS,
   SCA_STRIPE_WEBHOOK_EVENTS,
 } from '@/lib/sca-config';
 import {
@@ -572,6 +573,36 @@ export function ScaLaunchClient(props: Props) {
           <CopyLine text={env.publishable} suffix=" = pk_live_… (this property's publishable key)" />
           <CopyLine text={env.secret} suffix=" = sk_live_… or rk_live_… (secret/restricted key — Helm never sees this)" />
           <CopyLine text={env.webhookSecret} suffix=" = whsec_… (from the webhook below)" />
+        </div>
+
+        <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
+          <span style={labelStyle}>Which permissions that secret key needs</span>
+          <p style={{ ...hintStyle, marginTop: 0, marginBottom: 12 }}>
+            Only if you mint a <strong>restricted</strong> key: Developers &rsaquo; API keys &rsaquo; Create
+            restricted key, start from zero permissions, then set exactly these four. Every other row stays{' '}
+            <span style={mono}>None</span>. A plain <span style={mono}>sk_live_</span> secret key has no
+            permissions to choose, so skip this block.
+          </p>
+          {SCA_STRIPE_KEY_PERMISSIONS.map((p) => (
+            <div
+              key={p.resource}
+              style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '7px 0', borderTop: '1px solid var(--rule)' }}
+            >
+              <code style={{ ...mono, fontSize: 12.5, width: 124, flexShrink: 0 }}>{p.resource}</code>
+              <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '.04em', width: 42, flexShrink: 0 }}>{p.access}</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>{p.why}</span>
+            </div>
+          ))}
+          <p style={{ ...hintStyle, marginTop: 12 }}>
+            Write already covers Read, so there is nothing to pair these with. Disputes, Events, Balance,
+            Products and Payouts are never called by the booking site and stay on <span style={mono}>None</span>.
+          </p>
+          <p style={hintStyle}>
+            <strong>One catch.</strong> staycapeann&rsquo;s own key diagnostics still test for a literal{' '}
+            <span style={mono}>sk_live_</span> prefix, so a restricted key reads there as &ldquo;wrong
+            prefix&rdquo; even though bookings, captures and refunds all work. The booking code never inspects
+            the prefix.
+          </p>
         </div>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
