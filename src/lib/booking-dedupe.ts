@@ -98,8 +98,25 @@ export type DedupOptions = {
    * run homes keep today's joins: Guesty relabels the same stay across its
    * records often enough that a cross-channel join there is usually right.
    * Absent: no property is strict (every existing caller and test).
+   *
+   * Two more joins are refused on these homes, both about a live stay being
+   * filed under a cancelled one on the SAME channel:
+   *   - two ical_import rows from the same direct feed never date-join. One
+   *     feed, two event UIDs, two events: a VRBO guest who cancels and a
+   *     second who books the freed nights both arrive as a bare "Reserved"
+   *     with no name and no code, and pass three used to place the live row
+   *     in the cancelled one's cluster (its only candidate), so the live
+   *     stay left the export, the availability bridge and the overlap check.
+   *   - an ical_import row first seen after the home's cutover
+   *     (cutoverAtByProperty) never date-joins a guesty_legacy row. Guesty
+   *     stopped writing those at the flip, so every one describes a
+   *     reservation that existed then, and its feed twin was already on
+   *     file. A row first seen later is a later booking; joined to a frozen
+   *     twin whose feed row was cancelled, it was hidden the same way.
    */
   strictChannelPropertyIds?: ReadonlySet<string>;
+  /** properties.cutover_at per Helm-run home (see strictChannelPropertyIds). */
+  cutoverAtByProperty?: ReadonlyMap<string, string>;
 };
 
 export type DedupPlan = {
@@ -527,6 +544,28 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
   const { isFromAggregateFeed, isPlaceholderGuestName: isPlaceholder } = opts;
   const isBlockSummary = opts.isBlockSummary ?? (() => false);
   const strictChannels: ReadonlySet<string> = opts.strictChannelPropertyIds ?? new Set();
+  const cutoverAt: ReadonlyMap<string, string> = opts.cutoverAtByProperty ?? new Map();
+  /** Refused on a Helm-run home even when the dates agree (DedupOptions). */
+  const strictRefuses = (a: DedupRow, b: DedupRow): boolean => {
+    if (!strictChannels.has(a.property_id)) return false;
+    if (a.channel && b.channel && a.channel !== b.channel) return true;
+    if (
+      a.source === 'ical_import' &&
+      b.source === 'ical_import' &&
+      a.channel_listing_id != null &&
+      a.channel_listing_id === b.channel_listing_id &&
+      !isFromAggregateFeed(a)
+    ) {
+      return true;
+    }
+    // Instants, not strings: Postgres writes "+00:00" where JS writes "Z".
+    const at = Date.parse(cutoverAt.get(a.property_id) ?? '');
+    if (Number.isFinite(at)) {
+      const lateFeedRow = (r: DedupRow) => r.source === 'ical_import' && Date.parse(r.created_at) > at;
+      if ((lateFeedRow(a) && b.source === 'guesty_legacy') || (lateFeedRow(b) && a.source === 'guesty_legacy')) return true;
+    }
+    return false;
+  };
   /** A hold, by status or by what the feed called it. */
   const isBlockLike = (r: DedupRow): boolean =>
     r.status === 'block' || (r.source === 'ical_import' && isBlockSummary(r.raw_summary));
@@ -600,9 +639,10 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       // confirmed) are distinct calendar entities; only ever fold them in
       // by a shared id, never by a bare date overlap.
       if (isBlockLike(a) || isBlockLike(b)) return false;
-      // On a Helm-run home a date join never crosses channels: two channels,
-      // two guests (see DedupOptions.strictChannelPropertyIds).
-      if (strictChannels.has(a.property_id) && a.channel && b.channel && a.channel !== b.channel) return false;
+      // On a Helm-run home a date join never crosses channels, never pairs
+      // two events of one direct feed, and never pairs a post-cutover feed
+      // row with a frozen Guesty record (DedupOptions.strictChannelPropertyIds).
+      if (strictRefuses(a, b)) return false;
       // Identical dates and nothing saying these are different people: one
       // stay, whatever the ids claim. Runs BEFORE conflictingIdentity,
       // because reissued Guesty ids are exactly what that guard mistakes

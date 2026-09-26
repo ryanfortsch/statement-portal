@@ -215,7 +215,7 @@ describe('checkRange', () => {
 describe('a hold imported from an OTA feed holds its nights (fail closed)', () => {
   // hold_kind 'ota': an OTA's own "Not available" / "Blocked" / "CLOSED".
   // Maybe an echo of Helm's export, maybe a Booking.com reservation or an
-  // owner block set in the Airbnb app. A night nobody can tell is free is
+  // owner block set in the Airbnb app, duplicate mark or not. A night nobody can tell is free is
   // not sold.
   const rows: AvailabilityBooking[] = [
     { status: 'block', check_in: '2026-10-10', check_out: '2026-10-14', hold_kind: 'ota' },
@@ -245,5 +245,17 @@ describe('a hold imported from an OTA feed holds its nights (fail closed)', () =
     // A hold, not a guest Helm knows of: never flagged reserved.
     assert.deepEqual(days.map((d) => !!d.reserved), [false, false, false, false]);
     assert.equal(checkRange(days, '2026-10-10', '2026-10-14').available, false);
+  });
+
+  test('an OTA hold the dedupe filed as a duplicate still holds its nights; any other duplicate does not', () => {
+    // Pass four files a Booking.com closure under the stay it overlaps; when
+    // that stay is cancelled the mark lingers until the next dedupe run, and
+    // the closure may be a Booking.com guest.
+    const { blocked } = nightHolds([
+      { status: 'block', check_in: '2026-10-10', check_out: '2026-10-12', hold_kind: 'ota', duplicate_of: 'cancelled-stay' },
+      { status: 'block', check_in: '2026-10-20', check_out: '2026-10-22', hold_kind: 'owner', duplicate_of: 'x' },
+      { status: 'cancelled', check_in: '2026-10-25', check_out: '2026-10-27', hold_kind: 'ota', duplicate_of: 'y' },
+    ]);
+    assert.deepEqual([...blocked].sort(), ['2026-10-10', '2026-10-11']);
   });
 });

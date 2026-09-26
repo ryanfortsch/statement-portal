@@ -482,7 +482,7 @@ function RecentRunsBlock({ runs, summary, nameOf, now }: { runs: SyncRunWithList
           <Mini label="Feeds" value={`${summary.succeeded} ok · ${summary.failed} failed`} tone={summary.failed > 0 ? 'negative' : undefined} />
           <Mini label="Deferred cancels" value={String(summary.deferred)} sub="missing once; cancel on the second run" />
           <Mini label="Reclassified" value={String(summary.reclassified)} sub="stays that were really holds" />
-          <Mini label="Mass-cancel guard" value={summary.guarded > 0 ? `${summary.guarded} tripped` : 'quiet'} tone={summary.guarded > 0 ? 'signal' : undefined} sub={summary.guarded > 0 ? 'held for review' : undefined} />
+          <Mini label="Cancel guards" value={summary.guarded > 0 ? `${summary.guarded} tripped` : 'quiet'} tone={summary.guarded > 0 ? 'signal' : undefined} sub={summary.guarded > 0 ? 'held for review' : undefined} />
         </div>
       )}
       {summary?.last_error && summary.last_status !== 'ok' && (

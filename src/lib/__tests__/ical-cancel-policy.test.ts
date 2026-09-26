@@ -21,6 +21,7 @@ import {
   MASS_CANCEL_SHARE,
   type CancelCandidate,
   keepsEmptyFeedGuardUp,
+  holdsAreReservations,
 } from '../ical-cancel-policy.ts';
 import { isBlockSummary } from '../ical.ts';
 
@@ -43,7 +44,11 @@ function row(over: Partial<Row> & { id: string }): Row {
   };
 }
 
-function plan(existing: Row[], seenIds: string[], extra: { now?: Date; allowMassCancel?: boolean } = {}) {
+function plan(
+  existing: Row[],
+  seenIds: string[],
+  extra: { now?: Date; allowMassCancel?: boolean; holdsAreReservations?: boolean; treatMissingAsReady?: boolean } = {},
+) {
   return planCancelPass({
     existing,
     incomingUids: new Set(seenIds.map((id) => `uid-${id}`)),
@@ -51,6 +56,8 @@ function plan(existing: Row[], seenIds: string[], extra: { now?: Date; allowMass
     todayIso: TODAY,
     isBlockSummary,
     allowMassCancel: extra.allowMassCancel,
+    holdsAreReservations: extra.holdsAreReservations,
+    treatMissingAsReady: extra.treatMissingAsReady,
   });
 }
 
@@ -391,5 +398,62 @@ describe('keepsEmptyFeedGuardUp: only an upcoming live stay holds the guard', ()
   test('a cancelled or rolled-off row does not', () => {
     assert.equal(keepsEmptyFeedGuardUp(r('cancelled', '2026-10-05'), today, isHold), false);
     assert.equal(keepsEmptyFeedGuardUp(r('confirmed', '2026-09-30'), today, isHold), false);
+  });
+});
+
+describe('Booking.com: a closure may be a guest, so both guards count it', () => {
+  // Booking.com's iCal publishes every booking as "CLOSED - Not available";
+  // ical-sync stores each as a block. Before this, neither guard counted a
+  // block, and an empty or truncated Booking.com feed cancelled every
+  // Booking.com guest on file in three beats.
+  const closure = (id: string, over: Partial<Row> = {}) => row({ id, status: 'block', raw_summary: 'CLOSED - Not available', ...over });
+
+  test('only booking_com publishes reservations as closures', () => {
+    assert.equal(holdsAreReservations('booking_com'), true);
+    for (const c of ['airbnb', 'vrbo', 'other', 'guesty', null]) assert.equal(holdsAreReservations(c), false, String(c));
+  });
+
+  test('an upcoming Booking.com closure keeps the empty-feed guard up; an Airbnb one does not', () => {
+    const r = closure('b');
+    assert.equal(keepsEmptyFeedGuardUp(r, TODAY, isBlockSummary, true), true);
+    assert.equal(keepsEmptyFeedGuardUp(r, TODAY, isBlockSummary, false), false);
+    assert.equal(keepsEmptyFeedGuardUp({ ...r, check_out: '2026-09-20' }, TODAY, isBlockSummary, true), false, 'past');
+    assert.equal(keepsEmptyFeedGuardUp({ ...r, status: 'cancelled' }, TODAY, isBlockSummary, true), false, 'cancelled');
+  });
+
+  test('six Booking.com reservations vanishing at once trip the mass-cancel guard', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => closure(`b${i}`, { missing_since: minutesAgo(60) }));
+    const p = plan(rows, [], { holdsAreReservations: true });
+    assert.equal(p.guard, 'mass_cancel');
+    assert.deepEqual(p.cancelNow, []);
+    assert.equal(p.guardDetail.upcoming_live, 6);
+  });
+
+  test('the same six Airbnb closures lifted at once cancel with no guard (a bulk unblock)', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => closure(`a${i}`, { missing_since: minutesAgo(60), raw_summary: 'Airbnb (Not available)' }));
+    const p = plan(rows, [], { holdsAreReservations: false });
+    assert.equal(p.guard, null);
+    assert.equal(p.cancelNow.length, 6);
+  });
+
+  test('one Booking.com closure leaving still cancels after two looks', () => {
+    const p = plan([closure('b1', { missing_since: minutesAgo(60) }), closure('b2')], ['b2'], { holdsAreReservations: true });
+    assert.deepEqual(p.cancelNow, ['b1']);
+    assert.equal(p.guard, null);
+  });
+});
+
+describe('releasing an empty-feed guard: the operator is the second look', () => {
+  test('with treatMissingAsReady, rows never observed missing cancel on the release run', () => {
+    const rows = [row({ id: 'a' }), row({ id: 'b', status: 'block', raw_summary: 'CLOSED - Not available' })];
+    const p = plan(rows, [], { allowMassCancel: true, treatMissingAsReady: true, holdsAreReservations: true });
+    assert.deepEqual(p.cancelNow.sort(), ['a', 'b']);
+    assert.deepEqual(p.stampMissing, []);
+  });
+
+  test('without it the same rows only start the two-look clock', () => {
+    const p = plan([row({ id: 'a' })], [], { allowMassCancel: true });
+    assert.deepEqual(p.cancelNow, []);
+    assert.deepEqual(p.stampMissing, ['a']);
   });
 });

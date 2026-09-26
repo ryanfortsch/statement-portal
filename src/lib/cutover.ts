@@ -31,6 +31,14 @@
  *                      matched to the pulls the guess could not classify)
  *   no_double_bookings findDoubleBookings over the home's canonical stays is
  *                      empty
+ *   guesty_stays_carried every Guesty-era Airbnb / VRBO stay still ahead has a
+ *                      live direct-feed twin (the only thing that can cancel
+ *                      it once Guesty stops writing), and every Booking.com
+ *                      reservation on file is still closed on Booking.com's
+ *                      own feed (cutover-carryover.ts)
+ *   booking_com_reconciled every Booking.com closure still ahead has a
+ *                      reservation on file or something Helm sends Booking.com
+ *                      behind it, and none sits on a feed Helm stopped reading
  *   cleaner_recipient  an ENABLED cleaner_schedule_recipients row covers the
  *                      home: property_ids contains it, or property_ids is
  *                      '{}' and the recipient's region is the home's region
@@ -54,6 +62,7 @@ import { propertyInScope, recipientScope } from './cleaner-digest-core.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
 import { mirrorWindow, writeHelmCalendarMirror, type HelmMirrorResult } from './helm-calendar-mirror.ts';
 import { relativeAge } from './calendar-model.ts';
+import { carryoverClear, evaluateCarryover, type CarryRow, type Carryover } from './cutover-carryover.ts';
 
 // ── Facts ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +76,8 @@ export type CutoverFeedFact = {
   last_import_error: string | null;
   export_subscribed: boolean;
   export_subscribed_at: string | null;
+  /** channel_listings.ical_import_enabled; absent reads as enabled. */
+  ical_import_enabled?: boolean;
 };
 
 export type CutoverPullFact = {
@@ -112,6 +123,10 @@ export type CutoverFacts = {
   pulls: CutoverPullFact[];
   /** Canonical rows for this property in the look-ahead window; any status. */
   bookings: ConflictRow[];
+  /** Every row still ahead (check_out after today), duplicates and cancelled
+   *  rows included, for the carryover reconciliation (cutover-carryover.ts).
+   *  Absent: the carryover checks read as clear (older fixtures). */
+  carryRows?: CarryRow[];
   recipients: CutoverRecipientFact[];
   automations: CutoverAutomationFacts;
   acknowledgements: CutoverAcknowledgements;
@@ -128,6 +143,8 @@ export type CutoverCheckKey =
   | 'feeds_fresh'
   | 'export_subscribed'
   | 'no_double_bookings'
+  | 'guesty_stays_carried'
+  | 'booking_com_reconciled'
   | 'cleaner_recipient'
   | 'automations_reviewed'
   | 'guesty_disconnect_acknowledged';
@@ -355,6 +372,59 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     href: `/channels/${facts.propertyId}/calendar`,
   });
 
+  // 5b. what the flip hands over (cutover-carryover.ts)
+  const carry = carryoverFor(facts);
+  const listRows = (rows: readonly CarryRow[]) =>
+    rows
+      .slice(0, 3)
+      .map((r) => `${r.check_in} to ${r.check_out}${r.guest_name ? ` (${r.guest_name})` : ''}`)
+      .join('; ') + (rows.length > 3 ? `; and ${rows.length - 3} more` : '');
+  {
+    const problems: string[] = [];
+    if (carry.untwinnedGuestyStays.length > 0) {
+      problems.push(
+        `${carry.untwinnedGuestyStays.length} Guesty-era Airbnb or VRBO stay${carry.untwinnedGuestyStays.length === 1 ? ' has' : 's have'} no live twin on the OTA's own feed, so nothing could cancel ${carry.untwinnedGuestyStays.length === 1 ? 'it' : 'them'} after the flip: ${listRows(carry.untwinnedGuestyStays)}. Sync that OTA's feed, or cancel the stay in Helm if it is gone`,
+      );
+    }
+    if (carry.bookingComNotShown.length > 0) {
+      problems.push(
+        `Booking.com no longer shows ${carry.bookingComNotShown.length} reservation${carry.bookingComNotShown.length === 1 ? '' : 's'} Helm has on file as closed: ${listRows(carry.bookingComNotShown)}. Check the extranet and cancel ${carry.bookingComNotShown.length === 1 ? 'it' : 'each one'} in Helm if the guest cancelled`,
+      );
+    }
+    checks.push({
+      key: 'guesty_stays_carried',
+      label: 'Guesty stays handed over',
+      ok: problems.length === 0,
+      detail:
+        problems.length === 0
+          ? `Every Guesty-era stay ahead has a live feed twin or is a Booking.com reservation Booking.com still shows.${carry.guestyBlocks.length > 0 ? ` The flip adopts ${carry.guestyBlocks.length} Guesty hold${carry.guestyBlocks.length === 1 ? '' : 's'} as Helm block${carry.guestyBlocks.length === 1 ? '' : 's'}.` : ''}`
+          : problems.join('. ') + '.',
+      acknowledgement: false,
+      href: `/channels/${facts.propertyId}#attention`,
+    });
+  }
+  {
+    const problems: string[] = [];
+    if (carry.bookingComUnexplained.length > 0) {
+      problems.push(
+        `Booking.com shows ${carry.bookingComUnexplained.length} closure${carry.bookingComUnexplained.length === 1 ? '' : 's'} with no reservation on file behind ${carry.bookingComUnexplained.length === 1 ? 'it' : 'them'}: ${listRows(carry.bookingComUnexplained)}. Enter each Booking.com booking from its confirmation email, or open the nights in the extranet if it is a leftover`,
+      );
+    }
+    if (carry.bookingComOrphaned.length > 0) {
+      problems.push(
+        `${carry.bookingComOrphaned.length} Booking.com closure${carry.bookingComOrphaned.length === 1 ? ' sits' : 's sit'} on a feed Helm no longer reads: ${listRows(carry.bookingComOrphaned)}. Release ${carry.bookingComOrphaned.length === 1 ? 'it' : 'them'} on the channel hub once checked`,
+      );
+    }
+    checks.push({
+      key: 'booking_com_reconciled',
+      label: 'Booking.com reconciled',
+      ok: problems.length === 0,
+      detail: problems.length === 0 ? 'Every Booking.com closure ahead has a reservation on file or a Helm row behind it.' : problems.join('. ') + '.',
+      acknowledgement: false,
+      href: `/channels/${facts.propertyId}#attention`,
+    });
+  }
+
   // 6. cleaner recipient
   const covering = facts.recipients.filter(
     (r) => r.enabled && propertyInScope({ id: facts.propertyId, region }, recipientScope(r)),
@@ -405,6 +475,27 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
   return { ok: failing.length === 0, checks, dataOk, failing };
 }
 
+/** The carryover reconciliation over a home's loaded facts. */
+export function carryoverFor(facts: CutoverFacts): Carryover {
+  return evaluateCarryover({
+    rows: facts.carryRows ?? [],
+    listings: facts.feeds.map((f) => ({
+      id: f.id,
+      channel: f.channel,
+      is_active: f.is_active,
+      ical_import_url: f.ical_import_url,
+      ical_import_enabled: f.ical_import_enabled,
+      last_import_status: f.last_import_status,
+      last_imported_at: f.last_imported_at,
+      export_subscribed: f.export_subscribed,
+    })),
+    todayIso: facts.now.toISOString().slice(0, 10),
+    now: facts.now,
+  });
+}
+
+export { carryoverClear };
+
 /** The channel_listings channel with no user-agent signature: any OTA that is
  * not Airbnb, VRBO or Booking.com. Its pulls are credited 'other' only when
  * it imports its own ?listing= line from the hub. */
@@ -436,6 +527,22 @@ export function latestPullFor(pulls: readonly CutoverPullFact[], channel: string
 // ── Facts loader ────────────────────────────────────────────────────────────
 
 const LOOKAHEAD_DAYS = 540;
+
+/** Every row still ahead, any status, duplicates included (CutoverFacts.carryRows). */
+export async function loadCarryRows(propertyId: string, todayIso: string): Promise<CarryRow[]> {
+  return selectAllPaged<CarryRow>(
+    (from, to) =>
+      supabaseAdmin
+        .from('bookings')
+        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name')
+        .eq('property_id', propertyId)
+        .gt('check_out', todayIso)
+        .order('check_in', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    { label: `cutover carry ${propertyId}` },
+  );
+}
 
 async function loadCanonicalStays(propertyId: string, todayIso: string): Promise<ConflictRow[]> {
   const end = new Date(Date.parse(`${todayIso}T00:00:00Z`) + LOOKAHEAD_DAYS * 86_400_000).toISOString().slice(0, 10);
@@ -471,7 +578,7 @@ export async function loadCutoverFacts(
   const todayIso = now.toISOString().slice(0, 10);
   const pullsSince = new Date(now.getTime() - 7 * 86_400_000).toISOString();
 
-  const [propRes, planRes, taxRes, feedsRes, pullsRes, recipientsRes, automationsRes, stays] = await Promise.all([
+  const [propRes, planRes, taxRes, feedsRes, pullsRes, recipientsRes, automationsRes, stays, carryRows] = await Promise.all([
     supabaseAdmin
       .from('properties')
       .select('id, name, region, calendar_authority, guesty_listing_id, former_guesty_listing_id, automations_enabled')
@@ -481,7 +588,7 @@ export async function loadCutoverFacts(
     supabaseAdmin.from('property_tax_config').select('jurisdiction, state_rate, local_rate, cif_rate').eq('property_id', propertyId).maybeSingle(),
     supabaseAdmin
       .from('channel_listings')
-      .select('id, channel, is_active, ical_import_url, last_import_status, last_imported_at, last_import_error, export_subscribed, export_subscribed_at')
+      .select('id, channel, is_active, ical_import_url, ical_import_enabled, last_import_status, last_imported_at, last_import_error, export_subscribed, export_subscribed_at')
       .eq('property_id', propertyId)
       .order('channel'),
     supabaseAdmin
@@ -497,6 +604,7 @@ export async function loadCutoverFacts(
       .select('id, property_id, enabled, configured_in_ota')
       .or(`property_id.is.null,property_id.eq.${propertyId}`),
     loadCanonicalStays(propertyId, todayIso),
+    loadCarryRows(propertyId, todayIso),
   ]);
 
   if (propRes.error) throw new Error(`properties read: ${propRes.error.message}`);
@@ -554,6 +662,7 @@ export async function loadCutoverFacts(
       last_import_error: (f.last_import_error as string | null) ?? null,
       export_subscribed: !!f.export_subscribed,
       export_subscribed_at: (f.export_subscribed_at as string | null) ?? null,
+      ical_import_enabled: f.ical_import_enabled !== false,
     })),
     pulls: ((pullsRes.data ?? []) as Array<{ channel_guess: string | null; pulled_at: string; requested_for?: string | null; ua_guess?: string | null }>).map((p) => ({
       requested_for: p.requested_for ?? null,
@@ -562,6 +671,7 @@ export async function loadCutoverFacts(
       pulled_at: p.pulled_at,
     })),
     bookings: stays,
+    carryRows,
     recipients: ((recipientsRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
       display_name: String(r.display_name ?? ''),
       enabled: !!r.enabled,
@@ -622,6 +732,8 @@ export type FlipResult = {
   /** Present on a flip to Helm. */
   mirror?: HelmMirrorResult;
   preflight?: CutoverPreflight;
+  /** Present on a flip to Helm: Guesty holds adopted as Helm blocks. */
+  adopted?: { count: number; error: string | null };
 };
 
 async function callFlip(propertyId: string, target: 'helm' | 'guesty', actorEmail: string): Promise<FlipResult['property']> {
@@ -664,10 +776,48 @@ export async function flipToHelm(
   if (!preflight.ok) throw new CutoverPreflightError(preflight);
 
   const property = await callFlip(propertyId, 'helm', actorEmail);
+  // After the flip, never before: the flip retires the aggregate feed row,
+  // and a sync of that feed would otherwise take the adopted rows straight
+  // back (its upsert keys on channel + UID).
+  const adopted = await adoptGuestyBlocks(
+    carryoverFor(facts).guestyBlocks.map((r) => r.id),
+    actorEmail,
+  ).then(
+    (count) => ({ count, error: null as string | null }),
+    (err: unknown) => ({ count: 0, error: err instanceof Error ? err.message : String(err) }),
+  );
   const window = mirrorWindow(90, 540);
   const mirror = await writeHelmCalendarMirror([propertyId], window.start, window.end);
   const [event] = await listPmsEvents(propertyId, 1);
-  return { property, event: event ?? null, mirror, preflight };
+  return { property, event: event ?? null, mirror, preflight, adopted };
+}
+
+/**
+ * Guesty's own holds on the aggregate feed become Helm blocks. Once the
+ * flip retires that feed nothing can cancel its rows, so an owner hold set
+ * in Guesty would stand forever, and cancelling it instead would reopen
+ * nights the owner closed. Adopted in place (source 'manual', no listing,
+ * hold_kind 'other'), with a booking_events note on each, they stay closed
+ * on every channel and lift like any hold Helm made. Reported in the flip
+ * result, never thrown: the flip itself has committed.
+ */
+async function adoptGuestyBlocks(ids: readonly string[], actorEmail: string): Promise<number> {
+  if (ids.length === 0) return 0;
+  const { data, error } = await supabaseAdmin
+    .from('bookings')
+    .update({ source: 'manual', channel_listing_id: null, hold_kind: 'other', created_by: `cutover:${actorEmail}`, updated_at: new Date().toISOString() })
+    .in('id', [...ids])
+    .eq('status', 'block')
+    .select('id');
+  if (error) throw new Error(`adopt Guesty holds: ${error.message}`);
+  const adopted = ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (adopted.length > 0) {
+    const { error: evErr } = await supabaseAdmin.from('booking_events').insert(
+      adopted.map((id) => ({ booking_id: id, kind: 'note', actor: actorEmail, note: 'Adopted from the Guesty aggregate feed at the cutover' })),
+    );
+    if (evErr) console.error('[cutover] adopted holds, but their audit notes failed:', evErr.message);
+  }
+  return adopted.length;
 }
 
 /**

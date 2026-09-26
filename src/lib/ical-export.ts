@@ -6,31 +6,51 @@
  * double-bookings on the days a stay landed on a different channel.
  *
  * Only what actually holds nights is exported (exportableBooking): a
- * confirmed or completed stay, or a block Helm itself holds, and only the
- * canonical row of each (duplicate_of null). Inquiries and pending requests
- * hold nothing yet; a duplicate is the same stay seen a second time.
- * Exporting either blocked dates on the OTAs that were open.
+ * confirmed or completed stay, or a block, and only the canonical row of
+ * each (duplicate_of null). Inquiries and pending requests hold nothing yet;
+ * a duplicate is the same stay seen a second time. Exporting either blocked
+ * dates on the OTAs that were open.
  *
  * Each OTA subscribes to its own URL, `?for=airbnb` / `vrbo` / `booking_com`
  * (the channel hub hands out one per channel). That feed leaves out every
- * row that came from that same OTA, stays and holds alike: the OTA already
- * holds its own reservations, and a hold of its own sent back to it would
- * outlive the operator's unblock (the OTA would now be holding it because
- * Helm said so, and keep publishing it, and Helm would keep sending it).
- * A pull with no `for` is attributed by user agent (guessChannelFromUserAgent);
- * an unrecognised puller gets everything except stamped echoes, because the
- * worse failure there is a double booking, not a stuck block.
+ * row that came from that same OTA: the OTA already holds its own
+ * reservations and closures, and a closure of its own sent back to it would
+ * outlive the operator's unblock. A pull with no `for` is attributed by user
+ * agent (guessChannelFromUserAgent); an unrecognised puller gets everything,
+ * because the worse failure there is a double booking, not a stuck block.
  *
- * A hold imported from an OTA's feed (hold_kind 'ota') that was an echo of
- * Helm's own export when it first appeared (bookings.echo_seen_at, decided
- * once by lib/ical-echo.ts) is exported to nobody. Without that, a stay
- * cancelled on VRBO left Airbnb's and Booking.com's echoes of it standing,
- * Helm published them, both OTAs kept the nights closed and kept echoing,
- * and the nights were lost on every channel for good. A hold that appeared
- * on open nights is real (an owner block set in the Airbnb app, or a
- * Booking.com reservation, which Booking.com's iCal publishes as "CLOSED -
- * Not available") and does go out, to every other channel: dropping it
- * would let Airbnb and VRBO sell nights a Booking.com guest holds.
+ * ## Which OTA closures travel: Booking.com's, and nobody else's
+ *
+ * A closed night on an OTA's own calendar (bookings.status 'block',
+ * hold_kind 'ota') is forwarded to the other channels only when it came
+ * from Booking.com. Booking.com's iCal is the one that publishes real
+ * reservations as closures ("CLOSED - Not available", no guest, no code), so
+ * dropping its closures would let Airbnb and VRBO sell nights a Booking.com
+ * guest holds. Airbnb and VRBO publish their reservations as stays
+ * ("Reserved"), so a closure on either is an owner block set in that app, an
+ * availability setting, or an echo of Helm's own export: nothing Helm should
+ * repeat to a third channel. Owner blocks belong in Helm.
+ *
+ * That one rule is what makes the export loop-free. A Booking.com closure is
+ * forwarded to Airbnb, VRBO and 'other' platforms; their closures of those
+ * nights are forwarded to nobody; and the Booking.com feed itself never
+ * carries an OTA closure (its own are left out by channel, the others are
+ * never forwarded). So every closed night on every OTA traces, in at most
+ * one hop, to a stay, a Helm row, or Booking.com's own calendar. When the
+ * cause goes, Booking.com reopens at its next pull, the closure leaves its
+ * feed, Helm cancels it on the two-look rule (ical-cancel-policy), and
+ * Airbnb and VRBO reopen at their next pull. A Booking.com closure that was
+ * only an echo costs a few extra hours closed after its cause is gone,
+ * never more. The earlier design judged every OTA closure as echo or real
+ * the moment it appeared and forwarded the real ones; two adversarial
+ * rounds found races, pre-cutover verdicts and unrevocable stamps that
+ * either reopened a real reservation or held nights closed on two OTAs for
+ * good. There is no verdict now, so there is nothing to get wrong.
+ *
+ * A Booking.com closure is forwarded even when the dedupe has marked it a
+ * duplicate (its pass four files a closure under the stay it overlaps):
+ * forwarding a redundant closure is harmless, and a duplicate mark can
+ * outlive the row it points at until the next dedupe run.
  *
  * And the event says nothing about the
  * guest: SUMMARY is "Reserved" or "Blocked", DESCRIPTION carries the channel
@@ -59,13 +79,13 @@ export const EXPORTABLE_STATUSES = ['confirmed', 'completed', 'block'] as const;
 /** bookings.hold_kind of a block imported from an OTA's own feed. */
 export const OTA_HOLD_KIND = 'ota';
 
-/**
- * The PostgREST `or` filter that keeps stamped echoes out of the export
- * query: anything that is not a block, or a block that is not an OTA hold
- * (null hold_kind included, which `neq` alone would drop), or an OTA hold
- * that was never an echo.
- */
-export const EXPORT_HOLD_FILTER = `status.neq.block,hold_kind.is.null,hold_kind.neq.${OTA_HOLD_KIND},echo_seen_at.is.null`;
+/** The one channel whose OTA closures are forwarded (see the docblock). */
+export const FORWARDED_HOLD_CHANNEL = 'booking_com';
+
+/** True for a block imported from an OTA's own feed. */
+export function isOtaHold(b: { status: string; hold_kind?: string | null }): boolean {
+  return b.status === 'block' && b.hold_kind === OTA_HOLD_KIND;
+}
 
 /** The channels that import Helm's export, one URL each. */
 export const EXPORT_FOR_CHANNELS = ['airbnb', 'vrbo', 'booking_com'] as const;
@@ -94,28 +114,28 @@ export type ExportCandidate = {
   channel_listing_id?: string | null;
   /** bookings.hold_kind; 'ota' on a block imported from an OTA's feed. */
   hold_kind?: string | null;
-  /** bookings.echo_seen_at; set once when an OTA hold arrived as an echo. */
-  echo_seen_at?: string | null;
 };
 
 /** A bookings row as the export reads it: Booking plus the PMS columns. */
-export type ExportBooking = Booking & { hold_kind?: string | null; echo_seen_at?: string | null };
+export type ExportBooking = Booking & { hold_kind?: string | null };
 
 /**
  * Who a feed is for: the channel whose own rows it leaves out, and the
  * listing whose own rows it leaves out. Both null: a puller nobody could
- * identify, who gets every row except stamped echoes.
+ * identify, who gets every row.
  */
 export type ExportAudience = { channel: string | null; listingId: string | null };
 
 /**
  * True when a row belongs in the feed built for `audience`: it holds nights
- * (confirmed, completed or block), it is the canonical row of its stay, it
- * is not an OTA hold that arrived as an echo of Helm's export, it did not
- * come from the audience's channel (a named OTA) or listing, and it has both
- * dates. The route filters the query the same way for the channel; this is
- * the gate for the rest, so a caller that hands the builder a broader read
- * still leaks nothing.
+ * (confirmed, completed or block), it has both dates, it did not come from
+ * the audience's channel (a named OTA) or listing, and either
+ *   - it is an OTA closure from Booking.com, whatever its duplicate mark, or
+ *   - it is not an OTA closure and it is the canonical row of its stay.
+ * Any other OTA closure (Airbnb, VRBO, 'other') goes to no feed. The docblock
+ * at the top says why this is the whole of the loop defence.
+ *
+ * The route reads the window and hands every row here; this is the gate.
  *
  * 'other' is never excluded by channel: several unrelated platforms share
  * it, and dropping one platform's rows from another's feed would let the
@@ -124,8 +144,11 @@ export type ExportAudience = { channel: string | null; listingId: string | null 
 export function exportableBooking(b: ExportCandidate, audience: ExportAudience | string | null = null): boolean {
   const aud: ExportAudience = typeof audience === 'string' || audience == null ? { channel: audience ?? null, listingId: null } : audience;
   if (!(EXPORTABLE_STATUSES as readonly string[]).includes(b.status)) return false;
-  if (b.duplicate_of != null) return false;
-  if (b.status === 'block' && b.hold_kind === OTA_HOLD_KIND && b.echo_seen_at) return false;
+  if (isOtaHold(b)) {
+    if (b.channel !== FORWARDED_HOLD_CHANNEL) return false;
+  } else if (b.duplicate_of != null) {
+    return false;
+  }
   if (aud.channel && aud.channel !== 'other' && b.channel === aud.channel) return false;
   if (aud.listingId && b.channel_listing_id === aud.listingId) return false;
   if (!b.check_in || !b.check_out) return false;
@@ -143,8 +166,8 @@ export function exportableBooking(b: ExportCandidate, audience: ExportAudience |
  *   neither: the user agent's guess, if any.
  *
  * When the URL names one OTA and the user agent plainly names another (the
- * Airbnb line pasted into VRBO), the feed is served for NOBODY: every row
- * but the stamped echoes. Filtered for the wrong OTA, VRBO would never see
+ * Airbnb line pasted into VRBO), the feed is served for NOBODY: every row.
+ * Filtered for the wrong OTA, VRBO would never see
  * Airbnb's reservations and could sell them again. The pull is recorded
  * with both so the hub and the cutover preflight can say which OTA holds
  * the wrong URL.

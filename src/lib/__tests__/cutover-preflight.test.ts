@@ -70,13 +70,19 @@ function failing(facts: CutoverFacts): CutoverCheckKey[] {
   return evaluateCutoverPreflight(facts).failing;
 }
 
+const byKey = (r: ReturnType<typeof evaluateCutoverPreflight>, key: string) => {
+  const c = r.checks.find((x) => x.key === key);
+  assert.ok(c, `no ${key} check`);
+  return c;
+};
+
 describe('evaluateCutoverPreflight', () => {
   test('all green when every fact is in order', () => {
     const r = evaluateCutoverPreflight(greenFacts());
     assert.equal(r.ok, true);
     assert.equal(r.dataOk, true);
     assert.deepEqual(r.failing, []);
-    assert.equal(r.checks.length, 8);
+    assert.equal(r.checks.length, 10);
     assert.deepEqual(
       r.checks.map((c) => c.key),
       [
@@ -85,6 +91,8 @@ describe('evaluateCutoverPreflight', () => {
         'feeds_fresh',
         'export_subscribed',
         'no_double_bookings',
+        'guesty_stays_carried',
+        'booking_com_reconciled',
         'cleaner_recipient',
         'automations_reviewed',
         'guesty_disconnect_acknowledged',
@@ -274,8 +282,8 @@ describe('evaluateCutoverPreflight', () => {
     const regionWide = evaluateCutoverPreflight(
       greenFacts({ recipients: [{ display_name: 'Luana', enabled: true, property_ids: [], region: 'bridgeport_ct' }] }),
     );
-    assert.equal(regionWide.checks[5].ok, true);
-    assert.match(regionWide.checks[5].detail, /Luana receives/);
+    assert.equal(byKey(regionWide, 'cleaner_recipient').ok, true);
+    assert.match(byKey(regionWide, 'cleaner_recipient').detail, /Luana receives/);
 
     const disabled = evaluateCutoverPreflight(
       greenFacts({ recipients: [{ display_name: 'Luana', enabled: false, property_ids: ['65_calderwood'], region: 'bridgeport_ct' }] }),
@@ -291,7 +299,7 @@ describe('evaluateCutoverPreflight', () => {
         recipients: [{ display_name: 'Rosa', enabled: true, property_ids: [], region: 'cape_ann' }],
       }),
     );
-    assert.equal(capeAnn.checks[5].ok, true);
+    assert.equal(byKey(capeAnn, 'cleaner_recipient').ok, true);
   });
 
   test('the two acknowledgements are red until ticked, and the data checks are reported separately', () => {
@@ -299,8 +307,8 @@ describe('evaluateCutoverPreflight', () => {
     assert.equal(r.ok, false);
     assert.equal(r.dataOk, true);
     assert.deepEqual(r.failing, ['automations_reviewed', 'guesty_disconnect_acknowledged']);
-    assert.match(r.checks[6].detail, /4 fleet rules, 1 override for this home, 0 enabled, 2 marked configured in the OTA/);
-    assert.match(r.checks[7].detail, /Guesty listing 68aef2c1 is still mapped/);
+    assert.match(byKey(r, 'automations_reviewed').detail, /4 fleet rules, 1 override for this home, 0 enabled, 2 marked configured in the OTA/);
+    assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /Guesty listing 68aef2c1 is still mapped/);
 
     const half = evaluateCutoverPreflight(greenFacts({ acknowledgements: { automations_reviewed: true, guesty_disconnect: false } }));
     assert.deepEqual(half.failing, ['guesty_disconnect_acknowledged']);
@@ -311,6 +319,6 @@ describe('evaluateCutoverPreflight', () => {
       greenFacts({ feeds: [feed('airbnb'), feed('vrbo'), feed('booking_com'), feed('guesty', { export_subscribed: false })] }),
     );
     assert.equal(r.ok, true);
-    assert.match(r.checks[7].detail, /Guesty aggregate feed row is retired by the flip/);
+    assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /Guesty aggregate feed row is retired by the flip/);
   });
 });

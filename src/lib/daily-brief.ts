@@ -28,6 +28,8 @@ import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
+import { loadHelmRunPropertyIds } from '@/lib/pms-guards';
+import { carryoverFor, loadCutoverFacts } from '@/lib/cutover';
 
 let _serviceSupabase: SupabaseClient | null = null;
 function serviceSupabase(): SupabaseClient {
@@ -127,6 +129,18 @@ export type BriefFeedHealth = {
   lastError: string | null;
 };
 
+/**
+ * A Helm-run home with something only a person can settle: the cutover
+ * handover reconciliation (lib/cutover-carryover) and pulls of its export
+ * that got the unfiltered feed. Each line names what and where; the channel
+ * hub's Needs attention panel has the actions.
+ */
+export type BriefChannelAttention = {
+  propertyId: string;
+  propertyName: string;
+  items: string[];
+};
+
 export type DailyBrief = {
   date: string;
   checkoutsToday: BriefStay[];
@@ -146,6 +160,8 @@ export type DailyBrief = {
   gmailConfigured: boolean;
   /** Feeds in error state or past their expected cadence. Watchdog surface. */
   feedsNeedingAttention: BriefFeedHealth[];
+  /** Helm-run homes with a handover or channel problem for a person. */
+  channelsAttention: BriefChannelAttention[];
   totals: {
     activeSlips: number;
     activeTasks: number;
@@ -1357,6 +1373,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     lastGmailSyncAt,
     gmailConfigured: gmailConfigured(),
     feedsNeedingAttention,
+    channelsAttention: await loadChannelsAttention(),
     totals: {
       activeSlips: allSlips.length,
       activeTasks: allTasks.length,
@@ -1373,6 +1390,49 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       cleaningFlags: cleaningFlagList.length,
     },
   };
+}
+
+/**
+ * The brief's Helm-run homes section. One cutover-facts read per Helm-run
+ * home (a handful at most). A home whose read fails is listed with the
+ * failure rather than left out: silence here would read as "all clear".
+ */
+async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
+  const ids = [...(await loadHelmRunPropertyIds())].sort();
+  const out: BriefChannelAttention[] = [];
+  const dayAgo = Date.now() - 86_400_000;
+  for (const id of ids) {
+    try {
+      const facts = await loadCutoverFacts(id);
+      const c = carryoverFor(facts);
+      const items: string[] = [];
+      const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+      if (c.bookingComUnexplained.length > 0) {
+        items.push(`${n(c.bookingComUnexplained.length, 'Booking.com closure', 'Booking.com closures')} with no reservation on file (first ${c.bookingComUnexplained[0].check_in}): enter the booking or open the nights in the extranet`);
+      }
+      if (c.bookingComNotShown.length > 0) {
+        items.push(`${n(c.bookingComNotShown.length, 'reservation', 'reservations')} Booking.com no longer shows (first ${c.bookingComNotShown[0].check_in}): cancelled there?`);
+      }
+      if (c.untwinnedGuestyStays.length > 0) {
+        items.push(`${n(c.untwinnedGuestyStays.length, 'Guesty-era stay', 'Guesty-era stays')} with no twin on the OTA's own feed (first ${c.untwinnedGuestyStays[0].check_in})`);
+      }
+      if (c.bookingComOrphaned.length > 0) {
+        items.push(`${n(c.bookingComOrphaned.length, 'Booking.com closure', 'Booking.com closures')} on a feed Helm no longer reads: release once checked`);
+      }
+      const unfiltered = facts.pulls.filter(
+        (p) =>
+          Date.parse(p.pulled_at) > dayAgo &&
+          (p.channel_guess == null || (!!p.requested_for && !!p.ua_guess && p.requested_for !== p.ua_guess)),
+      );
+      if (unfiltered.length > 0) {
+        items.push(`${n(unfiltered.length, 'pull', 'pulls')} of the export in the last day got the unfiltered feed (an unidentified reader, or an OTA on another OTA's line)`);
+      }
+      if (items.length > 0) out.push({ propertyId: id, propertyName: facts.propertyName, items });
+    } catch (err) {
+      out.push({ propertyId: id, propertyName: id, items: [`could not check: ${err instanceof Error ? err.message : String(err)}`] });
+    }
+  }
+  return out;
 }
 
 export function briefHeadline(brief: DailyBrief): string {

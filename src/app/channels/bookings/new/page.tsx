@@ -101,7 +101,10 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
   const check = property && datesOk ? await runCheck(property, checkIn, checkOut, guests) : null;
 
   const channelChoices: BookingChannel[] = isBlock ? ['block'] : ['direct', 'manual', 'airbnb', 'vrbo', 'booking_com', 'other'];
-  const defaultChannel: BookingChannel = isBlock ? 'block' : 'direct';
+  // ?channel= prefills the choice (the channel hub links a Booking.com
+  // closure nobody has entered here with channel=booking_com).
+  const presetChannel = one(sp.channel).trim() as BookingChannel;
+  const defaultChannel: BookingChannel = isBlock ? 'block' : channelChoices.includes(presetChannel) ? presetChannel : 'direct';
   const money = (c: number) => (c / 100).toFixed(2);
 
   return (
@@ -323,6 +326,11 @@ function AvailabilityBlock({ check, isBlock }: { check: Check; isBlock: boolean 
                 );
               })}
             </ul>
+            {!isBlock && check.conflicting.some((b) => b.status === 'block' && b.hold_kind === 'ota') && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
+                A hold marked (ota) is that OTA&apos;s own closed night. Entering the reservation behind it, say a Booking.com booking from its confirmation email, is allowed on the same channel: the database never counts a channel&apos;s own closure against it.
+              </div>
+            )}
           </div>
         ) : holdsOnly ? (
           <span>

@@ -370,7 +370,8 @@ export type LastSyncRun = {
   started_at: string;
   success: boolean | null;
   error_message: string | null;
-  /** 'mass_cancel' when the run held its upcoming cancels instead of writing them. */
+  /** 'mass_cancel' when the run held its upcoming cancels instead of writing
+   *  them; 'empty_feed' when it skipped the cancel pass over an empty feed. */
   guard: string | null;
   /** Upcoming rows missing from the feed that this run did not cancel (held or waiting a second look). */
   bookings_deferred: number;
@@ -458,10 +459,18 @@ export async function loadFeedHealth(propertyId: string): Promise<FeedHealth[]> 
 }
 
 /** Pulls for a property the user agent did not attribute to a channel, newest first. */
+/**
+ * Recent pulls that were served the UNFILTERED feed: a client nobody could
+ * identify (no for=, no recognisable user agent), or a mismatch (the URL
+ * named one OTA, the user agent another: the wrong line pasted into an
+ * OTA). An OTA reading the unfiltered feed gets its own rows back, and
+ * Booking.com getting its own closures back holds them shut for good, so
+ * the hub says so in red on a Helm-run home.
+ */
 export async function anonymousPulls(propertyId: string): Promise<ExportPull[]> {
   if (!isConfigured || !propertyId) return [];
   const pulls = await lastPullsByProperty([propertyId]);
-  return (pulls.get(propertyId) ?? []).filter((p) => p.channel_guess == null);
+  return (pulls.get(propertyId) ?? []).filter((p) => p.channel_guess == null || p.mismatch);
 }
 
 export type AutomationSendRow = {

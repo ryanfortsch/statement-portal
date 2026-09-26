@@ -98,7 +98,7 @@ alter table public.channel_listings
 alter table public.ical_sync_runs
   add column if not exists bookings_deferred integer not null default 0,
   add column if not exists bookings_reclassified integer not null default 0,
-  add column if not exists guard text;               -- 'mass_cancel' when the run held its cancels
+  add column if not exists guard text;               -- 'mass_cancel' (held its cancels) | 'empty_feed' (skipped the pass)
 alter table public.channel_listings drop constraint if exists channel_listings_rates_managed_by_check;
 alter table public.channel_listings add constraint channel_listings_rates_managed_by_check
   check (rates_managed_by in ('guesty','pricelabs','ota_ui','helm'));
@@ -151,15 +151,7 @@ alter table public.bookings
   add column if not exists cancel_reason text,
   add column if not exists cancelled_by text,
   add column if not exists source_ref text,         -- quote id | stripe payment_intent id | sca token
-  add column if not exists missing_since timestamptz, -- first sync run that saw an iCal row absent; cleared when seen again
-  -- Set once, when ical-sync first inserts an OTA hold (hold_kind 'ota') on
-  -- nights Helm was already holding: the OTA is echoing Helm's own export.
-  -- A stamped echo is never exported again, which is what keeps a cancelled
-  -- stay's echoes from holding its nights closed on every OTA for good. A
-  -- hold that appeared on open nights (an owner block set in the Airbnb app,
-  -- a Booking.com reservation) stays unstamped and exports to the other
-  -- channels. See src/lib/ical-echo.ts.
-  add column if not exists echo_seen_at timestamptz;
+  add column if not exists missing_since timestamptz; -- first sync run that saw an iCal row absent; cleared when seen again
 alter table public.bookings drop constraint if exists bookings_hold_kind_check;
 alter table public.bookings add constraint bookings_hold_kind_check
   check (hold_kind is null or hold_kind in ('owner','maintenance','ota','other'));
@@ -477,9 +469,16 @@ begin
   -- One writer per property at a time: closes every read-then-insert race.
   perform pg_advisory_xact_lock(hashtext('helm_bookings:' || p_property_id));
   if p_status in ('confirmed','completed','block') and not p_allow_overlap then
+    -- A live OTA closure conflicts whatever its duplicate mark: the dedupe
+    -- files one under the stay it overlaps, and that mark can outlive the
+    -- stay until the next dedupe run (src/lib/availability.ts nightHolds).
+    -- Except the new row's own channel's closure: a Booking.com booking
+    -- entered by hand lands on the "CLOSED - Not available" Booking.com
+    -- published for that very reservation.
     select * into v_conflict from public.bookings b
      where b.property_id = p_property_id
-       and b.duplicate_of is null
+       and (b.duplicate_of is null or (b.status = 'block' and b.hold_kind = 'ota'))
+       and not (b.status = 'block' and b.hold_kind = 'ota' and b.channel = p_channel)
        and b.status in ('confirmed','completed','block')
        and b.check_in < p_check_out and b.check_out > p_check_in
      order by b.check_in limit 1;
@@ -524,7 +523,8 @@ begin
   if p_status in ('confirmed','completed','block') and not p_allow_overlap then
     select * into v_conflict from public.bookings b
      where b.property_id = v_before.property_id and b.id <> p_booking_id
-       and b.duplicate_of is null
+       and (b.duplicate_of is null or (b.status = 'block' and b.hold_kind = 'ota'))
+       and not (b.status = 'block' and b.hold_kind = 'ota' and b.channel = v_before.channel)
        and b.status in ('confirmed','completed','block')
        and b.check_in < p_check_out and b.check_out > p_check_in limit 1;
     if found then

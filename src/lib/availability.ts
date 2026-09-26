@@ -15,10 +15,11 @@
  * sale. Only a stay sets it; a block never does.
  *
  * A block imported from an OTA's own feed (hold_kind 'ota') holds its
- * nights here like any other block: it may be an echo of Helm's export, a
- * Booking.com reservation (published as "CLOSED - Not available") or an
- * owner block set in the Airbnb app, and a night nobody can tell is free
- * is not sold. See nightHolds.
+ * nights here like any other block, even when the dedupe filed it as a
+ * duplicate: it may be an echo of Helm's export, a Booking.com reservation
+ * (published as "CLOSED - Not available") or an owner block set in the
+ * Airbnb app, and a night nobody can tell is free is not sold. See
+ * nightHolds.
  *
  * Pure: relative imports only, so node:test can load it
  * (src/lib/__tests__/availability.test.ts). The database edge is
@@ -45,7 +46,8 @@ export type HelmAvailabilityDay = {
   reserved?: boolean;
 };
 
-/** The slice of a bookings row availability needs. Pass canonical rows only. */
+/** The slice of a bookings row availability needs. Pass canonical rows plus
+ *  any live OTA closure, duplicate or not (nightHolds skips other duplicates). */
 export type AvailabilityBooking = {
   status: string;
   check_in: string;
@@ -72,15 +74,18 @@ export type BuildAvailabilityInput = {
 };
 
 /**
- * Which canonical rows hold a night: reserved (a stay) or blocked (any
- * hold). A block imported from an OTA's feed (hold_kind 'ota') holds its
- * nights too, deliberately: it may be an echo of Helm's own export, but it
- * may be a Booking.com reservation (its iCal publishes every closed night,
- * bookings included, as "CLOSED - Not available") or an owner block set in
- * the Airbnb app. Selling a night nobody can tell is free is the failure
- * that costs a double booking; holding one that is free costs a few hours
- * until the echo's source drops it. The export loop an echo could cause is
- * closed in lib/ical-export.ts, not here.
+ * Which rows hold a night: reserved (a canonical stay) or blocked (any
+ * canonical hold). A block imported from an OTA's feed (hold_kind 'ota')
+ * holds its nights too, deliberately, and whatever its duplicate mark: it
+ * may be an echo of Helm's own export, but it may be a Booking.com
+ * reservation (its iCal publishes every closed night, bookings included, as
+ * "CLOSED - Not available") or an owner block set in the Airbnb app. The
+ * dedupe's pass four files such a closure under the stay it overlaps, and
+ * that mark can outlive the stay until the next dedupe run; skipped as a
+ * duplicate, a Booking.com guest's nights read free in that window. Selling
+ * a night nobody can tell is free is the failure that costs a double
+ * booking; holding one that is free costs a few hours until the closure's
+ * source drops it.
  */
 export function nightHolds(bookings: readonly AvailabilityBooking[]): {
   reserved: Set<string>;
@@ -89,8 +94,8 @@ export function nightHolds(bookings: readonly AvailabilityBooking[]): {
   const reserved = new Set<string>();
   const blocked = new Set<string>();
   for (const b of bookings) {
-    if (b.duplicate_of) continue;
     const status = String(b.status ?? '').toLowerCase();
+    if (b.duplicate_of && !(status === 'block' && b.hold_kind === 'ota')) continue;
     const target = STAY_STATUSES.has(status) ? reserved : status === 'block' ? blocked : null;
     if (!target) continue;
     for (const night of stayNights(b.check_in, b.check_out)) target.add(night);

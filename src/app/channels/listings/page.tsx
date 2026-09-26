@@ -288,8 +288,8 @@ function GuestyRow({ listing, now }: { listing: ChannelListingEx; now: Date }) {
       </span>
       <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
         {active
-          ? `One feed carrying every channel; Helm parses each event into its real channel and drops direct-feed blocks as echoes while this row is active. ${listing.last_imported_at ? `Imported ${relativeAge(listing.last_imported_at, now)}, ${listing.last_import_event_count ?? 0} events.` : 'Never imported.'}`
-          : `Retired${listing.updated_at ? ` ${relativeAge(listing.updated_at, now)}` : ''}. Direct-feed blocks now import as real holds and the dedupe decides which are echoes.`}
+          ? `One feed carrying every channel; Helm parses each event into its real channel and drops direct-feed blocks as Guesty's echoes while this row is active and no OTA on the home imports Helm's export. ${listing.last_imported_at ? `Imported ${relativeAge(listing.last_imported_at, now)}, ${listing.last_import_event_count ?? 0} events.` : 'Never imported.'}`
+          : `Retired${listing.updated_at ? ` ${relativeAge(listing.updated_at, now)}` : ''}. Direct-feed blocks now import as OTA holds; only Booking.com's are passed on to the other channels.`}
         {listing.last_import_status === 'error' && <span style={{ color: 'var(--negative)' }}> Last import errored: {listing.last_import_error ?? 'unknown'}.</span>}
       </span>
       <span style={{ display: 'inline-flex', gap: 12, alignItems: 'baseline' }}>

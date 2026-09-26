@@ -24,9 +24,8 @@ import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
-import { ECHO_COVER_STATUSES, echoDecisionTargets, isEchoAtFirstSight, type EchoCover } from '@/lib/ical-echo';
-import { planCancelPass, keepsEmptyFeedGuardUp, type CancelGuard } from '@/lib/ical-cancel-policy';
-import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadHelmRunPropertyIds } from '@/lib/pms-guards';
+import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, type CancelGuard } from '@/lib/ical-cancel-policy';
+import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadHelmRunCutovers } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -59,10 +58,13 @@ export type SyncListingResult = {
    *  cancelled now as a reclassification (never a stay cancel). */
   bookings_reclassified: number;
   /** 'mass_cancel' when too many upcoming stays vanished at once and the
-   *  upcoming cancel set was held for review; null otherwise. */
+   *  upcoming cancel set was held for review; 'empty_feed' when the feed
+   *  parsed to nothing while upcoming stays were on file and the whole
+   *  cancel pass was skipped; null otherwise. Either is released once by
+   *  channel_listings.mass_cancel_acknowledged_at. */
   guard: CancelGuard;
   /** True when the operator's release (mass_cancel_acknowledged_at) let a
-   *  set the guard would have held cancel this run. */
+   *  set a guard would have held cancel this run (either guard). */
   mass_cancel_released: boolean;
   error: string | null;
   duration_ms: number;
@@ -200,8 +202,9 @@ export async function syncListing(opts: {
     // While a home still rides Guesty's aggregate feed, a direct feed's
     // blocks are echoes of the availability Guesty pushed to that OTA (and
     // Guesty's own holds arrive on the aggregate feed), so they are dropped
-    // here, which is exactly what the old filter did to them. Only a home
-    // with no active aggregate feed stores its OTA-side holds as blocks.
+    // here, which is exactly what the old filter did to them. A home with
+    // no active aggregate feed, or one whose OTAs already import Helm's
+    // export (the cutover window, lib/pms-guards), stores them as blocks.
     const isGuestyFeed = opts.channel === 'guesty';
     const aggregateFeeds = opts.aggregateFeedPropertyIds ?? (await loadAggregateFeedPropertyIds(sb));
     const dropDirectBlocks = !isGuestyFeed && hasAggregateFeed(aggregateFeeds, opts.property_id);
@@ -314,14 +317,30 @@ export async function syncListing(opts: {
     // reads guesty_reservations, never bookings. The stays this still declines
     // to act on are the ones worth protecting: real upcoming reservations.
     const cutoff = startedAt.toISOString().slice(0, 10);
-    // Stays only: a lifted hold that was the feed's last event must be able
+    // Stays only, except on Booking.com, whose closures may be guests: a
+    // lifted hold that was an Airbnb or VRBO feed's last event must be able
     // to cancel (lib/ical-cancel-policy keepsEmptyFeedGuardUp).
-    const liveExisting = existing.filter((r) => keepsEmptyFeedGuardUp(r, cutoff, isBlockSummary));
-    if (rows.length === 0 && liveExisting.length > 0) {
+    const reservationHolds = holdsAreReservations(opts.channel);
+    const liveExisting = existing.filter((r) => keepsEmptyFeedGuardUp(r, cutoff, isBlockSummary, reservationHolds));
+    // The operator's release, when one is waiting: it lets either guard
+    // through once (the empty-feed guard here, the mass-cancel guard in the
+    // cancel pass), then it is consumed below.
+    const ackAt =
+      opts.massCancelAcknowledgedAt === undefined
+        ? await readMassCancelAck(sb, opts.listing_id)
+        : opts.massCancelAcknowledgedAt;
+    // An empty feed with rows on file that keep its guard up is released
+    // only by an operator answering THAT guard (the listing's newest run was
+    // 'empty_feed'): a release given for a mass cancel must never become
+    // licence to empty the whole calendar because the endpoint broke next.
+    const emptyFeed = rows.length === 0 && liveExisting.length > 0;
+    const emptyReleased = emptyFeed && !!ackAt && (await readLastGuard(sb, opts.listing_id)) === 'empty_feed';
+    if (emptyFeed && !emptyReleased) {
       result.bookings_added = 0;
       result.bookings_updated = 0;
       result.bookings_cancelled = 0;
       result.success = false;
+      result.guard = 'empty_feed';
       result.error = `empty-feed guard: parsed 0 bookings but ${liveExisting.length} upcoming booking(s) exist; skipped cancel pass (suspected transient or broken feed)`;
     } else {
       // Anything previously imported but missing this run has disappeared.
@@ -331,11 +350,6 @@ export async function syncListing(opts: {
       // and cancels only on a later run that still misses it; and no upcoming
       // stay cancels when too many vanish at once, unless the operator has
       // released the guard. Mark cancelled rather than delete, to keep history.
-      // The operator's release, when one is waiting: skip the guard once.
-      const ackAt =
-        opts.massCancelAcknowledgedAt === undefined
-          ? await readMassCancelAck(sb, opts.listing_id)
-          : opts.massCancelAcknowledgedAt;
       const plan = planCancelPass({
         existing,
         incomingUids,
@@ -344,20 +358,12 @@ export async function syncListing(opts: {
         todayIso: cutoff,
         isBlockSummary,
         allowMassCancel: !!ackAt,
+        holdsAreReservations: reservationHolds,
+        // The operator confirmed the empty feed: their word is the second
+        // look, so what is missing cancels now rather than starting the
+        // two-look clock (which the guard would trip over again next beat).
+        treatMissingAsReady: emptyReleased,
       });
-
-      // --- Echo decisions (lib/ical-echo) ---
-      // Taken before anything is written: an OTA hold seen for the first
-      // time, or one that came back to life or moved its dates, is judged
-      // against the rows Helm was exporting to that OTA. A failed read throws
-      // and fails this listing's run, so nothing is written unjudged and the
-      // next beat decides it; an echo inserted unstamped could, with a second
-      // one, hold nights closed on two OTAs forever.
-      const echoTargets = echoDecisionTargets(rows, existingByUid);
-      const echoUids = await decideEchoes(sb, opts.property_id, opts.listing_id, opts.channel, [
-        ...echoTargets.insert,
-        ...echoTargets.redecide,
-      ]);
 
       // --- Upsert ---
       // booked_at is written on a genuine insert and never again. PostgREST
@@ -371,15 +377,11 @@ export async function syncListing(opts: {
       const newRows = rows.filter((r) => !existingByUid.has(r.ical_uid));
       const updates = rows.filter((r) => existingByUid.has(r.ical_uid));
       let added = 0;
-      const reattachedHolds: string[] = [];
       if (newRows.length > 0) {
         const firstImport = existing.length === 0 && !(await hasSucceededBefore(sb, opts.listing_id));
-        // echo_seen_at rides every insert row (the stamp or null) so the
-        // column list is uniform; the update write below never carries it.
         const inserts = newRows.map((r) => ({
           ...r,
           booked_at: bookedAtForImport(stampsByUid.get(r.ical_uid) ?? {}, { fetchedAt: startedAt, firstImport }),
-          echo_seen_at: echoUids.has(r.ical_uid) ? startedAt.toISOString() : null,
         }));
         const { data: insertedData, error: insertErr } = await sb
           .from('bookings')
@@ -394,10 +396,6 @@ export async function syncListing(opts: {
           else {
             updates.push(r);
             updated += 1;
-            // Re-attached to this listing after its row was orphaned (the
-            // listing was deleted and re-added): judged as a first sight
-            // above, so write that verdict onto the row that exists.
-            if (r.status === 'block' && r.hold_kind === 'ota') reattachedHolds.push(r.ical_uid);
           }
         }
       }
@@ -407,32 +405,6 @@ export async function syncListing(opts: {
           .upsert(updates, { onConflict: 'channel,ical_uid' });
         if (upsertErr) throw new Error(`upsert bookings: ${upsertErr.message}`);
       }
-      // A hold that came back to life or moved gets its verdict rewritten,
-      // either way: the old one described nights it no longer holds.
-      const restamp = echoTargets.redecide.filter((r) => echoUids.has(r.ical_uid)).map((r) => r.prior_id);
-      const unstamp = echoTargets.redecide.filter((r) => !echoUids.has(r.ical_uid)).map((r) => r.prior_id);
-      for (const ids of chunk(restamp, ID_WRITE_CHUNK)) {
-        const { error: e } = await sb.from('bookings').update({ echo_seen_at: startedAt.toISOString() }).in('id', ids);
-        if (e) throw new Error(`restamp echo: ${e.message}`);
-      }
-      for (const ids of chunk(unstamp, ID_WRITE_CHUNK)) {
-        const { error: e } = await sb.from('bookings').update({ echo_seen_at: null }).in('id', ids);
-        if (e) throw new Error(`unstamp echo: ${e.message}`);
-      }
-      for (const [uids, stamp] of [
-        [reattachedHolds.filter((u) => echoUids.has(u)), startedAt.toISOString()],
-        [reattachedHolds.filter((u) => !echoUids.has(u)), null],
-      ] as const) {
-        for (const part of chunk([...uids], ID_WRITE_CHUNK)) {
-          const { error: e } = await sb
-            .from('bookings')
-            .update({ echo_seen_at: stamp })
-            .eq('channel', opts.channel)
-            .in('ical_uid', part);
-          if (e) throw new Error(`reattached echo verdict: ${e.message}`);
-        }
-      }
-
       // First observation of an absence: stamp it, so the next run that
       // still misses the row can count a second look (rule 3). Only where
       // unset, so a concurrent run cannot push an earlier stamp later.
@@ -475,7 +447,7 @@ export async function syncListing(opts: {
       result.bookings_deferred = plan.deferred.length;
       result.bookings_reclassified = plan.reclassified.length;
       result.guard = plan.guard;
-      result.mass_cancel_released = plan.released;
+      result.mass_cancel_released = plan.released || emptyReleased;
       if (plan.guard === 'mass_cancel') {
         const d = plan.guardDetail;
         result.success = false;
@@ -569,7 +541,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
   deferred: number;
   /** Sum of bookings_reclassified across listings. */
   reclassified: number;
-  /** Listings whose mass-cancel guard tripped this run. */
+  /** Listings whose mass-cancel or empty-feed guard tripped this run. */
   guarded: number;
   results: SyncListingResult[];
   dedup: DedupResult | null;
@@ -606,6 +578,20 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
       results.push(r);
     }
 
+    // Closures whose feed is no longer read, retired on every full run (a
+    // run for one listing does not see the others as eligible). The listing
+    // actions retire them when a feed is removed; this heals the race where
+    // a sync already in flight wrote one back live afterwards, or a retire
+    // that threw. Never fails the sync.
+    let staleHoldsRetired = 0;
+    if (!opts.onlyListingId) {
+      try {
+        staleHoldsRetired = await retireStaleOtaHolds(sb, new Set(eligible.map((l) => l.id as string)));
+      } catch (err) {
+        console.error('[ical-sync] stale-hold sweep failed:', err);
+      }
+    }
+
     // A stay can land in `bookings` more than once -- e.g. the same Airbnb
     // reservation arriving via the iCal feed AND via the guesty_legacy
     // backfill. Reconcile after every sync so downstream counts, the
@@ -634,7 +620,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
       firstError: firstFailed
         ? `${firstFailed.display_name ?? firstFailed.listing_id}: ${firstFailed.error ?? 'unknown'}`
         : undefined,
-      result: { succeeded, failed, total: results.length, deferred, reclassified, guarded },
+      result: { succeeded, failed, total: results.length, deferred, reclassified, guarded, stale_holds_retired: staleHoldsRetired },
     });
 
     return {
@@ -723,9 +709,10 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     isFromAggregateFeed,
     isPlaceholderGuestName,
     isBlockSummary,
-    // Helm-run homes: a date join never crosses channels. Empty on a failed
-    // read, which is today's behaviour everywhere.
-    strictChannelPropertyIds: await loadHelmRunPropertyIds(sb),
+    // Helm-run homes and their cutover moments (lib/booking-dedupe
+    // DedupOptions). A failed read throws: the dedupe run fails and the
+    // previous marks stand, rather than a run on Guesty rules being written.
+    ...(await strictOptions(sb)),
   });
 
   // Write only changed rows, batched by target value to minimize round trips.
@@ -800,41 +787,69 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
 }
 
 /**
- * The ical_uids, among `holds`, that are echoes of Helm's own export to
- * `channel` (lib/ical-echo.ts). Throws on a failed read, so the caller's run
- * fails before writing anything: a hold is never inserted unjudged.
+ * Cancel every live OTA closure (source ical_import, status block,
+ * hold_kind 'ota') whose feed is no longer read: no listing (the row was
+ * deleted) or a listing outside `eligible` (retired, import disabled, no
+ * URL). Such a closure can never be cancelled by its feed again, and it
+ * holds its nights on staycapeann.com and in the writer's overlap check.
+ *
+ * Booking.com's are left live on purpose (lib/ical-cancel-policy
+ * holdsAreReservations): one may be a guest, and it is the one kind Helm
+ * forwards to Airbnb and VRBO. The channel hub lists them for the operator.
  */
-async function decideEchoes(
-  sb: SupabaseClient,
-  propertyId: string,
-  listingId: string,
-  channel: string,
-  holds: ReadonlyArray<{ ical_uid: string; check_in: string; check_out: string }>,
-): Promise<Set<string>> {
-  if (holds.length === 0) return new Set();
-  const from = holds.reduce((m, r) => (r.check_in < m ? r.check_in : m), holds[0].check_in);
-  const to = holds.reduce((m, r) => (r.check_out > m ? r.check_out : m), holds[0].check_out);
-  const covers = await selectAllPaged<EchoCover>(
-    (lo, hi) =>
+async function retireStaleOtaHolds(sb: SupabaseClient, eligible: ReadonlySet<string>): Promise<number> {
+  const live = await selectAllPaged<{ id: string; channel: string; channel_listing_id: string | null }>(
+    (from, to) =>
       sb
         .from('bookings')
-        .select('status, check_in, check_out, duplicate_of, source, channel_listing_id, channel, hold_kind, echo_seen_at')
-        .eq('property_id', propertyId)
-        .in('status', [...ECHO_COVER_STATUSES])
-        .is('duplicate_of', null)
-        .lt('check_in', to)
-        .gt('check_out', from)
+        .select('id, channel, channel_listing_id')
+        .eq('source', 'ical_import')
+        .eq('status', 'block')
+        .eq('hold_kind', 'ota')
         .order('id', { ascending: true })
-        .range(lo, hi),
-    { label: 'echo covers' },
+        .range(from, to),
+    { label: 'stale ota holds' },
   );
-  const out = new Set<string>();
-  for (const h of holds) {
-    if (isEchoAtFirstSight({ check_in: h.check_in, check_out: h.check_out, channel, channel_listing_id: listingId }, covers)) {
-      out.add(h.ical_uid);
-    }
+  const stale = live
+    .filter((r) => !holdsAreReservations(r.channel))
+    .filter((r) => !r.channel_listing_id || !eligible.has(r.channel_listing_id))
+    .map((r) => r.id);
+  for (const ids of chunk(stale, ID_WRITE_CHUNK)) {
+    const { error } = await sb
+      .from('bookings')
+      .update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: 'ical-sync',
+        cancel_reason: 'feed_retired',
+      })
+      .in('id', ids)
+      .eq('status', 'block');
+    if (error) throw new Error(`retire stale holds: ${error.message}`);
   }
-  return out;
+  return stale.length;
+}
+
+/** The dedupe's Helm-run options, from one registry read that throws. */
+async function strictOptions(sb: SupabaseClient): Promise<{ strictChannelPropertyIds: Set<string>; cutoverAtByProperty: Map<string, string> }> {
+  const cutovers = await loadHelmRunCutovers(sb);
+  const cutoverAtByProperty = new Map<string, string>();
+  for (const [id, at] of cutovers) if (at) cutoverAtByProperty.set(id, at);
+  return { strictChannelPropertyIds: new Set(cutovers.keys()), cutoverAtByProperty };
+}
+
+/** The guard on the listing's newest sync run, or null (none, or a failed
+ *  read: a read error never releases a guard). */
+async function readLastGuard(sb: SupabaseClient, listingId: string): Promise<string | null> {
+  const { data, error } = await sb
+    .from('ical_sync_runs')
+    .select('guard')
+    .eq('channel_listing_id', listingId)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return ((data as { guard?: string | null }).guard as string | null) ?? null;
 }
 
 /** channel_listings.mass_cancel_acknowledged_at for one listing; null on a

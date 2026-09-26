@@ -285,12 +285,16 @@ descriptors still name them.
   Helm-native provenance. Two iCal bookkeeping columns: `missing_since`
   (the first sync that saw an imported row absent from its feed; a stay
   cancels only on a later sync that still misses it, and the stamp clears
-  when the row reappears) and `echo_seen_at` (set once, at first import, on
-  an OTA hold whose nights Helm was already holding: an echo of Helm's own
-  export, never exported again; `src/lib/ical-echo.ts`). An unstamped OTA
-  hold is real (a Booking.com reservation, published as "CLOSED - Not
-  available", or an owner block set in an OTA app) and is exported to
-  every other channel.
+  when the row reappears). An OTA hold (`hold_kind` `ota`, a night closed
+  on an OTA's own calendar) holds its nights in Helm's availability and
+  overlap check whatever its `duplicate_of`, but only Booking.com's are
+  exported to the other channels, because only Booking.com's iCal
+  publishes real reservations as closures ("CLOSED - Not available"). That
+  rule is what keeps the export free of echo loops; see
+  `src/lib/ical-export.ts`. A Booking.com reservation is recorded by hand
+  (channel `booking_com`) on top of its own closure; the writer never
+  counts a channel's own closure as an overlap, and
+  `src/lib/cutover-carryover.ts` reconciles the two.
 - **`property_calendar_days`**: the per-night day grid (holds, prices,
   availability) that the turnovers pipeline, Field packets, extension
   holds and the checkout schedule read. **Who writes it depends on

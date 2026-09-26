@@ -13,7 +13,10 @@
  * loadHelmRunPropertyIds (nothing is skipped, today's behaviour) and every
  * known id from loadGuestyRunPropertyIds only when the read succeeded;
  * callers that gate on "guesty-run" treat null as "cannot tell, keep
- * everything", never as "skip everything".
+ * everything", never as "skip everything". The two loaders whose failure
+ * would hurt a Helm-run home rather than a Guesty pass
+ * (loadHelmRunCutovers for the dedupe, loadAggregateFeedPropertyIds for
+ * the importer) throw instead.
  */
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -58,34 +61,68 @@ export async function loadGuestyRunPropertyIds(sb: SupabaseClient = supabaseAdmi
 }
 
 /**
- * Property ids that still carry an ACTIVE Guesty aggregate feed
- * (channel_listings.channel = 'guesty'). While a home has one, direct-feed
- * block events are echoes of the availability Guesty pushed and are dropped
- * at import, exactly as before the classifier learned to see them.
+ * Helm-run property ids mapped to their properties.cutover_at (null when a
+ * row was flipped before the column existed). THROWS on a failed read.
+ *
+ * For the dedupe, whose rules for these homes are what keep a live stay from
+ * being filed under a cancelled one: an empty set on a failed read (the
+ * forgiving loader above) would run a whole dedupe with every Helm-run home
+ * on Guesty rules and write the result. A throw fails that dedupe run
+ * instead, and the previous run's marks stand.
+ */
+export async function loadHelmRunCutovers(sb: SupabaseClient = supabaseAdmin): Promise<Map<string, string | null>> {
+  if (!isServiceConfigured && sb === supabaseAdmin) throw new Error('Supabase service role is not configured.');
+  const rows = await selectAllPaged<{ id: string; calendar_authority: string | null; cutover_at: string | null }>(
+    (from, to) =>
+      sb.from('properties').select('id, calendar_authority, cutover_at').order('id', { ascending: true }).range(from, to),
+    { label: 'pms guards cutovers' },
+  );
+  return new Map(rows.filter((r) => r.calendar_authority === 'helm').map((r) => [r.id, r.cutover_at ?? null]));
+}
+
+/**
+ * Property ids whose direct-feed closures are Guesty's echoes, dropped at
+ * import: the home carries an ACTIVE Guesty aggregate feed
+ * (channel_listings.channel = 'guesty') and no OTA on it imports Helm's
+ * export yet (no active row ticked export_subscribed).
+ *
+ * The first half is the fleet as it has always been: while Guesty pushes a
+ * home's availability to every OTA, a closure on an OTA's own feed is that
+ * push, and Guesty's own holds arrive on the aggregate feed. The second half
+ * is the cutover window. From the moment the operator pastes Helm's line
+ * into an OTA and ticks it (runbook step 7), Guesty is disconnected and the
+ * aggregate feed is dead or dying while the flip that retires it may still
+ * be a day away; dropping closures then hid every Booking.com reservation
+ * made in that window from the export Airbnb and VRBO were already reading.
+ *
+ * THROWS on a failed read. It used to answer "every home" on a failure,
+ * which dropped every closure on every Helm-run home too, and three failed
+ * reads in a row cancelled every Booking.com reservation on file. A thrown
+ * read fails the sync run instead; the next beat retries.
  */
 export async function loadAggregateFeedPropertyIds(sb: SupabaseClient = supabaseAdmin): Promise<Set<string>> {
   if (!isServiceConfigured && sb === supabaseAdmin) return new Set();
-  try {
-    const rows = await selectAllPaged<{ property_id: string }>(
-      (from, to) =>
-        sb
-          .from('channel_listings')
-          .select('property_id')
-          .eq('channel', 'guesty')
-          .eq('is_active', true)
-          .order('id', { ascending: true })
-          .range(from, to),
-      { label: 'aggregate feeds' },
-    );
-    return new Set(rows.map((r) => r.property_id));
-  } catch (err) {
-    console.error('[pms-guards] aggregate feed read failed; treating every home as aggregate-fed:', err);
-    // Fail towards today's behaviour: drop direct-feed blocks everywhere.
-    return new Set(['*']);
+  const rows = await selectAllPaged<{ property_id: string; channel: string; is_active: boolean | null; export_subscribed: boolean | null }>(
+    (from, to) =>
+      sb
+        .from('channel_listings')
+        .select('property_id, channel, is_active, export_subscribed')
+        .order('id', { ascending: true })
+        .range(from, to),
+    { label: 'aggregate feeds' },
+  );
+  const aggregate = new Set<string>();
+  const subscribed = new Set<string>();
+  for (const r of rows) {
+    if (!r.is_active) continue;
+    if (r.channel === 'guesty') aggregate.add(r.property_id);
+    else if (r.export_subscribed) subscribed.add(r.property_id);
   }
+  for (const id of subscribed) aggregate.delete(id);
+  return aggregate;
 }
 
-/** True when the aggregate-feed set says this property still rides Guesty's feed. */
-export function hasAggregateFeed(set: Set<string>, propertyId: string): boolean {
-  return set.has('*') || set.has(propertyId);
+/** True when this property's direct-feed closures are dropped at import. */
+export function hasAggregateFeed(set: ReadonlySet<string>, propertyId: string): boolean {
+  return set.has(propertyId);
 }

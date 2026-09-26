@@ -20,6 +20,13 @@ home is Helm-run.
 
 ## What cannot be done, stated first
 
+- Owner blocks go in Helm. Of the nights an OTA closes on its own calendar,
+  Helm passes on only Booking.com's (Booking.com publishes its reservations
+  that way). A block set in the Airbnb or VRBO app closes that app and
+  staycapeann.com, never the other OTAs. That rule is what keeps the iCal
+  mesh free of echo loops: no closure can travel around a cycle and hold
+  nights shut after its cause is gone.
+
 - Airbnb, VRBO and Booking.com give a small host no messaging API. After the
   Guesty disconnect, OTA guest threads live in the OTA apps. Helm shows the
   stay, links into the thread, and never renders a send button it cannot honor.
@@ -49,11 +56,17 @@ home is Helm-run.
    every closed night as "CLOSED - Not available", real reservations
    included, with no guest name. Helm therefore imports a Booking.com
    booking as a hold. The hold still closes Airbnb, VRBO and
-   staycapeann.com for those nights (it is exported to every other channel),
-   but it is not a stay: no turnover, no line in Luana's digest, no guest
-   automation. Each Booking.com booking has to be entered in Helm by hand
-   from its confirmation email (`/channels/bookings/new`, channel
-   Booking.com) until a notification-email parser exists.
+   staycapeann.com for those nights (Booking.com's closures are the one
+   kind of OTA closure Helm passes on), but it is not a stay: no turnover,
+   no line in Luana's digest, no guest automation. Each Booking.com booking
+   has to be entered in Helm by hand from its confirmation email
+   (`/channels/bookings/new`, channel Booking.com; the channel hub's Needs
+   attention panel links each unentered closure straight there with the
+   dates filled in) until a notification-email parser exists. The writer
+   never counts Booking.com's own closure against the booking entered for
+   it. A cancellation reaches Helm only as the closure reopening, so the
+   hub and `/today` list any Booking.com reservation on file whose nights
+   Booking.com has reopened; cancel it in Helm after checking the extranet.
 3. Is there a Seam-connected lock at the house? If not, the door code rides
    the pre-arrival automation from `property_access.smart_lock_code` in
    approve mode, and guest PINs / cleaning sessions do not apply.
@@ -124,8 +137,8 @@ each export URL and paste it into the matching row on `/channels/listings`.
 Press sync on each. Do NOT import Helm's export into the OTAs yet.
 
 Verify: each row shows success with an event count; iCal rows dedupe onto
-their `guesty_legacy` twins; Airbnb "Not available" echoes of VRBO stays are
-marked as duplicates of the covering stay; no double bookings.
+their `guesty_legacy` twins; Airbnb "Not available" closures over VRBO stays
+are marked as duplicates of the covering stay; no double bookings.
 
 ## Step 4. Configure Helm for the flip
 
@@ -162,11 +175,17 @@ disconnect the Airbnb, VRBO and Booking.com channels, unlist and delete the
 listing. Immediately, in each OTA host account, import that OTA's own line
 from the channel hub: `https://helm.risingtidestr.com/api/channels/ical/<token>?for=airbnb`
 in Airbnb, `?for=vrbo` in VRBO, `?for=booking_com` in Booking.com. Each
-feed leaves out that OTA's own bookings and holds, so an owner block lifted
-in the Airbnb app is never sent back to Airbnb by Helm; a hold that first
-appeared as an echo of Helm's own export (stamped `echo_seen_at` at import)
-is sent to nobody, so a cancelled stay's nights reopen everywhere. Tick "OTA
-imports Helm's export" per channel on `/channels/listings`. Re-onboard VRBO
+feed leaves out that OTA's own bookings and closures, so nothing an OTA
+published ever comes back to it from Helm. Tick "OTA imports Helm's
+export" per channel on `/channels/listings` as you paste each line: from
+the first tick, a home still carrying a Guesty aggregate feed stops
+dropping its direct-feed closures, so a Booking.com booking made between
+the disconnect and the flip reaches Airbnb and VRBO. Once each OTA shows
+Helm's import on its calendar, clear the blocks Guesty left behind on that
+OTA (a PMS disconnect can leave its last availability as plain blocks):
+Helm's import keeps closed every night another channel or Helm holds, and a
+leftover on Booking.com would otherwise be passed to Airbnb and VRBO.
+Re-onboard VRBO
 (rates, rules, cancellation policy, agreement, payout details). Recreate the
 confirmation, pre-arrival and checkout messages in Airbnb Scheduled Messages
 and mark those rules "configured in Airbnb" on the automations tab. Connect
@@ -176,8 +195,14 @@ PriceLabs directly to Airbnb and VRBO. Wait for the first pull from each OTA
 Then, on `/channels/65_calderwood`, press Flip to Helm once every preflight
 check is green: rate plan, tax config, every feed successful within 2 hours,
 every channel subscribed and pulled within 24 hours, no double bookings,
-Luana scoped, automations reviewed, Guesty disconnect acknowledged. The flip
-retires the Guesty feed row, deletes the `guesty_listings` row, parks the
+Guesty stays handed over (every Guesty-era Airbnb or VRBO stay ahead has a
+live twin on that OTA's own feed, the only thing that can cancel it once
+Guesty stops writing; every Booking.com reservation on file is still closed
+on Booking.com's feed), Booking.com reconciled (every Booking.com closure
+ahead has a reservation on file or a Helm row behind it), Luana scoped,
+automations reviewed, Guesty disconnect acknowledged. The flip adopts any
+hold on the Guesty aggregate feed as a Helm block (it stays closed and lifts
+in Helm), retires the Guesty feed row, deletes the `guesty_listings` row, parks the
 Guesty id into `former_guesty_listing_id`, sets the authority, writes an
 audit event, and rewrites the calendar mirror in place. Then turn automations
 on and enable the property's rules in approve mode.
@@ -204,7 +229,15 @@ Ryan reads and answers OTA guests in the OTA apps. Helm shows every stay on
 the channel hub, the multi-calendar, `/today` and the reviews lens; guest SMS
 to the GUESTS line lands in the Helm inbox; Luana gets Helm's digest and the
 new-booking text; cancellations arrive only as feed drops on the 55-minute
-rule; cross-channel blocking lags by each OTA's pull interval; Airbnb stays
+rule; cross-channel blocking lags by each OTA's pull interval; a Booking.com
+closure that only mirrored another channel's stay or a Helm block keeps
+Airbnb and VRBO closed a few hours after its cause is gone (Booking.com
+reopens at its next pull, Helm cancels the closure on the two-look rule,
+Airbnb and VRBO reopen at theirs); the channel hub's Needs attention panel
+and the Helm-run homes section on `/today` list what needs a person
+(Booking.com bookings to enter or cancel, feeds read on the wrong line,
+closures stranded on a retired feed); a feed that goes empty or loses many
+stays at once holds its cancels until you release it on the hub; Airbnb stays
 read "Reserved" plus a code until the notification-email parser lands.
 Revenue shows Calderwood's Guesty-era money and then freezes; Books remains
 the LLC's ledger.

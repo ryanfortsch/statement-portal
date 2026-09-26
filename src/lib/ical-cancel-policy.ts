@@ -42,14 +42,22 @@
  *      re-keys a hold whenever its span changes and drops it when the
  *      operator opens the dates, so a routine bulk unblock removes many holds
  *      at once; counted, that alone tripped the guard, forever.
+ *      EXCEPT on a feed whose closures may be reservations
+ *      (`holdsAreReservations`, true for Booking.com, whose iCal publishes
+ *      every booking as "CLOSED - Not available"). There a hold is counted,
+ *      missing and live, exactly like a stay: a truncated or broken
+ *      Booking.com feed must not cancel its bookings wholesale.
  *      The same stays recount above the threshold on every later run, so the
  *      guard is released only by a human: the operator's "these
  *      cancellations are real" (channel_listings.mass_cancel_acknowledged_at)
  *      reaches this function as `allowMassCancel`, which skips the guard for
  *      that one run.
  *
- * The existing empty-feed guard (zero parsed events while live upcoming rows
- * exist: skip the whole cancel pass) stays in the sync, ahead of this.
+ * The empty-feed guard (zero parsed events while a row that keeps it up is
+ * on file: skip the whole cancel pass, keepsEmptyFeedGuardUp) stays in the
+ * sync, ahead of this. The same operator release lets it through once: a
+ * feed whose last stay really was cancelled legitimately parses to nothing,
+ * and without the release that stay stood forever.
  *
  * Import-free so `npm test` covers it with no bundler and no database.
  */
@@ -95,13 +103,36 @@ export type CancelPassInput = {
    *  (channel_listings.mass_cancel_acknowledged_at): skip rule 4 for this
    *  one run. The sync clears the stamp once the pass has run. */
   allowMassCancel?: boolean;
+  /** This feed publishes reservations as closures (Booking.com): its
+   *  upcoming holds count for rule 4 exactly like stays. See
+   *  holdsAreReservations(). */
+  holdsAreReservations?: boolean;
+  /** The operator released an empty-feed guard: rule 3's second look is
+   *  theirs, so every missing upcoming row is ready now. Only ever set with
+   *  allowMassCancel, on the run that consumes that release. */
+  treatMissingAsReady?: boolean;
 };
 
-export type CancelGuard = null | 'mass_cancel';
+/**
+ * 'mass_cancel': too many upcoming stays vanished at once; held for review.
+ * 'empty_feed': the feed parsed to nothing while rows that keep that guard up
+ * are on file; the whole cancel pass was skipped.
+ */
+export type CancelGuard = null | 'mass_cancel' | 'empty_feed';
+
+/**
+ * Does this feed publish real reservations as closures? Booking.com's iCal
+ * does: every booked night is "CLOSED - Not available", with no guest and
+ * no code, so a hold on it may be a guest and both guards count it.
+ */
+export function holdsAreReservations(channel: string | null | undefined): boolean {
+  return String(channel ?? '').toLowerCase() === 'booking_com';
+}
 
 export type CancelGuardDetail = {
-  /** Non-cancelled upcoming STAYS (check_out >= today, not a hold), before
-   *  this run's cancels. */
+  /** Non-cancelled upcoming STAYS (check_out >= today, not a hold; holds
+   *  too on a feed that publishes reservations as closures), before this
+   *  run's cancels. */
   upcoming_live: number;
   /** Upcoming stays that have been missing long enough to cancel. */
   upcoming_missing: number;
@@ -140,22 +171,30 @@ function missingState(row: CancelCandidate, now: Date): 'first' | 'waiting' | 'r
 }
 
 /**
- * Does this stored row keep the empty-feed guard up? Only an upcoming live
- * STAY does. A feed that parses to nothing while such a stay is on file is
- * most likely broken, so the cancel pass is skipped. A hold does not count:
- * when a feed's only event was an owner block and the owner lifts it, the
- * feed legitimately parses to nothing, and counting the hold kept the guard
- * tripped every run, so the lifted block never cancelled and stayed
- * exported to the other channels. It goes through rule 3's two-look grace
- * period instead.
+ * Does this stored row keep the empty-feed guard up? An upcoming live STAY
+ * does. A feed that parses to nothing while such a stay is on file is most
+ * likely broken, so the cancel pass is skipped. A hold does not count on
+ * Airbnb or VRBO: when a feed's only event was an owner block and the owner
+ * lifts it, the feed legitimately parses to nothing, and counting the hold
+ * kept the guard tripped every run, so the lifted block never cancelled. It
+ * goes through rule 3's two-look grace period instead.
+ *
+ * On a feed that publishes reservations as closures (`reservationHolds`,
+ * Booking.com) an upcoming hold DOES keep the guard up: it may be a guest,
+ * and a Booking.com endpoint that answers 200 with an empty calendar (a
+ * maintenance page parses to nothing) would otherwise cancel every booking
+ * on it in three beats. A lifted closure that was the feed's last event
+ * then holds the guard until the operator releases it once.
  */
 export function keepsEmptyFeedGuardUp(
   row: { status: string; check_out: string; raw_summary: string | null },
   todayIso: string,
   isBlockSummary: (raw: string | null) => boolean,
+  reservationHolds = false,
 ): boolean {
-  if (row.status === 'cancelled' || row.status === 'block') return false;
+  if (row.status === 'cancelled') return false;
   if (String(row.check_out) < todayIso) return false;
+  if (row.status === 'block') return reservationHolds;
   if (row.status === 'confirmed' && isBlockSummary(row.raw_summary)) return false;
   return true;
 }
@@ -166,6 +205,7 @@ export function massCancelThreshold(upcomingLive: number): number {
 
 export function planCancelPass(input: CancelPassInput): CancelPassPlan {
   const { existing, incomingUids, now, todayIso, isBlockSummary } = input;
+  const reservationHolds = !!input.holdsAreReservations;
   const uidOf =
     input.uidOf ??
     ((row: CancelCandidate) => {
@@ -185,9 +225,11 @@ export function planCancelPass(input: CancelPassInput): CancelPassPlan {
     const upcoming = String(row.check_out) >= todayIso;
     const isHold = row.status === 'block';
     const isMisfiledHold = row.status === 'confirmed' && isBlockSummary(row.raw_summary);
-    // Only a stay is "live" for the guard: a hold, or a hold the old sync
-    // stored as confirmed, is never a guest.
-    if (upcoming && !isHold && !isMisfiledHold) upcomingLive += 1;
+    // A hold counts for the guard only where it may be a guest (Booking.com);
+    // elsewhere only a stay is "live". A hold the old sync stored as
+    // confirmed is reclassified by rule 1 and never counts.
+    const guestLike = !isMisfiledHold && (!isHold || reservationHolds);
+    if (upcoming && guestLike) upcomingLive += 1;
 
     const uid = uidOf(row);
     if (uid !== null && incomingUids.has(uid)) continue; // seen this run: the upsert owns it
@@ -203,14 +245,15 @@ export function planCancelPass(input: CancelPassInput): CancelPassPlan {
       continue;
     }
     // Rule 3: an upcoming row needs two separate observations of its absence.
-    const state = missingState(row, now);
+    const state = input.treatMissingAsReady ? 'ready' : missingState(row, now);
     if (state !== 'ready') {
       deferred.push(row.id);
       if (state === 'first') stampMissing.push(row.id);
       continue;
     }
-    // A vanished hold has had its grace period; it never feeds the guard.
-    if (isHold) {
+    // A vanished hold has had its grace period; it never feeds the guard,
+    // unless it may be a guest.
+    if (isHold && !reservationHolds) {
       cancelNow.push(row.id);
       continue;
     }

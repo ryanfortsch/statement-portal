@@ -18,7 +18,8 @@ import {
   type FeedHealth,
   type LastSyncRun,
 } from '@/lib/channels';
-import { evaluateCutoverPreflight, listPmsEvents, loadCutoverFacts, type CutoverCheck, type CutoverPreflight, type PmsEvent } from '@/lib/cutover';
+import { carryoverFor, evaluateCutoverPreflight, listPmsEvents, loadCutoverFacts, type CutoverCheck, type CutoverPreflight, type PmsEvent } from '@/lib/cutover';
+import type { CarryRow, Carryover } from '@/lib/cutover-carryover';
 import { loadPricingBundle, type PricingBundle } from '@/lib/property-rates';
 import { loadCalendarDayMap } from '@/lib/calendar-days';
 import { isOpenOn } from '@/lib/rental-periods';
@@ -44,7 +45,7 @@ import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ic
 import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
 import { flipCalendarAuthorityAction } from './cutover-actions';
-import { acknowledgeMassCancel, syncOneListing, tickExportSubscribed } from '../listings/actions';
+import { acknowledgeMassCancel, releaseOrphanedOtaHold, syncOneListing, tickExportSubscribed } from '../listings/actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -100,6 +101,7 @@ export default async function ChannelsPropertyPage({
   ]);
 
   const preflight: CutoverPreflight | null = factsOrError.facts ? evaluateCutoverPreflight(factsOrError.facts) : null;
+  const carry: Carryover | null = factsOrError.facts ? carryoverFor(factsOrError.facts) : null;
   const activeDirectFeeds = feeds.filter((f) => f.is_active && !!f.ical_import_url && f.channel !== 'guesty');
   const badge = authorityBadge(property, activeDirectFeeds.length > 0);
 
@@ -193,6 +195,8 @@ export default async function ChannelsPropertyPage({
           <Stat label="Feeds importing" value={`${activeDirectFeeds.length}`} sub={`${feeds.filter((f) => f.is_active).length} channel rows`} last />
         </div>
       </section>
+
+      {carry && helmRun && <AttentionPanel carry={carry} propertyId={propertyId} helmRun={helmRun} unfiltered={anonPulls} now={now} />}
 
       {/* ── Cutover panel ─────────────────────────────────────────────── */}
       <section id="cutover" className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
@@ -347,9 +351,9 @@ export default async function ChannelsPropertyPage({
             <FeedRow key={channel} channel={channel} feed={feed} helmRun={helmRun} now={now} />
           ))}
         </div>
-        {anonPulls.length > 0 && (
+        {anonPulls.length > 0 && !helmRun && (
           <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10 }}>
-            {anonPulls.length} recent pull{anonPulls.length === 1 ? '' : 's'} of the export came from a client the user agent did not identify (last {relativeAge(anonPulls[0].pulled_at, now)}).
+            {anonPulls.length} recent pull{anonPulls.length === 1 ? '' : 's'} of the export got the unfiltered feed: a client nobody could identify, or an OTA reading another OTA&apos;s line (last {relativeAge(anonPulls[0].pulled_at, now)}).
           </p>
         )}
       </section>
@@ -359,7 +363,7 @@ export default async function ChannelsPropertyPage({
           <div className="eyebrow" style={{ marginBottom: 14 }}>Helm → channels · the export every OTA should import</div>
           <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0' }}>
             <p style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14, maxWidth: 720, lineHeight: 1.55 }}>
-              Give each OTA its own line. Its feed leaves out that OTA&rsquo;s own bookings and holds, so an owner block you lift in the Airbnb app never comes back to Airbnb from Helm, and a hold that only echoes Helm&rsquo;s own export goes to nobody. Canonical confirmed, completed and block rows only, no guest names. Every pull is logged; the last pull per OTA is the second dot on each channel row above. After the flip these feeds are the only thing keeping the OTAs from selling the same night twice.
+              Give each OTA its own line. Its feed leaves out that OTA&rsquo;s own bookings and closures, so nothing an OTA published ever comes back to it from Helm. Of the nights an OTA closes on its own calendar, only Booking.com&rsquo;s travel to the others (Booking.com publishes its reservations that way); an owner block set in the Airbnb or VRBO app stays on that app, so make owner blocks in Helm. Confirmed, completed and block rows only, no guest names. Every pull is logged; the last pull per OTA is the second dot on each channel row above. After the flip these feeds are the only thing keeping the OTAs from selling the same night twice.
             </p>
             <div style={{ display: 'grid', gap: 10 }}>
               {EXPORT_FOR_CHANNELS.map((ch) => (
@@ -450,6 +454,116 @@ export default async function ChannelsPropertyPage({
 
 // ── Pieces ──────────────────────────────────────────────────────────────────
 
+/**
+ * What needs a person on this home right now: the cutover handover
+ * (lib/cutover-carryover) and pulls that got the unfiltered feed. The same
+ * reconciliation gates the flip as preflight checks; after the flip this is
+ * where a Booking.com cancellation, a Booking.com booking nobody entered, or
+ * a closure left on a retired feed shows up.
+ */
+function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry: Carryover; propertyId: string; helmRun: boolean; unfiltered: Array<{ pulled_at: string; user_agent: string | null; mismatch?: boolean; requested_for?: string | null; ua_guess?: string | null }>; now: Date }) {
+  const pullsRed = helmRun && unfiltered.length > 0;
+  const empty =
+    carry.untwinnedGuestyStays.length === 0 &&
+    carry.bookingComNotShown.length === 0 &&
+    carry.bookingComUnexplained.length === 0 &&
+    carry.bookingComOrphaned.length === 0 &&
+    !pullsRed;
+  if (empty) return null;
+  const rowLine = (r: CarryRow) => (
+    <span className="font-mono" style={{ fontSize: 12 }}>
+      {r.check_in} → {r.check_out}
+      {r.guest_name ? <span style={{ fontFamily: 'inherit', marginLeft: 8, color: 'var(--ink-3)' }}>{r.guest_name}</span> : null}
+    </span>
+  );
+  const Item = ({ title, why, children }: { title: string; why: string; children: React.ReactNode }) => (
+    <div style={{ padding: '14px 0', borderBottom: '1px solid var(--rule)' }}>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{title}</div>
+      <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720, margin: '0 0 8px' }}>{why}</p>
+      <ul style={{ margin: 0, paddingLeft: 16, display: 'grid', gap: 6 }}>{children}</ul>
+    </div>
+  );
+  return (
+    <section id="attention" className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 48 }}>
+      <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--signal)' }}>Needs attention</div>
+      <div style={{ borderTop: '2px solid var(--signal)' }}>
+        {carry.bookingComUnexplained.length > 0 && (
+          <Item
+            title="Booking.com shows these nights closed, and Helm has no reservation for them"
+            why="Booking.com publishes every booking as a bare closed night. Each of these is either a Booking.com guest nobody has entered (no turnover, no cleaner line, no stay record) or a closure left behind in the extranet, which Helm still passes to Airbnb and VRBO. Enter the booking from its confirmation email, or open the nights in the extranet."
+          >
+            {carry.bookingComUnexplained.map((r) => (
+              <li key={r.id}>
+                {rowLine(r)}{' '}
+                <Link href={`/channels/bookings/new?property=${propertyId}&channel=booking_com&check_in=${r.check_in}&check_out=${r.check_out}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>
+                  Enter the Booking.com booking →
+                </Link>
+              </li>
+            ))}
+          </Item>
+        )}
+        {carry.bookingComNotShown.length > 0 && (
+          <Item
+            title="Reservations on file that Booking.com no longer shows"
+            why="Helm has these as Booking.com stays, but Booking.com's own calendar has reopened their nights. Booking.com gives Helm no other cancellation signal, so check the extranet and cancel each one here if the guest cancelled. Until then the nights stay closed on every channel."
+          >
+            {carry.bookingComNotShown.map((r) => (
+              <li key={r.id}>
+                {rowLine(r)}{' '}
+                <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the stay →</Link>
+              </li>
+            ))}
+          </Item>
+        )}
+        {carry.untwinnedGuestyStays.length > 0 && (
+          <Item
+            title="Guesty-era stays with no twin on the OTA's own feed"
+            why="Once Guesty stops writing, an Airbnb or VRBO stay learns it was cancelled only from that OTA's own feed. These have no live row on it, so nothing would ever cancel them. Sync the feed; if the stay really is gone, cancel it here."
+          >
+            {carry.untwinnedGuestyStays.map((r) => (
+              <li key={r.id}>
+                {rowLine(r)} <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>{CHANNEL_LABELS[r.channel as BookingChannel] ?? r.channel}</span>{' '}
+                <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the stay →</Link>
+              </li>
+            ))}
+          </Item>
+        )}
+        {carry.bookingComOrphaned.length > 0 && (
+          <Item
+            title="Booking.com closures on a feed Helm no longer reads"
+            why="Nothing will ever cancel these on its own, and Helm still passes them to Airbnb and VRBO. They were kept because on Booking.com a closure may be a guest. Check the extranet, then release each one that is not a booking."
+          >
+            {carry.bookingComOrphaned.map((r) => (
+              <li key={r.id} style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                {rowLine(r)}
+                <form action={releaseOrphanedOtaHold}>
+                  <input type="hidden" name="id" value={r.id} />
+                  <SubmitButton label="Release" busyLabel="Releasing…" spinnerTone="ink" style={linkButton} />
+                </form>
+              </li>
+            ))}
+          </Item>
+        )}
+        {pullsRed && (
+          <Item
+            title="Something read the unfiltered feed"
+            why="A pull with no for= line and no recognisable user agent, or an OTA reading another OTA's line, gets every row, its own included. An OTA that imports its own closures back keeps them shut after its guest cancels. If one of these is an OTA, paste that OTA's own line from the list below; a personal calendar app is harmless."
+          >
+            {unfiltered.slice(0, 5).map((p, i) => (
+              <li key={`${p.pulled_at}-${i}`} style={{ fontSize: 12 }}>
+                <span className="font-mono">{relativeAge(p.pulled_at, now)}</span>
+                <span style={{ marginLeft: 10, color: 'var(--ink-3)' }}>
+                  {p.mismatch ? `the ${p.requested_for} line, read by what looks like ${p.ua_guess}` : `unidentified: ${(p.user_agent ?? 'no user agent').slice(0, 80)}`}
+                </span>
+              </li>
+            ))}
+          </Item>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function Badge({ badge }: { badge: ReturnType<typeof authorityBadge> }) {
   const color = badge.kind === 'helm' ? 'var(--positive)' : badge.kind === 'shadow' ? 'var(--signal)' : 'var(--ink-3)';
   return (
@@ -522,7 +636,8 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
   // release runs a sync and a retired or unwired row would stamp and stall.
   const lastRun = feed?.last_run ?? null;
   const importable = !!feed && feed.is_active && feed.ical_import_enabled && !!feed.ical_import_url;
-  const guardTripped = importable && lastRun?.guard === 'mass_cancel';
+  const guardKind = importable && (lastRun?.guard === 'mass_cancel' || lastRun?.guard === 'empty_feed') ? lastRun.guard : null;
+  const guardTripped = guardKind !== null;
   const deferredCount = lastRun?.bookings_deferred ?? 0;
   const showDeferred = importable && !guardTripped && deferredCount > 0;
   // A release the operator stamped that no sync has consumed yet (the sync
@@ -539,7 +654,7 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
     : !feed.ical_import_url
     ? 'iCal URL not set'
     : guardTripped && lastRun
-    ? `synced ${relativeAge(lastRun.started_at, now)} · ${feed.last_import_event_count ?? 0} events · cancels held`
+    ? `synced ${relativeAge(lastRun.started_at, now)} · ${feed.last_import_event_count ?? 0} events · ${guardKind === 'empty_feed' ? 'empty feed, cancels skipped' : 'cancels held'}`
     : feed.last_import_status === 'error'
     ? `error ${relativeAge(feed.last_imported_at, now)}: ${feed.last_import_error ?? 'unknown'}`
     : feed.last_imported_at
@@ -603,7 +718,7 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
           </Link>
         </span>
       </div>
-      {guardTripped && feed && lastRun && <MassCancelAlert feed={feed} run={lastRun} label={label} now={now} />}
+      {guardKind && feed && lastRun && <MassCancelAlert feed={feed} run={lastRun} label={label} now={now} kind={guardKind} />}
       {showDeferred && (
         <p style={{ margin: '0 0 12px 164px', fontSize: 12, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
           <Dot color="var(--signal)" title="Missing from the feed on the last run" />
@@ -615,8 +730,8 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
       )}
       {pendingRelease && (
         <p style={{ margin: '0 0 12px 164px', fontSize: 12, color: 'var(--ink-3)', display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-          <Dot color="var(--signal)" title="Mass-cancel release not yet applied" />
-          <span>Mass-cancel release stamped {relativeAge(pendingRelease, now)}, not yet applied</span>
+          <Dot color="var(--signal)" title="Cancel-guard release not yet applied" />
+          <span>Cancel-guard release stamped {relativeAge(pendingRelease, now)}, not yet applied</span>
           <span style={{ color: 'var(--ink-4)' }}>· the next sync of this feed skips the guard once, then clears it</span>
         </p>
       )}
@@ -625,31 +740,40 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
 }
 
 /**
- * The mass-cancel guard tripped on this feed's newest run: too many upcoming
- * stays left the feed at once, so the cancel policy held every one of them
- * (and keeps holding them; the same rows recount above the threshold on
- * every later run). This is the one place a human releases the hold. The
- * button stamps the listing and syncs it on the spot; while a stamp is
- * waiting for a sync to consume it, the card says so instead of offering a
- * second stamp.
+ * A cancel guard tripped on this feed's newest run, and the cancel policy is
+ * holding upcoming stays (it keeps holding them; the same rows recount on
+ * every later run):
+ *   mass_cancel  too many upcoming stays left the feed at once
+ *   empty_feed   the feed parsed to nothing while upcoming stays (or, on
+ *                Booking.com, closures that may be guests) are on file
+ * This is the one place a human releases the hold. The button stamps the
+ * listing and syncs it on the spot; while a stamp is waiting for a sync to
+ * consume it, the card says so instead of offering a second stamp.
  */
-function MassCancelAlert({ feed, run, label, now }: { feed: FeedHealth; run: LastSyncRun; label: string; now: Date }) {
+function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; run: LastSyncRun; label: string; now: Date; kind: 'mass_cancel' | 'empty_feed' }) {
   const held = run.bookings_deferred;
   const pending = feed.mass_cancel_acknowledged_at;
+  const empty = kind === 'empty_feed';
   return (
     <div style={{ margin: '0 0 16px 164px', borderLeft: '3px solid var(--signal)', background: 'var(--paper-2)', padding: '16px 20px 18px' }}>
       <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 8 }}>
-        Mass-cancel guard · tripped on the last sync, {relativeAge(run.started_at, now)}
+        {empty ? 'Empty-feed guard' : 'Mass-cancel guard'} · tripped on the last sync, {relativeAge(run.started_at, now)}
       </div>
       <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', marginBottom: 8 }}>
-        {held > 0 ? `${held} upcoming stay${held === 1 ? ' is' : 's are'} being held.` : 'Upcoming stays are being held.'}
+        {empty
+          ? `${label} sent an empty calendar. Nothing was cancelled.`
+          : held > 0
+          ? `${held} upcoming stay${held === 1 ? ' is' : 's are'} being held.`
+          : 'Upcoming stays are being held.'}
       </div>
       <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 640, margin: '0 0 14px' }}>
-        Too many of this home&apos;s upcoming {label} stays left the feed at once. That pattern usually means the listing was paused or the feed broke, not that every guest cancelled, so Helm keeps the stays confirmed: they stay on the turnover rail and the cleaner schedule, and the export still shows those nights as Reserved to the other channels. The hold lasts until you release it or each stay&apos;s dates pass. Check the listing in {label} first.
+        {empty
+          ? `The feed parsed to nothing while this home still has upcoming ${label} rows on file. A broken or paused feed looks exactly like that, so Helm keeps every row as it was and skips the cancel pass. If the calendar really is empty now (the last guest cancelled, or the only closure was lifted), release it once and whatever is missing cancels on that sync.`
+          : `Too many of this home's upcoming ${label} stays left the feed at once. That pattern usually means the listing was paused or the feed broke, not that every guest cancelled, so Helm keeps the stays confirmed: they stay on the turnover rail and the cleaner schedule, and the export still shows those nights as Reserved to the other channels. The hold lasts until you release it or each stay's dates pass. Check the listing in ${label} first.`}
       </p>
       {pending ? (
         <p style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.5, margin: 0 }}>
-          Released {relativeAge(pending, now)}, not yet applied. The next sync of this feed cancels the held stays; use sync above to run it now.
+          Released {relativeAge(pending, now)}, not yet applied. The next sync of this feed cancels the held rows; use sync above to run it now.
         </p>
       ) : (
         <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -663,7 +787,7 @@ function MassCancelAlert({ feed, run, label, now }: { feed: FeedHealth; run: Las
             />
           </form>
           <span style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 360 }}>
-            Cancels the held stays on this feed now. If only some are real, cancel those one at a time from the upcoming list below instead.
+            Cancels the held rows on this feed now. If only some are real, cancel those one at a time from the upcoming list below instead.
           </span>
         </div>
       )}

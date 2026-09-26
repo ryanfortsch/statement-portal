@@ -4,16 +4,33 @@ import { revalidatePath } from 'next/cache';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { BOOKING_CHANNELS, type BookingChannel } from '@/lib/channels-types';
 import { auth } from '@/auth';
+import { holdsAreReservations } from '@/lib/ical-cancel-policy';
 
 /**
  * A feed that stops being read can no longer cancel what it imported: its
- * holds would stand forever, closing their nights on staycapeann.com and
- * (unstamped) on every other OTA's export. So when a listing is deleted,
- * deactivated or loses its import URL, its live OTA holds are retired here,
- * first. Stays are left alone: a reservation does not stop being real
- * because Helm stopped reading the calendar that carried it.
+ * closures would stand forever, holding their nights on staycapeann.com and
+ * in the booking writer's overlap check. So when a listing is deleted,
+ * deactivated or loses its import URL, its live OTA closures are retired
+ * here, first (retireStaleOtaHolds in lib/ical-sync sweeps the same set on
+ * every full sync, which heals a retire that raced an in-flight sync).
+ *
+ * Except Booking.com's. Booking.com publishes every reservation as a
+ * closure, so a closure there may be a guest, and it is also the one kind
+ * Helm forwards to Airbnb and VRBO; cancelling them all because the feed
+ * was retired (a rotated export link, a home leaving Booking.com with its
+ * guests honoured) reopened those guests' nights everywhere. They stay live
+ * and the channel hub lists them for the operator to release one by one.
+ * Stays are left alone on every channel: a reservation does not stop being
+ * real because Helm stopped reading the calendar that carried it.
  */
 async function retireFeedHolds(listingId: string, reason: string): Promise<number> {
+  const { data: listing, error: readErr } = await supabaseAdmin
+    .from('channel_listings')
+    .select('channel')
+    .eq('id', listingId)
+    .maybeSingle();
+  if (readErr) throw new Error(`retire feed holds: ${readErr.message}`);
+  if (!listing || holdsAreReservations((listing as { channel: string }).channel)) return 0;
   const session = await auth().catch(() => null);
   const actor = session?.user?.email ?? 'operator';
   const { data, error } = await supabaseAdmin
@@ -31,6 +48,26 @@ async function retireFeedHolds(listingId: string, reason: string): Promise<numbe
     .select('id');
   if (error) throw new Error(`retire feed holds: ${error.message}`);
   return (data ?? []).length;
+}
+
+/**
+ * A feed row deleted and added again: bookings.channel_listing_id is ON
+ * DELETE SET NULL, so the old row's imports were left with no listing, and
+ * the new listing's cancel pass (which reads by channel_listing_id) never
+ * saw them. A stay cancelled while the row was gone stood live forever.
+ * Re-attaching every orphaned import of this home and channel puts them
+ * back in front of the cancel pass on the next sync. One listing per
+ * (property, channel), so there is never a second candidate.
+ */
+async function reattachOrphanedImports(listingId: string, propertyId: string, channel: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('bookings')
+    .update({ channel_listing_id: listingId })
+    .eq('property_id', propertyId)
+    .eq('channel', channel)
+    .eq('source', 'ical_import')
+    .is('channel_listing_id', null);
+  if (error) throw new Error(`re-attach orphaned imports: ${error.message}`);
 }
 
 /**
@@ -101,6 +138,11 @@ export async function saveListing(formData: FormData) {
   // The import URL was cleared: this feed is no longer read.
   if (formData.has('ical_import_url') && row.ical_import_url === null && saved?.id) {
     await retireFeedHolds(saved.id as string, 'feed_url_cleared');
+  }
+  // The Guesty aggregate row's imports carry their parsed channels, never
+  // 'guesty', so there is nothing of its own to re-attach.
+  if (saved?.id && channel !== 'guesty') {
+    await reattachOrphanedImports(saved.id as string, propertyId, channel);
   }
 
   revalidatePath('/channels');
@@ -175,11 +217,14 @@ export async function syncOneListing(formData: FormData) {
 }
 
 /**
- * The operator's release for the mass-cancel guard: "these cancellations
+ * The operator's release for either cancel guard: "these cancellations
  * are real." Rule 4 of the cancel policy (src/lib/ical-cancel-policy.ts)
  * holds every upcoming stay when too many vanish from a feed at once, and
- * the same rows recount above the threshold on every later run, so nothing
- * but a human can let them go.
+ * the empty-feed guard skips the whole pass when a feed parses to nothing
+ * while upcoming stays are on file; either recounts the same rows on every
+ * later run, so nothing but a human can let them go. A feed whose last stay
+ * really was cancelled parses to nothing for good, which is why the
+ * empty-feed guard needs this door too.
  *
  * Stamps channel_listings.mass_cancel_acknowledged_at, then syncs that one
  * listing at once so the held stays cancel now rather than on the next cron
@@ -230,7 +275,8 @@ export async function acknowledgeMassCancel(formData: FormData) {
     .limit(1)
     .maybeSingle();
   if (runErr) throw new Error(`read last sync run: ${runErr.message}`);
-  if ((lastRun as { guard?: unknown } | null)?.guard !== 'mass_cancel') {
+  const guard = (lastRun as { guard?: unknown } | null)?.guard;
+  if (guard !== 'mass_cancel' && guard !== 'empty_feed') {
     refresh();
     return;
   }
@@ -254,4 +300,57 @@ export async function acknowledgeMassCancel(formData: FormData) {
   }
 
   refresh();
+}
+
+/**
+ * Release one Booking.com closure stranded on a feed Helm no longer reads
+ * (the listing was retired, deleted or lost its URL). Those are never
+ * cancelled automatically, because on Booking.com a closure may be a guest
+ * (retireFeedHolds); the channel hub lists them and this is the operator's
+ * "checked in the extranet, nobody is booked". Refuses a closure whose feed
+ * is still read: the next sync would bring it straight back, and the feed
+ * itself cancels it once Booking.com reopens the nights.
+ *
+ * Fields: id (bookings.id), property_id (for the refresh).
+ */
+export async function releaseOrphanedOtaHold(formData: FormData) {
+  ensureConfigured();
+  const id = String(formData.get('id') || '').trim();
+  if (!id) throw new Error('Missing booking id');
+  const { data: row, error: rowErr } = await supabaseAdmin
+    .from('bookings')
+    .select('id, property_id, status, hold_kind, source, channel_listing_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (rowErr) throw new Error(`release closure: ${rowErr.message}`);
+  const r = row as { id: string; property_id: string; status: string; hold_kind: string | null; source: string; channel_listing_id: string | null } | null;
+  if (!r || r.status !== 'block' || r.hold_kind !== 'ota' || r.source !== 'ical_import') {
+    throw new Error('That row is not a live OTA closure.');
+  }
+  if (r.channel_listing_id) {
+    const { data: listing, error: lErr } = await supabaseAdmin
+      .from('channel_listings')
+      .select('is_active, ical_import_enabled, ical_import_url')
+      .eq('id', r.channel_listing_id)
+      .maybeSingle();
+    if (lErr) throw new Error(`release closure: ${lErr.message}`);
+    const l = listing as { is_active: boolean | null; ical_import_enabled: boolean | null; ical_import_url: string | null } | null;
+    if (l && l.is_active && l.ical_import_enabled && l.ical_import_url) {
+      throw new Error('That feed is still read; the closure cancels itself once the OTA reopens the nights.');
+    }
+  }
+  const session = await auth().catch(() => null);
+  const { error } = await supabaseAdmin
+    .from('bookings')
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: session?.user?.email ?? 'operator',
+      cancel_reason: 'operator_released',
+    })
+    .eq('id', id)
+    .eq('status', 'block');
+  if (error) throw new Error(`release closure: ${error.message}`);
+  revalidatePath('/channels');
+  revalidatePath(`/channels/${r.property_id}`);
 }

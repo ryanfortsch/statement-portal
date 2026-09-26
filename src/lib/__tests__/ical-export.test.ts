@@ -3,7 +3,9 @@
  *
  * Only rows that hold nights (confirmed / completed / block) and stand
  * canonical are exported; an inquiry, a pending request, a cancelled row
- * or a duplicate blocks nothing. And the event carries no guest name and
+ * or a duplicate blocks nothing. Of the nights an OTA closed on its own
+ * calendar, only Booking.com's are forwarded (ical-mesh.test.ts proves that
+ * rule keeps the whole OTA mesh loop-free). And the event carries no guest name and
  * no operator notes: the URL is a bearer token held by three OTAs.
  *
  * Run: npm test   (node --test, native TypeScript, no bundler, no database)
@@ -16,8 +18,8 @@ import {
   exportPullState,
   guessChannelFromUserAgent,
   EXPORTABLE_STATUSES,
-  EXPORT_HOLD_FILTER,
   EXPORT_FOR_CHANNELS,
+  FORWARDED_HOLD_CHANNEL,
   exportUrlFor,
   exportUrlForListing,
   parseExportFor,
@@ -106,14 +108,12 @@ describe('what is exported', () => {
   });
 });
 
-describe('OTA holds: echoes go nowhere, real holds go to every other channel', () => {
-  // A block row with hold_kind 'ota' is what ical-sync stores from an OTA's
-  // own feed on a Helm-run home. echo_seen_at is set when it first appeared
-  // on nights Helm was already holding (lib/ical-echo.ts).
-  const ota = (over: Partial<Booking> & { id: string }, echo_seen_at: string | null = null): ExportBooking => ({
+describe("OTA closures: only Booking.com's travel", () => {
+  // A block row with hold_kind 'ota' is what ical-sync stores for a night an
+  // OTA closed on its own calendar.
+  const ota = (over: Partial<Booking> & { id: string }): ExportBooking => ({
     ...booking({ status: 'block', channel: 'airbnb', raw_summary: 'Airbnb (Not available)', ...over }),
     hold_kind: 'ota',
-    echo_seen_at,
   });
   const held = (id: string, hold_kind: string | null, over: Partial<Booking> = {}): ExportBooking => ({
     ...booking({ id, status: 'block', source: 'manual', channel: 'block', check_in: '2026-11-01', check_out: '2026-11-03', ...over }),
@@ -121,40 +121,52 @@ describe('OTA holds: echoes go nowhere, real holds go to every other channel', (
   });
   const feed = (rows: ExportBooking[], forChannel: string | null) =>
     uids(buildIcalExport({ propertyName: '65 Calderwood', propertyAddress: '65 Calderwood Court', bookings: rows, forChannel })).sort();
-  const ECHOED = '2026-10-01T00:00:00Z';
 
-  test('a stamped echo is in no feed; Helm holds are in every feed', () => {
+  test('Booking.com is the one channel whose closures are forwarded', () => {
+    assert.equal(FORWARDED_HOLD_CHANNEL, 'booking_com');
+  });
+
+  test('Airbnb, VRBO and other closures are in no feed; Helm holds are in every feed', () => {
     const rows: ExportBooking[] = [
-      ota({ id: 'airbnb-echo' }, ECHOED),
-      ota({ id: 'bcom-echo', channel: 'booking_com', raw_summary: 'CLOSED - Not available' }, ECHOED),
-      ota({ id: 'vrbo-echo', channel: 'vrbo', raw_summary: 'Blocked' }, ECHOED),
+      ota({ id: 'airbnb-closed' }),
+      ota({ id: 'vrbo-closed', channel: 'vrbo', raw_summary: 'Blocked' }),
+      ota({ id: 'other-closed', channel: 'other', raw_summary: 'Blocked' }),
       held('owner', 'owner'),
       held('maintenance', 'maintenance', { check_in: '2026-11-05', check_out: '2026-11-06' }),
       held('other', 'other', { check_in: '2026-11-07', check_out: '2026-11-08' }),
       held('legacy', null, { check_in: '2026-11-09', check_out: '2026-11-10' }),
     ];
-    for (const ch of [null, 'airbnb', 'vrbo', 'booking_com']) {
+    for (const ch of [null, 'airbnb', 'vrbo', 'booking_com', 'other']) {
       assert.deepEqual(feed(rows, ch), ['legacy', 'maintenance', 'other', 'owner'], String(ch));
     }
   });
 
-  test('a Booking.com reservation (an unstamped CLOSED hold) closes Airbnb and VRBO, and is not sent back to Booking.com', () => {
+  test('a Booking.com reservation (a CLOSED hold) closes Airbnb and VRBO, and is not sent back to Booking.com', () => {
     // Booking.com's iCal publishes a real booking as "CLOSED - Not available".
     // Dropping it from the export would let Airbnb and VRBO sell the nights.
     const rows = [ota({ id: 'R', channel: 'booking_com', raw_summary: 'CLOSED - Not available' })];
     assert.deepEqual(feed(rows, 'airbnb'), ['R']);
     assert.deepEqual(feed(rows, 'vrbo'), ['R']);
+    assert.deepEqual(feed(rows, 'other'), ['R']);
     assert.deepEqual(feed(rows, 'booking_com'), []);
     assert.deepEqual(feed(rows, null), ['R']);
   });
 
-  test("an owner block set in the Airbnb app reaches VRBO and Booking.com but never goes back to Airbnb", () => {
-    // Sent back, Airbnb would hold it because Helm said so, keep publishing
-    // it after the operator unblocked, and the nights would never reopen.
+  test('a Booking.com closure the dedupe filed as a duplicate is still forwarded', () => {
+    // Pass four files a closure under the stay it overlaps; that mark can
+    // outlive the stay until the next dedupe run, and a Booking.com guest's
+    // nights must not reopen on Airbnb in that window.
+    const rows = [
+      booking({ id: 'S', channel: 'vrbo', status: 'cancelled', cancelled_at: '2026-10-01T00:00:00Z' }),
+      ota({ id: 'R', channel: 'booking_com', raw_summary: 'CLOSED - Not available', duplicate_of: 'S' }),
+    ];
+    assert.deepEqual(feed(rows, 'airbnb'), ['R']);
+    assert.deepEqual(feed(rows, 'booking_com'), []);
+  });
+
+  test("an owner block set in the Airbnb app is not passed on: owner blocks belong in Helm", () => {
     const rows = [ota({ id: 'G' })];
-    assert.deepEqual(feed(rows, 'airbnb'), []);
-    assert.deepEqual(feed(rows, 'vrbo'), ['G']);
-    assert.deepEqual(feed(rows, 'booking_com'), ['G']);
+    for (const ch of [null, 'airbnb', 'vrbo', 'booking_com']) assert.deepEqual(feed(rows, ch), [], String(ch));
   });
 
   test("a channel's feed leaves out that channel's own stays too; every other stay is in it", () => {
@@ -168,32 +180,34 @@ describe('OTA holds: echoes go nowhere, real holds go to every other channel', (
     assert.deepEqual(feed(rows, null), ['air-stay', 'direct-stay', 'vrbo-stay']);
   });
 
-  test('the echo loop: once the stay that caused them is cancelled, its echoes publish nothing anywhere', () => {
-    // VRBO stay S cancelled; Airbnb's and Booking.com's echoes of Helm's
-    // export stand canonical again. Stamped at first sight, they go nowhere,
-    // so the OTAs reopen the nights and the echoes age out.
+  test('the Booking.com feed never carries an OTA closure, which is what keeps the mesh loop-free', () => {
     const rows: ExportBooking[] = [
-      booking({ id: 'S', channel: 'vrbo', status: 'cancelled', cancelled_at: '2026-10-01T00:00:00Z' }),
-      ota({ id: 'A' }, ECHOED),
-      ota({ id: 'B', channel: 'booking_com', raw_summary: 'CLOSED - Not available' }, ECHOED),
+      ota({ id: 'A' }),
+      ota({ id: 'V', channel: 'vrbo', raw_summary: 'Blocked' }),
+      ota({ id: 'B', channel: 'booking_com', raw_summary: 'CLOSED - Not available' }),
+      ota({ id: 'O', channel: 'other', raw_summary: 'Blocked' }),
     ];
-    for (const ch of [null, 'airbnb', 'vrbo', 'booking_com']) assert.deepEqual(feed(rows, ch), [], String(ch));
+    assert.deepEqual(feed(rows, 'booking_com'), []);
+    // A cancelled VRBO stay's closures on Airbnb and Booking.com: only
+    // Booking.com's goes anywhere, and never back to Booking.com, so once
+    // Booking.com reopens it leaves its feed and nothing holds the nights.
+    assert.deepEqual(feed(rows, 'airbnb'), ['B']);
+    assert.deepEqual(feed(rows, 'vrbo'), ['B']);
   });
 
   test('exportableBooking applies the same rules row by row', () => {
     const base = { duplicate_of: null, check_in: '2026-10-10', check_out: '2026-10-12' };
-    assert.equal(exportableBooking({ ...base, status: 'block', channel: 'airbnb', hold_kind: 'ota', echo_seen_at: ECHOED }), false);
-    assert.equal(exportableBooking({ ...base, status: 'block', channel: 'airbnb', hold_kind: 'ota', echo_seen_at: null }), true);
-    assert.equal(exportableBooking({ ...base, status: 'block', channel: 'airbnb', hold_kind: 'ota', echo_seen_at: null }, 'airbnb'), false);
+    assert.equal(exportableBooking({ ...base, status: 'block', channel: 'airbnb', hold_kind: 'ota' }), false);
+    assert.equal(exportableBooking({ ...base, status: 'block', channel: 'booking_com', hold_kind: 'ota' }), true);
+    assert.equal(exportableBooking({ ...base, status: 'block', channel: 'booking_com', hold_kind: 'ota', duplicate_of: 'x' }), true);
+    assert.equal(exportableBooking({ ...base, status: 'block', channel: 'booking_com', hold_kind: 'ota' }, 'booking_com'), false);
+    assert.equal(exportableBooking({ ...base, status: 'cancelled', channel: 'booking_com', hold_kind: 'ota' }), false);
     assert.equal(exportableBooking({ ...base, status: 'block', hold_kind: 'owner' }), true);
+    assert.equal(exportableBooking({ ...base, status: 'block', hold_kind: 'owner', duplicate_of: 'x' }), false);
     assert.equal(exportableBooking({ ...base, status: 'block', hold_kind: null }), true);
     assert.equal(exportableBooking({ ...base, status: 'block' }), true);
-    // echo_seen_at only means something on an OTA block: a stay carrying it still exports.
-    assert.equal(exportableBooking({ ...base, status: 'confirmed', channel: 'vrbo', hold_kind: 'ota', echo_seen_at: ECHOED }), true);
-  });
-
-  test("the route's query filter keeps null hold_kind and unstamped OTA holds", () => {
-    assert.equal(EXPORT_HOLD_FILTER, 'status.neq.block,hold_kind.is.null,hold_kind.neq.ota,echo_seen_at.is.null');
+    // hold_kind only means something on a block: a stay carrying it exports.
+    assert.equal(exportableBooking({ ...base, status: 'confirmed', channel: 'vrbo', hold_kind: 'ota' }), true);
   });
 
   test('parseExportFor accepts the three OTAs only; exportUrlFor appends for=', () => {
@@ -359,12 +373,11 @@ describe('resolveExportAudience: who a pull is for', () => {
 });
 
 describe('listing-scoped feeds', () => {
-  const otherHold = (id: string, listing: string): ExportBooking => ({
-    ...booking({ id, status: 'block', channel: 'other', channel_listing_id: listing }),
-    hold_kind: 'ota',
-    echo_seen_at: null,
+  const otherStay = (id: string, listing: string): ExportBooking => ({
+    ...booking({ id, status: 'confirmed', channel: 'other', channel_listing_id: listing }),
+    hold_kind: null,
   });
-  const rows = [otherHold('O1', 'L-other-1'), otherHold('O2', 'L-other-2'), booking({ id: 'V', channel: 'vrbo' })];
+  const rows = [otherStay('O1', 'L-other-1'), otherStay('O2', 'L-other-2'), booking({ id: 'V', channel: 'vrbo' })];
   const feedFor = (listingId: string | null, channel: string | null) =>
     uids(buildIcalExport({ propertyName: 'x', propertyAddress: 'x', bookings: rows, forChannel: channel, forListingId: listingId })).sort();
 

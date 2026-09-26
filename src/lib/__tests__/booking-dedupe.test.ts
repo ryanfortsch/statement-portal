@@ -785,6 +785,56 @@ describe('Helm-run homes: a date join never crosses channels', () => {
     assert.equal(canonicalOf(plan, 'feed'), canonicalOf(plan, 'legacy'));
   });
 
+  test('a VRBO cancel-then-rebook on one feed: two bare "Reserved" events stay two stays, the live one canonical', () => {
+    // Neither row carries a name or a code. Pass three used to place the
+    // live one in the cancelled one's cluster (its only candidate), and the
+    // live VRBO guest left the export, availability and the overlap check.
+    for (const dates of [
+      { check_in: '2026-10-10', check_out: '2026-10-14' },
+      { check_in: '2026-10-10', check_out: '2026-10-13' },
+    ]) {
+      const rows = [
+        cancelledVrbo(),
+        row({ id: 'VS2', property_id: HELM_HOME, channel: 'vrbo', channel_listing_id: VRBO_FEED, ...dates, created_at: '2026-10-02T00:00:00Z' }),
+      ];
+      const plan = planDedupe(rows, strict);
+      assert.equal(canonicalOf(plan, 'VS2'), 'VS2', JSON.stringify(dates));
+    }
+  });
+
+  test('a feed row first seen after the cutover never joins a frozen Guesty record', () => {
+    // VS1 (booked before the flip) has its Guesty twin GL1. VS1 is cancelled
+    // after the flip, and a new VRBO guest books the same nights as VS2.
+    // Through GL1 the new stay used to land in the cancelled cluster.
+    const cutover = '2026-09-30T12:00:00+00:00';
+    const withCutover = { ...strict, cutoverAtByProperty: new Map([[HELM_HOME, cutover]]) };
+    const rows = [
+      cancelledVrbo({ id: 'VS1' }),
+      row({ id: 'GL1', property_id: HELM_HOME, channel: 'vrbo', source: 'guesty_legacy', channel_listing_id: null, check_in: '2026-10-10', check_out: '2026-10-14', guest_name: 'Old Guest', external_confirmation_code: 'HA-OLD1', created_at: '2026-08-15T00:00:00Z' }),
+      row({ id: 'VS2', property_id: HELM_HOME, channel: 'vrbo', channel_listing_id: VRBO_FEED, check_in: '2026-10-10', check_out: '2026-10-14', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    const plan = planDedupe(rows, withCutover);
+    assert.equal(canonicalOf(plan, 'VS2'), 'VS2');
+    // The pre-flip pair still clusters, so the feed row's cancel retires the
+    // frozen record.
+    assert.equal(canonicalOf(plan, 'VS1'), canonicalOf(plan, 'GL1'));
+    // Without the cutover moment the old fusion comes back (the refusal is
+    // what separates them).
+    const without = planDedupe(rows, strict);
+    assert.notEqual(canonicalOf(without, 'VS2'), 'VS2');
+  });
+
+  test('the same-feed refusal is Helm-run only: a Guesty-run home is unchanged', () => {
+    const rows = [
+      cancelledVrbo({ property_id: '20_hammond' }),
+      row({ id: 'VS2', property_id: '20_hammond', channel: 'vrbo', channel_listing_id: VRBO_FEED, check_in: '2026-10-10', check_out: '2026-10-14', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    assert.deepEqual(
+      [...planDedupe(rows, strict).desired.entries()],
+      [...planDedupe(rows, opts).desired.entries()],
+    );
+  });
+
   test('a Guesty-run home keeps today\'s joins: the same cross-channel pair on a non-strict property still fuses', () => {
     const rows = [
       cancelledVrbo({ property_id: '20_hammond' }),

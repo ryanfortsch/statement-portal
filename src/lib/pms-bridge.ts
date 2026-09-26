@@ -298,15 +298,16 @@ function isFailure(v: unknown): v is BridgeFailure {
 
 const HOLD_STATUSES = ['confirmed', 'completed', 'block'];
 
-/** Canonical holds touching [start, endExclusive). */
+/** Canonical holds touching [start, endExclusive), plus every live OTA
+ *  closure whatever its duplicate mark (lib/availability nightHolds). */
 async function holdsInWindow(propertyId: string, start: string, endExclusive: string): Promise<AvailabilityBooking[]> {
   return selectAllPaged<AvailabilityBooking>(
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('status, check_in, check_out, duplicate_of')
+        .select('status, check_in, check_out, duplicate_of, hold_kind')
         .eq('property_id', propertyId)
-        .is('duplicate_of', null)
+        .or('duplicate_of.is.null,hold_kind.eq.ota')
         .in('status', HOLD_STATUSES)
         .lt('check_in', endExclusive)
         .gt('check_out', start)
