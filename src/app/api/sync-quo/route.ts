@@ -21,7 +21,9 @@ import {
   createCleanerIssueSlip,
   looksLikeIssue,
   stampOwnerContact,
+  captureUnknownInbound,
 } from '@/lib/quo-ingest';
+import { quoLineFor } from '@/lib/quo-lines';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
@@ -34,8 +36,8 @@ import {
 // This does NOT share the webhook's dispatcher, whatever this comment used
 // to claim. `ingestInboundMessage` below is its own implementation, and it
 // covers less: contact touches, cleaning completions, cleaner-issue work
-// slips, and owner last-contacted. It still does NOT capture unknown
-// inbound numbers or mirror cleaning sessions.
+// slips, owner last-contacted, and unknown inbound numbers in group
+// threads. It still does NOT mirror cleaning sessions.
 //
 // Owner stamping was held back until `stampOwnerContact` became forward
 // only. It was a blind update, and this route walks history, so it could
@@ -292,6 +294,19 @@ async function pullGroupConversations(
             // falling back to the canonical owner if the sender isn't a
             // tracked contact (e.g. a team member's personal phone).
             const sender = targets.get(msg.from);
+            // A participant we do not know still gets attributed to the
+            // canonical owner so the thread stays coherent, but the number
+            // itself is now recorded for /crm triage instead of vanishing
+            // into somebody else's timeline. Group threads are exactly
+            // where an unrecognised number hides.
+            if (!sender?.contact && msg.from) {
+              await captureUnknownInbound(
+                msg.from,
+                msg.createdAt,
+                msg.text ?? null,
+                quoLineFor(ourNum.id),
+              );
+            }
             const t = sender?.contact ? sender : canonical;
             const inserted = await ingestInboundMessage(msg, t);
             if (inserted.touch) summary.messages_inserted++;
