@@ -73,18 +73,84 @@ describe('quo backfill', () => {
     );
   });
 
-  test('owner stamping is still absent from the backfill, deliberately', () => {
-    const sweep = read(SWEEP);
-    assert.ok(
-      !sweep.includes('stampOwnerContact'),
-      'the sweep now stamps owner last-contacted. It walks history, and that column is ' +
-        'last-write-wins, so this can move the timestamp BACKWARDS over a newer live value. ' +
-        'It needs an as-of guard first.',
-    );
+  test('owner stamping is forward only, in the writer not the callers', () => {
+    const src = read(INGEST);
+    const start = src.indexOf('export async function stampOwnerContact');
+    assert.notEqual(start, -1, 'stampOwnerContact is no longer exported');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+
     assert.match(
-      sweep,
-      /move that timestamp BACKWARDS/,
-      'the comment explaining why owner stamping is absent is gone, so it reads as an oversight',
+      body,
+      /owner_last_contacted_at\.is\.null,owner_last_contacted_at\.lt\./,
+      'stampOwnerContact lost its forward-only guard. It is a blind update again, so an ' +
+        'out-of-order delivery, an event replay, or the six-hourly history sweep can set ' +
+        'owner_last_contacted_at to an OLDER message than the one already recorded.',
     );
   });
+
+  test('unknown-number capture is forward only too', () => {
+    const src = read(INGEST);
+    const start = src.indexOf('export async function captureUnknownInbound');
+    assert.notEqual(start, -1, 'captureUnknownInbound is no longer exported');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+
+    assert.match(
+      body,
+      /last_message_at\.is\.null,last_message_at\.lt\./,
+      'captureUnknownInbound is a blind upsert again, so a replay or the six-hourly history ' +
+        'sweep can overwrite last_body with an OLDER message than the one already recorded. ' +
+        'The /crm triage card renders that field as what this number said.',
+    );
+  });
+
+  test('the backfill records an unknown sender in a group thread', () => {
+    const sweep = read(SWEEP);
+    assert.ok(
+      sweep.includes('captureUnknownInbound('),
+      'the sweep no longer records unknown senders, so a participant we do not know is ' +
+        'attributed to the canonical owner and the number itself vanishes from /crm triage',
+    );
+  });
+
+  test('the cleaning finish moves forward, and never over an operator', () => {
+    const src = read('src/lib/cleaning-sessions.ts');
+    const start = src.indexOf('export async function mirrorQuoFinish');
+    assert.notEqual(start, -1, 'mirrorQuoFinish is gone');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+
+    assert.match(
+      body,
+      /finished_at\.is\.null,finished_at\.lt\./,
+      'mirrorQuoFinish is an unconditional write again, so an out-of-order Quo delivery or the ' +
+        'six-hourly history sweep can walk finished_at BACKWARDS on a turnover',
+    );
+    assert.match(
+      body,
+      /finish_source\.is\.null,finish_source\.neq\.manual/,
+      "mirrorQuoFinish can overwrite a 'manual' finish again. That is an operator's own confirm " +
+        'via confirmCleaningDone, and a backfilled cleaner text must not replace a person.',
+    );
+  });
+
+  test('the backfill mirrors the finish into cleaning_sessions', () => {
+    assert.ok(
+      read(SWEEP).includes('mirrorQuoFinish('),
+      'the sweep no longer mirrors the finish, so a turnover completed during a missed webhook ' +
+        'delivery still looks unfinished beside its lock entry',
+    );
+  });
+
+  test('the backfill stamps owners, now that it is safe to', () => {
+    const sweep = read(SWEEP);
+    assert.ok(
+      sweep.includes('stampOwnerContact('),
+      'the sweep stopped stamping owner last-contacted, so an owner text that arrives during a ' +
+        'missed webhook delivery never updates the column the owner queue reads',
+    );
+    assert.ok(
+      !/async function stampOwnerContact\s*\(/.test(sweep),
+      'the sweep defined its own stampOwnerContact, which would not carry the guard',
+    );
+  });
+
 });

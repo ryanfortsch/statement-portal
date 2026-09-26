@@ -16,7 +16,15 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 // guesty_reservations with no status filter, no canonical-row filter and no
 // asOf, so the two Quo paths disagreed about which checkout a cleaner's
 // text belonged to. See its docblock in quo-ingest.ts.
-import { mostRecentCheckout, createCleanerIssueSlip, looksLikeIssue } from '@/lib/quo-ingest';
+import {
+  mostRecentCheckout,
+  createCleanerIssueSlip,
+  looksLikeIssue,
+  stampOwnerContact,
+  captureUnknownInbound,
+} from '@/lib/quo-ingest';
+import { quoLineFor } from '@/lib/quo-lines';
+import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
@@ -28,14 +36,18 @@ import { mostRecentCheckout, createCleanerIssueSlip, looksLikeIssue } from '@/li
 //
 // This does NOT share the webhook's dispatcher, whatever this comment used
 // to claim. `ingestInboundMessage` below is its own implementation, and it
-// covers less: contact touches, cleaning completions, and (since the gap
-// was found) cleaner-issue work slips. It still does NOT capture unknown
-// inbound numbers, stamp owner last-contacted, or mirror cleaning sessions.
+// is a second implementation of what the webhook does per inbound message:
+// contact touches, cleaning completions, cleaner-issue work slips, owner
+// last-contacted, unknown inbound numbers in group threads, and the
+// cleaning-session mirror. All four of the gaps this route was documented
+// as having are closed; what remains is two implementations of one job, so
+// changing either still means reading both.
 //
-// Owner stamping is left off deliberately rather than forgotten: it is
-// last-write-wins on `owner_last_contacted_at`, so a backfill walking
-// history could move that timestamp BACKWARDS over a newer live one. That
-// needs an as-of guard before it can ride here.
+// Owner stamping was held back until `stampOwnerContact` became forward
+// only. It was a blind update, and this route walks history, so it could
+// have set the column to an older message than the one already recorded.
+// The guard is in that function, not in the callers, so it holds for the
+// webhook and its event replay too.
 
 
 type ContactRow = {
@@ -286,6 +298,19 @@ async function pullGroupConversations(
             // falling back to the canonical owner if the sender isn't a
             // tracked contact (e.g. a team member's personal phone).
             const sender = targets.get(msg.from);
+            // A participant we do not know still gets attributed to the
+            // canonical owner so the thread stays coherent, but the number
+            // itself is now recorded for /crm triage instead of vanishing
+            // into somebody else's timeline. Group threads are exactly
+            // where an unrecognised number hides.
+            if (!sender?.contact && msg.from) {
+              await captureUnknownInbound(
+                msg.from,
+                msg.createdAt,
+                msg.text ?? null,
+                quoLineFor(ourNum.id),
+              );
+            }
             const t = sender?.contact ? sender : canonical;
             const inserted = await ingestInboundMessage(msg, t);
             if (inserted.touch) summary.messages_inserted++;
@@ -336,6 +361,12 @@ async function ingestInboundMessage(
           raw_body: msg.text,
         });
       if (r.error && r.error.code !== '23505') throw r.error;
+      // Mirror the finish into cleaning_sessions, the same as the live path,
+      // so a turnover completed during a missed webhook delivery is not left
+      // looking unfinished next to its lock entry. Safe to backfill now that
+      // mirrorQuoFinish only moves a finish forward and never over an
+      // operator's own confirm.
+      await mirrorQuoFinish(supabase, { propertyId, completedAt: msg.createdAt });
       return { touch: false, cleaning: !r.error };
     }
   }
@@ -353,6 +384,14 @@ async function ingestInboundMessage(
         quo_message_id: msg.id,
       });
     if (r.error && r.error.code !== '23505') throw r.error;
+    // Owner last-contacted, now that the stamp is forward-only. This route
+    // walks history, so a blind write could have set the column to an older
+    // message than the one already recorded; the guard lives in
+    // stampOwnerContact rather than here, so it holds for every caller
+    // instead of depending on each one remembering.
+    if (target.contact.type === 'owner' && (target.contact.linked_property_ids?.length ?? 0) > 0) {
+      await stampOwnerContact(target.contact.linked_property_ids ?? [], msg.createdAt, 'sms');
+    }
     return { touch: !r.error, cleaning: false };
   }
   return { touch: false, cleaning: false };

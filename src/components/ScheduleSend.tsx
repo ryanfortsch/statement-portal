@@ -2,47 +2,36 @@
 
 import { useState } from 'react';
 
+import {
+  horizonYmd,
+  isoFromDateTime,
+  isoInMinutes,
+  nextQuarterHour,
+  SEND_PRESETS,
+  todayYmd,
+} from '@/lib/schedule-time';
+
 /**
  * Shared send-later (time delay) controls for the Owners / Cleaners /
  * Contractors messaging queues, ported from the guest queue's schedule
- * element (MessagingQueue.tsx keeps its own private copy — it shipped first
- * and stays untouched per the no-sweeps rule).
+ * element. MessagingQueue.tsx still keeps its own private copy of the CHROME
+ * (it shipped first, and a divergence there is visible on screen); both now
+ * import their date math from lib/schedule-time.ts, because a divergence in
+ * THAT is silent and lands a message on the wrong day.
  *
  * The pieces: a welded split "Approve & send" button whose narrow chevron
  * opens the SchedulePopover (relative presets + an at-a-set-time picker),
- * plus the queued-state tone and time helpers.
+ * plus the queued-state tone.
  */
+
+// The date/time arithmetic lives in lib/schedule-time.ts (tested there).
+// Re-exported so the queues keep importing their send-later kit from one
+// place rather than reaching past this module for half of it.
+export { isoFromDateTime, isoInMinutes, nextQuarterHour, SEND_PRESETS } from '@/lib/schedule-time';
 
 // Muted bronze for the queued (scheduled) state. Deliberately NOT
 // var(--signal), which already means stale/aging/error on these cards.
 export const QUEUED_TONE = '#7a6a3a';
-
-// Quick-send presets, in minutes.
-export const SEND_PRESETS: { label: string; minutes: number }[] = [
-  { label: 'In 10 minutes', minutes: 10 },
-  { label: 'In 30 minutes', minutes: 30 },
-  { label: 'In 2 hours', minutes: 120 },
-];
-
-export function isoInMinutes(minutes: number): string {
-  return new Date(Date.now() + minutes * 60_000).toISOString();
-}
-
-/** Build a UTC ISO from the operator's local Today/Tomorrow + HH:MM pick. */
-export function isoFromDayTime(day: 'today' | 'tomorrow', hhmm: string): string {
-  const [h, m] = hhmm.split(':').map((n) => parseInt(n, 10));
-  const d = new Date();
-  if (day === 'tomorrow') d.setDate(d.getDate() + 1);
-  d.setHours(h || 0, m || 0, 0, 0);
-  return d.toISOString();
-}
-
-/** Default time-input value: now rounded up to the next quarter hour (local). */
-export function nextQuarterHour(): string {
-  const d = new Date();
-  d.setMinutes(Math.ceil((d.getMinutes() + 1) / 15) * 15, 0, 0);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
 
 // Welded two-segment send control: the wide left segment is the unchanged
 // one-tap "Approve & send (now)"; the narrow chevron opens the schedule
@@ -122,8 +111,9 @@ export function SplitSendButton({
 }
 
 // The send-later menu. Relative presets fire immediately; "At a set time"
-// reveals a time + Today/Tomorrow picker in place. Self-contained state for
-// the custom picker; the caller only supplies onSchedule(sendAtIso).
+// reveals a date + time picker in place, defaulting to today so the common
+// "later today" pick costs no extra taps. Self-contained state for the
+// custom picker; the caller only supplies onSchedule(sendAtIso).
 export function SchedulePopover({
   onSchedule,
   disabled,
@@ -132,7 +122,7 @@ export function SchedulePopover({
   disabled?: boolean;
 }) {
   const [custom, setCustom] = useState(false);
-  const [customDay, setCustomDay] = useState<'today' | 'tomorrow'>('today');
+  const [customDate, setCustomDate] = useState(todayYmd);
   const [customTime, setCustomTime] = useState(nextQuarterHour);
 
   const rowStyle: React.CSSProperties = {
@@ -177,37 +167,30 @@ export function SchedulePopover({
         </button>
       ) : (
         <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {(['today', 'tomorrow'] as const).map((d) => {
-              const on = customDay === d;
-              return (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setCustomDay(d)}
-                  style={{
-                    flex: 1,
-                    padding: '7px 8px',
-                    cursor: 'pointer',
-                    fontSize: 10,
-                    letterSpacing: '0.14em',
-                    textTransform: 'uppercase',
-                    fontWeight: 600,
-                    border: `1px solid ${on ? 'var(--ink)' : 'var(--rule)'}`,
-                    background: on ? 'var(--ink)' : 'var(--paper)',
-                    color: on ? 'var(--paper)' : 'var(--ink-3)',
-                  }}
-                >
-                  {d}
-                </button>
-              );
-            })}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              type="date"
+              value={customDate}
+              min={todayYmd()}
+              max={horizonYmd()}
+              onChange={(e) => setCustomDate(e.target.value)}
+              aria-label="Send on"
+              style={{
+                flex: '1 1 150px',
+                minWidth: 150,
+                padding: '8px 10px',
+                border: '1px solid var(--rule)',
+                background: 'var(--paper)',
+                fontFamily: 'inherit',
+                fontSize: 14,
+                color: 'var(--ink)',
+              }}
+            />
             <input
               type="time"
               value={customTime}
               onChange={(e) => setCustomTime(e.target.value)}
+              aria-label="Send at"
               style={{
                 width: 120,
                 padding: '8px 10px',
@@ -224,10 +207,10 @@ export function SchedulePopover({
           </div>
           <button
             type="button"
-            onClick={() => onSchedule(isoFromDayTime(customDay, customTime))}
-            disabled={disabled}
+            onClick={() => onSchedule(isoFromDateTime(customDate, customTime))}
+            disabled={disabled || !customDate}
             style={{
-              background: disabled ? 'var(--ink-4)' : 'var(--ink)',
+              background: disabled || !customDate ? 'var(--ink-4)' : 'var(--ink)',
               color: 'var(--paper)',
               border: '2px solid var(--ink)',
               padding: '13px 22px',
@@ -235,8 +218,8 @@ export function SchedulePopover({
               letterSpacing: '0.18em',
               textTransform: 'uppercase',
               fontWeight: 700,
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              opacity: disabled ? 0.7 : 1,
+              cursor: disabled || !customDate ? 'not-allowed' : 'pointer',
+              opacity: disabled || !customDate ? 0.7 : 1,
             }}
           >
             Schedule

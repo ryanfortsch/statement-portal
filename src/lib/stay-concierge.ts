@@ -1368,7 +1368,7 @@ export function explainError(error: StayConciergeError): string {
   if (error.status === 404) return 'That approval no longer exists.';
   if (error.status === 409) return `That approval is no longer pending (${error.detail}).`;
   if (error.status === 400 && error.detail === 'send_at_too_far') {
-    return 'That time is too far out. Pick a time within the next 48 hours.';
+    return 'That date is too far out. Pick one within the next 30 days.';
   }
   if (error.status === 400 && error.detail === 'send_at_in_past') {
     return 'That time has already passed. Pick a time a little further out.';

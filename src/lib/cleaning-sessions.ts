@@ -228,17 +228,45 @@ export async function mirrorQuoFinish(
   // cleaning_sessions row as the lock entry and the turnover join.
   const checkoutDate = await mostRecentCheckoutForProperty(sb, args.propertyId, args.completedAt);
   if (!checkoutDate) return;
+
+  // Seed the row if this turnover has none yet. ignoreDuplicates so an
+  // existing session keeps whatever it already knows (entered_at above all).
   await sb.from('cleaning_sessions').upsert(
-    {
-      property_id: args.propertyId,
-      checkout_date: checkoutDate,
+    { property_id: args.propertyId, checkout_date: checkoutDate },
+    { onConflict: 'property_id,checkout_date', ignoreDuplicates: true },
+  );
+
+  // Then move the finish forward, never back, and never over an operator.
+  //
+  // This was an unconditional upsert, which is right on a live in-order feed
+  // and wrong the moment anything replays: Quo can deliver out of order, and
+  // /api/sync-quo walks history every six hours. Two ways that bit:
+  //
+  //   - an OLDER cleaner text could overwrite a newer finish on the same
+  //     turnover, so `finished_at` walked backwards;
+  //   - it overwrote finish_source unconditionally, including 'manual',
+  //     which is an operator's own confirm (confirmCleaningDone).
+  //
+  // The precedence this file already implies is estimate < quo < manual:
+  // recordLockFinishEstimate refuses outright when a finish exists, and the
+  // header calls the Quo text authoritative over the lock estimate. So Quo
+  // may overwrite an estimate, and may not overwrite a person.
+  //
+  // Both filters ride on the UPDATE's where clause, so a losing write simply
+  // matches no rows. The two `.or()` calls AND together, which is the shape
+  // wanted: (no finish yet OR older finish) AND (no source yet OR not manual).
+  await sb
+    .from('cleaning_sessions')
+    .update({
       finished_at: args.completedAt,
       finish_source: 'quo',
       finish_estimated: false,
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'property_id,checkout_date' },
-  );
+    })
+    .eq('property_id', args.propertyId)
+    .eq('checkout_date', checkoutDate)
+    .or(`finished_at.is.null,finished_at.lt.${args.completedAt}`)
+    .or('finish_source.is.null,finish_source.neq.manual');
 }
 
 /** Operator taps "confirm done" on an estimated clean. */

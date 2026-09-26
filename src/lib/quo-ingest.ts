@@ -530,45 +530,94 @@ export async function mostRecentCheckout(propertyId: string, asOf?: string): Pro
   return (data?.check_out as string | undefined) ?? cutoff;
 }
 
-async function stampOwnerContact(
+/**
+ * Stamp owner last-contacted, forward only.
+ *
+ * This was a blind update, which reads as harmless on a live feed and is
+ * not: Quo can deliver out of order, `backfillTouchesForPhone` replays
+ * captured events after an unknown number is promoted, and /api/sync-quo
+ * walks history every six hours. Any of those could set the stamp to an
+ * OLDER message than the one already recorded, and the column is what the
+ * property page and the owner-messaging queue read to decide whether an
+ * owner has been heard from lately.
+ *
+ * The `or` filter rides on the UPDATE's where clause, so the write simply
+ * matches no rows when the stored value is newer. Monotonic by construction
+ * rather than by the caller remembering to check. `is.null` covers a
+ * property nobody has contacted yet.
+ *
+ * Exported because the backfill sweep needs it too, and needed this guard
+ * before it could have it.
+ */
+export async function stampOwnerContact(
   propertyIds: string[],
   at: string,
   via: 'sms' | 'phone' | 'email',
 ): Promise<void> {
+  if (propertyIds.length === 0) return;
   await supabase
     .from('properties')
     .update({ owner_last_contacted_at: at, owner_last_contacted_via: via })
-    .in('id', propertyIds);
+    .in('id', propertyIds)
+    .or(`owner_last_contacted_at.is.null,owner_last_contacted_at.lt.${at}`);
 }
 
 // Upsert one row per unknown phone (last-write-wins on the latest message).
 // status/contact_id/first_seen_at are intentionally omitted so a dismissed
 // or promoted number keeps its state and its original first-seen time. Fails
 // safe (no throw) if the table doesn't exist yet (migration not applied).
-async function captureUnknownInbound(
+/**
+ * Record an inbound message from a number we do not know, forward only.
+ *
+ * This was a plain upsert, so the newest values always won by recency of
+ * WRITE rather than of MESSAGE. The file already guarded `quo_line` against
+ * that ("a replay of an old event never blanks a line a later message
+ * already set") and left the timestamp and body unguarded, which is the
+ * half that shows: the /crm triage card renders `last_body` as what this
+ * number said, and an event replay or the six-hourly history sweep could
+ * replace it with something older.
+ *
+ * Two writes, both idempotent. The insert creates the row when the number
+ * is new and does nothing when it is not; the update carries an `lt` filter
+ * on the UPDATE's where clause, so a stale message matches no rows. Same
+ * guard shape as stampOwnerContact, and in the writer for the same reason.
+ *
+ * Exported so the /api/sync-quo backfill can capture unknown numbers too.
+ */
+export async function captureUnknownInbound(
   phone: string,
   at: string,
   body: string | null,
   line: QuoLine | null = null,
 ): Promise<void> {
   if (!phone) return;
-  const row: Record<string, unknown> = {
-    phone,
+  const tolerated = ['23505', '42P01', '42703'];
+
+  // 1. Create the row if this number is new. status / contact_id /
+  //    first_seen_at stay unset so a dismissed or promoted number keeps its
+  //    state and its original first-seen time.
+  await supabase
+    .from('quo_unknown_numbers')
+    .upsert({ phone, last_seen_at: at }, { onConflict: 'phone', ignoreDuplicates: true })
+    .then((r) => {
+      if (r.error && !tolerated.includes(r.error.code)) throw r.error;
+    });
+
+  // 2. Move it forward, never back.
+  const patch: Record<string, unknown> = {
     last_message_at: at,
     last_body: body,
     last_direction: 'inbound',
     last_seen_at: at,
   };
-  // Only stamp a line we could name, so a replay of an old event (no
-  // phoneNumberId) never blanks a line a later message already set.
-  if (line) row.quo_line = line;
+  if (line) patch.quo_line = line;
   await supabase
     .from('quo_unknown_numbers')
-    .upsert(row, { onConflict: 'phone' })
+    .update(patch)
+    .eq('phone', phone)
+    .or(`last_message_at.is.null,last_message_at.lt.${at}`)
     .then((r) => {
-      // 42P01 = undefined_table (pre-migration); 23505 = race on unique;
-      // 42703 = quo_line column not migrated yet.
-      if (r.error && !['23505', '42P01', '42703'].includes(r.error.code)) throw r.error;
+      if (r.error && !tolerated.includes(r.error.code)) throw r.error;
     });
 }
 
