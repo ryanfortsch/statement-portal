@@ -63,7 +63,6 @@ import { OwnersEditor } from './OwnersEditor';
 import { OnboardingItemToggle } from './OnboardingItemToggle';
 import { RoomsEditor } from './RoomsEditor';
 import { RentalSeasonPanel } from './RentalSeasonPanel';
-import { WalkthroughCapture } from './WalkthroughCapture';
 import { getPropertyRooms } from '@/lib/property-rooms';
 import { getOnboardingItemRows } from '@/lib/onboarding-items';
 import { hasOrderChecklistState } from '@/lib/order-checklist-db';
@@ -996,10 +995,23 @@ export default async function PropertyDetailPage({
         <TabSection tab="onboarding">
           {/* The full lot-to-listing pipeline. Auto-derived items resolve
               themselves from live data (bank on file, lock mapped, KB
-              seeded); the rest are operator toggles. The walkthrough
-              dictation up top is the fast path for the physical stage. */}
+              seeded); the rest are operator toggles.
+
+              The walkthrough mic used to sit here, a tab away from the other
+              one, both writing through the same apply action. There is one
+              box now, on Today: say the walk into it and Helm routes it to
+              the room-by-room parser. */}
           <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 8, width: '100%' }}>
-            <WalkthroughCapture propertyId={p.id} propertyName={p.name} />
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 720 }}>
+              Walking the house?{' '}
+              <Link
+                href={`/properties/${p.id}?tab=today`}
+                style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+              >
+                Dictate it into the capture box on Today
+              </Link>
+              . Room by room is recognised on its own; everything it finds lands in the stages below.
+            </p>
           </section>
 
           {ONBOARDING_STAGES.map((stage) => {

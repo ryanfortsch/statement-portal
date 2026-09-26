@@ -32,10 +32,35 @@ type ReviewRoomItem = {
 
 type ReviewCaptureItem = CaptureItem & { _id: number; include: boolean };
 
-export function WalkthroughCapture({ propertyId, propertyName }: { propertyId: string; propertyName: string }) {
+/**
+ * The room-by-room half of property capture.
+ *
+ * It is no longer its own mic. The page has one input box (QuickCapture);
+ * when what was said reads like a walk, that box hands the text here with
+ * `initialText` + `autoStart` and this component opens straight on its
+ * review screen. `onBack` returns to the single input, which is also how
+ * "read this as a plain note instead" gets back.
+ *
+ * Two mics one tab apart, sharing the same keep-alive and the same apply
+ * action, made the operator choose a parser before knowing what they were
+ * about to say.
+ */
+export function WalkthroughCapture({
+  propertyId,
+  propertyName,
+  initialText = '',
+  autoStart = false,
+  onBack,
+}: {
+  propertyId: string;
+  propertyName: string;
+  initialText?: string;
+  autoStart?: boolean;
+  onBack?: () => void;
+}) {
   const softRefresh = useSoftRefresh();
   const [phase, setPhase] = useState<Phase>('input');
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const [rooms, setRooms] = useState<{ name: string; roomType: RoomType }[]>([]);
   const [roomItems, setRoomItems] = useState<ReviewRoomItem[]>([]);
   const [captureItems, setCaptureItems] = useState<ReviewCaptureItem[]>([]);
@@ -138,6 +163,20 @@ export function WalkthroughCapture({ propertyId, propertyName }: { propertyId: s
     }
   }
 
+  // Handed text from the single input box: parse it immediately so the
+  // operator lands on review, not on a second copy of the box they just
+  // typed into. Runs once; a ref rather than a state flag so a re-render
+  // from the transition cannot fire it twice.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoRan.current || !initialText.trim()) return;
+    autoRan.current = true;
+    process();
+    // process is stable for this purpose: it closes over `text`, which is
+    // seeded from initialText on mount and not changed before this runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, initialText]);
+
   function process() {
     stopListening();
     setError(null);
@@ -198,6 +237,12 @@ export function WalkthroughCapture({ propertyId, propertyName }: { propertyId: s
 
   function reset() {
     stopListening();
+    // Handed here by the single input box: "start over" belongs back at
+    // that box, not at a second one this component would draw.
+    if (onBack) {
+      onBack();
+      return;
+    }
     setPhase('input');
     setText('');
     setRooms([]);
@@ -216,7 +261,9 @@ export function WalkthroughCapture({ propertyId, propertyName }: { propertyId: s
           Walk the house
         </div>
         {phase !== 'input' && (
-          <button type="button" onClick={reset} style={quietBtn}>Start over</button>
+          <button type="button" onClick={reset} style={quietBtn}>
+            {onBack ? 'Back' : 'Start over'}
+          </button>
         )}
       </div>
 

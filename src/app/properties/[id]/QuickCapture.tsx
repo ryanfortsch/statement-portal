@@ -7,6 +7,8 @@ import {
 } from '@/app/properties/actions';
 import { captureColumn, isHighStakesColumn, type CaptureItem } from '@/lib/property-capture-catalog';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { looksLikeWalkthrough } from '@/lib/capture-routing';
+import { WalkthroughCapture } from './WalkthroughCapture';
 
 /**
  * Quick Capture — the top of the Overview tab. Type or dictate a free-form
@@ -25,6 +27,12 @@ type Phase = 'input' | 'review' | 'done';
 export function QuickCapture({ propertyId, propertyName }: { propertyId: string; propertyName: string }) {
   const softRefresh = useSoftRefresh();
   const [phase, setPhase] = useState<Phase>('input');
+  // When the text reads like a walk, the room-by-room parser takes it. This
+  // is the whole reason there is now one box instead of two: the operator
+  // says the thing first and Helm picks the parser, instead of picking a
+  // parser before knowing what they are about to say. Either choice is one
+  // click from the other, so a wrong guess costs nothing.
+  const [handOff, setHandOff] = useState<string | null>(null);
   const [text, setText] = useState('');
   const [items, setItems] = useState<EditItem[]>([]);
   const [unrouted, setUnrouted] = useState<string | null>(null);
@@ -264,6 +272,10 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
     // affordance to turn it off.
     stopListening();
     setError(null);
+    if (looksLikeWalkthrough(text)) {
+      setHandOff(text);
+      return;
+    }
     start(async () => {
       const res = await parsePropertyCaptureAction(propertyId, text);
       if (!res.ok) { setError(res.error); return; }
@@ -343,6 +355,22 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
 
   const includedCount = items.filter((i) => i.include).length;
 
+  // Routed to the room-by-room parser. Same section chrome so the handoff
+  // reads as this box changing its mind, not a different box appearing.
+  if (handOff) {
+    return (
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 32, width: '100%' }}>
+        <WalkthroughCapture
+          propertyId={propertyId}
+          propertyName={propertyName}
+          initialText={handOff}
+          autoStart
+          onBack={() => setHandOff(null)}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 32, width: '100%' }}>
       {/* Left tide accent instead of a full boxed plate: the capture bar
@@ -369,8 +397,9 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
         {phase === 'input' && (
           <>
             <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
-              Type or dictate anything about {propertyName} — codes, quirks, a thing to tell guests.
-              Helm sorts it; you review before anything saves.
+              Type or dictate anything about {propertyName}: codes, quirks, a thing to tell guests, or
+              a whole walk through the house room by room. Helm sorts it; you review before anything
+              saves.
             </p>
             <div style={{ position: 'relative' }}>
               <textarea
@@ -435,11 +464,24 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
               >
                 {pending ? 'Sorting…' : 'Process with Helm'}
               </button>
+              {/* The override. Helm picks the parser from what was said, but
+                  the operator always knows better than the heuristic, and
+                  saying so must not cost a retype. */}
+              {text.trim().length > 0 && !looksLikeWalkthrough(text) && (
+                <button
+                  type="button"
+                  onClick={() => { stopListening(); setHandOff(text); }}
+                  disabled={pending}
+                  style={linkBtn}
+                >
+                  Read as a room-by-room walk
+                </button>
+              )}
               <span role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--signal)', letterSpacing: '.04em' }}>
                 {listening ? 'Listening…' : ''}
               </span>
               {!voiceOk && (
-                <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Voice not supported here — type instead.</span>
+                <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Voice not supported here, type instead.</span>
               )}
             </div>
           </>
