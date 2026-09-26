@@ -24,6 +24,7 @@ import {
   captureUnknownInbound,
 } from '@/lib/quo-ingest';
 import { quoLineFor } from '@/lib/quo-lines';
+import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
@@ -35,9 +36,12 @@ import { quoLineFor } from '@/lib/quo-lines';
 //
 // This does NOT share the webhook's dispatcher, whatever this comment used
 // to claim. `ingestInboundMessage` below is its own implementation, and it
-// covers less: contact touches, cleaning completions, cleaner-issue work
-// slips, owner last-contacted, and unknown inbound numbers in group
-// threads. It still does NOT mirror cleaning sessions.
+// is a second implementation of what the webhook does per inbound message:
+// contact touches, cleaning completions, cleaner-issue work slips, owner
+// last-contacted, unknown inbound numbers in group threads, and the
+// cleaning-session mirror. All four of the gaps this route was documented
+// as having are closed; what remains is two implementations of one job, so
+// changing either still means reading both.
 //
 // Owner stamping was held back until `stampOwnerContact` became forward
 // only. It was a blind update, and this route walks history, so it could
@@ -357,6 +361,12 @@ async function ingestInboundMessage(
           raw_body: msg.text,
         });
       if (r.error && r.error.code !== '23505') throw r.error;
+      // Mirror the finish into cleaning_sessions, the same as the live path,
+      // so a turnover completed during a missed webhook delivery is not left
+      // looking unfinished next to its lock entry. Safe to backfill now that
+      // mirrorQuoFinish only moves a finish forward and never over an
+      // operator's own confirm.
+      await mirrorQuoFinish(supabase, { propertyId, completedAt: msg.createdAt });
       return { touch: false, cleaning: !r.error };
     }
   }
