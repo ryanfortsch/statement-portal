@@ -3,8 +3,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { dismissConciergeAttention } from '@/lib/stay-concierge';
 
-const DISMISSIBLE_TYPES = new Set(['slip', 'task', 'email', 'inbound', 'plink-paid', 'plink-unpaid']);
+const DISMISSIBLE_TYPES = new Set(['slip', 'task', 'email', 'inbound', 'plink-paid', 'plink-unpaid', 'concierge']);
 
 /**
  * Clear an item off the signed-in user's home "For Me" feed. Records a
@@ -22,6 +23,15 @@ export async function dismissFeedItem(itemType: string, itemId: string): Promise
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return;
+
+  // A concierge alert (ConciergeAlerts) clears for everyone, on the
+  // concierge: an alert somebody handled is handled. The rest of the feed is
+  // per-user and view-only.
+  if (itemType === 'concierge') {
+    await dismissConciergeAttention(itemId, email);
+    revalidatePath('/');
+    return;
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
