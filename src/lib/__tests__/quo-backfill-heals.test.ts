@@ -88,6 +88,30 @@ describe('quo backfill', () => {
     );
   });
 
+  test('unknown-number capture is forward only too', () => {
+    const src = read(INGEST);
+    const start = src.indexOf('export async function captureUnknownInbound');
+    assert.notEqual(start, -1, 'captureUnknownInbound is no longer exported');
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+
+    assert.match(
+      body,
+      /last_message_at\.is\.null,last_message_at\.lt\./,
+      'captureUnknownInbound is a blind upsert again, so a replay or the six-hourly history ' +
+        'sweep can overwrite last_body with an OLDER message than the one already recorded. ' +
+        'The /crm triage card renders that field as what this number said.',
+    );
+  });
+
+  test('the backfill records an unknown sender in a group thread', () => {
+    const sweep = read(SWEEP);
+    assert.ok(
+      sweep.includes('captureUnknownInbound('),
+      'the sweep no longer records unknown senders, so a participant we do not know is ' +
+        'attributed to the canonical owner and the number itself vanishes from /crm triage',
+    );
+  });
+
   test('the backfill stamps owners, now that it is safe to', () => {
     const sweep = read(SWEEP);
     assert.ok(
