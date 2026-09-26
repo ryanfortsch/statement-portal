@@ -949,6 +949,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Write the house rules',
     description: 'The canonical rules text every channel shows.',
     why: 'Every policy answer a guest gets held to starts here.',
+    derive: ({ p }) => has(p.house_rules),
   },
   {
     key: 'listing.times_confirmed',
@@ -956,6 +957,10 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Confirm check-in and checkout times',
     description: 'One canonical pair, identical in Guesty, the listing, and the KB.',
     why: '3 South\'s automated message said 10 AM while the team said 11. Guests notice the difference.',
+    // default_checkin_time is the CLEANER's turnover deadline, not the
+    // guest's arrival (#1293); both still have to be set for the schedule
+    // and the listing to agree.
+    derive: ({ p }) => has(p.default_checkin_time) && has(p.default_checkout_time),
   },
   {
     key: 'listing.quiet_hours_occupancy',
@@ -963,6 +968,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'State quiet hours and max occupancy',
     description: 'Both in the listing as hard numbers, not vibes.',
     why: 'Quiet hours were undocumented in 8 of 9 KBs, occupancy vague in 6 of 9. The fallback was citing the municipal ordinance.',
+    derive: ({ p }) => has(p.quiet_hours) && p.max_occupancy != null,
   },
   {
     key: 'listing.pet_policy',
@@ -970,6 +976,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Decide the pet policy',
     description: 'Allowed or not, the fee, and the multi-dog and size lines.',
     why: 'The $200 fee is confirmed fleet-wide, but breed, size, and multi-dog questions still escalate. 30 Woodward carried a $200-versus-$250 ambiguity.',
+    derive: ({ p }) => has(p.pet_policy),
   },
   {
     key: 'listing.smoking_policy',
@@ -977,6 +984,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'State the smoking policy',
     description: 'Inside, outside, and where, written in the listing.',
     why: 'Missing in 6 of 9 KBs at the last audit.',
+    derive: ({ p }) => has(p.smoking_policy),
   },
   {
     key: 'listing.cancellation_policy',
@@ -984,6 +992,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Choose cancellation policies per channel',
     description: 'Airbnb, VRBO, and direct each set deliberately.',
     why: 'Refund threads land on whatever these say, chosen or not.',
+    derive: ({ p }) => has(p.cancellation_policy),
   },
   {
     key: 'listing.discount_stance',
@@ -991,6 +1000,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Record the discount stance',
     description: 'Weekly, monthly, and repeat-guest positions, plus a long-stay floor.',
     why: 'Long-stay counter-offers reached $15-17k a month at 30 Woodward. A pre-decided floor makes those threads short.',
+    derive: ({ p }) => has(p.discount_stance),
   },
   {
     key: 'listing.prior_listings',

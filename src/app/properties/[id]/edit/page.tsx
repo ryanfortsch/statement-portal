@@ -260,8 +260,63 @@ export default async function PropertyEditPage({
           <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} id="permit" hint="If known. e.g. 2027-04-30" />
         </Group>
 
+        {/* ── House policy ──
+            These were nine ticks in the onboarding catalog recording that
+            somebody decided. The decisions themselves had nowhere to live,
+            so the listing, the home guide and the concierge all had to
+            invent an answer or ask. */}
+        <Group eyebrow="08" title="House policy">
+          <Row>
+            <Field
+              name="default_checkin_time"
+              label="Cleaner turnover deadline"
+              defaultValue={p.default_checkin_time}
+              id="times"
+              hint="NOT the guest's arrival time. This is when the home must be ready (15:00 by default, an hour of margin before a 16:00 guest). It drives the cleaner schedule and the field packets, and is deliberately never sent to the guest AI. Guesty stays authoritative for what a guest is told about arrival."
+            />
+            <Field
+              name="default_checkout_time"
+              label="Guest checkout time"
+              defaultValue={p.default_checkout_time}
+              hint="What the guest is told, e.g. 10:00 AM. Bridged to the guest AI, so it must match the listing."
+            />
+          </Row>
+          <Row>
+            <Field name="quiet_hours" label="Quiet hours" defaultValue={p.quiet_hours} id="policy" hint="e.g. 10pm to 8am" />
+            <Field name="max_occupancy" label="Max occupancy" type="number" defaultValue={p.max_occupancy} hint="Guests, as listed" />
+          </Row>
+          <Field
+            name="pet_policy"
+            label="Pet policy"
+            defaultValue={p.pet_policy}
+            textarea
+            hint="The whole answer, not yes/no: species, size, count, fee, refundable or not. A guest asking about dogs gets quoted this."
+          />
+          <Field
+            name="smoking_policy"
+            label="Smoking policy"
+            defaultValue={p.smoking_policy}
+            hint="Include outdoors and decks, which is the half guests actually ask about."
+          />
+          <Field
+            name="cancellation_policy"
+            label="Cancellation policy"
+            defaultValue={p.cancellation_policy}
+            textarea
+            hint="Per channel where they differ. The OTA setting lives on the listing; this records what was chosen."
+          />
+          <Field name="house_rules" label="House rules" defaultValue={p.house_rules} textarea />
+          <Field
+            name="discount_stance"
+            label="Discount stance"
+            defaultValue={p.discount_stance}
+            textarea
+            hint="What we will and will not discount, so a reply does not have to invent one."
+          />
+        </Group>
+
         {/* ── Billing ── */}
-        <Group eyebrow="08" title="Billing">
+        <Group eyebrow="09" title="Billing">
           <Field
             name="bank_last4"
             label="Bank account last 4"

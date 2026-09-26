@@ -22,7 +22,7 @@ import { PropertyAddSlipButton } from './PropertyAddSlipButton';
 import { MarkContactedButton } from './MarkContactedButton';
 import { TaxCertEditor } from './TaxCertEditor';
 import { MultiMonthBookingsSection } from './MultiMonthBookingsSection';
-import { Suspense } from 'react';
+import { Fragment, Suspense } from 'react';
 import { PropertyActivityList, loadPropertyActivity } from './PropertyActivity';
 import { PropertyOnboardingLink } from './PropertyOnboardingLink';
 import { PropertyBackfillButton } from './PropertyBackfillButton';
@@ -1323,6 +1323,53 @@ export default async function PropertyDetailPage({
         summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
       >
         <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
+      </CollapsibleSection>
+
+      {/* HOUSE POLICY — the decisions a guest, a listing or the concierge
+          quotes. Each of these was a tick in the Setup catalog recording
+          that somebody decided, with the answer itself stored nowhere, so
+          "what time is checkout" and "do they take dogs" were unanswerable
+          on the record. A blank renders as the question with a link to the
+          field that answers it, never as a dash. */}
+      <CollapsibleSection
+        id="policy"
+        title="House policy"
+        summary={(() => {
+          const set = [
+            p.default_checkin_time, p.default_checkout_time, p.quiet_hours,
+            p.max_occupancy, p.pet_policy, p.smoking_policy,
+            p.cancellation_policy, p.house_rules, p.discount_stance,
+          ].filter((v) => v != null && String(v).trim() !== '').length;
+          return set === 9 ? 'all set' : `${set} of 9 decided`;
+        })()}
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
+          {([
+            ['Turnover deadline', p.default_checkin_time, 'times'],
+            ['Guest checkout', p.default_checkout_time, 'times'],
+            ['Quiet hours', p.quiet_hours, 'policy'],
+            ['Max occupancy', p.max_occupancy != null ? `${p.max_occupancy} guests` : null, 'policy'],
+            ['Pets', p.pet_policy, 'policy'],
+            ['Smoking', p.smoking_policy, 'policy'],
+            ['Cancellation', p.cancellation_policy, 'policy'],
+            ['House rules', p.house_rules, 'policy'],
+            ['Discounts', p.discount_stance, 'policy'],
+          ] as Array<[string, string | number | null, string]>).map(([label, value, anchorId]) => (
+            <Fragment key={label}>
+              <div className="eyebrow">{label}</div>
+              {value != null && String(value).trim() !== '' ? (
+                <div style={{ color: 'var(--ink)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{value}</div>
+              ) : (
+                <Link
+                  href={`/properties/${p.id}/edit#${anchorId}`}
+                  style={{ color: 'var(--signal)', textDecoration: 'none', fontSize: 12 }}
+                >
+                  Not decided yet &rarr;
+                </Link>
+              )}
+            </Fragment>
+          ))}
+        </div>
       </CollapsibleSection>
 
       {/* WHO SERVES THIS HOUSE — the people who physically go there.

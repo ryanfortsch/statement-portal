@@ -604,6 +604,23 @@ export type HelmPropertyRow = {
   // Numeric keypad code for the garage door if any.
   garage_code: string | null;
   known_issues: string | null;
+
+  // House policy. Each of these used to be a tick in the onboarding catalog
+  // recording that somebody decided, with the decision itself stored
+  // nowhere, so the concierge and the listing had no source to quote.
+  // Free text on purpose: a policy is a sentence read out to a guest.
+  quiet_hours: string | null;
+  max_occupancy: number | null;
+  pet_policy: string | null;
+  smoking_policy: string | null;
+  cancellation_policy: string | null;
+  house_rules: string | null;
+  discount_stance: string | null;
+  // Already on the table since 20260824d and read by the cleaner schedule,
+  // field packets and /api/kb-facts; declared here so the property record
+  // can read and edit them rather than growing a second pair.
+  default_checkin_time: string | null;
+  default_checkout_time: string | null;
   upcoming_maintenance: string | null;
   /** Where cleaning supplies / linens / paper goods are kept in the home. */
   supply_closet_location: string | null;
