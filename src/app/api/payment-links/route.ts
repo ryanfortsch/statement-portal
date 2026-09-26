@@ -6,9 +6,11 @@ import {
   deactivatePaymentLink,
   deactivatePaymentLinkById,
   listLinksForReservation,
+  listRemindersDue,
   loadPaymentLinkLite,
   mintPaymentLink,
   recordLinkDelivery,
+  recordLinkNudge,
   stripeGetJson,
 } from '@/lib/payment-links';
 
@@ -27,7 +29,7 @@ import {
  * (x-stay-concierge-key), matching /api/achieved-rates. No ?key= form:
  * query-string secrets leak through URL logging (the 8/20 rotation was
  * traced to exactly that in httpx). Non-secret query params (?status_key=,
- * ?reservation_id=, ?scopes=1) still ride the query string.
+ * ?reservation_id=, ?reminders_due=1, ?scopes=1) still ride the query string.
  *
  * POST /api/payment-links     (secret in the x-stay-concierge-key header)
  *   { property_id, label, amount_cents, guest_name?, request_key, save_card?, taxable? }
@@ -137,7 +139,20 @@ export async function GET(req: Request) {
       customer_id: r.customer_id,
       payment_method_id: r.payment_method_id,
       sessions_seen: r.sessions_seen,
+      // For the reminder cards: a cancelled link, or one somebody already
+      // nudged by hand, takes its open reminder off the queue.
+      deactivated: !!row.deactivated_at,
+      nudge_count: row.nudge_count ?? 0,
     });
+  }
+
+  // Unpaid links due a reminder card in the Guests queue: ?reminders_due=1.
+  // The concierge files one guest-text card per due reminder (Dotti,
+  // 2026-09-26). ok:false means "could not look", never "none due".
+  if (searchParams.get('reminders_due')) {
+    const reminders = await listRemindersDue();
+    if (!reminders) return NextResponse.json({ ok: false, error: 'lookup_failed' }, { status: 200 });
+    return NextResponse.json({ ok: true, reminders });
   }
 
   // ?scopes=1: live per-property scope probe. Two READ-ONLY list calls per
@@ -220,6 +235,8 @@ export async function POST(req: Request) {
     delivered_request_key?: string;
     delivered_via?: string;
     delivered_phone?: string;
+    nudged_request_key?: string;
+    nudged_phone?: string;
   };
   try {
     body = await req.json();
@@ -241,6 +258,16 @@ export async function POST(req: Request) {
       phone: (body.delivered_phone || '').trim() || undefined,
     });
     return NextResponse.json({ ok: true, recorded: key });
+  }
+
+  // Reminder mode: an approved reminder card in the Guests queue texted the
+  // guest. Counted exactly like a nudge from Helm, so the next reminder
+  // waits its turn and the ledger shows the link was chased.
+  if (body.nudged_request_key) {
+    const key = body.nudged_request_key.trim();
+    if (!key) return NextResponse.json({ error: 'nudged_request_key required' }, { status: 400 });
+    const ok = await recordLinkNudge(key, (body.nudged_phone || '').trim());
+    return NextResponse.json({ ok, recorded: ok ? key : undefined, error: ok ? undefined : 'unknown_request_key' });
   }
 
   // Deactivate mode: turn an existing link off (guest can no longer pay it).
