@@ -17,8 +17,20 @@ import type { ConversationSummary } from '@/lib/stay-concierge';
 import { ThreadPanel } from './Thread';
 import { relativeTimeShort, formatStayDates, channelTone, prettifySlug } from './format';
 
+/** A row from either source. Helm-native threads (conversation_id 'helm:…')
+ * may carry the OTA deep link; concierge rows never do. Pure string checks
+ * here on purpose: this is a client component and must not import the
+ * server-side inbox module. */
+export type InboxConversation = ConversationSummary & {
+  external_thread_url?: string | null;
+  thread_status?: string;
+};
+
+const HELM_PREFIX = 'helm:';
+const isHelmRow = (c: Pick<ConversationSummary, 'conversation_id'>) => c.conversation_id.startsWith(HELM_PREFIX);
+
 type Props = {
-  initialConversations: ConversationSummary[];
+  initialConversations: InboxConversation[];
   initialError: string | null;
 };
 
@@ -72,7 +84,7 @@ export function ConversationsBrowser({ initialConversations, initialError }: Pro
 
   if (initialError && initialConversations.length === 0) {
     return (
-      <Section title="Conversations" eyebrow="live from Guesty" paddingTop={36}>
+      <Section title="Conversations" eyebrow="live from Guesty and Helm" paddingTop={36}>
         <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)' }}>
           {initialError}
         </div>
@@ -210,7 +222,7 @@ export function ConversationRow({
   trailing,
   showChevron = true,
 }: {
-  c: ConversationSummary;
+  c: InboxConversation;
   open: boolean;
   onToggle: () => void;
   variant?: 'thread' | 'pick';
@@ -222,6 +234,15 @@ export function ConversationRow({
   const stay = STAY_CHIP[c.stay_status];
   const stayLabel = formatStayDates(c.check_in, c.check_out);
   const lastAt = c.last_activity_at ? relativeTimeShort(c.last_activity_at) : '';
+  const helm = isHelmRow(c);
+  const otaUrl = !c.module && c.external_thread_url ? c.external_thread_url : null;
+  const noSendNote = c.module
+    ? undefined
+    : otaUrl
+      ? `${c.channel || 'This channel'} has no send rail Helm can use. Reply in the ${c.channel || 'OTA'} app; a draft you write below copies to the clipboard.`
+      : helm
+        ? 'No phone on file for this guest yet. Once they text the GUESTS line, replies send from here.'
+        : 'Direct-booked guest: Guesty cannot deliver a reply here. Use the SMS / WhatsApp flow.';
   return (
     <li
       style={{
@@ -273,6 +294,25 @@ export function ConversationRow({
             }}
           >
             {c.channel}
+          </span>
+        )}
+        {helm && (
+          <span
+            className="eyebrow"
+            style={{
+              color: 'var(--ink-3)',
+              border: '1px solid var(--rule)',
+              padding: '1px 6px',
+              whiteSpace: 'nowrap',
+            }}
+            title="A Helm-native thread: recorded in Helm, not read from Guesty"
+          >
+            Helm
+          </span>
+        )}
+        {helm && c.thread_status && c.thread_status !== 'open' && (
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+            {c.thread_status}
           </span>
         )}
         {stayLabel && (
@@ -335,19 +375,110 @@ export function ConversationRow({
             contextMeta={[propertyLabel, stayLabel, c.channel]
               .filter(Boolean)
               .join(' · ')}
-            // Direct-booked guests have no Guesty channel our API can post
-            // to (module comes back empty); hide the composer instead of
-            // silently routing to the wrong module.
+            // An empty module means no rail Helm can send on: a direct-booked
+            // Guesty guest, or a Helm OTA thread whose only "send" is the OTA
+            // app. Hide the composer instead of silently routing wrong.
             canSend={!!c.module}
-            noSendNote={
-              c.module
-                ? undefined
-                : 'Direct-booked guest: Guesty cannot deliver a reply here. Use the SMS / WhatsApp flow.'
-            }
+            noSendNote={noSendNote}
             maxHeight={520}
           />
+          {otaUrl && <OtaReplyBlock url={otaUrl} channel={c.channel} guestFirst={c.guest_first || c.guest_full} />}
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * What stands in for the composer on an OTA thread: the deep link into the
+ * OTA app (the only place a reply can be sent in the pilot) and a draft box
+ * whose text copies to the clipboard so the operator can write here, in
+ * Helm's calm, and paste there.
+ */
+function OtaReplyBlock({ url, channel, guestFirst }: { url: string; channel: string; guestFirst: string }) {
+  const [draft, setDraft] = useState('');
+  const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle');
+  const label = channel ? `Open in ${channel}` : 'Open thread';
+
+  const copy = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied('done');
+    } catch {
+      setCopied('failed');
+    }
+    setTimeout(() => setCopied('idle'), 2500);
+  };
+
+  return (
+    <div style={{ borderTop: '1px solid var(--rule)', padding: '12px 0 4px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            background: 'var(--ink)',
+            color: 'var(--paper)',
+            padding: '9px 16px',
+            fontSize: 11,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            fontWeight: 700,
+            textDecoration: 'none',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {label} ↗
+        </a>
+        <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
+          Replies to {guestFirst || 'this guest'} go out in the {channel || 'OTA'} app
+        </span>
+      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder={`Draft a reply to ${guestFirst || 'the guest'} here, then copy it into ${channel || 'the app'}.`}
+        rows={Math.max(2, Math.min(8, draft.split('\n').length + 1))}
+        aria-label="Draft to copy"
+        style={{
+          width: '100%',
+          padding: '10px 12px',
+          border: '1px solid var(--rule)',
+          background: 'var(--paper-2)',
+          fontFamily: 'inherit',
+          fontSize: 14,
+          lineHeight: 1.55,
+          color: 'var(--ink)',
+          resize: 'vertical',
+        }}
+      />
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span className="eyebrow" style={{ color: copied === 'failed' ? 'var(--signal)' : 'var(--ink-4)' }}>
+          {copied === 'done' ? 'Copied' : copied === 'failed' ? 'Copy blocked by the browser; select and copy by hand' : 'Nothing sends from here'}
+        </span>
+        <button
+          type="button"
+          onClick={copy}
+          disabled={!draft.trim()}
+          style={{
+            marginLeft: 'auto',
+            background: 'transparent',
+            color: draft.trim() ? 'var(--ink)' : 'var(--ink-4)',
+            border: '1px solid var(--rule)',
+            padding: '8px 16px',
+            fontSize: 10,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            fontWeight: 600,
+            cursor: draft.trim() ? 'pointer' : 'not-allowed',
+          }}
+        >
+          Copy draft
+        </button>
+      </div>
+    </div>
   );
 }

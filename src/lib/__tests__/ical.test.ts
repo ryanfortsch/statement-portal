@@ -14,8 +14,11 @@ import {
   airbnbConfirmationCode,
   parseIcal,
   isBookingEvent,
+  classifyIcalEvent,
+  isBlockSummary,
   guessGuestNameFromIcal,
   isPlaceholderGuestName,
+  type IcalEvent,
 } from '../ical.ts';
 
 const ASHLEY =
@@ -126,5 +129,123 @@ describe('through the feed parser', () => {
     assert.equal(isPlaceholderGuestName(reserved.summary), true);
     // And the code must never be mistaken for a name.
     assert.equal(isPlaceholderGuestName('Reservation HMEFDNMS4Z'), true);
+  });
+});
+
+describe('classifyIcalEvent: what each OTA feed means by its SUMMARY', () => {
+  // The event shapes each feed actually publishes. The old isBookingEvent
+  // dropped every summary containing "available" (so the Airbnb and
+  // Booking.com blocks below vanished) and the sync stored whatever was
+  // left as confirmed (so the VRBO "Blocked" became a guest).
+  const ev = (summary: string | null, description: string | null = null, cancelled = false): IcalEvent => ({
+    uid: 'u',
+    summary,
+    description,
+    url: null,
+    dtstart: '2026-09-01',
+    dtend: '2026-09-05',
+    cancelled,
+    raw: {},
+  });
+
+  test('Airbnb: Reserved with a reservation link is a stay', () => {
+    assert.equal(classifyIcalEvent(ev('Reserved', ASHLEY), 'airbnb'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reserved'), 'airbnb'), 'stay');
+    // Summary lost but the link survived: still a stay.
+    assert.equal(classifyIcalEvent(ev(null, ASHLEY), 'airbnb'), 'stay');
+  });
+
+  test('Airbnb: "Airbnb (Not available)" is a block, as is anything unnamed', () => {
+    assert.equal(classifyIcalEvent(ev('Airbnb (Not available)'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev('Not available'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev('Unavailable'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev('Blocked'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev(null), 'airbnb'), 'block');
+  });
+
+  test('VRBO: Blocked is a block; Reserved, a Guest: line or a bare name is a stay', () => {
+    assert.equal(classifyIcalEvent(ev('Blocked'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Unavailable'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Not available'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Closed'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Reserved'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reserved - Guest: John Doe'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reservation'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev(null, 'Reservation\nGuest: John Doe\nCheck-in: 2026-09-01'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev('John Doe'), 'vrbo'), 'stay');
+  });
+
+  test('Booking.com: "CLOSED - Not available" is a block, a named event a stay', () => {
+    assert.equal(classifyIcalEvent(ev('CLOSED - Not available'), 'booking_com'), 'block');
+    assert.equal(classifyIcalEvent(ev('Unavailable'), 'booking_com'), 'block');
+    assert.equal(classifyIcalEvent(ev('Jane Roe'), 'booking_com'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reservation'), 'booking_com'), 'stay');
+  });
+
+  test('a bare Available / Open is a skip on every channel, as is a cancelled event', () => {
+    for (const channel of ['airbnb', 'vrbo', 'booking_com', 'guesty', 'direct', 'manual', 'other']) {
+      assert.equal(classifyIcalEvent(ev('Available'), channel), 'skip', `Available on ${channel}`);
+      assert.equal(classifyIcalEvent(ev('Open'), channel), 'skip', `Open on ${channel}`);
+      assert.equal(classifyIcalEvent(ev(' available '), channel), 'skip', `padded Available on ${channel}`);
+      assert.equal(classifyIcalEvent(ev('Reserved', null, true), channel), 'skip', `cancelled on ${channel}`);
+    }
+  });
+
+  test('the Guesty aggregate feed keeps its own path, byte-identical to before', () => {
+    assert.equal(classifyIcalEvent(ev('Reservation HMEFDNMS4Z'), 'guesty'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reservation BC-Wz2rvkB8x'), 'guesty'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Blocked by Guesty'), 'guesty'), 'block');
+    assert.equal(classifyIcalEvent(ev('Owner stay'), 'guesty'), 'block');
+    // The old filter dropped any summary containing "available"; the
+    // aggregate feed keeps that so Guesty-managed homes see no new rows.
+    assert.equal(classifyIcalEvent(ev('Not available'), 'guesty'), 'skip');
+  });
+
+  test('direct / manual / other: a stay unless the summary carries a hold keyword', () => {
+    assert.equal(classifyIcalEvent(ev('Reserved'), 'direct'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Pat Lee'), 'other'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Blocked'), 'direct'), 'block');
+    assert.equal(classifyIcalEvent(ev('Not available'), 'manual'), 'block');
+  });
+
+  test('isBookingEvent is now "anything worth storing": a block is kept, only a skip is dropped', () => {
+    assert.equal(isBookingEvent(ev('Reserved')), true);
+    assert.equal(isBookingEvent(ev('Airbnb (Not available)')), true);
+    assert.equal(isBookingEvent(ev('Available')), false);
+    assert.equal(isBookingEvent(ev('Reserved', null, true)), false);
+  });
+});
+
+describe('isBlockSummary: the same hold test over a stored raw_summary', () => {
+  test('every hold fixture reads as a block', () => {
+    for (const raw of ['Airbnb (Not available)', 'Not available', 'Unavailable', 'Blocked', 'Block', 'CLOSED - Not available', 'Closed', 'Blocked by Guesty']) {
+      assert.equal(isBlockSummary(raw), true, raw);
+    }
+  });
+
+  test('a stay never does', () => {
+    for (const raw of ['Reserved', 'Reservation HMEFDNMS4Z', 'Reserved - Guest: John Doe', 'John Doe', 'Jane Roe', '', null, undefined]) {
+      assert.equal(isBlockSummary(raw), false, String(raw));
+    }
+  });
+
+  test('and it agrees with the classifier on the direct feeds', () => {
+    const ev = (summary: string): IcalEvent => ({ uid: 'u', summary, description: null, url: null, dtstart: '2026-09-01', dtend: '2026-09-05', cancelled: false, raw: {} });
+    for (const [summary, channel] of [
+      ['Airbnb (Not available)', 'airbnb'],
+      ['Blocked', 'vrbo'],
+      ['CLOSED - Not available', 'booking_com'],
+    ] as const) {
+      assert.equal(classifyIcalEvent(ev(summary), channel), 'block');
+      assert.equal(isBlockSummary(summary), true);
+    }
+    for (const [summary, channel] of [
+      ['Reserved', 'airbnb'],
+      ['Reserved', 'vrbo'],
+      ['Jane Roe', 'booking_com'],
+    ] as const) {
+      assert.equal(classifyIcalEvent(ev(summary), channel), 'stay');
+      assert.equal(isBlockSummary(summary), false);
+    }
   });
 });

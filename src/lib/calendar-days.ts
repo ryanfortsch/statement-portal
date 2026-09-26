@@ -100,6 +100,16 @@ export type CalendarDaysSyncResult = {
    *  homes). Their day rows cannot be written (FK), so they are skipped
    *  rather than failed every run. */
   skipped_unknown_property?: string[];
+  /** Mapped property ids Helm runs (properties.calendar_authority = 'helm').
+   *  Their mirror is written by src/lib/helm-calendar-mirror.ts; this sync
+   *  neither fetches nor sweeps them, or a Guesty sweep would delete Helm's
+   *  rows. Passed in by the caller as opts.skipPropertyIds. */
+  skipped_helm_run?: string[];
+};
+
+export type CalendarDaysSyncOptions = {
+  /** Property ids to leave entirely alone (no fetch, no upsert, no sweep). */
+  skipPropertyIds?: ReadonlySet<string>;
 };
 
 /** listing_id -> property_id from the guesty_listings mapping table (already
@@ -240,11 +250,17 @@ export function mergeListingDays(perListing: CalendarDayRow[][]): CalendarDayRow
  * Stale rows inside the window (days Guesty no longer reports, holds that
  * were released) are swept AFTER the upsert by synced_at, so concurrent
  * readers never see an empty window mid-sync.
+ *
+ * opts.skipPropertyIds names the homes Helm is the calendar authority for
+ * (pms-guards loadHelmRunPropertyIds). They are reported as skipped_helm_run
+ * and never touched: not fetched, not upserted and, the part that matters,
+ * never swept.
  */
 export async function syncCalendarDays(
   listingMap: Record<string, string>,
   startDate: string,
   endDate: string,
+  opts: CalendarDaysSyncOptions = {},
 ): Promise<CalendarDaysSyncResult> {
   const token = await getGuestyToken();
   const runStartIso = new Date().toISOString();
@@ -273,8 +289,16 @@ export async function syncCalendarDays(
   }
   const goneListings: string[] = [];
   const skippedUnknownProperty: string[] = [];
+  const skippedHelmRun: string[] = [];
+  const skipPropertyIds = opts.skipPropertyIds ?? new Set<string>();
 
   for (const [propertyId, listingIds] of listingsByProperty) {
+    // Helm-run first: the whole point is that nothing below, the sweep
+    // included, ever runs for one of these.
+    if (skipPropertyIds.has(propertyId)) {
+      skippedHelmRun.push(propertyId);
+      continue;
+    }
     if (knownProperties && !knownProperties.has(propertyId)) {
       skippedUnknownProperty.push(propertyId);
       continue;
@@ -367,6 +391,7 @@ export async function syncCalendarDays(
     errors: errors.length > 0 ? errors : undefined,
     gone_listings: goneListings.length > 0 ? goneListings : undefined,
     skipped_unknown_property: skippedUnknownProperty.length > 0 ? skippedUnknownProperty : undefined,
+    skipped_helm_run: skippedHelmRun.length > 0 ? skippedHelmRun : undefined,
   };
 }
 

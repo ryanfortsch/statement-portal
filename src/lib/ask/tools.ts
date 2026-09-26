@@ -130,12 +130,14 @@ export function createAskTools() {
 
     list_properties: tool({
       description:
-        'List Rising Tide managed properties with owner, address, city, and management fee. Use for questions about the portfolio, who owns what, management fees, or to resolve a property name to its id.',
+        'List Rising Tide managed properties with owner, address, city, management fee, region (cape_ann / bridgeport_ct / lighthouse_point_fl) and calendar_authority (guesty or helm: which system runs the calendar). Use for questions about the portfolio, who owns what, management fees, which homes are out of region or already cut over to Helm, or to resolve a property name to its id.',
       inputSchema: z.object({}),
       execute: async () => {
+        // management_fee_pct is the registry column (mgmt_fee_pct lives on
+        // projections only; selecting it here errored every call).
         const { data, error } = await supabase
           .from('properties')
-          .select('id, name, address, city, owner_full, owner_emails, mgmt_fee_pct, is_active')
+          .select('id, name, address, city, owner_full, owner_emails, management_fee_pct, region, calendar_authority, is_active')
           .eq('is_active', true)
           .order('name');
         if (error) return { error: error.message };

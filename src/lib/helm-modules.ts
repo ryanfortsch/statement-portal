@@ -641,15 +641,58 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     group: 'relationships',
   },
+  // Channels is the Helm-native PMS: un-parked with the per-property Guesty
+  // cutover (properties.calendar_authority). Pinned in the Library via
+  // OVERFLOW_PRIORITY. The three lenses below are tabs on the Channels
+  // surface, so they are hidden from the nav lists and registered only so
+  // Cmd+K resolves "multi-calendar", "channel wiring" and "bookings"
+  // straight to the page. routePrefixes alone covers routing, not search
+  // vocabulary; searchPages matches title / description / id.
   {
     id: 'channels',
     href: '/channels',
     number: '16',
     title: 'Channels',
-    description: 'The Helm-native replacement for Guesty. Multi-channel listings, iCal calendar sync, unified bookings.',
-    status: 'parked',
+    description: 'Listings, rates, calendars, bookings, and the per-property cutover from Guesty.',
+    status: 'active',
     primary: false,
     group: 'operations',
+  },
+  {
+    id: 'channels-calendar',
+    href: '/channels/calendar',
+    number: '16a',
+    title: 'Multi-calendar',
+    description: 'One row per property, day columns, nightly price on vacant days, booking bars by channel. Edit price, min-stay and closed nights; drag to block. The multi-calendar of the Channels section.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'channels',
+  },
+  {
+    id: 'channels-listings',
+    href: '/channels/listings',
+    number: '16b',
+    title: 'Channel wiring',
+    description: 'Per-channel listing ids, URLs, iCal import feeds and the Helm export link for Airbnb, VRBO, Booking.com and Guesty, with the calendar authority switch that cuts a home over from Guesty to Helm.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'channels',
+  },
+  {
+    id: 'channels-bookings',
+    href: '/channels/bookings',
+    number: '16c',
+    title: 'Bookings',
+    description: 'Every stay and block on the Helm calendar across channels: confirmed, pending, cancelled, owner holds. Open a booking, move its dates, cancel it, or create a manual one.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'channels',
   },
   // No 'soon' placeholders at the moment. The status + group machinery
   // stays: a future not-built entry renders dimmed and inert in the menus.

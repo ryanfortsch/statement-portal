@@ -2,12 +2,13 @@
  * The daily cleaner schedule digest: draft, approve, send.
  *
  * Flow: /api/cron/cleaner-schedule drafts tomorrow's digest every
- * afternoon (one cleaner_schedule_digests row per service_date). The
- * card on /cleaner-messaging shows the draft with the live schedule,
- * lets the operator edit the text, and Approve sends it through HELM'S
- * OWN Quo credentials (src/lib/quo.ts sendMessage - the same path the
- * field contractor texts use, NOT the stay-concierge send path, so the
- * digest works even when the Mac Mini is asleep).
+ * afternoon (one cleaner_schedule_digests row per service_date PER REGION).
+ * The card on /cleaner-messaging shows the Cape Ann draft with the live
+ * schedule, lets the operator edit the text, and Approve sends it through
+ * HELM'S OWN Quo credentials (src/lib/quo.ts sendMessage - the same path
+ * the field contractor texts use, NOT the stay-concierge send path, so the
+ * digest works even when the Mac Mini is asleep). /turnovers/schedule
+ * carries one card per region.
  *
  * Every send is operator-approved on the card, so this deliberately has
  * no quiet-hours gate and no cooldown: a human pressing Send at 9pm is
@@ -16,16 +17,21 @@
  *
  * Recipients live in cleaner_schedule_recipients (service-role only -
  * NOT cleaner_phones, which still carries permissive anon RLS; the
- * portal token must never be anon-readable). Each enabled recipient
- * gets the digest body plus their own tokenized link to the live
- * mobile schedule page (/c/<token>), so a text sent at 4pm is
- * never stale by 7am: the page re-merges bookings + adjustments on
+ * portal token must never be anon-readable). Each enabled recipient of a
+ * digest's region gets a body composed from THEIR scope (property_ids, or
+ * every home in their region) in THEIR language, plus their own tokenized
+ * link to the live mobile schedule page (/c/<token>), so a text sent at
+ * 4pm is never stale by 7am: the page re-merges bookings + adjustments on
  * every load.
  *
- * The SMS reads Portuguese-first: the cleaner channel sends Portuguese
- * by house convention (stay-concierge translates cleaner drafts), and
- * times/addresses are language-neutral anyway. The operator sees and
- * can edit the exact text before it goes.
+ * The SMS reads Portuguese-first by default: the cleaner channel sends
+ * Portuguese by house convention (stay-concierge translates cleaner
+ * drafts), and times/addresses are language-neutral anyway. A recipient
+ * row marked language 'en' gets the same message in English. The operator
+ * sees and can edit the exact text before it goes.
+ *
+ * Pure logic (scope, composition) lives in cleaner-digest-core.ts so
+ * node:test can load it; everything there is re-exported here.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -37,20 +43,46 @@ import {
   addDays,
   type ScheduleDay,
 } from '@/lib/checkout-schedule';
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { loadVendorAppointments } from '@/lib/vendor-schedule';
 import { loadAddedNotesByProperty } from '@/lib/turnover-notes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
+import {
+  RECIPIENT_COLS,
+  assembleSms,
+  composeDigestBody,
+  filterScheduleForRecipient,
+  shapeRecipient,
+  updateMarker,
+  withOperatorNote,
+  type DigestLanguage,
+  type PropertyRegionLookup,
+  type ScheduleRecipient,
+} from '@/lib/cleaner-digest-core';
 
-export type ScheduleRecipient = {
-  phone: string;
-  display_name: string;
-  portal_token: string;
-  enabled: boolean;
-};
+export {
+  RECIPIENT_COLS,
+  assembleSms,
+  composeDigestBody,
+  describeRecipientScope,
+  filterScheduleForRecipient,
+  liveLinkLabel,
+  normalizeLanguage,
+  propertyInScope,
+  recipientScope,
+  recountDay,
+  shapeRecipient,
+  updateMarker,
+  withOperatorNote,
+  type DigestLanguage,
+  type PropertyRegionLookup,
+  type ScheduleRecipient,
+} from '@/lib/cleaner-digest-core';
 
 export type DigestRow = {
   id: string;
   service_date: string;
+  region: string;
   status: 'pending' | 'sending' | 'sent' | 'skipped';
   body: string;
   stats: { checkouts?: number; sameDay?: number; adjusted?: number; proposed?: number };
@@ -62,7 +94,17 @@ export type DigestRow = {
     at: string;
     by: string;
     kind: 'initial' | 'update';
-    results: Array<{ phone: string; name: string; ok: boolean; id?: string; error?: string }>;
+    results: Array<{
+      phone: string;
+      name: string;
+      ok: boolean;
+      id?: string;
+      error?: string;
+      /** Which rendering this recipient got (absent on pre-scope sends). */
+      language?: DigestLanguage;
+      /** How many checkouts their scoped body listed. */
+      checkouts?: number;
+    }>;
   }>;
 };
 
@@ -75,13 +117,6 @@ export function digestBaseUrl(): string {
 }
 
 // ─── composition ──────────────────────────────────────────────────────
-
-function dayLabel(date: string): string {
-  const d = new Date(`${date}T12:00:00Z`);
-  const pt = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(d);
-  const en = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(d);
-  return `${pt} / ${en}`;
-}
 
 /** propertyId -> the cleaning time the vendor has committed to for this
  *  day, when they have announced one. */
@@ -99,94 +134,89 @@ export async function loadVendorTimes(
   }
 }
 
-/**
- * The SMS body for one schedule day, WITHOUT the per-recipient link (that
- * is appended at send time, since each cleaner has their own token).
- *
- * Ordered and led by the VENDOR's committed cleaning time wherever they
- * have announced one, because that is the order the crew actually works
- * (Dotti, 2026-08-24). Checkout times are frequently identical across the
- * fleet -- four 11:00s on a Monday -- so sorting by them told the cleaners
- * nothing about their route, while A-1's own times do. The checkout still
- * rides along as `saida`, since that is when the house actually frees up,
- * and a cleaning slotted BEFORE it is called out: that is a cleaner sent
- * into an occupied house.
- */
-export function composeDigestBody(
-  day: ScheduleDay,
-  vendorTimes?: Map<string, string>,
-  /** Operator-approved turnover notes per property, already in Portuguese.
-   *  Only notes a human tapped Add on ever get here; see turnover-notes.ts. */
-  notesByProperty?: Map<string, string[]>,
-): string {
-  const lines: string[] = [];
-  lines.push(`Rising Tide - limpezas`);
-  lines.push(dayLabel(day.date));
-  lines.push('');
-  if (day.rows.length === 0) {
-    lines.push('Nenhum check-out neste dia.');
-    return lines.join('\n');
-  }
-  const cleanTime = (propertyId: string) => vendorTimes?.get(propertyId);
-  const ordered = [...day.rows].sort((a, b) => {
-    const ta = cleanTime(a.propertyId) ?? a.time;
-    const tb = cleanTime(b.propertyId) ?? b.time;
-    return ta.localeCompare(tb) || a.propertyName.localeCompare(b.propertyName);
-  });
-  const anyVendor = ordered.some((r) => cleanTime(r.propertyId));
-
-  const sameDay = day.counts.sameDay;
-  lines.push(`${day.rows.length} check-out${day.rows.length === 1 ? '' : 's'}${sameDay ? `, ${sameDay} mesmo dia` : ''}:`);
-  ordered.forEach((r, i) => {
-    const clean = cleanTime(r.propertyId);
-    const tags: string[] = [];
-    if (clean) {
-      tags.push(clean < r.time ? `ATENCAO: saida so as ${r.time}` : `saida ${r.time}`);
-    }
-    if (r.sameDayTurnover) tags.push(`MESMO DIA, prox. entrada ${r.nextCheckinTime}`);
-    if (r.adjustment?.adjustedTime) tags.push(`mudou de ${r.defaultTime}`);
-    if (r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut) tags.push('estadia estendida');
-    // Guesty moved this stay to a third date after the adjustment was
-    // written, so neither side of the overlay matches it any more. The
-    // operator card has shown this since day one; the message never did,
-    // which is how a confidently wrong line reaches a phone.
-    if (r.adjustment?.drifted) tags.push('ATENCAO: Guesty mudou, confirmar');
-    lines.push(`${i + 1}) ${clean ?? r.time} - ${r.propertyName}${tags.length ? ` (${tags.join('; ')})` : ''}`);
-    // Notes hang under the house they belong to rather than in a block at
-    // the end, so the crew reads them in context on the right stop.
-    for (const note of notesByProperty?.get(r.propertyId) ?? []) {
-      lines.push(`   - ${note}`);
-    }
-  });
-  if (anyVendor) {
-    lines.push('');
-    lines.push('Horario = limpeza agendada. "saida" = hora que o hospede sai.');
-  }
-  return lines.join('\n');
-}
-
 /** composeDigestBody with the vendor's times loaded for that day. */
 export async function composeDigestBodyLive(
   supabase: SupabaseClient,
   day: ScheduleDay,
+  language: DigestLanguage = 'pt',
 ): Promise<string> {
   const [vendorTimes, notes] = await Promise.all([
     loadVendorTimes(supabase, day.date),
     loadAddedNotesByProperty(supabase, day.date),
   ]);
-  return composeDigestBody(day, vendorTimes, notes);
+  return composeDigestBody(day, vendorTimes, notes, language);
+}
+
+/** id -> region for every registry home, the lookup filterScheduleForRecipient
+ *  needs. Fails soft to an empty map: a row missing from it reads as Cape
+ *  Ann, which is where it already went. */
+export async function loadPropertyRegions(supabase: SupabaseClient): Promise<PropertyRegionLookup> {
+  try {
+    const { data } = await supabase.from('properties').select('id, region');
+    return new Map(((data ?? []) as Array<{ id: string; region: string | null }>).map((p) => [p.id, p]));
+  } catch {
+    return new Map();
+  }
+}
+
+export type RecipientBody = {
+  recipient: ScheduleRecipient;
+  /** The scoped day this recipient sees. */
+  day: ScheduleDay;
+  /** Schedule text in their language, before note and link. */
+  body: string;
+};
+
+/**
+ * One body per recipient from the REGION's schedule day: each recipient's
+ * rows are filtered to their scope, then composed in their language with
+ * the same vendor times and turnover notes. A '{}' cape_ann recipient's
+ * body is byte-identical to the region-wide Portuguese text.
+ */
+export async function composeRecipientBodies(
+  supabase: SupabaseClient,
+  regionDay: ScheduleDay,
+  recipients: ScheduleRecipient[],
+  propertiesById?: PropertyRegionLookup,
+): Promise<RecipientBody[]> {
+  if (recipients.length === 0) return [];
+  const [vendorTimes, notes, lookup] = await Promise.all([
+    loadVendorTimes(supabase, regionDay.date),
+    loadAddedNotesByProperty(supabase, regionDay.date),
+    propertiesById ? Promise.resolve(propertiesById) : loadPropertyRegions(supabase),
+  ]);
+  return recipients.map((recipient) => {
+    const day = filterScheduleForRecipient(regionDay, recipient, lookup);
+    return { recipient, day, body: composeDigestBody(day, vendorTimes, notes, recipient.language) };
+  });
+}
+
+/** The operator preview: what each enabled recipient of a region would be
+ *  texted for a service date, composed live. */
+export async function previewRecipientBodies(
+  supabase: SupabaseClient,
+  serviceDate: string,
+  region: string = CAPE_ANN_REGION,
+): Promise<{ day: ScheduleDay; bodies: RecipientBody[] }> {
+  const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1, scope: { region } });
+  const recipients = (await listScheduleRecipients(supabase, region)).filter((r) => r.enabled);
+  const bodies = await composeRecipientBodies(supabase, day, recipients);
+  return { day, bodies };
 }
 
 // ─── draft upsert (cron + refresh) ────────────────────────────────────
 
-/** Build the live schedule for a service date and create/refresh its
- *  pending digest row. Never touches a row that is sending or sent.
- *  Returns the fresh row. */
+/** Build the live schedule for a service date and region and create or
+ *  refresh its pending digest row. Never touches a row that is sending or
+ *  sent. Returns the fresh row. The stored body is the region-wide
+ *  Portuguese text (the operator's editable draft); per-recipient bodies
+ *  are composed at send time. */
 export async function upsertDigestDraft(
   supabase: SupabaseClient,
   serviceDate: string,
+  region: string = CAPE_ANN_REGION,
 ): Promise<{ digest: DigestRow; day: ScheduleDay }> {
-  const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
+  const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1, scope: { region } });
   const body = await composeDigestBodyLive(supabase, day);
   const stats = day.counts;
 
@@ -194,6 +224,7 @@ export async function upsertDigestDraft(
     .from('cleaner_schedule_digests')
     .select('*')
     .eq('service_date', serviceDate)
+    .eq('region', region)
     .maybeSingle();
 
   // A skipped day is revived by an explicit draft request: "Skip this day"
@@ -227,16 +258,17 @@ export async function upsertDigestDraft(
 
   const { data, error } = await supabase
     .from('cleaner_schedule_digests')
-    .insert({ service_date: serviceDate, body, stats })
+    .insert({ service_date: serviceDate, region, body, stats })
     .select('*')
     .single();
   if (error) {
-    // Unique service_date race with a parallel run: read theirs.
+    // Unique (service_date, region) race with a parallel run: read theirs.
     if (error.code === '23505') {
       const { data: raced } = await supabase
         .from('cleaner_schedule_digests')
         .select('*')
         .eq('service_date', serviceDate)
+        .eq('region', region)
         .single();
       return { digest: raced as DigestRow, day };
     }
@@ -246,7 +278,8 @@ export async function upsertDigestDraft(
 }
 
 /** Pending digests whose day has passed were never approved; mark them
- *  skipped so the card stops offering to text yesterday's schedule. */
+ *  skipped so the card stops offering to text yesterday's schedule. Every
+ *  region at once: a stale draft is stale wherever it is. */
 export async function expireStaleDigests(supabase: SupabaseClient): Promise<number> {
   const { data } = await supabase
     .from('cleaner_schedule_digests')
@@ -259,7 +292,10 @@ export async function expireStaleDigests(supabase: SupabaseClient): Promise<numb
 
 // ─── reads for the card / pages ───────────────────────────────────────
 
-export async function getOpenDigest(supabase: SupabaseClient): Promise<DigestRow | null> {
+export async function getOpenDigest(
+  supabase: SupabaseClient,
+  region: string = CAPE_ANN_REGION,
+): Promise<DigestRow | null> {
   const today = todayET();
   // The card is the approval gate, so a digest WAITING on the operator
   // always wins, soonest first.
@@ -275,6 +311,7 @@ export async function getOpenDigest(supabase: SupabaseClient): Promise<DigestRow
   const { data: pending } = await supabase
     .from('cleaner_schedule_digests')
     .select('*')
+    .eq('region', region)
     .eq('status', 'pending')
     .gte('service_date', today)
     .order('service_date', { ascending: true })
@@ -291,6 +328,7 @@ export async function getOpenDigest(supabase: SupabaseClient): Promise<DigestRow
   const { data } = await supabase
     .from('cleaner_schedule_digests')
     .select('*')
+    .eq('region', region)
     .neq('status', 'skipped')
     .gte('service_date', today)
     .order('service_date', { ascending: true })
@@ -302,23 +340,56 @@ export async function getOpenDigest(supabase: SupabaseClient): Promise<DigestRow
 export async function getDigestByDate(
   supabase: SupabaseClient,
   serviceDate: string,
+  region: string = CAPE_ANN_REGION,
 ): Promise<DigestRow | null> {
   const { data } = await supabase
     .from('cleaner_schedule_digests')
     .select('*')
     .eq('service_date', serviceDate)
+    .eq('region', region)
     .maybeSingle();
   return (data as DigestRow | null) ?? null;
 }
 
+/** Every recipient, or only those whose row belongs to `region`. */
 export async function listScheduleRecipients(
   supabase: SupabaseClient,
+  region?: string,
 ): Promise<ScheduleRecipient[]> {
+  let q = supabase.from('cleaner_schedule_recipients').select(RECIPIENT_COLS).order('display_name');
+  if (region) q = q.eq('region', region);
+  const { data } = await q;
+  return ((data ?? []) as Array<Parameters<typeof shapeRecipient>[0]>).map(shapeRecipient);
+}
+
+/** The distinct regions that have at least one ENABLED recipient. Cape Ann
+ *  is not implied here; see regionsForDigests. */
+export async function regionsWithEnabledRecipients(supabase: SupabaseClient): Promise<string[]> {
   const { data } = await supabase
     .from('cleaner_schedule_recipients')
-    .select('phone, display_name, portal_token, enabled')
-    .order('display_name');
-  return (data ?? []) as ScheduleRecipient[];
+    .select('region')
+    .eq('enabled', true);
+  const set = new Set<string>();
+  for (const r of (data ?? []) as Array<{ region: string | null }>) set.add(r.region || CAPE_ANN_REGION);
+  return sortRegions([...set]);
+}
+
+/**
+ * The regions the crons and the schedule page iterate: Cape Ann ALWAYS,
+ * then every other region with an enabled recipient. Cape Ann is pinned
+ * because the digest drafted there before scoping existed regardless of
+ * who was enabled (the card shows it, and "no recipients" is a send-time
+ * refusal, not a draft-time one). Dropping it when Rosa is toggled off
+ * would have changed that path.
+ */
+export async function regionsForDigests(supabase: SupabaseClient): Promise<string[]> {
+  const enabled = await regionsWithEnabledRecipients(supabase);
+  return sortRegions([CAPE_ANN_REGION, ...enabled]);
+}
+
+function sortRegions(regions: string[]): string[] {
+  const uniq = [...new Set(regions)];
+  return uniq.sort((a, b) => (a === CAPE_ANN_REGION ? -1 : b === CAPE_ANN_REGION ? 1 : a.localeCompare(b)));
 }
 
 /**
@@ -332,13 +403,6 @@ export async function listScheduleRecipients(
  * the right day without carrying it. `serviceDate` is still accepted for
  * an explicit operator preview of some other day.
  */
-/** The operator's note rides AFTER the schedule and BEFORE the live link,
- *  so the schedule can keep recomposing while the instruction survives. */
-export function withOperatorNote(body: string, note: string | null | undefined): string {
-  const n = (note ?? '').trim();
-  return n ? `${body}\n\n${n}` : body;
-}
-
 export function portalLink(token: string, serviceDate?: string): string {
   return `${digestBaseUrl()}/c/${token}${serviceDate ? `?d=${serviceDate}` : ''}`;
 }
@@ -354,15 +418,29 @@ async function resolveQuoFrom(): Promise<string | null> {
 
 export type SendDigestResult =
   | { ok: true; sentCount: number; failed: Array<{ name: string; error: string }> }
-  | { ok: false; error: 'raced' | 'no_recipients' | 'quo_unconfigured' | 'all_failed' | 'not_found' };
+  | { ok: false; error: 'raced' | 'no_recipients' | 'quo_unconfigured' | 'all_failed' | 'not_found' | 'schedule_unavailable' };
 
-/** Send the digest body (as approved/edited by the operator) to every
- *  enabled recipient, each with their own live-schedule link. `initial`
- *  claims pending -> sending atomically; `update` re-sends from sent
- *  (schedule changed after the first text). */
+/**
+ * Send a digest to every enabled recipient of ITS region, each with their
+ * own live-schedule link. `initial` claims pending -> sending atomically;
+ * `update` re-sends from sent (schedule changed after the first text).
+ *
+ * Two bodies are possible:
+ *   - `body` given: the operator edited the text on the card. Her words go
+ *     verbatim to every recipient of the region (there is no way to scope a
+ *     hand-edited paragraph), each with their own link.
+ *   - `body` absent: composed here, per recipient, from the region's LIVE
+ *     schedule filtered to that recipient's scope and rendered in their
+ *     language, then the operator note from the row, then the link. This
+ *     is the path the unedited approval, the update send and the evening
+ *     autosend take, so a change logged at 5:59pm still reaches the crew
+ *     and Luana never reads a Gloucester line.
+ * The row's stored `body` becomes the region-wide text that went out (or
+ * the operator's verbatim one), as before.
+ */
 export async function sendDigest(
   supabase: SupabaseClient,
-  opts: { digestId: string; body: string; operatorEmail: string; kind: 'initial' | 'update' },
+  opts: { digestId: string; body?: string; operatorEmail: string; kind: 'initial' | 'update' },
 ): Promise<SendDigestResult> {
   const { data: row } = await supabase
     .from('cleaner_schedule_digests')
@@ -371,6 +449,7 @@ export async function sendDigest(
     .maybeSingle();
   if (!row) return { ok: false, error: 'not_found' };
   const digest = row as DigestRow;
+  const region = digest.region || CAPE_ANN_REGION;
 
   const fromStatus = opts.kind === 'initial' ? 'pending' : 'sent';
   const { data: claimed } = await supabase
@@ -389,7 +468,7 @@ export async function sendDigest(
       .eq('status', 'sending');
   };
 
-  const recipients = (await listScheduleRecipients(supabase)).filter((r) => r.enabled);
+  const recipients = (await listScheduleRecipients(supabase, region)).filter((r) => r.enabled);
   if (recipients.length === 0) {
     await revert();
     return { ok: false, error: 'no_recipients' };
@@ -400,19 +479,48 @@ export async function sendDigest(
     return { ok: false, error: 'quo_unconfigured' };
   }
 
-  const body = opts.body.trim();
+  // Resolve every recipient's text before the first send so a failure to
+  // read the schedule reverts the claim with nothing sent.
+  const verbatim = opts.body?.trim() || null;
+  let perRecipient: Array<{ recipient: ScheduleRecipient; text: string; checkouts?: number }>;
+  let storedBody: string;
+  if (verbatim) {
+    storedBody = verbatim;
+    perRecipient = recipients.map((r) => ({ recipient: r, text: verbatim }));
+  } else {
+    let regionDay: ScheduleDay;
+    try {
+      [regionDay] = await buildCheckoutSchedule(supabase, { startDate: digest.service_date, days: 1, scope: { region } });
+    } catch (err) {
+      await revert();
+      if (err instanceof ScheduleUnavailableError) return { ok: false, error: 'schedule_unavailable' };
+      throw err;
+    }
+    const bodies = await composeRecipientBodies(supabase, regionDay, recipients);
+    const finish = (text: string, language: DigestLanguage) =>
+      withOperatorNote(opts.kind === 'update' ? `${text}\n\n${updateMarker(language)}` : text, digest.operator_note);
+    perRecipient = bodies.map((b) => ({
+      recipient: b.recipient,
+      text: finish(b.body, b.recipient.language),
+      checkouts: b.day.counts.checkouts,
+    }));
+    storedBody = finish(await composeDigestBodyLive(supabase, regionDay), 'pt');
+  }
+
   const results: DigestRow['sent_log'][number]['results'] = [];
-  for (const r of recipients) {
-    const content = `${body}\n\nAgenda ao vivo / live schedule:\n${portalLink(r.portal_token, digest.service_date)}`;
+  for (const { recipient: r, text, checkouts } of perRecipient) {
+    const content = assembleSms(text, portalLink(r.portal_token, digest.service_date), r.language);
     try {
       const msg = await sendMessage({ from, to: r.phone, content });
-      results.push({ phone: r.phone, name: r.display_name, ok: true, id: msg.id });
+      results.push({ phone: r.phone, name: r.display_name, ok: true, id: msg.id, language: r.language, checkouts });
     } catch (err) {
       results.push({
         phone: r.phone,
         name: r.display_name,
         ok: false,
         error: err instanceof Error ? err.message.slice(0, 300) : String(err),
+        language: r.language,
+        checkouts,
       });
     }
   }
@@ -438,7 +546,7 @@ export async function sendDigest(
     .from('cleaner_schedule_digests')
     .update({
       status: 'sent',
-      body,
+      body: storedBody,
       sent_at: batch.at,
       sent_by: opts.operatorEmail,
       sent_log: nextLog,
@@ -471,7 +579,8 @@ const DEFAULT_SETTINGS: ScheduleSettings = {
   updated_by: '',
 };
 
-/** Fails CLOSED: an unreadable settings row means no automatic texting. */
+/** Fails CLOSED: an unreadable settings row means no automatic texting.
+ *  One switch for every region: the operator's on/off is fleet-wide. */
 export async function getScheduleSettings(supabase: SupabaseClient): Promise<ScheduleSettings> {
   try {
     const { data } = await supabase
@@ -521,6 +630,7 @@ export type AutoSendResult = {
     | 'schedule_unavailable'
     | 'drift_needs_review'
     | 'send_failed';
+  region: string;
   serviceDate: string;
   hourET: number;
   sentCount?: number;
@@ -528,8 +638,9 @@ export type AutoSendResult = {
 };
 
 /**
- * Send tomorrow's digest unattended, if the operator has left autosend on
- * and the local hour matches. Called by /api/cron/cleaner-digest-send.
+ * Send tomorrow's digest for one region unattended, if the operator has
+ * left autosend on and the local hour matches. Called by
+ * /api/cron/cleaner-digest-send once per region.
  *
  * Deliberate refusals, in order:
  *   - autosend off -> nothing, ever. The switch is the operator's.
@@ -543,17 +654,19 @@ export type AutoSendResult = {
  *     inside sendDigest is what actually makes a double-send impossible,
  *     including against a manual click landing at the same moment.
  *
- * The body is composed LIVE here, exactly as an unedited manual approval
- * does, so a change logged at 5:59pm still reaches the cleaners.
+ * The bodies are composed LIVE inside sendDigest, per recipient, exactly as
+ * an unedited manual approval does, so a change logged at 5:59pm still
+ * reaches the cleaners.
  */
 export async function autoSendTomorrowDigest(
   supabase: SupabaseClient,
-  opts?: { force?: boolean },
+  opts?: { region?: string; force?: boolean },
 ): Promise<AutoSendResult> {
+  const region = opts?.region ?? CAPE_ANN_REGION;
   const settings = await getScheduleSettings(supabase);
   const hour = hourET();
   const serviceDate = tomorrowET();
-  const base = { serviceDate, hourET: hour };
+  const base = { region, serviceDate, hourET: hour };
 
   if (!settings.autosend_enabled) return { sent: false, reason: 'disabled', ...base };
   if (!opts?.force && hour !== settings.send_hour_et) {
@@ -564,6 +677,7 @@ export async function autoSendTomorrowDigest(
     .from('cleaner_schedule_digests')
     .select('*')
     .eq('service_date', serviceDate)
+    .eq('region', region)
     .maybeSingle();
   const row = existing as DigestRow | null;
 
@@ -586,12 +700,10 @@ export async function autoSendTomorrowDigest(
 
   let digest: DigestRow;
   let day: ScheduleDay;
-  let body: string;
   try {
     ({ digest, day } = row
-      ? { digest: row, day: (await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 }))[0] }
-      : await upsertDigestDraft(supabase, serviceDate));
-    body = withOperatorNote(await composeDigestBodyLive(supabase, day), digest.operator_note);
+      ? { digest: row, day: (await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1, scope: { region } }))[0] }
+      : await upsertDigestDraft(supabase, serviceDate, region));
   } catch (err) {
     if (err instanceof ScheduleUnavailableError) {
       return { sent: false, reason: 'schedule_unavailable', ...base, detail: err.message };
@@ -599,7 +711,7 @@ export async function autoSendTomorrowDigest(
     throw err;
   }
 
-  const enabled = (await listScheduleRecipients(supabase)).filter((r) => r.enabled);
+  const enabled = (await listScheduleRecipients(supabase, region)).filter((r) => r.enabled);
   // A drifted row means Guesty moved the stay somewhere neither side of the
   // adjustment expects, and the overlay still wins. With a human on the
   // card that is a visible "re-check" chip they can act on. Unattended,
@@ -619,7 +731,6 @@ export async function autoSendTomorrowDigest(
 
   const res = await sendDigest(supabase, {
     digestId: digest.id,
-    body,
     operatorEmail: AUTOSEND_ACTOR,
     kind: 'initial',
   });

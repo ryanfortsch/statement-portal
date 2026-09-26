@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { authorizeCron } from '@/lib/cron-auth';
 import { createSlipsFromActionableReviews } from '@/lib/reviews-to-slips';
 
@@ -21,6 +21,10 @@ import { createSlipsFromActionableReviews } from '@/lib/reviews-to-slips';
  * Auth: optional CRON_SECRET in Authorization header. Same pattern as
  * /api/cron/sync-gmail-replies and /api/cron/sync-guesty. Manual
  * trigger from the dashboard would pass x-helm-manual-sync: 1 instead.
+ *
+ * Runs on the service role (supabaseAdmin), never a hand-rolled client
+ * with an anon fallback: work_slips is RLS-locked and the route is on a
+ * daily schedule now, independent of the Guesty sync.
  */
 
 async function handle(request: NextRequest) {
@@ -28,21 +32,15 @@ async function handle(request: NextRequest) {
   const denied = await authorizeCron(request);
   if (denied) return denied;
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    '';
-  if (!supabaseUrl || !supabaseKey) {
+  if (!isServiceConfigured) {
     return NextResponse.json(
-      { error: 'supabase env not configured' },
+      { error: 'supabase service role not configured' },
       { status: 500 },
     );
   }
-  const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
-    const result = await createSlipsFromActionableReviews(supabase);
+    const result = await createSlipsFromActionableReviews(supabaseAdmin);
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error('[cron/reviews-to-slips]', err);

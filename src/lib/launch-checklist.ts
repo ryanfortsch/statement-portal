@@ -378,6 +378,11 @@ export type LaunchDerivationContext = {
     guesty_listing_id: string | null;
     is_active: boolean;
     activated_at: string | null;
+    /** Ops scope (src/lib/property-scope.ts): cape_ann / bridgeport_ct /
+     *  lighthouse_point_fl. Null or missing reads as Cape Ann. */
+    region?: string | null;
+    /** The cutover switch: 'guesty' (default) or 'helm'. */
+    calendar_authority?: string | null;
   };
   /** Latest sca_launches.status for this property, or null if no row. */
   scaLaunchStatus: string | null;
@@ -386,9 +391,10 @@ export type LaunchDerivationContext = {
   hasQuoCleanerMapping: boolean;
   /** lock_devices rows mapped to this property. */
   locksMapped: number;
-  /** Distinct non-null nightly prices over the next 60 days of the Guesty
-   *  calendar mirror. 1 = flat base rate (PriceLabs not pushing); 2+ = real
-   *  rate variation is flowing. */
+  /** Distinct non-null nightly prices over the next 60 days: the Guesty
+   *  calendar mirror (property_calendar_days.price) for a Guesty-run home,
+   *  property_rate_days.nightly_cents for a Helm-run one. 1 = flat base rate
+   *  (PriceLabs not pushing); 2+ = real rate variation is flowing. */
   forwardDistinctPrices: number;
   /** A confirmed, non-duplicate booking has already checked in. */
   firstStayStarted: boolean;
@@ -397,6 +403,40 @@ export type LaunchDerivationContext = {
   /** src/lib/properties.ts PROPERTIES carries this id. */
   inCodeRoster: boolean;
 };
+
+/**
+ * Steps that presuppose a Guesty listing or the Cape Ann surfaces, and so
+ * do not apply to a home Helm runs (calendar_authority = 'helm') or to a
+ * home outside Cape Ann (region != cape_ann). resolveLaunchSteps marks
+ * these n_a instead of asking the operator to tick a step that has no
+ * object: 65 Calderwood has no Guesty listing to match, no stay-cape-ann
+ * page, no Guesty cleaning automation and no code-roster entry (the DB
+ * fleet loader replaced that roster for the channels module).
+ *
+ * A manual status still wins: this only fires on rows left in todo.
+ */
+const NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION: ReadonlySet<string> = new Set([
+  'guesty_listing_match',
+  'guesty_cleaning_automation',
+  'code_roster_entry',
+  'sca_page_live',
+]);
+
+/**
+ * True when the step has nothing to check on this home and should resolve
+ * as n_a. Pure, and deliberately independent of deriveStepResolved so the
+ * boolean derive keeps its shape.
+ */
+export function deriveStepNotApplicable(
+  stepKey: string,
+  ctx: LaunchDerivationContext,
+): boolean {
+  if (!NOT_APPLICABLE_OFF_GUESTY_OR_OUT_OF_REGION.has(stepKey)) return false;
+  const p = ctx.property;
+  const helmRun = p.calendar_authority === 'helm';
+  const outOfRegion = (p.region ?? 'cape_ann') !== 'cape_ann';
+  return helmRun || outOfRegion;
+}
 
 /**
  * Returns true if this step's underlying data is already populated and
@@ -514,6 +554,9 @@ export function resolveLaunchSteps(
     const manual: LaunchStepStatus = row?.status ?? 'todo';
     if (isStepResolved(manual)) {
       return { step, row, status: manual, resolved: true, auto: false };
+    }
+    if (manual === 'todo' && deriveStepNotApplicable(step.key, ctx)) {
+      return { step, row, status: 'n_a', resolved: true, auto: true };
     }
     if (manual === 'todo' && deriveStepResolved(step.key, ctx)) {
       return { step, row, status: 'done', resolved: true, auto: true };

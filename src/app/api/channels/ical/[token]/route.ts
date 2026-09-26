@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
-import { buildIcalExport } from '@/lib/ical-export';
+import { buildIcalExport, EXPORTABLE_STATUSES } from '@/lib/ical-export';
+import { recordExportPull } from '@/lib/ical-export-pulls';
 import type { Booking } from '@/lib/channels-types';
 
 export const dynamic = 'force-dynamic';
-// Public-facing feed — no maxDuration override needed; the query is fast.
+// Public-facing feed. No maxDuration override needed; the query is fast.
 
 /**
  * GET /api/channels/ical/[token]
@@ -14,9 +15,21 @@ export const dynamic = 'force-dynamic';
  * Returns iCalendar text suitable for Airbnb / VRBO / Booking.com to
  * subscribe to as an "import" feed, so a stay booked on one channel
  * blocks the matching dates on the others.
+ *
+ * Exports only what holds nights: canonical (duplicate_of null) rows in
+ * status confirmed / completed / block. The old feed sent every
+ * non-cancelled row, so an inquiry or a pending request, and every
+ * duplicate of a stay, blocked the dates on the other OTAs; and it printed
+ * the guest's name and the operator's notes into DESCRIPTION. The builder
+ * filters again (exportableBooking) and writes channel + Helm id only.
+ *
+ * Every pull is logged to ical_export_pulls (recordExportPull), and the
+ * response is `no-store`: the old `public, s-maxage=300` let the CDN answer
+ * an OTA's pull without this function running, so the log under-counted
+ * and a fresh booking could sit behind a stale edge copy.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
@@ -48,7 +61,8 @@ export async function GET(
     .eq('property_id', prop.id)
     .gte('check_in', fromIso)
     .lte('check_in', toIso)
-    .neq('status', 'cancelled');
+    .in('status', [...EXPORTABLE_STATUSES])
+    .is('duplicate_of', null);
   if (bErr) return new NextResponse(`db error: ${bErr.message}`, { status: 500 });
 
   const body = buildIcalExport({
@@ -57,12 +71,16 @@ export async function GET(
     bookings: (bookings ?? []) as Booking[],
   });
 
+  // The pull is the evidence the OTA is subscribed; log it before the body
+  // goes out so a client that hangs up early is still counted.
+  await recordExportPull(prop.id, { userAgent: request.headers.get('user-agent') });
+
   return new NextResponse(body, {
     status: 200,
     headers: {
       'Content-Type': 'text/calendar; charset=utf-8',
       'Content-Disposition': `inline; filename="${prop.id}.ics"`,
-      'Cache-Control': 'public, max-age=300, s-maxage=300',
+      'Cache-Control': 'no-store',
     },
   });
 }

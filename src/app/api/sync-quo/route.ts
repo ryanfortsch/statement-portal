@@ -12,6 +12,7 @@ import {
 import { matchPropertyFromCleanerText, PROPERTIES, type CleanerTextRosterEntry } from '@/lib/properties';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { mostRecentCheckout } from '@/lib/quo-ingest';
 
 // Backfill route. The webhook is the live path; this is for cold start
 // (filling history) and gap-fill if a webhook delivery is missed.
@@ -296,7 +297,7 @@ async function ingestInboundMessage(
   if (target.cleaner) {
     const propertyId = await attributeCleaningProperty(msg.text ?? '', target.cleaner.property_ids);
     if (propertyId) {
-      const checkoutDate = await mostRecentCheckout(propertyId);
+      const checkoutDate = await mostRecentCheckout(propertyId, msg.createdAt);
       const r = await supabase
         .from('cleaning_completions')
         .insert({
@@ -403,18 +404,10 @@ async function attributeCleaningProperty(body: string, whitelist: string[]): Pro
   return null;
 }
 
-async function mostRecentCheckout(propertyId: string): Promise<string> {
-  const today = new Date().toISOString().slice(0, 10);
-  const { data } = await supabase
-    .from('guesty_reservations')
-    .select('check_out')
-    .eq('property_id', propertyId)
-    .lte('check_out', today)
-    .order('check_out', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return (data?.check_out as string | undefined) ?? today;
-}
+// mostRecentCheckout comes from quo-ingest (bookings-based, canonical rows
+// only), so a backfilled completion keys to the same checkout the webhook
+// path and the turnover board use. The guesty_reservations copy that lived
+// here could miss a checkout that only exists in bookings.
 
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;

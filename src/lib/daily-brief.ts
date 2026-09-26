@@ -1079,13 +1079,23 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .in('status', ACTIVE_TASK_STATUSES)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false }),
+    // Today's departures and arrivals come from canonical bookings, the
+    // Helm-native stay source every ops surface reads, not from
+    // guesty_reservations: a home Helm runs after its Guesty cutover has no
+    // Guesty row at all, and a Guesty-run home is mirrored into bookings
+    // anyway. Same filters as operations.ts (confirmed/completed, canonical
+    // rows only) so the brief names the exact stays the turnover rail shows.
     supabase
-      .from('guesty_reservations')
+      .from('bookings')
       .select('property_id, guest_name, channel, check_in, check_out')
+      .in('status', ['confirmed', 'completed'])
+      .is('duplicate_of', null)
       .eq('check_out', todayIso),
     supabase
-      .from('guesty_reservations')
+      .from('bookings')
       .select('property_id, guest_name, channel, check_in, check_out')
+      .in('status', ['confirmed', 'completed'])
+      .is('duplicate_of', null)
       .eq('check_in', todayIso),
     // Last 14 days of inbound + outbound touches; we resolve "still
     // waiting" by checking if any outbound touch exists for the same
@@ -1142,10 +1152,12 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     contactById.set(c.id, c);
   }
 
+  // An iCal-imported stay can carry no guest name (Airbnb's feed withholds
+  // it); the brief still needs a line for the stay, so it reads 'Guest'.
   const toStay = (r: ReservationPick): BriefStay => ({
     propertyId: r.property_id,
     propertyName: propertyById.get(r.property_id) ?? r.property_id,
-    guestName: r.guest_name,
+    guestName: r.guest_name?.trim() || 'Guest',
     channel: r.channel,
     checkIn: r.check_in,
     checkOut: r.check_out,
@@ -1287,6 +1299,8 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { source: 'vendor-appointments', maxAgeMs: 36 * 3_600_000 }, // A-1 reminder texts; the 16:00 sweep runs daily
     { source: 'seam',                maxAgeMs: 36 * 3_600_000 },
     { source: 'ical',                maxAgeMs:  3 * 3_600_000 },
+    { source: 'helm-calendar',       maxAgeMs:  3 * 3_600_000 }, // the calendar mirror Helm writes for helm-run homes
+    { source: 'automations',         maxAgeMs:  2 * 3_600_000 }, // message-automation planner / dispatcher
     { source: 'stripe',              maxAgeMs: null }, // on-demand "Sync Stripe" button
     { source: 'csv-fallback',        maxAgeMs: null }, // on-demand monthly CSV upload
   ];

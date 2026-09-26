@@ -161,14 +161,104 @@ export type ContactStay = {
   status: string | null;
 };
 
+export type ContactStayLookup = {
+  /** The contact's email; matched to guests.email_normalized, then bookings.guest_id. */
+  email?: string | null;
+  /** Legacy Guesty guest id for the guesty_reservations fallback. */
+  guesty_guest_id?: string | null;
+};
+
 /**
- * Past + upcoming stays for a contact, looked up by guesty_guest_id.
+ * Past + upcoming stays for a contact. Helm-native first: the contact's
+ * email finds the guests row (lower(trim) match) and every canonical booking
+ * stamped with that guest_id. When that yields nothing, fall back to the
+ * legacy guesty_reservations join on guesty_guest_id so history from before
+ * the Helm-native ledger still shows.
+ *
+ * Accepts the old bare guesty_guest_id argument so existing callers keep
+ * working; pass { email, guesty_guest_id } to get the Helm-native path.
+ *
  * Joined to properties for the short name (e.g. "21 Horton"). Internal
  * Helm UI, so showing the property name is fine here even though it
  * would be forbidden in guest-facing campaign copy.
  */
-export async function listContactStays(guestyGuestId: string | null | undefined): Promise<ContactStay[]> {
-  if (!isConfigured || !guestyGuestId) return [];
+export async function listContactStays(
+  lookup: string | null | undefined | ContactStayLookup,
+): Promise<ContactStay[]> {
+  if (!isConfigured) return [];
+  const input: ContactStayLookup =
+    typeof lookup === 'string' || lookup == null ? { guesty_guest_id: lookup ?? null } : lookup;
+
+  const native = await listHelmContactStays(input.email);
+  if (native.length > 0) return native;
+
+  return listGuestyContactStays(input.guesty_guest_id);
+}
+
+/** bookings.guest_id via guests, matched by email. Empty when the contact
+ * has no email, no guests row, or no linked canonical booking. */
+async function listHelmContactStays(email: string | null | undefined): Promise<ContactStay[]> {
+  const normalized = (email ?? '').trim().toLowerCase();
+  if (!normalized) return [];
+  try {
+    const { data: guest, error: guestError } = await supabase
+      .from('guests')
+      .select('id')
+      .eq('email_normalized', normalized)
+      .maybeSingle();
+    if (guestError || !guest) return [];
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        id,
+        property_id,
+        check_in,
+        check_out,
+        nights,
+        channel,
+        external_confirmation_code,
+        status,
+        properties:property_id ( name )
+      `)
+      .eq('guest_id', (guest as { id: string }).id)
+      .is('duplicate_of', null)
+      .order('check_in', { ascending: false })
+      .limit(100);
+    if (error) return [];
+
+    return ((data ?? []) as Array<{
+      id: string;
+      property_id: string | null;
+      check_in: string | null;
+      check_out: string | null;
+      nights: number | null;
+      channel: string | null;
+      external_confirmation_code: string | null;
+      status: string | null;
+      properties: { name: string } | { name: string }[] | null;
+    }>).map((row) => {
+      const prop = Array.isArray(row.properties) ? row.properties[0] : row.properties;
+      return {
+        reservation_id: row.id,
+        property_id: row.property_id,
+        property_name: prop?.name ?? null,
+        check_in: row.check_in,
+        check_out: row.check_out,
+        nights: row.nights,
+        channel: row.channel,
+        confirmation_code: row.external_confirmation_code,
+        status: row.status,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** The legacy join: guesty_reservations by guesty_guest_id. */
+async function listGuestyContactStays(guestyGuestId: string | null | undefined): Promise<ContactStay[]> {
+  if (!guestyGuestId) return [];
 
   const { data } = await supabase
     .from('guesty_reservations')

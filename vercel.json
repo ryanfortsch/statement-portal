@@ -99,6 +99,14 @@
     {
       "path": "/api/cron/launch-readiness",
       "schedule": "35 5 * * *"
+    },
+    {
+      "path": "/api/cron/automations",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reviews-to-slips",
+      "schedule": "0 6 * * *"
     }
   ]
 }

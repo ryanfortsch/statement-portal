@@ -10,7 +10,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { planDedupe, type DedupRow, type DedupPlan } from '../booking-dedupe.ts';
-import { isPlaceholderGuestName } from '../ical.ts';
+import { isPlaceholderGuestName, isBlockSummary } from '../ical.ts';
 import { findDoubleBookings } from '../booking-conflicts.ts';
 
 const AGGREGATE = 'listing-guesty';
@@ -19,6 +19,10 @@ const opts = {
   isFromAggregateFeed: (r: DedupRow) => r.source === 'ical_import' && r.channel_listing_id === AGGREGATE,
   isPlaceholderGuestName,
 };
+// The same, with lib/ical's hold test injected, as ical-sync now runs it.
+// Every test above this line's introduction keeps `opts` so the plan they
+// assert is byte-identical to before the hold rule existed.
+const optsWithHolds = { ...opts, isBlockSummary };
 
 function row(over: Partial<DedupRow> & { id: string }): DedupRow {
   return {
@@ -31,6 +35,7 @@ function row(over: Partial<DedupRow> & { id: string }): DedupRow {
     created_at: '2026-08-01T00:00:00Z',
     cancelled_at: null,
     channel_listing_id: DIRECT,
+    raw_summary: null,
     guest_name: null,
     guest_email: null,
     guest_phone: null,
@@ -506,5 +511,206 @@ describe("an inquiry from another guest on a stay's dates", () => {
       assert.notEqual(plan.enrichPatches.get(live)?.payout, 4873, 'nothing of the inquiry reaches the stay');
       assert.deepEqual(findDoubleBookings(canonicals(plan, order)), []);
     }
+  });
+});
+
+describe('holds are not stays (isBlockSummary injected)', () => {
+  const VRBO = 'listing-vrbo';
+  /** The 20 Hammond fixture as the direct feed really publishes it: SUMMARY "Reserved". */
+  const withSummaries = (rows: DedupRow[]) =>
+    rows.map((r) =>
+      r.channel_listing_id === DIRECT
+        ? { ...r, raw_summary: 'Reserved' }
+        : r.channel_listing_id === AGGREGATE
+          ? { ...r, raw_summary: `Reservation ${r.external_confirmation_code}` }
+          : r,
+    );
+
+  test('the 20 Hammond cancel-then-rebook plan is unchanged with the hold test on', () => {
+    const rows = withSummaries([...lauren, ...ashley]);
+    const before = planDedupe(rows, opts);
+    const after = planDedupe(rows, optsWithHolds);
+    assert.deepEqual([...after.desired.entries()], [...before.desired.entries()]);
+    assert.equal(after.clusters, before.clusters);
+    assert.equal(after.duplicates, before.duplicates);
+    const live = canonicalOf(after, 'A-agg');
+    assert.equal(byId(rows).get(live)!.status, 'confirmed');
+    assert.equal(byId(rows).get(canonicalOf(after, 'L-agg'))!.status, 'cancelled');
+    assert.notEqual(live, canonicalOf(after, 'L-agg'));
+  });
+
+  // Robin-style: a live stay seen by the backfill and the aggregate feed,
+  // beside a VRBO "Blocked" the old sync stored as confirmed on the same
+  // dates and later cancelled when the hold left the feed.
+  const stay = [
+    row({ id: 'legacy', source: 'guesty_legacy', channel_listing_id: null, guest_name: 'Robin Tellier', external_confirmation_code: 'HM1', external_booking_id: 'guesty-41' }),
+    row({ id: 'agg', channel_listing_id: AGGREGATE, guest_name: 'Reservation HM1', external_confirmation_code: 'HM1', raw_summary: 'Reservation HM1' }),
+  ];
+  const cancelledHold = row({
+    id: 'vrbo-hold',
+    channel_listing_id: VRBO,
+    status: 'cancelled',
+    cancelled_at: '2026-09-01T12:00:00Z',
+    raw_summary: 'Blocked',
+    created_at: '2026-08-02T00:00:00Z',
+  });
+
+  test("a VRBO 'Blocked' row stored confirmed then cancelled never kills the stay", () => {
+    for (const rows of [[...stay, cancelledHold], [cancelledHold, ...stay]]) {
+      const plan = planDedupe(rows, optsWithHolds);
+      const live = canonicalOf(plan, 'legacy');
+      assert.equal(canonicalOf(plan, 'agg'), live);
+      assert.equal(byId(rows).get(live)!.status, 'confirmed', 'the stay is live');
+      assert.equal(plan.desired.get('vrbo-hold'), null, 'the hold stands on its own');
+      assert.equal(plan.clusters, 1);
+    }
+  });
+
+  test('and that is the injected test doing the work: without it the hold kills the stay', () => {
+    // Break the guard once: with no isBlockSummary the cancelled hold is a
+    // nameless direct-feed row, pass three places it with the stay, and its
+    // cancel is trusted. This is the failure the rule exists to prevent.
+    const rows = [...stay, cancelledHold];
+    const plan = planDedupe(rows, opts);
+    assert.equal(byId(rows).get(canonicalOf(plan, 'legacy'))!.status, 'cancelled');
+  });
+
+  test("a VRBO 'Blocked' row still stored confirmed is an echo of the stay, not a second guest", () => {
+    const hold = { ...cancelledHold, status: 'confirmed', cancelled_at: null };
+    const rows = [...stay, hold];
+    const plan = planDedupe(rows, optsWithHolds);
+    const live = canonicalOf(plan, 'legacy');
+    assert.equal(byId(rows).get(live)!.status, 'confirmed');
+    assert.equal(canonicalOf(plan, 'vrbo-hold'), live, 'fully covered by the stay: suppressed');
+    assert.equal(plan.clusters, 1, 'suppression is not a union');
+    assert.deepEqual(findDoubleBookings(canonicals(plan, rows)), []);
+  });
+});
+
+describe('pass four: an OTA block that echoes nights Helm already holds', () => {
+  // A Guesty-free home: no aggregate feed, every OTA imports Helm's export
+  // and re-exports the nights as its own unavailability.
+  const AIRBNB = 'listing-airbnb-65';
+  const VRBO = 'listing-vrbo-65';
+  const home = (over: Partial<DedupRow> & { id: string }) => row({ property_id: '65_calderwood', ...over });
+  const vrboStay = (id: string, check_in: string, check_out: string) =>
+    home({ id, channel_listing_id: VRBO, check_in, check_out, guest_name: 'John Doe', raw_summary: 'Reserved - Guest: John Doe', created_at: '2026-08-01T00:00:00Z' });
+  const airbnbBlock = (id: string, check_in: string, check_out: string) =>
+    home({ id, channel_listing_id: AIRBNB, status: 'block', check_in, check_out, raw_summary: 'Airbnb (Not available)', created_at: '2026-08-01T03:00:00Z' });
+  const manualBlock = (id: string, check_in: string, check_out: string) =>
+    home({ id, source: 'manual', channel_listing_id: null, status: 'block', check_in, check_out, created_at: '2026-07-01T00:00:00Z' });
+
+  test('a single echo (Airbnb Not available on a VRBO stay\'s dates) is marked onto the stay', () => {
+    const rows = [vrboStay('stay', '2026-09-01', '2026-09-05'), airbnbBlock('echo', '2026-09-01', '2026-09-05')];
+    for (const order of [rows, [...rows].reverse()]) {
+      const plan = planDedupe(order, optsWithHolds);
+      assert.equal(plan.desired.get('stay'), null);
+      assert.equal(plan.desired.get('echo'), 'stay');
+      assert.equal(plan.clusters, 0, 'no union: the stay pools nothing from the hold');
+      assert.equal(plan.duplicates, 1);
+      assert.deepEqual(plan.enrichPatches.get('stay'), undefined);
+    }
+  });
+
+  test('a coalesced echo (one span over a VRBO stay plus a Helm block) is marked', () => {
+    // Airbnb coalesces adjacent unavailability into one event. 09-01..09-10
+    // is covered by the union of the stay (09-01..09-05) and the manual
+    // block (09-05..09-10); neither alone would do. The cover with the most
+    // shared nights wins: the block, five to the stay's four.
+    const rows = [
+      airbnbBlock('echo', '2026-09-01', '2026-09-10'),
+      vrboStay('stay', '2026-09-01', '2026-09-05'),
+      manualBlock('helm-block', '2026-09-05', '2026-09-10'),
+    ];
+    for (const order of [rows, [...rows].reverse()]) {
+      const plan = planDedupe(order, optsWithHolds);
+      assert.equal(plan.desired.get('echo'), 'helm-block');
+      assert.equal(plan.desired.get('stay'), null);
+      assert.equal(plan.desired.get('helm-block'), null);
+      assert.equal(plan.clusters, 0);
+    }
+  });
+
+  test('and when the stay covers more nights than the block, the echo is marked onto the stay', () => {
+    const rows = [
+      airbnbBlock('echo', '2026-09-01', '2026-09-10'),
+      vrboStay('stay', '2026-09-01', '2026-09-07'),
+      manualBlock('helm-block', '2026-09-07', '2026-09-10'),
+    ];
+    const plan = planDedupe(rows, optsWithHolds);
+    assert.equal(plan.desired.get('echo'), 'stay');
+  });
+
+  test('partial coverage stays canonical: that is a real hold on the OTA', () => {
+    const rows = [airbnbBlock('hold', '2026-09-01', '2026-09-10'), vrboStay('stay', '2026-09-01', '2026-09-05')];
+    const plan = planDedupe(rows, optsWithHolds);
+    assert.equal(plan.desired.get('hold'), null);
+    assert.equal(plan.desired.get('stay'), null);
+    assert.equal(plan.duplicates, 0);
+  });
+
+  test('a gap of one night in the cover is partial coverage', () => {
+    const rows = [
+      airbnbBlock('hold', '2026-09-01', '2026-09-10'),
+      vrboStay('stay', '2026-09-01', '2026-09-05'),
+      manualBlock('helm-block', '2026-09-06', '2026-09-10'),
+    ];
+    const plan = planDedupe(rows, optsWithHolds);
+    assert.equal(plan.desired.get('hold'), null);
+  });
+
+  test('a block on a property with no other rows stays canonical', () => {
+    const plan = planDedupe([airbnbBlock('hold', '2026-09-01', '2026-09-05')], optsWithHolds);
+    assert.equal(plan.desired.get('hold'), null);
+    assert.equal(plan.duplicates, 0);
+  });
+
+  test('a block from the same feed as the stay never suppresses', () => {
+    const rows = [
+      home({ id: 'stay', channel_listing_id: AIRBNB, raw_summary: 'Reserved', check_in: '2026-09-01', check_out: '2026-09-05' }),
+      airbnbBlock('hold', '2026-09-01', '2026-09-05'),
+    ];
+    const plan = planDedupe(rows, optsWithHolds);
+    assert.equal(plan.desired.get('hold'), null);
+    assert.equal(plan.desired.get('stay'), null);
+  });
+
+  test('two OTA holds echoing each other both stand: echoes never cover echoes', () => {
+    const rows = [
+      airbnbBlock('ab-hold', '2026-09-01', '2026-09-05'),
+      home({ id: 'vrbo-hold', channel_listing_id: VRBO, status: 'block', raw_summary: 'Blocked', check_in: '2026-09-01', check_out: '2026-09-05' }),
+    ];
+    const plan = planDedupe(rows, optsWithHolds);
+    assert.equal(plan.desired.get('ab-hold'), null);
+    assert.equal(plan.desired.get('vrbo-hold'), null);
+  });
+
+  test('a cancelled stay covers nothing', () => {
+    const rows = [
+      { ...vrboStay('stay', '2026-09-01', '2026-09-05'), status: 'cancelled', cancelled_at: '2026-08-15T00:00:00Z' },
+      airbnbBlock('hold', '2026-09-01', '2026-09-05'),
+    ];
+    const plan = planDedupe(rows, optsWithHolds);
+    assert.equal(plan.desired.get('hold'), null);
+  });
+
+  test('the aggregate feed\'s own holds are not echo candidates', () => {
+    // Guesty's advance-notice "Blocked by Guesty" over a stay is the
+    // calendar's hold intelligence, not an echo; Guesty-managed homes see
+    // no change from pass four.
+    const rows = [
+      row({ id: 'stay', source: 'guesty_legacy', channel_listing_id: null, guest_name: 'Pat Lee', external_confirmation_code: 'HM9', external_booking_id: 'g-9', check_in: '2026-09-01', check_out: '2026-09-05' }),
+      row({ id: 'an', channel_listing_id: AGGREGATE, status: 'block', raw_summary: 'Blocked by Guesty', check_in: '2026-09-01', check_out: '2026-09-02' }),
+    ];
+    const plan = planDedupe(rows, optsWithHolds);
+    assert.equal(plan.desired.get('an'), null);
+  });
+
+  test('with no isBlockSummary injected, a status=block row is still never a date-join partner', () => {
+    const rows = [vrboStay('stay', '2026-09-01', '2026-09-05'), airbnbBlock('hold', '2026-09-01', '2026-09-05')];
+    const plan = planDedupe(rows, opts);
+    // Pass four still runs on status=block rows: the hold is fully covered.
+    assert.equal(plan.desired.get('hold'), 'stay');
+    assert.equal(plan.clusters, 0);
   });
 });

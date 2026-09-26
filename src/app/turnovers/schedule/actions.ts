@@ -8,6 +8,7 @@
  * thing lives, anchored, with ?err=<code> carrying failures.
  */
 
+import { randomBytes } from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
@@ -15,13 +16,13 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { insertAdjustment, normalizeTime, ScheduleUnavailableError } from '@/lib/checkout-schedule';
 import {
   setAutosend,
-  withOperatorNote,
   upsertDigestDraft,
   sendDigest,
-  composeDigestBodyLive,
   tomorrowET,
+  normalizeLanguage,
 } from '@/lib/cleaner-digest';
-import { buildCheckoutSchedule } from '@/lib/checkout-schedule';
+import { CAPE_ANN_REGION, REGION_LABELS } from '@/lib/property-scope';
+import { normalizePhone } from '@/lib/quo-lines';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import { decideTurnoverNote } from '@/lib/turnover-notes';
@@ -29,6 +30,13 @@ import { decideTurnoverNote } from '@/lib/turnover-notes';
 const CARD = '/cleaner-messaging';
 const CARD_ANCHOR = `${CARD}#schedule-digest`;
 const PAGE = '/turnovers/schedule';
+
+/** The digest region a form is about. Defaults to Cape Ann, which is the
+ *  only region the /cleaner-messaging card ever posts. */
+function regionFrom(formData: FormData): string {
+  const raw = String(formData.get('region') || '').trim();
+  return /^[a-z0-9_]{1,40}$/.test(raw) ? raw : CAPE_ANN_REGION;
+}
 
 async function requireEmail(): Promise<string> {
   const session = await auth();
@@ -47,79 +55,65 @@ function backTarget(formData: FormData, anchor: string): string {
 
 // ─── digest card ──────────────────────────────────────────────────────
 
+/** Where an approval lands. The card is the default (it never posts
+ *  `back`); the per-region cards on the schedule page post back=page. */
+function approveLanding(formData: FormData, anchor: string): string {
+  return `${String(formData.get('back') || '') === 'page' ? PAGE : CARD}${anchor}`;
+}
+
 export async function approveAndSendDigest(formData: FormData): Promise<void> {
   const email = await requireEmail();
   const digestId = String(formData.get('digestId') || '');
   const body = String(formData.get('body') || '').trim();
-  if (!digestId || !body) redirect(`${CARD}?err=digest_empty#schedule-digest`);
+  if (!digestId || !body) redirect(approveLanding(formData, '?err=digest_empty#schedule-digest'));
 
   // Staleness guard: if the operator did NOT edit the drafted text, send
   // the LIVE schedule composed right now, not the cron-time snapshot - an
-  // adjustment logged after the draft must reach Rosa. An edited body is
-  // her words and goes verbatim.
-  const serviceDate = String(formData.get('serviceDate') || '');
+  // adjustment logged after the draft must reach Rosa. sendDigest composes
+  // that live text PER RECIPIENT (their scope, their language), and refuses
+  // the whole send if the schedule cannot be built, because a stale draft
+  // or an empty day would read as "no checkouts". An edited body is her
+  // words and goes verbatim to every recipient of the region.
   const draftedBody = String(formData.get('draftedBody') || '');
   const note = String(formData.get('note') || '').trim().slice(0, 600);
-  let finalBody = body;
-  if (body === draftedBody.trim() && /^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
-    // An unedited approval recomposes from the LIVE schedule. If that
-    // schedule cannot be built right now, do not send anything at all:
-    // the stored draft may be stale and an empty day would read as "no
-    // checkouts". Fail loudly back to the card instead.
+  const unedited = body === draftedBody.trim();
+  if (unedited) {
     // A hold placed after the afternoon cron (the payment landed at 5pm)
     // must reach a 6pm send. Hold detection is deterministic and cheap, so
     // it runs again right here; a failure in it never blocks the send.
     try { await detectExtensionHolds(supabase); } catch { /* fail-soft */ }
-    try {
-      const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-      finalBody = await composeDigestBodyLive(supabase, day);
-    } catch (err) {
-      if (err instanceof ScheduleUnavailableError) redirect(`${CARD}?err=schedule_unavailable#schedule-digest`);
-      throw err;
-    }
   }
-  // Persist the note first so a failed send never costs the typing, then
-  // append it after the (possibly recomposed) schedule.
+  // Persist the note first so a failed send never costs the typing. The
+  // composed path reads it back from the row and appends it after each
+  // recipient's schedule; the verbatim path appends it here.
   await supabase
     .from('cleaner_schedule_digests')
     .update({ operator_note: note, updated_at: new Date().toISOString() })
     .eq('id', digestId);
-  finalBody = withOperatorNote(finalBody, note);
 
-  const res = await sendDigest(supabase, { digestId, body: finalBody, operatorEmail: email, kind: 'initial' });
+  const res = await sendDigest(supabase, {
+    digestId,
+    operatorEmail: email,
+    kind: 'initial',
+    ...(unedited ? {} : { body: note ? `${body}\n\n${note}` : body }),
+  });
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  if (!res.ok) redirect(`${CARD}?err=${res.error}#schedule-digest`);
-  redirect(`${CARD}?sent=${res.sentCount}${res.failed.length ? `&failed=${res.failed.length}` : ''}#schedule-digest`);
+  if (!res.ok) redirect(approveLanding(formData, `?err=${res.error}#schedule-digest`));
+  redirect(approveLanding(formData, `?sent=${res.sentCount}${res.failed.length ? `&failed=${res.failed.length}` : ''}#schedule-digest`));
 }
 
 export async function sendDigestUpdate(formData: FormData): Promise<void> {
   const email = await requireEmail();
   const digestId = String(formData.get('digestId') || '');
-  const serviceDate = String(formData.get('serviceDate') || '');
-  if (!digestId || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) redirect(CARD_ANCHOR);
+  if (!digestId) redirect(CARD_ANCHOR);
 
-  // An update exists to carry CHANGED truth: always compose fresh, and
-  // refuse entirely if the truth cannot be read right now.
+  // An update exists to carry CHANGED truth: sendDigest composes it fresh
+  // per recipient (with the update marker and the row's note) and refuses
+  // entirely if the truth cannot be read right now.
   try { await detectExtensionHolds(supabase); } catch { /* fail-soft */ }
-  let day;
-  try {
-    [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-  } catch (err) {
-    if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
-    throw err;
-  }
-  const { data: noteRow } = await supabase
-    .from('cleaner_schedule_digests')
-    .select('operator_note')
-    .eq('id', digestId)
-    .maybeSingle();
-  const body = withOperatorNote(
-    `${await composeDigestBodyLive(supabase, day)}\n\n(atualizacao / updated schedule)`,
-    (noteRow as { operator_note?: string } | null)?.operator_note,
-  );
 
-  const res = await sendDigest(supabase, { digestId, body, operatorEmail: email, kind: 'update' });
+  const res = await sendDigest(supabase, { digestId, operatorEmail: email, kind: 'update' });
   revalidatePath(CARD);
   revalidatePath(PAGE);
   if (!res.ok) redirect(backTarget(formData, `?err=${res.error}#schedule-digest`));
@@ -165,12 +159,13 @@ export async function refreshDigestDraft(formData: FormData): Promise<void> {
       .eq('id', digestId);
   }
   try {
-    await upsertDigestDraft(supabase, serviceDate);
+    await upsertDigestDraft(supabase, serviceDate, regionFrom(formData));
   } catch (err) {
     if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
     throw err;
   }
   revalidatePath(CARD);
+  revalidatePath(PAGE);
   redirect(backTarget(formData, '#schedule-digest'));
 }
 
@@ -191,7 +186,7 @@ export async function rescanMessagesAction(formData: FormData): Promise<void> {
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
     try {
-      await upsertDigestDraft(supabase, serviceDate);
+      await upsertDigestDraft(supabase, serviceDate, regionFrom(formData));
     } catch (err) {
       if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
       throw err;
@@ -407,11 +402,95 @@ export async function saveDefaultTimesAction(formData: FormData): Promise<void> 
 }
 
 /** Cron freshness guard: a visit before the cron has drafted tomorrow
- *  simply drafts it inline and lands on the card. */
-export async function ensureTomorrowDraft(): Promise<void> {
+ *  simply drafts it inline and lands on the card. The schedule page posts
+ *  a region (and back=page) to draft another region's digest; the
+ *  /cleaner-messaging card posts nothing and gets Cape Ann as always. */
+export async function ensureTomorrowDraft(formData?: FormData): Promise<void> {
   await requireEmail();
-  await upsertDigestDraft(supabase, tomorrowET());
+  const region = formData ? regionFrom(formData) : CAPE_ANN_REGION;
+  try {
+    await upsertDigestDraft(supabase, tomorrowET(), region);
+  } catch (err) {
+    if (err instanceof ScheduleUnavailableError && formData) {
+      redirect(backTarget(formData, `?err=schedule_unavailable#digest-${region}`));
+    }
+    throw err;
+  }
   revalidatePath(PAGE);
   revalidatePath(CARD);
+  if (formData && String(formData.get('back') || '') === 'page') redirect(`${PAGE}#digest-${region}`);
   redirect(CARD_ANCHOR);
+}
+
+// ─── recipients ───────────────────────────────────────────────────────
+
+/**
+ * Add or edit a cleaner_schedule_recipients row from the schedule page, so
+ * Luana can be added without SQL. Fields: phone (required; stored E.164),
+ * displayName, region, propertyIds (multi; none = every home in region),
+ * language (pt|en), enabled, and originalPhone when editing (phone is the
+ * primary key, so a changed number is an update keyed by the old one). A
+ * new row mints its own 16-hex portal token; an existing row's token is
+ * never rotated, or the link already on a phone would strand.
+ */
+export async function saveRecipientAction(formData: FormData): Promise<void> {
+  await requireEmail();
+  const anchor = '#schedule-recipients';
+  const originalPhone = String(formData.get('originalPhone') || '').trim();
+  const digits = normalizePhone(String(formData.get('phone') || ''));
+  if (digits.length !== 10) redirect(`${PAGE}?err=bad_phone${anchor}`);
+  const phone = `+1${digits}`;
+  const displayName = String(formData.get('displayName') || '').trim().slice(0, 80);
+  if (!displayName) redirect(`${PAGE}?err=bad_name${anchor}`);
+  const language = normalizeLanguage(String(formData.get('language') || ''));
+  const enabled = String(formData.get('enabled') || '') === 'true';
+
+  const propertyIds = [...new Set(
+    formData
+      .getAll('propertyIds')
+      .map((v) => String(v).trim())
+      .filter((v) => /^[a-z0-9_]{1,60}$/.test(v)),
+  )];
+  // Only ids the registry knows. An unknown id would silently scope a
+  // cleaner to nothing.
+  let propertyRegion: string | null = null;
+  if (propertyIds.length > 0) {
+    const { data } = await supabase.from('properties').select('id, region').in('id', propertyIds);
+    const known = new Map(((data ?? []) as Array<{ id: string; region: string | null }>).map((p) => [p.id, p.region]));
+    if (propertyIds.some((id) => !known.has(id))) redirect(`${PAGE}?err=bad_property${anchor}`);
+    propertyRegion = known.get(propertyIds[0]) ?? null;
+  }
+
+  // Region: what the form says, else the first listed home's, else Cape Ann.
+  // Validated against the registry's known regions (the FK would reject an
+  // unknown one anyway, but a plain redirect beats a thrown insert).
+  const rawRegion = String(formData.get('region') || '').trim();
+  const region = rawRegion || propertyRegion || CAPE_ANN_REGION;
+  const { data: regionRows } = await supabase.from('regions').select('id');
+  const knownRegions = new Set([
+    ...Object.keys(REGION_LABELS),
+    ...((regionRows ?? []) as Array<{ id: string }>).map((r) => r.id),
+  ]);
+  if (!knownRegions.has(region)) redirect(`${PAGE}?err=bad_region${anchor}`);
+
+  const now = new Date().toISOString();
+  const fields = { phone, display_name: displayName, region, property_ids: propertyIds, language, enabled, updated_at: now };
+
+  if (originalPhone) {
+    const { data, error } = await supabase
+      .from('cleaner_schedule_recipients')
+      .update(fields)
+      .eq('phone', originalPhone)
+      .select('phone');
+    if (error) redirect(`${PAGE}?err=${error.code === '23505' ? 'phone_taken' : 'save_failed'}${anchor}`);
+    if (!data || data.length === 0) redirect(`${PAGE}?err=recipient_gone${anchor}`);
+  } else {
+    const { error } = await supabase
+      .from('cleaner_schedule_recipients')
+      .insert({ ...fields, portal_token: randomBytes(8).toString('hex'), created_at: now });
+    if (error) redirect(`${PAGE}?err=${error.code === '23505' ? 'phone_taken' : 'save_failed'}${anchor}`);
+  }
+  revalidatePath(PAGE);
+  revalidatePath(CARD);
+  redirect(`${PAGE}?saved=1${anchor}`);
 }

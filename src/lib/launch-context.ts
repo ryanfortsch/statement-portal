@@ -3,6 +3,7 @@ import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-a
 import { PROPERTIES, type HelmPropertyRow } from '@/lib/properties';
 import { loadInvoiceNeedles } from '@/lib/invoice-property-match';
 import { selectAllPaged } from '@/lib/paged-select';
+import { isHelmRun, type ScopedProperty } from '@/lib/property-scope';
 import {
   resolveLaunchSteps,
   summarizeLaunch,
@@ -42,7 +43,10 @@ export type LaunchPropertyLite = Pick<
   | 'guesty_listing_id'
   | 'is_active'
   | 'activated_at'
->;
+> &
+  /** Optional: callers that already selected the scope columns pass them
+   *  through; otherwise loadLaunchForFleet reads them itself. */
+  Partial<Pick<ScopedProperty, 'region' | 'calendar_authority'>>;
 
 export type LaunchFacts = {
   /** Check-in date of the earliest confirmed stay that has already begun, or null. */
@@ -141,17 +145,54 @@ async function loadInvoiceMapped(): Promise<Set<string>> {
   }
 }
 
+/** Scope columns for the ids, so a caller's narrower select still gets a
+ *  correct n_a derive. A failed read leaves the map empty: the derive then
+ *  treats the home as a Guesty-run Cape Ann home, which asks, never lies. */
+async function loadScope(ids: string[]): Promise<Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority'>>> {
+  const out = new Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority'>>();
+  if (!isServiceConfigured || ids.length === 0) return out;
+  try {
+    const { data } = await supabase.from('properties').select('id, region, calendar_authority').in('id', ids);
+    for (const r of (data ?? []) as Array<{ id: string; region: string | null; calendar_authority: string | null }>) {
+      out.set(r.id, { region: r.region, calendar_authority: r.calendar_authority });
+    }
+  } catch {
+    // degrade to no scope
+  }
+  return out;
+}
+
 /**
- * Distinct non-null nightly prices over the next 60 days of the Guesty
- * calendar mirror. 1 means a flat base rate on every night (the
+ * Distinct non-null nightly prices over the next 60 days. For a Guesty-run
+ * home that is the Guesty calendar mirror (property_calendar_days.price);
+ * for a Helm-run home it is Helm's own rate calendar
+ * (property_rate_days.nightly_cents, null = plan default and so not a
+ * price of its own). 1 means a flat base rate on every night (the
  * listing-live-on-defaults state that underpriced 3 Windward's launch);
  * 2+ means dynamic pricing is flowing.
+ *
+ * Exported so the property page's onboarding context can read the same
+ * number instead of carrying its own copy of the Guesty-only query.
  */
-async function loadForwardDistinctPrices(propertyId: string): Promise<number> {
+export async function loadForwardDistinctPrices(
+  propertyId: string,
+  opts?: { helmRun?: boolean },
+): Promise<number> {
   if (!isServiceConfigured) return 0;
   try {
     const start = todayIso();
     const end = new Date(Date.now() + 60 * 86400_000).toISOString().slice(0, 10);
+    if (opts?.helmRun) {
+      const { data, error } = await supabase
+        .from('property_rate_days')
+        .select('nightly_cents')
+        .eq('property_id', propertyId)
+        .gte('date', start)
+        .lt('date', end)
+        .not('nightly_cents', 'is', null);
+      if (error || !data) return 0;
+      return new Set((data as Array<{ nightly_cents: number | string }>).map((r) => String(r.nightly_cents))).size;
+    }
     const { data, error } = await supabase
       .from('property_calendar_days')
       .select('price')
@@ -212,6 +253,17 @@ export async function loadLaunchForFleet(
   properties: ReadonlyArray<LaunchPropertyLite>,
 ): Promise<Map<string, LaunchLoad>> {
   const ids = properties.map((p) => p.id);
+  // Scope first: the pricing probe needs to know which calendar to read.
+  // Rows that already carry both columns skip the extra read.
+  const needScope = properties.some((p) => p.region === undefined || p.calendar_authority === undefined);
+  const scopeById = needScope ? await loadScope(ids) : new Map<string, Pick<ScopedProperty, 'region' | 'calendar_authority'>>();
+  const scopeFor = (p: LaunchPropertyLite): Pick<ScopedProperty, 'region' | 'calendar_authority'> => {
+    const read = scopeById.get(p.id);
+    return {
+      region: p.region !== undefined ? p.region : read?.region ?? null,
+      calendar_authority: p.calendar_authority !== undefined ? p.calendar_authority : read?.calendar_authority ?? null,
+    };
+  };
   const [rowsById, scaById, cleanerMappings, locksById, invoiceMapped, perProperty] = await Promise.all([
     loadRows(ids),
     loadScaStatus(ids),
@@ -221,7 +273,7 @@ export async function loadLaunchForFleet(
     Promise.all(
       properties.map(async (p) => {
         const [forwardDistinctPrices, firstStayCheckIn, upcomingStays] = await Promise.all([
-          loadForwardDistinctPrices(p.id),
+          loadForwardDistinctPrices(p.id, { helmRun: isHelmRun(scopeFor(p)) }),
           loadFirstStayCheckIn(p.id),
           loadUpcomingStays(p.id),
         ]);
@@ -235,6 +287,7 @@ export async function loadLaunchForFleet(
   for (const p of properties) {
     const per = perById.get(p.id);
     const rows = rowsById.get(p.id) ?? [];
+    const scope = scopeFor(p);
     const ctx: LaunchDerivationContext = {
       property: {
         title: p.title ?? null,
@@ -247,6 +300,8 @@ export async function loadLaunchForFleet(
         guesty_listing_id: p.guesty_listing_id ?? null,
         is_active: !!p.is_active,
         activated_at: p.activated_at ?? null,
+        region: scope.region ?? null,
+        calendar_authority: scope.calendar_authority ?? null,
       },
       scaLaunchStatus: scaById.get(p.id) ?? null,
       hasQuoCleanerMapping: cleanerMappings.some((list) => list.length === 0 || list.includes(p.id)),
@@ -290,6 +345,8 @@ export async function loadLaunchForProperty(p: LaunchPropertyLite): Promise<Laun
       guesty_listing_id: p.guesty_listing_id ?? null,
       is_active: !!p.is_active,
       activated_at: p.activated_at ?? null,
+      region: p.region ?? null,
+      calendar_authority: p.calendar_authority ?? null,
     },
     scaLaunchStatus: null,
     hasQuoCleanerMapping: false,

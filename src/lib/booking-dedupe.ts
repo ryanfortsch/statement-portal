@@ -43,6 +43,10 @@ export type DedupRow = {
   // feed (reliable cancel signal) apart from the Guesty aggregate feed (which
   // can transiently drop a still-confirmed reservation).
   channel_listing_id: string | null;
+  // The feed's own SUMMARY on an ical_import row ("Reserved", "Blocked",
+  // "Airbnb (Not available)"). Read through the injected isBlockSummary to
+  // tell a hold a direct feed stored as confirmed from a stay.
+  raw_summary: string | null;
   // Enrichment fields: a deduped cluster pools these onto the canonical row,
   // since no single source has all of them (Airbnb/Guesty iCal lack the guest
   // name; the guesty_legacy backfill lacks the confirmation code, etc).
@@ -74,6 +78,11 @@ export type DedupOptions = {
   /** lib/ical's placeholder test ("Reservation HM…", "Guest to be
    *  announced"), injected so this file stays import-free. */
   isPlaceholderGuestName: (name: string | null) => boolean;
+  /** lib/ical's hold-keyword test over raw_summary ("Blocked", "Airbnb
+   *  (Not available)", "CLOSED - Not available"), injected for the same
+   *  reason. Optional, default never: every caller and test that predates
+   *  it sees exactly the old plan. */
+  isBlockSummary?: (raw: string | null) => boolean;
 };
 
 export type DedupPlan = {
@@ -343,17 +352,21 @@ function isUnnamedRecord(r: DedupRow, isPlaceholder: Placeholder): boolean {
 }
 
 /** A cancellation worth believing: not the aggregate feed's, not a feed
- *  dropping a stay that already happened, not an unnamed record's. */
+ *  dropping a stay that already happened, not an unnamed record's, and not
+ *  a hold's (a VRBO "Blocked" row the old sync stored as confirmed and
+ *  later cancelled was never a stay, so its cancel says nothing about one). */
 function isTrustedCancel(
   r: DedupRow,
   isFromAggregateFeed: (r: DedupRow) => boolean,
   isPlaceholder: Placeholder,
+  isBlockLike: (r: DedupRow) => boolean,
 ): boolean {
   return (
     r.status === 'cancelled' &&
     !isFromAggregateFeed(r) &&
     !isPostStayCancel(r) &&
-    !isUnnamedRecord(r, isPlaceholder)
+    !isUnnamedRecord(r, isPlaceholder) &&
+    !isBlockLike(r)
   );
 }
 
@@ -394,6 +407,34 @@ function disjoint(a: Set<string> | undefined, b: Set<string> | undefined): boole
   for (const v of a) if (b.has(v)) return false;
   return true;
 }
+
+/** Nights shared by two [check_in, check_out) ranges. 0 when they only touch. */
+function overlapNights(a: DedupRow, b: DedupRow): number {
+  const start = a.check_in > b.check_in ? a.check_in : b.check_in;
+  const end = a.check_out < b.check_out ? a.check_out : b.check_out;
+  if (end <= start) return 0;
+  return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * True when the union of the covers' nights includes every night of the
+ * target. A sweep over the covers by check-in: each one that starts on or
+ * before the uncovered edge pushes the edge to its check-out; the first
+ * that starts after the edge means a night nobody covers.
+ */
+function nightsCovered(target: DedupRow, covers: DedupRow[]): boolean {
+  const sorted = [...covers].sort((a, b) => a.check_in.localeCompare(b.check_in));
+  let edge = target.check_in;
+  for (const c of sorted) {
+    if (c.check_in > edge) break;
+    if (c.check_out > edge) edge = c.check_out;
+    if (edge >= target.check_out) return true;
+  }
+  return edge >= target.check_out;
+}
+
+/** Statuses a canonical row must carry to cover an echo's nights. */
+const COVERING_STATUSES = new Set(['confirmed', 'completed', 'block']);
 
 /** Milliseconds between two rows' created_at, absolute. */
 function createdGap(a: DedupRow, b: DedupRow): number {
@@ -438,10 +479,41 @@ function createdGap(a: DedupRow, b: DedupRow): number {
  * whose rows appeared closest in time (the direct feed and the aggregate
  * feed pick up a new booking in the same sync). With a single candidate
  * this is exactly the old merge, so a lone stay is clustered as before.
+ *
+ * Holds sit outside all three. A row is block-like when its status is
+ * `block`, or it is an ical_import row whose raw_summary is a hold (the
+ * injected isBlockSummary: "Blocked", "Airbnb (Not available)", "CLOSED -
+ * Not available"), which is how a direct feed's hold looks when the old
+ * sync stored it as confirmed. Block-like rows never date-join, never take
+ * a pass-three placement, and their cancels are never trusted stay cancels:
+ * a hold's disappearance must never cancel a stay.
+ *
+ * Pass four, echo suppression, runs after the canonicals are chosen. On a
+ * Guesty-free home every OTA imports Helm's export, so a stay booked on
+ * VRBO comes back from Airbnb's feed as "Airbnb (Not available)" on the
+ * same nights: the same stay seen a second time, not a hold. A canonical
+ * block-like ical_import row from a direct feed whose EVERY night is
+ * covered by canonical rows of other sources or other channel_listings
+ * (confirmed / completed / block) is marked duplicate_of the covering row
+ * with the most shared nights, earliest created on ties. Coverage is the
+ * UNION: Airbnb coalesces adjacent unavailability into one span, so one
+ * "Not available" 09-01..09-10 over a VRBO stay 09-01..09-05 and a Helm
+ * block 09-05..09-10 is an echo of both. Partial coverage stays canonical:
+ * that is a real hold the operator set on the OTA. Echo candidates never
+ * cover each other (two OTAs echoing one another would otherwise both
+ * vanish), and pass four never unions clusters, so no status or
+ * enrichment pooling crosses an echo. It lives here, not in a reader,
+ * because the writer in ical-sync clears any duplicate_of this planner did
+ * not compute.
  */
 export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
   const { isFromAggregateFeed, isPlaceholderGuestName: isPlaceholder } = opts;
-  const trusted = (r: DedupRow): boolean => isTrustedCancel(r, isFromAggregateFeed, isPlaceholder);
+  const isBlockSummary = opts.isBlockSummary ?? (() => false);
+  /** A hold, by status or by what the feed called it. */
+  const isBlockLike = (r: DedupRow): boolean =>
+    r.status === 'block' || (r.source === 'ical_import' && isBlockSummary(r.raw_summary));
+  const trusted = (r: DedupRow): boolean =>
+    isTrustedCancel(r, isFromAggregateFeed, isPlaceholder, isBlockLike);
 
   const byProperty = new Map<string, DedupRow[]>();
   for (const r of rows) {
@@ -506,9 +578,10 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
     };
     /** The date-based same-stay test, as one pairwise verdict. */
     const sameStayByDates = (a: DedupRow, b: DedupRow): boolean => {
-      // Blocks (owner holds) are distinct calendar entities; only ever fold
-      // them in by a shared id, never by a bare date overlap.
-      if (a.status === 'block' || b.status === 'block') return false;
+      // Blocks (owner holds, and the OTA holds a direct feed stored as
+      // confirmed) are distinct calendar entities; only ever fold them in
+      // by a shared id, never by a bare date overlap.
+      if (isBlockLike(a) || isBlockLike(b)) return false;
       // Identical dates and nothing saying these are different people: one
       // stay, whatever the ids claim. Runs BEFORE conflictingIdentity,
       // because reissued Guesty ids are exactly what that guard mistakes
@@ -557,7 +630,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
     while (moved) {
       moved = false;
       for (const r of list) {
-        if (r.status === 'block') continue;
+        if (isBlockLike(r)) continue;
         const own = find(r.id);
         if (clusterHasEvidence(own)) continue;
         const others = new Map<string, DedupRow[]>();
@@ -642,6 +715,41 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       }
       if (Object.keys(patch).length > 0) {
         enrichPatches.set(canonical.id, patch);
+      }
+    }
+
+    // Pass four: echo suppression (see the docblock). Live direct-feed holds
+    // that came out canonical, against every other canonical that holds
+    // nights and is not itself such a hold. A cancelled hold holds no nights
+    // and echoes nothing; it stands as its own cancelled row.
+    const canonicalRows = list.filter((r) => (desired.get(r.id) ?? null) === null);
+    const echoes = canonicalRows.filter(
+      (r) =>
+        r.source === 'ical_import' &&
+        isBlockLike(r) &&
+        !isFromAggregateFeed(r) &&
+        COVERING_STATUSES.has(r.status),
+    );
+    if (echoes.length > 0) {
+      const echoIds = new Set(echoes.map((r) => r.id));
+      const covers = canonicalRows.filter((c) => !echoIds.has(c.id) && COVERING_STATUSES.has(c.status));
+      for (const echo of echoes) {
+        const candidates = covers.filter(
+          (c) =>
+            (c.source !== 'ical_import' || c.channel_listing_id !== echo.channel_listing_id) &&
+            overlapNights(echo, c) > 0,
+        );
+        if (candidates.length === 0 || !nightsCovered(echo, candidates)) continue;
+        const target = [...candidates].sort(
+          (a, b) => overlapNights(echo, b) - overlapNights(echo, a) || a.created_at.localeCompare(b.created_at),
+        )[0];
+        desired.set(echo.id, target.id);
+        dupCount += 1;
+        // Anything that had the echo as its canonical follows it, so a
+        // reader following duplicate_of lands on a canonical in one hop.
+        for (const r of list) {
+          if (r.id !== echo.id && desired.get(r.id) === echo.id) desired.set(r.id, target.id);
+        }
       }
     }
   }

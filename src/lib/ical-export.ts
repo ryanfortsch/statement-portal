@@ -1,19 +1,91 @@
 /**
- * Build an RFC 5545 iCalendar feed of confirmed bookings for a property.
+ * Build an RFC 5545 iCalendar feed of the nights a property has taken.
  *
  * Used by /api/channels/ical/[token] so external channels (Airbnb / VRBO /
  * Booking.com) can subscribe to Helm's master availability and avoid
  * double-bookings on the days a stay landed on a different channel.
+ *
+ * Only what actually holds nights is exported (exportableBooking): a
+ * confirmed or completed stay, or a block, and only the canonical row of
+ * each (duplicate_of null). Inquiries and pending requests hold nothing yet;
+ * a duplicate is the same stay seen a second time. Exporting either blocked
+ * dates on the OTAs that were open. And the event says nothing about the
+ * guest: SUMMARY is "Reserved" or "Blocked", DESCRIPTION carries the channel
+ * and the Helm booking id and nothing else. The old feed printed the guest's
+ * name and the operator's notes to whoever held the URL.
+ *
+ * Import-free at runtime (the imports below are types), so `npm test`
+ * covers the builder with no bundler.
  */
 
-import type { Booking } from '@/lib/channels-types';
-import { CHANNEL_LABELS } from '@/lib/channels-types';
+import type { Booking, BookingChannel } from '@/lib/channels-types';
 
 export type IcalExportInput = {
   propertyName: string;
   propertyAddress: string;
   bookings: Booking[];
 };
+
+/** Statuses under which the nights are actually taken. */
+export const EXPORTABLE_STATUSES = ['confirmed', 'completed', 'block'] as const;
+
+/** The columns exportableBooking reads. A full `Booking` satisfies this. */
+export type ExportCandidate = {
+  status: string;
+  duplicate_of: string | null;
+  check_in: string | null;
+  check_out: string | null;
+};
+
+/**
+ * True when a row belongs in the export: it holds nights (confirmed,
+ * completed or block), it is the canonical row of its stay, and it has
+ * both dates. The route filters the query the same way; this is the second
+ * gate, so a caller that hands the builder a broader read still leaks
+ * nothing.
+ */
+export function exportableBooking(b: ExportCandidate): boolean {
+  if (!(EXPORTABLE_STATUSES as readonly string[]).includes(b.status)) return false;
+  if (b.duplicate_of != null) return false;
+  if (!b.check_in || !b.check_out) return false;
+  return b.check_out > b.check_in;
+}
+
+/**
+ * Channel labels for the DESCRIPTION line. A local copy of CHANNEL_LABELS
+ * (channels-types.ts) rather than an import, so this module stays
+ * import-free for the test runner; `satisfies` makes tsc fail here the day
+ * BOOKING_CHANNELS gains a member this map does not know.
+ */
+const CHANNEL_LABEL = {
+  airbnb: 'Airbnb',
+  vrbo: 'VRBO',
+  booking_com: 'Booking.com',
+  direct: 'Direct',
+  manual: 'Manual',
+  block: 'Block',
+  guesty: 'Guesty',
+  other: 'Other',
+} as const satisfies Record<BookingChannel, string>;
+
+function channelLabel(channel: string): string {
+  return (CHANNEL_LABEL as Record<string, string>)[channel] ?? channel;
+}
+
+/**
+ * Which OTA is pulling, read off the User-Agent of a GET on the export
+ * route. Best effort: the OTAs do not document their fetchers, so this
+ * matches the vendor names and returns null for anything else (a browser,
+ * curl, a calendar app). Recorded on ical_export_pulls as channel_guess.
+ */
+export function guessChannelFromUserAgent(userAgent: string | null | undefined): 'airbnb' | 'vrbo' | 'booking_com' | null {
+  if (!userAgent) return null;
+  const ua = userAgent.toLowerCase();
+  if (ua.includes('airbnb')) return 'airbnb';
+  if (ua.includes('vrbo') || ua.includes('homeaway') || ua.includes('expedia')) return 'vrbo';
+  if (ua.includes('booking')) return 'booking_com';
+  return null;
+}
 
 export function buildIcalExport({ propertyName, propertyAddress, bookings }: IcalExportInput): string {
   const lines: string[] = [];
@@ -22,26 +94,19 @@ export function buildIcalExport({ propertyName, propertyAddress, bookings }: Ica
   lines.push('PRODID:-//Rising Tide Helm//Channels//EN');
   lines.push('CALSCALE:GREGORIAN');
   lines.push('METHOD:PUBLISH');
-  lines.push(foldLine(`X-WR-CALNAME:${escapeText(`${propertyName} — Helm`)}`));
+  lines.push(foldLine(`X-WR-CALNAME:${escapeText(`${propertyName} - Helm`)}`));
   lines.push(foldLine(`X-WR-CALDESC:${escapeText(`Master availability for ${propertyAddress}, published by Rising Tide Helm.`)}`));
   lines.push('X-WR-TIMEZONE:UTC');
 
   const now = formatStamp(new Date());
 
   for (const b of bookings) {
-    if (b.status === 'cancelled') continue;
-    if (!b.check_in || !b.check_out) continue;
+    if (!exportableBooking(b)) continue;
 
-    const channelLabel = CHANNEL_LABELS[b.channel] ?? b.channel;
-    const summary = b.status === 'block'
-      ? `Block — ${propertyName}`
-      : `Reserved (${channelLabel})`;
-    const description = [
-      b.guest_name ? `Guest: ${b.guest_name}` : null,
-      `Channel: ${channelLabel}`,
-      `Status: ${b.status}`,
-      b.notes ? `Note: ${b.notes}` : null,
-    ].filter(Boolean).join('\\n');
+    const summary = b.status === 'block' ? 'Blocked' : 'Reserved';
+    // Channel and Helm id only. No guest name, no notes: the URL is a
+    // bearer token and every OTA that has it can read this.
+    const description = `Channel: ${channelLabel(b.channel)}\nHelm: ${b.id}`;
 
     lines.push('BEGIN:VEVENT');
     lines.push(foldLine(`UID:${b.id}@helm.risingtidestr.com`));
@@ -63,7 +128,7 @@ export function buildIcalExport({ propertyName, propertyAddress, bookings }: Ica
 function escapeText(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
-    .replace(/;/g, '\\;')
+    .replace(/;/g, '\;')
     .replace(/,/g, '\\,')
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '');

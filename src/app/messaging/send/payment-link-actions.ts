@@ -243,6 +243,8 @@ function explainMintError(error: string, detail?: string): string {
       return 'Amount must be between $1 and $2,000, before tax.';
     case 'not_configured':
       return 'Supabase service key is not set, so nothing can be recorded.';
+    case 'tax_jurisdiction_unknown':
+      return 'This home is outside Cape Ann and has no tax jurisdiction on file, so Helm will not add tax to a link for it. Add its property_tax_config row first.';
     default:
       return `Stripe refused: ${detail || error}`;
   }

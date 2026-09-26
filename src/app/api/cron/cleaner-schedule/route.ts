@@ -3,9 +3,17 @@ import { authorizeCron } from '@/lib/cron-auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
-import { upsertDigestDraft, expireStaleDigests, tomorrowET, hourET } from '@/lib/cleaner-digest';
+import {
+  upsertDigestDraft,
+  expireStaleDigests,
+  regionsForDigests,
+  tomorrowET,
+  hourET,
+  type DigestRow,
+} from '@/lib/cleaner-digest';
 import { ingestVendorAppointments } from '@/lib/vendor-schedule';
 import { mineTurnoverNotes } from '@/lib/turnover-notes';
+import type { ScheduleDay } from '@/lib/checkout-schedule';
 
 /**
  * Daily cleaner-schedule digest draft (the day BEFORE, afternoon ET).
@@ -18,12 +26,16 @@ import { mineTurnoverNotes } from '@/lib/turnover-notes';
  *      they are leaving the house in (broken glass in the grass, an
  *      animal in the trash) into cleaner_turnover_notes, PROPOSED only.
  *   3. Build tomorrow's schedule from the merged truth and draft the
- *      digest SMS as a pending cleaner_schedule_digests row.
+ *      digest SMS as a pending cleaner_schedule_digests row, ONE PER
+ *      REGION: Cape Ann always, plus every region with an enabled
+ *      recipient (regionsForDigests). Rosa's Cape Ann draft is built
+ *      exactly as before; Luana's Bridgeport draft is its own row.
  *
- * NOTHING SENDS FROM HERE. The draft surfaces as a card on
- * /cleaner-messaging; the operator approves (and can edit) there, and
- * only that click texts Rosa via Quo. That approval gate is why this
- * cron can run at a draft-friendly hour without any quiet-hours logic.
+ * NOTHING SENDS FROM HERE. The Cape Ann draft surfaces as a card on
+ * /cleaner-messaging and every region's on /turnovers/schedule; the
+ * operator approves (and can edit) there, and only that click texts the
+ * crew via Quo. That approval gate is why this cron can run at a
+ * draft-friendly hour without any quiet-hours logic.
  *
  * Also expires pending digests whose day already passed (never approved
  * means never sent - the card should not offer yesterday).
@@ -36,6 +48,7 @@ import { mineTurnoverNotes } from '@/lib/turnover-notes';
  *
  * Manual params:
  *   ?date=YYYY-MM-DD  draft a specific service date (default tomorrow ET)
+ *   ?region=<id>      draft one region only (default: every digest region)
  *   ?skip_mine=1      skip the AI thread pass (holds + draft only, fast)
  *   ?dry=1            report what would be drafted without writing
  *   ?force=1          ignore the hour gate (any explicit ?date or ?dry
@@ -50,6 +63,10 @@ export const dynamic = 'force-dynamic';
  *  auto-send to review it. (Dotti, 2026-09-14: moved up from 4 PM.) */
 const DRAFT_HOUR_ET = 14;
 
+type RegionDraft =
+  | { region: string; ok: true; digestId: string; digestStatus: DigestRow['status']; counts: ScheduleDay['counts'] }
+  | { region: string; ok: false; error: string };
+
 async function handle(request: NextRequest) {
   const denied = await authorizeCron(request);
   if (denied) return denied;
@@ -59,9 +76,13 @@ async function handle(request: NextRequest) {
   const skipMine = url.searchParams.get('skip_mine') === '1';
   const force = url.searchParams.get('force') === '1';
   const explicitDate = url.searchParams.get('date');
+  const explicitRegion = url.searchParams.get('region');
   const serviceDate = explicitDate || tomorrowET();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
     return NextResponse.json({ error: 'bad date' }, { status: 400 });
+  }
+  if (explicitRegion && !/^[a-z0-9_]{1,40}$/.test(explicitRegion)) {
+    return NextResponse.json({ error: 'bad region' }, { status: 400 });
   }
 
   // The DST gate. Only the unattended daily run is subject to it: an
@@ -72,6 +93,8 @@ async function handle(request: NextRequest) {
   if (!manual && hour !== DRAFT_HOUR_ET) {
     return NextResponse.json({ ok: true, skipped: 'wrong_hour', hourET: hour, draftHourET: DRAFT_HOUR_ET, serviceDate });
   }
+
+  const regions = explicitRegion ? [explicitRegion] : await regionsForDigests(supabase);
 
   const expired = dry ? 0 : await expireStaleDigests(supabase);
 
@@ -124,40 +147,45 @@ async function handle(request: NextRequest) {
   if (dry) {
     const { buildCheckoutSchedule } = await import('@/lib/checkout-schedule');
     const { composeDigestBodyLive } = await import('@/lib/cleaner-digest');
-    const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 });
-    return NextResponse.json({ ok: true, dry: true, serviceDate, counts: day.counts, body: await composeDigestBodyLive(supabase, day) });
+    const out = [];
+    for (const region of regions) {
+      const [day] = await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1, scope: { region } });
+      out.push({ region, counts: day.counts, body: await composeDigestBodyLive(supabase, day) });
+    }
+    const [first] = out;
+    return NextResponse.json({ ok: true, dry: true, serviceDate, counts: first?.counts, body: first?.body, regions: out });
   }
 
   // The draft is the last step and the one that reads the schedule. If it
-  // cannot be built, say so plainly in the response (and to sync_status
-  // readers via the 200 body) rather than 500ing the cron or, worse,
-  // writing an empty draft that the card would show as a real day.
-  try {
-    const { digest, day } = await upsertDigestDraft(supabase, serviceDate);
-    return NextResponse.json({
-      ok: true,
-      serviceDate,
-      digestId: digest.id,
-      digestStatus: digest.status,
-      counts: day.counts,
-      expired,
-      vendor,
-      holds,
-      mine,
-      notes,
-    });
-  } catch (err) {
-    return NextResponse.json({
-      ok: false,
-      serviceDate,
-      error: err instanceof Error ? err.message : String(err),
-      expired,
-      vendor,
-      holds,
-      mine,
-      notes,
-    });
+  // cannot be built for a region, say so plainly in the response (and to
+  // sync_status readers via the 200 body) rather than 500ing the cron or,
+  // worse, writing an empty draft that the card would show as a real day.
+  // One region failing never stops the next.
+  const drafts: RegionDraft[] = [];
+  for (const region of regions) {
+    try {
+      const { digest, day } = await upsertDigestDraft(supabase, serviceDate, region);
+      drafts.push({ region, ok: true, digestId: digest.id, digestStatus: digest.status, counts: day.counts });
+    } catch (err) {
+      drafts.push({ region, ok: false, error: err instanceof Error ? err.message : String(err) });
+    }
   }
+  // The first region is Cape Ann unless ?region= named another; its fields
+  // stay at the top level so existing readers of this response keep working.
+  const first = drafts[0];
+  return NextResponse.json({
+    ok: drafts.every((d) => d.ok),
+    serviceDate,
+    ...(first && first.ok
+      ? { digestId: first.digestId, digestStatus: first.digestStatus, counts: first.counts }
+      : { error: first && !first.ok ? first.error : 'no regions' }),
+    regions: drafts,
+    expired,
+    vendor,
+    holds,
+    mine,
+    notes,
+  });
 }
 
 export async function GET(request: NextRequest) {

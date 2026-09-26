@@ -22,6 +22,8 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
+import { listHelmConversations } from '@/lib/helm-inbox';
+import { mergeConversationLists } from '@/lib/helm-inbox-core';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
@@ -114,11 +116,21 @@ async function QueueSection() {
 // in place into the full thread with a manual-reply composer. Its own
 // boundary because the first cold gather pages the Guesty API (cached 90s
 // on the concierge after that).
+//
+// Helm-native threads (guest SMS on the GUESTS line, email, OTA stays with
+// their deep link) ride in the same list, sorted together by last activity.
+// Each half fails soft: the concierge being down still shows Helm threads,
+// and a Helm read error still shows the concierge list.
 async function ConversationsSection() {
-  const conversations = await listConversations(60);
+  const [conversations, helm] = await Promise.all([
+    listConversations(60),
+    listHelmConversations(60).catch(() => []),
+  ]);
+  const concierge = conversations.ok ? conversations.data.conversations : [];
+  const merged = mergeConversationLists(concierge, helm);
   return (
     <ConversationsBrowser
-      initialConversations={conversations.ok ? conversations.data.conversations : []}
+      initialConversations={merged}
       initialError={conversations.ok ? null : explainError(conversations.error)}
     />
   );

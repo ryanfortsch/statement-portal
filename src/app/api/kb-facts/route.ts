@@ -4,6 +4,7 @@ import { getPropertyAccessMap } from '@/lib/property-access';
 import { normalizeTime } from '@/lib/checkout-schedule';
 import { authorizeStayConcierge } from '@/lib/stay-concierge-auth';
 import { civicForProperty } from '@/lib/civic';
+import { isHelmRun } from '@/lib/property-scope';
 import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
@@ -47,9 +48,16 @@ type PropertyRow = {
   has_high_chair: boolean | null;
   default_checkout_time: string | null;
   guesty_listing_id: string | null;
+  title: string | null;
+  region: string | null;
+  calendar_authority: string | null;
 };
 
 type NoteRow = { property_id: string; title: string | null; body: string | null };
+
+/** property_rate_plans.checkin_time is the GUEST-facing arrival hour on a
+ *  Helm-run home (properties.default_checkin_time is cleaner guidance). */
+type RatePlanPick = { property_id: string; checkin_time: string | null };
 
 export async function GET(req: Request) {
   const denied = authorizeStayConcierge(req);
@@ -61,7 +69,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id',
+      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id, title, region, calendar_authority',
     )
     .eq('is_active', true);
   if (error) {
@@ -72,6 +80,23 @@ export async function GET(req: Request) {
 
   // Wifi passwords live in the RLS-locked property_access table (service role).
   const access = await getPropertyAccessMap(ids);
+
+  // Helm-run homes (calendar_authority = 'helm') have no Guesty listing to
+  // tell the guest their arrival hour any more; the Helm rate plan holds it.
+  // Guesty-run homes stay unbridged for check-in (see the check_out_time
+  // note below), so this read is scoped to the helm-run ids only.
+  const helmRunIds = rows.filter(isHelmRun).map((r) => r.id);
+  const checkinByProp = new Map<string, string>();
+  if (helmRunIds.length > 0) {
+    const { data: planData } = await supabase
+      .from('property_rate_plans')
+      .select('property_id, checkin_time')
+      .in('property_id', helmRunIds);
+    for (const r of (planData ?? []) as RatePlanPick[]) {
+      const t = normalizeTime(r.checkin_time);
+      if (t) checkinByProp.set(r.property_id, t);
+    }
+  }
 
   // Guest-facing notes only (the operator's explicit "safe to tell a guest" flag).
   // Ordered so the payload is deterministic: without it, multi-note properties
@@ -99,7 +124,19 @@ export async function GET(req: Request) {
       name: p.name,
       // The concierge's fleet watch joins a new Guesty listing to its Helm
       // property on this id before scaffolding its knowledge base (2026-09-19).
+      // A helm-run home may legitimately have none: fleet_watch reads
+      // calendar_authority beside it and must not expect a Guesty id there.
       guesty_listing_id: p.guesty_listing_id ?? '',
+      // The guest-facing external title ("Stay at Rocky Neck"), what the
+      // guest sees on Airbnb / SCA and what they call the home when they text.
+      title: clean(p.title),
+      // Ops scope and the cutover switch (src/lib/property-scope.ts). region
+      // is cape_ann / bridgeport_ct / lighthouse_point_fl; a null reads as
+      // Cape Ann. calendar_authority is 'guesty' (Guesty runs the calendar,
+      // Helm mirrors) or 'helm' (Helm is authoritative; read Helm, not
+      // Guesty, for this home's stays and rates).
+      region: clean(p.region) || 'cape_ann',
+      calendar_authority: clean(p.calendar_authority) || 'guesty',
       wifi_name: clean(p.wifi_name),
       wifi_password: clean(acc?.wifi_password),
       wifi_label: clean(p.wifi_label),
@@ -146,6 +183,13 @@ export async function GET(req: Request) {
       // and is genuinely what the guest is told (10:00 at four homes, 11:00
       // elsewhere).
       check_out_time: normalizeTime(p.default_checkout_time) ?? '',
+      // Check-in, for HELM-RUN homes only, from property_rate_plans.checkin_time
+      // (the guest-facing arrival hour, 16:00 by default). Never from
+      // default_checkin_time, which is the cleaner's 15:00 margin (see above).
+      // Empty for a Guesty-run home: Guesty still tells that guest when to
+      // arrive, and an empty string is what the concierge already treats as
+      // "no fact here".
+      check_in_time: checkinByProp.get(p.id) ?? '',
       // On-site guest gear: lets the AI answer a pack-n-play / high-chair ask
       // with "it's already in the home" instead of promising to bring one.
       has_pack_n_play: p.has_pack_n_play === true,

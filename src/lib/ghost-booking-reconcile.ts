@@ -40,6 +40,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { selectAllPaged } from './paged-select';
+import { loadGuestyRunPropertyIds } from './pms-guards';
 
 /** Mirror rows older than this cannot overrule a confirmed booking: we
  *  could not tell "cancelled" from "not synced lately". */
@@ -75,6 +76,10 @@ export type GhostBookingResult = {
   uncorroborated: number;
   /** True when the cap tripped and NOTHING was cancelled. */
   refusedTooMany: boolean;
+  /** Candidates on homes Helm runs, never examined: their mirror is built
+   *  from `bookings` itself and their Guesty record is retired, so neither
+   *  signal means anything there. */
+  skipped_helm_run: number;
   details: Array<{ propertyId: string; checkIn: string; checkOut: string; guest: string; guestyStatus: string }>;
   errors: string[];
 };
@@ -113,6 +118,7 @@ export async function cancelGhostBookings(
     cancelled: 0,
     uncorroborated: 0,
     refusedTooMany: false,
+    skipped_helm_run: 0,
     details: [],
     errors: [],
   };
@@ -135,7 +141,14 @@ export async function cancelGhostBookings(
     result.errors.push(`bookings: ${candErr.message}`);
     return result;
   }
-  const candidates = (candRows ?? []) as CandidateRow[];
+  // Guesty-run homes only. null = registry read failed; keep everything
+  // (today's behaviour) rather than skipping the fleet.
+  const guestyRunIds = await loadGuestyRunPropertyIds(supabaseAdmin);
+  const allCandidates = (candRows ?? []) as CandidateRow[];
+  const candidates = guestyRunIds
+    ? allCandidates.filter((c) => guestyRunIds.has(c.property_id))
+    : allCandidates;
+  result.skipped_helm_run = allCandidates.length - candidates.length;
   result.examined = candidates.length;
   if (candidates.length === 0) return result;
 

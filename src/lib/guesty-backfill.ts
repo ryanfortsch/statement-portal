@@ -17,6 +17,7 @@ import { dedupeAllBookings } from '@/lib/ical-sync';
 import { selectAllPaged } from '@/lib/paged-select';
 import type { BookingChannel, BookingStatus } from '@/lib/channels-types';
 import { mapGuestyStatus } from '@/lib/guesty-legacy-status';
+import { loadGuestyRunPropertyIds } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -35,6 +36,13 @@ export type BackfillResult = {
   already_backfilled: number;
   skipped_invalid: number;
   skipped_unknown_property: number;
+  /**
+   * Rows for homes Helm runs (properties.calendar_authority = 'helm'). Guesty
+   * still holds a stale view of a listing after the flip; copying it would
+   * mint guesty_legacy twins of Helm's own bookings and patch their status
+   * from a record Guesty no longer maintains. Neither inserted nor updated.
+   */
+  skipped_helm_run: number;
   to_insert: number;
   to_update: number;
   inserted: number;
@@ -131,6 +139,11 @@ export async function backfillGuestyToBookings(
   );
   const knownPropertyIds = new Set(propRows.map((r) => r.id));
 
+  // ... and only the ones Guesty still runs. null means the registry read
+  // failed and we cannot tell, so every known property is kept (today's
+  // behaviour) rather than the whole fleet being skipped.
+  const guestyRunIds = await loadGuestyRunPropertyIds(sb);
+
   type Row = {
     property_id: string;
     channel: BookingChannel;
@@ -153,12 +166,14 @@ export async function backfillGuestyToBookings(
   const toUpdate: Array<{ external_booking_id: string; patch: Partial<Row> }> = [];
   let skippedInvalid = 0;
   let skippedUnknownProperty = 0;
+  let skippedHelmRun = 0;
 
   for (const r of gr) {
     const id = r.guesty_reservation_id as string | null;
     if (!id) { skippedInvalid++; continue; }
     if (!r.property_id || !r.check_in || !r.check_out) { skippedInvalid++; continue; }
     if (!knownPropertyIds.has(r.property_id as string)) { skippedUnknownProperty++; continue; }
+    if (guestyRunIds && !guestyRunIds.has(r.property_id as string)) { skippedHelmRun++; continue; }
 
     // null means Guesty said nothing we recognise. A NEW row still defaults
     // to confirmed (a stay we know nothing about is more safely cleaned
@@ -224,9 +239,10 @@ export async function backfillGuestyToBookings(
   const base = {
     ok: true as const,
     total_guesty_reservations: gr.length,
-    already_backfilled: gr.length - toInsert.length - skippedInvalid - skippedUnknownProperty,
+    already_backfilled: gr.length - toInsert.length - skippedInvalid - skippedUnknownProperty - skippedHelmRun,
     skipped_invalid: skippedInvalid,
     skipped_unknown_property: skippedUnknownProperty,
+    skipped_helm_run: skippedHelmRun,
     to_insert: toInsert.length,
     to_update: toUpdate.length,
   };

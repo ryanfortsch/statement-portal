@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getProperty } from '@/lib/properties';
+import { getFleetProperty } from '@/lib/fleet';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,8 +10,8 @@ export default async function BookThanksPage({
   params: Promise<{ propertyId: string }>;
 }) {
   const { propertyId } = await params;
-  const property = getProperty(propertyId);
-  if (!property) notFound();
+  const property = await getFleetProperty(propertyId);
+  if (!property || !property.is_active) notFound();
 
   return (
     <div style={{
@@ -56,8 +56,8 @@ export default async function BookThanksPage({
           Inquiry sent.
         </h1>
         <p style={{ marginTop: 18, fontSize: 16, lineHeight: 1.6, color: 'var(--ink-3)' }}>
-          We got your request for <strong>{property.name}</strong>. Allie or Ryan will reply within a few hours to
-          confirm availability and send a quote — usually faster.
+          We got your request for <strong>{property.title ?? property.name}</strong>. Allie or Ryan will reply within a few hours to
+          confirm availability and send a quote, usually faster.
         </p>
         <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-4)' }}>
           Check your inbox for a copy. Reply to that email if anything changes about your trip.
@@ -76,7 +76,7 @@ export default async function BookThanksPage({
             textDecoration: 'none',
           }}
         >
-          ← Different dates
+          Different dates
         </Link>
       </main>
     </div>

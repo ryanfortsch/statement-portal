@@ -20,7 +20,9 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
 
   if (!contact) notFound();
 
-  const stays = await listContactStays(contact.guesty_guest_id);
+  // Helm-native stays first (bookings.guest_id via the contact's email), then
+  // the Guesty guest-id join for history a Guesty listing minted.
+  const stays = await listContactStays({ email: contact.email, guesty_guest_id: contact.guesty_guest_id });
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>

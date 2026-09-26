@@ -1,26 +1,45 @@
 import { notFound } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
-import { getProperty } from '@/lib/properties';
+import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
+import { selectAllPaged } from '@/lib/paged-select';
+import { getFleetProperty } from '@/lib/fleet';
+import { conflictFromSearchParams, isYmd } from '@/lib/bookings-write-core';
 import { submitBookingInquiry } from './actions';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * The public direct-inquiry page. The property comes from the registry
+ * (active homes only), so a home that exists only in the DB has a page. The
+ * "already booked" list is canonical holds only: confirmed, completed and
+ * block rows with duplicate_of null. Inquiries never show and never hold.
+ *
+ * When the form was refused because the nights were taken, the action sends
+ * the guest back here with the conflict in the query string; only the dates
+ * are shown, never the other guest's record.
+ */
 export default async function BookPropertyPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ propertyId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { propertyId } = await params;
-  const property = getProperty(propertyId);
-  if (!property) notFound();
+  const sp = await searchParams;
+  const property = await getFleetProperty(propertyId);
+  if (!property || !property.is_active) notFound();
 
   const blockedRanges = await fetchBlockedRanges(propertyId);
+  const conflict = conflictFromSearchParams(sp);
 
-  // Suggest a default window: today + 7 → today + 11 (4-night Friday-ish stay)
   const today = new Date();
-  const defaultIn = addDays(today, 14).toISOString().slice(0, 10);
-  const defaultOut = addDays(today, 18).toISOString().slice(0, 10);
   const minDate = today.toISOString().slice(0, 10);
+  const requestedIn = firstParam(sp.check_in);
+  const requestedOut = firstParam(sp.check_out);
+  const defaultIn = isYmd(requestedIn) ? requestedIn : addDays(today, 14).toISOString().slice(0, 10);
+  const defaultOut = isYmd(requestedOut) ? requestedOut : addDays(today, 18).toISOString().slice(0, 10);
+  const requestedGuests = Number(firstParam(sp.guests) || 0);
+  const defaultGuests = requestedGuests > 0 && requestedGuests <= 20 ? String(requestedGuests) : '2';
 
   return (
     <div style={{
@@ -56,19 +75,38 @@ export default async function BookPropertyPage({
             margin: 0,
           }}
         >
-          Stay at <em style={{ color: 'var(--tide-deep, #1f5fa6)', fontWeight: 400 }}>{property.name}.</em>
+          Stay at <em style={{ color: 'var(--tide-deep, #1f5fa6)', fontWeight: 400 }}>{property.title ?? property.name}.</em>
         </h1>
         <p style={{ marginTop: 18, fontSize: 16, lineHeight: 1.6, color: 'var(--ink-3)', maxWidth: 580 }}>
-          {property.address}, {property.city}. Tell us when you&apos;d like to come and a little about your party — Allie or Ryan
+          {property.address}, {property.city}. Tell us when you&apos;d like to come and a little about your party. Allie or Ryan
           will reply within a few hours to confirm availability and send a quote. No platform fees on direct bookings.
         </p>
+
+        {conflict && (
+          <div
+            role="alert"
+            style={{
+              marginTop: 28,
+              padding: '14px 18px',
+              border: '1px solid var(--signal)',
+              background: 'var(--paper-2)',
+              color: 'var(--ink)',
+              fontSize: 14,
+              lineHeight: 1.55,
+            }}
+          >
+            <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 6 }}>Those dates are taken</div>
+            <span className="font-mono" style={{ fontSize: 13 }}>{conflict.check_in} to {conflict.check_out}</span> is already booked.
+            Pick a window that does not overlap it and send the inquiry again.
+          </div>
+        )}
 
         <form
           action={submitBookingInquiry}
           style={{ marginTop: 36, display: 'grid', gap: 18 }}
         >
           <input type="hidden" name="property_id" value={property.id} />
-          {/* Honeypot — hidden from real users, bots fill it */}
+          {/* Honeypot: hidden from real users, bots fill it */}
           <input
             type="text"
             name="hp_extra"
@@ -86,7 +124,7 @@ export default async function BookPropertyPage({
               <input type="date" name="check_out" required min={minDate} defaultValue={defaultOut} style={inputStyle} />
             </Field>
             <Field label="Guests">
-              <input type="number" name="num_guests" min="1" max="20" defaultValue="2" style={inputStyle} />
+              <input type="number" name="num_guests" min="1" max="20" defaultValue={defaultGuests} style={inputStyle} />
             </Field>
           </Row>
 
@@ -107,13 +145,13 @@ export default async function BookPropertyPage({
             <textarea
               name="message"
               rows={4}
-              placeholder="Whose birthday, who's coming, what brings you to Cape Ann — any color helps us plan."
+              placeholder="Whose birthday, who's coming, what brings you to Cape Ann. Any color helps us plan."
               style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
             />
           </Field>
 
           <button type="submit" style={primaryButton}>
-            Send inquiry →
+            Send inquiry
           </button>
         </form>
 
@@ -123,16 +161,16 @@ export default async function BookPropertyPage({
             <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 12 }}>
               {blockedRanges.slice(0, 12).map((r, i) => (
                 <div
-                  key={i}
+                  key={`${r.check_in}-${r.check_out}-${i}`}
                   className="font-mono"
                   style={{
                     fontSize: 12,
                     color: 'var(--ink-3)',
                     padding: '6px 0',
-                    borderBottom: i === blockedRanges.length - 1 ? 'none' : '1px solid var(--rule)',
+                    borderBottom: i === Math.min(blockedRanges.length, 12) - 1 ? 'none' : '1px solid var(--rule)',
                   }}
                 >
-                  {r.check_in} → {r.check_out}
+                  {r.check_in} to {r.check_out}
                 </div>
               ))}
             </div>
@@ -144,28 +182,48 @@ export default async function BookPropertyPage({
       </main>
 
       <footer style={{ padding: '20px 24px', borderTop: '1px solid var(--rule)', textAlign: 'center', fontSize: 12, color: 'var(--ink-3)' }}>
-        Rising Tide STR · Gloucester, MA · helm.risingtidestr.com
+        Rising Tide STR, Gloucester, MA. helm.risingtidestr.com
       </footer>
     </div>
   );
 }
 
-async function fetchBlockedRanges(propertyId: string): Promise<Array<{ check_in: string; check_out: string }>> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return [];
-  const sb = createClient(url, key, { auth: { persistSession: false } });
+type Range = { check_in: string; check_out: string };
+
+/**
+ * Canonical holds over the next year, in check-in order. A stay in progress
+ * (checked in before today, out after) is included, so the list never
+ * hides the week a guest is currently in the house.
+ */
+async function fetchBlockedRanges(propertyId: string): Promise<Range[]> {
+  if (!isServiceConfigured) return [];
   const today = new Date().toISOString().slice(0, 10);
   const horizon = new Date(Date.now() + 365 * 86400_000).toISOString().slice(0, 10);
-  const { data } = await sb
-    .from('bookings')
-    .select('check_in, check_out, status')
-    .eq('property_id', propertyId)
-    .gte('check_in', today)
-    .lte('check_in', horizon)
-    .neq('status', 'cancelled')
-    .order('check_in');
-  return ((data ?? []) as Array<{ check_in: string; check_out: string }>);
+  try {
+    const rows = await selectAllPaged<Range>(
+      (from, to) =>
+        supabaseAdmin
+          .from('bookings')
+          .select('check_in, check_out')
+          .eq('property_id', propertyId)
+          .is('duplicate_of', null)
+          .in('status', ['confirmed', 'completed', 'block'])
+          .gt('check_out', today)
+          .lte('check_in', horizon)
+          .order('check_in', { ascending: true })
+          .order('check_out', { ascending: true })
+          .range(from, to),
+      { label: 'book blocked ranges' },
+    );
+    return rows.map((r) => ({ check_in: r.check_in.slice(0, 10), check_out: r.check_out.slice(0, 10) }));
+  } catch {
+    return [];
+  }
+}
+
+function firstParam(v: string | string[] | undefined): string | null {
+  if (Array.isArray(v)) return v[0] ?? null;
+  return v ?? null;
 }
 
 function addDays(d: Date, n: number): Date {

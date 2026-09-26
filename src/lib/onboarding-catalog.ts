@@ -144,9 +144,13 @@ export type OnboardingDeriveContext = {
    */
   conciergeCoverage: { kb: boolean; crosswalk: boolean; todos: number } | null;
   /**
-   * Distinct non-null nightly prices over the next 60 days of the Guesty
-   * calendar mirror (property_calendar_days). 0 = no priced days synced
-   * yet; 1 = flat base rate on every night, the listing-live-on-defaults
+   * Distinct non-null nightly prices over the next 60 days: the Guesty
+   * calendar mirror (property_calendar_days.price) for a Guesty-run home,
+   * Helm's own rate calendar (property_rate_days.nightly_cents) for a
+   * Helm-run one. Load it through loadForwardDistinctPrices in
+   * src/lib/launch-context.ts, the same probe the launch checklist's
+   * pricing_flowing step reads, so the two never disagree. 0 = no priced
+   * days yet; 1 = flat base rate on every night, the listing-live-on-defaults
    * state that underpriced 3 Windward's launch (PriceLabs not pushing);
    * 2+ = real rate variation is flowing.
    */

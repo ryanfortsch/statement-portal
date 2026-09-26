@@ -2,19 +2,39 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
+import { auth } from '@/auth';
 import {
   BOOKING_CHANNELS,
   BOOKING_STATUSES,
   type BookingChannel,
   type BookingStatus,
 } from '@/lib/channels-types';
+import { getFleetProperty } from '@/lib/fleet';
+import { createBlock, createBooking, conflictToSearchParams, isBookingOverlapError } from '@/lib/bookings-write';
+import { isYmd } from '@/lib/bookings-write-core';
+import { writeDirectBookingFinance } from '@/lib/booking-finance-write';
 
-function getSb() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  if (!url || !key) throw new Error('Supabase env vars not configured');
-  return createClient(url, key, { auth: { persistSession: false } });
+/**
+ * The /channels/bookings/new form. A block goes through createBlock, a
+ * stay through createBooking; both run the advisory-locked RPC, so a
+ * double-booking is refused at the database with the conflicting stay,
+ * which this action hands back to the form in the query string
+ * (conflictFromSearchParams on the page reads it; check_in / check_out /
+ * property / type ride along so the form re-fills).
+ *
+ * Money typed on a direct or manual stay is also recorded on
+ * booking_finance as money_source 'manual', low confidence, so the record
+ * page's money sub-record is not blank until Stripe settles.
+ */
+
+const HOLD_KINDS = ['owner', 'maintenance', 'ota', 'other'] as const;
+type HoldKind = (typeof HOLD_KINDS)[number];
+
+const DIRECT_CHANNELS: ReadonlySet<BookingChannel> = new Set(['direct', 'manual']);
+
+async function actorEmail(): Promise<string> {
+  const session = await auth();
+  return session?.user?.email ?? 'helm@helm.system';
 }
 
 export async function createManualBooking(formData: FormData) {
@@ -29,8 +49,11 @@ export async function createManualBooking(formData: FormData) {
   const numGuests = Number(formData.get('num_guests') || 0) || null;
   const grossAmount = parseMoney(formData.get('gross_amount'));
   const cleaningFee = parseMoney(formData.get('cleaning_fee'));
+  const taxes = parseMoney(formData.get('taxes'));
   const payout = parseMoney(formData.get('payout'));
   const notes = String(formData.get('notes') || '').trim() || null;
+  const holdKindRaw = String(formData.get('hold_kind') || '').trim();
+  const isBlock = status === 'block' || channel === 'block' || String(formData.get('type') || '') === 'block';
 
   if (!propertyId) throw new Error('Pick a property.');
   if (!checkIn || !checkOut) throw new Error('Both check-in and check-out are required.');
@@ -38,38 +61,78 @@ export async function createManualBooking(formData: FormData) {
   if (checkOut <= checkIn) throw new Error('Check-out must be after check-in.');
   if (!BOOKING_CHANNELS.includes(channel)) throw new Error('Invalid channel.');
   if (!BOOKING_STATUSES.includes(status)) throw new Error('Invalid status.');
+  if (channel === 'guesty') throw new Error('A booking is never stored on the Guesty aggregate channel.');
+  if (holdKindRaw && !(HOLD_KINDS as readonly string[]).includes(holdKindRaw)) throw new Error('Invalid hold kind.');
 
-  const sb = getSb();
-  const nights = nightsBetween(checkIn, checkOut);
+  const property = await getFleetProperty(propertyId);
+  if (!property || !property.is_active) throw new Error('Property not found or inactive.');
 
-  const { data, error } = await sb
-    .from('bookings')
-    .insert({
-      property_id: propertyId,
-      channel,
-      source: 'manual',
-      status,
+  const actor = await actorEmail();
+  let bookingId: string | null = null;
+  let conflictRedirect: string | null = null;
+
+  try {
+    if (isBlock) {
+      const row = await createBlock({
+        propertyId,
+        checkIn,
+        checkOut,
+        holdKind: (holdKindRaw || 'other') as HoldKind,
+        note: notes,
+        createdBy: actor,
+      });
+      bookingId = row.id;
+    } else {
+      const row = await createBooking({
+        propertyId,
+        channel,
+        source: 'manual',
+        status,
+        checkIn,
+        checkOut,
+        guestName,
+        guestEmail,
+        guestPhone,
+        numGuests,
+        grossAmount,
+        cleaningFee,
+        taxes,
+        payout,
+        notes,
+        actor,
+      });
+      bookingId = row.id;
+
+      const hasMoney = [grossAmount, cleaningFee, taxes, payout].some((v) => v !== null);
+      if (hasMoney && DIRECT_CHANNELS.has(channel)) {
+        await writeDirectBookingFinance(row.id, {
+          gross_amount: grossAmount,
+          cleaning_fee: cleaningFee,
+          taxes,
+          payout,
+          money_source: 'manual',
+          confidence: 'low',
+          notes: 'Typed on /channels/bookings/new',
+        }).catch((err: unknown) => console.warn('[bookings/new] booking_finance write failed', err instanceof Error ? err.message : err));
+      }
+    }
+  } catch (err) {
+    if (!isBookingOverlapError(err)) throw err;
+    conflictRedirect = `/channels/bookings/new?${conflictToSearchParams(err.conflict, {
+      property: propertyId,
+      type: isBlock ? 'block' : null,
       check_in: checkIn,
       check_out: checkOut,
-      nights,
-      guest_name: guestName,
-      guest_email: guestEmail,
-      guest_phone: guestPhone,
-      num_guests: numGuests,
-      gross_amount: grossAmount,
-      cleaning_fee: cleaningFee,
-      payout,
-      notes,
-    })
-    .select('id')
-    .single();
-
-  if (error) throw new Error(error.message);
+    })}`;
+  }
 
   revalidatePath('/channels');
   revalidatePath('/channels/bookings');
   revalidatePath('/channels/calendar');
-  redirect(`/channels/bookings/${data.id}`);
+  revalidatePath(`/channels/${propertyId}`);
+
+  if (conflictRedirect) redirect(conflictRedirect);
+  redirect(`/channels/bookings/${bookingId}`);
 }
 
 function parseMoney(value: FormDataEntryValue | null): number | null {
@@ -78,14 +141,4 @@ function parseMoney(value: FormDataEntryValue | null): number | null {
   if (!s) return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
-}
-
-function isYmd(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-
-function nightsBetween(checkIn: string, checkOut: string): number {
-  const a = Date.parse(`${checkIn}T00:00:00Z`);
-  const b = Date.parse(`${checkOut}T00:00:00Z`);
-  return Math.round((b - a) / 86400_000);
 }

@@ -1,14 +1,19 @@
 /**
- * Minimal RFC 5545 iCalendar parser.
+ * Minimal RFC 5545 iCalendar parser, plus the per-channel event classifier.
  *
  * Scoped to the .ics feeds Airbnb / VRBO / Booking.com publish: all-day
  * VEVENT blocks with a UID, DTSTART, DTEND, SUMMARY, DESCRIPTION. Not a
- * general-purpose parser — RRULE, timezones beyond UTC, alarms, and
+ * general-purpose parser: RRULE, timezones beyond UTC, alarms, and
  * VTODO/VJOURNAL are ignored.
  *
  * No external dependency: each OTA's feed is small (kilobytes), the
  * format is line-oriented, and we only need maybe a dozen properties.
+ *
+ * Import-free at runtime on purpose (the one import below is a type), so
+ * `npm test` exercises the classifier with no bundler and no database.
  */
+
+import type { BookingChannel } from '@/lib/channels-types';
 
 export type IcalEvent = {
   uid: string;
@@ -90,7 +95,7 @@ export function parseIcal(text: string): IcalEvent[] {
 
 /**
  * RFC 5545 §3.1: a CRLF followed by a single linear-white-space character
- * is a "line fold" — collapse the next line into the previous one.
+ * is a "line fold": collapse the next line into the previous one.
  */
 function unfoldLines(text: string): string[] {
   const raw = text.replace(/\r\n/g, '\n').split('\n');
@@ -123,17 +128,101 @@ function unescapeText(value: string): string {
 }
 
 /**
- * Heuristic: an Airbnb iCal SUMMARY of "Reserved" / "Not available" /
- * "Closed - Not available" all mean a stay is on the books, even though
- * the platform redacts guest names from public iCal feeds. VRBO uses
- * "Blocked" or "Unavailable". Booking.com uses "CLOSED - Not available".
+ * What an imported event IS, per channel.
+ *
+ *   stay   a guest holds the nights: store it as a confirmed booking
+ *   block  the nights are held but nobody is coming: store it as a block
+ *   skip   nothing to store (cancelled, or an "Available" marker)
+ *
+ * The old isBookingEvent dropped any SUMMARY containing "available", which
+ * threw away Airbnb's "Airbnb (Not available)" and Booking.com's
+ * "CLOSED - Not available" blocks, and the sync then stored whatever
+ * survived as a confirmed stay, so a VRBO "Blocked" event became a guest
+ * who never existed (a turnover scheduled, a double-booking reported).
+ * Each OTA labels its feed differently, so the verdict is per channel:
+ *
+ *   airbnb       "Reserved" (or a reservation link in DESCRIPTION) is a
+ *                stay; "Airbnb (Not available)", "Unavailable", "Blocked"
+ *                and anything else unnamed is a block. Airbnb publishes
+ *                nothing but those two shapes.
+ *   vrbo         "Reserved" / "Reservation ..." / a "Guest:" line in
+ *                DESCRIPTION / a bare guest name is a stay; "Blocked",
+ *                "Unavailable", "Not available", "Closed" is a block.
+ *   booking_com  "CLOSED - Not available" / "Unavailable" is a block,
+ *                everything else (the guest name, "Reservation") a stay.
+ *   guesty       the aggregate feed keeps its own path: "Reservation
+ *                <code>" is a stay, any other summary a block, and a
+ *                summary containing "available" is skipped exactly as
+ *                before, so every Guesty-managed home keeps today's rows.
+ *   direct / manual / other / block
+ *                a stay unless the summary carries a hold keyword.
+ *
+ * A bare "Available" / "Open" summary is skipped on every channel: it is
+ * the feed saying the nights are free.
+ */
+export type IcalEventKind = 'stay' | 'block' | 'skip';
+
+const BARE_AVAILABLE = /^\W*(available|open)\W*$/i;
+const HOLD_KEYWORD = /\b(not\s*available|unavailable|block(?:ed)?|closed)\b/i;
+
+export function classifyIcalEvent(event: IcalEvent, channel: BookingChannel | string): IcalEventKind {
+  if (event.cancelled) return 'skip';
+  const summary = (event.summary ?? '').trim();
+  if (BARE_AVAILABLE.test(summary)) return 'skip';
+  const description = event.description ?? '';
+
+  switch (channel) {
+    case 'airbnb': {
+      if (/^reserved\b/i.test(summary)) return 'stay';
+      if (airbnbConfirmationCode(description)) return 'stay';
+      // "Airbnb (Not available)", "Unavailable", "Blocked", or any other
+      // unnamed shape: Airbnb's feed has no third kind.
+      return 'block';
+    }
+    case 'vrbo': {
+      if (/^(reserved|reservation)\b/i.test(summary) || /\bGuest:/i.test(description)) return 'stay';
+      if (HOLD_KEYWORD.test(summary)) return 'block';
+      // The bare guest name VRBO sometimes publishes. An empty summary is
+      // also a stay: VRBO labels every hold, so unlabeled means a guest.
+      return 'stay';
+    }
+    case 'booking_com': {
+      if (/^closed\b/i.test(summary) || /not\s*available|unavailable/i.test(summary)) return 'block';
+      return 'stay';
+    }
+    case 'guesty': {
+      // Unchanged aggregate-feed path (see parseGuestySummary in ical-sync):
+      // the "available" drop is today's behaviour and stays byte-identical.
+      if (summary.toLowerCase().includes('available')) return 'skip';
+      return /^Reservation\s+\S+/i.test(summary) ? 'stay' : 'block';
+    }
+    default: {
+      return HOLD_KEYWORD.test(summary) ? 'block' : 'stay';
+    }
+  }
+}
+
+/**
+ * The same hold-keyword test over a stored `bookings.raw_summary`, for the
+ * dedupe (a hold never date-joins a stay) and the cancel pass (a hold a
+ * direct feed stored as confirmed before the classifier is reclassified,
+ * never treated as a stay cancel). "Reserved", "Reservation <code>" and a
+ * guest name are not holds; "Airbnb (Not available)", "CLOSED - Not
+ * available", "Blocked", "Unavailable" are.
+ */
+export function isBlockSummary(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  return HOLD_KEYWORD.test(raw);
+}
+
+/**
+ * @deprecated Use classifyIcalEvent(event, channel). Kept for one release
+ * as "anything worth storing": true for a stay OR a block, false only for a
+ * skip. Note this is wider than the old test, which also dropped every
+ * summary containing "available" and so lost the OTA blocks.
  */
 export function isBookingEvent(event: IcalEvent): boolean {
-  if (event.cancelled) return false;
-  const s = (event.summary ?? '').toLowerCase();
-  if (s.includes('available')) return false;          // "Available" only — not booked
-  // Anything reserved, blocked, closed, or unavailable counts as a stay.
-  return true;
+  return classifyIcalEvent(event, 'other') !== 'skip';
 }
 
 /**

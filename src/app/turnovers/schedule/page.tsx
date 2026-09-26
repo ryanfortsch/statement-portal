@@ -16,8 +16,19 @@ import {
   type ScheduleDay,
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
-import { isCapeAnnOps } from '@/lib/property-scope';
-import { listScheduleRecipients, portalLink, type DigestRow } from '@/lib/cleaner-digest';
+import { isCapeAnnOps, regionLabel, CAPE_ANN_REGION } from '@/lib/property-scope';
+import {
+  listScheduleRecipients,
+  portalLink,
+  getOpenDigest,
+  previewRecipientBodies,
+  regionsForDigests,
+  describeRecipientScope,
+  tomorrowET,
+  type DigestRow,
+  type RecipientBody,
+  type ScheduleRecipient,
+} from '@/lib/cleaner-digest';
 import {
   loadVendorAppointments,
   reconcileDay,
@@ -31,8 +42,12 @@ import {
   applyProposalAction,
   dismissProposalAction,
   toggleRecipientAction,
+  saveRecipientAction,
   saveDefaultTimesAction,
   ensureTomorrowDraft,
+  approveAndSendDigest,
+  sendDigestUpdate,
+  skipDigestAction,
 } from './actions';
 
 /**
@@ -184,6 +199,79 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
   );
 }
 
+/**
+ * Add / edit form for one cleaner_schedule_recipients row. No homes
+ * selected means every home in the region; a selection means exactly those
+ * homes, whatever region they sit in. Phone is the primary key, so an edit
+ * carries the original as a hidden field.
+ */
+function RecipientForm({
+  recipient,
+  regions,
+  properties,
+}: {
+  recipient: ScheduleRecipient | null;
+  regions: string[];
+  properties: Array<{ id: string; name: string; region: string | null }>;
+}) {
+  const byRegion = new Map<string, Array<{ id: string; name: string }>>();
+  for (const p of properties) {
+    const key = p.region || CAPE_ANN_REGION;
+    if (!byRegion.has(key)) byRegion.set(key, []);
+    byRegion.get(key)!.push({ id: p.id, name: p.name });
+  }
+  const labelStyle: React.CSSProperties = { fontSize: 11, color: 'var(--ink-4)', display: 'flex', flexDirection: 'column', gap: 4 };
+  return (
+    <form action={saveRecipientAction} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      {recipient && <input type="hidden" name="originalPhone" value={recipient.phone} />}
+      <label style={labelStyle}>
+        Phone
+        <input name="phone" defaultValue={recipient?.phone ?? ''} placeholder="(978) 555-0100" required style={{ ...inputStyle, width: 150 }} />
+      </label>
+      <label style={labelStyle}>
+        Name
+        <input name="displayName" defaultValue={recipient?.display_name ?? ''} placeholder="First name" required style={{ ...inputStyle, fontFamily: 'inherit', width: 140 }} />
+      </label>
+      <label style={labelStyle}>
+        Region
+        <select name="region" defaultValue={recipient?.region ?? CAPE_ANN_REGION} style={{ ...inputStyle, fontFamily: 'inherit', width: 170 }}>
+          {regions.map((r) => (
+            <option key={r} value={r}>{regionLabel(r)}</option>
+          ))}
+        </select>
+      </label>
+      <label style={labelStyle}>
+        Homes (none = every home in region)
+        <select name="propertyIds" multiple defaultValue={recipient?.property_ids ?? []} size={5} style={{ ...inputStyle, fontFamily: 'inherit', minWidth: 220 }}>
+          {[...byRegion.entries()].map(([region, homes]) => (
+            <optgroup key={region} label={regionLabel(region)}>
+              {homes.map((h) => (
+                <option key={h.id} value={h.id}>{h.name}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <label style={labelStyle}>
+        Language
+        <select name="language" defaultValue={recipient?.language ?? 'pt'} style={{ ...inputStyle, fontFamily: 'inherit', width: 130 }}>
+          <option value="pt">Português</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+      <label style={{ ...labelStyle, flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 8 }}>
+        <input type="checkbox" name="enabled" value="true" defaultChecked={recipient?.enabled ?? false} />
+        enabled
+      </label>
+      <SubmitButton
+        label={recipient ? 'Save' : 'Add recipient'}
+        busyLabel="Saving..."
+        style={{ fontSize: 12, fontWeight: 600, padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
+      />
+    </form>
+  );
+}
+
 export default async function CheckoutSchedulePage({
   searchParams,
 }: {
@@ -202,9 +290,12 @@ export default async function CheckoutSchedulePage({
         throw err;
       }),
     listScheduleRecipients(supabase).catch(() => []),
+    // The day sections below are the Cape Ann schedule, so their digest
+    // chips read Cape Ann's rows only; other regions get their own cards.
     supabase
       .from('cleaner_schedule_digests')
       .select('*')
+      .eq('region', CAPE_ANN_REGION)
       .gte('service_date', today)
       .order('service_date')
       .limit(DAYS),
@@ -229,9 +320,37 @@ export default async function CheckoutSchedulePage({
   const digestByDate = new Map<string, DigestRow>();
   for (const d of (digestsRes.data ?? []) as DigestRow[]) digestByDate.set(d.service_date, d);
   const proposals = (proposalsRes.data ?? []) as CheckoutAdjustment[];
-  const timeProps = ((propsRes.data ?? []) as Array<{ id: string; name: string; default_checkout_time: string | null; default_checkin_time: string | null; is_active: boolean | null; kind: string | null; region: string | null }>)
-    .filter((p) => p.is_active !== false && p.kind !== 'hq' && isCapeAnnOps(p));
+  // Every active managed home, all regions: the recipient form's picker and
+  // the region options. The Cape Ann filter below is for the default-times
+  // list, which is the Cape Ann crew's, and it stays.
+  const allProps = ((propsRes.data ?? []) as Array<{ id: string; name: string; default_checkout_time: string | null; default_checkin_time: string | null; is_active: boolean | null; kind: string | null; region: string | null }>)
+    .filter((p) => p.is_active !== false && p.kind !== 'hq');
+  const timeProps = allProps.filter((p) => isCapeAnnOps(p));
   const propNames = new Map(timeProps.map((p) => [p.id, p.name]));
+  const allPropNames = new Map(allProps.map((p) => [p.id, p.name]));
+  const regionOptions = [...new Set([
+    CAPE_ANN_REGION,
+    ...allProps.map((p) => p.region || CAPE_ANN_REGION),
+    ...recipients.map((r) => r.region),
+  ])].sort((a, b) => (a === CAPE_ANN_REGION ? -1 : b === CAPE_ANN_REGION ? 1 : a.localeCompare(b)));
+
+  // One digest card per region: Cape Ann always, then every region with an
+  // enabled recipient. Each card previews exactly what each recipient will
+  // be texted, composed live from their scope in their language.
+  const digestRegions = await regionsForDigests(supabase).catch(() => [CAPE_ANN_REGION]);
+  const regionCards = await Promise.all(
+    digestRegions.map(async (region) => {
+      const digest = await getOpenDigest(supabase, region).catch(() => null);
+      const serviceDate = digest?.service_date ?? tomorrowET();
+      let preview: { bodies: RecipientBody[]; error: string | null } = { bodies: [], error: null };
+      try {
+        preview = { bodies: (await previewRecipientBodies(supabase, serviceDate, region)).bodies, error: null };
+      } catch (e) {
+        preview = { bodies: [], error: e instanceof Error ? e.message : String(e) };
+      }
+      return { region, digest, serviceDate, preview };
+    }),
+  );
   // The vendor's own schedule, judged only on days it has actually
   // announced (reminders run ~2 days out; past that, silence is not a
   // discrepancy).
@@ -273,7 +392,17 @@ export default async function CheckoutSchedulePage({
               {err === 'bad_date' && 'That date did not parse.'}
               {err === 'nothing_set' && 'Set a time or a date (or both) before saving.'}
               {err === 'date_before_checkin' && 'Checkout cannot land before check-in.'}
-              {!['bad_time', 'bad_date', 'nothing_set', 'date_before_checkin'].includes(err) && `Error: ${err}`}
+              {err === 'bad_phone' && 'That phone did not parse - ten digits, US.'}
+              {err === 'bad_name' && 'A recipient needs a display name.'}
+              {err === 'bad_property' && 'One of those property ids is not in the registry.'}
+              {err === 'bad_region' && 'That region is not in the registry.'}
+              {err === 'phone_taken' && 'A recipient with that phone already exists.'}
+              {err === 'recipient_gone' && 'That recipient no longer exists.'}
+              {err === 'save_failed' && 'The recipient did not save.'}
+              {err === 'schedule_unavailable' && 'The schedule could not be read, so nothing was drafted or sent.'}
+              {err === 'no_recipients' && 'That region has no enabled recipient.'}
+              {err === 'raced' && 'That digest was already being sent.'}
+              {!['bad_time', 'bad_date', 'nothing_set', 'date_before_checkin', 'bad_phone', 'bad_name', 'bad_property', 'bad_region', 'phone_taken', 'recipient_gone', 'save_failed', 'schedule_unavailable', 'no_recipients', 'raced'].includes(err) && `Error: ${err}`}
             </div>
           )}
         </div>
@@ -377,47 +506,201 @@ export default async function CheckoutSchedulePage({
         );
       })}
 
+      {regionCards.map(({ region, digest, serviceDate, preview }) => {
+        const status = digest?.status ?? null;
+        const pending = status === 'pending';
+        const sent = status === 'sent';
+        const enabledHere = recipients.filter((r) => r.enabled && r.region === region);
+        return (
+          <Section
+            key={region}
+            id={`digest-${region}`}
+            title={`${regionLabel(region)} digest`}
+            eyebrow={
+              digest
+                ? `${fmtDayHead(digest.service_date, today)} · ${pending ? 'waiting for approval' : status === 'sending' ? 'sending' : status}`
+                : 'No draft yet'
+            }
+            right={
+              region === CAPE_ANN_REGION && pending ? (
+                <Link href="/cleaner-messaging#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                  Edit and approve on the cleaner inbox →
+                </Link>
+              ) : undefined
+            }
+            paddingTop={8}
+            paddingBottom={12}
+          >
+            <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+                {enabledHere.length === 0 ? (
+                  <span>No enabled recipient in {regionLabel(region)}. Nothing can be sent here until one is added below.</span>
+                ) : (
+                  <span>
+                    Each recipient below gets their own text, composed live for {fmtDayHead(serviceDate, today)} from the homes in
+                    their scope, in their language, with their own live-page link.
+                  </span>
+                )}
+                {digest && digest.operator_note && (
+                  <div style={{ marginTop: 4, fontStyle: 'italic' }}>Note riding with it: &ldquo;{digest.operator_note}&rdquo;</div>
+                )}
+                {digest && sent && digest.sent_at && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>
+                    Sent {new Date(digest.sent_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} by {digest.sent_by}
+                  </div>
+                )}
+              </div>
+
+              {preview.error && (
+                <div style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
+                  Preview unavailable: the schedule could not be read. <span style={{ fontFamily: 'var(--font-mono), monospace', fontWeight: 400 }}>{preview.error}</span>
+                </div>
+              )}
+
+              {preview.bodies.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                  {preview.bodies.map((b) => (
+                    <details key={b.recipient.phone} style={{ border: '1px solid var(--rule)', borderRadius: 6, padding: '10px 12px' }}>
+                      <summary style={{ cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{b.recipient.display_name}</span>
+                        <span className="eyebrow" style={{ fontSize: 10 }}>{b.recipient.language === 'en' ? 'English' : 'Português'}</span>
+                        <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 'auto' }}>
+                          {b.day.counts.checkouts} checkout{b.day.counts.checkouts === 1 ? '' : 's'} · preview ▾
+                        </span>
+                      </summary>
+                      <pre style={{ margin: '10px 0 0', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono), monospace', fontSize: 11.5, lineHeight: 1.5, color: 'var(--ink-2)' }}>
+                        {b.body}
+                      </pre>
+                      <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 6 }}>
+                        + note and live link at send time · {describeRecipientScope(b.recipient, regionLabel, (id) => allPropNames.get(id) ?? id)}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {!digest && (
+                  <form action={ensureTomorrowDraft}>
+                    <input type="hidden" name="region" value={region} />
+                    <input type="hidden" name="back" value="page" />
+                    <SubmitButton
+                      label="Draft tomorrow's digest now"
+                      busyLabel="Drafting..."
+                      spinnerTone="ink"
+                      style={{ fontSize: 12, padding: '6px 12px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
+                    />
+                  </form>
+                )}
+                {digest && pending && enabledHere.length > 0 && !preview.error && (
+                  <form action={approveAndSendDigest}>
+                    <input type="hidden" name="digestId" value={digest.id} />
+                    <input type="hidden" name="body" value={digest.body} />
+                    <input type="hidden" name="draftedBody" value={digest.body} />
+                    <input type="hidden" name="note" value={digest.operator_note ?? ''} />
+                    <input type="hidden" name="back" value="page" />
+                    <SubmitButton
+                      label={`Send to ${enabledHere.map((r) => r.display_name).join(', ')}`}
+                      busyLabel="Sending..."
+                      style={{ fontSize: 12, fontWeight: 600, padding: '7px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
+                    />
+                  </form>
+                )}
+                {digest && pending && (
+                  <form action={skipDigestAction}>
+                    <input type="hidden" name="digestId" value={digest.id} />
+                    <input type="hidden" name="back" value="page" />
+                    <SubmitButton
+                      label="Skip this day"
+                      busyLabel="..."
+                      spinnerTone="ink"
+                      style={{ fontSize: 12, padding: '6px 12px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 5, cursor: 'pointer' }}
+                    />
+                  </form>
+                )}
+                {digest && sent && enabledHere.length > 0 && !preview.error && (
+                  <form action={sendDigestUpdate}>
+                    <input type="hidden" name="digestId" value={digest.id} />
+                    <input type="hidden" name="back" value="page" />
+                    <SubmitButton
+                      label="Send an update (schedule changed)"
+                      busyLabel="Sending..."
+                      spinnerTone="ink"
+                      style={{ fontSize: 12, padding: '6px 12px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
+                    />
+                  </form>
+                )}
+              </div>
+            </div>
+          </Section>
+        );
+      })}
+
       <Section id="schedule-recipients" title="Who gets the daily text" eyebrow="Via Quo, after your approval" paddingTop={8} paddingBottom={12}>
-        <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ borderTop: '1px solid var(--ink)' }}>
           {recipients.length === 0 && (
-            <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-              No recipients seeded yet - apply the cleaner-schedule migration first.
-            </span>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '14px 0' }}>
+              No recipients yet. Add one below.
+            </div>
           )}
           {recipients.map((r) => (
-            <form key={r.phone} action={toggleRecipientAction} style={{ display: 'inline' }}>
-              <input type="hidden" name="phone" value={r.phone} />
-              <input type="hidden" name="enabled" value={r.enabled ? 'false' : 'true'} />
-              <SubmitButton
-                label={`${r.display_name} ${r.enabled ? '✓' : '· off'}`}
-                busyLabel="..."
-                spinnerTone="ink"
-                style={{
-                  fontSize: 12,
-                  padding: '5px 12px',
-                  borderRadius: 12,
-                  cursor: 'pointer',
-                  border: r.enabled ? '1px solid var(--ink)' : '1px solid var(--rule)',
-                  background: r.enabled ? 'var(--ink)' : 'transparent',
-                  color: r.enabled ? 'var(--paper)' : 'var(--ink-4)',
-                }}
-              />
-            </form>
+            <div key={r.phone} id={`recipient-${r.phone.replace(/\D/g, '')}`} style={{ borderTop: '1px solid var(--rule)', scrollMarginTop: 100 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', flexWrap: 'wrap' }}>
+                <form action={toggleRecipientAction} style={{ display: 'inline' }}>
+                  <input type="hidden" name="phone" value={r.phone} />
+                  <input type="hidden" name="enabled" value={r.enabled ? 'false' : 'true'} />
+                  <SubmitButton
+                    label={`${r.display_name} ${r.enabled ? '✓' : '· off'}`}
+                    busyLabel="..."
+                    spinnerTone="ink"
+                    style={{
+                      fontSize: 12,
+                      padding: '5px 12px',
+                      borderRadius: 12,
+                      cursor: 'pointer',
+                      border: r.enabled ? '1px solid var(--ink)' : '1px solid var(--rule)',
+                      background: r.enabled ? 'var(--ink)' : 'transparent',
+                      color: r.enabled ? 'var(--paper)' : 'var(--ink-4)',
+                    }}
+                  />
+                </form>
+                <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--ink-3)' }}>{r.phone}</span>
+                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                  {regionLabel(r.region)} · {describeRecipientScope(r, regionLabel, (id) => allPropNames.get(id) ?? id)}
+                </span>
+                <span className="eyebrow" style={{ fontSize: 10 }}>{r.language === 'en' ? 'English' : 'Português'}</span>
+                <a
+                  href={portalLink(r.portal_token)}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                >
+                  live page
+                </a>
+              </div>
+              <details style={{ marginTop: -6 }}>
+                <summary style={{ cursor: 'pointer', listStyle: 'none', fontSize: 11, color: 'var(--ink-4)', padding: '0 0 8px' }}>
+                  edit scope, language, phone ▾
+                </summary>
+                <div style={{ padding: '4px 0 16px' }}>
+                  <RecipientForm recipient={r} regions={regionOptions} properties={allProps} />
+                </div>
+              </details>
+            </div>
           ))}
-          {recipients.length > 0 && (
-            <form action={ensureTomorrowDraft} style={{ marginLeft: 'auto' }}>
-              <SubmitButton
-                label="Draft tomorrow's digest now"
-                busyLabel="Drafting..."
-                spinnerTone="ink"
-                style={{ fontSize: 12, padding: '6px 12px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
-              />
-            </form>
-          )}
+          <details style={{ borderTop: '1px solid var(--rule)' }}>
+            <summary style={{ padding: '10px 0', cursor: 'pointer', listStyle: 'none', fontSize: 13, fontWeight: 600 }}>
+              + Add a recipient
+            </summary>
+            <div style={{ padding: '4px 0 16px' }}>
+              <RecipientForm recipient={null} regions={regionOptions} properties={allProps} />
+            </div>
+          </details>
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
-          Each enabled cleaner gets the digest plus their own live-page link. The daily draft lands on the cleaner inbox
-          every afternoon for the next day; nothing texts without your approval there.
+          Each enabled cleaner gets a digest scoped to their homes (no homes listed = every home in their region) in
+          their language, plus their own live-page link. Drafts land every afternoon for the next day; nothing texts
+          without your approval, here or on the cleaner inbox.
         </div>
       </Section>
 

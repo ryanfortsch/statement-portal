@@ -8,7 +8,8 @@ import {
   addDays,
   type ScheduleDay,
 } from '@/lib/checkout-schedule';
-import { loadVendorTimes } from '@/lib/cleaner-digest';
+import { loadVendorTimes, recipientScope, shapeRecipient, RECIPIENT_COLS } from '@/lib/cleaner-digest';
+import { CAPE_ANN_REGION, regionLabel } from '@/lib/property-scope';
 
 /**
  * The cleaner's live schedule page. Reached from the daily digest SMS
@@ -16,6 +17,11 @@ import { loadVendorTimes } from '@/lib/cleaner-digest';
  * renders the LIVE merged schedule (bookings + Helm adjustments +
  * per-property times) on every load, so a text sent yesterday at 4pm is
  * still true at 7am. Portuguese-first, phone-first, zero chrome.
+ *
+ * Scoped to the recipient: the schedule is built from THEIR row's scope
+ * (an explicit property list, or every home in their region), so Luana's
+ * page shows 65 Calderwood alone and Rosa's never shows a Connecticut
+ * checkout. Same rule as the text they were sent.
  *
  * Auth = knowledge of the 32-hex token on an RLS-locked table read
  * through the service-role client (the /onboarding/<token> pattern).
@@ -66,17 +72,19 @@ export default async function CleanerSchedulePage({
   // 16 hex is the current issue; 32 is the original format, still honoured
   // so any older link keeps working.
   if (!/^[a-f0-9]{16}$|^[a-f0-9]{32}$/.test(token)) notFound();
-  const { data: recipient } = await supabase
+  const { data: recipientRow } = await supabase
     .from('cleaner_schedule_recipients')
-    .select('phone, display_name')
+    .select(RECIPIENT_COLS)
     .eq('portal_token', token)
     .maybeSingle();
-  if (!recipient) notFound();
+  if (!recipientRow) notFound();
+  const recipient = shapeRecipient(recipientRow as Parameters<typeof shapeRecipient>[0]);
+  const scope = recipientScope(recipient);
 
   const today = todayET();
   let days: ScheduleDay[];
   try {
-    days = await buildCheckoutSchedule(supabase, { startDate: today, days: DAYS_SHOWN });
+    days = await buildCheckoutSchedule(supabase, { startDate: today, days: DAYS_SHOWN, scope });
   } catch (err) {
     if (!(err instanceof ScheduleUnavailableError)) throw err;
     // A cleaner opening this on a bad read must see "unavailable", not an
@@ -111,12 +119,15 @@ export default async function CleanerSchedulePage({
   // page has to work out which day the cleaner was texted about. The day of
   // the most recently SENT digest is exactly that, and it beats guessing by
   // clock: approving at 10am for tomorrow used to land the link on today.
-  // Falls back to the old rule when nothing has been sent.
+  // Falls back to the old rule when nothing has been sent. Read for the
+  // recipient's own region: Luana's link must not land on the day Rosa's
+  // Cape Ann digest went out.
   let sentDay: string | null = null;
   try {
     const { data } = await supabase
       .from('cleaner_schedule_digests')
       .select('service_date')
+      .eq('region', recipient.region)
       .eq('status', 'sent')
       .gte('service_date', today)
       .order('service_date', { ascending: true })
@@ -223,7 +234,7 @@ export default async function CleanerSchedulePage({
         )}
 
         <footer className="rt-cl-foot">
-          Rising Tide STR · Gloucester MA
+          Rising Tide STR · {recipient.region === CAPE_ANN_REGION ? 'Gloucester MA' : regionLabel(recipient.region)}
           <span>Dúvidas? Fale com a equipe pelo número de sempre.</span>
         </footer>
       </div>

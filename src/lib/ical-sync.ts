@@ -12,7 +12,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   parseIcal,
-  isBookingEvent,
+  classifyIcalEvent,
+  isBlockSummary,
   guessGuestNameFromIcal,
   isPlaceholderGuestName,
   airbnbConfirmationCode,
@@ -21,6 +22,8 @@ import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
+import { planCancelPass, type CancelGuard } from '@/lib/ical-cancel-policy';
+import { loadAggregateFeedPropertyIds, hasAggregateFeed } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -41,13 +44,59 @@ export type SyncListingResult = {
   events_total: number;
   bookings_added: number;
   bookings_updated: number;
+  /** Rows marked cancelled as stays or holds that left the feed (rolled-off
+   *  past rows, and upcoming rows missing two runs running). */
   bookings_cancelled: number;
+  /** Upcoming rows missing this run but not yet long enough to cancel, plus
+   *  any the mass-cancel guard held. Nothing written for these. */
+  bookings_deferred: number;
+  /** Rows a direct feed had stored as confirmed whose summary was a hold,
+   *  cancelled now as a reclassification (never a stay cancel). */
+  bookings_reclassified: number;
+  /** 'mass_cancel' when too many upcoming rows vanished at once and the
+   *  upcoming cancel set was held for review; null otherwise. */
+  guard: CancelGuard;
   error: string | null;
   duration_ms: number;
 };
 
+/** The columns the cancel pass reads off an existing ical_import row. */
+type ExistingRow = {
+  id: string;
+  ical_uid: string;
+  status: string;
+  check_in: string;
+  check_out: string;
+  last_seen_at: string | null;
+  raw_summary: string | null;
+};
+
+/** What the sync writes per event. booked_at is added on first sight only. */
+type UpsertRow = {
+  property_id: string;
+  channel_listing_id: string;
+  channel: BookingChannel;
+  source: 'ical_import';
+  ical_uid: string;
+  check_in: string;
+  check_out: string;
+  nights: number | null;
+  status: 'confirmed' | 'block';
+  hold_kind: 'ota' | null;
+  guest_name: string | null;
+  external_confirmation_code: string | null;
+  raw_summary: string | null;
+  raw_description: string | null;
+  raw_url: string | null;
+  last_seen_at: string;
+};
+
 /**
  * Sync a single channel listing. Wraps fetch + parse + upsert + log.
+ *
+ * `aggregateFeedPropertyIds` is the set of property ids that still carry an
+ * active Guesty aggregate feed (loadAggregateFeedPropertyIds); syncAllListings
+ * loads it once per run. Absent, it is loaded here.
  */
 export async function syncListing(opts: {
   listing_id: string;
@@ -55,6 +104,7 @@ export async function syncListing(opts: {
   channel: BookingChannel;
   display_name: string | null;
   ical_import_url: string;
+  aggregateFeedPropertyIds?: Set<string>;
 }): Promise<SyncListingResult> {
   const startedAt = new Date();
   const sb = getServiceClient();
@@ -69,6 +119,9 @@ export async function syncListing(opts: {
     bookings_added: 0,
     bookings_updated: 0,
     bookings_cancelled: 0,
+    bookings_deferred: 0,
+    bookings_reclassified: 0,
+    guard: null,
     error: null,
     duration_ms: 0,
   };
@@ -93,62 +146,81 @@ export async function syncListing(opts: {
     const events = parseIcal(text);
     result.events_total = events.length;
 
-    // --- Build upsert rows ---
+    // --- Classify and build upsert rows ---
     // A Guesty per-listing feed (channel='guesty') is an aggregate of every
     // channel; parse each event into its real channel + confirmation code. A
-    // normal single-channel feed uses the listing's own channel.
+    // normal single-channel feed uses the listing's own channel, and
+    // classifyIcalEvent (lib/ical) says per channel whether an event is a
+    // stay, a block or nothing. The old filter dropped every summary
+    // containing "available" and stored the rest as confirmed, so Airbnb's
+    // "Airbnb (Not available)" vanished and a VRBO "Blocked" became a guest.
+    //
+    // While a home still rides Guesty's aggregate feed, a direct feed's
+    // blocks are echoes of the availability Guesty pushed to that OTA (and
+    // Guesty's own holds arrive on the aggregate feed), so they are dropped
+    // here, which is exactly what the old filter did to them. Only a home
+    // with no active aggregate feed stores its OTA-side holds as blocks.
     const isGuestyFeed = opts.channel === 'guesty';
-    const rows = events
-      .filter(isBookingEvent)
-      .map((e) => {
-        const guest = guessGuestNameFromIcal(e);
-        let channel: BookingChannel = opts.channel;
-        let externalConfirmationCode: string | null = null;
-        let status: 'confirmed' | 'block' = 'confirmed';
-        if (isGuestyFeed) {
-          const parsed = parseGuestySummary(e.summary);
-          channel = parsed.channel;
-          externalConfirmationCode = parsed.code;
-          if (parsed.isBlock) status = 'block';
-        } else {
-          // A direct Airbnb feed names no guest but links the reservation in
-          // DESCRIPTION; the code in that link is the cross-source identity
-          // the dedupe joins on. Anything else (VRBO, a block) yields null.
-          externalConfirmationCode = airbnbConfirmationCode(e.description);
-        }
-        return {
-          property_id: opts.property_id,
-          channel_listing_id: opts.listing_id,
-          channel,
-          source: 'ical_import' as const,
-          ical_uid: e.uid,
-          check_in: e.dtstart,
-          check_out: e.dtend,
-          nights: nightsBetween(e.dtstart, e.dtend),
-          status,
-          guest_name: guest,
-          external_confirmation_code: externalConfirmationCode,
-          raw_summary: e.summary,
-          raw_description: e.description,
-          raw_url: e.url,
-          last_seen_at: startedAt.toISOString(),
-          // first_seen_at intentionally unset — DB default applies on insert,
-          // the upsert path below preserves the existing value on update.
-        };
+    const aggregateFeeds = opts.aggregateFeedPropertyIds ?? (await loadAggregateFeedPropertyIds(sb));
+    const dropDirectBlocks = !isGuestyFeed && hasAggregateFeed(aggregateFeeds, opts.property_id);
+    const rows: UpsertRow[] = [];
+    for (const e of events) {
+      const kind = classifyIcalEvent(e, opts.channel);
+      if (kind === 'skip') continue;
+      let channel: BookingChannel = opts.channel;
+      let externalConfirmationCode: string | null = null;
+      let status: 'confirmed' | 'block' = kind === 'block' ? 'block' : 'confirmed';
+      let holdKind: 'ota' | null = null;
+      if (isGuestyFeed) {
+        const parsed = parseGuestySummary(e.summary);
+        channel = parsed.channel;
+        externalConfirmationCode = parsed.code;
+        status = parsed.isBlock ? 'block' : 'confirmed';
+      } else if (kind === 'block') {
+        if (dropDirectBlocks) continue;
+        holdKind = 'ota';
+      } else {
+        // A direct Airbnb feed names no guest but links the reservation in
+        // DESCRIPTION; the code in that link is the cross-source identity
+        // the dedupe joins on. Anything else (VRBO) yields null.
+        externalConfirmationCode = airbnbConfirmationCode(e.description);
+      }
+      // A hold has no guest; "Airbnb (Not available)" must not become one.
+      const guest = status === 'block' ? null : guessGuestNameFromIcal(e);
+      rows.push({
+        property_id: opts.property_id,
+        channel_listing_id: opts.listing_id,
+        channel,
+        source: 'ical_import',
+        ical_uid: e.uid,
+        check_in: e.dtstart,
+        check_out: e.dtend,
+        nights: nightsBetween(e.dtstart, e.dtend),
+        status,
+        hold_kind: holdKind,
+        guest_name: guest,
+        external_confirmation_code: externalConfirmationCode,
+        raw_summary: e.summary,
+        raw_description: e.description,
+        raw_url: e.url,
+        last_seen_at: startedAt.toISOString(),
+        // first_seen_at intentionally unset: the DB default applies on
+        // insert, the upsert path below preserves the existing value on
+        // update. booked_at is added on the insert set only, below.
       });
+    }
 
     // --- Diff to count adds/updates/cancels ---
     const incomingUids = new Set(rows.map((r) => r.ical_uid));
-    const { data: existing, error: existingErr } = await sb
+    const { data: existingData, error: existingErr } = await sb
       .from('bookings')
-      .select('id, ical_uid, status, check_in, check_out')
+      .select('id, ical_uid, status, check_in, check_out, last_seen_at, raw_summary')
       .eq('channel_listing_id', opts.listing_id)
       .eq('source', 'ical_import');
     if (existingErr) throw new Error(`select existing: ${existingErr.message}`);
+    const existing = (existingData ?? []) as ExistingRow[];
 
-    const existingByUid = new Map<string, { id: string; status: string; check_in: string; check_out: string }>(
-      (existing ?? []).map((r) => [r.ical_uid as string, r as { id: string; status: string; check_in: string; check_out: string }]),
-    );
+    const existingByUid = new Map<string, ExistingRow>(existing.map((r) => [r.ical_uid, r]));
 
     let added = 0;
     let updated = 0;
@@ -159,7 +231,7 @@ export async function syncListing(opts: {
       } else if (
         prior.check_in !== row.check_in ||
         prior.check_out !== row.check_out ||
-        prior.status !== 'confirmed'
+        prior.status !== row.status
       ) {
         updated += 1;
       }
@@ -190,7 +262,7 @@ export async function syncListing(opts: {
     // reads guesty_reservations, never bookings. The stays this still declines
     // to act on are the ones worth protecting: real upcoming reservations.
     const cutoff = startedAt.toISOString().slice(0, 10);
-    const liveExisting = (existing ?? []).filter(
+    const liveExisting = existing.filter(
       (r) => r.status !== 'cancelled' && String(r.check_out) >= cutoff,
     );
     if (rows.length === 0 && liveExisting.length > 0) {
@@ -200,32 +272,81 @@ export async function syncListing(opts: {
       result.success = false;
       result.error = `empty-feed guard: parsed 0 bookings but ${liveExisting.length} upcoming booking(s) exist; skipped cancel pass (suspected transient or broken feed)`;
     } else {
-      // Anything previously imported but missing this run is a cancellation /
-      // disappearance. Mark cancelled rather than delete, to keep history.
-      const disappeared = (existing ?? [])
-        .filter((r) => r.status !== 'cancelled' && !incomingUids.has(r.ical_uid as string))
-        .map((r) => r.id as string);
+      // Anything previously imported but missing this run has disappeared.
+      // planCancelPass (lib/ical-cancel-policy) decides what that means:
+      // a rolled-off past row and a hold stored as confirmed cancel now, an
+      // upcoming row only once it has been missing longer than one cron
+      // beat, and none of the upcoming set when too many vanish at once.
+      // Mark cancelled rather than delete, to keep history.
+      const plan = planCancelPass({
+        existing,
+        incomingUids,
+        uidOf: (r) => (r as ExistingRow).ical_uid,
+        now: startedAt,
+        todayIso: cutoff,
+        isBlockSummary,
+      });
 
       // --- Upsert ---
-      if (rows.length > 0) {
+      // Two writes, because PostgREST takes the column list from the first
+      // object: a row seen for the first time gets booked_at (first sight,
+      // never overwritten), a row already on file does not carry the key at
+      // all so its stamp stands.
+      const inserts = rows
+        .filter((r) => !existingByUid.has(r.ical_uid))
+        .map((r) => ({ ...r, booked_at: startedAt.toISOString() }));
+      const updates = rows.filter((r) => existingByUid.has(r.ical_uid));
+      if (inserts.length > 0) {
+        const { error: insertErr } = await sb
+          .from('bookings')
+          .upsert(inserts, { onConflict: 'channel,ical_uid' });
+        if (insertErr) throw new Error(`upsert bookings (new): ${insertErr.message}`);
+      }
+      if (updates.length > 0) {
         const { error: upsertErr } = await sb
           .from('bookings')
-          .upsert(rows, { onConflict: 'channel,ical_uid' });
+          .upsert(updates, { onConflict: 'channel,ical_uid' });
         if (upsertErr) throw new Error(`upsert bookings: ${upsertErr.message}`);
       }
 
-      if (disappeared.length > 0) {
+      if (plan.cancelNow.length > 0) {
         const { error: cancelErr } = await sb
           .from('bookings')
-          .update({ status: 'cancelled', cancelled_at: startedAt.toISOString() })
-          .in('id', disappeared);
+          .update({
+            status: 'cancelled',
+            cancelled_at: startedAt.toISOString(),
+            cancelled_by: 'ical-sync',
+            cancel_reason: 'missing_from_feed',
+          })
+          .in('id', plan.cancelNow);
         if (cancelErr) throw new Error(`cancel bookings: ${cancelErr.message}`);
+      }
+      if (plan.reclassified.length > 0) {
+        const { error: reclassErr } = await sb
+          .from('bookings')
+          .update({
+            status: 'cancelled',
+            cancelled_at: startedAt.toISOString(),
+            cancelled_by: 'ical-sync',
+            cancel_reason: 'reclassified_hold',
+          })
+          .in('id', plan.reclassified);
+        if (reclassErr) throw new Error(`reclassify holds: ${reclassErr.message}`);
       }
 
       result.bookings_added = added;
       result.bookings_updated = updated;
-      result.bookings_cancelled = disappeared.length;
-      result.success = true;
+      result.bookings_cancelled = plan.cancelNow.length;
+      result.bookings_deferred = plan.deferred.length;
+      result.bookings_reclassified = plan.reclassified.length;
+      result.guard = plan.guard;
+      if (plan.guard === 'mass_cancel') {
+        const d = plan.guardDetail;
+        result.success = false;
+        result.error = `mass-cancel guard: ${d.upcoming_missing} of ${d.upcoming_live} upcoming booking(s) vanished from the feed (threshold ${d.threshold}); held them and skipped the upcoming cancel pass (suspected transient or broken feed)`;
+      } else {
+        result.success = true;
+      }
     }
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
@@ -247,7 +368,9 @@ export async function syncListing(opts: {
     events_total: result.events_total,
     bookings_added: result.bookings_added,
     bookings_updated: result.bookings_updated,
-    bookings_cancelled: result.bookings_cancelled,
+    // Every row this run marked cancelled, reclassified holds included; the
+    // result splits them, the run log records what happened to the table.
+    bookings_cancelled: result.bookings_cancelled + result.bookings_reclassified,
     raw_response_size: responseSize,
   });
 
@@ -288,6 +411,12 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
   total: number;
   succeeded: number;
   failed: number;
+  /** Sum of bookings_deferred across listings. */
+  deferred: number;
+  /** Sum of bookings_reclassified across listings. */
+  reclassified: number;
+  /** Listings whose mass-cancel guard tripped this run. */
+  guarded: number;
   results: SyncListingResult[];
   dedup: DedupResult | null;
 }> {
@@ -305,6 +434,10 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
       (l) => l.is_active && l.ical_import_enabled && !!l.ical_import_url,
     );
 
+    // Which homes still ride Guesty's aggregate feed, read once per run:
+    // their direct-feed blocks are dropped at import (see syncListing).
+    const aggregateFeedPropertyIds = await loadAggregateFeedPropertyIds(sb);
+
     const results: SyncListingResult[] = [];
     for (const l of eligible) {
       const r = await syncListing({
@@ -313,6 +446,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
         channel: l.channel as BookingChannel,
         display_name: l.display_name as string | null,
         ical_import_url: l.ical_import_url as string,
+        aggregateFeedPropertyIds,
       });
       results.push(r);
     }
@@ -335,6 +469,9 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     // there; sync_status is the watchdog surface.
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
+    const deferred = results.reduce((n, r) => n + r.bookings_deferred, 0);
+    const reclassified = results.reduce((n, r) => n + r.bookings_reclassified, 0);
+    const guarded = results.filter((r) => r.guard !== null).length;
     const firstFailed = results.find((r) => !r.success);
     await recordSyncResult('ical', {
       processed: succeeded,
@@ -342,13 +479,16 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
       firstError: firstFailed
         ? `${firstFailed.display_name ?? firstFailed.listing_id}: ${firstFailed.error ?? 'unknown'}`
         : undefined,
-      result: { succeeded, failed, total: results.length },
+      result: { succeeded, failed, total: results.length, deferred, reclassified, guarded },
     });
 
     return {
       total: results.length,
       succeeded,
       failed,
+      deferred,
+      reclassified,
+      guarded,
       results,
       dedup,
     };
@@ -391,7 +531,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, channel_listing_id, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },
@@ -424,7 +564,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     enrichPatches,
     clusters: clusterCount,
     duplicates: dupCount,
-  } = planDedupe(rows, { isFromAggregateFeed, isPlaceholderGuestName });
+  } = planDedupe(rows, { isFromAggregateFeed, isPlaceholderGuestName, isBlockSummary });
 
   // Write only changed rows, batched by target value to minimize round trips.
   const loadedIds = new Set(rows.map((r) => r.id));

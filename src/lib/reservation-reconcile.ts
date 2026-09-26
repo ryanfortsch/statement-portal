@@ -31,6 +31,7 @@
  */
 import { supabaseAdmin } from './supabase-admin';
 import { checkLiveGuestyStatus, isCancelledStatus } from './cancel-check';
+import { loadGuestyRunPropertyIds } from './pms-guards';
 
 const RECONCILE_CAP_PER_RUN = 25;
 const RECONCILE_FUTURE_RECHECK_MS = 60 * 60 * 1000; // 1h
@@ -54,6 +55,12 @@ export type ReconcileResult = {
   refreshed: number;
   /** Stale rows beyond this run's cap; they heal on subsequent runs. */
   backlog: number;
+  /**
+   * Stale rows on homes Helm runs, left alone. Probing Guesty for a listing
+   * it no longer manages would read its retired record as `canceled` and
+   * flip Helm's own live bookings for those dates to cancelled.
+   */
+  skipped_helm_run: number;
 };
 
 export async function reconcileStaleReservations(): Promise<ReconcileResult> {
@@ -75,8 +82,16 @@ export async function reconcileStaleReservations(): Promise<ReconcileResult> {
     .limit(200);
   if (error) throw new Error(`stale-reservation query failed: ${error.message}`);
 
+  // Guesty-run homes only. null = registry read failed; keep every row
+  // (today's behaviour) rather than skipping the fleet.
+  const guestyRunIds = await loadGuestyRunPropertyIds(sb);
+  let skippedHelmRun = 0;
   const candidates = ((data ?? []) as StaleReservationRow[]).filter((r) => {
     if (!r.check_in || !r.check_out || !r.confirmation_code) return false;
+    if (guestyRunIds && r.property_id && !guestyRunIds.has(r.property_id)) {
+      skippedHelmRun += 1;
+      return false;
+    }
     if (r.check_in > today) return true; // future stay: hourly threshold already applied in the query
     return !r.synced_at || r.synced_at < pastStaleBefore; // in-progress/past stay: 12h
   });
@@ -91,7 +106,7 @@ export async function reconcileStaleReservations(): Promise<ReconcileResult> {
 
   const suspects = candidates.slice(0, RECONCILE_CAP_PER_RUN);
   if (suspects.length === 0) {
-    return { checked: 0, flipped_cancelled: 0, cancelled_codes: [], refreshed: 0, backlog: 0 };
+    return { checked: 0, flipped_cancelled: 0, cancelled_codes: [], refreshed: 0, backlog: 0, skipped_helm_run: skippedHelmRun };
   }
 
   const live = await checkLiveGuestyStatus(suspects.map((r) => r.confirmation_code!));
@@ -148,5 +163,6 @@ export async function reconcileStaleReservations(): Promise<ReconcileResult> {
     cancelled_codes: cancelledCodes,
     refreshed,
     backlog: candidates.length - suspects.length,
+    skipped_helm_run: skippedHelmRun,
   };
 }

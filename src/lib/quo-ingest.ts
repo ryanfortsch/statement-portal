@@ -1,8 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
-import { normalizePhone, quoLineOfInbound, type QuoLine } from '@/lib/quo';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { normalizePhone, quoLineFor, quoLineOfInbound, type QuoLine } from '@/lib/quo';
 import { matchPropertyFromCleanerText, PROPERTIES, type CleanerTextRosterEntry } from '@/lib/properties';
 import { mirrorQuoFinish } from '@/lib/cleaning-sessions';
 import { ingestVendorAppointments, isVendorReminderSender } from '@/lib/vendor-schedule';
+import { recordInboundSms, recordOutboundSms } from '@/lib/helm-inbox';
 
 /**
  * Quo (OpenPhone) WEBHOOK ingest. Shared by the live webhook
@@ -20,12 +21,9 @@ import { ingestVendorAppointments, isVendorReminderSender } from '@/lib/vendor-s
  * We model the real webhook shape here so attribution actually works.
  */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Service role only (contacts, contact_touches, bookings, guest_threads and
+// guest_messages are all RLS-locked). The old anon-key fallback made a
+// missing service key look like an empty database.
 
 export type QuoEventEnvelope = {
   id: string;
@@ -158,6 +156,28 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
     return;
   }
 
+  // 1b. The Helm inbox. A text on the GUESTS line is a guest; file it on
+  // the (sms, E.164) thread for the stay it belongs to (in-house first)
+  // when the number matches a booking, an existing thread or a guest
+  // record. This runs BEFORE the cleaner / contact / unknown paths and
+  // never short-circuits them: the unknown-number capture below still
+  // happens so /crm triage keeps working, and a failure here (table not
+  // migrated, transient read error) must never cost the webhook the rest
+  // of its work.
+  if (quoLineOfInbound(msg) === 'guests') {
+    try {
+      await recordInboundSms({
+        phone: fromPhone,
+        body,
+        at: msg.createdAt,
+        quoMessageId: msg.id,
+        raw: { phoneNumberId: msg.phoneNumberId ?? null, to: msg.to ?? null },
+      });
+    } catch (err) {
+      console.warn('[quo-ingest] helm inbox inbound skipped', err instanceof Error ? err.message : err);
+    }
+  }
+
   // 1. Cleaner path: a completion ping and/or a maintenance issue.
   const cleanerHit = await matchCleanerPhone(fromPhone);
   if (cleanerHit) {
@@ -244,11 +264,33 @@ async function handleOutboundMessage(msg: WebhookMessage): Promise<void> {
   if (!msg) return;
   const toPhone = firstPhone(msg.to);
   if (!toPhone) return;
+  const body = messageBody(msg);
+
+  // A reply typed in the Quo app on the GUESTS line belongs on the guest's
+  // Helm thread as a human host message. A send Helm made itself already
+  // recorded the Quo message id (sendHelmThreadMessage), and recordOutboundSms
+  // skips those, so the webhook echo never doubles it. Fail-soft, same as
+  // the inbound hook: this must never cost the contact touch below.
+  if (quoLineOutbound(msg) === 'guests') {
+    try {
+      await recordOutboundSms({
+        phone: toPhone,
+        body,
+        at: msg.createdAt,
+        quoMessageId: msg.id,
+        senderKind: 'host_human',
+        source: 'quo_app',
+        deliveryStatus: 'delivered',
+        raw: { phoneNumberId: msg.phoneNumberId ?? null, from: msg.from ?? null },
+      });
+    } catch (err) {
+      console.warn('[quo-ingest] helm inbox outbound skipped', err instanceof Error ? err.message : err);
+    }
+  }
 
   const contact = await findContactByPhone(toPhone);
   if (!contact) return;
 
-  const body = messageBody(msg);
   await supabase
     .from('contact_touches')
     .insert({
@@ -371,6 +413,12 @@ function firstPhone(to: string | string[] | null | undefined): string {
   return to ?? '';
 }
 
+/** Which of our lines an OUTBOUND message left from. phoneNumberId first,
+ *  then the `from` number (ours, on an outgoing message). */
+function quoLineOutbound(msg: WebhookMessage): QuoLine | null {
+  return quoLineFor(msg.phoneNumberId) ?? quoLineFor(msg.from);
+}
+
 function callOtherParty(call: WebhookCall): string {
   const party = call.direction === 'incoming' ? call.from ?? '' : firstPhone(call.to);
   return party || (call.participants?.[0] ?? '');
@@ -463,7 +511,9 @@ async function attributeCleaningProperty(
 // confirmed/completed + non-duplicate filters, so a cleaner text keys to the
 // exact checkout the turnover row joins on. (Was guesty_reservations, which is
 // wound down and could miss a checkout that only lives in bookings.)
-async function mostRecentCheckout(propertyId: string, asOf?: string): Promise<string> {
+// Exported so /api/sync-quo keys its backfilled completions the same way
+// instead of carrying its own guesty_reservations copy.
+export async function mostRecentCheckout(propertyId: string, asOf?: string): Promise<string> {
   const cutoff = (asOf ? new Date(asOf) : new Date()).toISOString().slice(0, 10);
   const { data } = await supabase
     .from('bookings')

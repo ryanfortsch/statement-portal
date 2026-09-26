@@ -14,6 +14,7 @@ import {
 } from '@/lib/guesty-reservations';
 import { backfillGuestyToBookings } from '@/lib/guesty-backfill';
 import { guestNameFromRawReview, normalizeGuestyReview } from '@/lib/guesty-review-normalize';
+import { loadHelmRunPropertyIds } from '@/lib/pms-guards';
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
@@ -185,6 +186,8 @@ async function guestyGet(path: string, token: string, params?: Record<string, st
 
 type ListingRow = { listing_id: string; property_id: string; nickname: string | null; address: string | null; hero_url: string | null };
 type UnmatchedListing = { listing_id: string; nickname: string | null; address: string | null };
+/** A listing that matched a property Helm now runs: deliberately not mapped. */
+type HelmRunSkippedListing = { listing_id: string; property_id: string; nickname: string | null };
 
 /**
  * Needles to match a Guesty listing against, property id to needle.
@@ -222,9 +225,28 @@ async function listingNeedles(): Promise<Record<string, string>> {
   return needles;
 }
 
+/**
+ * Pull Guesty's listings and rebuild guesty_listings.
+ *
+ * `helmRunIds` are the properties whose calendar_authority is 'helm' (the
+ * cutover switch, pms-guards). A listing that matches one of them is NOT an
+ * unmatched listing (the LISTING_MATCH floor entry still names it, on
+ * purpose, until the post-cutover cleanup) and it is NOT mapped either: it
+ * is counted in `helm_run_skipped`, and any guesty_listings rows for those
+ * properties are deleted after the upsert, so syncReviews, syncReservations
+ * and the calendar mirror find no map entry for a home Guesty no longer
+ * runs. Guesty credentials and the rest of the fleet are untouched.
+ */
 async function refreshListingMap(
   token: string,
-): Promise<{ rows: ListingRow[]; unmatched: UnmatchedListing[]; removed: ListingRowLite[]; held: ListingRowLite[] }> {
+  helmRunIds: ReadonlySet<string> = new Set(),
+): Promise<{
+  rows: ListingRow[];
+  unmatched: UnmatchedListing[];
+  helm_run_skipped: HelmRunSkippedListing[];
+  removed: ListingRowLite[];
+  held: ListingRowLite[];
+}> {
   const needles = await listingNeedles();
   const all: any[] = [];
   let skip = 0;
@@ -247,6 +269,7 @@ async function refreshListingMap(
 
   const rows: ListingRow[] = [];
   const unmatched: UnmatchedListing[] = [];
+  const helmRunSkipped: HelmRunSkippedListing[] = [];
   for (const l of all) {
     const nickname: string = (l.nickname || l.title || '').toString();
     const address: string = (l.address?.full || l.address?.street || '').toString();
@@ -275,6 +298,11 @@ async function refreshListingMap(
     }
     if (!matched) {
       unmatched.push({ listing_id: l._id, nickname: nickname || null, address: address || null });
+      continue;
+    }
+    // Helm runs this home now. Not unmatched, not mapped: skipped.
+    if (helmRunIds.has(matched)) {
+      helmRunSkipped.push({ listing_id: l._id, property_id: matched, nickname: nickname || null });
       continue;
     }
 
@@ -365,6 +393,19 @@ async function refreshListingMap(
       }
     }
   }
+  // A home that flipped to Helm since the last run may still have its map
+  // rows from before the flip (flip_calendar_authority deletes them too;
+  // this is the belt to that brace, and it also catches a listing that was
+  // mapped by hand). Their retirement below would refuse to act because
+  // Guesty still returns the listing, so delete by property id explicitly.
+  if (helmRunIds.size > 0) {
+    const { error: helmDelErr } = await getSupabase()
+      .from('guesty_listings')
+      .delete()
+      .in('property_id', [...helmRunIds]);
+    if (helmDelErr) console.warn('[sync-guesty] helm-run guesty_listings delete failed:', helmDelErr.message);
+  }
+
   // Retire rows Guesty no longer returns. The upsert above only ever added;
   // a listing removed on Guesty's side (17 Beach's Back Unit, gone since
   // 2026-06-02) stayed in the map for months, and every calendar refresh
@@ -399,7 +440,7 @@ async function refreshListingMap(
     console.warn('[sync-guesty] listing retirement skipped:', err instanceof Error ? err.message : String(err));
   }
 
-  return { rows, unmatched, removed, held };
+  return { rows, unmatched, helm_run_skipped: helmRunSkipped, removed, held };
 }
 
 async function loadListingMap(): Promise<Record<string, string>> {
@@ -684,6 +725,12 @@ export async function POST(request: NextRequest) {
     const token = await getGuestyToken();
     const sb = getSupabase();
 
+    // The cutover switch. Homes Helm runs are dropped from the listing map
+    // (so reviews / reservations / gaps never see them) and skipped by the
+    // calendar mirror sync; the reconcilers and backfill filter themselves.
+    // Empty on a failed read = skip nothing, today's behaviour.
+    const helmRunIds = await loadHelmRunPropertyIds(sb);
+
     // Listings. Wrapped in its own try/catch so a refreshListingMap throw
     // (an expired Guesty token, a scope reduction, a 5xx) no longer cascades
     // and silently aborts reviews + reservations + calendar with NO sync
@@ -693,16 +740,20 @@ export async function POST(request: NextRequest) {
     let mapped = 0;
     let listingMap: Record<string, string> = {};
     let unmatchedListings: UnmatchedListing[] = [];
+    let helmRunSkipped: HelmRunSkippedListing[] = [];
     if (refreshMap) {
       try {
-        const { rows, unmatched, removed, held } = await refreshListingMap(token);
+        const { rows, unmatched, helm_run_skipped, removed, held } = await refreshListingMap(token, helmRunIds);
         mapped = rows.length;
         unmatchedListings = unmatched;
+        helmRunSkipped = helm_run_skipped;
         rows.forEach(r => { listingMap[r.listing_id] = r.property_id; });
         await recordSyncSuccess('guesty-listings', {
           mapped,
           unmatched_count: unmatched.length,
           unmatched,
+          // Listings for homes Helm now runs: not unmatched, not mapped.
+          helm_run_skipped,
           // Rows Guesty stopped returning that this run retired, and any
           // stale rows the guard held back for a human.
           removed: removed.map(r => ({ listing_id: r.listing_id, property_id: r.property_id, nickname: r.nickname })),
@@ -814,7 +865,10 @@ export async function POST(request: NextRequest) {
     };
     try {
       const { startDate, endDate } = calWindow;
-      const cal = await syncCalendarDays(listingMap, startDate, endDate);
+      // The map already excludes helm-run homes; the skip set is the
+      // guarantee that their rows are never swept even if a stale map row
+      // slipped through (the Helm mirror owns those tables for them).
+      const cal = await syncCalendarDays(listingMap, startDate, endDate, { skipPropertyIds: helmRunIds });
       calendarResult = cal;
       // A property whose refresh threw is swallowed inside syncCalendarDays.
       // Stamping unconditional success left sync_status 'ok' on a mirror
@@ -850,6 +904,7 @@ export async function POST(request: NextRequest) {
       success: true,
       listings_mapped: mapped,
       unmatched_listings: unmatchedListings,
+      helm_run_skipped: helmRunSkipped,
       reviews: reviewsResult,
       reviews_to_slips: reviewsToSlipsResult,
       reservations: reservationsResult,

@@ -134,6 +134,13 @@ const PUBLIC_API_PREFIXES = [
   // accepted, balance paid). Self-guards via STAY_CONCIERGE_KEY (header
   // only); voided and never-sent quotes are 404 so the link reads as dead.
   "/api/sca-quotes/",
+  // PMS bridge: staycapeann.com and stay-concierge read availability, price
+  // a stay, create / cancel a reservation and read Helm-native guest threads
+  // for a home whose calendar_authority is 'helm' (the Guesty replacement).
+  // Every route self-guards via STAY_CONCIERGE_KEY (header only). The
+  // prefix is a fresh namespace with no session-gated siblings; never open
+  // a bare "/api/reservations", which would expose /api/reservations/remove.
+  "/api/pms/",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",

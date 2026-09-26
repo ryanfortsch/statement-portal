@@ -197,9 +197,65 @@ export type MintResult =
     }
   | {
       ok: false;
-      error: 'no_key' | 'stripe_permission' | 'stripe_error' | 'amount_out_of_range' | 'not_configured';
+      error:
+        | 'no_key'
+        | 'stripe_permission'
+        | 'stripe_error'
+        | 'amount_out_of_range'
+        | 'not_configured'
+        /** The property is outside Cape Ann and has no property_tax_config
+         *  row, so Helm does not know what tax to add. Never defaults to MA. */
+        | 'tax_jurisdiction_unknown';
       detail?: string;
     };
+
+/** The quote-side tax jurisdiction for a home outside Cape Ann. */
+type TaxConfigPick = {
+  state_rate: number | string | null;
+  local_rate: number | string | null;
+  cif_rate: number | string | null;
+};
+
+/**
+ * Which tax rate an add-on for this property carries.
+ *
+ *   - Cape Ann (region null or 'cape_ann'): 'ma' means the existing MA path,
+ *     splitAddOnTax over owedOccupancyTaxRate, byte for byte as before.
+ *   - Any other region: the property_tax_config row is REQUIRED and its
+ *     summed rate (state + local + CIF, fractions) is used. No row means
+ *     'unknown': the mint refuses rather than charging a CT guest 11.7% MA
+ *     tax, which is what owedOccupancyTaxRate would silently do.
+ *
+ * Inline read on purpose: src/lib/tax-config.ts is the fuller reader and is
+ * being written separately; this keeps payment-links self-contained until
+ * that lands. A failed read is 'unknown', never a guessed rate.
+ */
+async function resolveAddOnTaxJurisdiction(
+  propertyId: string,
+): Promise<{ kind: 'ma' } | { kind: 'config'; rate: number } | { kind: 'unknown' }> {
+  const { data: prop, error: propErr } = await supabase
+    .from('properties')
+    .select('region')
+    .eq('id', propertyId)
+    .maybeSingle();
+  // An unreadable registry is treated as Cape Ann: the fleet was MA-only
+  // before regions existed, and this keeps a transient read error from
+  // blocking a Cape Ann link. A row with an explicit other region is the
+  // signal, and that row is read below.
+  const region = propErr ? null : ((prop as { region?: string | null } | null)?.region ?? null);
+  if (region === null || region === 'cape_ann') return { kind: 'ma' };
+
+  const { data: cfg, error: cfgErr } = await supabase
+    .from('property_tax_config')
+    .select('state_rate, local_rate, cif_rate')
+    .eq('property_id', propertyId)
+    .maybeSingle();
+  if (cfgErr || !cfg) return { kind: 'unknown' };
+  const c = cfg as TaxConfigPick;
+  const rate = Number(c.state_rate ?? 0) + Number(c.local_rate ?? 0) + Number(c.cif_rate ?? 0);
+  if (!Number.isFinite(rate) || rate < 0) return { kind: 'unknown' };
+  return { kind: 'config', rate };
+}
 
 /**
  * Create a Stripe Payment Link in the property's own account and record it.
@@ -272,12 +328,31 @@ export async function mintPaymentLink(input: MintInput): Promise<MintResult> {
   // the line the guest reads on the checkout page (Stripe's price
   // product_data has no description field; sending one 400s the call).
   const taxable = addOnIsTaxable({ requestKey, saveCard, taxable: input.taxable });
-  const split = splitAddOnTax({
-    propertyId,
-    baseCents: amountCents,
-    chargeCreatedIso: new Date().toISOString().slice(0, 10),
-    taxable,
-  });
+  // Jurisdiction gate: a home outside Cape Ann must carry its own
+  // property_tax_config row before Helm will add tax to (or mint at all for)
+  // one of its add-ons. Cape Ann homes take the unchanged MA path.
+  const jurisdiction = await resolveAddOnTaxJurisdiction(propertyId);
+  if (jurisdiction.kind === 'unknown') {
+    return {
+      ok: false,
+      error: 'tax_jurisdiction_unknown',
+      detail: `no property_tax_config row for ${propertyId}; add its jurisdiction before minting a link`,
+    };
+  }
+  const split =
+    jurisdiction.kind === 'config'
+      ? (() => {
+          const base = Math.round(amountCents);
+          if (!taxable) return { baseCents: base, taxCents: 0, totalCents: base, rate: 0 };
+          const taxCents = Math.round(base * jurisdiction.rate);
+          return { baseCents: base, taxCents, totalCents: base + taxCents, rate: jurisdiction.rate };
+        })()
+      : splitAddOnTax({
+          propertyId,
+          baseCents: amountCents,
+          chargeCreatedIso: new Date().toISOString().slice(0, 10),
+          taxable,
+        });
   const priceParams: Record<string, string> = {
     unit_amount: String(split.totalCents),
     currency: 'usd',
