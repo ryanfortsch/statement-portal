@@ -721,6 +721,26 @@ describe('pass four: an OTA block that echoes nights Helm already holds', () => 
 // live stay became a duplicate of the cancelled one, vanished from the
 // export, the availability bridge and the booking writer's overlap check,
 // and the same nights could be sold twice.
+describe("fleet parity: Guesty's cancelled aggregate blocks cluster as they always have", () => {
+  test('on a Guesty-run home a cancelled "Blocked by Guesty" row is not read as a hold by its summary', () => {
+    // 1,625 such rows stood up as canonical rows when the summary test was
+    // applied to the aggregate feed fleet-wide, and pushed real stays off
+    // the 500-row bookings list.
+    const AGG = 'listing-guesty';
+    const withAgg = { ...optsWithHolds, isFromAggregateFeed: (r: DedupRow) => r.source === 'ical_import' && r.channel_listing_id === AGG };
+    const rows = [
+      row({ id: 'G1', channel_listing_id: AGG, status: 'cancelled', raw_summary: 'Blocked by Guesty', check_in: '2027-06-23', check_out: '2028-09-27', cancelled_at: '2026-09-25T00:00:00Z' }),
+      row({ id: 'G2', channel_listing_id: AGG, status: 'cancelled', raw_summary: 'Blocked by Guesty', check_in: '2027-06-24', check_out: '2028-09-28', cancelled_at: '2026-09-26T00:00:00Z' }),
+    ];
+    const fleet = planDedupe(rows, withAgg);
+    assert.equal(canonicalOf(fleet, 'G1'), canonicalOf(fleet, 'G2'), 'clustered, as before');
+    // On a Helm-run home they are holds and stand apart.
+    const helmRows = rows.map((r) => ({ ...r, property_id: '65_calderwood' }));
+    const strictPlan = planDedupe(helmRows, { ...withAgg, strictChannelPropertyIds: new Set(['65_calderwood']) });
+    assert.notEqual(canonicalOf(strictPlan, 'G1'), canonicalOf(strictPlan, 'G2'));
+  });
+});
+
 describe('Helm-run homes: a date join never crosses channels', () => {
   const HELM_HOME = '65_calderwood';
   const strict = { ...opts, strictChannelPropertyIds: new Set([HELM_HOME]) };
@@ -860,6 +880,39 @@ describe('Helm-run homes: a date join never crosses channels', () => {
     // And the sync's own disappearance is never an operator's cancel.
     const synced = mk(HELM_HOME).map((r) => (r.id === 'AGG' ? { ...r, cancelled_by: 'ical-sync' } : r));
     assert.equal(canonicalOf(planDedupe(synced, optsAgg(new Set([HELM_HOME]))), 'GL'), 'GL');
+  });
+
+  test("after the flip the live feed row, not Guesty's frozen copy, speaks for the stay", () => {
+    // An Airbnb reservation on file three ways; the aggregate row was seen
+    // first. The guest then extends on Airbnb: only the direct row moves.
+    const AGG = 'listing-guesty';
+    const withAgg = { ...strict, isFromAggregateFeed: (r: DedupRow) => r.source === 'ical_import' && r.channel_listing_id === AGG };
+    const rows = [
+      row({ id: 'AG', property_id: HELM_HOME, channel: 'airbnb', channel_listing_id: AGG, external_confirmation_code: 'HMEXTEND01', check_in: '2026-10-10', check_out: '2026-10-14', created_at: '2026-05-01T00:00:00Z' }),
+      row({ id: 'GL', property_id: HELM_HOME, channel: 'airbnb', source: 'guesty_legacy', channel_listing_id: null, external_confirmation_code: 'HMEXTEND01', guest_name: 'Pat Doe', check_in: '2026-10-10', check_out: '2026-10-14', created_at: '2026-05-02T00:00:00Z' }),
+      row({ id: 'D', property_id: HELM_HOME, channel: 'airbnb', channel_listing_id: 'listing-airbnb-direct', external_confirmation_code: 'HMEXTEND01', check_in: '2026-10-10', check_out: '2026-10-16', created_at: '2026-09-20T00:00:00Z' }),
+    ];
+    const helm = planDedupe(rows, withAgg);
+    assert.equal(canonicalOf(helm, 'AG'), 'D');
+    assert.equal(canonicalOf(helm, 'GL'), 'D');
+    // A Guesty-run home keeps its old tie-break (earliest created wins).
+    const fleetRows = rows.map((r) => ({ ...r, property_id: '20_hammond' }));
+    assert.equal(canonicalOf(planDedupe(fleetRows, withAgg), 'D'), 'AG');
+  });
+
+  test('a Booking.com booking typed in after the cutover never joins a Guesty-era cluster the operator cancelled', () => {
+    const AGG = 'listing-guesty';
+    const withAgg = {
+      ...strict,
+      isFromAggregateFeed: (r: DedupRow) => r.source === 'ical_import' && r.channel_listing_id === AGG,
+      cutoverAtByProperty: new Map([[HELM_HOME, '2026-09-30T12:00:00Z']]),
+    };
+    const rows = [
+      row({ id: 'AG', property_id: HELM_HOME, channel: 'booking_com', channel_listing_id: AGG, status: 'cancelled', cancelled_at: '2026-10-01T00:00:00Z', cancelled_by: 'dotti@risingtidestr.com', external_confirmation_code: 'BC-33XlG09Bp', guest_name: 'Spring Robert', check_in: '2026-10-16', check_out: '2026-10-20', created_at: '2026-06-01T00:00:00Z' }),
+      row({ id: 'GL', property_id: HELM_HOME, channel: 'booking_com', source: 'guesty_legacy', channel_listing_id: null, external_confirmation_code: 'BC-33XlG09Bp', guest_name: 'Spring Robert', check_in: '2026-10-16', check_out: '2026-10-20', created_at: '2026-06-02T00:00:00Z' }),
+      row({ id: 'M2', property_id: HELM_HOME, channel: 'booking_com', source: 'manual', channel_listing_id: null, guest_name: 'Spring Robert', check_in: '2026-10-16', check_out: '2026-10-20', created_at: '2026-10-02T00:00:00Z' }),
+    ];
+    assert.equal(canonicalOf(planDedupe(rows, withAgg), 'M2'), 'M2');
   });
 
   test('a cancelled hand entry and its re-entry stay two rows on a Helm-run home', () => {

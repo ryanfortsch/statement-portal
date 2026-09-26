@@ -35,12 +35,14 @@ export type ChannelListingEx = ChannelListing & {
   export_subscribed: boolean;
   export_subscribed_at: string | null;
   /**
-   * The operator's release for the mass-cancel guard ("these cancellations
-   * are real"), stamped by acknowledgeMassCancel on the hub. The next sync
-   * of the listing skips the guard once and clears it, so a value here
-   * means a release is waiting for a sync to consume it.
+   * The operator's release for a cancel guard ("these cancellations are
+   * real"), stamped by acknowledgeMassCancel on the hub with the run whose
+   * alert it answered (mass_cancel_ack_run_id). The next decisive sync of
+   * the listing applies it if that run is still the newest, and clears it
+   * either way (lib/ical-cancel-policy releaseAnswers).
    */
   mass_cancel_acknowledged_at: string | null;
+  mass_cancel_ack_run_id: string | null;
 };
 
 /** Likewise for the bookings columns the plumbing added. */
@@ -80,6 +82,7 @@ export function shapeListing(raw: Record<string, unknown>): ChannelListingEx {
     export_subscribed: !!r.export_subscribed,
     export_subscribed_at: r.export_subscribed_at ?? null,
     mass_cancel_acknowledged_at: r.mass_cancel_acknowledged_at ?? null,
+    mass_cancel_ack_run_id: r.mass_cancel_ack_run_id ?? null,
   };
 }
 
@@ -122,12 +125,18 @@ export async function listBookings(opts: {
   fromDate?: string;       // YYYY-MM-DD inclusive (filter on check_in)
   toDate?: string;         // YYYY-MM-DD inclusive
   limit?: number;
+  /** One status only; applied in the query, before the limit. */
+  status?: string;
+  /** Leave cancelled rows out (ignored when `status` names one). */
+  excludeCancelled?: boolean;
 } = {}): Promise<Booking[]> {
   if (!isConfigured) return [];
   let q = supabase.from('bookings').select('*').order('check_in', { ascending: true });
 
   if (opts.propertyId) q = q.eq('property_id', opts.propertyId);
   if (opts.channel) q = q.eq('channel', opts.channel);
+  if (opts.status) q = q.eq('status', opts.status);
+  else if (opts.excludeCancelled) q = q.neq('status', 'cancelled');
   if (opts.fromDate) q = q.gte('check_in', opts.fromDate);
   if (opts.toDate) q = q.lte('check_in', opts.toDate);
   // Canonical rows only -- a stay deduped against another source is hidden.

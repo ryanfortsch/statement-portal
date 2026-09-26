@@ -115,9 +115,9 @@ export async function loadStrictDedupeHomes(sb: SupabaseClient = supabaseAdmin):
 
 /**
  * Property ids whose direct-feed closures are Guesty's echoes, dropped at
- * import: the home carries an ACTIVE Guesty aggregate feed
- * (channel_listings.channel = 'guesty') and no OTA on it imports Helm's
- * export yet (no active row ticked export_subscribed).
+ * import: Guesty runs the home (calendar_authority 'guesty') and no OTA on
+ * it imports Helm's export yet (no active row ticked export_subscribed).
+ * See lib/listing-scope guestyEchoPropertyIds.
  *
  * The first half is the fleet as it has always been: while Guesty pushes a
  * home's availability to every OTA, a closure on an OTA's own feed is that
@@ -135,16 +135,19 @@ export async function loadStrictDedupeHomes(sb: SupabaseClient = supabaseAdmin):
  */
 export async function loadAggregateFeedPropertyIds(sb: SupabaseClient = supabaseAdmin): Promise<Set<string>> {
   if (!isServiceConfigured && sb === supabaseAdmin) return new Set();
-  const rows = await selectAllPaged<ListingScopeRow>(
-    (from, to) =>
-      sb
-        .from('channel_listings')
-        .select('property_id, channel, is_active, export_subscribed')
-        .order('id', { ascending: true })
-        .range(from, to),
-    { label: 'aggregate feeds' },
-  );
-  return guestyEchoPropertyIds(rows);
+  const [rows, props] = await Promise.all([
+    selectAllPaged<ListingScopeRow>(
+      (from, to) =>
+        sb
+          .from('channel_listings')
+          .select('property_id, channel, is_active, export_subscribed')
+          .order('id', { ascending: true })
+          .range(from, to),
+      { label: 'aggregate feeds' },
+    ),
+    loadRows(sb),
+  ]);
+  return guestyEchoPropertyIds(rows, props);
 }
 
 /** True when this property's direct-feed closures are dropped at import. */

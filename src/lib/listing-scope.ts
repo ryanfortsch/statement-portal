@@ -36,14 +36,22 @@ export function exportLiveSince(listings: readonly ListingScopeRow[]): Map<strin
 }
 
 /**
- * Property ids whose direct-feed closures are Guesty's echoes (see
- * loadAggregateFeedPropertyIds), from an already-loaded listing set.
+ * Property ids whose direct-feed closures are Guesty's echoes and are
+ * dropped at import (see loadAggregateFeedPropertyIds): every home Guesty
+ * still runs (calendar_authority 'guesty') on which no OTA is ticked as
+ * importing Helm's export. Keyed on who runs the calendar, not on whether a
+ * Guesty aggregate row happens to be active: a Guesty-run home with a
+ * direct feed and no active aggregate row (ten fleet homes never had one)
+ * imported Guesty's pushes as OTA holds and showed the cutover panel.
  */
-export function guestyEchoPropertyIds(listings: readonly ListingScopeRow[]): Set<string> {
+export function guestyEchoPropertyIds(
+  listings: readonly ListingScopeRow[],
+  properties: ReadonlyArray<{ id: string; calendar_authority: string | null }>,
+): Set<string> {
   const live = exportLiveSince(listings);
   const out = new Set<string>();
-  for (const l of listings) {
-    if (l.is_active && l.channel === 'guesty' && !live.has(l.property_id)) out.add(l.property_id);
+  for (const p of properties) {
+    if (p.calendar_authority !== 'helm' && !live.has(p.id)) out.add(p.id);
   }
   return out;
 }

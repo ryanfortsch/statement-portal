@@ -232,25 +232,32 @@ export async function syncOneListing(formData: FormData) {
  * really was cancelled parses to nothing for good, which is why the
  * empty-feed guard needs this door too.
  *
- * Stamps channel_listings.mass_cancel_acknowledged_at, then syncs that one
- * listing at once so the held stays cancel now rather than on the next cron
- * beat. syncListing consumes the stamp (skips the guard for that single run)
- * and clears it, so a second click is a fresh decision, never a standing
- * exemption. If the sync cannot run right now the stamp stays and the next
- * sync of the listing applies it; the feed card says so.
+ * Stamps channel_listings.mass_cancel_acknowledged_at and
+ * mass_cancel_ack_run_id (the run whose alert the operator pressed it on),
+ * then syncs that one listing at once so the held rows cancel now rather
+ * than on the next cron beat. The release answers that run and nothing
+ * else (lib/ical-cancel-policy releaseAnswers), and the next run that
+ * reaches the guard decision uses it up, applied or stale, so a second
+ * click is a fresh decision, never a standing exemption. If the sync fails
+ * before the decision (the fetch, say), the stamp stays and the next beat
+ * applies it while the answered run is still the newest decisive one.
  *
- * Two refusals keep the stamp an answer to a guard that is actually up:
- * a feed the sync will not visit (retired, or no iCal URL) would hold the
- * stamp forever, and a stale tab clicking after a later run already cleared
- * the guard would otherwise leave an exemption waiting for the next broken
- * feed. The stale case stamps nothing and just refreshes the page.
+ * Refusals keep the stamp an answer to the alert the operator read: a feed
+ * the sync will not visit (retired, or no iCal URL) would hold the stamp
+ * forever; and when the newest decisive run is not the one the alert
+ * showed (a stale tab, or a run that finished while they read), the
+ * question changed, so nothing is stamped and the page refreshes.
  *
- * Fields: id (channel_listings.id).
+ * Fields: id (channel_listings.id), run_id (ical_sync_runs.id of the alert).
  */
 export async function acknowledgeMassCancel(formData: FormData) {
   ensureConfigured();
   const id = String(formData.get('id') || '').trim();
   if (!id) throw new Error('Missing listing id');
+  // The run whose alert the operator was reading. A release answers that run
+  // and nothing recorded after it.
+  const runId = String(formData.get('run_id') || '').trim();
+  if (!runId) throw new Error('Missing the sync run this release answers; reload the page.');
 
   const { data: listing, error: listingErr } = await supabaseAdmin
     .from('channel_listings')
@@ -271,18 +278,13 @@ export async function acknowledgeMassCancel(formData: FormData) {
     throw new Error('This feed is not syncing, so there is no held cancel to release.');
   }
 
-  // select('*') so a database the plumbing migration has not reached (no
-  // guard column) reads as "no guard" rather than failing the query.
-  const { data: lastRun, error: runErr } = await supabaseAdmin
-    .from('ical_sync_runs')
-    .select('*')
-    .eq('channel_listing_id', id)
-    .order('started_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (runErr) throw new Error(`read last sync run: ${runErr.message}`);
-  const guard = (lastRun as { guard?: unknown } | null)?.guard;
-  if (guard !== 'mass_cancel' && guard !== 'empty_feed') {
+  // The newest decisive run must still be the one the alert showed, and
+  // guarded. A later run (the feed went empty after the page loaded, or a
+  // cron run finished while the operator read) is a different question;
+  // stamping nothing and refreshing shows them the current alert.
+  const { readLastRun } = await import('@/lib/ical-sync');
+  const lastRun = await readLastRun(supabaseAdmin, id);
+  if (!lastRun || lastRun.id !== runId || (lastRun.guard !== 'mass_cancel' && lastRun.guard !== 'empty_feed')) {
     refresh();
     return;
   }
@@ -290,7 +292,7 @@ export async function acknowledgeMassCancel(formData: FormData) {
   const nowIso = new Date().toISOString();
   const { error } = await supabaseAdmin
     .from('channel_listings')
-    .update({ mass_cancel_acknowledged_at: nowIso, updated_at: nowIso })
+    .update({ mass_cancel_acknowledged_at: nowIso, mass_cancel_ack_run_id: runId, updated_at: nowIso })
     .eq('id', id);
   if (error) throw new Error(`acknowledge mass cancel: ${error.message}`);
 

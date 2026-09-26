@@ -62,7 +62,7 @@ import { propertyInScope, recipientScope } from './cleaner-digest-core.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
 import { mirrorWindow, writeHelmCalendarMirror, type HelmMirrorResult } from './helm-calendar-mirror.ts';
 import { relativeAge } from './calendar-model.ts';
-import { carryoverClear, evaluateCarryover, type CarryRow, type Carryover } from './cutover-carryover.ts';
+import { carryoverClear, evaluateCarryover, guestyBlockTag, type CarryRow, type Carryover } from './cutover-carryover.ts';
 
 // ── Facts ───────────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ export type CutoverFacts = {
   guestyListingId: string | null;
   formerGuestyListingId: string | null;
   automationsEnabled: boolean;
-  ratePlan: { base_nightly_cents: number; min_nights_default: number; updated_at?: string | null } | null;
+  ratePlan: { base_nightly_cents: number; min_nights_default: number; updated_at?: string | null; booking_window_days?: number | null } | null;
   taxConfig: { jurisdiction: string; rate: number } | null;
   feeds: CutoverFeedFact[];
   pulls: CutoverPullFact[];
@@ -410,6 +410,20 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
         `${carry.guestyHoldsUncarried.length} hold${carry.guestyHoldsUncarried.length === 1 ? '' : 's'} set in Guesty ${carry.guestyHoldsUncarried.length === 1 ? 'has' : 'have'} no Helm block over ${carry.guestyHoldsUncarried.length === 1 ? 'it' : 'them'}: ${listRows(carry.guestyHoldsUncarried)}. The flip cancels every Guesty block, because Guesty labels its owner holds and its own rules alike; re-enter each hold you want kept as a Helm block first`,
       );
     }
+    // Guesty's rolling booking window ('bw'): its block starts N days out.
+    // After the flip only the rate plan (and each OTA's own setting) keeps
+    // those nights off sale, so the plan must not reach further than Guesty
+    // did.
+    const todayIso = facts.now.toISOString().slice(0, 10);
+    const planWindow = facts.ratePlan?.booking_window_days ?? null;
+    for (const bw of carry.guestyBlocks.filter((r) => guestyBlockTag(r.ical_uid) === 'bw')) {
+      const guestyDays = Math.round((Date.parse(`${bw.check_in}T00:00:00Z`) - Date.parse(`${todayIso}T00:00:00Z`)) / 86_400_000);
+      if (planWindow == null || planWindow <= 0 || planWindow > guestyDays) {
+        problems.push(
+          `Guesty stops taking bookings ${guestyDays} days out (closed from ${bw.check_in}); the Helm rate plan's booking window is ${planWindow == null || planWindow <= 0 ? 'unlimited' : `${planWindow} days`}. Set it to ${guestyDays} days or fewer on the Rates tab, and the same window on each OTA, before the flip cancels Guesty's rule`,
+        );
+      }
+    }
     const rulesDropped = carry.guestyBlocks.length - carry.guestyHoldsUncarried.length;
     const compared = facts.feeds.some((f) => f.is_active && f.channel === 'booking_com' && !!f.ical_import_url);
     checks.push({
@@ -509,8 +523,10 @@ export function carryoverFor(facts: CutoverFacts): Carryover {
       last_import_status: f.last_import_status,
       last_imported_at: f.last_imported_at,
       export_subscribed: f.export_subscribed,
+      export_subscribed_at: f.export_subscribed_at,
     })),
     todayIso: facts.now.toISOString().slice(0, 10),
+    calendarAuthority: facts.calendarAuthority,
     now: facts.now,
   });
 }
@@ -555,7 +571,7 @@ export async function loadCarryRows(propertyId: string, todayIso: string): Promi
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, missing_since, cancelled_at')
+        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, missing_since, cancelled_at, ical_uid')
         .eq('property_id', propertyId)
         .gt('check_out', todayIso)
         .order('check_in', { ascending: true })
@@ -605,7 +621,7 @@ export async function loadCutoverFacts(
       .select('id, name, region, calendar_authority, guesty_listing_id, former_guesty_listing_id, automations_enabled')
       .eq('id', propertyId)
       .maybeSingle(),
-    supabaseAdmin.from('property_rate_plans').select('base_nightly_cents, min_nights_default, updated_at').eq('property_id', propertyId).maybeSingle(),
+    supabaseAdmin.from('property_rate_plans').select('base_nightly_cents, min_nights_default, updated_at, booking_window_days').eq('property_id', propertyId).maybeSingle(),
     supabaseAdmin.from('property_tax_config').select('jurisdiction, state_rate, local_rate, cif_rate').eq('property_id', propertyId).maybeSingle(),
     supabaseAdmin
       .from('channel_listings')
@@ -650,7 +666,7 @@ export async function loadCutoverFacts(
     former_guesty_listing_id: string | null;
     automations_enabled: boolean | null;
   };
-  const planRow = planRes.data as { base_nightly_cents: unknown; min_nights_default: unknown; updated_at: string | null } | null;
+  const planRow = planRes.data as { base_nightly_cents: unknown; min_nights_default: unknown; updated_at: string | null; booking_window_days?: unknown } | null;
   const taxRow = taxRes.data as { jurisdiction: string; state_rate: unknown; local_rate: unknown; cif_rate: unknown } | null;
   const num = (v: unknown): number => {
     const n = typeof v === 'number' ? v : Number(v);
@@ -668,7 +684,12 @@ export async function loadCutoverFacts(
     formerGuestyListingId: prop.former_guesty_listing_id ?? null,
     automationsEnabled: !!prop.automations_enabled,
     ratePlan: planRow
-      ? { base_nightly_cents: num(planRow.base_nightly_cents), min_nights_default: num(planRow.min_nights_default) || 1, updated_at: planRow.updated_at }
+      ? {
+          base_nightly_cents: num(planRow.base_nightly_cents),
+          min_nights_default: num(planRow.min_nights_default) || 1,
+          updated_at: planRow.updated_at,
+          booking_window_days: planRow.booking_window_days == null ? null : num(planRow.booking_window_days),
+        }
       : null,
     taxConfig: taxRow
       ? { jurisdiction: taxRow.jurisdiction, rate: Math.round((num(taxRow.state_rate) + num(taxRow.local_rate) + num(taxRow.cif_rate)) * 10000) / 10000 }

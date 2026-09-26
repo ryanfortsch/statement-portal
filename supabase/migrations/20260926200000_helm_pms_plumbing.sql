@@ -94,7 +94,10 @@ alter table public.channel_listings
   -- Operator release for the mass-cancel guard: stamped from the channel hub
   -- ("these cancellations are real"), consumed by the next sync of that
   -- listing, then cleared.
-  add column if not exists mass_cancel_acknowledged_at timestamptz;
+  add column if not exists mass_cancel_acknowledged_at timestamptz,
+  -- The ical_sync_runs row the release answered: a release is valid only
+  -- while that run is still the listing's newest decisive run.
+  add column if not exists mass_cancel_ack_run_id uuid;
 alter table public.ical_sync_runs
   add column if not exists bookings_deferred integer not null default 0,
   add column if not exists bookings_reclassified integer not null default 0,
@@ -447,28 +450,46 @@ create index if not exists idx_reviews_booking on public.reviews(booking_id) whe
 -- Helm-originated writes (operator, /book inquiry, SCA, concierge) go through
 -- these; ical-sync keeps its upsert (echo blocks legitimately overlap before
 -- dedupe, which is why this is a function and not an exclusion constraint).
--- Does an existing row hold nights against a write on p_channel? The one
--- overlap rule both writers use (src/lib/ical-export.ts isOtaHold says what an
--- OTA closure is):
+-- Does an existing row hold nights against a write of p_status on
+-- p_channel over [p_from, p_to)? The one overlap rule both writers use
+-- (src/lib/ical-export.ts isOtaHold says what an OTA closure is):
 --   - an inquiry, a pending request or a cancelled row never does;
+--   - a hold never conflicts with a hold: two holds on one night sell
+--     nothing twice, and re-entering a Guesty owner hold as a Helm block
+--     while Guesty's own copy still stands must be possible;
+--   - one of Guesty's rule artifacts (advance notice 'an', booking window
+--     'bw' / 'bd', reservation padding 'b' / 'a', read off the iCal UID, the
+--     same tags src/lib/calendar-holds.ts reads) is never a person in the
+--     house and never blocks a write;
 --   - a night an OTA closed on its own calendar (an imported block with
 --     hold_kind 'ota') does, WHATEVER its duplicate mark: the dedupe files
 --     one under the stay it overlaps, and the mark can outlive that stay
 --     until the next dedupe run. Two exemptions, for a Booking.com booking
 --     entered by hand (Booking.com publishes each booking as a bare closed
 --     night, so the booking is typed in on top of it): Booking.com's own
---     closure, and another OTA's closure whose every night Booking.com has
---     closed, which is that OTA echoing the closure Helm forwarded to it;
+--     closure, and another OTA's closure whose every night INSIDE THE
+--     WRITTEN RANGE Booking.com has closed, which is that OTA echoing the
+--     closure Helm forwarded to it (Airbnb coalesces it with the next stay's
+--     nights, so the test cannot run over the whole span);
 --   - anything else does when it is canonical.
-create or replace function public.helm_row_conflicts(b public.bookings, p_channel public.booking_channel)
-returns boolean language sql stable set search_path = public as $$
+drop function if exists public.helm_row_conflicts(public.bookings, public.booking_channel);
+create or replace function public.helm_row_conflicts(
+  b public.bookings,
+  p_channel public.booking_channel,
+  p_status public.booking_status,
+  p_from date,
+  p_to date
+) returns boolean language sql stable set search_path = public as $$
   select case
     when b.status not in ('confirmed','completed','block') then false
+    when p_status = 'block' and b.status = 'block' then false
+    when b.status = 'block' and b.source = 'ical_import' and b.hold_kind is distinct from 'ota'
+         and b.ical_uid ~ '^[0-9a-f]+_(an|bw|bd|b|a)_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}-[0-9]{2}-[0-9]{2}@guesty[.]com' then false
     when b.status = 'block' and b.hold_kind = 'ota' and b.source = 'ical_import' then
       not (p_channel = 'booking_com' and (
         b.channel = 'booking_com'
         or not exists (
-          select 1 from generate_series(b.check_in, b.check_out - 1, interval '1 day') as n(d)
+          select 1 from generate_series(greatest(b.check_in, p_from), least(b.check_out, p_to) - 1, interval '1 day') as n(d)
            where not exists (
              select 1 from public.bookings c
               where c.property_id = b.property_id
@@ -478,7 +499,7 @@ returns boolean language sql stable set search_path = public as $$
     else b.duplicate_of is null
   end
 $$;
-revoke all on function public.helm_row_conflicts(public.bookings, public.booking_channel) from public, anon, authenticated;
+revoke all on function public.helm_row_conflicts(public.bookings, public.booking_channel, public.booking_status, date, date) from public, anon, authenticated;
 
 create or replace function public.helm_create_booking(
   p_property_id text,
@@ -505,7 +526,7 @@ begin
     select * into v_conflict from public.bookings b
      where b.property_id = p_property_id
        and b.check_in < p_check_out and b.check_out > p_check_in
-       and public.helm_row_conflicts(b, p_channel)
+       and public.helm_row_conflicts(b, p_channel, p_status, p_check_in, p_check_out)
      order by b.check_in limit 1;
     if found then
       raise exception 'booking_overlap' using errcode = 'P0002',
@@ -566,7 +587,7 @@ begin
          or (greatest(p_check_in, v_before.check_out) < p_check_out
              and b.check_out > greatest(p_check_in, v_before.check_out))
        )
-       and public.helm_row_conflicts(b, v_before.channel)
+       and public.helm_row_conflicts(b, v_before.channel, p_status, p_check_in, p_check_out)
      limit 1;
     if found then
       raise exception 'booking_overlap' using errcode = 'P0002',

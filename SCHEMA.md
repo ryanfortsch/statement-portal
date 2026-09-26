@@ -298,6 +298,11 @@ descriptors still name them.
   `src/lib/cutover-carryover.ts` reconciles the two. A block made in Helm
   (source `manual`) is Helm's own whatever its `hold_kind`; only an
   imported row (`ical_import`) with `hold_kind` `ota` is an OTA closure.
+  Guesty's aggregate-feed blocks carry their type in `ical_uid`
+  (`<listing>_<type>_<from>_<to>@guesty.com`): `an` advance notice, `bw`
+  rolling booking window, `bd` closed from a fixed date, `b` / `a`
+  reservation padding; untagged ones are holds. `src/lib/calendar-holds.ts`
+  and `src/lib/cutover-carryover.ts` read it.
 - **`property_calendar_days`**: the per-night day grid (holds, prices,
   availability) that the turnovers pipeline, Field packets, extension
   holds and the checkout schedule read. **Who writes it depends on

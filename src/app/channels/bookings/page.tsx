@@ -41,7 +41,7 @@ export default async function ChannelsBookingsPage({ searchParams }: { searchPar
   let guest: GuestLite | null = null;
   try {
     const [b, f, l, g] = await Promise.all([
-      guestId ? listGuestBookings(guestId) : (listBookings({ propertyId: propertyId || undefined, channel, fromDate, limit: 500 }) as Promise<BookingEx[]>),
+      guestId ? listGuestBookings(guestId) : (listBookings({ propertyId: propertyId || undefined, channel, fromDate, limit: 500, status: status || undefined, excludeCancelled: !status }) as Promise<BookingEx[]>),
       listFleetProperties({ includeInactive: true }),
       listChannelListings(),
       guestId ? getGuestLite(guestId) : Promise.resolve(null),
@@ -127,7 +127,7 @@ export default async function ChannelsBookingsPage({ searchParams }: { searchPar
             </Field>
             <Field label="Status">
               <select name="status" defaultValue={status} style={selectStyle}>
-                <option value="">Any status</option>
+                <option value="">Any but cancelled</option>
                 {STATUS_OPTIONS.map((s) => (
                   <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                 ))}

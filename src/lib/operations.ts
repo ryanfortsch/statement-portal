@@ -440,20 +440,22 @@ export async function loadOperationsData(
   // vacant properties show up as empty rows, which is the whole point of
   // the grid) and the keepRow gate below, so a stay at an out-of-region
   // home never becomes a turnover here.
+  // Every property, active or not: the grid shows the active ones, but a
+  // stay at a home being offboarded (deactivated with honoured stays ahead)
+  // is still a turnover. Only the region decides that, as main's literal
+  // out-of-region list did.
   const { data: propData, error: propErr } = await supabase
     .from('properties')
-    .select('id, name, title, city, region')
-    .eq('is_active', true)
+    .select('id, name, title, city, region, is_active')
     .order('name');
   if (propErr) {
     throw new Error(`Failed to load properties: ${propErr.message}`);
   }
-  const properties = ((propData ?? []) as Array<PropertyMini & { region: string | null }>)
-    .filter((p) => isCapeAnnOps(p) && (!propertyId || p.id === propertyId))
-    .map(({ region: _region, ...p }) => p);
-  const capeAnnIds = new Set(
-    ((propData ?? []) as Array<PropertyMini & { region: string | null }>).filter(isCapeAnnOps).map((p) => p.id),
-  );
+  const allProps = (propData ?? []) as Array<PropertyMini & { region: string | null; is_active: boolean | null }>;
+  const properties = allProps
+    .filter((p) => p.is_active !== false && isCapeAnnOps(p) && (!propertyId || p.id === propertyId))
+    .map(({ region: _region, is_active: _active, ...p }) => p);
+  const capeAnnIds = new Set(allProps.filter(isCapeAnnOps).map((p) => p.id));
 
   const { data: resData, error: resErr } = await supabase
     .from('bookings')

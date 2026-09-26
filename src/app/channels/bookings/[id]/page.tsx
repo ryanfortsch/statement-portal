@@ -62,9 +62,10 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   const isBlock = booking.status === 'block';
   const isCancelled = booking.status === 'cancelled';
   const glyph = sourceGlyph(booking);
-  const deletable = isBlock || (booking.status === 'inquiry' && !!artifacts && artifacts.total === 0 && artifacts.unknown.length === 0);
+  const imported = booking.source === 'ical_import';
+  const deletable = booking.status === 'inquiry' && !!artifacts && artifacts.total === 0 && artifacts.unknown.length === 0;
   const deleteReason = isBlock
-    ? undefined
+    ? 'a lifted hold is kept as cancelled so its channel echoes can be traced'
     : booking.status === 'inquiry'
     ? artifacts
       ? artifacts.total > 0
@@ -210,7 +211,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
             <SubmitButton label="Save" busyLabel="Saving…" formAction={updateBooking} style={primaryButton} />
             <Link href="/channels/bookings" style={secondaryButton}>Back</Link>
             <span style={{ flex: 1 }} />
-            <DeleteBookingButton deletable={deletable} reason={deleteReason} />
+            {!imported && <DeleteBookingButton deletable={deletable} reason={deleteReason} />}
           </div>
         </form>
 

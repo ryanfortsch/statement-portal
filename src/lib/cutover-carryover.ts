@@ -69,6 +69,8 @@ export type CarryRow = {
   missing_since?: string | null;
   /** bookings.cancelled_at. */
   cancelled_at?: string | null;
+  /** bookings.ical_uid; Guesty's carries the block type (guestyBlockTag). */
+  ical_uid?: string | null;
 };
 
 export type CarryListing = {
@@ -81,6 +83,7 @@ export type CarryListing = {
   last_imported_at: string | null;
   /** channel_listings.export_subscribed: this OTA imports Helm's export. */
   export_subscribed?: boolean;
+  export_subscribed_at?: string | null;
 };
 
 export type Carryover = {
@@ -107,19 +110,35 @@ export const NOT_SHOWN_GRACE_MS = 2 * 3_600_000;
  */
 export const ECHO_LAG_GRACE_MS = 8 * 3_600_000;
 
-/** A Guesty booking-window block ends at Guesty's calendar horizon, about
- *  two years out; anything ending this far ahead is that rule. */
-export const GUESTY_HORIZON_DAYS = 600;
+/**
+ * The block type Guesty writes into each iCal UID
+ * (`<listing>_<type>_<from>_<to>@guesty.com_...`, the same tags
+ * lib/calendar-holds.ts reads), or null for an untagged UID.
+ */
+export function guestyBlockTag(uid: string | null | undefined): string | null {
+  if (!uid) return null;
+  const m = /^[0-9a-f]+_([a-z]+)_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}@guesty\.com/i.exec(uid);
+  return m ? m[1].toLowerCase() : null;
+}
 
 /**
- * Guesty's own rolling availability rules, as its iCal shows them: the
- * booking-window block (runs to the calendar horizon) and the advance-notice
- * block (one night, today or tomorrow). Every other Guesty block may be an
- * owner's hold and has to be re-entered in Helm before the flip.
+ * Guesty's own ROLLING availability rules, read off the UID's type tag:
+ * advance notice ('an'), the rolling booking window ('bw', which starts a
+ * fixed number of days ahead and moves every day), and reservation padding
+ * ('b' / 'a'). Each is replaced by a setting (the rate plan's advance notice
+ * and booking window, each OTA's own), not by a block.
+ *
+ * Deliberately NOT a rule here: 'bd', Guesty's "closed from a fixed date"
+ * setting. It runs to the calendar horizon like the rolling window, but its
+ * start does not move (20 Hammond: closed from 2027-01-01; 30 Woodward: from
+ * 2026-12-01), and no rolling setting can express it; classed by its end
+ * date, the flip cancelled it and reopened a closed season on every
+ * channel. And an untagged block is an owner's hold or a reservation Guesty
+ * blocked out. Both have to be carried into Helm.
  */
-export function isGuestyRule(r: { check_in: string; check_out: string }, todayIso: string): boolean {
-  if (r.check_out >= shiftDay(todayIso, GUESTY_HORIZON_DAYS)) return true;
-  return nights(r.check_in, r.check_out).length === 1 && r.check_in <= shiftDay(todayIso, 1);
+export function isGuestyRule(r: { ical_uid?: string | null }): boolean {
+  const tag = guestyBlockTag(r.ical_uid);
+  return tag === 'an' || tag === 'bw' || tag === 'b' || tag === 'a';
 }
 
 const LIVE = new Set(['confirmed', 'completed', 'block']);
@@ -158,18 +177,31 @@ export function evaluateCarryover(input: {
   listings: readonly CarryListing[];
   todayIso: string;
   now: Date;
+  /** properties.calendar_authority; absent reads as 'guesty'. */
+  calendarAuthority?: string | null;
 }): Carryover {
   const { rows, listings, todayIso, now } = input;
   const aggregateIds = new Set(listings.filter((l) => l.channel === 'guesty').map((l) => l.id));
   const readingIds = new Set(listings.filter(reads).map((l) => l.id));
   const readingBcom = listings.filter((l) => l.channel === 'booking_com' && reads(l));
-  // While a home rides Guesty's aggregate feed and no OTA imports Helm's
-  // export yet, ical-sync drops every direct-feed closure (lib/pms-guards
-  // loadAggregateFeedPropertyIds), so Booking.com's closures are not on file
-  // and saying "Booking.com no longer shows it" would be about nothing.
+  // While Guesty runs a home and no OTA imports Helm's export yet, ical-sync
+  // drops every direct-feed closure (lib/listing-scope guestyEchoPropertyIds),
+  // so Booking.com's closures are not on file and saying "Booking.com no
+  // longer shows it" would be about nothing.
+  const ticks = listings
+    .filter((l) => l.channel !== 'guesty' && l.is_active && !!l.export_subscribed)
+    .map((l) => Date.parse(l.export_subscribed_at ?? ''))
+    .filter(Number.isFinite);
   const closuresImported =
-    !listings.some((l) => l.channel === 'guesty' && l.is_active) ||
-    listings.some((l) => l.channel !== 'guesty' && l.is_active && !!l.export_subscribed);
+    input.calendarAuthority === 'helm' || listings.some((l) => l.channel !== 'guesty' && l.is_active && !!l.export_subscribed);
+  // Booking.com's closures start arriving only at the first Booking.com sync
+  // after the first tick; before that, every reservation on file would read
+  // as "no longer shown".
+  const firstTick = ticks.length > 0 ? Math.min(...ticks) : null;
+  const bcomReadSinceTick =
+    firstTick === null ||
+    input.calendarAuthority === 'helm' ||
+    listings.filter((l) => l.channel === 'booking_com' && reads(l)).every((l) => Date.parse(l.last_imported_at ?? '') > firstTick);
   const bcomIds = new Set(listings.filter((l) => l.channel === 'booking_com').map((l) => l.id));
   const byId = new Map(rows.map((r) => [r.id, r]));
   const canonicalOf = (r: CarryRow): CarryRow => (r.duplicate_of ? byId.get(r.duplicate_of) ?? r : r);
@@ -221,7 +253,7 @@ export function evaluateCarryover(input: {
 
   // 2. Booking.com reservations on file whose nights Booking.com reopened.
   const bookingComNotShown: CarryRow[] = [];
-  if (closuresImported && readingBcom.length > 0 && readingBcom.every((l) => l.last_import_status === 'success')) {
+  if (closuresImported && bcomReadSinceTick && readingBcom.length > 0 && readingBcom.every((l) => l.last_import_status === 'success')) {
     for (const [key, members] of clusters) {
       const canonical = byId.get(key);
       if (!canonical || !STAY.has(canonical.status) || !upcoming(canonical) || isOtaHold(canonical)) continue;
@@ -282,9 +314,15 @@ export function evaluateCarryover(input: {
   // 4. Upcoming holds on the Guesty aggregate feed: all cancelled by the
   // flip; the ones that may be an owner's hold must be in Helm first.
   const guestyBlocks = rows.filter((r) => fromAggregate(r) && r.status === 'block' && upcoming(r));
-  const helmHolds = rows.filter((r) => (r.source === 'manual' || r.source === 'direct_booking') && LIVE.has(r.status));
+  // What still closes the nights after the flip: any live canonical row
+  // that is neither one of these Guesty blocks nor an OTA's own closure. A
+  // Helm block, and also a Guesty-era reservation Guesty had blocked out
+  // (20 Enon's owner stays are both), which survives the flip on its own.
+  const carriers = rows.filter(
+    (r) => r.duplicate_of == null && LIVE.has(r.status) && !isOtaHold(r) && !(fromAggregate(r) && r.status === 'block'),
+  );
   const guestyHoldsUncarried = guestyBlocks.filter(
-    (r) => !isGuestyRule(r, todayIso) && !coveredBy(nightsAhead(r, todayIso), helmHolds),
+    (r) => !isGuestyRule(r) && !coveredBy(nightsAhead(r, todayIso), carriers),
   );
 
   const byDate = (a: CarryRow, b: CarryRow) => a.check_in.localeCompare(b.check_in) || a.id.localeCompare(b.id);

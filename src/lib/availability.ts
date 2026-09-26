@@ -12,7 +12,8 @@
  * `reserved` is the SCA flag that says a REAL GUEST holds the night, distinct
  * from merely unavailable: the 2027 pre-release overlay must never offer a
  * reserved night, while an owner block or a closed season is just not on
- * sale. Only a stay sets it; a block never does.
+ * sale. A stay sets it, and so does a Booking.com closure (Booking.com
+ * publishes its bookings that way); any other block never does.
  *
  * A block imported from an OTA's own feed (hold_kind 'ota') holds its
  * nights here like any other block, even when the dedupe filed it as a
@@ -57,6 +58,8 @@ export type AvailabilityBooking = {
   hold_kind?: string | null;
   /** bookings.source; an OTA closure is 'ical_import' with hold_kind 'ota'. */
   source?: string | null;
+  /** bookings.channel; a Booking.com closure may be a guest (see nightHolds). */
+  channel?: string | null;
 };
 
 const STAY_STATUSES: ReadonlySet<string> = new Set(['confirmed', 'completed']);
@@ -97,10 +100,19 @@ export function nightHolds(bookings: readonly AvailabilityBooking[]): {
   const blocked = new Set<string>();
   for (const b of bookings) {
     const status = String(b.status ?? '').toLowerCase();
-    if (b.duplicate_of && !(status === 'block' && b.hold_kind === 'ota' && b.source === 'ical_import')) continue;
+    const otaClosure = status === 'block' && b.hold_kind === 'ota' && b.source === 'ical_import';
+    if (b.duplicate_of && !otaClosure) continue;
     const target = STAY_STATUSES.has(status) ? reserved : status === 'block' ? blocked : null;
     if (!target) continue;
-    for (const night of stayNights(b.check_in, b.check_out)) target.add(night);
+    // A Booking.com closure is how Booking.com publishes a booking, so its
+    // nights are reserved as well as blocked: the SCA pre-release overlay
+    // offers every unavailable night that is NOT reserved, and must never
+    // offer a Booking.com guest's.
+    const bcomGuest = otaClosure && b.channel === 'booking_com';
+    for (const night of stayNights(b.check_in, b.check_out)) {
+      target.add(night);
+      if (bcomGuest) reserved.add(night);
+    }
   }
   return { reserved, blocked };
 }

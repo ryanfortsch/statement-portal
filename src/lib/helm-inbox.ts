@@ -70,6 +70,15 @@ type BookingRow = BookingCandidate & { duplicate_of: string | null };
 
 // ── Lookups ─────────────────────────────────────────────────────────
 
+/** Is this a home Helm runs? False on a failed read: the webhook then opens
+ *  no new thread, and the text still reaches /crm and the concierge. */
+async function isHelmRunProperty(propertyId: string | null | undefined): Promise<boolean> {
+  if (!propertyId) return false;
+  const { data, error } = await supabaseAdmin.from('properties').select('calendar_authority').eq('id', propertyId).maybeSingle();
+  if (error || !data) return false;
+  return (data as { calendar_authority?: string | null }).calendar_authority === 'helm';
+}
+
 export async function getHelmThreadRow(threadId: string): Promise<ThreadRow | null> {
   if (!isServiceConfigured || !threadId) return null;
   const { data, error } = await supabaseAdmin.from('guest_threads').select(THREAD_COLS).eq('id', threadId).maybeSingle();
@@ -317,6 +326,13 @@ export type InboundSmsInput = {
    * queue (quo_unknown_numbers) instead of becoming threads.
    */
   createForStranger?: boolean;
+  /**
+   * The webhook's own flag: open a NEW thread only for a stay at a home Helm
+   * runs (properties.calendar_authority 'helm'). Guests at Guesty-run homes
+   * are the concierge pipeline's; a Helm thread beside it gave them a second
+   * inbox with a direct-send composer. An existing thread is always appended.
+   */
+  helmRunOnly?: boolean;
 };
 
 export type InboundSmsResult =
@@ -345,6 +361,7 @@ export async function recordInboundSms(input: InboundSmsInput): Promise<InboundS
 
   if (!thread) {
     if (!booking && !guest && !input.createForStranger) return { recorded: false, reason: 'no_match' };
+    if (input.helmRunOnly && !(booking && (await isHelmRunProperty(booking.property_id)))) return { recorded: false, reason: 'no_match' };
     thread = await createThread({ channel: 'sms', key: e164, booking, guest });
     if (!thread) return { recorded: false, reason: 'no_match' };
   } else if (booking || guest) {
@@ -391,6 +408,8 @@ export type OutboundSmsInput = {
   propertyId?: string | null;
   guestName?: string | null;
   createForStranger?: boolean;
+  /** See InboundSmsInput.helmRunOnly. */
+  helmRunOnly?: boolean;
 };
 
 export type OutboundResult =
@@ -418,6 +437,7 @@ export async function recordOutboundSms(input: OutboundSmsInput): Promise<Outbou
         guestByPhone(e164),
       ]);
       if (!booking && !guest && !input.createForStranger) return { recorded: false, reason: 'no_match' };
+      if (input.helmRunOnly && !(booking && (await isHelmRunProperty(booking.property_id)))) return { recorded: false, reason: 'no_match' };
       thread = await createThread({
         channel: 'sms',
         key: e164,

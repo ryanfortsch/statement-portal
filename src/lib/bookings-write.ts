@@ -548,12 +548,22 @@ export type DeleteOutcome = {
 };
 
 /**
- * The operator's Delete button. A block is deleted outright (it is a hold,
- * not history). An inquiry is deleted only when nothing downstream has been
- * generated from it and every artifact table could be read. Everything else,
- * and any inquiry with artifacts, becomes a soft cancel with a reason, so a
- * stay that produced a turnover, a PIN or a thread never vanishes from the
- * record.
+ * The operator's Delete button.
+ *
+ * A row imported from a feed is refused outright: it is the feed's to
+ * cancel, and it comes straight back on the next sync. Deleted in between,
+ * a Booking.com closure (possibly a guest) left the export Airbnb and VRBO
+ * read and the availability staycapeann.com reads. A Booking.com closure on
+ * a feed Helm no longer reads has its own Release on the channel hub.
+ *
+ * A hold made in Helm is lifted as a cancel, not deleted: the OTAs closed
+ * its nights on Helm's word and still publish those closures for a few
+ * hours, and a cancelled row is how the channel hub tells that lag from a
+ * Booking.com booking nobody entered. An inquiry is deleted only when
+ * nothing downstream has been generated from it and every artifact table
+ * could be read. Everything else, and any inquiry with artifacts, becomes a
+ * soft cancel with a reason, so a stay that produced a turnover, a PIN or a
+ * thread never vanishes from the record.
  */
 export async function deleteOrCancelBooking(id: string, actor: string): Promise<DeleteOutcome> {
   ensureConfigured();
@@ -561,11 +571,15 @@ export async function deleteOrCancelBooking(id: string, actor: string): Promise<
   const before = await getBooking(id);
   if (!before) throw new Error('Booking not found.');
 
+  if (before.source === 'ical_import') {
+    throw new Error('This row came from a channel feed; the feed cancels it when the channel does. Release a Booking.com closure from a retired feed on the channel hub.');
+  }
+
   let deletable = false;
   let artifacts: DownstreamArtifacts | undefined;
   let reason = '';
   if (before.status === 'block') {
-    deletable = true;
+    reason = 'a lifted hold is kept as cancelled so its channel echoes can be traced';
   } else if (before.status === 'inquiry') {
     artifacts = await countDownstreamArtifacts(id);
     deletable = artifacts.total === 0 && artifacts.unknown.length === 0;
@@ -585,7 +599,6 @@ export async function deleteOrCancelBooking(id: string, actor: string): Promise<
   if (deletable) {
     const { error } = await supabaseAdmin.from('bookings').delete().eq('id', id);
     if (error) throw new Error(`delete booking: ${error.message}`);
-    if (before.status === 'block') await refreshMirrorSafe(before.property_id, null, windowFor([before]));
     return { outcome: 'deleted', booking: before, artifacts };
   }
 

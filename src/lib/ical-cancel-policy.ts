@@ -202,23 +202,23 @@ export function keepsEmptyFeedGuardUp(
 /**
  * Which guard an operator's release answers, or null when it answers none.
  *
- * A release (channel_listings.mass_cancel_acknowledged_at) is valid only for
- * the guard that was on screen when it was pressed: the listing's newest
- * run was guarded, and the click came after that run started. Anything else
- * is stale, and the sync clears it unused. Without this, a release pressed
- * for a mass cancel survived an empty-feed run (which never consumed it) and
- * then released the NEXT empty feed, cancelling a whole calendar the
- * operator had never been asked about.
+ * A release names the run whose alert the operator pressed it on
+ * (channel_listings.mass_cancel_ack_run_id, posted from that alert). It is
+ * valid only while that run is still the listing's newest DECISIVE run (one
+ * that reached the guard decision; a run that failed on the fetch is not)
+ * and that run was guarded; anything else is stale, and the sync clears it
+ * unused. Without the run's identity, a release pressed on a mass-cancel
+ * alert in a tab opened before the feed went empty was applied as an
+ * empty-feed release and cancelled every row, the ones still in the feed
+ * included; and one read against "the newest run" could be answered by a
+ * run already in flight when the operator clicked.
  */
 export function releaseAnswers(
-  ackAt: string | null | undefined,
-  lastRun: { guard: string | null; started_at: string } | null,
+  ackRunId: string | null | undefined,
+  lastRun: { id: string; guard: string | null } | null,
 ): 'mass_cancel' | 'empty_feed' | null {
-  if (!ackAt || !lastRun) return null;
+  if (!ackRunId || !lastRun || lastRun.id !== ackRunId) return null;
   if (lastRun.guard !== 'mass_cancel' && lastRun.guard !== 'empty_feed') return null;
-  const ack = Date.parse(ackAt);
-  const run = Date.parse(lastRun.started_at);
-  if (!Number.isFinite(ack) || !Number.isFinite(run) || ack <= run) return null;
   return lastRun.guard;
 }
 

@@ -447,10 +447,19 @@ function clusterEffectiveStatus(cluster: DedupRow[], trusted: (r: DedupRow) => b
  * Pick the canonical row of a cluster. It must carry the cluster's effective
  * status so downstream reads (which filter on status) see the right thing
  * without us mutating any source row: prefer rows whose status equals the
- * effective status, then a real booking over a block, then higher source
- * priority, then the earliest-created row.
+ * effective status, then a real booking over a block, then (on a Helm-run
+ * home only) a row something still updates over a frozen Guesty-era one,
+ * then higher source priority, then the earliest-created row.
+ *
+ * `frozen` is that Helm-run rule. After the flip nothing updates a
+ * guesty_legacy row or a row of the retired aggregate feed, and the
+ * aggregate row, an ical_import row like the direct feed's, used to win the
+ * created_at tie (it was first seen months earlier). An Airbnb guest who
+ * then extended in place moved only the direct row, which sat as a
+ * duplicate: the extra nights were free on staycapeann.com, never sent to
+ * VRBO or Booking.com, and open to the booking writer.
  */
-function pickCanonical(cluster: DedupRow[], effectiveStatus: string): DedupRow {
+function pickCanonical(cluster: DedupRow[], effectiveStatus: string, frozen: (r: DedupRow) => boolean = () => false): DedupRow {
   return [...cluster].sort((a, b) => {
     const aMatch = a.status === effectiveStatus ? 0 : 1;
     const bMatch = b.status === effectiveStatus ? 0 : 1;
@@ -458,6 +467,9 @@ function pickCanonical(cluster: DedupRow[], effectiveStatus: string): DedupRow {
     const aBlock = a.status === 'block' ? 1 : 0;
     const bBlock = b.status === 'block' ? 1 : 0;
     if (aBlock !== bBlock) return aBlock - bBlock;            // non-block first
+    const aFrozen = frozen(a) ? 1 : 0;
+    const bFrozen = frozen(b) ? 1 : 0;
+    if (aFrozen !== bFrozen) return aFrozen - bFrozen;        // live over frozen (Helm-run only)
     const ap = SOURCE_PRIORITY[a.source] ?? 0;
     const bp = SOURCE_PRIORITY[b.source] ?? 0;
     if (ap !== bp) return bp - ap;                           // higher priority first
@@ -593,14 +605,28 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
     const at = Date.parse(cutoverAt.get(a.property_id) ?? '');
     if (Number.isFinite(at)) {
       const guestyEra = (r: DedupRow) => r.source === 'guesty_legacy' || isFromAggregateFeed(r);
-      const lateFeedRow = (r: DedupRow) => r.source === 'ical_import' && !isFromAggregateFeed(r) && Date.parse(r.created_at) > at;
+      // A row first seen after the cutover: from a direct feed, or written
+      // by Helm (a Booking.com booking typed in after the flip over a week an
+      // earlier Guesty-era guest cancelled was filed under that cancel).
+      const lateFeedRow = (r: DedupRow) =>
+        ((r.source === 'ical_import' && !isFromAggregateFeed(r)) || isHelmNative(r)) && Date.parse(r.created_at) > at;
       if ((lateFeedRow(a) && guestyEra(b)) || (lateFeedRow(b) && guestyEra(a))) return true;
     }
     return false;
   };
-  /** A hold, by status or by what the feed called it. */
+  /** A hold, by status or by what the feed called it. The summary test is
+   *  for direct feeds, and for the Guesty aggregate feed only on a Helm-run
+   *  home: on a Guesty-run home Guesty's cancelled "Blocked by Guesty" rows
+   *  cluster as they always have (read as holds there, 1,625 of them stood
+   *  up as canonical rows and pushed real stays off the bookings list). */
   const isBlockLike = (r: DedupRow): boolean =>
-    r.status === 'block' || (r.source === 'ical_import' && isBlockSummary(r.raw_summary));
+    r.status === 'block' ||
+    (r.source === 'ical_import' &&
+      isBlockSummary(r.raw_summary) &&
+      (!isFromAggregateFeed(r) || strictChannels.has(r.property_id)));
+  /** Nothing updates it any more: a Guesty-era row on a Helm-run home. */
+  const frozen = (r: DedupRow): boolean =>
+    strictChannels.has(r.property_id) && (r.source === 'guesty_legacy' || isFromAggregateFeed(r));
   const trusted = (r: DedupRow): boolean =>
     isTrustedCancel(r, isFromAggregateFeed, isPlaceholder, isBlockLike, strictChannels.has(r.property_id));
 
@@ -775,7 +801,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       }
       clusterCount += 1;
       const effective = clusterEffectiveStatus(cluster, trusted);
-      const canonical = pickCanonical(cluster, effective);
+      const canonical = pickCanonical(cluster, effective, frozen);
       for (const r of cluster) {
         if (r.id === canonical.id) {
           desired.set(r.id, null);

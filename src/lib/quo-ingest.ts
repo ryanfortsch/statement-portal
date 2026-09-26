@@ -172,6 +172,7 @@ async function handleInboundMessage(msg: WebhookMessage): Promise<void> {
         at: msg.createdAt,
         quoMessageId: msg.id,
         raw: { phoneNumberId: msg.phoneNumberId ?? null, to: msg.to ?? null },
+        helmRunOnly: true,
       });
     } catch (err) {
       console.warn('[quo-ingest] helm inbox inbound skipped', err instanceof Error ? err.message : err);
@@ -282,6 +283,7 @@ async function handleOutboundMessage(msg: WebhookMessage): Promise<void> {
         source: 'quo_app',
         deliveryStatus: 'delivered',
         raw: { phoneNumberId: msg.phoneNumberId ?? null, from: msg.from ?? null },
+        helmRunOnly: true,
       });
     } catch (err) {
       console.warn('[quo-ingest] helm inbox outbound skipped', err instanceof Error ? err.message : err);

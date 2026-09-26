@@ -459,21 +459,19 @@ describe('releasing an empty-feed guard: the operator is the second look', () =>
   });
 });
 
-describe('releaseAnswers: a release answers only the guard on screen when it was pressed', () => {
-  const run = (guard: string | null, started_at: string) => ({ guard, started_at });
-  test('a click after a guarded run answers that guard', () => {
-    assert.equal(releaseAnswers('2026-09-26T15:10:00Z', run('mass_cancel', '2026-09-26T15:00:00Z')), 'mass_cancel');
-    assert.equal(releaseAnswers('2026-09-26T15:10:00Z', run('empty_feed', '2026-09-26T15:00:00Z')), 'empty_feed');
+describe('releaseAnswers: a release answers only the run whose alert it was pressed on', () => {
+  const run = (id: string, guard: string | null) => ({ id, guard });
+  test('the answered run, still the newest decisive one, releases its own guard', () => {
+    assert.equal(releaseAnswers('run-1', run('run-1', 'mass_cancel')), 'mass_cancel');
+    assert.equal(releaseAnswers('run-1', run('run-1', 'empty_feed')), 'empty_feed');
   });
-  test('a mass-cancel click never releases the empty feed that follows it', () => {
-    // Click at 15:10 on the mass_cancel run; the 15:30 run found an empty
-    // feed. At 16:00 the newest run is empty_feed but started after the click.
-    assert.equal(releaseAnswers('2026-09-26T15:10:00Z', run('empty_feed', '2026-09-26T15:30:00Z')), null);
+  test('a mass-cancel click never releases the empty feed recorded after it (stale tab, or a run in flight)', () => {
+    assert.equal(releaseAnswers('run-1', run('run-2', 'empty_feed')), null);
+    assert.equal(releaseAnswers('run-1', run('run-2', 'mass_cancel')), null, 'a later mass cancel is a different set');
   });
-  test('no guard, no release, or an unreadable stamp answers nothing', () => {
-    assert.equal(releaseAnswers('2026-09-26T15:10:00Z', run(null, '2026-09-26T15:00:00Z')), null);
-    assert.equal(releaseAnswers(null, run('mass_cancel', '2026-09-26T15:00:00Z')), null);
-    assert.equal(releaseAnswers('nonsense', run('mass_cancel', '2026-09-26T15:00:00Z')), null);
-    assert.equal(releaseAnswers('2026-09-26T15:10:00Z', null), null);
+  test('no run named, no run read, or an unguarded run answers nothing', () => {
+    assert.equal(releaseAnswers(null, run('run-1', 'mass_cancel')), null);
+    assert.equal(releaseAnswers('run-1', null), null);
+    assert.equal(releaseAnswers('run-1', run('run-1', null)), null);
   });
 });

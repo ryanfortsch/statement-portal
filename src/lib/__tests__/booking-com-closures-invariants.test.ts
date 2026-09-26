@@ -42,18 +42,23 @@ describe('the sync treats a Booking.com closure as a possible guest', () => {
 
   test('both cancel guards are told when a feed publishes reservations as closures', () => {
     assert.ok(src.includes('const reservationHolds = holdsAreReservations(opts.channel);'));
-    assert.ok(src.includes('keepsEmptyFeedGuardUp(r, cutoff, isBlockSummary, reservationHolds)'));
+    assert.ok(src.includes('keepsEmptyFeedGuardUp(r, cutoff, isBlockSummary, reservationHolds || isGuestyFeed)'));
     assert.ok(src.includes('holdsAreReservations: reservationHolds,'));
   });
 
-  test('a release answers only the guard on screen when it was pressed, and one run uses it up', () => {
-    assert.ok(src.includes('const answered = releaseAnswers(ackAt, lastRun);'));
+  test('a release answers only the run whose alert it was pressed on, and one decisive run uses it up', () => {
+    assert.ok(src.includes('const answered = releaseAnswers(ack?.runId ?? null, lastRun);'));
+    // A run that failed before the decision is not "newer".
+    assert.ok(src.includes(".or('success.eq.true,guard.not.is.null')"));
+    const actions = squash(read('src/app/channels/listings/actions.ts'));
+    assert.ok(actions.includes("if (!lastRun || lastRun.id !== runId || (lastRun.guard !== 'mass_cancel' && lastRun.guard !== 'empty_feed')) {"));
+    assert.ok(actions.includes('mass_cancel_ack_run_id: runId'));
     assert.ok(src.includes("const emptyReleased = emptyFeed && answered === 'empty_feed';"));
     assert.ok(src.includes("allowMassCancel: answered === 'mass_cancel' || emptyReleased,"));
     assert.ok(src.includes('treatMissingAsReady: emptyReleased,'));
     // The clear sits after both branches: an empty-feed run consumes a stale
     // release too (it once survived one and released the next empty feed).
-    const clear = src.indexOf(".update({ mass_cancel_acknowledged_at: null })");
+    const clear = src.indexOf(".update({ mass_cancel_acknowledged_at: null, mass_cancel_ack_run_id: null })");
     const emptyBranch = src.indexOf("result.guard = 'empty_feed';");
     const cancelPass = src.indexOf('const plan = planCancelPass({');
     assert.ok(clear > emptyBranch && clear > cancelPass, 'the release is cleared outside both branches');
@@ -107,9 +112,13 @@ describe('every reader that holds nights sees duplicate OTA closures', () => {
 
   test('both writers use one overlap rule; a move is checked only over the nights it adds', () => {
     const sql = squash(read('supabase/migrations/20260926200000_helm_pms_plumbing.sql'));
-    assert.ok(sql.includes('create or replace function public.helm_row_conflicts(b public.bookings, p_channel public.booking_channel)'));
-    assert.ok(sql.includes('and public.helm_row_conflicts(b, p_channel)'));
-    assert.ok(sql.includes('and public.helm_row_conflicts(b, v_before.channel)'));
+    assert.ok(sql.includes('and public.helm_row_conflicts(b, p_channel, p_status, p_check_in, p_check_out)'));
+    assert.ok(sql.includes('and public.helm_row_conflicts(b, v_before.channel, p_status, p_check_in, p_check_out)'));
+    // A hold never conflicts with a hold; Guesty's rule artifacts never conflict.
+    assert.ok(sql.includes("when p_status = 'block' and b.status = 'block' then false"));
+    assert.ok(sql.includes("_(an|bw|bd|b|a)_"));
+    // The Booking.com echo exemption is tested over the written nights only.
+    assert.ok(sql.includes('generate_series(greatest(b.check_in, p_from), least(b.check_out, p_to) - 1'));
     // Duplicates of an imported OTA closure count; a Helm hold is canonical-only.
     assert.ok(sql.includes("when b.status = 'block' and b.hold_kind = 'ota' and b.source = 'ical_import' then"));
     assert.ok(sql.includes("else b.duplicate_of is null"));
@@ -125,7 +134,7 @@ describe("the importer's Guesty-echo set fails closed", () => {
     assert.ok(!squash(read('src/lib/pms-guards.ts')).includes("new Set(['*'])"));
   });
   test('the fleet sync derives it from the listing read it already made', () => {
-    assert.ok(squash(read('src/lib/ical-sync.ts')).includes(': guestyEchoPropertyIds((data ?? []) as ListingScopeRow[]);'));
+    assert.ok(squash(read('src/lib/ical-sync.ts')).includes(': guestyEchoPropertyIds((data ?? []) as ListingScopeRow[], await loadAuthorities(sb));'));
   });
 });
 
@@ -134,5 +143,21 @@ describe('only an OTA can be credited with an OTA pull', () => {
     const src = squash(read('src/app/api/channels/ical/[token]/route.ts'));
     assert.ok(src.includes("!!request.cookies.get('__Secure-authjs.session-token') ||"));
     assert.ok(src.includes('channel: operatorClient ? null :'));
+  });
+});
+
+describe('an imported row is its feed\'s, and a Guesty-run guest is the concierge\'s', () => {
+  test('Delete refuses a row imported from a feed; a Helm hold is lifted as a cancel', () => {
+    const src = squash(read('src/lib/bookings-write.ts'));
+    assert.ok(src.includes("if (before.source === 'ical_import') {"));
+    assert.ok(src.includes("reason = 'a lifted hold is kept as cancelled so its channel echoes can be traced';"));
+  });
+  test('the Quo webhook opens a Helm thread only for a stay at a Helm-run home', () => {
+    const src = squash(read('src/lib/quo-ingest.ts'));
+    assert.equal(src.split('helmRunOnly: true,').length - 1, 2, 'inbound and outbound');
+  });
+  test('the turnover pipeline gates stays by region only, not by is_active', () => {
+    const src = squash(read('src/lib/operations.ts'));
+    assert.ok(src.includes('const capeAnnIds = new Set(allProps.filter(isCapeAnnOps).map((p) => p.id));'));
   });
 });

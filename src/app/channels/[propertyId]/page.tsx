@@ -104,14 +104,11 @@ export default async function ChannelsPropertyPage({
   const preflight: CutoverPreflight | null = factsOrError.facts ? evaluateCutoverPreflight(factsOrError.facts) : null;
   const carry: Carryover | null = factsOrError.facts ? carryoverFor(factsOrError.facts) : null;
   // Before the flip the panel shows once a cutover is underway, so the
-  // preflight's "fix" links land on it: an OTA already reads Helm's export,
-  // or the home has no Guesty aggregate row and reads an OTA feed of its
-  // own (65 Calderwood from runbook step 3). A fleet home riding Guesty
-  // shows nothing.
-  const cutoverUnderway =
-    feeds.some((f) => f.is_active && f.channel !== 'guesty' && f.export_subscribed) ||
-    (!feeds.some((f) => f.is_active && f.channel === 'guesty') &&
-      feeds.some((f) => f.is_active && f.channel !== 'guesty' && f.channel !== 'direct' && !!f.ical_import_url));
+  // preflight's "fix" links land on it: an OTA already reads Helm's export
+  // (runbook step 7). The same signal starts importing the home's closures
+  // (lib/listing-scope), so everything the panel lists is on file. A home
+  // Guesty still runs shows nothing.
+  const cutoverUnderway = feeds.some((f) => f.is_active && f.channel !== 'guesty' && f.export_subscribed);
   const activeDirectFeeds = feeds.filter((f) => f.is_active && !!f.ical_import_url && f.channel !== 'guesty');
   const badge = authorityBadge(property, activeDirectFeeds.length > 0);
 
@@ -783,7 +780,7 @@ function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; ru
   const held = run.bookings_deferred;
   // A release counts only for the guard it answered (lib/ical-cancel-policy
   // releaseAnswers); an older stamp is stale and the next sync clears it.
-  const pending = releaseAnswers(feed.mass_cancel_acknowledged_at, run) ? feed.mass_cancel_acknowledged_at : null;
+  const pending = releaseAnswers(feed.mass_cancel_ack_run_id, run) ? feed.mass_cancel_acknowledged_at : null;
   const empty = kind === 'empty_feed';
   // Booking.com publishes every booked night as a bare closure, so what the
   // guard holds there are closures, some of them only mirrors of nights
@@ -818,6 +815,8 @@ function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; ru
         <div style={{ display: 'flex', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
           <form action={acknowledgeMassCancel}>
             <input type="hidden" name="id" value={feed.id} />
+            {/* The run this alert shows: the release answers it and nothing later. */}
+            <input type="hidden" name="run_id" value={run.id} />
             <SubmitButton
               label="These cancellations are real"
               busyLabel="Cancelling and syncing…"

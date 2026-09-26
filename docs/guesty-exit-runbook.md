@@ -136,9 +136,12 @@ Booking.com extranet (Rates & Availability > Sync calendars > Export), copy
 each export URL and paste it into the matching row on `/channels/listings`.
 Press sync on each. Do NOT import Helm's export into the OTAs yet.
 
-Verify: each row shows success with an event count; iCal rows dedupe onto
-their `guesty_legacy` twins; Airbnb "Not available" closures over VRBO stays
-are marked as duplicates of the covering stay; no double bookings.
+Verify: each row shows success with an event count; iCal stays dedupe onto
+their `guesty_legacy` twins; no double bookings. Closed nights on the OTA
+feeds ("Airbnb (Not available)", "Blocked", Booking.com's "CLOSED") are not
+imported yet: while Guesty runs the home they are Guesty's own pushes, and
+Helm drops them exactly as it does for every fleet home. They start
+importing at the first "OTA imports Helm's export" tick in step 7.
 
 ## Step 4. Configure Helm for the flip
 
@@ -157,10 +160,9 @@ are marked as duplicates of the covering stay; no double bookings.
 ## Step 5. Parallel run
 
 At least two weeks or one real stay. Compare Guesty's multi-calendar to
-`/channels/65_calderwood/calendar` night for night. Force tests: block a
-night in the Airbnb app and confirm Helm imports it as a block within 30
-minutes; cancel a test hold on the OTA side and confirm the row cancels on
-the second missing run, not the first.
+`/channels/65_calderwood/calendar` stay for stay (holds are Guesty's until
+step 7). Force test: when a reservation is cancelled on an OTA, confirm the
+row cancels on the second missing run, not the first.
 
 ## Step 6. Pricing continuity
 
@@ -212,11 +214,17 @@ check is green:
     own feed, the only thing that can cancel it once Guesty stops writing;
   - every Booking.com reservation on file is still closed on Booking.com's
     feed, and Booking.com's feed is read at all while any is ahead;
-  - every hold set in Guesty that is not one of Guesty's own rolling rules
-    (the booking-window block to the calendar horizon, the one-night
-    advance-notice block) has been re-entered as a Helm block. Guesty's iCal
-    labels them all "Blocked by Guesty", so the flip cannot tell them apart
-    and cancels every one;
+  - every block Guesty published that is not one of its rolling rules has a
+    Helm row over it: an owner hold, or a "closed from a fixed date" setting
+    (20 Hammond is closed from 2027-01-01), re-entered as a Helm block (a
+    hold may be placed over Guesty's copy), or a Guesty-era reservation
+    Guesty blocked out, which carries itself. The rules (advance notice, the
+    rolling booking window, reservation padding) are read off Guesty's own
+    block type in each event's UID. The flip cancels every Guesty block;
+  - the rate plan's booking window is no wider than Guesty's rolling one
+    (Guesty closed 21 Horton 270 days out; a 365-day plan would sell the
+    rest on staycapeann.com the moment the rule is gone). Set the same
+    window on each OTA;
 - Booking.com reconciled: every Booking.com closure ahead has a reservation
   on file or a Helm row behind it, and none sits on a feed Helm stopped
   reading;
@@ -252,7 +260,11 @@ Ryan reads and answers OTA guests in the OTA apps. Helm shows every stay on
 the channel hub, the multi-calendar, `/today` and the reviews lens; guest SMS
 to the GUESTS line lands in the Helm inbox; Luana gets Helm's digest and the
 new-booking text; cancellations arrive only as feed drops on the 55-minute
-rule; cross-channel blocking lags by each OTA's pull interval; a Booking.com
+rule; cross-channel blocking lags by each OTA's pull interval; a row that
+came from a feed cannot be deleted in Helm (the feed cancels it), and
+lifting a Helm hold keeps it as cancelled; a hold may be placed over any
+other hold, including one Guesty or an OTA published, so re-entering a
+Guesty owner hold never needs its nights opened first; a Booking.com
 closure that only mirrored another channel's stay or a Helm block keeps
 Airbnb and VRBO closed a few hours after its cause is gone (Booking.com
 reopens at its next pull, Helm cancels the closure on the two-look rule,
@@ -263,7 +275,8 @@ closures stranded on a retired feed); a feed that goes empty or loses many
 stays at once holds its cancels until you release it on the hub (on
 Booking.com this includes closures that only mirrored a stay Helm sent it,
 since a Booking.com closure may be a guest; a release answers only the
-alert it was pressed on); a feed row with upcoming rows cannot be deleted,
+alert it was pressed on, and a newer sync makes it stale, so reload and
+press again if the alert changed); a feed row with upcoming rows cannot be deleted,
 only retired; a stay moved in Helm is checked only over the nights it
 adds, so its own echoes never block it, but a night it gave up stays held
 by those echoes until the OTAs re-pull; Airbnb stays

@@ -9,10 +9,12 @@ import { deleteBooking } from './actions';
  * rides along). Deliberately NOT its own <form>: nested forms are invalid
  * HTML, the SSR parser flattens them, and hydration then mismatches.
  *
- * The server decides what actually happens (deleteOrCancelBooking): only a
- * block, or an inquiry with no downstream artifacts, is deleted; anything
- * else is kept as a soft cancel. `deletable` lets the button say which of
- * the two it will do before the click, so the confirm text is never a lie.
+ * The server decides what actually happens (deleteOrCancelBooking): only an
+ * inquiry with no downstream artifacts is deleted; a hold made in Helm and
+ * anything else is kept as a soft cancel, and a row imported from a feed is
+ * refused (the page does not render the button for one). `deletable` lets
+ * the button say which it will do before the click, so the confirm text is
+ * never a lie.
  */
 export function DeleteBookingButton({ deletable, reason }: { deletable: boolean; reason?: string }) {
   const status = useFormStatus();

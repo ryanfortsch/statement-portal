@@ -242,9 +242,18 @@ describe('a hold imported from an OTA feed holds its nights (fail closed)', () =
       now: NOW,
     });
     assert.deepEqual(days.map((d) => d.available), [false, false, false, false]);
-    // A hold, not a guest Helm knows of: never flagged reserved.
+    // Without its source and channel this is a plain hold: never reserved.
     assert.deepEqual(days.map((d) => !!d.reserved), [false, false, false, false]);
     assert.equal(checkRange(days, '2026-10-10', '2026-10-14').available, false);
+  });
+
+  test("a Booking.com closure is reserved as well as blocked (the pre-release overlay must never offer it); other OTAs' closures are not", () => {
+    const { reserved, blocked } = nightHolds([
+      { status: 'block', check_in: '2026-10-10', check_out: '2026-10-12', hold_kind: 'ota', source: 'ical_import', channel: 'booking_com' },
+      { status: 'block', check_in: '2026-10-20', check_out: '2026-10-21', hold_kind: 'ota', source: 'ical_import', channel: 'airbnb' },
+    ]);
+    assert.deepEqual([...reserved].sort(), ['2026-10-10', '2026-10-11']);
+    assert.deepEqual([...blocked].sort(), ['2026-10-10', '2026-10-11', '2026-10-20']);
   });
 
   test('an OTA hold the dedupe filed as a duplicate still holds its nights; any other duplicate does not', () => {

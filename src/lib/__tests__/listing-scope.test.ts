@@ -1,8 +1,8 @@
 /**
  * Which homes' OTAs read Helm's export, and whose closures are Guesty's
  * echoes (lib/listing-scope.ts). The importer drops a home's direct-feed
- * closures only while it rides Guesty's aggregate feed AND no OTA on it is
- * ticked as importing Helm; the dedupe runs Helm-run rules from that tick.
+ * closures while Guesty runs it and no OTA on it is ticked as importing
+ * Helm; the dedupe runs Helm-run rules from that tick.
  *
  * Run: npm test   (node --test, native TypeScript, no bundler, no database)
  */
@@ -18,22 +18,27 @@ const l = (property_id: string, channel: string, patch: Partial<ListingScopeRow>
   export_subscribed_at: null,
   ...patch,
 });
+const guesty = (...ids: string[]) => ids.map((id) => ({ id, calendar_authority: 'guesty' }));
+const helm = (...ids: string[]) => ids.map((id) => ({ id, calendar_authority: 'helm' }));
 
 describe('guestyEchoPropertyIds', () => {
-  test('a fleet home on the aggregate feed drops its closures; a home with no aggregate row does not', () => {
-    const rows = [l('21_horton', 'guesty'), l('21_horton', 'airbnb'), l('65_calderwood', 'airbnb'), l('65_calderwood', 'booking_com')];
-    assert.deepEqual([...guestyEchoPropertyIds(rows)], ['21_horton']);
+  test('every home Guesty runs drops its closures, with or without an aggregate row (as on main)', () => {
+    const rows = [l('21_horton', 'guesty'), l('21_horton', 'airbnb'), l('84_thatcher', 'airbnb')];
+    assert.deepEqual([...guestyEchoPropertyIds(rows, guesty('21_horton', '84_thatcher'))].sort(), ['21_horton', '84_thatcher']);
   });
 
-  test('from the first tick of an OTA importing Helm, closures are read even with the aggregate row still active', () => {
+  test('a home Helm runs never drops them', () => {
+    assert.deepEqual([...guestyEchoPropertyIds([l('65_calderwood', 'airbnb')], helm('65_calderwood'))], []);
+  });
+
+  test('from the first tick of an OTA importing Helm, closures are read even while Guesty still runs the home', () => {
     const rows = [l('21_horton', 'guesty'), l('21_horton', 'vrbo', { export_subscribed: true, export_subscribed_at: '2026-10-01T12:00:00Z' })];
-    assert.deepEqual([...guestyEchoPropertyIds(rows)], []);
+    assert.deepEqual([...guestyEchoPropertyIds(rows, guesty('21_horton'))], []);
   });
 
-  test("a retired aggregate row, a retired ticked row, and a ticked Guesty row itself do not count", () => {
-    assert.deepEqual([...guestyEchoPropertyIds([l('a', 'guesty', { is_active: false })])], []);
-    assert.deepEqual([...guestyEchoPropertyIds([l('b', 'guesty'), l('b', 'vrbo', { is_active: false, export_subscribed: true })])], ['b']);
-    assert.deepEqual([...guestyEchoPropertyIds([l('c', 'guesty', { export_subscribed: true })])], ['c']);
+  test('a retired ticked row, or a ticked Guesty row itself, does not count as a tick', () => {
+    assert.deepEqual([...guestyEchoPropertyIds([l('b', 'vrbo', { is_active: false, export_subscribed: true })], guesty('b'))], ['b']);
+    assert.deepEqual([...guestyEchoPropertyIds([l('c', 'guesty', { export_subscribed: true })], guesty('c'))], ['c']);
   });
 });
 
