@@ -785,6 +785,10 @@ function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; ru
   // releaseAnswers); an older stamp is stale and the next sync clears it.
   const pending = releaseAnswers(feed.mass_cancel_acknowledged_at, run) ? feed.mass_cancel_acknowledged_at : null;
   const empty = kind === 'empty_feed';
+  // Booking.com publishes every booked night as a bare closure, so what the
+  // guard holds there are closures, some of them only mirrors of nights
+  // Helm sent Booking.com, and none of them is a stay on the rail.
+  const bcom = feed.channel === 'booking_com';
   return (
     <div style={{ margin: '0 0 16px 164px', borderLeft: '3px solid var(--signal)', background: 'var(--paper-2)', padding: '16px 20px 18px' }}>
       <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 8 }}>
@@ -794,11 +798,15 @@ function MassCancelAlert({ feed, run, label, now, kind }: { feed: FeedHealth; ru
         {empty
           ? `${label} sent an empty calendar. Nothing was cancelled.`
           : held > 0
-          ? `${held} upcoming stay${held === 1 ? ' is' : 's are'} being held.`
-          : 'Upcoming stays are being held.'}
+          ? `${held} upcoming ${bcom ? 'closure' : 'stay'}${held === 1 ? ' is' : 's are'} being held.`
+          : `Upcoming ${bcom ? 'closures' : 'stays'} are being held.`}
       </div>
       <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 640, margin: '0 0 14px' }}>
-        {empty
+        {bcom
+          ? empty
+            ? `The feed parsed to nothing while Booking.com closures are still on file. Booking.com publishes each booking as a closed night, so a broken feed and a guest's cancellation look alike, and Helm keeps every closure (still closed on Airbnb, VRBO and staycapeann.com) until you say otherwise. A quiet home also lands here when the only closures left were Booking.com mirroring a stay or a block Helm sent it that has since gone. Check the extranet; if nothing is booked on these nights, release it once and they cancel on that sync.`
+            : `Too many Booking.com closures left the feed at once. Each may be a guest, so Helm keeps them closed on Airbnb, VRBO and staycapeann.com until you release them. Lifting several Helm blocks at once, or a cancelled stay Booking.com was mirroring, ends the same way. Check the extranet first; the hold lasts until you release it or the dates pass.`
+          : empty
           ? `The feed parsed to nothing while this home still has upcoming ${label} rows on file. A broken or paused feed looks exactly like that, so Helm keeps every row as it was and skips the cancel pass. If the calendar really is empty now (the last guest cancelled, or the only closure was lifted), release it once and whatever is missing cancels on that sync.`
           : `Too many of this home's upcoming ${label} stays left the feed at once. That pattern usually means the listing was paused or the feed broke, not that every guest cancelled, so Helm keeps the stays confirmed: they stay on the turnover rail and the cleaner schedule, and the export still shows those nights as Reserved to the other channels. The hold lasts until you release it or each stay's dates pass. Check the listing in ${label} first.`}
       </p>
