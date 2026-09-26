@@ -25,7 +25,7 @@ import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { selectAllPaged } from '@/lib/paged-select';
 import { planDedupe, type DedupRow } from '@/lib/booking-dedupe';
 import { planCancelPass, keepsEmptyFeedGuardUp, holdsAreReservations, releaseAnswers, type CancelGuard } from '@/lib/ical-cancel-policy';
-import { freshSince, type PriorRow } from '@/lib/echo-cause';
+import { nextAge, type AgeWrite, type PriorRow } from '@/lib/echo-cause';
 import { loadAggregateFeedPropertyIds, hasAggregateFeed, loadStrictDedupeHomes, guestyEchoPropertyIds, type ListingScopeRow } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
@@ -87,7 +87,7 @@ async function loadReattachedPrior(sb: SupabaseClient, rows: readonly UpsertRow[
     for (const part of chunk(uids, ID_WRITE_CHUNK)) {
       const { data, error } = await sb
         .from('bookings')
-        .select('ical_uid, status, check_in, check_out, cancelled_at')
+        .select(`ical_uid, ${AGE_COLUMNS}`)
         .eq('channel', channel)
         .in('ical_uid', part);
       if (error) throw new Error(`read re-attached rows: ${error.message}`);
@@ -101,6 +101,9 @@ async function loadReattachedPrior(sb: SupabaseClient, rows: readonly UpsertRow[
  *  over-long request URL. */
 const ID_WRITE_CHUNK = 200;
 
+/** What lib/echo-cause nextAge reads off a row on file. */
+const AGE_COLUMNS = 'status, check_in, check_out, cancelled_at, created_at, live_since, kept_check_in, kept_check_out, kept_since';
+
 /** The columns the cancel pass reads off an existing ical_import row. */
 type ExistingRow = {
   id: string;
@@ -112,6 +115,11 @@ type ExistingRow = {
   raw_summary: string | null;
   hold_kind: string | null;
   cancelled_at: string | null;
+  created_at: string;
+  live_since: string | null;
+  kept_check_in: string | null;
+  kept_check_out: string | null;
+  kept_since: string | null;
 };
 
 /** What the sync writes per event. booked_at is added on the insert only. */
@@ -293,7 +301,7 @@ export async function syncListing(opts: {
       (from, to) =>
         sb
           .from('bookings')
-          .select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary, hold_kind, cancelled_at')
+          .select(`id, ical_uid, missing_since, raw_summary, hold_kind, ${AGE_COLUMNS}`)
           .eq('channel_listing_id', opts.listing_id)
           // NO duplicate_of filter here, deliberately. Every other stay read is
           // canonical-only, so this looks like an omission. It is not: this
@@ -452,20 +460,24 @@ export async function syncListing(opts: {
           }
         }
       }
-      // A row whose nights just (re)appeared gets live_since = now: feeds
-      // reuse UIDs, so created_at only says when the UID was first seen
-      // (freshSince). A row re-attached from another listing (its feed row
-      // was deleted and re-added) is judged against what it was there.
-      // Two batches, because PostgREST takes one column list per write.
+      // A row whose nights (re)appeared or moved gets new ages (lib/echo-cause
+      // nextAge): feeds reuse UIDs, so created_at only says when the UID was
+      // first seen, and a moved row keeps the age of the nights it already
+      // held. A row re-attached from another listing (its feed row was
+      // deleted and re-added) is judged against what it was there. Two
+      // batches, because PostgREST takes one column list per write.
       const reattachedPrior = await loadReattachedPrior(sb, reattached);
-      const fresh = updates.filter((r) =>
-        freshSince(existingByUid.get(r.ical_uid) ?? reattachedPrior.get(`${r.channel}|${r.ical_uid}`) ?? null, r, startedAt),
-      );
-      const steady = updates.filter((r) => !fresh.includes(r));
+      const ages = new Map<string, AgeWrite>();
+      for (const r of updates) {
+        const age = nextAge(existingByUid.get(r.ical_uid) ?? reattachedPrior.get(`${r.channel}|${r.ical_uid}`) ?? null, r, startedAt);
+        if (age) ages.set(r.ical_uid, age);
+      }
+      const fresh = updates.filter((r) => ages.has(r.ical_uid));
+      const steady = updates.filter((r) => !ages.has(r.ical_uid));
       if (fresh.length > 0) {
         const { error: freshErr } = await sb
           .from('bookings')
-          .upsert(fresh.map((r) => ({ ...r, live_since: startedAt.toISOString() })), { onConflict: 'channel,ical_uid' });
+          .upsert(fresh.map((r) => ({ ...r, ...ages.get(r.ical_uid)! })), { onConflict: 'channel,ical_uid' });
         if (freshErr) throw new Error(`upsert bookings (fresh): ${freshErr.message}`);
       }
       if (steady.length > 0) {
@@ -748,7 +760,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, live_since, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, live_since, kept_check_in, kept_check_out, kept_since, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },

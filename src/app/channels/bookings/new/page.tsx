@@ -87,6 +87,9 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
   const checkIn = one(sp.check_in).trim();
   const checkOut = one(sp.check_out).trim();
   const guests = Math.max(1, Math.round(Number(one(sp.guests)) || 2));
+  // The channel hub pre-fills a Guesty hold it asks to be re-entered.
+  const presetNotes = one(sp.notes).slice(0, 500);
+  const presetHoldKind = ['owner', 'maintenance', 'other', 'ota'].includes(one(sp.hold_kind)) ? one(sp.hold_kind) : 'owner';
   const conflict = conflictFromSearchParams(sp);
   const today = todayInEastern();
 
@@ -227,7 +230,7 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
             </Field>
             {isBlock && (
               <Field label="Hold kind">
-                <select name="hold_kind" defaultValue="owner" style={selectStyle}>
+                <select name="hold_kind" defaultValue={presetHoldKind} style={selectStyle}>
                   <option value="owner">Owner stay</option>
                   <option value="maintenance">Maintenance</option>
                   <option value="other">Other</option>
@@ -278,7 +281,7 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
           )}
 
           <Field label="Notes">
-            <textarea name="notes" rows={3} style={{ ...inputStyle, resize: 'vertical' }} placeholder={isBlock ? 'Owner July 4 week; HVAC tune-up' : 'Repeat guest, special arrangements'} />
+            <textarea name="notes" rows={3} defaultValue={presetNotes} style={{ ...inputStyle, resize: 'vertical' }} placeholder={isBlock ? 'Owner July 4 week; HVAC tune-up' : 'Repeat guest, special arrangements'} />
           </Field>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 8, alignItems: 'center' }}>

@@ -3,7 +3,7 @@ import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-a
 import { PROPERTIES, type HelmPropertyRow } from '@/lib/properties';
 import { loadInvoiceNeedles } from '@/lib/invoice-property-match';
 import { selectAllPaged } from '@/lib/paged-select';
-import { isHelmRun, type ScopedProperty } from '@/lib/property-scope';
+import { isCapeAnnOps, isHelmRun, type ScopedProperty } from '@/lib/property-scope';
 import {
   resolveLaunchSteps,
   summarizeLaunch,
@@ -304,7 +304,8 @@ export async function loadLaunchForFleet(
         calendar_authority: scope.calendar_authority ?? null,
       },
       scaLaunchStatus: scaById.get(p.id) ?? null,
-      hasQuoCleanerMapping: cleanerMappings.some((list) => list.length === 0 || list.includes(p.id)),
+      // A catch-all row serves Cape Ann homes only (property-crew getPropertyCleaners).
+      hasQuoCleanerMapping: cleanerMappings.some((list) => (list.length === 0 && isCapeAnnOps({ region: scope.region ?? null })) || list.includes(p.id)),
       locksMapped: locksById.get(p.id) ?? 0,
       forwardDistinctPrices: per?.forwardDistinctPrices ?? 0,
       firstStayStarted: !!per?.firstStayCheckIn,

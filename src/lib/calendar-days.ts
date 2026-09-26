@@ -197,7 +197,9 @@ export function mapGuestyDays(propertyId: string, days: GuestyDay[]): CalendarDa
       block_ref_id: holdRef?._id ?? null,
       block_start: holdRef ? toDateOnly(holdRef.startDate) : null,
       block_end: holdRef ? toDateOnly(holdRef.endDate) : null,
-      block_rule_type: status === 'unavailable' && !holdRef ? ruleTypeOf(day.blockRefs) : null,
+      // Recorded under holds and stays too: a closed season running on under
+      // the mirror's last night must still read as one (the cutover handover).
+      block_rule_type: status !== 'available' ? ruleTypeOf(day.blockRefs) : null,
     });
   }
   return rows;

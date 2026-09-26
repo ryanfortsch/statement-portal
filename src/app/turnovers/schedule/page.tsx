@@ -17,6 +17,7 @@ import {
   type ScheduleRow,
 } from '@/lib/checkout-schedule';
 import { isCapeAnnOps, regionLabel, CAPE_ANN_REGION } from '@/lib/property-scope';
+import { formatOperatorNote, noteRenderingIsStale } from '@/lib/cleaner-note';
 import {
   listScheduleRecipients,
   portalLink,
@@ -629,7 +630,23 @@ export default async function CheckoutSchedulePage({
                   </span>
                 )}
                 {digest && digest.operator_note && (
-                  <div style={{ marginTop: 4, fontStyle: 'italic' }}>Note riding with it: &ldquo;{digest.operator_note}&rdquo;</div>
+                  // What the crew receives is the rendered note (lib/cleaner-note),
+                  // not the text as typed; show that, and say when it is not ready.
+                  <div style={{ marginTop: 4 }}>
+                    {noteRenderingIsStale(digest) ? (
+                      <span style={{ fontStyle: 'italic' }}>
+                        Note riding with it, not translated yet (it is translated when sent; Save &amp; translate on the{' '}
+                        <Link href="/cleaner-messaging#schedule-digest" style={{ color: 'inherit' }}>cleaner messaging card</Link> to see it first): &ldquo;{digest.operator_note}&rdquo;
+                      </span>
+                    ) : (
+                      <>
+                        <span style={{ fontStyle: 'italic' }}>Note riding with it, as the crew gets it:</span>
+                        <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono), monospace', fontSize: 11.5, lineHeight: 1.5 }}>
+                          {formatOperatorNote(digest.operator_note_pt, digest.operator_note_en)}
+                        </pre>
+                      </>
+                    )}
+                  </div>
                 )}
                 {digest && sent && digest.sent_at && (
                   <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>

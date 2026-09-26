@@ -4,6 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { CutoverPreflightError, flipToHelm, revertToGuesty } from '@/lib/cutover';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { loadGuestyListingMap, syncCalendarDays } from '@/lib/calendar-days';
+import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 
 /**
  * The switch. One action, two targets:
@@ -98,5 +101,40 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
   }
 
   revalidateAfterFlip(propertyId);
+  redirect(hubUrl(propertyId, outcome));
+}
+
+/**
+ * "Read Guesty's calendar ahead": the handover's hold list reads Guesty's
+ * calendar mirror, which the daily Guesty sync fills only about a year out
+ * and refreshes past 45 days once a day. Before the Guesty listing is
+ * deleted (runbook step 7), this reads that one home's calendar now, from
+ * today to Guesty's own two-year horizon, so the list is current and
+ * reaches as far as Helm could sell. Guesty-run homes only; the flip
+ * rewrites the mirror with Helm's own.
+ */
+export async function readGuestyCalendarAheadAction(formData: FormData) {
+  const propertyId = String(formData.get('property_id') || '').trim();
+  if (!propertyId) throw new Error('Missing property id.');
+  await actorEmail();
+  let outcome: Record<string, string>;
+  try {
+    const { data: prop, error } = await supabaseAdmin.from('properties').select('calendar_authority').eq('id', propertyId).maybeSingle();
+    if (error) throw new Error(`properties read: ${error.message}`);
+    if (!prop) throw new Error(`Property ${propertyId} not found.`);
+    if ((prop as { calendar_authority?: string | null }).calendar_authority === 'helm') {
+      throw new Error('Helm runs this home; its calendar is Helm’s own.');
+    }
+    const map = Object.fromEntries(Object.entries(await loadGuestyListingMap()).filter(([, pid]) => pid === propertyId));
+    if (Object.keys(map).length === 0) throw new Error('No Guesty listing is mapped to this home, so there is nothing to read.');
+    const today = todayInEastern(new Date());
+    const result = await syncCalendarDays(map, today, shiftIsoDay(today, 730));
+    if (result.errors?.length) throw new Error(result.errors.join('; '));
+    if (result.gone_listings?.length) throw new Error(`Guesty no longer has listing ${result.gone_listings.join(', ')}; the mirror keeps what it last read.`);
+    outcome = { flip_note: `Read Guesty's calendar to ${shiftIsoDay(today, 730)}: ${result.days_written} nights, ${result.hold_days} held.` };
+  } catch (err) {
+    outcome = { flip_error: `Could not read Guesty's calendar: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  revalidatePath(`/channels/${propertyId}`);
   redirect(hubUrl(propertyId, outcome));
 }

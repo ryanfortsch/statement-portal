@@ -11,7 +11,7 @@
  */
 
 import type { BookingSource } from '@/lib/channels-types';
-import { echoExplained, type CoverRow } from './echo-cause.ts';
+import { echoExplained, heldBeforeCancel, type CoverRow } from './echo-cause.ts';
 
 /**
  * Canonical-source priority. When the same physical stay appears in
@@ -44,9 +44,14 @@ export type DedupRow = {
    *  operator's email (or 'operator') for a cancel pressed in Helm. Optional
    *  so fixtures that predate it load; absent reads as not an operator's. */
   cancelled_by?: string | null;
-  /** bookings.live_since: when an imported row's current nights appeared
-   *  (ical-sync). Optional; absent falls back to created_at. */
+  /** bookings.live_since: when a row's current dates began (ical-sync,
+   *  helm_move_booking). Optional; absent falls back to created_at. */
   live_since?: string | null;
+  /** bookings.kept_*: nights held before the last move, and since when
+   *  (lib/echo-cause nightHeldSinceMs). Optional. */
+  kept_check_in?: string | null;
+  kept_check_out?: string | null;
+  kept_since?: string | null;
   /** bookings.cancel_reason. 'operator_delete: ...' marks a record the
    *  operator removed (Delete), not a guest's cancellation; optional so
    *  fixtures that predate it load. */
@@ -890,7 +895,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       // Rows that held nights until their cancel: links in a chain of cover
       // (a cancelled stay and the rebook that took its nights inside the
       // OTA's pull lag), never a closure's cause on their own.
-      const withdrawn = canonicalRows.filter((c) => c.status === 'cancelled' && !!c.cancelled_at && !isEcho(c));
+      const withdrawn = canonicalRows.filter((c) => c.status === 'cancelled' && !!c.cancelled_at && !isEcho(c) && heldBeforeCancel(c));
       const now = (opts.now ?? new Date()).getTime();
       for (const echo of echoes) {
         // A closure echoes only what held its nights before it appeared and

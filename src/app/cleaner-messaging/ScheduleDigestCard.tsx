@@ -22,6 +22,7 @@ import {
 } from '@/lib/checkout-schedule';
 import { loadTurnoverNotes, type TurnoverNote } from '@/lib/turnover-notes';
 import { formatOperatorNote, noteRenderingIsStale } from '@/lib/cleaner-note';
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import {
   approveAndSendDigest,
   sendDigestUpdate,
@@ -321,7 +322,9 @@ export async function ScheduleDigestCard({
   try {
     [digest, recipients, settings] = await Promise.all([
       getOpenDigest(supabase),
-      listScheduleRecipients(supabase),
+      // This card is Cape Ann's digest: its recipients only (sendDigest texts
+      // the digest's region, so listing others offered a send to nobody).
+      listScheduleRecipients(supabase, CAPE_ANN_REGION),
       getScheduleSettings(supabase),
     ]);
   } catch {

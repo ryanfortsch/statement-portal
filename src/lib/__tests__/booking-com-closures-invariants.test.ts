@@ -185,10 +185,10 @@ describe('round 6: Guesty passes, live_since, the record form and the rule type'
     const src = squash(read('src/lib/ical-sync.ts'));
     // freshSince (lib/echo-cause) decides; a row re-attached from another
     // listing is judged against what it was there, not taken as new.
-    assert.ok(src.includes('freshSince(existingByUid.get(r.ical_uid) ?? reattachedPrior.get(`${r.channel}|${r.ical_uid}`) ?? null, r, startedAt)'))
+    assert.ok(src.includes('const age = nextAge(existingByUid.get(r.ical_uid) ?? reattachedPrior.get(`${r.channel}|${r.ical_uid}`) ?? null, r, startedAt);'))
     assert.ok(src.includes('const reattachedPrior = await loadReattachedPrior(sb, reattached);'))
-    assert.ok(src.includes(".select('id, ical_uid, status, check_in, check_out, missing_since, raw_summary, hold_kind, cancelled_at')"));
-    assert.ok(src.includes('fresh.map((r) => ({ ...r, live_since: startedAt.toISOString() }))'));
+    assert.ok(src.includes("const AGE_COLUMNS = 'status, check_in, check_out, cancelled_at, created_at, live_since, kept_check_in, kept_check_out, kept_since';"))
+    assert.ok(src.includes('.upsert(fresh.map((r) => ({ ...r, ...ages.get(r.ical_uid)! })), { onConflict:'));
     assert.ok(src.includes('live_since: startedAt.toISOString(),'));
   });
   test('the record form never moves or cancels a feed-owned row', () => {
@@ -196,8 +196,8 @@ describe('round 6: Guesty passes, live_since, the record form and the rule type'
     assert.ok(src.includes('const feedOwned = await isFeedOwned(before);'));
     assert.ok(src.includes('const statusChanged = !feedOwned && status !== before.status;'));
   });
-  test("the calendar mirror records Guesty's rule type on a night no hold covers", () => {
+  test("the calendar mirror records Guesty's rule type on every closed night, under holds and stays too", () => {
     const src = squash(read('src/lib/calendar-days.ts'));
-    assert.ok(src.includes("block_rule_type: status === 'unavailable' && !holdRef ? ruleTypeOf(day.blockRefs) : null,"));
+    assert.ok(src.includes("block_rule_type: status !== 'available' ? ruleTypeOf(day.blockRefs) : null,"));
   });
 });

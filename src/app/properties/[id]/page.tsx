@@ -458,7 +458,7 @@ export default async function PropertyDetailPage({
     }),
     getClimateProfile(p.id),
     getGuestCodeView(p.id),
-    getPropertyCleaners(p.id),
+    getPropertyCleaners(p.id, { region: (p as unknown as { region?: string | null }).region ?? null }),
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
@@ -474,7 +474,7 @@ export default async function PropertyDetailPage({
 
   // PMS plumbing: who runs this home's calendar (properties.calendar_authority,
   // read off the select('*') row), plus the three Helm-native records the
-  // Rates & taxes, Listing and Automations tabs render. Each loader is
+  // Rates & taxes, Listing and Automations sections render. Each loader is
   // null-safe so a missing migration on a preview env degrades to an empty
   // panel instead of a 500.
   const helmRun = isHelmRun(p as unknown as { calendar_authority?: string | null });
@@ -1294,7 +1294,7 @@ export default async function PropertyDetailPage({
                 title="Channels"
                 description={
                   helmRun
-                    ? 'Helm runs this calendar: per-channel listings, iCal in and out, bookings. Rates live on the Rates & taxes tab.'
+                    ? 'Helm runs this calendar: per-channel listings, iCal in and out, bookings. Rates live under Rates & taxes on the Guest & listing tab.'
                     : 'Where this property is listed: per-channel listings, bookings, and its iCal export feed. Guesty still runs the calendar.'
                 }
                 href={`/channels/${p.id}`}

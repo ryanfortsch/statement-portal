@@ -36,7 +36,7 @@ import type { Booking, BookingChannel, BookingSource, BookingStatus } from '@/li
 import { refreshMirrorForBooking, writeHelmCalendarMirror } from '@/lib/helm-calendar-mirror';
 import { upsertGuestForBooking } from '@/lib/guests-identity';
 import { shiftIsoDay } from '@/lib/sca-quotes-types';
-import { importFeedStateOf, ownedByFeed, type ImportFeedState } from '@/lib/listing-scope';
+import { exportLiveSince, importFeedStateOf, ownedByFeed, type ImportFeedState, type ListingScopeRow } from '@/lib/listing-scope';
 import {
   mintHelmConfirmationCode,
   diffForEvent,
@@ -342,6 +342,22 @@ export async function importFeedState(row: Pick<Booking, 'source' | 'channel_lis
     .maybeSingle();
   if (error) return 'unknown';
   return importFeedStateOf(row, (data as Parameters<typeof importFeedStateOf>[1]) ?? null);
+}
+
+/**
+ * Whether Guesty has stopped writing this home's bookings: Helm runs it, or
+ * an OTA already imports Helm's export (the cutover window; lib/pms-guards
+ * loadStrictDedupeHomes). Before that, a Guesty record still carries a
+ * cancellation a retired direct feed would miss. Null on a failed read.
+ */
+export async function guestyStoppedWriting(propertyId: string): Promise<boolean | null> {
+  const [prop, ticks] = await Promise.all([
+    supabaseAdmin.from('properties').select('calendar_authority').eq('id', propertyId).maybeSingle(),
+    supabaseAdmin.from('channel_listings').select('property_id, channel, is_active, export_subscribed, export_subscribed_at').eq('property_id', propertyId),
+  ]);
+  if (prop.error || ticks.error) return null;
+  if ((prop.data as { calendar_authority?: string | null } | null)?.calendar_authority === 'helm') return true;
+  return exportLiveSince((ticks.data ?? []) as ListingScopeRow[]).has(propertyId);
 }
 
 /**

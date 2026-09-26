@@ -344,3 +344,12 @@ describe('round 7: the booking window and the range past the mirror', () => {
     assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /from 2027-09-29 on/);
   });
 });
+
+describe('round 8: when Helm last read Guesty\'s calendar', () => {
+  test('the disconnect acknowledgement says when, while Guesty runs the home', () => {
+    const facts = greenFacts({ mirrorReadAt: '2026-10-01T04:31:07.000Z', acknowledgements: { automations_reviewed: true, guesty_disconnect: false } });
+    assert.match(byKey(evaluateCutoverPreflight(facts), 'guesty_disconnect_acknowledged').detail, /last read Guesty's calendar ahead at 2026-10-01 04:31 UTC/);
+    const helm = greenFacts({ calendarAuthority: 'helm', mirrorReadAt: '2026-10-01T04:31:07.000Z', acknowledgements: { automations_reviewed: true, guesty_disconnect: false } });
+    assert.doesNotMatch(byKey(evaluateCutoverPreflight(helm), 'guesty_disconnect_acknowledged').detail, /last read/);
+  });
+});

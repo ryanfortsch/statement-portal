@@ -145,16 +145,16 @@ importing at the first "OTA imports Helm's export" tick in step 7.
 
 ## Step 4. Configure Helm for the flip
 
-- `/properties/65_calderwood?tab=rates`: confirm the seeded plan and CT tax
+- `/properties/65_calderwood?tab=guest#rates` (Rates & taxes, a section of the Guest & listing tab): confirm the seeded plan and CT tax
   config; run the quote tester against a known Airbnb folio (accommodation
   must match Guesty's `fareAccommodation` before the channel markup).
-- `?tab=listing`: confirm content, rooms and photos.
+- `?tab=guest#listing`: confirm content, rooms and photos.
 - `/turnovers/schedule`: add Luana as a recipient (region `bridgeport_ct`,
   property ids `65_calderwood`, language, enabled) and a `cleaner_phones` row
   with `property_ids = {65_calderwood}` for done-text attribution. Send her
   the `/c/<token>` link. Confirm one digest reaches her with only Calderwood
   on it and Rosa's digest is unchanged.
-- `?tab=automations`: leave automations off for now; review the fleet rules
+- `?tab=guest#automations`: leave automations off for now; review the fleet rules
   and add property overrides.
 
 ## Step 5. Parallel run

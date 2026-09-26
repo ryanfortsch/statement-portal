@@ -18,7 +18,7 @@ import type { ListingContentRow, ListingPhotoRow } from '@/lib/listing-content';
 import type { PropertyRoom } from '@/lib/property-rooms-shared';
 
 /**
- * The property Listing tab: Guesty's Details & layout, Overview and
+ * The property page's Listing section (Guest & listing tab): Guesty's Details & layout, Overview and
  * Marketing screens as one record Helm owns (property_listing_content +
  * property_listing_photos, rooms from public.property_rooms).
  *

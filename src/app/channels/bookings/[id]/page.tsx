@@ -14,7 +14,7 @@ import {
   listThreadsForBooking,
   type BookingEx,
 } from '@/lib/channels';
-import { countDownstreamArtifacts, importFeedState, listBookingEvents, type BookingEventRow, type DownstreamArtifacts } from '@/lib/bookings-write';
+import { countDownstreamArtifacts, guestyStoppedWriting, importFeedState, listBookingEvents, type BookingEventRow, type DownstreamArtifacts } from '@/lib/bookings-write';
 import { ownedByFeed, type ImportFeedState } from '@/lib/listing-scope';
 import { conflictFromSearchParams, describeConflict } from '@/lib/bookings-write-core';
 import { BOOKING_STATUSES, CHANNEL_LABELS, STATUS_LABELS, type BookingFinance, type BookingStatus } from '@/lib/channels-types';
@@ -48,7 +48,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   const conflict = conflictFromSearchParams(sp);
   const kept = one(sp.kept) === 'cancelled';
 
-  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedState] = await Promise.all([
+  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedState, guestyGone] = await Promise.all([
     getFleetProperty(booking.property_id),
     safe(() => listBookingEvents(id), [] as BookingEventRow[]),
     safe(() => getBookingFinance(id), null as BookingFinance | null),
@@ -61,6 +61,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
     // A failed read reads as feed-owned ('unknown'): the page then offers no
     // write the server would refuse anyway.
     safe(() => importFeedState(booking), 'unknown' as ImportFeedState),
+    safe(() => guestyStoppedWriting(booking.property_id), null as boolean | null),
   ]);
   const feedOwned = ownedByFeed(feedState, booking);
   const feedUnread = feedState === 'unread';
@@ -230,13 +231,18 @@ export default async function BookingDetailPage({ params, searchParams }: { para
             {bcomClosure ? ' If Booking.com shows nothing booked on these nights, open them in the extranet.' : ''}
           </p>
         )}
-        {feedOwned && !isCancelled && feedUnread && (
+        {feedOwned && !isCancelled && feedUnread && bcomClosure && (
           <p style={{ marginTop: 22, borderTop: '1px solid var(--rule)', paddingTop: 16, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-            This closure came from a {CHANNEL_LABELS[booking.channel] ?? booking.channel} feed Helm no longer reads, so nothing will ever cancel it, and on Booking.com a closure may be a guest. Check the channel, then release it from the{' '}
+            This closure came from a Booking.com feed Helm no longer reads, so nothing will ever cancel it, and on Booking.com a closure may be a guest. Check the extranet, then release it from the{' '}
             <Link href={`/channels/${booking.property_id}#attention`} style={{ color: 'var(--ink)' }}>channel hub</Link> if nothing is booked.
           </p>
         )}
-        {!isCancelled && !feedOwned && feedUnread && (
+        {feedOwned && !isCancelled && feedUnread && !bcomClosure && (
+          <p style={{ marginTop: 22, borderTop: '1px solid var(--rule)', paddingTop: 16, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            This closure came from a {CHANNEL_LABELS[booking.channel] ?? booking.channel} feed Helm no longer reads; the next full channel sync retires it.
+          </p>
+        )}
+        {!isCancelled && !feedOwned && feedUnread && guestyGone !== false && (
           <p style={{ marginTop: 22, marginBottom: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
             Helm no longer reads the {CHANNEL_LABELS[booking.channel] ?? booking.channel} feed this came from, so it will not see the guest cancel. Check the booking on {CHANNEL_LABELS[booking.channel] ?? booking.channel} and cancel it here if it is gone.
           </p>

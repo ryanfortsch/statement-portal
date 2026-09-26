@@ -10,11 +10,15 @@
  *     closure appeared passed as its cause (created_at predated it);
  *   - a Booking.com guest's closure that blinked out of the feed for an
  *     hour came back with a fresh age, and the Airbnb stay sold in that
- *     hour passed as its cause (freshSince).
+ *     hour passed as its cause (nextAge).
+ * And round 8, against the ages themselves: an extension or a revival lost
+ * the nights a stay had held (its own echo listed for good), a Helm row
+ * moved onto a guest's nights kept its creation age (the guest hidden),
+ * and a declined inquiry passed as a stay Booking.com was sent.
  */
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ECHO_LAG_GRACE_MS, REVIVAL_GAP_MS, echoExplained, freshSince, heldSinceMs, type CoverRow } from '../echo-cause.ts';
+import { ECHO_LAG_GRACE_MS, REVIVAL_GAP_MS, echoExplained, heldBeforeCancel, heldSinceMs, movedAge, nextAge, nightHeldSinceMs, type CoverRow, type PriorRow } from '../echo-cause.ts';
 
 const H = 3_600_000;
 const T0 = Date.parse('2026-10-01T10:00:00Z');
@@ -100,23 +104,44 @@ describe('cover handed from one row to the next within the echo lag', () => {
   });
 });
 
-describe('a row is aged by when its current nights began', () => {
+describe('a row is aged night by night by when it began holding each one', () => {
   test('a stay moved onto the nights after the closure appeared is not its cause', () => {
     const c = closure(T0);
     const moved = cover({ at: T0 - 16 * 24 * H, live_since: iso(T0 + 2 * H) });
-    assert.equal(judge(c, [moved], T0 + 2 * H + ECHO_LAG_GRACE_MS + H).explained, false);
+    assert.equal(judge(c, [moved], T0 + 3 * H).explained, false, 'no allowance: the move started these nights');
   });
 
-  test('within the echo lag of the move it still counts from its creation (an extension Booking.com has not pulled yet)', () => {
+  test("an extension keeps the age of the nights it already held, so its old closures stay its echo", () => {
     const c = closure(T0);
-    const extended = cover({ at: T0 - 16 * 24 * H, live_since: iso(T0 + 2 * H) });
-    assert.equal(judge(c, [extended], T0 + 3 * H).explained, true);
+    const prior = { check_in: '2026-11-10', check_out: '2026-11-14', created_at: iso(T0 - 16 * 24 * H) };
+    const age = movedAge(prior, { check_in: '2026-11-10', check_out: '2026-11-16' }, new Date(T0 + 5 * 24 * H));
+    assert.deepEqual([age.kept_check_in, age.kept_check_out, age.kept_since], ['2026-11-10', '2026-11-14', iso(T0 - 16 * 24 * H)]);
+    const extended = cover({ at: T0 - 16 * 24 * H, check_out: '2026-11-16', ...age });
+    assert.equal(judge(c, [extended], T0 + 40 * 24 * H).explained, true);
+    // Booking.com closing the two added nights later is explained too.
+    const added = { check_in: '2026-11-14', check_out: '2026-11-16', created_at: iso(T0 + 5 * 24 * H + 3 * H), live_since: iso(T0 + 5 * 24 * H + 3 * H) };
+    assert.equal(echoExplained({ closure: added, nights: ['2026-11-14', '2026-11-15'], covers: [extended], now: T0 + 40 * 24 * H, allowRecentWithdrawal: true }).explained, true);
   });
 
-  test('a row that came back from a cancel gets no such allowance', () => {
-    const c = closure(T0);
-    const revived = cover({ at: T0 - 16 * 24 * H, live_since: iso(T0 + 2 * H), cancelled_at: iso(T0 - 3 * 24 * H) });
-    assert.equal(judge(c, [revived], T0 + 3 * H).explained, false);
+  test("a stay moved so it keeps only some nights: the rest start at the move", () => {
+    const prior = { check_in: '2026-12-01', check_out: '2026-12-05', created_at: iso(T0 - 16 * 24 * H) };
+    const age = movedAge(prior, { check_in: '2026-11-10', check_out: '2026-11-14' }, new Date(T0 + 2 * H));
+    assert.deepEqual(age, { live_since: iso(T0 + 2 * H), kept_check_in: null, kept_check_out: null, kept_since: null }, 'no night shared');
+    const r = { ...prior, ...movedAge(prior, { check_in: '2026-12-03', check_out: '2026-12-08' }, new Date(T0 + 2 * H)), check_in: '2026-12-03', check_out: '2026-12-08' };
+    assert.equal(nightHeldSinceMs(r, '2026-12-04'), T0 - 16 * 24 * H);
+    assert.equal(nightHeldSinceMs(r, '2026-12-06'), T0 + 2 * H);
+  });
+
+  test('two moves: the kept nights never read older than the truth', () => {
+    const first = { check_in: '2026-11-10', check_out: '2026-11-14', created_at: iso(T0 - 30 * 24 * H) };
+    const a1 = movedAge(first, { check_in: '2026-11-10', check_out: '2026-11-16' }, new Date(T0));
+    const second = { ...first, ...a1, check_out: '2026-11-16' };
+    // Shrunk to nights inside the kept range: they keep the oldest age.
+    const a2 = movedAge(second, { check_in: '2026-11-11', check_out: '2026-11-13' }, new Date(T0 + H));
+    assert.equal(a2.kept_since, iso(T0 - 30 * 24 * H));
+    // Shifted to share nights of both ages: the later one wins.
+    const a3 = movedAge(second, { check_in: '2026-11-13', check_out: '2026-11-18' }, new Date(T0 + H));
+    assert.deepEqual([a3.kept_check_in, a3.kept_check_out, a3.kept_since], ['2026-11-13', '2026-11-16', iso(T0)]);
   });
 
   test('heldSinceMs reads live_since, else created_at', () => {
@@ -125,37 +150,69 @@ describe('a row is aged by when its current nights began', () => {
   });
 });
 
-describe('freshSince: when ical-sync restarts a row\'s live_since', () => {
+describe("nextAge: the ages a writer stores (ical-sync, and helm_move_booking in SQL)", () => {
   const at = new Date(T0);
-  const prior = { status: 'block', check_in: '2026-11-10', check_out: '2026-11-14', cancelled_at: null };
+  const prior = (p: Partial<PriorRow> = {}): PriorRow => ({ status: 'confirmed', check_in: '2026-11-10', check_out: '2026-11-14', created_at: iso(T0 - 20 * 24 * H), cancelled_at: null, ...p });
   const same = { check_in: '2026-11-10', check_out: '2026-11-14' };
-  test('a row not on file, or one whose dates moved', () => {
-    assert.equal(freshSince(null, same, at), true);
-    assert.equal(freshSince(prior, { ...same, check_out: '2026-11-15' }, at), true);
+  test('a row not on file, or one that held nothing (an inquiry confirmed), is new', () => {
+    assert.equal(nextAge(null, same, at)?.live_since, iso(T0));
+    assert.equal(nextAge(prior({ status: 'inquiry' }), same, at)?.live_since, iso(T0));
   });
-  test('a live row with the same dates keeps its age', () => {
-    assert.equal(freshSince(prior, same, at), false);
+  test('a live row with the same dates keeps its ages; moved dates keep the shared nights', () => {
+    assert.equal(nextAge(prior(), same, at), null);
+    assert.equal(nextAge(prior(), { ...same, check_out: '2026-11-16' }, at)?.kept_check_out, '2026-11-14');
   });
-  test('a row back within REVIVAL_GAP_MS of its cancel keeps its age (a feed hiccup)', () => {
-    assert.equal(freshSince({ ...prior, status: 'cancelled', cancelled_at: iso(T0 - H) }, same, at), false);
+  test("an OTA's closure back within REVIVAL_GAP_MS keeps its age; later, it starts again", () => {
+    const ota = { ...same, hold_kind: 'ota' };
+    assert.equal(nextAge(prior({ status: 'cancelled', cancelled_at: iso(T0 - H) }), ota, at), null);
+    assert.equal(nextAge(prior({ status: 'cancelled', cancelled_at: iso(T0 - REVIVAL_GAP_MS - 60_000) }), ota, at)?.live_since, iso(T0));
+    assert.equal(nextAge(prior({ status: 'cancelled', cancelled_at: null }), ota, at)?.live_since, iso(T0));
   });
-  test('a row back after a longer absence starts again', () => {
-    assert.equal(freshSince({ ...prior, status: 'cancelled', cancelled_at: iso(T0 - REVIVAL_GAP_MS - 60_000) }, same, at), true);
-    assert.equal(freshSince({ ...prior, status: 'cancelled', cancelled_at: null }, same, at), true);
+  test('a stay back within the echo lag keeps its age (a chain would bridge the gap); later, it starts again', () => {
+    assert.equal(nextAge(prior({ status: 'cancelled', cancelled_at: iso(T0 - 5 * H) }), same, at), null);
+    assert.equal(nextAge(prior({ status: 'cancelled', cancelled_at: iso(T0 - ECHO_LAG_GRACE_MS - 60_000) }), same, at)?.live_since, iso(T0));
+  });
+  test("round 8: an Airbnb stay dropped for 2.5 hours still explains its own Booking.com echo", () => {
+    const c = closure(T0 - 10 * 24 * H);
+    const created = T0 - 16 * 24 * H;
+    const cancelledAt = T0 - 150 * 60_000;
+    const age = nextAge(prior({ status: 'cancelled', created_at: iso(created), cancelled_at: iso(cancelledAt) }), same, at);
+    assert.equal(age, null, 'its age is kept');
+    const back = cover({ at: created });
+    assert.equal(judge(c, [back], T0 + 20 * 24 * H).explained, true);
   });
   test("a Booking.com guest's closure that blinked out for an hour stays unexplained by the stay sold in that hour", () => {
-    // Oct 1 the closure appears; nobody enters the guest. Oct 5 09:00 the
-    // feed drops it, two looks cancel it at 10:00, an Airbnb stay is sold
-    // at 10:20, the feed shows it again at 10:30.
-    const appeared = T0;
+    // Oct 1 the closure appears; nobody enters the guest. Oct 5 the feed
+    // drops it, two looks cancel it at 10:00, an Airbnb stay is sold at
+    // 10:20, the feed shows it again at 10:30.
     const cancelledAt = T0 + 4 * 24 * H;
     const back = new Date(cancelledAt + 30 * 60_000);
-    const kept = !freshSince({ status: 'cancelled', check_in: '2026-11-10', check_out: '2026-11-14', cancelled_at: iso(cancelledAt) }, same, back);
-    assert.equal(kept, true);
-    const c = closure(appeared);
+    assert.equal(nextAge(prior({ status: 'cancelled', cancelled_at: iso(cancelledAt) }), { ...same, hold_kind: 'ota' }, back), null, 'the closure keeps its age');
     const soldInGap = cover({ at: cancelledAt + 20 * 60_000 });
-    assert.equal(judge(c, [soldInGap], back.getTime() + 24 * H).explained, false);
-    // Restarted, as before this rule, the same stay passed as its cause.
+    assert.equal(judge(closure(T0), [soldInGap], back.getTime() + 24 * H).explained, false);
+    // Restarted, as before round 7, the same stay passed as its cause.
     assert.equal(judge(closure(back.getTime()), [soldInGap], back.getTime() + 24 * H).explained, true);
+  });
+});
+
+describe('heldBeforeCancel: only a row that held nights is a link', () => {
+  test('a feed row always held; a Helm row only once it held (live_since)', () => {
+    assert.equal(heldBeforeCancel({ source: 'ical_import' }), true);
+    assert.equal(heldBeforeCancel({ source: 'guesty_legacy' }), true);
+    assert.equal(heldBeforeCancel({ source: 'direct_booking', live_since: null }), false, 'a declined inquiry');
+    assert.equal(heldBeforeCancel({ source: 'manual', live_since: iso(T0) }), true);
+  });
+});
+
+describe("a closure's own nights keep their age when Booking.com extends it", () => {
+  test("a Booking.com guest who extends: the stay double-booked on their original nights is still no cause", () => {
+    // C: Nov 10-14 since Oct 1, extended on Booking.com to Nov 10-16 on
+    // Oct 20 (kept Nov 10-14 since Oct 1). S: an Airbnb stay made Oct 10
+    // over all six nights, a double booking.
+    const oct = (d: number) => Date.parse(`2026-10-${String(d).padStart(2, '0')}T12:00:00Z`);
+    const c = { check_in: '2026-11-10', check_out: '2026-11-16', created_at: iso(oct(1)), live_since: iso(oct(20)), kept_check_in: '2026-11-10', kept_check_out: '2026-11-14', kept_since: iso(oct(1)) };
+    const s = cover({ at: oct(10), check_out: '2026-11-16' });
+    const nights = ['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15'];
+    assert.equal(echoExplained({ closure: c, nights, covers: [s], now: oct(25), allowRecentWithdrawal: true }).explained, false);
   });
 });

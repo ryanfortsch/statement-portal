@@ -155,12 +155,20 @@ alter table public.bookings
   add column if not exists cancelled_by text,
   add column if not exists source_ref text,         -- quote id | stripe payment_intent id | sca token
   add column if not exists missing_since timestamptz, -- first sync run that saw an iCal row absent; cleared when seen again
-  -- When an imported row's CURRENT nights appeared: set on insert, and again
-  -- whenever ical-sync revives a cancelled row or moves its dates (feeds
-  -- reuse UIDs, so created_at says when the UID was first seen, not when
-  -- these nights closed). src/lib/cutover-carryover.ts and the dedupe's pass
-  -- four read it to tell a closure's cause from a later booking.
-  add column if not exists live_since timestamptz;
+  -- How long the row has held its nights (src/lib/echo-cause.ts). live_since:
+  -- when its current dates began (set on insert, and again when it comes
+  -- back after a real absence or its dates move; feeds reuse UIDs, so
+  -- created_at says when the UID was first seen). kept_*: the nights it
+  -- already held before its last move, with the age they had, so an
+  -- extension keeps the age of the nights the stay already held. Written by
+  -- ical-sync for feed rows and by helm_create_booking / helm_move_booking
+  -- for Helm's own, by the same rule (echo-cause nextAge). The cutover
+  -- handover and the dedupe's pass four read them to tell a closure's cause
+  -- from a later booking.
+  add column if not exists live_since timestamptz,
+  add column if not exists kept_check_in date,
+  add column if not exists kept_check_out date,
+  add column if not exists kept_since timestamptz;
 
 -- Guesty's rule type on a night its own calendar closes for a rule rather
 -- than a hold (advance notice 'an', booking window 'bw' / 'bd', padding
@@ -570,7 +578,7 @@ begin
     property_id, channel, source, status, check_in, check_out, nights,
     guest_id, guest_name, guest_email, guest_phone, num_guests,
     gross_amount, cleaning_fee, taxes, payout, currency, notes, hold_kind,
-    external_confirmation_code, created_by, source_ref, booked_at, first_seen_at, last_seen_at
+    external_confirmation_code, created_by, source_ref, booked_at, first_seen_at, last_seen_at, live_since
   ) values (
     p_property_id, p_channel, p_source, p_status, p_check_in, p_check_out, (p_check_out - p_check_in),
     nullif(p_fields->>'guest_id','')::uuid, p_fields->>'guest_name', p_fields->>'guest_email', p_fields->>'guest_phone',
@@ -579,7 +587,9 @@ begin
     nullif(p_fields->>'taxes','')::numeric, nullif(p_fields->>'payout','')::numeric,
     coalesce(p_fields->>'currency','USD'), p_fields->>'notes', p_fields->>'hold_kind',
     p_fields->>'external_confirmation_code', p_actor, p_fields->>'source_ref',
-    coalesce(nullif(p_fields->>'booked_at','')::timestamptz, now()), now(), now()
+    coalesce(nullif(p_fields->>'booked_at','')::timestamptz, now()), now(), now(),
+    -- Holds its nights from now; an inquiry holds none (echo-cause heldBeforeCancel).
+    case when p_status in ('confirmed','completed','block') then now() end
   ) returning * into v_row;
   insert into public.booking_events (booking_id, kind, actor, after) values (v_row.id, 'created', p_actor, to_jsonb(v_row));
   return v_row;
@@ -591,7 +601,9 @@ create or replace function public.helm_move_booking(
   p_booking_id uuid, p_check_in date, p_check_out date, p_status public.booking_status, p_actor text, p_allow_overlap boolean default false
 ) returns public.bookings
 language plpgsql security definer set search_path = public as $$
-declare v_before public.bookings; v_row public.bookings; v_conflict public.bookings;
+declare
+  v_before public.bookings; v_row public.bookings; v_conflict public.bookings;
+  v_live timestamptz; v_kin date; v_kout date; v_ksince timestamptz; v_reage boolean := false;
 begin
   if p_check_out <= p_check_in then raise exception 'booking_invalid_dates' using errcode = 'P0001'; end if;
   select * into v_before from public.bookings where id = p_booking_id for update;
@@ -626,9 +638,37 @@ begin
                                    'check_in', v_conflict.check_in, 'check_out', v_conflict.check_out)::text;
     end if;
   end if;
+  -- Ages, as src/lib/echo-cause.ts nextAge (keep the two in step): a row
+  -- that starts holding, or comes back more than the echo lag (8 hours)
+  -- after its cancel, is new; one whose dates move keeps, for the nights it
+  -- already held, the latest age they had; anything else keeps its ages.
+  if p_status in ('confirmed','completed','block') then
+    v_live := v_before.live_since; v_kin := v_before.kept_check_in; v_kout := v_before.kept_check_out; v_ksince := v_before.kept_since;
+    if (v_before.status = 'cancelled' and (v_before.cancelled_at is null or now() - v_before.cancelled_at > interval '8 hours'))
+       or v_before.status not in ('confirmed','completed','block','cancelled') then
+      v_reage := true; v_live := now(); v_kin := null; v_kout := null; v_ksince := null;
+    elsif p_check_in <> v_before.check_in or p_check_out <> v_before.check_out then
+      v_reage := true; v_live := now();
+      v_kin := greatest(p_check_in, v_before.check_in); v_kout := least(p_check_out, v_before.check_out);
+      if v_kin >= v_kout then
+        v_kin := null; v_kout := null; v_ksince := null;
+      elsif v_before.kept_since is not null and v_before.kept_check_in <= v_kin and v_kout <= v_before.kept_check_out then
+        v_ksince := v_before.kept_since;
+      else
+        v_ksince := coalesce(v_before.live_since, v_before.created_at);
+      end if;
+    end if;
+  end if;
   update public.bookings
      set check_in = p_check_in, check_out = p_check_out, nights = (p_check_out - p_check_in), status = p_status,
-         cancelled_at = case when p_status = 'cancelled' then coalesce(cancelled_at, now()) else null end,
+         -- the moment it was cancelled, never an older stamp a revived row kept
+         cancelled_at = case when p_status <> 'cancelled' then null
+                             when v_before.status = 'cancelled' then coalesce(v_before.cancelled_at, now())
+                             else now() end,
+         live_since = case when v_reage then v_live else live_since end,
+         kept_check_in = case when v_reage then v_kin else kept_check_in end,
+         kept_check_out = case when v_reage then v_kout else kept_check_out end,
+         kept_since = case when v_reage then v_ksince else kept_since end,
          updated_at = now()
    where id = p_booking_id returning * into v_row;
   insert into public.booking_events (booking_id, kind, actor, before, after)
@@ -645,7 +685,10 @@ begin
   select * into v_before from public.bookings where id = p_booking_id for update;
   if not found then raise exception 'booking_not_found' using errcode = 'P0003'; end if;
   update public.bookings
-     set status = 'cancelled', cancelled_at = coalesce(cancelled_at, now()), cancel_reason = p_reason, cancelled_by = p_actor, updated_at = now()
+     -- the moment it was cancelled: a feed row once cancelled and revived
+     -- keeps its old stamp, and the echo lag is measured from this one
+     set status = 'cancelled', cancelled_at = case when v_before.status = 'cancelled' then coalesce(v_before.cancelled_at, now()) else now() end,
+         cancel_reason = p_reason, cancelled_by = p_actor, updated_at = now()
    where id = p_booking_id returning * into v_row;
   update public.automation_sends set status = 'cancelled', updated_at = now()
    where booking_id = p_booking_id and status in ('scheduled','awaiting_approval');

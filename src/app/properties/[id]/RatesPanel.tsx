@@ -15,7 +15,7 @@ import type { RateDayRow, RatePlanRow, TaxConfigRow } from '@/lib/rate-plan';
 import { regionLabel } from '@/lib/property-scope';
 
 /**
- * The property Rates & taxes tab: Guesty's Pricing & policies, Tax
+ * The property page's Rates & taxes section (Guest & listing tab): Guesty's Pricing & policies, Tax
  * configuration and Calendar rules on one screen.
  *
  *   - property_rate_plans editor (nightly, fees, discounts, the direct markup
@@ -213,7 +213,7 @@ function PlanForm({ propertyId, plan }: { propertyId: string; plan: RatePlanRow 
         <Field label="Cancellation terms" hint="shown to the guest when the key is custom" wide>
           <textarea name="cancellation_terms" rows={3} defaultValue={plan?.cancellation_terms ?? ''} style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
         </Field>
-        <Field label="House rules" hint="the policy copy; the guest-facing listing text lives on the Listing tab" wide>
+        <Field label="House rules" hint="the policy copy; the guest-facing listing text lives in the Listing section" wide>
           <textarea name="house_rules" rows={3} defaultValue={plan?.house_rules ?? ''} style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
         </Field>
       </Group>

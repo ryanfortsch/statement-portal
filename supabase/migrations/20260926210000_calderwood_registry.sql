@@ -42,7 +42,11 @@ insert into public.properties (
   true, true, 'managed', 'bridgeport_ct', 'guesty', '66797ba7f51d72001388bc29', now(),
   'Goose of Calderwood LLC', 'Goose of Calderwood LLC', 'Ryan', '{}', '[]'::jsonb, 0, '8203', null,
   '65 calderwood', '{}', 3, 2, 1300,
-  '11:00', '15:00', 'Friday', true, true, 'guesty_seed_2026-09-25'
+  -- trash_day null on purpose: Bridgeport's Friday pickup is a private
+  -- contractor's, and the home's own KB says so. A day here makes
+  -- stay-concierge's schedule block (no city gate) tell guests the
+  -- Gloucester cart rule (CLAUDE.md, Trash and recycling).
+  '11:00', '15:00', null, true, true, 'guesty_seed_2026-09-25'
 ) on conflict (id) do nothing;
 
 -- ── Access row: EMPTY on purpose ──────────────────────────────────────────

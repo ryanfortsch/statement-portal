@@ -795,6 +795,20 @@ describe('round 7: pass four judges a closure by continuous cover (lib/echo-caus
   });
 });
 
+describe('round 8: a declined inquiry is never a link in pass four', () => {
+  test('a closure is not filed under a stay made after it through a cancelled inquiry that never held the nights', () => {
+    const NOW = new Date('2026-10-20T12:00:00Z');
+    const closure = row({ id: 'C', property_id: '65_calderwood', channel: 'booking_com', channel_listing_id: 'listing-bcom', status: 'block', raw_summary: 'CLOSED - Not available', created_at: '2026-10-01T10:00:00Z', live_since: '2026-10-01T10:00:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const inquiry = row({ id: 'I', property_id: '65_calderwood', channel: 'direct', source: 'direct_booking', channel_listing_id: null, status: 'cancelled', created_at: '2026-09-20T00:00:00Z', live_since: null, cancelled_at: '2026-10-01T11:00:00Z', guest_name: 'Inquirer', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const later = row({ id: 'S', property_id: '65_calderwood', channel: 'airbnb', channel_listing_id: 'listing-airbnb', external_confirmation_code: 'HMLATER001', created_at: '2026-10-01T12:00:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const strict = { ...optsWithHolds, now: NOW, strictChannelPropertyIds: new Set(['65_calderwood']) };
+    assert.equal(canonicalOf(planDedupe([closure, inquiry, later], strict), 'C'), 'C');
+    // Had it held the nights (a confirmed stay, live_since set), the rebook took over.
+    const heldStay = { ...inquiry, live_since: '2026-09-20T00:00:00Z' };
+    assert.equal(canonicalOf(planDedupe([closure, heldStay, later], strict), 'C'), 'S');
+  });
+});
+
 describe("fleet parity: Guesty's cancelled aggregate blocks cluster as they always have", () => {
   test('on a Guesty-run home a cancelled "Blocked by Guesty" row is not read as a hold by its summary', () => {
     // 1,625 such rows stood up as canonical rows when the summary test was

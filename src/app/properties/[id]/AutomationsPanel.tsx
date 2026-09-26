@@ -27,7 +27,7 @@ import {
 } from '@/lib/automations-core';
 
 /**
- * The property Automations tab: Guesty Message Automation, Helm-native.
+ * The property page's Automations section (Guest & listing tab): Guesty Message Automation, Helm-native.
  *
  * The switch (automations_enabled, which only takes when Helm runs this
  * home's calendar), the effective rule list (fleet defaults with this home's

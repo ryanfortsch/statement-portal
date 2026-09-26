@@ -135,6 +135,9 @@ export type CutoverFacts = {
   /** The calendar mirror's last night while Guesty runs the home (null: no
    *  rows). Absent in older fixtures: the unmirrored range is not reported. */
   mirrorLastDate?: string | null;
+  /** The oldest synced_at among the mirror's rows ahead: holds made in
+   *  Guesty after it are not in the mirror. Null: no rows. */
+  mirrorReadAt?: string | null;
   recipients: CutoverRecipientFact[];
   automations: CutoverAutomationFacts;
   acknowledgements: CutoverAcknowledgements;
@@ -442,7 +445,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     // Not a failure (nothing Helm can read would clear it): the disconnect
     // acknowledgement asks for the check.
     const blind = carry.mirrorBlindFrom
-      ? ` Helm's copy of Guesty's calendar stops before ${carry.mirrorBlindFrom}: check Guesty's calendar from that date on for holds before you disconnect, and re-enter any as Helm blocks.`
+      ? ` Helm's copy of Guesty's calendar stops before ${carry.mirrorBlindFrom}: press "Read Guesty's calendar ahead" on the channel hub, or check Guesty's calendar from that date on for holds before you disconnect, and re-enter any as Helm blocks.`
       : '';
     const compared = facts.feeds.some((f) => f.is_active && f.channel === 'booking_com' && !!f.ical_import_url);
     checks.push({
@@ -515,6 +518,12 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
   const blindAsk = blindFrom
     ? ` Before deleting the Guesty listing, check its calendar from ${blindFrom} on for owner holds (Helm's copy of it stops there) and re-enter any as Helm blocks.`
     : '';
+  // A hold made in Guesty after the mirror's last read is in no list: the
+  // mirror freezes when the listing is deleted, so say when that read was.
+  const readAsk =
+    facts.calendarAuthority !== 'helm' && facts.mirrorReadAt
+      ? ` Helm last read Guesty's calendar ahead at ${facts.mirrorReadAt.slice(0, 16).replace('T', ' ')} UTC; a hold added in Guesty since is not listed, so read it again on the channel hub right before you delete the listing.`
+      : '';
   const guestyRowActive = facts.feeds.some((f) => f.is_active && String(f.channel).toLowerCase() === 'guesty');
   const guestyNote = facts.guestyListingId
     ? `Guesty listing ${facts.guestyListingId} is still mapped; the flip parks that id and deletes Helm's guesty_listings row.`
@@ -525,7 +534,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     ok: facts.acknowledgements.guesty_disconnect,
     detail: facts.acknowledgements.guesty_disconnect
       ? `Acknowledged. ${guestyNote}${guestyRowActive ? ' The active Guesty aggregate feed row is retired by the flip.' : ''}`
-      : `Tick the box once the Airbnb, VRBO and Booking.com connections are disconnected in Guesty and each OTA imports Helm's export.${blindAsk} ${guestyNote}${guestyRowActive ? ' The active Guesty aggregate feed row will be retired by the flip.' : ''}`,
+      : `Tick the box once the Airbnb, VRBO and Booking.com connections are disconnected in Guesty and each OTA imports Helm's export.${blindAsk}${readAsk} ${guestyNote}${guestyRowActive ? ' The active Guesty aggregate feed row will be retired by the flip.' : ''}`,
     acknowledgement: true,
   });
 
@@ -617,7 +626,7 @@ const LOOKAHEAD_DAYS = 540;
 export async function loadGuestyMirrorHolds(
   propertyId: string,
   todayIso: string,
-): Promise<{ holds: MirrorHold[]; bw: { check_in: string; seen_at: string } | null; lastDate: string | null }> {
+): Promise<{ holds: MirrorHold[]; bw: { check_in: string; seen_at: string } | null; lastDate: string | null; readAt: string | null }> {
   const rows = await selectAllPaged<MirrorDay>(
     (from, to) =>
       supabaseAdmin
@@ -629,7 +638,8 @@ export async function loadGuestyMirrorHolds(
         .range(from, to),
     { label: `cutover mirror holds ${propertyId}` },
   );
-  return mirrorRunsFromDays(rows, todayIso);
+  const readAt = rows.reduce<string | null>((m, r) => (r.synced_at && (!m || Date.parse(r.synced_at) < Date.parse(m)) ? r.synced_at : m), null);
+  return { ...mirrorRunsFromDays(rows, todayIso), readAt };
 }
 
 /** Every row still ahead, any status, duplicates included (CutoverFacts.carryRows). */
@@ -638,7 +648,7 @@ export async function loadCarryRows(propertyId: string, todayIso: string): Promi
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, missing_since, cancelled_at, ical_uid, live_since')
+        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, notes, missing_since, cancelled_at, ical_uid, live_since, kept_check_in, kept_check_out, kept_since')
         .eq('property_id', propertyId)
         .gt('check_out', todayIso)
         .order('check_in', { ascending: true })
@@ -788,6 +798,7 @@ export async function loadCutoverFacts(
     mirrorHolds: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds.holds : [],
     mirrorBookingWindow: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds.bw : null,
     mirrorLastDate: mirrorHolds.lastDate,
+    mirrorReadAt: mirrorHolds.readAt,
     recipients: ((recipientsRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
       display_name: String(r.display_name ?? ''),
       enabled: !!r.enabled,

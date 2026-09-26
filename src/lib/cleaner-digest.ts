@@ -453,6 +453,14 @@ export async function sendDigest(
   if (!row) return { ok: false, error: 'not_found' };
   const digest = row as DigestRow;
   const region = digest.region || CAPE_ANN_REGION;
+  const verbatim = opts.body?.trim() || null;
+
+  // The operator's note goes out rendered in Portuguese (lib/cleaner-note),
+  // re-derived now if the stored rendering is stale: on the evening autosend
+  // nobody is there to notice an untranslated note. Resolved BEFORE the claim
+  // below: a model call that hangs past the function's limit would otherwise
+  // leave the row in 'sending', which nothing ever reverts.
+  const noteBlock = verbatim ? '' : await resolveNoteBlock(supabase, digest.id);
 
   const fromStatus = opts.kind === 'initial' ? 'pending' : 'sent';
   const { data: claimed } = await supabase
@@ -484,7 +492,6 @@ export async function sendDigest(
 
   // Resolve every recipient's text before the first send so a failure to
   // read the schedule reverts the claim with nothing sent.
-  const verbatim = opts.body?.trim() || null;
   let perRecipient: Array<{ recipient: ScheduleRecipient; text: string; checkouts?: number }>;
   let storedBody: string;
   if (verbatim) {
@@ -500,16 +507,6 @@ export async function sendDigest(
       throw err;
     }
     const bodies = await composeRecipientBodies(supabase, regionDay, recipients);
-    // The operator's note goes out rendered in Portuguese (lib/cleaner-note),
-    // re-derived now if the stored rendering is stale: on the evening
-    // autosend nobody is there to notice an untranslated note.
-    let noteBlock: string;
-    try {
-      noteBlock = await resolveNoteBlock(supabase, digest.id);
-    } catch (err) {
-      await revert();
-      throw err;
-    }
     const finish = (text: string, language: DigestLanguage) =>
       withOperatorNote(opts.kind === 'update' ? `${text}\n\n${updateMarker(language)}` : text, noteBlock);
     perRecipient = bodies.map((b) => ({

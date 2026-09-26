@@ -19,7 +19,7 @@ import {
   type LastSyncRun,
 } from '@/lib/channels';
 import { carryoverFor, evaluateCutoverPreflight, listPmsEvents, loadCutoverFacts, type CutoverCheck, type CutoverPreflight, type PmsEvent } from '@/lib/cutover';
-import type { CarryRow, Carryover } from '@/lib/cutover-carryover';
+import { CARRIED_SEASON_NOTE, type CarryRow, type Carryover } from '@/lib/cutover-carryover';
 import { loadPricingBundle, type PricingBundle } from '@/lib/property-rates';
 import { loadCalendarDayMap } from '@/lib/calendar-days';
 import { isOpenOn } from '@/lib/rental-periods';
@@ -44,7 +44,7 @@ import { CHANNEL_LABELS, PRIMARY_CHANNELS, STATUS_LABELS, type BookingChannel } 
 import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
 import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
-import { flipCalendarAuthorityAction } from './cutover-actions';
+import { flipCalendarAuthorityAction, readGuestyCalendarAheadAction } from './cutover-actions';
 import { acknowledgeMassCancel, releaseOrphanedOtaHold, syncOneListing, tickExportSubscribed } from '../listings/actions';
 import { releaseAnswers } from '@/lib/ical-cancel-policy';
 
@@ -222,7 +222,7 @@ export default async function ChannelsPropertyPage({
                   : 'Helm mirrors Guesty. Wire the OTA feeds on the wiring page to enter shadow mode; each check below must be green before the switch.'}
               </p>
 
-              {(flipped || flipError) && (
+              {(flipped || flipError || flipNote) && (
                 <div
                   style={{
                     borderLeft: `3px solid ${flipError ? 'var(--negative)' : 'var(--positive)'}`,
@@ -250,6 +250,18 @@ export default async function ChannelsPropertyPage({
                     <CheckRow key={c.key} check={c} />
                   ))}
                 </ol>
+              )}
+
+              {!helmRun && factsOrError.facts?.guestyListingId && (
+                <form action={readGuestyCalendarAheadAction} style={{ marginTop: 16, display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <input type="hidden" name="property_id" value={propertyId} />
+                  <SubmitButton label="Read Guesty's calendar ahead" busyLabel="Reading…" spinnerTone="ink" style={secondaryButton} />
+                  <span style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, maxWidth: 520 }}>
+                    The hold list reads Helm&apos;s copy of Guesty&apos;s calendar
+                    {factsOrError.facts.mirrorLastDate ? `, which reaches ${factsOrError.facts.mirrorLastDate}` : ''}
+                    {factsOrError.facts.mirrorReadAt ? ` and was last read in full ${relativeAge(factsOrError.facts.mirrorReadAt, now)}` : ''}. Read it again to two years out right before you re-enter holds and before you delete the Guesty listing.
+                  </span>
+                </form>
               )}
             </div>
 
@@ -479,6 +491,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
     carry.guestyHoldsUncarried.length === 0 &&
     carry.bookingWindowGap === null &&
     carry.unreadFeedStays.length === 0 &&
+    carry.carriedSeasonsEnding.length === 0 &&
     !pullsRed;
   if (empty) return null;
   const rowLine = (r: CarryRow) => (
@@ -547,9 +560,13 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
             {carry.guestyHoldsUncarried.map((r) => (
               <li key={r.id}>
                 {rowLine(r)}{' '}
-                <Link href={`/channels/bookings/new?property=${propertyId}&type=block&check_in=${r.check_in}&check_out=${r.check_out}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>
+                <Link
+                  href={`/channels/bookings/new?property=${propertyId}&type=block&check_in=${r.check_in}&check_out=${r.check_out}${r.rolling ? `&hold_kind=other&notes=${encodeURIComponent(`${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end`)}` : ''}`}
+                  style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}
+                >
                   Re-enter as a Helm block →
                 </Link>
+                {r.rolling && <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 8 }}>Guesty closes it with no end; carried a year past what Helm could sell</span>}
               </li>
             ))}
           </Item>
@@ -589,6 +606,19 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
                   <input type="hidden" name="id" value={r.id} />
                   <SubmitButton label="Release" busyLabel="Releasing…" spinnerTone="ink" style={linkButton} />
                 </form>
+              </li>
+            ))}
+          </Item>
+        )}
+        {carry.carriedSeasonsEnding.length > 0 && (
+          <Item
+            title="A closed season carried from Guesty is about to run out"
+            why="Guesty closed these nights with no end; the handover carried them as a Helm block that does end. The booking window reaches that end within two months, and the nights after it go on sale on staycapeann.com and every OTA. Extend the block (or shorten the booking window)."
+          >
+            {carry.carriedSeasonsEnding.map((r) => (
+              <li key={r.id}>
+                {rowLine(r)}{' '}
+                <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the block →</Link>
               </li>
             ))}
           </Item>
