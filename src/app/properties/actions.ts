@@ -118,7 +118,7 @@ export async function updateProperty(id: string, formData: FormData) {
   const result = await performPropertyUpdate(id, formData);
   if (result.error) throw new Error(result.error);
 
-  redirect(`/properties/${id}?tab=operations`);
+  redirect(`/properties/${id}?tab=facts`);
 }
 
 /**
@@ -142,11 +142,11 @@ export async function updatePropertyWithState(
   if (result.error) return { error: result.error };
 
   // Land back on the tab the operator came from (the onboarding hub's
-  // "Edit field" deep links carry ?return=onboarding via a hidden input).
+  // "Edit field" deep links carry ?return=setup via a hidden input).
   // Allowlisted so a tampered value can't smuggle in a junk redirect.
-  const RETURN_TABS = new Set(['today', 'operations', 'records', 'onboarding']);
+  const RETURN_TABS = new Set(['now', 'facts', 'owner', 'guest', 'setup']);
   const ret = String(formData.get('return_tab') ?? '');
-  const tab = RETURN_TABS.has(ret) ? ret : 'operations';
+  const tab = RETURN_TABS.has(ret) ? ret : 'facts';
   redirect(`/properties/${id}?tab=${tab}`);
 }
 
@@ -400,7 +400,7 @@ export async function updateHomeGuideOverrides(id: string, formData: FormData) {
 
   revalidatePath(`/properties/${id}`);
   revalidatePath(`/properties/${id}/home-guide`);
-  redirect(`/properties/${id}?tab=records#home-guide-customize`);
+  redirect(`/properties/${id}?tab=guest#home-guide-customize`);
 }
 
 export type OwnerContactChannel = 'email' | 'phone' | 'sms' | 'in_person' | 'other';
@@ -669,7 +669,7 @@ export async function createPropertyNotice(propertyId: string, formData: FormDat
   if (!created) throw new Error('Notice insert returned no row.');
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=records#notice-${created.id}`);
+  redirect(`/properties/${propertyId}?tab=guest#notice-${created.id}`);
 }
 
 /**
@@ -693,7 +693,7 @@ export async function updatePropertyNotice(propertyId: string, noticeId: string,
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/notice/${noticeId}`);
-  redirect(`/properties/${propertyId}?tab=records#notice-${noticeId}`);
+  redirect(`/properties/${propertyId}?tab=guest#notice-${noticeId}`);
 }
 
 /**
@@ -713,7 +713,7 @@ export async function deletePropertyNotice(propertyId: string, noticeId: string)
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=records#guest-placards`);
+  redirect(`/properties/${propertyId}?tab=guest#guest-placards`);
 }
 
 /**
@@ -756,7 +756,7 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
+  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
 }
 
 export async function updatePropertyNote(propertyId: string, noteId: string, formData: FormData) {
@@ -774,7 +774,7 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
+  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
 }
 
 export async function deletePropertyNote(propertyId: string, noteId: string) {
@@ -789,7 +789,7 @@ export async function deletePropertyNote(propertyId: string, noteId: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=operations#ops-notebook`);
+  redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
 }
 
 /**
