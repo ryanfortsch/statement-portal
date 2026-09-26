@@ -1463,3 +1463,62 @@ export async function getFleetCoverage() {
   // A property page must not wait on the Mac Mini: 3s, then the item stays manual.
   return request<FleetCoverage>('/api/fleet/coverage', { method: 'GET', timeoutMs: 3000 });
 }
+
+// --- Reflection proposals -------------------------------------------------
+
+/**
+ * The weekly reflection pass reads the operator's coaching and the AI-vs-sent
+ * diffs and proposes rules that have been taught repeatedly without landing.
+ * It writes them to prompts/reference/reflection_report.md and NEVER applies
+ * them itself, which was correct and also meant nothing applied them at all:
+ * the file had no reader on either side, so 25 proposals piled up across 5
+ * runs. "Default to K-cup coffee makers across all properties" sat there at
+ * [high] confidence for eleven days while the same correction was coached
+ * four more times.
+ *
+ * Promoting one writes it into the canonical fact layer through the same
+ * operator-edited path as a manual curated edit, so it outranks the property
+ * KB and the raw coaching log on the very next draft.
+ */
+export type ReflectionProposal = {
+  id: string;
+  /** The reflection run it came from, e.g. "2026-09-15 15:46 UTC". */
+  batch: string;
+  title: string;
+  confidence: string;
+  evidence: string;
+  proposed_rule: string;
+  decision: 'promote' | 'dismiss' | null;
+  decided_at: string | null;
+  decided_by: string | null;
+};
+
+export type ReflectionProposals = {
+  proposals: ReflectionProposal[];
+  open_count: number;
+  total_count: number;
+  promoted_count: number;
+  dismissed_count: number;
+};
+
+export async function listReflectionProposals() {
+  return request<ReflectionProposals>('/api/reflection/proposals');
+}
+
+export async function promoteReflectionProposal(
+  id: string,
+  body: { rule: string; scope: string; topic: string },
+  actor?: string,
+) {
+  return request<{ status: string; fact_id: string }>(
+    `/api/reflection/proposals/${encodeURIComponent(id)}/promote`,
+    { method: 'POST', body, actor },
+  );
+}
+
+export async function dismissReflectionProposal(id: string, reason: string, actor?: string) {
+  return request<{ status: string }>(
+    `/api/reflection/proposals/${encodeURIComponent(id)}/dismiss`,
+    { method: 'POST', body: { reason }, actor },
+  );
+}
