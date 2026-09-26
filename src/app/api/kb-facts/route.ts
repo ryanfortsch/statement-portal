@@ -47,6 +47,14 @@ type PropertyRow = {
   has_high_chair: boolean | null;
   default_checkout_time: string | null;
   guesty_listing_id: string | null;
+  // House policy (#1620). Guest-facing subset only: discount_stance is
+  // deliberately absent, see the payload below.
+  quiet_hours: string | null;
+  max_occupancy: number | null;
+  pet_policy: string | null;
+  smoking_policy: string | null;
+  cancellation_policy: string | null;
+  house_rules: string | null;
 };
 
 type NoteRow = { property_id: string; title: string | null; body: string | null };
@@ -61,7 +69,7 @@ export async function GET(req: Request) {
   const { data: props, error } = await supabase
     .from('properties')
     .select(
-      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id',
+      'id, name, city, address, wifi_name, wifi_label, wifi_name_2, wifi_label_2, parking, trash_day, recycling_day, trash_notes, has_pack_n_play, has_high_chair, default_checkout_time, guesty_listing_id, quiet_hours, max_occupancy, pet_policy, smoking_policy, cancellation_policy, house_rules',
     )
     .eq('is_active', true);
   if (error) {
@@ -150,6 +158,26 @@ export async function GET(req: Request) {
       // with "it's already in the home" instead of promising to bring one.
       has_pack_n_play: p.has_pack_n_play === true,
       has_high_chair: p.has_high_chair === true,
+      // House policy (#1620). Until these columns existed, a guest asking
+      // "do you take dogs" or "what are the quiet hours" had no source on
+      // the record, so the answer was invented or the guest was asked to
+      // wait. The pet fee ambiguity at 30 Woodward ($200 or $250) is what
+      // that costs.
+      //
+      // `discount_stance` is DELIBERATELY not here. It records what we will
+      // and will not discount, which is our negotiating position, not a
+      // guest fact. It belongs to the coaching loop, and a responder with
+      // it in the KB would eventually quote it to the person it concerns.
+      //
+      // Empty string rather than null for the text fields, matching
+      // check_out_time above: the consumer tests truthiness, so a missing
+      // policy simply produces no line.
+      quiet_hours: clean(p.quiet_hours),
+      max_occupancy: p.max_occupancy ?? null,
+      pet_policy: clean(p.pet_policy),
+      smoking_policy: clean(p.smoking_policy),
+      cancellation_policy: clean(p.cancellation_policy),
+      house_rules: clean(p.house_rules),
       guest_notes: (notesByProp.get(p.id) ?? [])
         .map((n) => ({ title: clean(n.title), body: clean(n.body) }))
         .filter((n) => n.title || n.body),
