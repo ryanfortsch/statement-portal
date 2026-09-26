@@ -258,9 +258,9 @@ export function evaluateCarryover(input: {
     const at = Date.parse(r.cancelled_at);
     if (!Number.isFinite(at) || now.getTime() - at > ECHO_LAG_GRACE_MS) return false;
     // What it was before the cancel: a hold if it has a kind, else a stay.
-    // An OTA's own closure was never sent to Booking.com (Booking.com's own
-    // are left out of its feed, the others go to no feed at all).
-    if (r.hold_kind === 'ota' && r.source === 'ical_import') return false;
+    // exportableBooking then says whether Booking.com was sent it; an OTA's
+    // own closure never was (Booking.com's own are left out of its feed,
+    // the others go to no feed at all).
     return exportableBooking({ ...r, status: r.hold_kind ? 'block' : 'confirmed' }, { channel: 'booking_com', listingId: null });
   });
   const bookingComUnexplained: CarryRow[] = [];

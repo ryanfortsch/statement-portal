@@ -839,6 +839,29 @@ describe('Helm-run homes: a date join never crosses channels', () => {
     assert.equal(canonicalOf(planDedupe(rows, withAgg), 'V2'), 'V2');
   });
 
+  test("an operator's cancel of an aggregate-feed row takes on a Helm-run home, and only there", () => {
+    const AGG = 'listing-guesty';
+    const mk = (property_id: string) => [
+      row({ id: 'AGG', property_id, channel: 'airbnb', channel_listing_id: AGG, status: 'cancelled', cancelled_at: '2026-10-01T00:00:00Z', cancelled_by: 'dotti@risingtidestr.com', external_confirmation_code: 'HMAGG00001', check_in: '2026-10-10', check_out: '2026-10-14' }),
+      row({ id: 'GL', property_id, channel: 'airbnb', source: 'guesty_legacy', channel_listing_id: null, external_confirmation_code: 'HMAGG00001', guest_name: 'Pat Doe', check_in: '2026-10-10', check_out: '2026-10-14' }),
+    ];
+    const optsAgg = (strictIds: Set<string>) => ({
+      ...opts,
+      strictChannelPropertyIds: strictIds,
+      isFromAggregateFeed: (r: DedupRow) => r.source === 'ical_import' && r.channel_listing_id === AGG,
+    });
+    // Helm-run: the cluster is cancelled, the Guesty record files under the cancel.
+    const helm = planDedupe(mk(HELM_HOME), optsAgg(new Set([HELM_HOME])));
+    assert.equal(canonicalOf(helm, 'GL'), 'AGG');
+    // Guesty-run: Guesty is still the authority; a cancel typed only in Helm
+    // on the aggregate row does not cancel the stay.
+    const fleet = planDedupe(mk('20_hammond'), optsAgg(new Set([HELM_HOME])));
+    assert.equal(canonicalOf(fleet, 'GL'), 'GL');
+    // And the sync's own disappearance is never an operator's cancel.
+    const synced = mk(HELM_HOME).map((r) => (r.id === 'AGG' ? { ...r, cancelled_by: 'ical-sync' } : r));
+    assert.equal(canonicalOf(planDedupe(synced, optsAgg(new Set([HELM_HOME]))), 'GL'), 'GL');
+  });
+
   test('a cancelled hand entry and its re-entry stay two rows on a Helm-run home', () => {
     const rows = [
       row({ id: 'M1', property_id: HELM_HOME, channel: 'booking_com', source: 'manual', channel_listing_id: null, status: 'cancelled', cancelled_at: '2026-10-01T00:00:00Z', guest_name: 'Pat Doe', check_in: '2026-10-10', check_out: '2026-10-14' }),

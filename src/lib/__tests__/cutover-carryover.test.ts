@@ -269,6 +269,21 @@ describe('the preflight carries both checks', () => {
     assert.match(c.detail, /Booking.com no longer shows 1 reservation/);
   });
 
+  test('a Guesty hold with no Helm block over it, or a Booking.com stay nobody reads, turns the handover check red', () => {
+    const withAgg = facts([]);
+    withAgg.feeds = [...withAgg.feeds, { id: 'L-guesty', channel: 'guesty', is_active: true, ical_import_url: 'https://guesty.example/ical.ics', last_import_status: 'success', last_imported_at: '2026-10-01T14:30:00Z', last_import_error: null, export_subscribed: false, export_subscribed_at: null }];
+    withAgg.carryRows = [row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty', check_in: '2026-12-20', check_out: '2026-12-27' })];
+    const r = evaluateCutoverPreflight(withAgg);
+    assert.deepEqual(r.failing, ['guesty_stays_carried']);
+    assert.match(r.checks.find((x) => x.key === 'guesty_stays_carried')!.detail, /1 hold set in Guesty has no Helm block over it/);
+
+    const unread = facts([legacy({ channel: 'booking_com' })]);
+    unread.feeds = unread.feeds.map((f) => (f.channel === 'booking_com' ? { ...f, is_active: false } : f));
+    const u = evaluateCutoverPreflight(unread);
+    assert.ok(u.failing.includes('guesty_stays_carried'));
+    assert.match(u.checks.find((x) => x.key === 'guesty_stays_carried')!.detail, /Helm reads no Booking.com feed/);
+  });
+
   test('an unexplained or orphaned Booking.com closure turns the reconciliation check red', () => {
     const r = evaluateCutoverPreflight(facts([bcomHold({})]));
     assert.deepEqual(r.failing, ['booking_com_reconciled']);
