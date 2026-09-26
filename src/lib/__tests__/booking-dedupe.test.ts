@@ -757,6 +757,24 @@ describe('a lifted Helm hold, an operator Delete and a late cover never hide a l
   });
 });
 
+describe('round 6: a revived closure and a deleted inquiry', () => {
+  test('pass four ages a closure from when its nights came back (live_since), not from its first import', () => {
+    const stay = row({ id: 'S', property_id: '65_calderwood', channel: 'airbnb', channel_listing_id: 'listing-airbnb', external_confirmation_code: 'HMREBOOK01', created_at: '2026-10-19T00:00:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const closure = row({ id: 'C', property_id: '65_calderwood', channel: 'booking_com', channel_listing_id: 'listing-bcom', status: 'block', raw_summary: 'CLOSED - Not available', created_at: '2026-10-01T00:00:00Z', live_since: '2026-10-20T00:00:00Z', check_in: '2026-11-10', check_out: '2026-11-14' });
+    assert.equal(canonicalOf(planDedupe([stay, closure], optsWithHolds), 'C'), 'S', 'filed under the stay it echoes');
+  });
+
+  test("an inquiry the operator deleted joins nothing, so its inquirer's name never lands on a nameless stay", () => {
+    const inquiry = row({ id: 'I', property_id: '65_calderwood', channel: 'direct', source: 'direct_booking', channel_listing_id: null, status: 'cancelled', cancelled_at: '2026-10-02T00:00:00Z', cancelled_by: 'dotti@risingtidestr.com', cancel_reason: 'operator_delete: kept as cancelled', guest_name: 'Someone Else', guest_email: 'x@example.com', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const stay = row({ id: 'V', property_id: '20_hammond', channel: 'vrbo', check_in: '2026-11-10', check_out: '2026-11-14' });
+    const fleetInquiry = { ...inquiry, property_id: '20_hammond' };
+    const plan = planDedupe([fleetInquiry, stay], opts);
+    assert.equal(canonicalOf(plan, 'V'), 'V');
+    assert.equal(canonicalOf(plan, 'I'), 'I');
+    assert.equal(plan.enrichPatches.get('V')?.guest_name, undefined);
+  });
+});
+
 describe("fleet parity: Guesty's cancelled aggregate blocks cluster as they always have", () => {
   test('on a Guesty-run home a cancelled "Blocked by Guesty" row is not read as a hold by its summary', () => {
     // 1,625 such rows stood up as canonical rows when the summary test was

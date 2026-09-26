@@ -62,8 +62,7 @@ import { propertyInScope, recipientScope } from './cleaner-digest-core.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
 import { mirrorWindow, writeHelmCalendarMirror, type HelmMirrorResult } from './helm-calendar-mirror.ts';
 import { relativeAge } from './calendar-model.ts';
-import { carryoverClear, evaluateCarryover, isGuestyRule, type CarryRow, type Carryover, type MirrorHold } from './cutover-carryover.ts';
-import { isRealHoldType } from './calendar-holds.ts';
+import { carryoverClear, evaluateCarryover, isGuestyRule, mirrorRunsFromDays, type CarryRow, type Carryover, type MirrorDay, type MirrorHold } from './cutover-carryover.ts';
 import { todayInEastern } from './sca-quotes-types.ts';
 
 // ── Facts ───────────────────────────────────────────────────────────────────
@@ -131,6 +130,8 @@ export type CutoverFacts = {
   carryRows?: CarryRow[];
   /** Guesty calendar holds, while Guesty runs the home (loadGuestyMirrorHolds). */
   mirrorHolds?: MirrorHold[];
+  /** Guesty's rolling booking window as its calendar mirror shows it. */
+  mirrorBookingWindow?: { check_in: string; seen_at: string } | null;
   recipients: CutoverRecipientFact[];
   automations: CutoverAutomationFacts;
   acknowledgements: CutoverAcknowledgements;
@@ -532,6 +533,7 @@ export function carryoverFor(facts: CutoverFacts): Carryover {
     calendarAuthority: facts.calendarAuthority,
     now: facts.now,
     mirrorHolds: facts.mirrorHolds ?? [],
+    mirrorBookingWindow: facts.mirrorBookingWindow ?? null,
     planWindowDays: facts.ratePlan?.booking_window_days ?? null,
   });
 }
@@ -571,41 +573,39 @@ export function latestPullFor(pulls: readonly CutoverPullFact[], channel: string
 const LOOKAHEAD_DAYS = 540;
 
 /**
- * Guesty's own calendar holds for the home, from its calendar mirror
- * (property_calendar_days), grouped into runs of consecutive nights with the
- * same hold. Only real hold types (lib/calendar-holds isRealHoldType), never
- * Guesty's rule artifacts. The flip rewrites the mirror with Helm's, so this
- * is read while Guesty still runs the home.
+ * What Guesty's own calendar closes on a home, from its calendar mirror
+ * (property_calendar_days), grouped into runs of consecutive nights:
+ *   - a real hold (block_type m, o, ...): an owner's or the team's;
+ *   - a night closed by Guesty's "closed from a fixed date" rule ('bd');
+ *   - a closed night whose type the mirror does not know (rows written
+ *     before block_rule_type existed): read as a hold, because fail-open
+ *     here reopens a closed season (16 Waterman is closed from 11-02 and its
+ *     mirror rows carry no type), EXCEPT one night today or tomorrow, which
+ *     is Guesty's advance-notice rule;
+ * and, apart, the first night of Guesty's rolling booking window ('bw'),
+ * with the day the mirror saw it, for the booking-window check. Advance
+ * notice and padding are skipped. A run that reaches the mirror's last
+ * night is flagged `rolling`: its end is Guesty's horizon, which moves every
+ * day. The flip rewrites the mirror with Helm's, so this is read while Guesty
+ * still runs the home; the mirror keeps its last rows once the Guesty listing
+ * is deleted (calendar-days writes nothing for a listing that 404s).
  */
-export async function loadGuestyMirrorHolds(propertyId: string, todayIso: string): Promise<MirrorHold[]> {
-  const rows = await selectAllPaged<{ date: string; block_type: string | null; block_ref_id: string | null; block_note: string | null }>(
+export async function loadGuestyMirrorHolds(
+  propertyId: string,
+  todayIso: string,
+): Promise<{ holds: MirrorHold[]; bw: { check_in: string; seen_at: string } | null }> {
+  const rows = await selectAllPaged<MirrorDay>(
     (from, to) =>
       supabaseAdmin
         .from('property_calendar_days')
-        .select('date, block_type, block_ref_id, block_note')
+        .select('date, status, block_type, block_rule_type, block_ref_id, block_note, synced_at')
         .eq('property_id', propertyId)
         .gte('date', todayIso)
-        .not('block_type', 'is', null)
         .order('date', { ascending: true })
         .range(from, to),
     { label: `cutover mirror holds ${propertyId}` },
   );
-  const out: MirrorHold[] = [];
-  let run: (MirrorHold & { ref: string | null; last: string }) | null = null;
-  const next = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
-  for (const r of rows) {
-    if (!isRealHoldType(r.block_type)) continue;
-    const date = String(r.date).slice(0, 10);
-    if (run && next(run.last) === date && run.ref === (r.block_ref_id ?? null)) {
-      run.last = date;
-      run.check_out = next(date);
-      continue;
-    }
-    if (run) out.push({ check_in: run.check_in, check_out: run.check_out, block_type: run.block_type, note: run.note });
-    run = { check_in: date, check_out: next(date), block_type: r.block_type, note: r.block_note, ref: r.block_ref_id ?? null, last: date };
-  }
-  if (run) out.push({ check_in: run.check_in, check_out: run.check_out, block_type: run.block_type, note: run.note });
-  return out;
+  return mirrorRunsFromDays(rows, todayIso);
 }
 
 /** Every row still ahead, any status, duplicates included (CutoverFacts.carryRows). */
@@ -614,7 +614,7 @@ export async function loadCarryRows(propertyId: string, todayIso: string): Promi
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, missing_since, cancelled_at, ical_uid')
+        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, missing_since, cancelled_at, ical_uid, live_since')
         .eq('property_id', propertyId)
         .gt('check_out', todayIso)
         .order('check_in', { ascending: true })
@@ -761,7 +761,8 @@ export async function loadCutoverFacts(
     bookings: stays,
     carryRows,
     // Only while Guesty runs the home is the calendar mirror Guesty's.
-    mirrorHolds: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds : [],
+    mirrorHolds: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds.holds : [],
+    mirrorBookingWindow: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds.bw : null,
     recipients: ((recipientsRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
       display_name: String(r.display_name ?? ''),
       enabled: !!r.enabled,

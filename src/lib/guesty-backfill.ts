@@ -17,7 +17,7 @@ import { dedupeAllBookings } from '@/lib/ical-sync';
 import { selectAllPaged } from '@/lib/paged-select';
 import type { BookingChannel, BookingStatus } from '@/lib/channels-types';
 import { mapGuestyStatus } from '@/lib/guesty-legacy-status';
-import { loadGuestyRunPropertyIds } from '@/lib/pms-guards';
+import { loadGuestyRunPropertyIds, loadGuestyWriteExcludedIds } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -143,6 +143,10 @@ export async function backfillGuestyToBookings(
   // failed and we cannot tell, so every known property is kept (today's
   // behaviour) rather than the whole fleet being skipped.
   const guestyRunIds = await loadGuestyRunPropertyIds(sb);
+  // And not a home mid-cutover: its Guesty listing is deleted, and a status
+  // patched from Guesty's record of a retired listing is a trusted cancel
+  // that hides the live feed row. Null (a failed read) keeps the gate above.
+  const cutoverStarted = await loadGuestyWriteExcludedIds(sb);
 
   type Row = {
     property_id: string;
@@ -174,6 +178,7 @@ export async function backfillGuestyToBookings(
     if (!r.property_id || !r.check_in || !r.check_out) { skippedInvalid++; continue; }
     if (!knownPropertyIds.has(r.property_id as string)) { skippedUnknownProperty++; continue; }
     if (guestyRunIds && !guestyRunIds.has(r.property_id as string)) { skippedHelmRun++; continue; }
+    if (cutoverStarted?.has(r.property_id as string)) { skippedHelmRun++; continue; }
 
     // null means Guesty said nothing we recognise. A NEW row still defaults
     // to confirmed (a stay we know nothing about is more safely cleaned

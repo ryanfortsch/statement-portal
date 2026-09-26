@@ -13,6 +13,7 @@ import {
   moveBooking,
   updateBookingMoney,
   updateGuestFields,
+  isFeedOwned,
 } from '@/lib/bookings-write';
 import { isYmd } from '@/lib/bookings-write-core';
 import { writeDirectBookingFinance } from '@/lib/booking-finance-write';
@@ -83,15 +84,20 @@ export async function updateBooking(formData: FormData) {
     }
   }
 
-  // 3. dates and status, through the RPC
-  const datesMoved = checkIn !== before.check_in.slice(0, 10) || checkOut !== before.check_out.slice(0, 10);
+  // 3. dates and status, through the RPC. A row a feed owns keeps the
+  // feed's dates and status: the form shows them read-only, and a stale tab
+  // that still posts them is ignored rather than turned into an error page
+  // after the guest and money fields were saved.
+  const feedOwned = await isFeedOwned(before);
+  const datesMoved = !feedOwned && (checkIn !== before.check_in.slice(0, 10) || checkOut !== before.check_out.slice(0, 10));
+  const statusChanged = !feedOwned && status !== before.status;
   let conflictRedirect: string | null = null;
   try {
-    if (status === 'cancelled' && before.status !== 'cancelled') {
+    if (statusChanged && status === 'cancelled' && before.status !== 'cancelled') {
       const reason = nullableStr(formData.get('cancel_reason')) ?? 'operator';
       await cancelBooking(id, { reason, actor });
       if (datesMoved) await moveBooking(id, { checkIn, checkOut, status: 'cancelled' }, actor);
-    } else if (datesMoved || status !== before.status) {
+    } else if (datesMoved || statusChanged) {
       await moveBooking(id, { checkIn, checkOut, status }, actor);
     }
   } catch (err) {

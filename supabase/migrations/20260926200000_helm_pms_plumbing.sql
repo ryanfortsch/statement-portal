@@ -154,7 +154,23 @@ alter table public.bookings
   add column if not exists cancel_reason text,
   add column if not exists cancelled_by text,
   add column if not exists source_ref text,         -- quote id | stripe payment_intent id | sca token
-  add column if not exists missing_since timestamptz; -- first sync run that saw an iCal row absent; cleared when seen again
+  add column if not exists missing_since timestamptz, -- first sync run that saw an iCal row absent; cleared when seen again
+  -- When an imported row's CURRENT nights appeared: set on insert, and again
+  -- whenever ical-sync revives a cancelled row or moves its dates (feeds
+  -- reuse UIDs, so created_at says when the UID was first seen, not when
+  -- these nights closed). src/lib/cutover-carryover.ts and the dedupe's pass
+  -- four read it to tell a closure's cause from a later booking.
+  add column if not exists live_since timestamptz;
+
+-- Guesty's rule type on a night its own calendar closes for a rule rather
+-- than a hold (advance notice 'an', booking window 'bw' / 'bd', padding
+-- 'b' / 'a'). block_type carries only real holds (m, o, ...), so without
+-- this a "closed from a fixed date" season and a rolling booking window were
+-- the same blank night in the mirror, and a home with no aggregate feed
+-- flipped with its closed season open. Written by src/lib/calendar-days.ts,
+-- read by the cutover handover.
+alter table public.property_calendar_days
+  add column if not exists block_rule_type text;
 alter table public.bookings drop constraint if exists bookings_hold_kind_check;
 alter table public.bookings add constraint bookings_hold_kind_check
   check (hold_kind is null or hold_kind in ('owner','maintenance','ota','other'));

@@ -10,7 +10,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { carryoverClear, evaluateCarryover, guestyBlockTag, isGuestyRule, ECHO_LAG_GRACE_MS, NOT_SHOWN_GRACE_MS, type CarryListing, type CarryRow } from '../cutover-carryover.ts';
+import { carryoverClear, evaluateCarryover, guestyBlockTag, isGuestyRule, mirrorRunsFromDays, ECHO_LAG_GRACE_MS, NOT_SHOWN_GRACE_MS, type CarryListing, type CarryRow, type MirrorDay } from '../cutover-carryover.ts';
 import { evaluateCutoverPreflight, type CutoverFacts } from '../cutover.ts';
 
 const NOW = new Date('2026-10-01T15:00:00Z');
@@ -393,3 +393,82 @@ describe('the preflight carries both checks', () => {
     assert.match(r.checks.find((x) => x.key === 'booking_com_reconciled')!.detail, /Enter each Booking.com booking/);
   });
 });
+
+describe('round 6: what Guesty closed, read off its calendar mirror', () => {
+  const day = (date: string, patch: Partial<MirrorDay> = {}): MirrorDay => ({ date, status: 'unavailable', block_type: null, block_rule_type: null, block_ref_id: null, block_note: null, synced_at: '2026-10-01T08:30:00Z', ...patch });
+  const range = (from: string, to: string, patch: Partial<MirrorDay> = {}) => {
+    const out: MirrorDay[] = [];
+    for (let d = from; d < to; d = new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)) out.push(day(d, patch));
+    return out;
+  };
+
+  test('holds by Guesty ref, a fixed-date season, an untyped closure; rules skipped; the rolling window returned apart', () => {
+    const rows = [
+      day('2026-10-01'), // lone untyped night today: advance notice
+      ...range('2026-10-05', '2026-10-08', { block_type: 'm', block_ref_id: 'ref-a', block_note: 'owner' }),
+      ...range('2026-10-08', '2026-10-10', { block_type: 'm', block_ref_id: 'ref-b' }),
+      day('2026-10-12', { status: 'available' }),
+      ...range('2026-10-20', '2026-10-22', { block_rule_type: 'b' }),
+      ...range('2026-11-02', '2026-11-10'), // untyped: carried
+      ...range('2027-01-01', '2027-03-01', { block_rule_type: 'bd' }),
+      ...range('2027-06-23', '2027-06-26', { block_rule_type: 'bw', synced_at: '2026-10-01T08:30:00Z' }),
+    ];
+    const { holds, bw } = mirrorRunsFromDays(rows, TODAY);
+    assert.deepEqual(holds.map((h) => [h.kind, h.check_in, h.check_out, !!h.rolling]), [
+      ['hold', '2026-10-05', '2026-10-08', false],
+      ['hold', '2026-10-08', '2026-10-10', false],
+      ['unknown', '2026-11-02', '2026-11-10', false],
+      ['closed_from_date', '2027-01-01', '2027-03-01', false],
+    ]);
+    assert.deepEqual(bw, { check_in: '2027-06-23', seen_at: '2026-10-01T08:30:00Z' });
+  });
+
+  test("a home with no aggregate feed flips only once its closed season is carried (16 Waterman's shape)", () => {
+    const { holds } = mirrorRunsFromDays(range('2026-11-02', '2027-09-30'), TODAY);
+    assert.equal(holds[0].rolling, true, 'it runs to the end of the mirror');
+    const c = evaluateCarryover({ rows: [], listings: LISTINGS, todayIso: TODAY, now: NOW, mirrorHolds: holds });
+    assert.deepEqual(c.guestyHoldsUncarried.map((r) => [r.check_in, r.check_out]), [['2026-11-02', '2027-09-30']]);
+  });
+
+  test("a fixed owner hold beyond the plan's window must still be carried: the window reaches it later", () => {
+    // 73 Rocky Neck: Guesty's window 150 days, the plan set to 149, an owner week in July.
+    const owner = gBlockFor(null, '2027-07-03', '2027-07-10');
+    const bwRow = gBlockFor('bw', '2027-02-23', '2028-09-27');
+    const c = evaluateCarryover({ rows: [owner, bwRow], listings: [listing('guesty'), ...LISTINGS], todayIso: TODAY, now: NOW, planWindowDays: 149 });
+    assert.deepEqual(ids(c.guestyHoldsUncarried), [owner.id]);
+  });
+
+  test('a fixed hold is carried to its own end however far out; only a rolling-end closure stops at the bound', () => {
+    // 2028-06 is past today + 540; a fixed owner week there still has to be in Helm.
+    const farOwner = gBlockFor(null, '2028-06-10', '2028-06-17');
+    assert.deepEqual(ids(run([farOwner], [listing('guesty'), ...LISTINGS]).guestyHoldsUncarried), [farOwner.id]);
+    const helm = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in: '2028-06-10', check_out: '2028-06-17' });
+    assert.deepEqual(run([farOwner, helm], [listing('guesty'), ...LISTINGS]).guestyHoldsUncarried, []);
+  });
+
+  test("the booking-window check also reads the mirror's rolling window on a home with no aggregate feed", () => {
+    const c = evaluateCarryover({ rows: [], listings: LISTINGS, todayIso: TODAY, now: NOW, planWindowDays: 365, mirrorBookingWindow: { check_in: '2027-06-28', seen_at: '2026-10-01T08:30:00Z' } });
+    assert.deepEqual(c.bookingWindowGap, { closedFrom: '2027-06-28', maxPlanWindow: 269, planWindow: 365 });
+  });
+
+  test("a revived Booking.com closure is aged from when its nights came back, not from the UID's first import", () => {
+    // C first seen 10-01 for an earlier guest; cancelled; revived 10-20 when a
+    // new Airbnb guest (row created 10-19) booked the same nights.
+    const closure = bcomHold({ created_at: '2026-09-01T00:00:00Z', live_since: '2026-09-20T00:00:00Z' });
+    const airbnb = row({ channel: 'airbnb', created_at: '2026-09-19T00:00:00Z' });
+    assert.deepEqual(run([closure, airbnb]).bookingComUnexplained, []);
+    const stillLater = row({ channel: 'airbnb', created_at: '2026-09-25T00:00:00Z' });
+    assert.deepEqual(ids(run([closure, stillLater]).bookingComUnexplained), [closure.id]);
+  });
+});
+
+function gBlockFor(tag: string | null, check_in: string, check_out: string) {
+  return row({
+    channel: 'block',
+    status: 'block',
+    channel_listing_id: 'L-guesty',
+    check_in,
+    check_out,
+    ical_uid: tag ? `668c635d25b8180012fd30b7_${tag}_${check_in}_${check_out}@guesty.com_x=` : `c0ffee-${check_in}@guesty.com`,
+  });
+}

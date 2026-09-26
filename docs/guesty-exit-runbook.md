@@ -231,7 +231,12 @@ check is green:
     hold may be placed over Guesty's copy), or a Guesty-era reservation
     Guesty blocked out, which carries itself. The rules (advance notice, the
     rolling booking window, reservation padding) are read off Guesty's own
-    block type in each event's UID. The flip cancels every Guesty block;
+    block type: in each event's UID on the aggregate feed, and on a home
+    without one in Guesty's calendar mirror, which records the rule type of
+    every closed night (a closed night with no recorded type counts as a
+    hold). A hold is carried to its own end however far out; a closure that
+    runs to Guesty's rolling horizon only as far as Helm could sell. The flip
+    cancels every Guesty block;
   - the rate plan's booking window is no wider than Guesty's rolling one
     (Guesty closed 21 Horton 270 days out; a 365-day plan would sell the
     rest on staycapeann.com the moment the rule is gone). Set the same
@@ -273,9 +278,10 @@ to the GUESTS line lands in the Helm inbox; Luana gets Helm's digest and the
 new-booking text; cancellations arrive only as feed drops on the 55-minute
 rule; cross-channel blocking lags by each OTA's pull interval; a row that
 came from a feed cannot be deleted in Helm (the feed cancels it), and
-lifting a Helm hold keeps it as cancelled; a hold may be placed over any
-other hold, including one Guesty or an OTA published, so re-entering a
-Guesty owner hold never needs its nights opened first; a Booking.com
+lifting a Helm hold keeps it as cancelled; a hold may be placed over
+another hold, including one Guesty or Airbnb/VRBO published, but not over a
+Booking.com closure nothing in Helm explains (it may be a guest), so
+re-enter Guesty's holds before the first tick; a Booking.com
 closure that only mirrored another channel's stay or a Helm block keeps
 Airbnb and VRBO closed a few hours after its cause is gone (Booking.com
 reopens at its next pull, Helm cancels the closure on the two-look rule,

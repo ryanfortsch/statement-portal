@@ -143,16 +143,16 @@ export default async function BookingDetailPage({ params, searchParams }: { para
 
           <Row>
             <Field label="Check-in" required>
-              <input name="check_in" type="date" required defaultValue={booking.check_in} style={inputStyle} disabled={isCancelled} />
+              <input name="check_in" type="date" required defaultValue={booking.check_in} style={inputStyle} disabled={isCancelled || feedOwned} />
             </Field>
             <Field label="Check-out" required>
-              <input name="check_out" type="date" required defaultValue={booking.check_out} style={inputStyle} disabled={isCancelled} />
+              <input name="check_out" type="date" required defaultValue={booking.check_out} style={inputStyle} disabled={isCancelled || feedOwned} />
             </Field>
             <Field label="Status">
               {isCancelled ? (
                 <input value="cancelled" readOnly style={{ ...inputStyle, color: 'var(--negative)' }} />
               ) : (
-                <select name="status" defaultValue={booking.status} style={selectStyle}>
+                <select name="status" defaultValue={booking.status} style={selectStyle} disabled={feedOwned}>
                   {statusChoices.map((s) => (
                     <option key={s} value={s}>{STATUS_LABELS[s]}</option>
                   ))}

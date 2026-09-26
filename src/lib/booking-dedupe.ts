@@ -43,6 +43,9 @@ export type DedupRow = {
    *  operator's email (or 'operator') for a cancel pressed in Helm. Optional
    *  so fixtures that predate it load; absent reads as not an operator's. */
   cancelled_by?: string | null;
+  /** bookings.live_since: when an imported row's current nights appeared
+   *  (ical-sync). Optional; absent falls back to created_at. */
+  live_since?: string | null;
   /** bookings.cancel_reason. 'operator_delete: ...' marks a record the
    *  operator removed (Delete), not a guest's cancellation; optional so
    *  fixtures that predate it load. */
@@ -633,6 +636,10 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
     // a cancelled row, and read as a stay that row date-joined the guest
     // who took the week and its trusted cancel hid them (fleet homes too).
     (isHelmNative(r) && r.channel === 'block') ||
+    // A record the operator deleted is removed, not a stay: it joins nothing
+    // (an inquiry kept as cancelled pooled its inquirer's name and contact
+    // onto a nameless live stay on the same dates).
+    String(r.cancel_reason ?? '').startsWith('operator_delete:') ||
     (r.source === 'ical_import' &&
       isBlockSummary(r.raw_summary) &&
       (!isFromAggregateFeed(r) || strictChannels.has(r.property_id)));
@@ -870,7 +877,7 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
         // could close them. A row made later (an owner hold typed over a
         // Booking.com closure) is not its cause, and filed under it a
         // Booking.com guest vanished from the calendar and the hub.
-        const echoAt = Date.parse(echo.created_at);
+        const echoAt = Date.parse(echo.live_since ?? echo.created_at);
         const candidates = covers.filter(
           (c) =>
             (c.source !== 'ical_import' || c.channel_listing_id !== echo.channel_listing_id) &&

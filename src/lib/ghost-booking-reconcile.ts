@@ -40,7 +40,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { selectAllPaged } from './paged-select';
-import { loadGuestyRunPropertyIds } from './pms-guards';
+import { loadGuestyRunPropertyIds, loadGuestyWriteExcludedIds } from './pms-guards';
 
 /** Mirror rows older than this cannot overrule a confirmed booking: we
  *  could not tell "cancelled" from "not synced lately". */
@@ -144,10 +144,12 @@ export async function cancelGhostBookings(
   // Guesty-run homes only. null = registry read failed; keep everything
   // (today's behaviour) rather than skipping the fleet.
   const guestyRunIds = await loadGuestyRunPropertyIds(supabaseAdmin);
+  // Not a home mid-cutover either (lib/pms-guards loadGuestyWriteExcludedIds).
+  const cutoverStarted = await loadGuestyWriteExcludedIds(supabaseAdmin);
   const allCandidates = (candRows ?? []) as CandidateRow[];
-  const candidates = guestyRunIds
-    ? allCandidates.filter((c) => guestyRunIds.has(c.property_id))
-    : allCandidates;
+  const candidates = (guestyRunIds ? allCandidates.filter((c) => guestyRunIds.has(c.property_id)) : allCandidates).filter(
+    (c) => !cutoverStarted?.has(c.property_id),
+  );
   result.skipped_helm_run = allCandidates.length - candidates.length;
   result.examined = candidates.length;
   if (candidates.length === 0) return result;

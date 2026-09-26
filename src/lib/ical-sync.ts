@@ -404,6 +404,7 @@ export async function syncListing(opts: {
         const inserts = newRows.map((r) => ({
           ...r,
           booked_at: bookedAtForImport(stampsByUid.get(r.ical_uid) ?? {}, { fetchedAt: startedAt, firstImport }),
+          live_since: startedAt.toISOString(),
         }));
         const { data: insertedData, error: insertErr } = await sb
           .from('bookings')
@@ -421,10 +422,26 @@ export async function syncListing(opts: {
           }
         }
       }
-      if (updates.length > 0) {
+      // A row whose nights just (re)appeared (a cancelled UID the feed
+      // publishes again, dates that moved, or a row re-attached from another
+      // listing) gets live_since = now: feeds reuse UIDs, so created_at only
+      // says when the UID was first seen. Two batches, because PostgREST
+      // takes one column list per write.
+      const fresh = updates.filter((r) => {
+        const prior = existingByUid.get(r.ical_uid);
+        return !prior || prior.status === 'cancelled' || prior.check_in !== r.check_in || prior.check_out !== r.check_out;
+      });
+      const steady = updates.filter((r) => !fresh.includes(r));
+      if (fresh.length > 0) {
+        const { error: freshErr } = await sb
+          .from('bookings')
+          .upsert(fresh.map((r) => ({ ...r, live_since: startedAt.toISOString() })), { onConflict: 'channel,ical_uid' });
+        if (freshErr) throw new Error(`upsert bookings (fresh): ${freshErr.message}`);
+      }
+      if (steady.length > 0) {
         const { error: upsertErr } = await sb
           .from('bookings')
-          .upsert(updates, { onConflict: 'channel,ical_uid' });
+          .upsert(steady, { onConflict: 'channel,ical_uid' });
         if (upsertErr) throw new Error(`upsert bookings: ${upsertErr.message}`);
       }
       // First observation of an absence: stamp it, so the next run that
@@ -701,7 +718,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, live_since, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },

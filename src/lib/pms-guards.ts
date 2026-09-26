@@ -114,6 +114,25 @@ export async function loadStrictDedupeHomes(sb: SupabaseClient = supabaseAdmin):
 }
 
 /**
+ * Homes a Guesty pass must no longer write bookings for: Helm-run homes and
+ * homes whose cutover has started (an OTA ticked as reading Helm's export,
+ * runbook step 7, where the Guesty listing has just been deleted). Guesty
+ * still answers for a retired listing's reservations, and a status it
+ * patches onto a Guesty-era record there is a trusted cancel that files the
+ * live feed row under it, off the export the OTAs already read. The same set
+ * the dedupe runs strict (loadStrictDedupeHomes). Null on a failed read: the
+ * caller decides which side is safe for it.
+ */
+export async function loadGuestyWriteExcludedIds(sb: SupabaseClient = supabaseAdmin): Promise<Set<string> | null> {
+  try {
+    return new Set((await loadStrictDedupeHomes(sb)).keys());
+  } catch (err) {
+    console.error('[pms-guards] cutover-started read failed:', err);
+    return null;
+  }
+}
+
+/**
  * Property ids whose direct-feed closures are Guesty's echoes, dropped at
  * import: Guesty runs the home (calendar_authority 'guesty') and no OTA on
  * it imports Helm's export yet (no active row ticked export_subscribed).

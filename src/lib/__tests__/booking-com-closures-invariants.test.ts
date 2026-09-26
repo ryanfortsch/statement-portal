@@ -169,3 +169,28 @@ describe('an imported row is its feed\'s, and a Guesty-run guest is the concierg
     assert.ok(src.includes('const capeAnnIds = new Set(allProps.filter(isCapeAnnOps).map((p) => p.id));'));
   });
 });
+
+describe('round 6: Guesty passes, live_since, the record form and the rule type', () => {
+  test('no Guesty pass writes bookings for a home mid-cutover', () => {
+    for (const f of ['src/lib/reservation-reconcile.ts', 'src/lib/guesty-backfill.ts', 'src/lib/ghost-booking-reconcile.ts']) {
+      assert.ok(squash(read(f)).includes('loadGuestyWriteExcludedIds('), f);
+    }
+    // The reconcile refuses to run on a failed read rather than cancel blind.
+    assert.ok(squash(read('src/lib/reservation-reconcile.ts')).includes("if (!excludedIds) throw new Error("));
+  });
+  test('the sync stamps live_since when a row is inserted, revived or moved', () => {
+    const src = squash(read('src/lib/ical-sync.ts'));
+    assert.ok(src.includes("return !prior || prior.status === 'cancelled' || prior.check_in !== r.check_in || prior.check_out !== r.check_out;"));
+    assert.ok(src.includes('fresh.map((r) => ({ ...r, live_since: startedAt.toISOString() }))'));
+    assert.ok(src.includes('live_since: startedAt.toISOString(),'));
+  });
+  test('the record form never moves or cancels a feed-owned row', () => {
+    const src = squash(read('src/app/channels/bookings/[id]/actions.ts'));
+    assert.ok(src.includes('const feedOwned = await isFeedOwned(before);'));
+    assert.ok(src.includes('const statusChanged = !feedOwned && status !== before.status;'));
+  });
+  test("the calendar mirror records Guesty's rule type on a night no hold covers", () => {
+    const src = squash(read('src/lib/calendar-days.ts'));
+    assert.ok(src.includes("block_rule_type: status === 'unavailable' && !holdRef ? ruleTypeOf(day.blockRefs) : null,"));
+  });
+});

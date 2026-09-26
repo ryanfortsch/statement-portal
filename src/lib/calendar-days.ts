@@ -31,7 +31,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { getGuestyToken, guestyGet, sleep, GuestyNotFound } from './guesty-client';
-import { REAL_HOLD_TYPES } from './calendar-holds';
+import { REAL_HOLD_TYPES, ruleTypeOf } from './calendar-holds';
 
 // The deliberate-hold types (vs Guesty's availability-rule artifacts) live in
 // calendar-holds.ts so this sync and the day-clear check agree on them.
@@ -82,6 +82,11 @@ export type CalendarDayRow = {
   /** Guesty block range, INCLUSIVE end (last held day). */
   block_start: string | null;
   block_end: string | null;
+  /** On a night closed by one of Guesty's rules rather than a hold: the
+   *  rule's type ('bd' closed from a fixed date, 'bw' rolling booking window,
+   *  'an' advance notice, 'b' / 'a' padding; see ruleTypeOf). Null on a hold,
+   *  or on an open or booked night. */
+  block_rule_type?: string | null;
 };
 
 export type CalendarDaysSyncResult = {
@@ -192,6 +197,7 @@ export function mapGuestyDays(propertyId: string, days: GuestyDay[]): CalendarDa
       block_ref_id: holdRef?._id ?? null,
       block_start: holdRef ? toDateOnly(holdRef.startDate) : null,
       block_end: holdRef ? toDateOnly(holdRef.endDate) : null,
+      block_rule_type: status === 'unavailable' && !holdRef ? ruleTypeOf(day.blockRefs) : null,
     });
   }
   return rows;
@@ -230,6 +236,7 @@ export function mergeListingDays(perListing: CalendarDayRow[][]): CalendarDayRow
     block_ref_id: null,
     block_start: null,
     block_end: null,
+    block_rule_type: null,
   });
   const out: CalendarDayRow[] = [];
   for (const rows of byDate.values()) {
