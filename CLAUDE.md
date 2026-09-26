@@ -410,8 +410,28 @@ ordinary new property needs no stamping; `invoice_match` is only for spellings t
 yield (abbreviations, sub-units, suffix variants). Derived needles are restricted to strings
 starting with a house number, so a bare-word name like "Marina" never becomes a needle.
 
-**`/api/fill-gap` contains a second full copy of the cleaning classification pipeline and must be
-changed in lockstep with `/api/ingest`.** Note it does not implement vendor-credit netting.
+**`/api/fill-gap` and `/api/ingest` share the cleaning rules; they do NOT hold two copies.**
+This paragraph used to describe fill-gap as holding its own duplicate of the classification
+pipeline, and as lacking credit netting. Both were true once and both are now wrong, which is
+worse than saying nothing: it invites a fix duplicated into a file that already imports the
+rule, and it warns you off editing the one place that actually owns it.
+
+What is true, checked 2026-09-26:
+
+- **`classifyBankRow` is one function** in `src/lib/bank-charges.ts`. Both routes import and call
+  it (`ingest` line 903, `fill-gap` line 736). Adding a vendor is still the one-file change
+  described above, and it reaches both routes with no lockstep edit.
+- **Vendor-credit netting is shared** via `src/lib/vendor-credit-netting.ts`. fill-gap imports
+  `netVendorCredits`, `vendorCreditFields` and `unappliedRefundGap` and does implement it.
+- The two routes share twelve `src/lib` modules in all, including `insertCleaningEvents`,
+  `cleaning-credit-overrides`, `remittance`, `installments`, `statement-finality` and
+  **`statement-totals-write`**, which is the single payout write path.
+
+What can still drift is the ORCHESTRATION around those shared pieces: ingest is ~2,700 lines and
+fill-gap ~1,200, and they differ in what they do with the results (ingest alone carries the
+month gate, cancellation matching, internal transfers and the platform-CSV cache). So read both
+before changing either. Just do not go looking for a second copy of the classification rule,
+because there is not one.
 
 # Trash and recycling
 
