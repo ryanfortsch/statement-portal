@@ -86,7 +86,7 @@ export default async function PropertyEditPage({
       <EditFormShell action={action} propertyId={p.id}>
         {returnTab ? <input type="hidden" name="return_tab" value={returnTab} /> : null}
         {/* ── Owner contact ── */}
-        <Group eyebrow="01" title="Owner contact">
+        <Group eyebrow="01" id="owner" title="Owner contact">
           <Row>
             <Field name="owner_full" label="Owner name" defaultValue={p.owner_full} hint="As it should read on the statement — e.g. Khristin Lambert-Vorais" />
             <Field name="owner_greeting" label="Greeting" defaultValue={p.owner_greeting} hint="First name(s) for emails — e.g. Khristin and Carol Ann" />
@@ -100,7 +100,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Property specs ── */}
-        <Group eyebrow="02" title="Property specs">
+        <Group eyebrow="02" id="specs" title="Property specs">
           <Row>
             <Field name="bedrooms" label="Bedrooms" type="number" defaultValue={p.bedrooms} />
             <Field name="bathrooms" label="Bathrooms" type="number" step="0.5" defaultValue={p.bathrooms} />
@@ -129,7 +129,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Utilities ── */}
-        <Group eyebrow="03" title="Utilities">
+        <Group eyebrow="03" id="utilities" title="Utilities">
           <Row>
             <Field name="electricity_provider" label="Electricity provider" defaultValue={p.electricity_provider} />
             <Field name="heating" label="Heating" defaultValue={p.heating} hint="Gas, Electric, Oil, Heat pump…" />
@@ -165,7 +165,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── STR setup ── */}
-        <Group eyebrow="04" title="STR setup">
+        <Group eyebrow="04" id="str" title="STR setup">
           <Field name="currently_listed" label="Currently listed?" defaultValue={p.currently_listed} hint="Platform(s)" />
           <Field name="existing_listing_urls" label="Existing listing URL(s)" defaultValue={p.existing_listing_urls} />
           <Row>
@@ -181,7 +181,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Access & notes ── */}
-        <Group eyebrow="05" title="Property access & notes">
+        <Group eyebrow="05" id="access" title="Property access & notes">
           <Field name="key_code_location" label="Key / code location" defaultValue={p.key_code_location} />
           <Field
             name="arrival_brief"
@@ -206,7 +206,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Emergency contact ── */}
-        <Group eyebrow="06" title="Emergency contact">
+        <Group eyebrow="06" id="emergency" title="Emergency contact">
           <Row>
             <Field name="emergency_contact_name" label="Name" defaultValue={p.emergency_contact_name} />
             <Field name="emergency_contact_relationship" label="Relationship" defaultValue={p.emergency_contact_relationship} />
@@ -218,7 +218,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Inspection & safety ── */}
-        <Group eyebrow="07" title="Inspection & safety">
+        <Group eyebrow="07" id="safety" title="Inspection & safety">
           <Row>
             <Field name="trash_day" label="Trash pickup day" defaultValue={p.trash_day} hint="Auto-derived from address for Gloucester — set here to override" />
             <Field name="recycling_day" label="Recycling pickup day" defaultValue={p.recycling_day} />
@@ -265,7 +265,7 @@ export default async function PropertyEditPage({
             somebody decided. The decisions themselves had nowhere to live,
             so the listing, the home guide and the concierge all had to
             invent an answer or ask. */}
-        <Group eyebrow="08" title="House policy">
+        <Group eyebrow="08" id="policy-group" title="House policy">
           <Row>
             <Field
               name="default_checkin_time"
@@ -316,7 +316,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Billing ── */}
-        <Group eyebrow="09" title="Billing">
+        <Group eyebrow="09" id="billing" title="Billing">
           <Field
             name="bank_last4"
             label="Bank account last 4"
@@ -347,9 +347,20 @@ export default async function PropertyEditPage({
 }
 
 // ─── Layout components ──────────────────────────────────────────────────────
-function Group({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
+function Group({
+  eyebrow,
+  title,
+  id,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  /** Anchor target so Facts can link straight at the group that owns a field. */
+  id?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="rt-edit-group">
+    <div className="rt-edit-group" id={id} style={{ scrollMarginTop: 100 }}>
       <div className="rt-edit-group-h">
         <span className="rt-edit-group-num">{eyebrow}</span>
         <h2>{title}</h2>

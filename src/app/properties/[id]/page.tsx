@@ -1533,12 +1533,17 @@ export default async function PropertyDetailPage({
           </div>
         )}
       </CollapsibleSection>
-      {/* OPERATIONAL DATA — collapsed by default; expand for the six subgroups */}
-      {operationalCounts.populated > 0 && (
-        <CollapsibleSection title="Operational data" summary={operationalSummary}>
-          <OperationalSections p={p} />
-        </CollapsibleSection>
-      )}
+      {/* THE FACT SHEET — seven groups shaped by the question they answer
+          rather than by the table they came from, each linking at the edit
+          group that owns it.
+
+          The `populated > 0` gate is gone on purpose. It hid this block
+          entirely on a property with nothing filled in, which is exactly
+          the property whose blanks ARE the work. A blank now renders as its
+          own label with an Add link. */}
+      <CollapsibleSection id="facts" title="The fact sheet" summary={operationalSummary}>
+        <OperationalSections p={p} />
+      </CollapsibleSection>
 
       {/* REFERENCE — Helm IDs, sync state, and the Perfection link, all in one
           quiet block at the bottom. Used rarely; collapsed by default. */}
@@ -2559,15 +2564,59 @@ function TabActions({ children }: { children: React.ReactNode }) {
 /** Builds the six operational-data row groups in display order. Shared by
  *  the renderer (which shows only populated rows per group) and the field
  *  counter (which folds populated/total counts up into the parent header). */
+/**
+ * The house's stored facts, grouped by the question they answer.
+ *
+ * These were six groups shaped by the database: Property specs, Utilities,
+ * STR setup, Property access & notes, Emergency contact, Inspection &
+ * safety. The cost was that no single group could answer a whole question.
+ * How a guest gets in was split four ways (guest_access_method and the
+ * smart lock under "STR setup", the key location, gate and garage codes
+ * under "Property access"), the thermostat sat in Utilities while its
+ * automation sat in its own panel, and trash day and parking regulations
+ * were filed under "Inspection & safety", which is neither.
+ *
+ * `editAnchor` is the edit-form group that owns most of a group's fields,
+ * so reading a wrong value and fixing it is one gesture. Where a group
+ * draws from two edit sections the link points at the larger half; that
+ * mismatch is real and is noted per group rather than papered over.
+ */
 function operationalGroups(p: HelmPropertyRow) {
-  const specs: OpRow[] = [
+  const entry: OpRow[] = [
+    { label: 'Guest access', value: p.guest_access_method },
+    { label: 'Smart lock', value: [p.smart_lock_brand, p.smart_lock_code].filter(Boolean).join(' · ') || null },
+    { label: 'Key / code location', value: p.key_code_location },
+    { label: 'Gate code', value: p.gate_code, mono: true },
+    { label: 'Garage code', value: p.garage_code, mono: true },
+    { label: 'Alarm system', value: p.alarm_system },
+    { label: 'Cameras', value: p.security_cameras },
+    { label: 'Arrival brief (crew)', value: p.arrival_brief },
+    { label: 'Supply closet', value: p.supply_closet_location },
+  ];
+  const connectivity: OpRow[] = [
+    { label: p.wifi_label ? `WiFi name (${p.wifi_label})` : 'WiFi name', value: p.wifi_name },
+    { label: p.wifi_label ? `WiFi password (${p.wifi_label})` : 'WiFi password', value: p.wifi_password, mono: true },
+    { label: p.wifi_label_2 ? `WiFi name (${p.wifi_label_2})` : 'WiFi name 2', value: p.wifi_name_2 },
+    { label: p.wifi_label_2 ? `WiFi password (${p.wifi_label_2})` : 'WiFi password 2', value: p.wifi_password_2, mono: true },
+    { label: 'Internet', value: p.internet_provider },
+    { label: 'Cable / TV', value: p.cable_provider },
+    { label: 'TVs', value: p.num_tvs },
+    { label: 'Smart TV', value: p.smart_tv },
+  ];
+  const systems: OpRow[] = [
     { label: 'Bedrooms', value: p.bedrooms },
     { label: 'Bathrooms', value: p.bathrooms },
     { label: 'Square feet', value: p.square_feet },
     { label: 'Livable floors', value: p.livable_floors },
     { label: 'Basement', value: p.basement },
-    { label: 'Parking', value: p.parking },
     { label: 'HOA', value: p.hoa },
+    { label: 'Heating', value: p.heating },
+    { label: 'Cooling', value: p.cooling },
+    { label: 'Electricity', value: p.electricity_provider },
+    // Beside the systems it controls rather than filed under Utilities,
+    // so one appliance reads as one thing. Its automation is the Climate
+    // section directly above.
+    { label: 'Smart thermostat', value: [p.thermostat_brand, p.thermostat_code].filter(Boolean).join(' · ') || null },
     {
       label: 'Guest gear on-site',
       value:
@@ -2579,57 +2628,18 @@ function operationalGroups(p: HelmPropertyRow) {
           .filter(Boolean)
           .join(', ') || null,
     },
-    {
-      label: 'Pullout linens',
-      value: p.has_pullout_bed ? p.pullout_linens_location : null,
-    },
-  ];
-  const utilities: OpRow[] = [
-    { label: 'Electricity', value: p.electricity_provider },
-    { label: 'Heating', value: p.heating },
-    { label: 'Cooling', value: p.cooling },
-    { label: 'Internet', value: p.internet_provider },
-    { label: 'Cable / TV', value: p.cable_provider },
-    { label: p.wifi_label ? `WiFi name (${p.wifi_label})` : 'WiFi name', value: p.wifi_name },
-    { label: p.wifi_label ? `WiFi password (${p.wifi_label})` : 'WiFi password', value: p.wifi_password, mono: true },
-    { label: p.wifi_label_2 ? `WiFi name (${p.wifi_label_2})` : 'WiFi name 2', value: p.wifi_name_2 },
-    { label: p.wifi_label_2 ? `WiFi password (${p.wifi_label_2})` : 'WiFi password 2', value: p.wifi_password_2, mono: true },
-    { label: 'Smart thermostat', value: [p.thermostat_brand, p.thermostat_code].filter(Boolean).join(' · ') || null },
-    { label: 'TVs', value: p.num_tvs },
-    { label: 'Smart TV', value: p.smart_tv },
-  ];
-  const str: OpRow[] = [
-    { label: 'Currently listed', value: p.currently_listed },
-    { label: 'Listing URLs', value: p.existing_listing_urls, mono: true },
-    { label: 'STR registration', value: p.str_registration_id, mono: true },
-    { label: 'STR insurance', value: p.str_insurance_carrier },
-    { label: 'Guest access', value: p.guest_access_method },
-    { label: 'Smart lock', value: [p.smart_lock_brand, p.smart_lock_code].filter(Boolean).join(' · ') || null },
-    { label: 'Cameras', value: p.security_cameras },
-  ];
-  const access: OpRow[] = [
-    { label: 'Key / code location', value: p.key_code_location },
-    { label: 'Supply closet', value: p.supply_closet_location },
-    { label: 'Alarm system', value: p.alarm_system },
-    { label: 'Garage code', value: p.garage_code, mono: true },
-    { label: 'Gate code', value: p.gate_code, mono: true },
+    { label: 'Pullout linens', value: p.has_pullout_bed ? p.pullout_linens_location : null },
     { label: 'Known issues', value: p.known_issues },
     { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
-    // Freeform notes have been moved to the structured Operations notebook
-    // accordion (renders above this section). See public.property_notes
-    // and src/lib/property-notes.ts.
   ];
-  const emergency: OpRow[] = [
-    { label: 'Name', value: p.emergency_contact_name },
-    { label: 'Relationship', value: p.emergency_contact_relationship },
-    { label: 'Phone', value: formatUsPhone(p.emergency_contact_phone), mono: true },
-    { label: 'Email', value: p.emergency_contact_email, mono: true },
-  ];
-  const inspection: OpRow[] = [
+  const civic: OpRow[] = [
     { label: 'Trash day', value: p.trash_day },
     { label: 'Recycling day', value: p.recycling_day },
-    { label: 'Trash notes', value: p.trash_notes },
+    { label: 'Trash notes (location only)', value: p.trash_notes },
+    { label: 'Parking', value: p.parking },
     { label: 'Parking regulations', value: p.parking_regulations },
+  ];
+  const safety: OpRow[] = [
     { label: 'Gas shutoff', value: p.gas_shutoff_location },
     { label: 'Water shutoff', value: p.water_shutoff_location },
     { label: 'Electrical panel', value: p.electrical_panel_location },
@@ -2637,14 +2647,29 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Smoke / CO detectors', value: p.smoke_detector_locations },
     { label: 'Fire exits', value: p.fire_exit_locations },
     { label: 'STR permit expires', value: p.str_permit_expires },
+    { label: 'STR registration', value: p.str_registration_id, mono: true },
+    { label: 'STR insurance', value: p.str_insurance_carrier },
+  ];
+  const emergency: OpRow[] = [
+    { label: 'Name', value: p.emergency_contact_name },
+    { label: 'Relationship', value: p.emergency_contact_relationship },
+    { label: 'Phone', value: formatUsPhone(p.emergency_contact_phone), mono: true },
+    { label: 'Email', value: p.emergency_contact_email, mono: true },
+  ];
+  const listing: OpRow[] = [
+    { label: 'Currently listed', value: p.currently_listed },
+    { label: 'Listing URLs', value: p.existing_listing_urls, mono: true },
   ];
   return [
-    { title: 'Property specs', rows: specs },
-    { title: 'Utilities', rows: utilities },
-    { title: 'STR setup', rows: str },
-    { title: 'Property access & notes', rows: access },
-    { title: 'Emergency contact', rows: emergency },
-    { title: 'Inspection & safety', rows: inspection },
+    // Draws from two edit sections (STR setup holds guest access and the
+    // smart lock; Property access holds the rest). Linked at the larger half.
+    { title: 'Entry and credentials', rows: entry, editAnchor: 'access' },
+    { title: 'Connectivity', rows: connectivity, editAnchor: 'utilities' },
+    { title: 'House and systems', rows: systems, editAnchor: 'specs' },
+    { title: 'Trash, parking and civic', rows: civic, editAnchor: 'safety' },
+    { title: 'Safety and permits', rows: safety, editAnchor: 'safety' },
+    { title: 'Emergency contact', rows: emergency, editAnchor: 'emergency' },
+    { title: 'Listing', rows: listing, editAnchor: 'str' },
   ];
 }
 
@@ -2663,27 +2688,56 @@ function countOperationalFields(p: HelmPropertyRow): { populated: number; total:
   return { populated, total };
 }
 
+/**
+ * The fact sheet.
+ *
+ * Every group renders, populated or not, and every blank renders as its own
+ * label linked at the control that fills it. The old version dropped a group
+ * the moment it had nothing in it, which meant the block disappeared exactly
+ * when its blanks were the work: during setup, when knowing what is missing
+ * is the whole point.
+ */
 function OperationalSections({ p }: { p: HelmPropertyRow }) {
   const groups = operationalGroups(p);
-
-  // Caller (page.tsx) already gates on populated > 0 before rendering this
-  // inside a CollapsibleSection — but keep the safety net so the function
-  // is still self-contained.
-  const anything = groups.some((g) => g.rows.some((r) => r.value != null && r.value !== ''));
-  if (!anything) return null;
 
   return (
     <div>
       {groups.map((g) => {
         const populated = g.rows.filter((r) => r.value != null && r.value !== '');
-        if (populated.length === 0) return null;
-        const summary = `${populated.length} of ${g.rows.length}`;
+        const summary =
+          populated.length === g.rows.length
+            ? 'complete'
+            : populated.length === 0
+              ? `nothing yet · ${g.rows.length} fields`
+              : `${populated.length} of ${g.rows.length}`;
         return (
           <CollapsibleSubSection key={g.title} title={g.title} summary={summary}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <Link
+                href={`/properties/${p.id}/edit#${g.editAnchor}`}
+                style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
+              >
+                Edit these &rarr;
+              </Link>
+            </div>
             <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 48px', fontSize: 13 }}>
-              {populated.map((r) => (
-                <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
-              ))}
+              {g.rows.map((r) =>
+                r.value != null && r.value !== '' ? (
+                  <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
+                ) : (
+                  <div key={r.label}>
+                    <dt className="eyebrow" style={{ marginBottom: 4 }}>{r.label}</dt>
+                    <dd style={{ margin: 0 }}>
+                      <Link
+                        href={`/properties/${p.id}/edit#${g.editAnchor}`}
+                        style={{ fontSize: 12, color: 'var(--signal)', textDecoration: 'none' }}
+                      >
+                        Add &rarr;
+                      </Link>
+                    </dd>
+                  </div>
+                ),
+              )}
             </dl>
           </CollapsibleSubSection>
         );
