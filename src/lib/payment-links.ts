@@ -10,6 +10,7 @@ import {
   firstName,
   helmRequestKey,
   LINK_LOOKBACK_DAYS,
+  linkBelongsToReservation,
   reservationIdFromRequestKey,
   toE164,
 } from '@/lib/payment-links-text';
@@ -139,6 +140,30 @@ export async function loadPaymentLink(requestKey: string): Promise<PaymentLinkRo
     .eq('request_key', requestKey)
     .maybeSingle();
   return (data as unknown as PaymentLinkRow | null) ?? null;
+}
+
+/**
+ * Every link minted against one Guesty reservation, from either door, newest
+ * first. The concierge reads this before it cards a fee we promised a guest
+ * before they booked (stay-concierge fee_promises.py), so a stay the
+ * operator already charged by hand never gets a second link. Null on any
+ * failure, never [], so the caller can tell "none" from "could not look".
+ */
+export async function listLinksForReservation(reservationId: string): Promise<PaymentLinkRow[] | null> {
+  const id = (reservationId || '').trim();
+  if (!isServiceConfigured || !/^[0-9a-f]{24}$/i.test(id)) return null;
+  try {
+    const { data, error } = await supabase
+      .from('payment_link_requests')
+      .select(PAYMENT_LINK_COLUMNS)
+      .or(`reservation_id.eq.${id},request_key.like.*:${id}:*`)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) return null;
+    return ((data ?? []) as unknown as PaymentLinkRow[]).filter((r) => linkBelongsToReservation(r, id));
+  } catch {
+    return null;
+  }
 }
 
 /** The ledger: every link minted in the window, newest first. Empty on any

@@ -205,6 +205,22 @@ export function reservationIdFromRequestKey(key: string): string {
   return /^[0-9a-f]{24}$/i.test(parts[1]) ? parts[1] : '';
 }
 
+/**
+ * Whether a ledger row was minted against this Guesty reservation, whichever
+ * door minted it. Helm's own rows carry the id in `reservation_id`; the
+ * concierge's bridge inserts leave that column empty, so its id is read back
+ * out of the request key. A malformed id matches nothing, never everything.
+ */
+export function linkBelongsToReservation(
+  row: { request_key: string; reservation_id?: string | null },
+  reservationId: string,
+): boolean {
+  const id = (reservationId || '').trim();
+  if (!/^[0-9a-f]{24}$/i.test(id)) return false;
+  if ((row.reservation_id || '').trim() === id) return true;
+  return reservationIdFromRequestKey(row.request_key) === id;
+}
+
 /** How long an unpaid link waits before the home feed calls it out. */
 export const UNPAID_AFTER_HOURS = 24;
 /** Links older than this are dead deals: not polled, not shown. Matches the
