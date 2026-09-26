@@ -50,6 +50,9 @@ export type DedupRow = {
   /** bookings.held_ages: nights held before the last move, and since when
    *  (lib/echo-cause nightHeldSinceMs). Optional. */
   held_ages?: readonly HeldAge[] | null;
+  /** bookings.missing_since: the feed's first observed absence (read for
+   *  a closure's re-issue, echo-cause closureNightSinceMs). Optional. */
+  missing_since?: string | null;
   /** bookings.cancel_reason. 'operator_delete: ...' marks a record the
    *  operator removed (Delete), not a guest's cancellation; optional so
    *  fixtures that predate it load. */

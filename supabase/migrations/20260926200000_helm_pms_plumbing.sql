@@ -168,7 +168,15 @@ alter table public.bookings
   -- rule (echo-cause nextAge). The cutover handover and the dedupe's pass
   -- four read them to tell a closure's cause from a later booking.
   add column if not exists live_since timestamptz,
-  add column if not exists held_ages jsonb;
+  add column if not exists held_ages jsonb,
+  -- An operator's confirmation, after checking the extranet, that a
+  -- Booking.com closure is Booking.com copying Helm's own row (the cutover
+  -- handover then stops listing it). Holds the closure's dates and age it
+  -- was given for (src/lib/cutover-carryover.ts echoFingerprint), so a
+  -- closure that moves or comes back is judged afresh.
+  add column if not exists echo_confirmed text,
+  add column if not exists echo_confirmed_by text,
+  add column if not exists echo_confirmed_at timestamptz;
 
 -- Guesty's rule type on a night its own calendar closes for a rule rather
 -- than a hold (advance notice 'an', booking window 'bw' / 'bd', padding

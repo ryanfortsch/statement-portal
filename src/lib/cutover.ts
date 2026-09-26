@@ -465,7 +465,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     const problems: string[] = [];
     if (carry.bookingComUnexplained.length > 0) {
       problems.push(
-        `Booking.com shows ${carry.bookingComUnexplained.length} closure${carry.bookingComUnexplained.length === 1 ? '' : 's'} with no reservation on file behind ${carry.bookingComUnexplained.length === 1 ? 'it' : 'them'}: ${listRows(carry.bookingComUnexplained)}. Check each in the extranet: enter a Booking.com booking from its confirmation email; open the nights only if Booking.com shows no reservation there`,
+        `Booking.com shows ${carry.bookingComUnexplained.length} closure${carry.bookingComUnexplained.length === 1 ? '' : 's'} with no reservation on file behind ${carry.bookingComUnexplained.length === 1 ? 'it' : 'them'}: ${listRows(carry.bookingComUnexplained)}. Check each in the extranet: enter a Booking.com booking from its confirmation email; if it shows no reservation, open the nights there, or, where Helm holds those nights itself, confirm on the channel hub that it is Booking.com's copy`,
       );
     }
     if (carry.bookingComOrphaned.length > 0) {
@@ -648,7 +648,7 @@ export async function loadCarryRows(propertyId: string, todayIso: string): Promi
     (from, to) =>
       supabaseAdmin
         .from('bookings')
-        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, notes, missing_since, cancelled_at, ical_uid, live_since, held_ages')
+        .select('id, property_id, source, channel, status, check_in, check_out, duplicate_of, hold_kind, channel_listing_id, created_at, guest_name, notes, missing_since, cancelled_at, ical_uid, live_since, held_ages, echo_confirmed')
         .eq('property_id', propertyId)
         .gt('check_out', todayIso)
         .order('check_in', { ascending: true })
@@ -864,7 +864,7 @@ export type FlipResult = {
   /** Present on a flip to Helm: Helm blocks noted as carrying a closed
    *  season (CARRIED_SEASON_NOTE), and mirror rows past the Helm window
    *  dropped. */
-  carriedSeasons?: { count: number; error: string | null };
+  carriedSeasons?: { count: number; error: string | null; pending: Array<{ id: string; check_in: string; check_out: string }> };
   mirrorTrimmed?: { error: string | null };
 };
 
@@ -922,8 +922,13 @@ export async function flipToHelm(
   const guestyBlocksCancelled = { count: cancelled.value, error: cancelled.error };
   // The blocks that keep a closed season shut now carry the note the hub's
   // follow-up (carriedSeasonsEnding) looks for, however they were entered.
-  const noted = await settle(noteCarriedSeasons(carry.carriedSeasonBlockIds), 0);
-  const carriedSeasons = { count: noted.value, error: noted.error };
+  const noted = await settle(noteCarriedSeasons(carry.carriedSeasonBlockIds), { count: 0, pending: [] as Array<{ id: string; check_in: string; check_out: string }> });
+  const carriedSeasons = {
+    count: noted.value.count,
+    // A failed read notes nothing: name every block to note by hand.
+    pending: noted.error ? carry.carriedSeasonBlockIds.map((id) => blockDates(carry, facts, id)) : noted.value.pending,
+    error: noted.error ?? (noted.value.pending.length > 0 ? 'some blocks could not be noted' : null),
+  };
   const window = mirrorWindow(90, 540);
   const mirror = await writeHelmCalendarMirror([propertyId], window.start, window.end);
   // Rows past the Helm window are what Guesty last showed (the read-ahead
@@ -933,20 +938,28 @@ export async function flipToHelm(
   return { property, event: event ?? null, mirror, preflight, guestyBlocksCancelled, carriedSeasons, mirrorTrimmed: { error: trimmed.error } };
 }
 
-/** Prefix CARRIED_SEASON_NOTE onto each block's notes (once). */
-async function noteCarriedSeasons(ids: readonly string[]): Promise<number> {
-  if (ids.length === 0) return 0;
-  const { data, error } = await supabaseAdmin.from('bookings').select('id, notes').in('id', [...ids]);
+/** Prefix CARRIED_SEASON_NOTE onto each block's notes (once). Every block
+ *  is tried; the ones that failed come back so the flip note can name them
+ *  (a Helm-run hub has no way to re-run this). */
+async function noteCarriedSeasons(ids: readonly string[]): Promise<{ count: number; pending: Array<{ id: string; check_in: string; check_out: string }> }> {
+  if (ids.length === 0) return { count: 0, pending: [] };
+  const { data, error } = await supabaseAdmin.from('bookings').select('id, notes, check_in, check_out').in('id', [...ids]);
   if (error) throw new Error(`read carried blocks: ${error.message}`);
   let count = 0;
-  for (const r of (data ?? []) as Array<{ id: string; notes: string | null }>) {
+  const pending: Array<{ id: string; check_in: string; check_out: string }> = [];
+  for (const r of (data ?? []) as Array<{ id: string; notes: string | null; check_in: string; check_out: string }>) {
     if (String(r.notes ?? '').startsWith(CARRIED_SEASON_NOTE)) continue;
     const notes = `${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end.${r.notes ? `\n${r.notes}` : ''}`;
     const { error: upErr } = await supabaseAdmin.from('bookings').update({ notes, updated_at: new Date().toISOString() }).eq('id', r.id);
-    if (upErr) throw new Error(`note carried block: ${upErr.message}`);
-    count += 1;
+    if (upErr) pending.push({ id: r.id, check_in: r.check_in, check_out: r.check_out });
+    else count += 1;
   }
-  return count;
+  return { count, pending };
+}
+
+function blockDates(_carry: Carryover, facts: CutoverFacts, id: string): { id: string; check_in: string; check_out: string } {
+  const r = (facts.carryRows ?? []).find((x) => x.id === id);
+  return { id, check_in: r?.check_in ?? '?', check_out: r?.check_out ?? '?' };
 }
 
 /** Drop this home's calendar mirror rows after `end` (flip only). */

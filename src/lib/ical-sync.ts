@@ -758,7 +758,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, live_since, held_ages, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, live_since, held_ages, missing_since, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },

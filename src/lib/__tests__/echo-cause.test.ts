@@ -262,3 +262,24 @@ describe('round 9: a closure grown twice, re-issued, or a declined inquiry re-co
     assert.equal(nextAge(heldStay, { check_in: '2026-11-10', check_out: '2026-11-14' }, new Date(h(1, 12))), null, 'a real stay back within the lag keeps its age');
   });
 });
+
+describe("round 10: a closure chains only to one its feed still showed a beat earlier", () => {
+  const at = (hh: number, mm = 0) => Date.parse(`2026-10-01T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  test("a leftover opened in the extranet, then Helm's owner hold and its echo: the echo is the hold's", () => {
+    // X1 (leftover since Sep 20) missed at 10:00, cancelled at the next
+    // look 10:30; owner hold H written 10:35; Booking.com closes the nights
+    // again, X2 at 11:00. Measured from the cancel X1 looked like it was
+    // still up; its feed stopped showing it an hour before X2.
+    const x1 = { id: 'X1', status: 'cancelled', check_in: '2026-11-10', check_out: '2026-11-20', created_at: '2026-09-20T00:00:00Z', live_since: '2026-09-20T00:00:00Z', missing_since: iso(at(10)), cancelled_at: iso(at(10, 30)) };
+    const x2 = { check_in: '2026-11-10', check_out: '2026-11-20', created_at: iso(at(11)), live_since: iso(at(11)) };
+    assert.equal(closureNightSinceMs(x2, '2026-11-12', [x1]), at(11), 'X1 was gone an hour: a different closure');
+    const hold = cover({ at: at(10, 35), status: 'block', check_out: '2026-11-20' });
+    const ns = ['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19'];
+    assert.equal(echoExplained({ closure: x2, nights: ns, covers: [hold], now: at(23), allowRecentWithdrawal: true, closureSiblings: [x1] }).explained, true);
+  });
+  test('a re-issue in the same fetch still chains (the old event missed in the sync that first sees the new one)', () => {
+    const old = { id: 'U1', status: 'block', check_in: '2026-11-10', check_out: '2026-11-14', created_at: '2026-09-20T00:00:00Z', live_since: '2026-09-20T00:00:00Z', missing_since: iso(at(14, 30)) };
+    const fresh = { check_in: '2026-11-10', check_out: '2026-11-16', created_at: iso(at(14, 30)), live_since: iso(at(14, 30)) };
+    assert.equal(closureNightSinceMs(fresh, '2026-11-11', [old]), Date.parse('2026-09-20T00:00:00Z'));
+  });
+});

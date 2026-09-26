@@ -264,8 +264,10 @@ check is green:
   nights before Booking.com's next pull keeps it explained; a stay moved
   onto the nights, or a hold typed after the closure, does not). None may
   sit on a feed Helm stopped reading. For each one listed, check the
-  extranet: enter a reservation if one is there, and open the nights only
-  if there is none;
+  extranet: enter a reservation if one is there. If there is none and Helm
+  holds those nights itself, press "it is Booking.com copying Helm" on the
+  hub (the closure is judged afresh if it moves or comes back); if Helm
+  holds nothing there, open the nights in the extranet;
 - Luana scoped, automations reviewed, Guesty disconnect acknowledged.
 
 The flip cancels the Guesty aggregate feed's blocks, retires the Guesty

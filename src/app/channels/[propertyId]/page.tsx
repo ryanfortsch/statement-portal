@@ -44,7 +44,7 @@ import { CHANNEL_LABELS, PRIMARY_CHANNELS, STATUS_LABELS, type BookingChannel } 
 import { EXPORT_FOR_CHANNELS, exportUrlFor, exportUrlForListing } from '@/lib/ical-export';
 import { type CalendarRowVM } from '../calendar/MultiCalendarGrid';
 import { PropertyMonthCalendar } from './PropertyMonthCalendar';
-import { flipCalendarAuthorityAction, readGuestyCalendarAheadAction } from './cutover-actions';
+import { confirmBookingComEchoAction, flipCalendarAuthorityAction, readGuestyCalendarAheadAction } from './cutover-actions';
 import { acknowledgeMassCancel, releaseOrphanedOtaHold, syncOneListing, tickExportSubscribed } from '../listings/actions';
 import { releaseAnswers } from '@/lib/ical-cancel-policy';
 
@@ -265,8 +265,10 @@ export default async function ChannelsPropertyPage({
               )}
 
               {/* Before the first tick the Needs attention panel is not shown,
-                  and the runbook re-enters Guesty's holds now: the same links. */}
-              {!helmRun && !cutoverUnderway && carry && carry.guestyHoldsUncarried.length > 0 && (
+                  and the runbook re-enters Guesty's holds now: the same links.
+                  Only once a cutover is being prepared (a Helm rate plan exists,
+                  runbook step 2); on the rest of the fleet it is not a call to act. */}
+              {!helmRun && !cutoverUnderway && factsOrError.facts?.ratePlan && carry && carry.guestyHoldsUncarried.length > 0 && (
                 <div style={{ marginTop: 16 }}>
                   <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--ink-3)' }}>Guesty holds to re-enter before the first tick</div>
                   <ul style={{ margin: 0, paddingLeft: 16, display: 'grid', gap: 6 }}>
@@ -525,14 +527,21 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
         {carry.bookingComUnexplained.length > 0 && (
           <Item
             title="Booking.com shows these nights closed, and Helm has no reservation for them"
-            why="Booking.com publishes every booking as a bare closed night. Each of these is either a Booking.com guest nobody has entered (no turnover, no cleaner line, no stay record) or a closure left behind in the extranet, which Helm still passes to Airbnb and VRBO. Check the extranet first: if Booking.com shows a reservation, enter it from its confirmation email; open the nights only if it shows none. A hold typed in Helm after Booking.com closed the nights is no explanation: it may be sitting on a guest."
+            why="Booking.com publishes every booking as a bare closed night. Each of these is a Booking.com guest nobody has entered (no turnover, no cleaner line, no stay record), a closure left behind in the extranet, which Helm still passes to Airbnb and VRBO, or, where Helm holds the nights too, Booking.com copying Helm's own row at a moment Helm cannot place. Check the extranet first: if Booking.com shows a reservation, enter it from its confirmation email (where Helm holds the nights too, two guests hold them). If it shows none: where Helm holds the nights, confirm it is Booking.com's copy; where it does not, open the nights there."
           >
             {carry.bookingComUnexplained.map((r) => (
-              <li key={r.id}>
-                {rowLine(r)}{' '}
-                <Link href={`/channels/bookings/new?property=${propertyId}&channel=booking_com&check_in=${r.check_in}&check_out=${r.check_out}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>
+              <li key={r.id} style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                {rowLine(r)}
+                <Link href={`/channels/bookings/new?property=${propertyId}&channel=booking_com&check_in=${r.check_in}&check_out=${r.check_out}`} style={{ fontSize: 12, color: 'var(--ink)' }}>
                   Enter the Booking.com booking →
                 </Link>
+                {carry.bookingComUnexplainedHeld.includes(r.id) && (
+                  <form action={confirmBookingComEchoAction}>
+                    <input type="hidden" name="property_id" value={propertyId} />
+                    <input type="hidden" name="id" value={r.id} />
+                    <SubmitButton label="No reservation in the extranet: it is Booking.com copying Helm" busyLabel="Confirming…" spinnerTone="ink" style={linkButton} />
+                  </form>
+                )}
               </li>
             ))}
           </Item>

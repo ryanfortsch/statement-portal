@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { CutoverPreflightError, flipToHelm, revertToGuesty } from '@/lib/cutover';
+import { echoFingerprint } from '@/lib/cutover-carryover';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { loadGuestyListingMap, syncCalendarDays } from '@/lib/calendar-days';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
@@ -83,7 +84,7 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
       const seasonNote = !cs
         ? ''
         : cs.error
-        ? ` The blocks carrying a closed season were NOT noted (${cs.error}); the hub will not warn before they run out.`
+        ? ` ${cs.count > 0 ? `${cs.count} block${cs.count === 1 ? '' : 's'} carrying a closed season noted, but ` : ''}${cs.pending.length} could not be (${cs.error}): ${cs.pending.map((b) => `${b.check_in} to ${b.check_out}`).join('; ')}. Add "Closed season carried from Guesty" at the start of ${cs.pending.length === 1 ? 'its' : 'their'} notes, or the hub will not warn before ${cs.pending.length === 1 ? 'it runs' : 'they run'} out.`
         : cs.count > 0
         ? ` ${cs.count} block${cs.count === 1 ? '' : 's'} carrying a closed season noted; the hub warns before the booking window reaches ${cs.count === 1 ? 'its' : 'their'} end.`
         : '';
@@ -146,4 +147,36 @@ export async function readGuestyCalendarAheadAction(formData: FormData) {
   }
   revalidatePath(`/channels/${propertyId}`);
   redirect(hubUrl(propertyId, outcome));
+}
+
+/**
+ * "No reservation in the extranet: it is Booking.com copying Helm": the
+ * operator's answer to a Booking.com closure the handover cannot place by
+ * time alone, over nights Helm holds now. Stamps the closure with what it
+ * is now (echoFingerprint); a closure that moves or comes back is listed
+ * again. Only a live Booking.com closure imported from its own feed.
+ */
+export async function confirmBookingComEchoAction(formData: FormData) {
+  const propertyId = String(formData.get('property_id') || '').trim();
+  const id = String(formData.get('id') || '').trim();
+  if (!propertyId || !id) throw new Error('Missing ids.');
+  const actor = await actorEmail();
+  const { data, error } = await supabaseAdmin
+    .from('bookings')
+    .select('id, property_id, source, channel, status, hold_kind, check_in, check_out, created_at, live_since')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(`read closure: ${error.message}`);
+  const row = data as { property_id: string; source: string; channel: string; status: string; hold_kind: string | null; check_in: string; check_out: string; created_at: string; live_since: string | null } | null;
+  if (!row || row.property_id !== propertyId || row.source !== 'ical_import' || row.channel !== 'booking_com' || row.status !== 'block' || row.hold_kind !== 'ota') {
+    redirect(`/channels/${propertyId}?flip_error=${encodeURIComponent('That row is not a live Booking.com closure.')}#attention`);
+  }
+  const { error: upErr } = await supabaseAdmin
+    .from('bookings')
+    .update({ echo_confirmed: echoFingerprint(row!), echo_confirmed_by: actor, echo_confirmed_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('status', 'block');
+  if (upErr) throw new Error(`confirm echo: ${upErr.message}`);
+  revalidatePath(`/channels/${propertyId}`);
+  redirect(`/channels/${propertyId}#attention`);
 }

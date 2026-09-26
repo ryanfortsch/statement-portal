@@ -86,7 +86,17 @@ export type CarryRow = {
   notes?: string | null;
   /** Set on a listed Guesty hold whose end is Guesty's rolling horizon. */
   rolling?: boolean;
+  /** bookings.echo_confirmed: echoFingerprint of the closure when the
+   *  operator confirmed it is Booking.com's copy of Helm's own row. */
+  echo_confirmed?: string | null;
 };
+
+/** What an operator's echo confirmation is bound to: the closure's dates
+ *  and age. A move or a restart of its age makes it a different closure. */
+export function echoFingerprint(r: { check_in: string; check_out: string; live_since?: string | null; created_at: string }): string {
+  const since = Date.parse(r.live_since ?? r.created_at);
+  return `${r.check_in}|${r.check_out}|${Number.isFinite(since) ? new Date(since).toISOString() : ''}`;
+}
 
 export type CarryListing = {
   id: string;
@@ -264,6 +274,10 @@ export type Carryover = {
   bookingComNotShown: CarryRow[];
   bookingComUnwatched: CarryRow[];
   bookingComUnexplained: CarryRow[];
+  /** The ones whose nights Helm holds now with rows it sends Booking.com:
+   *  either Booking.com copying them (the operator may confirm it after
+   *  checking the extranet) or a Booking.com guest on the same nights. */
+  bookingComUnexplainedHeld: string[];
   bookingComOrphaned: CarryRow[];
   /** Every block still ahead on the Guesty aggregate feed: the flip cancels them. */
   guestyBlocks: CarryRow[];
@@ -413,8 +427,18 @@ export function evaluateCarryover(input: {
   /** The nights of a Guesty hold a carrier must cover: every night still
    *  ahead, and for a closure whose end is Guesty's rolling horizon only as
    *  far as horizonEnd (its end moves a day every night). */
-  const nightsToCarry = (r: { check_in: string; check_out: string }, rollingEnd: boolean): string[] =>
-    nights(r.check_in > todayIso ? r.check_in : todayIso, rollingEnd && r.check_out > horizonEnd ? horizonEnd : r.check_out);
+  const nightsToCarry = (r: { check_in: string; check_out: string }, rollingEnd: boolean): string[] => {
+    const from = r.check_in > todayIso ? r.check_in : todayIso;
+    return nights(from, rollingEnd ? rollingDemandEnd(from, r.check_out) : r.check_out);
+  };
+  /** Where a closure with a rolling end is demanded to: the horizon, but
+   *  never less than its first night (a season closed from a date past the
+   *  horizon was demanded over no nights at all, never listed, and cancelled
+   *  by the flip), and never past its own end. */
+  const rollingDemandEnd = (from: string, checkOut: string): string => {
+    const atLeast = horizonEnd > from ? horizonEnd : shiftDay(from, 1);
+    return checkOut < atLeast ? checkOut : atLeast;
+  };
   const aggregateIds = new Set(listings.filter((l) => l.channel === 'guesty').map((l) => l.id));
   const readingIds = new Set(listings.filter(reads).map((l) => l.id));
   const readingBcom = listings.filter((l) => l.channel === 'booking_com' && reads(l));
@@ -533,6 +557,7 @@ export function evaluateCarryover(input: {
   );
   const bcomCovers = [...sentToBcom, ...withdrawnFromBcom];
   const bookingComUnexplained: CarryRow[] = [];
+  const bookingComUnexplainedHeld: string[] = [];
   const bookingComOrphaned: CarryRow[] = [];
   for (const h of closuresImported ? rows : []) {
     if (!isOtaHold(h) || h.channel !== 'booking_com' || !upcoming(h)) continue;
@@ -561,7 +586,16 @@ export function evaluateCarryover(input: {
       allowRecentWithdrawal: true,
       closureSiblings: siblings,
     });
-    if (!echo.explained) bookingComUnexplained.push(h);
+    if (echo.explained) continue;
+    // What time cannot settle, a person can: the operator checked the
+    // extranet, found no reservation on these nights, and confirmed the
+    // closure is Booking.com copying what Helm holds there now. Bound to the
+    // closure's dates and age (echoFingerprint), and only while every such
+    // night is still held by a row Helm sends Booking.com.
+    const heldNow = coveredBy(echoNights, sentToBcom);
+    if (heldNow && h.echo_confirmed && h.echo_confirmed === echoFingerprint(h)) continue;
+    bookingComUnexplained.push(h);
+    if (heldNow) bookingComUnexplainedHeld.push(h.id);
   }
 
   // 4. Upcoming holds on the Guesty aggregate feed: all cancelled by the
@@ -589,17 +623,24 @@ export function evaluateCarryover(input: {
   const lastDemanded = shiftDay(horizonEnd, -1);
   const carriedSeasonBlockIds = new Set<string>();
   const noteCarriers = (from: string) => {
-    if (from > lastDemanded) return;
+    // Its last demanded night: the horizon's, or its own first night when it
+    // starts past the horizon.
+    const night = from > lastDemanded ? from : lastDemanded;
     for (const c of carriers) {
-      if (c.status === 'block' && c.source !== 'ical_import' && c.check_in <= lastDemanded && lastDemanded < c.check_out) {
+      if (c.status === 'block' && c.source !== 'ical_import' && c.check_in <= night && night < c.check_out) {
         carriedSeasonBlockIds.add(c.id);
       }
     }
   };
+  const listEndFor = (checkIn: string, checkOut: string): string => {
+    const own = shiftDay(checkIn, CARRY_SLACK_DAYS);
+    const end = listEnd > own ? listEnd : own;
+    return checkOut > end ? checkOut : end;
+  };
   for (const r of guestyBlocks) if (!isGuestyRule(r) && rollingEnd(r)) noteCarriers(r.check_in);
   const guestyHoldsUncarried = guestyBlocks
     .filter((r) => !isGuestyRule(r) && !coveredBy(nightsToCarry(r, rollingEnd(r)), carriers))
-    .map((r) => (rollingEnd(r) ? { ...r, rolling: true, check_out: r.check_out > listEnd ? r.check_out : listEnd } : r));
+    .map((r) => (rollingEnd(r) ? { ...r, rolling: true, check_out: listEndFor(r.check_in, r.check_out) } : r));
   // A home with no Guesty aggregate feed: the only record of Guesty's holds
   // is its calendar mirror (MirrorHold). The mirror stops about a year out,
   // so a run with a rolling end is carried to horizonEnd, not to the
@@ -611,7 +652,7 @@ export function evaluateCarryover(input: {
     for (const m of input.mirrorHolds ?? []) if (m.rolling && m.check_out > todayIso) noteCarriers(m.check_in);
     for (const m of input.mirrorHolds ?? []) {
       if (m.check_out <= todayIso) continue;
-      const end = m.rolling ? horizonEnd : m.check_out;
+      const end = m.rolling ? rollingDemandEnd(m.check_in > todayIso ? m.check_in : todayIso, shiftDay(m.check_in, 3650)) : m.check_out;
       if (coveredBy(nights(m.check_in > todayIso ? m.check_in : todayIso, end), carriers)) continue;
       // Listed with slack past the horizon (CARRY_SLACK_DAYS); covered only to it.
       guestyHoldsUncarried.push({
@@ -623,7 +664,7 @@ export function evaluateCarryover(input: {
         channel: 'block',
         status: 'block',
         check_in: m.check_in,
-        check_out: m.rolling ? listEnd : end,
+        check_out: m.rolling ? listEndFor(m.check_in, end) : end,
         rolling: !!m.rolling,
         duplicate_of: null,
         hold_kind: null,
@@ -687,19 +728,25 @@ export function evaluateCarryover(input: {
 
   // 6. Carried closed seasons whose end the booking window is about to reach.
   const soon = shiftDay(todayIso, (planWindow && planWindow > 0 ? planWindow : DEFAULT_CARRY_HORIZON_DAYS) + 60);
-  // A block whose end another live row already carries on from (a guest's
-  // stay, the season's next block) is not running out.
-  const liveCanonical = rows.filter((r) => r.duplicate_of == null && LIVE.has(r.status));
-  const carriedSeasonsEnding = rows.filter(
-    (r) =>
-      r.status === 'block' &&
-      r.duplicate_of == null &&
-      r.source !== 'ical_import' &&
-      String(r.notes ?? '').startsWith(CARRIED_SEASON_NOTE) &&
-      r.check_out > todayIso &&
-      r.check_out <= soon &&
-      !liveCanonical.some((o) => o.id !== r.id && o.check_in <= r.check_out && r.check_out < o.check_out),
-  );
+  // Follow the season on from the block's end over rows that keep holding
+  // the nights (not an OTA's own closure, which comes and goes, nor a
+  // Guesty block the flip cancels): it is running out where that chain
+  // ends, unless the chain reaches another noted block (warned about in its
+  // own right) or runs past `soon`. A guest's stay or an owner's week right
+  // after the season does not carry it on: the nights after them open.
+  const holders = rows.filter((r) => r.duplicate_of == null && LIVE.has(r.status) && !isOtaHold(r) && !(fromAggregate(r) && r.status === 'block'));
+  const noted = (r: CarryRow) => r.status === 'block' && r.source !== 'ical_import' && String(r.notes ?? '').startsWith(CARRIED_SEASON_NOTE);
+  const carriedSeasonsEnding = rows.filter((r) => {
+    if (r.duplicate_of != null || !noted(r) || r.check_out <= todayIso) return false;
+    let end = r.check_out;
+    for (let steps = 0; steps < 200 && end <= soon; steps += 1) {
+      const next = holders.filter((o) => o.id !== r.id && o.check_in <= end && end < o.check_out);
+      if (next.length === 0) return true;
+      if (next.some(noted)) return false;
+      end = next.reduce((m, o) => (o.check_out > m ? o.check_out : m), end);
+    }
+    return end <= soon;
+  });
 
   const byDate = (a: CarryRow, b: CarryRow) => a.check_in.localeCompare(b.check_in) || a.id.localeCompare(b.id);
   return {
@@ -707,6 +754,7 @@ export function evaluateCarryover(input: {
     bookingComNotShown: bookingComNotShown.sort(byDate),
     bookingComUnwatched: bookingComUnwatched.sort(byDate),
     bookingComUnexplained: bookingComUnexplained.sort(byDate),
+    bookingComUnexplainedHeld: bookingComUnexplainedHeld.sort(),
     bookingComOrphaned: bookingComOrphaned.sort(byDate),
     guestyBlocks: guestyBlocks.sort(byDate),
     guestyHoldsUncarried: guestyHoldsUncarried.sort(byDate),

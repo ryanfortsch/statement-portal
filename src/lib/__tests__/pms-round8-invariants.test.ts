@@ -57,3 +57,19 @@ test('round 9: the flip notes carried-season blocks and trims the mirror past it
   assert.ok(src.includes('noteCarriedSeasons(carry.carriedSeasonBlockIds)'));
   assert.ok(src.includes('trimMirrorPast(propertyId, window.end)'));
 });
+
+test('round 10: the maintenance planner keeps its drafts when the property read looks failed', () => {
+  const src = read('src/lib/maintenance-runs.ts');
+  assert.ok(src.includes('const readLooksFailed = fieldProps.size === 0 && pool.length > 0;'));
+  assert.ok(src.includes('for (const e of readLooksFailed ? [] : existing) {'));
+});
+
+test('round 10: the echo confirmation only stamps a live Booking.com closure, bound to what it is now', () => {
+  const src = read('src/app/channels/[propertyId]/cutover-actions.ts');
+  assert.ok(src.includes("row.source !== 'ical_import' || row.channel !== 'booking_com' || row.status !== 'block' || row.hold_kind !== 'ota'"));
+  assert.ok(src.includes('echo_confirmed: echoFingerprint(row!)'));
+});
+
+test('round 10: the pre-tick hold list waits for a cutover to be prepared', () => {
+  assert.ok(read('src/app/channels/[propertyId]/page.tsx').includes('{!helmRun && !cutoverUnderway && factsOrError.facts?.ratePlan && carry && carry.guestyHoldsUncarried.length > 0 && ('));
+});

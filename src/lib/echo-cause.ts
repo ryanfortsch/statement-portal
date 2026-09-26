@@ -191,32 +191,47 @@ export type CoverRow = AgeRow & {
   id: string;
   status: string;
   cancelled_at?: string | null;
+  /** bookings.missing_since: its feed's first observed absence. */
+  missing_since?: string | null;
 };
 
 /** The columns the judgement reads off the closure. */
 export type ClosureRow = AgeRow;
 
 /**
+ * One sync beat (the feeds are read every 30 minutes), with room for a slow
+ * run: how far apart the last sighting of a closure and the first sighting
+ * of its re-issue can be.
+ */
+export const SYNC_BEAT_MS = 45 * 60_000;
+
+/**
  * When a closure began closing one of its nights, run back across the
  * other closures its own feed published for that night (`siblings`: the
- * same listing's closures, live, and cancelled with cancelled_at): a feed
- * that re-issues a grown run under a new UID cancels the old event as the
- * new one appears, and read alone the new row dated a guest's nights from
- * the re-issue. Siblings chain when one was still up within `gapMs` of the
- * next one's start (REVIVAL_GAP_MS, the same hiccup allowance a returning
- * closure gets). Never later than the closure's own age.
+ * same listing's closures, live or cancelled): a feed that re-issues a
+ * grown run under a new UID drops the old event in the same fetch that
+ * brings the new one, and read alone the new row dated a guest's nights
+ * from the re-issue. A sibling chains only if its feed still showed it
+ * within one sync beat of this closure's first sighting (its end is its
+ * first observed absence, missing_since, else its cancel): a closure that
+ * was reopened, and whose nights something new then took and the OTA
+ * closed again, is gone at least a beat longer, and read as the same
+ * closure it listed the new cause's own echo for good. Never later than
+ * the closure's own age.
  */
 export function closureNightSinceMs(
   closure: AgeRow,
   night: string,
   siblings: readonly CoverRow[],
-  gapMs: number = REVIVAL_GAP_MS,
+  gapMs: number = SYNC_BEAT_MS,
 ): number {
   let since = nightHeldSinceMs(closure, night);
   if (!Number.isFinite(since)) return since;
+  const endOf = (r: CoverRow): number =>
+    r.missing_since ? Date.parse(r.missing_since) : r.status === 'cancelled' ? Date.parse(r.cancelled_at ?? '') : Infinity;
   const spells = siblings
     .filter((r) => r !== closure && r.check_in <= night && night < r.check_out)
-    .map((r) => ({ start: nightHeldSinceMs(r, night), end: r.status === 'cancelled' ? Date.parse(r.cancelled_at ?? '') : Infinity }))
+    .map((r) => ({ start: nightHeldSinceMs(r, night), end: endOf(r) }))
     .filter((iv) => Number.isFinite(iv.start) && !Number.isNaN(iv.end));
   for (let changed = true; changed; ) {
     changed = false;
