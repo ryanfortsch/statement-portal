@@ -463,7 +463,7 @@ async function attributeCleaningProperty(
 // confirmed/completed + non-duplicate filters, so a cleaner text keys to the
 // exact checkout the turnover row joins on. (Was guesty_reservations, which is
 // wound down and could miss a checkout that only lives in bookings.)
-async function mostRecentCheckout(propertyId: string, asOf?: string): Promise<string> {
+export async function mostRecentCheckout(propertyId: string, asOf?: string): Promise<string> {
   const cutoff = (asOf ? new Date(asOf) : new Date()).toISOString().slice(0, 10);
   const { data } = await supabase
     .from('bookings')
