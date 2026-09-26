@@ -18,6 +18,7 @@ import {
   getFacts,
   getFactAudit,
   listProposedPropertyUpdates,
+  listReflectionProposals,
   explainError,
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -27,6 +28,7 @@ import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
 import { PerformanceDropdown } from './PerformanceDropdown';
 import { TriagedPropertyUpdates } from './TriagedPropertyUpdates';
+import { ReflectionProposals } from './ReflectionProposals';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -164,6 +166,25 @@ async function ProposedUpdatesSection() {
   );
 }
 
+// The weekly reflection pass, as decisions. It mines the coaching log and the
+// AI-drafted-vs-human-sent diffs for rules taught repeatedly that the canon
+// never absorbed. It proposes and never self-applies, which was correct and
+// also meant nothing applied: its report had no reader on either side of the
+// bridge, so 25 proposals piled up across 5 runs. Hidden entirely when the
+// queue is empty AND the service is reachable, like the triage card above it.
+async function ReflectionSection() {
+  const res = await listReflectionProposals();
+  if (res.ok && res.data.proposals.length === 0 && res.data.promoted_count === 0) return null;
+  return (
+    <ReflectionProposals
+      initial={res.ok ? res.data.proposals : []}
+      initialError={res.ok ? null : explainError(res.error)}
+      openCount={res.ok ? res.data.open_count : 0}
+      promotedCount={res.ok ? res.data.promoted_count : 0}
+    />
+  );
+}
+
 // Below-the-fold boundary: the tabbed Performance section (score / last-24h
 // activity / learning + weekly fact audit). Slow calls; they stream in
 // independently after the queue and never block it.
@@ -217,6 +238,9 @@ export default function MessagingPage() {
       </Suspense>
       <Suspense fallback={null}>
         <ProposedUpdatesSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ReflectionSection />
       </Suspense>
       <Suspense fallback={null}>
         <AnalyticsSection />
