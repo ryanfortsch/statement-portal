@@ -15,7 +15,6 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { insertAdjustment, normalizeTime, ScheduleUnavailableError } from '@/lib/checkout-schedule';
 import {
   setAutosend,
-  withOperatorNote,
   upsertDigestDraft,
   sendDigest,
   composeDigestBodyLive,
@@ -25,6 +24,7 @@ import { buildCheckoutSchedule } from '@/lib/checkout-schedule';
 import { mineCheckoutChanges } from '@/lib/mine-checkout-changes';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 import { decideTurnoverNote } from '@/lib/turnover-notes';
+import { saveOperatorNote, resolveNoteBlock, withOperatorNote } from '@/lib/cleaner-note';
 
 const CARD = '/cleaner-messaging';
 const CARD_ANCHOR = `${CARD}#schedule-digest`;
@@ -79,18 +79,47 @@ export async function approveAndSendDigest(formData: FormData): Promise<void> {
     }
   }
   // Persist the note first so a failed send never costs the typing, then
-  // append it after the (possibly recomposed) schedule.
-  await supabase
-    .from('cleaner_schedule_digests')
-    .update({ operator_note: note, updated_at: new Date().toISOString() })
-    .eq('id', digestId);
-  finalBody = withOperatorNote(finalBody, note);
+  // append it -- in Portuguese -- after the (possibly recomposed) schedule.
+  // resolveNoteBlock reuses the rendering saved by "Save & translate" when
+  // the text has not changed since, so approving right after saving costs
+  // no second model call and sends exactly the tail the card showed.
+  const noteBlock = await resolveNoteBlock(supabase, digestId, note);
+  finalBody = withOperatorNote(finalBody, noteBlock);
 
   const res = await sendDigest(supabase, { digestId, body: finalBody, operatorEmail: email, kind: 'initial' });
   revalidatePath(CARD);
   revalidatePath(PAGE);
   if (!res.ok) redirect(`${CARD}?err=${res.error}#schedule-digest`);
   redirect(`${CARD}?sent=${res.sentCount}${res.failed.length ? `&failed=${res.failed.length}` : ''}#schedule-digest`);
+}
+
+/**
+ * "Save & translate": persist the special instruction and render it into
+ * Portuguese right now, so the card can show the exact tail that will be
+ * appended before anyone taps Approve.
+ *
+ * Approving without ever pressing this still translates -- the send path
+ * resolves the rendering too. This button exists so the operator can SEE
+ * it first, which was the whole complaint: the one string she was asked to
+ * approve was not the string the crew received.
+ */
+export async function saveDigestNote(formData: FormData): Promise<void> {
+  await requireEmail();
+  const digestId = String(formData.get('digestId') || '');
+  if (!digestId) redirect(CARD_ANCHOR);
+  const { data: row } = await supabase
+    .from('cleaner_schedule_digests')
+    .select('operator_note, operator_note_pt, operator_note_en, operator_note_src')
+    .eq('id', digestId)
+    .maybeSingle();
+  const rendered = await saveOperatorNote(supabase, digestId, String(formData.get('note') || ''), row);
+  revalidatePath(CARD);
+  revalidatePath(PAGE);
+  // A note that came back untranslated is a model that was unreachable.
+  // The instruction is safe -- it sends as typed -- but say so rather than
+  // letting the card imply a translation happened.
+  const flag = rendered.raw && !rendered.translated ? '?err=note_untranslated' : '';
+  redirect(backTarget(formData, `${flag}#schedule-digest`));
 }
 
 export async function sendDigestUpdate(formData: FormData): Promise<void> {
@@ -109,14 +138,9 @@ export async function sendDigestUpdate(formData: FormData): Promise<void> {
     if (err instanceof ScheduleUnavailableError) redirect(backTarget(formData, '?err=schedule_unavailable#schedule-digest'));
     throw err;
   }
-  const { data: noteRow } = await supabase
-    .from('cleaner_schedule_digests')
-    .select('operator_note')
-    .eq('id', digestId)
-    .maybeSingle();
   const body = withOperatorNote(
     `${await composeDigestBodyLive(supabase, day)}\n\n(atualizacao / updated schedule)`,
-    (noteRow as { operator_note?: string } | null)?.operator_note,
+    await resolveNoteBlock(supabase, digestId),
   );
 
   const res = await sendDigest(supabase, { digestId, body, operatorEmail: email, kind: 'update' });
@@ -156,13 +180,16 @@ export async function refreshDigestDraft(formData: FormData): Promise<void> {
   await requireEmail();
   const serviceDate = String(formData.get('serviceDate') || tomorrowET());
   if (!/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) redirect(CARD_ANCHOR);
-  // Refreshing the schedule must not silently discard a note already typed.
+  // Refreshing the schedule must not silently discard a note already typed,
+  // and must not leave a rendering behind that belongs to older text.
   const digestId = String(formData.get('digestId') || '');
   if (digestId) {
-    await supabase
+    const { data: row } = await supabase
       .from('cleaner_schedule_digests')
-      .update({ operator_note: String(formData.get('note') || '').trim().slice(0, 600), updated_at: new Date().toISOString() })
-      .eq('id', digestId);
+      .select('operator_note, operator_note_pt, operator_note_en, operator_note_src')
+      .eq('id', digestId)
+      .maybeSingle();
+    await saveOperatorNote(supabase, digestId, String(formData.get('note') || ''), row);
   }
   try {
     await upsertDigestDraft(supabase, serviceDate);

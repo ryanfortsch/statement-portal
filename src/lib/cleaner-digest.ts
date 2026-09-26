@@ -39,6 +39,7 @@ import {
 } from '@/lib/checkout-schedule';
 import { loadVendorAppointments } from '@/lib/vendor-schedule';
 import { loadAddedNotesByProperty } from '@/lib/turnover-notes';
+import { resolveNoteBlock, withOperatorNote } from '@/lib/cleaner-note';
 import { detectExtensionHolds } from '@/lib/extension-holds';
 
 export type ScheduleRecipient = {
@@ -57,7 +58,11 @@ export type DigestRow = {
   built_at: string;
   sent_at: string | null;
   sent_by: string | null;
+  /** As the operator typed it. Never sent raw; see cleaner-note.ts. */
   operator_note: string;
+  operator_note_pt: string;
+  operator_note_en: string;
+  operator_note_src: string;
   sent_log: Array<{
     at: string;
     by: string;
@@ -332,13 +337,6 @@ export async function listScheduleRecipients(
  * the right day without carrying it. `serviceDate` is still accepted for
  * an explicit operator preview of some other day.
  */
-/** The operator's note rides AFTER the schedule and BEFORE the live link,
- *  so the schedule can keep recomposing while the instruction survives. */
-export function withOperatorNote(body: string, note: string | null | undefined): string {
-  const n = (note ?? '').trim();
-  return n ? `${body}\n\n${n}` : body;
-}
-
 export function portalLink(token: string, serviceDate?: string): string {
   return `${digestBaseUrl()}/c/${token}${serviceDate ? `?d=${serviceDate}` : ''}`;
 }
@@ -591,7 +589,12 @@ export async function autoSendTomorrowDigest(
     ({ digest, day } = row
       ? { digest: row, day: (await buildCheckoutSchedule(supabase, { startDate: serviceDate, days: 1 }))[0] }
       : await upsertDigestDraft(supabase, serviceDate));
-    body = withOperatorNote(await composeDigestBodyLive(supabase, day), digest.operator_note);
+    // Unattended: nobody is here to notice an untranslated note, so the
+    // rendering is re-derived now if the stored one is stale.
+    body = withOperatorNote(
+      await composeDigestBodyLive(supabase, day),
+      await resolveNoteBlock(supabase, digest.id),
+    );
   } catch (err) {
     if (err instanceof ScheduleUnavailableError) {
       return { sent: false, reason: 'schedule_unavailable', ...base, detail: err.message };
