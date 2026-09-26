@@ -19,6 +19,7 @@ import {
 import { OwnerRequestsPanel } from '@/components/OwnerRequestsPanel';
 import { downloadStatementPdf } from '@/lib/download-pdf';
 import { jsonWithFreezeRetry, formWithFreezeRetry } from '@/lib/freeze-confirm';
+import { closeTaskPatchRow } from '@/lib/close-task-write';
 import { revenueSignal } from '@/lib/guesty-revenue-signal';
 import { Suspense } from 'react';
 import Link from 'next/link';
@@ -2856,10 +2857,20 @@ function DashboardContent() {
     await saveOwnerRequestSelectionsAction(period.id, propertyId, selections);
   }
 
-  async function saveCloseTaskField(propertyId: string, patch: Partial<CloseTask>) {
-    if (!period) return;
+  /**
+   * Save one close-out field. The box flips at once, as before, but the
+   * write carries ONLY the changed field (closeTaskPatchRow). It used to
+   * send this tab's whole copy of the row, so a tick in a tab loaded before
+   * the statement was marked sent wrote email_sent_at and
+   * statement_drive_url back as null: a sent statement unfrozen, and its
+   * Drive link dropped, by an unrelated click. A failed save puts the field
+   * back and says so; it used to look saved until a reload unticked it.
+   * Resolves to whether the save landed.
+   */
+  async function saveCloseTaskField(propertyId: string, patch: Partial<CloseTask>): Promise<boolean> {
+    if (!period) return false;
     const existing = closeTasks[propertyId];
-    const merged: CloseTask = {
+    const before: CloseTask = {
       period_id: period.id,
       property_id: propertyId,
       email_template: existing?.email_template || 'monthly',
@@ -2872,27 +2883,76 @@ function DashboardContent() {
       mgmt_sweep_done_at: existing?.mgmt_sweep_done_at || null,
       notes: existing?.notes || null,
       statement_drive_url: existing?.statement_drive_url || null,
-      ...patch,
     };
+    const merged: CloseTask = { ...before, ...patch };
     setCloseTasks(prev => ({ ...prev, [propertyId]: merged }));
-    await upsertCloseTask(merged as unknown as Record<string, unknown>);
+    let saved: { ok: boolean; error: string | null };
+    try {
+      saved = await upsertCloseTask(closeTaskPatchRow(period.id, propertyId, patch));
+    } catch (err) {
+      saved = { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (saved.ok) return true;
+    // Put back only what this click changed, as it showed before the click,
+    // and only if the page is still on the month the click was made in.
+    const undo = Object.fromEntries(
+      Object.keys(patch).map(k => [k, before[k as keyof CloseTask]]),
+    ) as Partial<CloseTask>;
+    setCloseTasks(prev => (prev[propertyId]?.period_id === before.period_id
+      ? { ...prev, [propertyId]: { ...prev[propertyId], ...undo } }
+      : prev));
+    alert(`Save failed: ${saved.error || 'unknown error'}\n\nNothing was changed.`);
+    return false;
   }
 
   /**
-   * "Statement sent" toggle. Persists the email_sent_at stamp like any
-   * other close-task field, then — when ticking ON — fires the Drive
-   * archive in the background. The archive renders the statement PDF
-   * server-side (~10s) and uploads it to Helm Records / Statements /
-   * <year>/<month>/. The checkbox itself flips instantly; the Drive
-   * link appears on the row when the archive resolves. Best-effort —
-   * an archive failure leaves the checkbox ticked and is logged
-   * server-side, never surfaced as a blocking error.
+   * "Statement sent" toggle.
+   *
+   * Ticking ON stamps email_sent_at, then fires the Drive archive in the
+   * background. The archive renders the statement PDF server-side (~10s)
+   * and uploads it to Helm Records / Statements / <year>/<month>/; the
+   * Drive link appears on the row when it resolves. Best-effort: an archive
+   * failure leaves the box ticked and is logged server-side, never
+   * surfaced as a blocking error. A stamp that failed to save archives
+   * nothing, since the statement is not marked sent.
+   *
+   * Unticking is unfreezing: every payout writer (the nightly Stripe sync,
+   * re-ingest, Fill Gap, attributions) decides whether it may move this
+   * statement by reading the stamp. So it confirms first, in the operator's
+   * terms, then goes through unmarkStatementSentAction, which files a
+   * post_send_write flag on the statement BEFORE clearing and leaves the
+   * sibling stamps alone. Never saveCloseTaskField: that path left no trace,
+   * and upsertCloseTask now refuses it.
    */
   async function markStatementSent(p: PropertyStatement, next: boolean) {
-    await saveCloseTaskField(p.property_id, {
-      email_sent_at: next ? new Date().toISOString() : null,
-    });
-    if (!next || !period) return;
+    if (!period) return;
+    if (!next) {
+      if (!closeTasks[p.property_id]?.email_sent_at) return;
+      // A finalized month stays frozen whatever the sent stamp says
+      // (statement-finality.ts), so do not promise an unfreeze there.
+      const message = period.status === 'final'
+        ? `Unmark ${p.property_name} as sent? Its numbers stay frozen while ${monthLong(period.month)} is finalized, and become editable again if the month is reopened. The unmark is recorded on the statement.`
+        : `Unmark ${p.property_name} as sent? Its numbers become editable again: the nightly Stripe sync, re-ingest, Fill Gap and bank attributions can move the owner payout with no override. The unmark is recorded on the statement.`;
+      if (!confirm(message)) return;
+      let r: { ok: boolean; error: string | null };
+      try {
+        r = await unmarkStatementSentAction({ periodId: period.id, propertyId: p.property_id, statementId: p.id });
+      } catch (err) {
+        r = { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      if (!r.ok) {
+        alert(`Unmark failed: ${r.error || 'unknown error'}`);
+        return;
+      }
+      const periodId = period.id;
+      setCloseTasks(prev => {
+        const existing = prev[p.property_id];
+        if (!existing || existing.period_id !== periodId) return prev;
+        return { ...prev, [p.property_id]: { ...existing, email_sent_at: null } };
+      });
+      return;
+    }
+    if (!(await saveCloseTaskField(p.property_id, { email_sent_at: new Date().toISOString() }))) return;
     try {
       const res = await fetch('/api/archive-statement', {
         method: 'POST',
