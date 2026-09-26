@@ -721,6 +721,42 @@ describe('pass four: an OTA block that echoes nights Helm already holds', () => 
 // live stay became a duplicate of the cancelled one, vanished from the
 // export, the availability bridge and the booking writer's overlap check,
 // and the same nights could be sold twice.
+describe('a lifted Helm hold, an operator Delete and a late cover never hide a live stay', () => {
+  const AGG = 'listing-guesty';
+  const withAgg = { ...optsWithHolds, isFromAggregateFeed: (r: DedupRow) => r.source === 'ical_import' && r.channel_listing_id === AGG };
+  const stay = (over: Partial<DedupRow> = {}) =>
+    [
+      row({ id: 'AG', property_id: '20_hammond', channel: 'airbnb', channel_listing_id: AGG, external_confirmation_code: 'HMWEEK0001', check_in: '2026-11-07', check_out: '2026-11-14', ...over }),
+      row({ id: 'GL', property_id: '20_hammond', channel: 'airbnb', source: 'guesty_legacy', channel_listing_id: null, external_confirmation_code: 'HMWEEK0001', guest_name: 'Pat Doe', check_in: '2026-11-07', check_out: '2026-11-14', ...over }),
+    ];
+
+  test('on a Guesty-run home a lifted Helm hold (kept as cancelled) never joins the week a guest then booked', () => {
+    const lifted = row({ id: 'H', property_id: '20_hammond', channel: 'block', source: 'manual', channel_listing_id: null, status: 'cancelled', cancelled_at: '2026-09-10T00:00:00Z', cancelled_by: 'dotti@risingtidestr.com', check_in: '2026-11-07', check_out: '2026-11-14' });
+    for (const hold of [lifted, { ...lifted, check_out: '2026-11-15' }]) {
+      const plan = planDedupe([...stay(), hold], withAgg);
+      assert.equal(canonicalOf(plan, 'H'), 'H', 'the hold stands alone');
+      assert.notEqual(canonicalOf(plan, 'GL'), 'H');
+    }
+  });
+
+  test("an operator's Delete of a typed duplicate never cancels the stay the feed still carries", () => {
+    const typed = row({ id: 'M', property_id: '65_calderwood', channel: 'airbnb', source: 'manual', channel_listing_id: null, guest_name: 'Pat Doe', status: 'cancelled', cancelled_at: '2026-10-02T00:00:00Z', cancelled_by: 'dotti@risingtidestr.com', cancel_reason: 'operator_delete: a confirmed booking is history, not a typo', check_in: '2026-11-07', check_out: '2026-11-14' });
+    const feed = row({ id: 'D', property_id: '65_calderwood', channel: 'airbnb', channel_listing_id: 'listing-airbnb', external_confirmation_code: 'HMWEEK0002', check_in: '2026-11-07', check_out: '2026-11-14' });
+    const plan = planDedupe([typed, feed], { ...opts, strictChannelPropertyIds: new Set(['65_calderwood']) });
+    const canonical = canonicalOf(plan, 'D');
+    assert.equal([typed, feed].find((r) => r.id === canonical)!.status, 'confirmed', 'the live feed row speaks for the stay');
+  });
+
+  test('pass four never files a Booking.com closure under a Helm hold made after it', () => {
+    const closure = row({ id: 'C', property_id: '65_calderwood', channel: 'booking_com', channel_listing_id: 'listing-bcom', status: 'block', raw_summary: 'CLOSED - Not available', created_at: '2026-10-01T00:00:00Z', check_in: '2026-10-10', check_out: '2026-10-15' });
+    const ownerLater = row({ id: 'O', property_id: '65_calderwood', channel: 'block', source: 'manual', channel_listing_id: null, status: 'block', created_at: '2026-10-02T00:00:00Z', check_in: '2026-10-10', check_out: '2026-10-15' });
+    assert.equal(canonicalOf(planDedupe([closure, ownerLater], optsWithHolds), 'C'), 'C');
+    // A Helm hold that existed first is what Booking.com is echoing: filed under it.
+    const ownerFirst = { ...ownerLater, created_at: '2026-09-20T00:00:00Z' };
+    assert.equal(canonicalOf(planDedupe([closure, ownerFirst], optsWithHolds), 'C'), 'O');
+  });
+});
+
 describe("fleet parity: Guesty's cancelled aggregate blocks cluster as they always have", () => {
   test('on a Guesty-run home a cancelled "Blocked by Guesty" row is not read as a hold by its summary', () => {
     // 1,625 such rows stood up as canonical rows when the summary test was

@@ -43,6 +43,10 @@ export type DedupRow = {
    *  operator's email (or 'operator') for a cancel pressed in Helm. Optional
    *  so fixtures that predate it load; absent reads as not an operator's. */
   cancelled_by?: string | null;
+  /** bookings.cancel_reason. 'operator_delete: ...' marks a record the
+   *  operator removed (Delete), not a guest's cancellation; optional so
+   *  fixtures that predate it load. */
+  cancel_reason?: string | null;
   // Which channel_listings feed this row arrived on. Used to tell a direct OTA
   // feed (reliable cancel signal) apart from the Guesty aggregate feed (which
   // can transiently drop a still-confirmed reservation).
@@ -422,6 +426,10 @@ function isTrustedCancel(
 ): boolean {
   return (
     r.status === 'cancelled' &&
+    // Delete on a record is the operator removing a row (a typed duplicate
+    // of a stay the feed also carries, say), never the guest cancelling:
+    // trusted, deleting a hand-typed Airbnb twin cancelled the real stay.
+    !String(r.cancel_reason ?? '').startsWith('operator_delete:') &&
     // An aggregate-feed disappearance is not believed; on a Helm-run home an
     // operator's cancel of that same row is. There the aggregate row is often
     // the canonical of a Guesty-era stay, the one the hub links to, and one
@@ -621,6 +629,10 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
    *  up as canonical rows and pushed real stays off the bookings list). */
   const isBlockLike = (r: DedupRow): boolean =>
     r.status === 'block' ||
+    // A hold Helm made is a hold whatever its status: lifted, it is kept as
+    // a cancelled row, and read as a stay that row date-joined the guest
+    // who took the week and its trusted cancel hid them (fleet homes too).
+    (isHelmNative(r) && r.channel === 'block') ||
     (r.source === 'ical_import' &&
       isBlockSummary(r.raw_summary) &&
       (!isFromAggregateFeed(r) || strictChannels.has(r.property_id)));
@@ -853,10 +865,17 @@ export function planDedupe(rows: DedupRow[], opts: DedupOptions): DedupPlan {
       const echoIds = new Set(echoes.map((r) => r.id));
       const covers = canonicalRows.filter((c) => !echoIds.has(c.id) && COVERING_STATUSES.has(c.status));
       for (const echo of echoes) {
+        // A closure echoes only what existed before it: Helm had to hold
+        // the nights, export them, and the OTA had to pull, before the OTA
+        // could close them. A row made later (an owner hold typed over a
+        // Booking.com closure) is not its cause, and filed under it a
+        // Booking.com guest vanished from the calendar and the hub.
+        const echoAt = Date.parse(echo.created_at);
         const candidates = covers.filter(
           (c) =>
             (c.source !== 'ical_import' || c.channel_listing_id !== echo.channel_listing_id) &&
-            overlapNights(echo, c) > 0,
+            overlapNights(echo, c) > 0 &&
+            !(Number.isFinite(echoAt) && Date.parse(c.created_at) > echoAt),
         );
         if (candidates.length === 0 || !nightsCovered(echo, candidates)) continue;
         const target = [...candidates].sort(

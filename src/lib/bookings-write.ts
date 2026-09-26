@@ -331,6 +331,27 @@ export type MoveBookingInput = {
  * refreshed over the union of the old and new nights so a hold that moved
  * away from a week does not linger there until the cron.
  */
+/**
+ * Does a feed own this row? A row imported from a direct OTA feed is the
+ * feed's to move and cancel: it comes straight back on the next sync, and
+ * in between a Booking.com closure (possibly a guest) leaves the export
+ * Airbnb and VRBO read and the availability staycapeann.com reads. A row of
+ * the Guesty aggregate feed is not: after the flip nothing moves it, and an
+ * operator cancel is how a Booking.com reservation Booking.com reopened is
+ * retired (lib/booking-dedupe trusts that cancel on a Helm-run home).
+ * Unknown listing (a failed read) reads as owned: refusing is the safe side.
+ */
+export async function isFeedOwned(row: Pick<Booking, 'source' | 'channel_listing_id'>): Promise<boolean> {
+  if (row.source !== 'ical_import') return false;
+  if (!row.channel_listing_id) return true;
+  const { data, error } = await supabaseAdmin.from('channel_listings').select('channel').eq('id', row.channel_listing_id).maybeSingle();
+  if (error || !data) return true;
+  return (data as { channel: string }).channel !== 'guesty';
+}
+
+const FEED_OWNED_MESSAGE =
+  'This row came from a channel feed; the feed moves and cancels it when the channel does. Release a Booking.com closure from a retired feed on the channel hub.';
+
 export async function moveBooking(
   id: string,
   input: MoveBookingInput,
@@ -342,6 +363,7 @@ export async function moveBooking(
   assertDates(input.checkIn, input.checkOut);
   const before = await getBooking(id);
   if (!before) throw new Error('Booking not found.');
+  if (await isFeedOwned(before)) throw new Error(FEED_OWNED_MESSAGE);
 
   const { data, error } = await supabaseAdmin.rpc('helm_move_booking', {
     p_booking_id: id,
@@ -374,6 +396,9 @@ export async function confirmInquiry(id: string, actor: string): Promise<Booking
 export async function cancelBooking(id: string, input: { reason?: string | null; actor: string }): Promise<Booking> {
   ensureConfigured();
   if (!id) throw new Error('Missing booking id.');
+  const current = await getBooking(id);
+  if (!current) throw new Error('Booking not found.');
+  if (await isFeedOwned(current)) throw new Error(FEED_OWNED_MESSAGE);
   const { data, error } = await supabaseAdmin.rpc('helm_cancel_booking', {
     p_booking_id: id,
     p_reason: input.reason?.trim() || null,
@@ -571,9 +596,7 @@ export async function deleteOrCancelBooking(id: string, actor: string): Promise<
   const before = await getBooking(id);
   if (!before) throw new Error('Booking not found.');
 
-  if (before.source === 'ical_import') {
-    throw new Error('This row came from a channel feed; the feed cancels it when the channel does. Release a Booking.com closure from a retired feed on the channel hub.');
-  }
+  if (await isFeedOwned(before)) throw new Error(FEED_OWNED_MESSAGE);
 
   let deletable = false;
   let artifacts: DownstreamArtifacts | undefined;

@@ -86,6 +86,27 @@ export type CarryListing = {
   export_subscribed_at?: string | null;
 };
 
+/**
+ * A hold Guesty's own calendar shows (property_calendar_days while Guesty
+ * runs the home, block types isRealHoldType: manual, owner, ...), grouped
+ * into runs of nights. The source of Guesty holds on a home with no Guesty
+ * aggregate feed (65 Calderwood by design, and 8 of 18 production homes),
+ * where no bookings row ever carries them. The mirror keeps its last rows
+ * when the Guesty listing is deleted (calendar-days writes nothing on a
+ * listing that 404s), so it still says what Guesty held after runbook step 7.
+ */
+export type MirrorHold = { check_in: string; check_out: string; block_type: string | null; note?: string | null };
+
+/** Guesty's rolling booking window versus the rate plan's, when they disagree. */
+export type BookingWindowGap = {
+  /** First night Guesty's rule closed. */
+  closedFrom: string;
+  /** The widest plan window that keeps that night closed (Helm's semantics). */
+  maxPlanWindow: number;
+  /** The plan's booking_window_days; null or 0 = unlimited. */
+  planWindow: number | null;
+};
+
 export type Carryover = {
   untwinnedGuestyStays: CarryRow[];
   bookingComNotShown: CarryRow[];
@@ -94,9 +115,30 @@ export type Carryover = {
   bookingComOrphaned: CarryRow[];
   /** Every block still ahead on the Guesty aggregate feed: the flip cancels them. */
   guestyBlocks: CarryRow[];
-  /** The ones that are not Guesty's rolling rules and have no Helm block over them yet. */
+  /** The ones that are not Guesty's rolling rules and have no Helm row over
+   *  them yet, plus, on a home with no aggregate feed, Guesty calendar holds
+   *  with none (ids 'mirror:<from>'). */
   guestyHoldsUncarried: CarryRow[];
+  /** Guesty's rolling window reached less far than the rate plan would. */
+  bookingWindowGap: BookingWindowGap | null;
 };
+
+/** Nights Helm could ever sell: a Guesty hold is required to be carried only
+ *  this far ahead (a "closed from date" block ends at Guesty's rolling
+ *  horizon, one day later every night). */
+export const DEFAULT_CARRY_HORIZON_DAYS = 540;
+
+/** YYYY-MM-DD of an instant in America/New_York (Guesty keys its rules on
+ *  the listing's local date). */
+function easternDate(iso: string): string | null {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(t));
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
 
 /** A hand-entered Booking.com booking gets this long before its absence from
  *  Booking.com's feed means anything: the feed is read every 30 minutes. */
@@ -179,8 +221,17 @@ export function evaluateCarryover(input: {
   now: Date;
   /** properties.calendar_authority; absent reads as 'guesty'. */
   calendarAuthority?: string | null;
+  /** Guesty calendar holds (MirrorHold); used on a home with no aggregate feed. */
+  mirrorHolds?: readonly MirrorHold[];
+  /** property_rate_plans.booking_window_days; null or 0 = unlimited. */
+  planWindowDays?: number | null;
 }): Carryover {
   const { rows, listings, todayIso, now } = input;
+  const planWindow = input.planWindowDays ?? null;
+  const horizonEnd = shiftDay(todayIso, planWindow && planWindow > 0 ? Math.min(planWindow + 1, DEFAULT_CARRY_HORIZON_DAYS) : DEFAULT_CARRY_HORIZON_DAYS);
+  /** The nights of a Guesty hold a carrier must cover: ahead, and bookable. */
+  const nightsToCarry = (r: { check_in: string; check_out: string }): string[] =>
+    nights(r.check_in > todayIso ? r.check_in : todayIso, r.check_out < horizonEnd ? r.check_out : horizonEnd);
   const aggregateIds = new Set(listings.filter((l) => l.channel === 'guesty').map((l) => l.id));
   const readingIds = new Set(listings.filter(reads).map((l) => l.id));
   const readingBcom = listings.filter((l) => l.channel === 'booking_com' && reads(l));
@@ -283,6 +334,13 @@ export function evaluateCarryover(input: {
     (r) => r.channel === 'booking_com' && STAY.has(r.status) && !isOtaHold(r) && effectivelyLive(r),
   );
   const sentToBcom = rows.filter((r) => exportableBooking(r, { channel: 'booking_com', listingId: null }));
+  /** A stay made after the closure appeared cannot be what Booking.com is
+   *  echoing: that is two guests on the same nights, which is exactly what
+   *  must stay visible. (A hold made later may be: re-entering a Guesty
+   *  hold whose Booking.com copy is still up.) */
+  const couldCause = (explainer: CarryRow, closure: CarryRow): boolean =>
+    !STAY.has(explainer.status === 'cancelled' ? (explainer.hold_kind ? 'block' : 'confirmed') : explainer.status) ||
+    !(Date.parse(explainer.created_at) > Date.parse(closure.created_at));
   // Rows Helm was sending Booking.com until a moment ago: their closures are
   // the echo lag (ECHO_LAG_GRACE_MS), not a booking nobody entered.
   const recentlyWithdrawn = rows.filter((r) => {
@@ -308,7 +366,8 @@ export function evaluateCarryover(input: {
     // out (or held by a cancel guard, which the feed card shows), and
     // "Booking.com shows these nights closed" would be false.
     if (h.missing_since) continue;
-    if (!coveredBy(nightsAhead(h, todayIso), [...bcomReservations, ...sentToBcom, ...recentlyWithdrawn])) bookingComUnexplained.push(h);
+    const explainers = [...sentToBcom, ...recentlyWithdrawn].filter((x) => couldCause(x, h));
+    if (!coveredBy(nightsAhead(h, todayIso), [...bcomReservations, ...explainers])) bookingComUnexplained.push(h);
   }
 
   // 4. Upcoming holds on the Guesty aggregate feed: all cancelled by the
@@ -322,8 +381,48 @@ export function evaluateCarryover(input: {
     (r) => r.duplicate_of == null && LIVE.has(r.status) && !isOtaHold(r) && !(fromAggregate(r) && r.status === 'block'),
   );
   const guestyHoldsUncarried = guestyBlocks.filter(
-    (r) => !isGuestyRule(r) && !coveredBy(nightsAhead(r, todayIso), carriers),
+    (r) => !isGuestyRule(r) && !coveredBy(nightsToCarry(r), carriers),
   );
+  // A home with no Guesty aggregate feed: the only record of Guesty's holds
+  // is its calendar mirror (MirrorHold).
+  if (aggregateIds.size === 0 && input.calendarAuthority !== 'helm') {
+    for (const m of input.mirrorHolds ?? []) {
+      if (m.check_out <= todayIso) continue;
+      if (coveredBy(nightsToCarry(m), carriers)) continue;
+      guestyHoldsUncarried.push({
+        id: `mirror:${m.check_in}`,
+        property_id: rows[0]?.property_id ?? '',
+        source: 'guesty_calendar',
+        channel: 'block',
+        status: 'block',
+        check_in: m.check_in,
+        check_out: m.check_out,
+        duplicate_of: null,
+        hold_kind: null,
+        channel_listing_id: null,
+        created_at: '',
+        guest_name: m.note ?? null,
+      });
+    }
+  }
+
+  // Guesty's rolling booking window: the newest 'bw' row, measured from the
+  // Eastern day Guesty published it (not from now: at 20:00 EDT the UTC date
+  // is already tomorrow, and a row frozen by the listing's deletion keeps
+  // its own day). Guesty closes check_in onward, so the widest plan window
+  // that keeps that night closed is (check_in - published) - 1, because
+  // Helm sells a night when it is at most booking_window_days away.
+  let bookingWindowGap: BookingWindowGap | null = null;
+  const bw = guestyBlocks
+    .filter((r) => guestyBlockTag(r.ical_uid) === 'bw')
+    .sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0))[0];
+  if (bw) {
+    const published = easternDate(bw.created_at) ?? todayIso;
+    const maxPlanWindow = daysBetween(published, bw.check_in) - 1;
+    if (planWindow == null || planWindow <= 0 || planWindow > maxPlanWindow) {
+      bookingWindowGap = { closedFrom: bw.check_in, maxPlanWindow, planWindow: planWindow && planWindow > 0 ? planWindow : null };
+    }
+  }
 
   const byDate = (a: CarryRow, b: CarryRow) => a.check_in.localeCompare(b.check_in) || a.id.localeCompare(b.id);
   return {
@@ -334,6 +433,7 @@ export function evaluateCarryover(input: {
     bookingComOrphaned: bookingComOrphaned.sort(byDate),
     guestyBlocks: guestyBlocks.sort(byDate),
     guestyHoldsUncarried: guestyHoldsUncarried.sort(byDate),
+    bookingWindowGap,
   };
 }
 
@@ -346,6 +446,7 @@ export function carryoverClear(c: Carryover): boolean {
     c.bookingComUnwatched.length === 0 &&
     c.bookingComUnexplained.length === 0 &&
     c.bookingComOrphaned.length === 0 &&
-    c.guestyHoldsUncarried.length === 0
+    c.guestyHoldsUncarried.length === 0 &&
+    c.bookingWindowGap === null
   );
 }

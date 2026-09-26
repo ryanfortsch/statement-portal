@@ -182,7 +182,40 @@ describe('Guesty aggregate blocks: cancelled at the flip, real holds re-entered 
       row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in, check_out });
     const after = run([rolling, notice, fixedClose, owner, helmBlock('2026-12-20', '2026-12-27'), helmBlock('2027-01-01', '2028-09-27')], agg);
     assert.deepEqual(after.guestyHoldsUncarried, []);
-    assert.equal(carryoverClear(after), true);
+    // With no rate plan window the rolling rule still has a gap to close.
+    assert.notEqual(after.bookingWindowGap, null);
+    const withPlan = evaluateCarryover({
+      rows: [rolling, notice, fixedClose, owner, helmBlock('2026-12-20', '2026-12-27'), helmBlock('2027-01-01', '2028-09-27')],
+      listings: agg, todayIso: TODAY, now: NOW, planWindowDays: 200,
+    });
+    assert.equal(carryoverClear(withPlan), true);
+  });
+
+  test("the rolling window is measured from the day Guesty published it, not from today (a frozen feed keeps its own day)", () => {
+    // Published 09-26 at 00:30 EDT, closed from 270 nights later; the feed
+    // froze when the listing was deleted, and today is 10-01.
+    const bw = gBlock({ check_in: '2027-06-23', check_out: '2028-09-27', created_at: '2026-09-26T04:30:00Z', ical_uid: uid('bw', '2027-06-23', '2028-09-27') });
+    const at = (planWindowDays: number) => evaluateCarryover({ rows: [bw], listings: agg, todayIso: TODAY, now: NOW, planWindowDays }).bookingWindowGap;
+    assert.equal(at(269), null);
+    assert.deepEqual(at(270), { closedFrom: '2027-06-23', maxPlanWindow: 269, planWindow: 270 });
+  });
+
+  test("a 'bd' closure only has to be carried as far as Helm could ever sell, so its rolling end never re-opens the check", () => {
+    // Guesty re-keys 20 Hammond's block every night: 2027-01-01 to 2028-09-27, then to 09-28, ...
+    const helm = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in: '2027-01-01', check_out: '2028-09-27' });
+    const tomorrowsRow = tagged('bd', '2027-01-01', '2028-09-28');
+    assert.deepEqual(run([tomorrowsRow, helm], agg).guestyHoldsUncarried, []);
+  });
+
+  test('on a home with no aggregate feed, Guesty\'s calendar holds must be carried (65 Calderwood; 8 of 18 homes)', () => {
+    const noAgg = LISTINGS;
+    const mirrorHolds = [{ check_in: '2026-10-16', check_out: '2026-12-30', block_type: 'm', note: 'owner season' }];
+    const c = evaluateCarryover({ rows: [], listings: noAgg, todayIso: TODAY, now: NOW, mirrorHolds });
+    assert.deepEqual(c.guestyHoldsUncarried.map((r) => [r.id, r.check_in, r.check_out]), [['mirror:2026-10-16', '2026-10-16', '2026-12-30']]);
+    const helm = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, check_in: '2026-10-16', check_out: '2026-12-30' });
+    assert.deepEqual(evaluateCarryover({ rows: [helm], listings: noAgg, todayIso: TODAY, now: NOW, mirrorHolds }).guestyHoldsUncarried, []);
+    // A Helm-run home's mirror is Helm's own: nothing to carry.
+    assert.deepEqual(evaluateCarryover({ rows: [], listings: noAgg, todayIso: TODAY, now: NOW, mirrorHolds, calendarAuthority: 'helm' }).guestyHoldsUncarried, []);
   });
 
   test('a Guesty block over a Guesty-era reservation is carried by that reservation (20 Enon\'s owner stays)', () => {
@@ -233,6 +266,22 @@ describe('a Booking.com reservation with no Booking.com feed read', () => {
 
   test("is not flagged while a Booking.com feed is read (that is bookingComNotShown's job)", () => {
     assert.deepEqual(run([legacy({ channel: 'booking_com' }), bcomHold({})]).bookingComUnwatched, []);
+  });
+});
+
+describe('a stay made after a Booking.com closure never explains it', () => {
+  test('an Airbnb stay booked after Booking.com closed the nights is a double booking, and stays visible', () => {
+    const closure = bcomHold({ created_at: '2026-09-20T00:00:00Z' });
+    const before = row({ channel: 'airbnb', created_at: '2026-09-10T00:00:00Z' });
+    const after = row({ channel: 'airbnb', created_at: '2026-09-25T00:00:00Z' });
+    assert.deepEqual(run([closure, before]).bookingComUnexplained, [], 'a stay Booking.com could have been sent');
+    assert.deepEqual(ids(run([closure, after]).bookingComUnexplained), [closure.id], 'a stay that came after it');
+  });
+
+  test('a hold made after it still explains it (re-entering a Guesty hold whose Booking.com copy is up)', () => {
+    const closure = bcomHold({ created_at: '2026-09-20T00:00:00Z' });
+    const helm = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, created_at: '2026-09-25T00:00:00Z' });
+    assert.deepEqual(run([closure, helm]).bookingComUnexplained, []);
   });
 });
 
@@ -311,7 +360,7 @@ describe('the preflight carries both checks', () => {
     withAgg.carryRows = [row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty', check_in: '2026-12-20', check_out: '2026-12-27' })];
     const r = evaluateCutoverPreflight(withAgg);
     assert.deepEqual(r.failing, ['guesty_stays_carried']);
-    assert.match(r.checks.find((x) => x.key === 'guesty_stays_carried')!.detail, /1 hold set in Guesty has no Helm block over it/);
+    assert.match(r.checks.find((x) => x.key === 'guesty_stays_carried')!.detail, /1 hold set in Guesty has nothing in Helm over it/);
 
     const unread = facts([legacy({ channel: 'booking_com' })]);
     unread.feeds = unread.feeds.map((f) => (f.channel === 'booking_com' ? { ...f, is_active: false } : f));
@@ -324,14 +373,17 @@ describe('the preflight carries both checks', () => {
     const withBw = (planWindow: number | null) => {
       const f = facts([]);
       f.feeds = [...f.feeds, { id: 'L-guesty', channel: 'guesty', is_active: true, ical_import_url: 'https://guesty.example/ical.ics', last_import_status: 'success', last_imported_at: '2026-10-01T14:30:00Z', last_import_error: null, export_subscribed: false, export_subscribed_at: null }];
-      f.carryRows = [row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty', check_in: '2027-06-28', check_out: '2028-09-27', ical_uid: '668c635d25b8180012fd30b7_bw_2027-06-28_2028-09-27@guesty.com_x=' })];
+      // Published 00:30 EDT on 10-01 (04:30 UTC), closed from 270 nights later.
+      f.carryRows = [row({ channel: 'block', status: 'block', channel_listing_id: 'L-guesty', check_in: '2027-06-28', check_out: '2028-09-27', created_at: '2026-10-01T04:30:00Z', ical_uid: '668c635d25b8180012fd30b7_bw_2027-06-28_2028-09-27@guesty.com_x=' })];
       f.ratePlan = { base_nightly_cents: 35000, min_nights_default: 3, booking_window_days: planWindow };
       return evaluateCutoverPreflight(f);
     };
-    // 2026-10-01 to 2027-06-28 is 270 days.
-    assert.deepEqual(withBw(270).failing, []);
-    assert.deepEqual(withBw(365).failing, ['guesty_stays_carried']);
-    assert.match(withBw(365).checks.find((x) => x.key === 'guesty_stays_carried')!.detail, /Guesty stops taking bookings 270 days out \(closed from 2027-06-28\); the Helm rate plan's booking window is 365 days/);
+    // 2026-10-01 to 2027-06-28 is 270 days; Helm sells a night at most
+    // booking_window_days away, so 269 is the widest window that keeps
+    // 2027-06-28 closed.
+    assert.deepEqual(withBw(269).failing, []);
+    assert.deepEqual(withBw(270).failing, ['guesty_stays_carried']);
+    assert.match(withBw(365).checks.find((x) => x.key === 'guesty_stays_carried')!.detail, /Guesty takes no bookings from 2027-06-28; the Helm rate plan's booking window is 365 days, which would sell some of those nights. Set it to 269 days or fewer/);
     assert.match(withBw(null).checks.find((x) => x.key === 'guesty_stays_carried')!.detail, /booking window is unlimited/);
   });
 

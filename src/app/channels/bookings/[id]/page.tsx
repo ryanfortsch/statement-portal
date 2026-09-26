@@ -14,7 +14,7 @@ import {
   listThreadsForBooking,
   type BookingEx,
 } from '@/lib/channels';
-import { countDownstreamArtifacts, listBookingEvents, type BookingEventRow, type DownstreamArtifacts } from '@/lib/bookings-write';
+import { countDownstreamArtifacts, isFeedOwned, listBookingEvents, type BookingEventRow, type DownstreamArtifacts } from '@/lib/bookings-write';
 import { conflictFromSearchParams, describeConflict } from '@/lib/bookings-write-core';
 import { BOOKING_STATUSES, CHANNEL_LABELS, STATUS_LABELS, type BookingFinance, type BookingStatus } from '@/lib/channels-types';
 import { authorityBadge, channelColor, relativeAge, sourceGlyph } from '@/lib/calendar-model';
@@ -47,7 +47,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   const conflict = conflictFromSearchParams(sp);
   const kept = one(sp.kept) === 'cancelled';
 
-  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent] = await Promise.all([
+  const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedOwned] = await Promise.all([
     getFleetProperty(booking.property_id),
     safe(() => listBookingEvents(id), [] as BookingEventRow[]),
     safe(() => getBookingFinance(id), null as BookingFinance | null),
@@ -57,12 +57,16 @@ export default async function BookingDetailPage({ params, searchParams }: { para
     safe(() => listEchoesOf(id), [] as BookingEx[]),
     safe(() => countDownstreamArtifacts(id), null as DownstreamArtifacts | null),
     booking.duplicate_of ? safe(() => getBookingEx(booking.duplicate_of!), null) : Promise.resolve(null),
+    // A failed read reads as feed-owned: the page then offers no write the
+    // server would refuse anyway.
+    safe(() => isFeedOwned(booking), true),
   ]);
 
   const isBlock = booking.status === 'block';
   const isCancelled = booking.status === 'cancelled';
   const glyph = sourceGlyph(booking);
   const imported = booking.source === 'ical_import';
+  const bcomClosure = imported && isBlock && booking.hold_kind === 'ota' && booking.channel === 'booking_com';
   const deletable = booking.status === 'inquiry' && !!artifacts && artifacts.total === 0 && artifacts.unknown.length === 0;
   const deleteReason = isBlock
     ? 'a lifted hold is kept as cancelled so its channel echoes can be traced'
@@ -111,11 +115,13 @@ export default async function BookingDetailPage({ params, searchParams }: { para
 
       {booking.duplicate_of && (
         <Banner tone="signal">
-          <strong>Echo.</strong> This row is the same physical stay as{' '}
+          <strong>Filed under another row.</strong> The dedupe filed this row under{' '}
           <Link href={`/channels/bookings/${booking.duplicate_of}`} style={{ color: 'var(--ink)' }}>
             {parent ? `${parent.guest_name ?? CHANNEL_LABELS[parent.channel] ?? parent.channel} · ${parent.check_in} to ${parent.check_out}` : booking.duplicate_of}
           </Link>
-          , seen through another source. It is hidden from the calendar, the counts and the export; the canonical row carries the stay.
+          {bcomClosure
+            ? ', which covers its nights. As a Booking.com closure it may still be a guest, so it is still sent to Airbnb and VRBO and still keeps the nights off sale on staycapeann.com.'
+            : ', seen through another source. It is hidden from the calendar, the counts and the export; that row carries the stay.'}
         </Banner>
       )}
       {conflict && (
@@ -215,7 +221,13 @@ export default async function BookingDetailPage({ params, searchParams }: { para
           </div>
         </form>
 
-        {!isCancelled && (
+        {feedOwned && !isCancelled && (
+          <p style={{ marginTop: 22, borderTop: '1px solid var(--rule)', paddingTop: 16, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+            This row came from the {CHANNEL_LABELS[booking.channel] ?? booking.channel} feed. The feed moves and cancels it when the channel does; Helm will not, because the next sync would put it back and in between its nights would read as free.
+            {bcomClosure ? ' If Booking.com shows nothing booked on these nights, open them in the extranet; if the feed is retired, release the closure on the channel hub.' : ''}
+          </p>
+        )}
+        {!isCancelled && !feedOwned && (
           <form action={cancelBookingWithReason} style={{ marginTop: 22, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end', borderTop: '1px solid var(--rule)', paddingTop: 16 }}>
             <input type="hidden" name="id" value={booking.id} />
             <Field label={isBlock ? 'Release this hold, with a reason' : 'Cancel this stay, with a reason'}>

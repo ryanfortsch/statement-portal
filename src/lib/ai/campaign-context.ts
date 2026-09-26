@@ -150,6 +150,11 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
     .then((rows) => rows.map((r) => ({ id: r.id, name: r.name, address: r.address, city: r.city })))
     .catch(() => Object.values(PROPERTIES).map((p) => ({ id: p.id, name: p.name, address: p.address, city: p.city })));
   const properties = fleet
+    // Only homes a guest can book from a link: a Guesty listing or an SCA
+    // page. A registry home with neither (7 Sumac before launch) has no
+    // link and an empty calendar that reads as wide open, and the model has
+    // invented links for homes like that before.
+    .filter((p) => guestyByPropertyId.has(p.id) || !!findScaListingByAddress(p.address))
     .map((p) => {
       const m = marketingById.get(p.id);
       const openings = computeOpenings(

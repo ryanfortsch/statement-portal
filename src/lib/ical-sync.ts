@@ -328,7 +328,18 @@ export async function syncListing(opts: {
     // then unticked) sits out the cancel pass and both guards. Counted, an
     // untick made a Booking.com feed look empty and offered a release that
     // would cancel its bookings.
-    const judged = dropDirectBlocks ? existing.filter((r) => !(r.status === 'block' && r.hold_kind === 'ota')) : existing;
+    // And the mirror case: once a home's cutover is underway (an OTA reads
+    // Helm's export, or Helm runs it), the Guesty aggregate feed's own blocks
+    // are the flip's to cancel, after the preflight made sure every hold
+    // among them has a Helm row over it. Cancelled here (the deleted Guesty
+    // listing answering with an empty calendar, and a release pressed on
+    // it), they dropped out of that check and the owner's nights reopened.
+    const cutoverUnderway = isGuestyFeed && !hasAggregateFeed(aggregateFeeds, opts.property_id);
+    const judged = dropDirectBlocks
+      ? existing.filter((r) => !(r.status === 'block' && r.hold_kind === 'ota'))
+      : cutoverUnderway
+      ? existing.filter((r) => r.status !== 'block')
+      : existing;
     // On the Guesty aggregate feed a block counts too, as it always has: that
     // feed always carries Guesty's own horizon block, so an empty one is
     // broken, and counting only stays let one empty 200 cancel a quiet
@@ -561,7 +572,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     const sb = getServiceClient();
     let q = sb
       .from('channel_listings')
-      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at, mass_cancel_ack_run_id, export_subscribed');
+      .select('id, property_id, channel, display_name, ical_import_url, ical_import_enabled, is_active, mass_cancel_acknowledged_at, mass_cancel_ack_run_id, export_subscribed, properties(calendar_authority)');
     if (opts.onlyListingId) q = q.eq('id', opts.onlyListingId);
 
     const { data, error } = await q;
@@ -578,7 +589,7 @@ export async function syncAllListings(opts: { onlyListingId?: string } = {}): Pr
     // own home's rows (the filter above would hide the other listings).
     const aggregateFeedPropertyIds = opts.onlyListingId
       ? await loadAggregateFeedPropertyIds(sb)
-      : guestyEchoPropertyIds((data ?? []) as ListingScopeRow[], await loadAuthorities(sb));
+      : guestyEchoPropertyIds((data ?? []) as ListingScopeRow[], authoritiesFrom(data ?? []));
 
     const results: SyncListingResult[] = [];
     for (const l of eligible) {
@@ -690,7 +701,7 @@ export async function dedupeAllBookings(): Promise<DedupResult> {
     (from, to) =>
       sb
         .from('bookings')
-        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, cancelled_by, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
+        .select('id, property_id, source, status, check_in, check_out, duplicate_of, created_at, cancelled_at, cancelled_by, cancel_reason, channel_listing_id, channel, raw_summary, guest_name, guest_email, guest_phone, external_confirmation_code, external_booking_id, payout, gross_amount, num_guests')
         .order('id', { ascending: true })
         .range(from, to),
     { label: 'dedupe load' },
@@ -878,13 +889,18 @@ async function retireStaleOtaHolds(sb: SupabaseClient): Promise<number> {
   return stale.length;
 }
 
-/** Every property's calendar_authority. THROWS on a failed read: without it
- *  the importer cannot tell a Guesty push from a Helm-run home's closure. */
-async function loadAuthorities(sb: SupabaseClient): Promise<Array<{ id: string; calendar_authority: string | null }>> {
-  return selectAllPaged<{ id: string; calendar_authority: string | null }>(
-    (from, to) => sb.from('properties').select('id, calendar_authority').order('id', { ascending: true }).range(from, to),
-    { label: 'calendar authorities' },
-  );
+/** Each listed home's calendar_authority, from the listing read's embedded
+ *  property (one read, so a second one can never fail the fleet's sync). A
+ *  home missing its embed reads as Guesty-run: its closures are dropped, as
+ *  on main. */
+function authoritiesFrom(rows: ReadonlyArray<Record<string, unknown>>): Array<{ id: string; calendar_authority: string | null }> {
+  const out = new Map<string, string | null>();
+  for (const r of rows) {
+    const embed = r.properties as { calendar_authority?: string | null } | Array<{ calendar_authority?: string | null }> | null | undefined;
+    const p = Array.isArray(embed) ? embed[0] : embed;
+    out.set(String(r.property_id), p?.calendar_authority ?? null);
+  }
+  return [...out].map(([id, calendar_authority]) => ({ id, calendar_authority }));
 }
 
 /** The dedupe's Helm-run options (pms-guards loadStrictDedupeHomes: Helm-run

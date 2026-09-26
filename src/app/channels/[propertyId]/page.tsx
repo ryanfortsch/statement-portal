@@ -477,6 +477,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
     carry.bookingComUnexplained.length === 0 &&
     carry.bookingComOrphaned.length === 0 &&
     carry.guestyHoldsUncarried.length === 0 &&
+    carry.bookingWindowGap === null &&
     !pullsRed;
   if (empty) return null;
   const rowLine = (r: CarryRow) => (
@@ -540,7 +541,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
         {carry.guestyHoldsUncarried.length > 0 && (
           <Item
             title="Holds set in Guesty that Helm does not have yet"
-            why="The flip cancels every block Guesty published, because Guesty labels an owner's hold and its own booking-window rules the same way. Re-enter each hold you want kept as a Helm block; Guesty's rolling booking-window and advance-notice rules are left out of this list and are replaced by the rate plan and each OTA's own settings."
+            why="Guesty is going away, and with it every hold it set: owner holds, and a season closed from a fixed date. Re-enter each one you want kept as a Helm block (a hold may be placed over Guesty's copy). Guesty's rolling booking-window and advance-notice rules are left out of this list; the rate plan and each OTA's own settings replace them."
           >
             {carry.guestyHoldsUncarried.map((r) => (
               <li key={r.id}>
@@ -550,6 +551,16 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
                 </Link>
               </li>
             ))}
+          </Item>
+        )}
+        {carry.bookingWindowGap && (
+          <Item
+            title="The rate plan would sell further ahead than Guesty did"
+            why={`Guesty takes no bookings from ${carry.bookingWindowGap.closedFrom}. After the flip only Helm's rate plan and each OTA's own setting keep those nights off sale, and the plan's booking window is ${carry.bookingWindowGap.planWindow == null ? 'unlimited' : `${carry.bookingWindowGap.planWindow} days`}. Set it to ${carry.bookingWindowGap.maxPlanWindow} days or fewer, and the same window on each OTA.`}
+          >
+            <li>
+              <Link href={`/properties/${propertyId}?tab=rates`} style={{ fontSize: 12, color: 'var(--ink)' }}>Open the Rates tab →</Link>
+            </li>
           </Item>
         )}
         {carry.untwinnedGuestyStays.length > 0 && (

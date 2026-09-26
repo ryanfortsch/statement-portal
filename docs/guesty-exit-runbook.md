@@ -172,6 +172,17 @@ row stays `pricelabs` so the calendar labels OTA prices honestly.
 
 ## Step 7. Disconnect in Guesty and flip
 
+Before you touch Guesty, open the channel hub's preflight and re-enter, as
+Helm blocks, every hold it lists under "Guesty stays handed over" (owner
+holds, a season closed from a fixed date). Helm reads them from Guesty's
+calendar mirror (or, on a home with one, the Guesty aggregate feed), and a
+hold may be placed over Guesty's copy. Doing it now matters: from the first
+tick below, an OTA's leftover copy of a Guesty hold is imported too, and a
+Booking.com leftover that nothing in Helm explains refuses a new hold over
+it until it is opened in the extranet, which would reopen the owner's
+nights in between. Set the rate plan's booking window to what the
+preflight asks as well.
+
 In Guesty, for the Calderwood listing only: turn off its message automations,
 disconnect the Airbnb, VRBO and Booking.com channels, unlist and delete the
 listing. Immediately, in each OTA host account, import that OTA's own line

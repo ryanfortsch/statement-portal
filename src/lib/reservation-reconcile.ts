@@ -31,7 +31,7 @@
  */
 import { supabaseAdmin } from './supabase-admin';
 import { checkLiveGuestyStatus, isCancelledStatus } from './cancel-check';
-import { loadGuestyRunPropertyIds } from './pms-guards';
+import { loadHelmRunPropertyIds } from './pms-guards';
 
 const RECONCILE_CAP_PER_RUN = 25;
 const RECONCILE_FUTURE_RECHECK_MS = 60 * 60 * 1000; // 1h
@@ -82,13 +82,14 @@ export async function reconcileStaleReservations(): Promise<ReconcileResult> {
     .limit(200);
   if (error) throw new Error(`stale-reservation query failed: ${error.message}`);
 
-  // Guesty-run homes only. null = registry read failed; keep every row
-  // (today's behaviour) rather than skipping the fleet.
-  const guestyRunIds = await loadGuestyRunPropertyIds(sb);
+  // Skip Helm-run homes only. A home Guesty runs that has no registry row
+  // (3246 NE 27th) is still Guesty's and is still reconciled, as on main.
+  // An empty set on a failed read skips nothing, today's behaviour.
+  const helmRunIds = await loadHelmRunPropertyIds(sb);
   let skippedHelmRun = 0;
   const candidates = ((data ?? []) as StaleReservationRow[]).filter((r) => {
     if (!r.check_in || !r.check_out || !r.confirmation_code) return false;
-    if (guestyRunIds && r.property_id && !guestyRunIds.has(r.property_id)) {
+    if (r.property_id && helmRunIds.has(r.property_id)) {
       skippedHelmRun += 1;
       return false;
     }

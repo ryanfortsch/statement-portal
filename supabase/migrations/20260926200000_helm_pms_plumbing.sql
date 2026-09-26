@@ -454,9 +454,12 @@ create index if not exists idx_reviews_booking on public.reviews(booking_id) whe
 -- p_channel over [p_from, p_to)? The one overlap rule both writers use
 -- (src/lib/ical-export.ts isOtaHold says what an OTA closure is):
 --   - an inquiry, a pending request or a cancelled row never does;
---   - a hold never conflicts with a hold: two holds on one night sell
+--   - a hold never conflicts with a hold (two holds on one night sell
 --     nothing twice, and re-entering a Guesty owner hold as a Helm block
---     while Guesty's own copy still stands must be possible;
+--     while Guesty's own copy still stands must be possible), EXCEPT a
+--     Booking.com closure that nothing else on file explains: Booking.com
+--     publishes its bookings that way, so it may be a guest, and an owner
+--     hold typed over one put the owner and the guest in the house together;
 --   - one of Guesty's rule artifacts (advance notice 'an', booking window
 --     'bw' / 'bd', reservation padding 'b' / 'a', read off the iCal UID, the
 --     same tags src/lib/calendar-holds.ts reads) is never a person in the
@@ -482,7 +485,19 @@ create or replace function public.helm_row_conflicts(
 ) returns boolean language sql stable set search_path = public as $$
   select case
     when b.status not in ('confirmed','completed','block') then false
-    when p_status = 'block' and b.status = 'block' then false
+    when p_status = 'block' and b.status = 'block'
+         and not (b.source = 'ical_import' and b.hold_kind is not distinct from 'ota' and b.channel = 'booking_com'
+                  and exists (
+                    select 1 from generate_series(greatest(b.check_in, p_from), least(b.check_out, p_to) - 1, interval '1 day') as n(d)
+                     where not exists (
+                       select 1 from public.bookings x
+                        where x.property_id = b.property_id and x.id <> b.id
+                          and x.duplicate_of is null
+                          and x.status in ('confirmed','completed','block')
+                          -- NULL-safe: a Guesty hold has no hold_kind, and
+                          -- "hold_kind = 'ota'" on it is NULL, not false.
+                          and not (x.source = 'ical_import' and x.hold_kind is not distinct from 'ota')
+                          and x.check_in <= n.d::date and x.check_out > n.d::date))) then false
     when b.status = 'block' and b.source = 'ical_import' and b.hold_kind is distinct from 'ota'
          and b.ical_uid ~ '^[0-9a-f]+_(an|bw|bd|b|a)_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}-[0-9]{2}-[0-9]{2}@guesty[.]com' then false
     when b.status = 'block' and b.hold_kind = 'ota' and b.source = 'ical_import' then

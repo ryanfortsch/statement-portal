@@ -65,7 +65,10 @@ describe('the sync treats a Booking.com closure as a possible guest', () => {
   });
 
   test("closures on a home whose closures are dropped as Guesty's echoes sit out the cancel pass", () => {
-    assert.ok(src.includes("const judged = dropDirectBlocks ? existing.filter((r) => !(r.status === 'block' && r.hold_kind === 'ota')) : existing;"));
+    assert.ok(src.includes("? existing.filter((r) => !(r.status === 'block' && r.hold_kind === 'ota'))"));
+    // During a cutover the Guesty feed's own blocks are the flip's, not the cancel pass's.
+    assert.ok(src.includes('const cutoverUnderway = isGuestyFeed && !hasAggregateFeed(aggregateFeeds, opts.property_id);'));
+    assert.ok(src.includes("? existing.filter((r) => r.status !== 'block')"));
     assert.ok(src.includes('existing: judged,'));
   });
 
@@ -115,7 +118,9 @@ describe('every reader that holds nights sees duplicate OTA closures', () => {
     assert.ok(sql.includes('and public.helm_row_conflicts(b, p_channel, p_status, p_check_in, p_check_out)'));
     assert.ok(sql.includes('and public.helm_row_conflicts(b, v_before.channel, p_status, p_check_in, p_check_out)'));
     // A hold never conflicts with a hold; Guesty's rule artifacts never conflict.
-    assert.ok(sql.includes("when p_status = 'block' and b.status = 'block' then false"));
+    assert.ok(sql.includes("when p_status = 'block' and b.status = 'block'"));
+    // ...except a Booking.com closure nothing else on file explains.
+    assert.ok(sql.includes("and not (b.source = 'ical_import' and b.hold_kind is not distinct from 'ota' and b.channel = 'booking_com'"));
     assert.ok(sql.includes("_(an|bw|bd|b|a)_"));
     // The Booking.com echo exemption is tested over the written nights only.
     assert.ok(sql.includes('generate_series(greatest(b.check_in, p_from), least(b.check_out, p_to) - 1'));
@@ -134,7 +139,9 @@ describe("the importer's Guesty-echo set fails closed", () => {
     assert.ok(!squash(read('src/lib/pms-guards.ts')).includes("new Set(['*'])"));
   });
   test('the fleet sync derives it from the listing read it already made', () => {
-    assert.ok(squash(read('src/lib/ical-sync.ts')).includes(': guestyEchoPropertyIds((data ?? []) as ListingScopeRow[], await loadAuthorities(sb));'));
+    const sync = squash(read('src/lib/ical-sync.ts'));
+    assert.ok(sync.includes(': guestyEchoPropertyIds((data ?? []) as ListingScopeRow[], authoritiesFrom(data ?? []));'));
+    assert.ok(sync.includes('export_subscribed, properties(calendar_authority)'), 'authority rides the listing read, no second read');
   });
 });
 
@@ -149,7 +156,8 @@ describe('only an OTA can be credited with an OTA pull', () => {
 describe('an imported row is its feed\'s, and a Guesty-run guest is the concierge\'s', () => {
   test('Delete refuses a row imported from a feed; a Helm hold is lifted as a cancel', () => {
     const src = squash(read('src/lib/bookings-write.ts'));
-    assert.ok(src.includes("if (before.source === 'ical_import') {"));
+    // Delete, move and cancel all refuse a feed-owned row.
+    assert.equal(src.split('if (await isFeedOwned(').length - 1, 3);
     assert.ok(src.includes("reason = 'a lifted hold is kept as cancelled so its channel echoes can be traced';"));
   });
   test('the Quo webhook opens a Helm thread only for a stay at a Helm-run home', () => {

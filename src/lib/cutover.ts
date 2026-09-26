@@ -62,7 +62,9 @@ import { propertyInScope, recipientScope } from './cleaner-digest-core.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
 import { mirrorWindow, writeHelmCalendarMirror, type HelmMirrorResult } from './helm-calendar-mirror.ts';
 import { relativeAge } from './calendar-model.ts';
-import { carryoverClear, evaluateCarryover, guestyBlockTag, type CarryRow, type Carryover } from './cutover-carryover.ts';
+import { carryoverClear, evaluateCarryover, isGuestyRule, type CarryRow, type Carryover, type MirrorHold } from './cutover-carryover.ts';
+import { isRealHoldType } from './calendar-holds.ts';
+import { todayInEastern } from './sca-quotes-types.ts';
 
 // ── Facts ───────────────────────────────────────────────────────────────────
 
@@ -127,6 +129,8 @@ export type CutoverFacts = {
    *  rows included, for the carryover reconciliation (cutover-carryover.ts).
    *  Absent: the carryover checks read as clear (older fixtures). */
   carryRows?: CarryRow[];
+  /** Guesty calendar holds, while Guesty runs the home (loadGuestyMirrorHolds). */
+  mirrorHolds?: MirrorHold[];
   recipients: CutoverRecipientFact[];
   automations: CutoverAutomationFacts;
   acknowledgements: CutoverAcknowledgements;
@@ -383,6 +387,11 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
 
   // 5b. what the flip hands over (cutover-carryover.ts)
   const carry = carryoverFor(facts);
+  // The hub's Needs attention panel shows once a cutover is underway (an OTA
+  // ticked as reading Helm) or the home is Helm-run; before that the check's
+  // detail is the list, and a link to a panel that is not there is none.
+  const panelShown = facts.calendarAuthority === 'helm' || facts.feeds.some((f) => f.is_active && f.channel !== 'guesty' && f.export_subscribed);
+  const attentionHref = panelShown ? `/channels/${facts.propertyId}#attention` : undefined;
   const listRows = (rows: readonly CarryRow[]) =>
     rows
       .slice(0, 3)
@@ -407,24 +416,18 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     }
     if (carry.guestyHoldsUncarried.length > 0) {
       problems.push(
-        `${carry.guestyHoldsUncarried.length} hold${carry.guestyHoldsUncarried.length === 1 ? '' : 's'} set in Guesty ${carry.guestyHoldsUncarried.length === 1 ? 'has' : 'have'} no Helm block over ${carry.guestyHoldsUncarried.length === 1 ? 'it' : 'them'}: ${listRows(carry.guestyHoldsUncarried)}. The flip cancels every Guesty block, because Guesty labels its owner holds and its own rules alike; re-enter each hold you want kept as a Helm block first`,
+        `${carry.guestyHoldsUncarried.length} hold${carry.guestyHoldsUncarried.length === 1 ? '' : 's'} set in Guesty ${carry.guestyHoldsUncarried.length === 1 ? 'has' : 'have'} nothing in Helm over ${carry.guestyHoldsUncarried.length === 1 ? 'it' : 'them'}: ${listRows(carry.guestyHoldsUncarried)}. After the flip nothing closes those nights; re-enter each hold you want kept as a Helm block, before the first "imports Helm" tick if you can (after it, an OTA's leftover copy of the hold may refuse the entry until you open it in the extranet)`,
       );
     }
-    // Guesty's rolling booking window ('bw'): its block starts N days out.
-    // After the flip only the rate plan (and each OTA's own setting) keeps
-    // those nights off sale, so the plan must not reach further than Guesty
-    // did.
-    const todayIso = facts.now.toISOString().slice(0, 10);
-    const planWindow = facts.ratePlan?.booking_window_days ?? null;
-    for (const bw of carry.guestyBlocks.filter((r) => guestyBlockTag(r.ical_uid) === 'bw')) {
-      const guestyDays = Math.round((Date.parse(`${bw.check_in}T00:00:00Z`) - Date.parse(`${todayIso}T00:00:00Z`)) / 86_400_000);
-      if (planWindow == null || planWindow <= 0 || planWindow > guestyDays) {
-        problems.push(
-          `Guesty stops taking bookings ${guestyDays} days out (closed from ${bw.check_in}); the Helm rate plan's booking window is ${planWindow == null || planWindow <= 0 ? 'unlimited' : `${planWindow} days`}. Set it to ${guestyDays} days or fewer on the Rates tab, and the same window on each OTA, before the flip cancels Guesty's rule`,
-        );
-      }
+    // Guesty's rolling booking window: after the flip only the rate plan
+    // (and each OTA's own setting) keeps those nights off sale.
+    const gap = carry.bookingWindowGap;
+    if (gap) {
+      problems.push(
+        `Guesty takes no bookings from ${gap.closedFrom}; the Helm rate plan's booking window is ${gap.planWindow == null ? 'unlimited' : `${gap.planWindow} days`}, which would sell some of those nights. Set it to ${gap.maxPlanWindow} days or fewer on the Rates tab, and the same window on each OTA, before the flip cancels Guesty's rule`,
+      );
     }
-    const rulesDropped = carry.guestyBlocks.length - carry.guestyHoldsUncarried.length;
+    const rulesDropped = carry.guestyBlocks.filter((r) => isGuestyRule(r)).length;
     const compared = facts.feeds.some((f) => f.is_active && f.channel === 'booking_com' && !!f.ical_import_url);
     checks.push({
       key: 'guesty_stays_carried',
@@ -432,10 +435,10 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       ok: problems.length === 0,
       detail:
         problems.length === 0
-          ? `Every Guesty-era Airbnb or VRBO stay ahead has a live twin on the OTA's own feed${compared ? ', and every Booking.com reservation on file is still closed on Booking.com' : ''}.${carry.guestyBlocks.length > 0 ? ` The flip cancels ${carry.guestyBlocks.length} Guesty block${carry.guestyBlocks.length === 1 ? '' : 's'}${rulesDropped > 0 ? ` (${rulesDropped} of them Guesty's own booking-window or advance-notice rule${rulesDropped === 1 ? '' : 's'}: set those in the rate plan and on each OTA)` : ''}; every hold among them already has a Helm block.` : ''}`
+          ? `Every Guesty-era Airbnb or VRBO stay ahead has a live twin on the OTA's own feed${compared ? ', and every Booking.com reservation on file is still closed on Booking.com' : ''}.${carry.guestyBlocks.length > 0 ? ` The flip cancels ${carry.guestyBlocks.length} Guesty block${carry.guestyBlocks.length === 1 ? '' : 's'}${rulesDropped > 0 ? ` (${rulesDropped} of them Guesty's own booking-window or advance-notice rule${rulesDropped === 1 ? '' : 's'}: set those in the rate plan and on each OTA)` : ''}; every other one already has a Helm block or a reservation on file over it.` : ''}`
           : problems.join('. ') + '.',
       acknowledgement: false,
-      href: `/channels/${facts.propertyId}#attention`,
+      href: attentionHref,
     });
   }
   {
@@ -456,7 +459,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
       ok: problems.length === 0,
       detail: problems.length === 0 ? 'Every Booking.com closure ahead has a reservation on file or a Helm row behind it.' : problems.join('. ') + '.',
       acknowledgement: false,
-      href: `/channels/${facts.propertyId}#attention`,
+      href: attentionHref,
     });
   }
 
@@ -525,9 +528,11 @@ export function carryoverFor(facts: CutoverFacts): Carryover {
       export_subscribed: f.export_subscribed,
       export_subscribed_at: f.export_subscribed_at,
     })),
-    todayIso: facts.now.toISOString().slice(0, 10),
+    todayIso: todayInEastern(facts.now),
     calendarAuthority: facts.calendarAuthority,
     now: facts.now,
+    mirrorHolds: facts.mirrorHolds ?? [],
+    planWindowDays: facts.ratePlan?.booking_window_days ?? null,
   });
 }
 
@@ -564,6 +569,44 @@ export function latestPullFor(pulls: readonly CutoverPullFact[], channel: string
 // ── Facts loader ────────────────────────────────────────────────────────────
 
 const LOOKAHEAD_DAYS = 540;
+
+/**
+ * Guesty's own calendar holds for the home, from its calendar mirror
+ * (property_calendar_days), grouped into runs of consecutive nights with the
+ * same hold. Only real hold types (lib/calendar-holds isRealHoldType), never
+ * Guesty's rule artifacts. The flip rewrites the mirror with Helm's, so this
+ * is read while Guesty still runs the home.
+ */
+export async function loadGuestyMirrorHolds(propertyId: string, todayIso: string): Promise<MirrorHold[]> {
+  const rows = await selectAllPaged<{ date: string; block_type: string | null; block_ref_id: string | null; block_note: string | null }>(
+    (from, to) =>
+      supabaseAdmin
+        .from('property_calendar_days')
+        .select('date, block_type, block_ref_id, block_note')
+        .eq('property_id', propertyId)
+        .gte('date', todayIso)
+        .not('block_type', 'is', null)
+        .order('date', { ascending: true })
+        .range(from, to),
+    { label: `cutover mirror holds ${propertyId}` },
+  );
+  const out: MirrorHold[] = [];
+  let run: (MirrorHold & { ref: string | null; last: string }) | null = null;
+  const next = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  for (const r of rows) {
+    if (!isRealHoldType(r.block_type)) continue;
+    const date = String(r.date).slice(0, 10);
+    if (run && next(run.last) === date && run.ref === (r.block_ref_id ?? null)) {
+      run.last = date;
+      run.check_out = next(date);
+      continue;
+    }
+    if (run) out.push({ check_in: run.check_in, check_out: run.check_out, block_type: run.block_type, note: run.note });
+    run = { check_in: date, check_out: next(date), block_type: r.block_type, note: r.block_note, ref: r.block_ref_id ?? null, last: date };
+  }
+  if (run) out.push({ check_in: run.check_in, check_out: run.check_out, block_type: run.block_type, note: run.note });
+  return out;
+}
 
 /** Every row still ahead, any status, duplicates included (CutoverFacts.carryRows). */
 export async function loadCarryRows(propertyId: string, todayIso: string): Promise<CarryRow[]> {
@@ -612,10 +655,12 @@ export async function loadCutoverFacts(
   if (!isServiceConfigured) throw new Error('Supabase service role is not configured.');
   if (!propertyId) throw new Error('Missing property id.');
   const now = opts.now ?? new Date();
-  const todayIso = now.toISOString().slice(0, 10);
+  // The Eastern date: Guesty keys its rules on the listing's local day, and
+  // at 21:00 EDT the UTC date is already tomorrow.
+  const todayIso = todayInEastern(now);
   const pullsSince = new Date(now.getTime() - 7 * 86_400_000).toISOString();
 
-  const [propRes, planRes, taxRes, feedsRes, pullsRes, recipientsRes, automationsRes, stays, carryRows] = await Promise.all([
+  const [propRes, planRes, taxRes, feedsRes, pullsRes, recipientsRes, automationsRes, stays, carryRows, mirrorHolds] = await Promise.all([
     supabaseAdmin
       .from('properties')
       .select('id, name, region, calendar_authority, guesty_listing_id, former_guesty_listing_id, automations_enabled')
@@ -642,6 +687,7 @@ export async function loadCutoverFacts(
       .or(`property_id.is.null,property_id.eq.${propertyId}`),
     loadCanonicalStays(propertyId, todayIso),
     loadCarryRows(propertyId, todayIso),
+    loadGuestyMirrorHolds(propertyId, todayIso),
   ]);
 
   if (propRes.error) throw new Error(`properties read: ${propRes.error.message}`);
@@ -714,6 +760,8 @@ export async function loadCutoverFacts(
     })),
     bookings: stays,
     carryRows,
+    // Only while Guesty runs the home is the calendar mirror Guesty's.
+    mirrorHolds: propRes.data && (propRes.data as { calendar_authority?: string | null }).calendar_authority !== 'helm' ? mirrorHolds : [],
     recipients: ((recipientsRes.data ?? []) as Array<Record<string, unknown>>).map((r) => ({
       display_name: String(r.display_name ?? ''),
       enabled: !!r.enabled,

@@ -75,7 +75,17 @@ export default async function BookPropertyPage({
             margin: 0,
           }}
         >
-          Stay at <em style={{ color: 'var(--tide-deep, #1f5fa6)', fontWeight: 400 }}>{property.title ?? property.name}.</em>
+          {/* A listing title already reads "Stay at ..." or "Stay in ...". */}
+          {property.title && /^stay (at|in) /i.test(property.title) ? (
+            <>
+              {property.title.replace(/^(stay (?:at|in)) .*$/i, '$1')}{' '}
+              <em style={{ color: 'var(--tide-deep, #1f5fa6)', fontWeight: 400 }}>{property.title.replace(/^stay (?:at|in) /i, '')}.</em>
+            </>
+          ) : (
+            <>
+              Stay at <em style={{ color: 'var(--tide-deep, #1f5fa6)', fontWeight: 400 }}>{property.title ?? property.name}.</em>
+            </>
+          )}
         </h1>
         <p style={{ marginTop: 18, fontSize: 16, lineHeight: 1.6, color: 'var(--ink-3)', maxWidth: 580 }}>
           {property.address}, {property.city}. Tell us when you&apos;d like to come and a little about your party. Allie or Ryan

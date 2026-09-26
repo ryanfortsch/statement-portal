@@ -74,7 +74,7 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
         : gb.error
         ? ` Guesty blocks NOT cancelled (${gb.error}); they still close their nights on every channel. The next full channel sync clears them.`
         : gb.count > 0
-        ? ` ${gb.count} Guesty block${gb.count === 1 ? '' : 's'} cancelled; the holds among them were re-entered in Helm before the flip.`
+        ? ` ${gb.count} Guesty block${gb.count === 1 ? '' : 's'} cancelled; every hold among them had a Helm block or a reservation on file over it.`
         : '';
       outcome = { flipped: 'helm', flip_note: `Helm runs ${propertyId} as of ${result.property.cutover_at ?? 'now'}.${mirrorNote}${adoptNote}` };
     } catch (err) {

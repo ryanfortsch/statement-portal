@@ -94,8 +94,11 @@ insert into public.property_tax_config (
 -- Four channels, NO feed URLs: ical_import_url is pasted by the operator on
 -- /channels/listings (runbook step 3) and ical_import_enabled stays false
 -- until then. No channel = 'guesty' aggregate row is created for this home:
--- its direct OTA feeds are the only source, so a direct-feed block is a real
--- OTA-side hold and never a Guesty echo. Google Vacation Rentals is skipped
+-- its direct OTA feeds are the only source of stays. While Guesty runs it,
+-- the feeds' closed nights are Guesty's pushes and are dropped at import
+-- (src/lib/listing-scope.ts); they import from the first "OTA imports Helm"
+-- tick. Guesty's own holds are read from its calendar mirror for the
+-- handover (src/lib/cutover-carryover.ts). Google Vacation Rentals is skipped
 -- (nothing to import). Booking.com is a hotel + room pair: hotel 11763446,
 -- room 1176344601 in external_room_id.
 insert into public.channel_listings (
