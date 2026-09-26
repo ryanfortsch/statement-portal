@@ -11,6 +11,8 @@ import {
   helmRequestKey,
   LINK_LOOKBACK_DAYS,
   linkBelongsToReservation,
+  REMINDER_MAX_AGE_DAYS,
+  reminderDue,
   reservationIdFromRequestKey,
   toE164,
 } from '@/lib/payment-links-text';
@@ -634,16 +636,135 @@ export async function deactivatePaymentLink(requestKey: string): Promise<Deactiv
 
 /** The three columns every status/deactivate path needs, readable on the
  *  pre-migration schema too. */
-export async function loadPaymentLinkLite(
-  requestKey: string,
-): Promise<{ property_id: string; stripe_link_id: string; amount_cents: number } | null> {
+type PaymentLinkLite = {
+  property_id: string;
+  stripe_link_id: string;
+  amount_cents: number;
+  deactivated_at: string | null;
+  nudge_count: number | null;
+};
+
+export async function loadPaymentLinkLite(requestKey: string): Promise<PaymentLinkLite | null> {
   if (!isServiceConfigured || !requestKey) return null;
   const { data } = await supabase
     .from('payment_link_requests')
-    .select('property_id, stripe_link_id, amount_cents')
+    .select('property_id, stripe_link_id, amount_cents, deactivated_at, nudge_count')
     .eq('request_key', requestKey)
     .maybeSingle();
-  return (data as { property_id: string; stripe_link_id: string; amount_cents: number } | null) ?? null;
+  return (data as PaymentLinkLite | null) ?? null;
+}
+
+export type DueReminder = {
+  request_key: string;
+  /** Which reminder this is: 1 or 2. */
+  n: number;
+  property_id: string;
+  label: string;
+  guest_name: string;
+  amount_cents: number;
+  url: string;
+  phone: string;
+  reservation_id: string;
+  sent_at: string | null;
+  nudged_at: string | null;
+  /** The reminder text, written here so the wording lives in one place. */
+  body: string;
+};
+
+/**
+ * Unpaid links due a reminder card in the Guests queue (reminderDue), each
+ * with the phone to text and the text itself. A link with no phone anywhere
+ * is left out: the home feed's unpaid card still covers it. A phone learned
+ * from Guesty is saved back so the next pass is a single read. Null on any
+ * failure, never [], so the concierge can tell "none due" from "could not
+ * look".
+ */
+export async function listRemindersDue(nowMs = Date.now()): Promise<DueReminder[] | null> {
+  if (!isServiceConfigured) return null;
+  const cutoff = new Date(nowMs - REMINDER_MAX_AGE_DAYS * 86_400_000).toISOString();
+  let rows: PaymentLinkRow[];
+  try {
+    const { data, error } = await supabase
+      .from('payment_link_requests')
+      .select(PAYMENT_LINK_COLUMNS)
+      .not('sent_at', 'is', null)
+      .is('paid_at', null)
+      .is('deactivated_at', null)
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    if (error) return null;
+    rows = (data ?? []) as unknown as PaymentLinkRow[];
+  } catch {
+    return null;
+  }
+  const titles = new Map<string, string>();
+  const out: DueReminder[] = [];
+  for (const row of rows) {
+    const n = reminderDue(row, nowMs);
+    if (!n) continue;
+    const reservationId = row.reservation_id || reservationIdFromRequestKey(row.request_key);
+    let phone = toE164(row.guest_phone);
+    let guestName = row.guest_name;
+    if (!phone && reservationId) {
+      const g = await fetchGuestyGuestPhone(reservationId);
+      phone = g.phone;
+      if (!guestName && g.fullName) guestName = g.fullName;
+      if (phone) {
+        try {
+          await supabase.from('payment_link_requests').update({ guest_phone: phone }).eq('request_key', row.request_key);
+        } catch {
+          // Bookkeeping only; the phone is in hand for this pass.
+        }
+      }
+    }
+    if (!phone) continue;
+    if (!titles.has(row.property_id)) titles.set(row.property_id, await loadPropertyTitle(row.property_id));
+    out.push({
+      request_key: row.request_key,
+      n,
+      property_id: row.property_id,
+      label: row.label,
+      guest_name: guestName,
+      amount_cents: row.amount_cents,
+      url: row.url,
+      phone,
+      reservation_id: reservationId,
+      sent_at: row.sent_at,
+      nudged_at: row.nudged_at,
+      body: buildPaymentLinkNudgeSms({
+        guestFirst: firstName(guestName),
+        label: row.label,
+        totalCents: row.amount_cents,
+        propertyTitle: titles.get(row.property_id) || '',
+        url: row.url,
+      }),
+    });
+  }
+  return out;
+}
+
+/** A reminder went out from a concierge card: count it, like a Helm nudge. */
+export async function recordLinkNudge(requestKey: string, phone: string): Promise<boolean> {
+  if (!isServiceConfigured || !requestKey) return false;
+  try {
+    const { data } = await supabase
+      .from('payment_link_requests')
+      .select('nudge_count')
+      .eq('request_key', requestKey)
+      .maybeSingle();
+    if (!data) return false;
+    const patch: Record<string, unknown> = {
+      nudged_at: new Date().toISOString(),
+      nudge_count: ((data as { nudge_count: number | null }).nudge_count || 0) + 1,
+    };
+    const e164 = toE164(phone);
+    if (e164) patch.guest_phone = e164;
+    const { error } = await supabase.from('payment_link_requests').update(patch).eq('request_key', requestKey);
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 // ── Guest phone ────────────────────────────────────────────────────
