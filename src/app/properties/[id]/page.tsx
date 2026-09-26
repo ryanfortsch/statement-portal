@@ -47,6 +47,7 @@ import { getRentalPeriods } from '@/lib/property-rental-periods';
 import { describePeriods } from '@/lib/rental-periods';
 import { describeOperatingWindow } from '@/lib/forecast-operating-windows';
 import { getGuestCodeView } from '@/lib/guest-locks';
+import type { PaymentVerifySignal } from '@/lib/sca-launch';
 import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { getPropertyNotices } from '@/lib/property-notices';
@@ -99,17 +100,32 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
   return { ...(data as HelmPropertyRow), ...access } as HelmPropertyRow;
 }
 
-async function getScaLaunchStatus(
-  id: string,
-): Promise<{ status: string; live_url: string | null; guesty_listing_id: string | null } | null> {
+type ScaLaunchStatus = {
+  status: string;
+  live_url: string | null;
+  guesty_listing_id: string | null;
+  payment_verify_signal: PaymentVerifySignal | null;
+  snapshot_refresh_error: string | null;
+};
+
+/**
+ * The SCA launch row behind the Stay Cape Ann tile.
+ *
+ * `payment_verify_signal` is read because a launch that never got its
+ * per-property Stripe key stays in demo mode and takes bookings that
+ * collect nothing. Reading only `status` renders that identically to a
+ * wired listing, which is how 84 Thatcher took four bookings worth
+ * $41,917 without a payment path.
+ */
+async function getScaLaunchStatus(id: string): Promise<ScaLaunchStatus | null> {
   try {
     const { data, error } = await supabase
       .from('sca_launches')
-      .select('status, live_url, guesty_listing_id')
+      .select('status, live_url, guesty_listing_id, payment_verify_signal, snapshot_refresh_error')
       .eq('property_id', id)
       .maybeSingle();
     if (error) return null; // table may not exist yet on older preview envs
-    return (data as { status: string; live_url: string | null; guesty_listing_id: string | null }) ?? null;
+    return (data as ScaLaunchStatus) ?? null;
   } catch {
     return null;
   }
@@ -161,31 +177,6 @@ async function getContractFacts(projectionId: string | null): Promise<ContractFa
     };
   } catch {
     return none;
-  }
-}
-
-/**
- * Distinct non-null nightly prices over the next 60 days of the Guesty
- * calendar mirror, for the onboarding catalog's pricing derive. 1 means a
- * flat base rate on every night (the listing-live-on-defaults state that
- * underpriced 3 Windward's launch); 2+ means dynamic pricing is flowing.
- */
-async function getForwardDistinctPrices(propertyId: string): Promise<number> {
-  if (!isHelmConfigured) return 0;
-  try {
-    const start = new Date().toISOString().slice(0, 10);
-    const end = new Date(Date.now() + 60 * 86400_000).toISOString().slice(0, 10);
-    const { data, error } = await supabase
-      .from('property_calendar_days')
-      .select('price')
-      .eq('property_id', propertyId)
-      .gte('date', start)
-      .lt('date', end)
-      .not('price', 'is', null);
-    if (error || !data) return 0;
-    return new Set((data as Array<{ price: number | string }>).map((r) => String(r.price))).size;
-  } catch {
-    return 0;
   }
 }
 
@@ -430,7 +421,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, forwardDistinctPrices, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
+  const [statements, pinnedNotes, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, activityEvents, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, seamThermostats, guestCodeView, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
     getRecentStatements(p.id),
     getPinnedPropertyNotes(p.id),
     getRecentInspections(p.id),
@@ -465,7 +456,6 @@ export default async function PropertyDetailPage({
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
-    getForwardDistinctPrices(p.id),
     getPropertyContracts(p.id),
     hasOrderChecklistState(p.id),
     getRentalPeriods(p.id),
@@ -517,7 +507,9 @@ export default async function PropertyDetailPage({
       const c = fleetCoverage?.properties?.[p.id];
       return c ? { kb: !!c.kb, crosswalk: !!c.crosswalk, todos: Number(c.todos) || 0 } : null;
     })(),
-    forwardDistinctPrices,
+    // Same query, already run by the launch loader above. A second copy
+    // here meant one pricing fact moved two different progress counters.
+    forwardDistinctPrices: launchLoad.ctx.forwardDistinctPrices,
     orderChecklistTouched,
   };
   const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
@@ -1458,18 +1450,37 @@ export default async function PropertyDetailPage({
                 description="Push Helm's Wi-Fi, parking, and trash details into the matching guest-facing fields on the live listing."
                 href={`/properties/${p.id}/sync-guesty`}
               />
+              {/* A live listing whose payment probe came back demo_mode takes
+                  bookings that collect nothing, so it must never render as a
+                  plain "Live ✓" (84 Thatcher: four bookings, $41,917, no
+                  payment path). A stale snapshot is the quieter twin of the
+                  same problem and says so rather than reading healthy. */}
               <GrowthTile
                 eyebrow="Direct booking"
                 title="Stay Cape Ann"
                 description={
                   scaLaunch?.status === 'live'
-                    ? 'Live on staycapeann.com.'
+                    ? scaLaunch.payment_verify_signal === 'demo_mode'
+                      ? 'Live, but the last payment probe found demo mode: bookings collect nothing. Check this property’s Stripe key.'
+                      : scaLaunch.snapshot_refresh_error
+                        ? 'Live on staycapeann.com. The last snapshot refresh failed, so the page may be stale.'
+                        : 'Live on staycapeann.com.'
                     : scaLaunch?.status === 'pr_open'
-                      ? 'Launch in review — a PR is open.'
+                      ? 'Launch in review, a PR is open.'
                       : 'Launch this property on staycapeann.com.'
                 }
                 href={`/properties/${p.id}/stay-cape-ann`}
-                status={scaLaunch?.status === 'live' ? 'Live ✓' : scaLaunch?.status === 'pr_open' ? 'In review' : undefined}
+                status={
+                  scaLaunch?.status === 'live'
+                    ? scaLaunch.payment_verify_signal === 'demo_mode'
+                      ? 'Demo mode'
+                      : scaLaunch.snapshot_refresh_error
+                        ? 'Live, stale'
+                        : 'Live ✓'
+                    : scaLaunch?.status === 'pr_open'
+                      ? 'In review'
+                      : undefined
+                }
               />
               {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
                 <GrowthTile
@@ -1754,7 +1765,7 @@ export default async function PropertyDetailPage({
                 p.management_fee_pct != null &&
                 Number(p.management_fee_pct) !== Number(activeContract.fee_pct) && (
                   <span style={{ color: 'var(--negative)' }}>
-                    {' '}— contract disagrees with the {p.management_fee_pct}% Helm bills; reconcile before the next statement
+                    {' '}(contract disagrees with the {p.management_fee_pct}% Helm bills; reconcile before the next statement)
                   </span>
                 )}
               {activeContract.fee_notes && (
@@ -1846,10 +1857,10 @@ export default async function PropertyDetailPage({
           title="Management Agreement"
           summary={
             pastContracts.length > 0
-              ? 'expired — no live contract'
+              ? 'expired, no live contract'
               : p.projection_id
                 ? contractFacts.executed
-                  ? 'signed — not yet registered'
+                  ? 'signed, not yet registered'
                   : 'not fully executed'
                 : 'none on file'
           }
@@ -1860,7 +1871,7 @@ export default async function PropertyDetailPage({
               The last agreement ({pastContracts[0].term_start ? fmtTermDate(pastContracts[0].term_start) : '—'} to{' '}
               {fmtTermDate(pastContracts[0].term_end)}
               {pastContracts[0].fee_pct != null ? ` at ${pastContracts[0].fee_pct}%` : ''}) has ended and nothing
-              renews it — this property is operating without a live contract.
+              renews it. This property is operating without a live contract.
               {pastContracts[0].drive_url && (
                 <>
                   {' '}
@@ -2022,7 +2033,7 @@ export default async function PropertyDetailPage({
             {statements.map((s) => (
               <Link
                 key={s.id}
-                href={`/statements?month=${s.month}`}
+                href={`/statements/render?id=${s.id}&month=${s.month}`}
                 style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}
               >
                 <div

@@ -369,7 +369,7 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Set the cleaning cost estimate',
     description: 'Expected per-turn cleaning cost on the property record.',
     why: 'Revenue snapshots and forecasts fall back to this number until real cleanings land.',
-    href: '/properties/{id}/edit',
+    href: '/properties/{id}/edit#cleaning',
     hrefLabel: 'Edit field',
     derive: ({ p }) => p.cleaning_cost_estimate != null,
   },
@@ -701,8 +701,11 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Write the arrival brief for field crews',
     description: 'Colleague-tone arrival and parking prose for inspectors and contractors.',
     why: 'The Field packet "How to get in" panel prints it. Access confusion is a dedicated contractor topic for a reason.',
-    href: '/properties/{id}/edit',
+    href: '/properties/{id}/edit#arrival',
     hrefLabel: 'Edit field',
+    // property_access is merged onto the row by both the detail page and the
+    // edit page, so the brief reads back here like any other column.
+    derive: ({ p }) => !!p.arrival_brief?.trim(),
   },
   {
     key: 'access.wifi_on_file',
