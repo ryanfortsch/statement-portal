@@ -46,6 +46,11 @@ export async function GET(
     .from('bookings')
     .select('*')
     .eq('property_id', prop.id)
+    // Canonical rows only, and this is the one that reaches other people's
+    // systems: buildIcalExport emits a VEVENT per row with no dedupe, so a
+    // superseded twin publishes a block on nights that stay has left. Every
+    // OTA subscribed to this feed then holds them.
+    .is('duplicate_of', null)
     .gte('check_in', fromIso)
     .lte('check_in', toIso)
     .neq('status', 'cancelled');

@@ -143,6 +143,11 @@ export async function syncListing(opts: {
       .from('bookings')
       .select('id, ical_uid, status, check_in, check_out')
       .eq('channel_listing_id', opts.listing_id)
+      // NO duplicate_of filter here, deliberately. Every other stay read is
+      // canonical-only, so this looks like an omission. It is not: this
+      // diffs the rows THIS importer created, keyed by ical_uid, to count
+      // adds/updates/cancels. Hiding a row the dedupe later marked a
+      // duplicate would make the importer re-add it on every sync.
       .eq('source', 'ical_import');
     if (existingErr) throw new Error(`select existing: ${existingErr.message}`);
 
