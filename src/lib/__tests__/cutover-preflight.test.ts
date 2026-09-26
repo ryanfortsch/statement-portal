@@ -353,3 +353,14 @@ describe('round 8: when Helm last read Guesty\'s calendar', () => {
     assert.doesNotMatch(byKey(evaluateCutoverPreflight(helm), 'guesty_disconnect_acknowledged').detail, /last read/);
   });
 });
+
+describe('round 11: a cleaner recipient counts only in its homes\' region', () => {
+  test("Luana filed under Cape Ann with Calderwood's id never gets its digest, so the check stays red", () => {
+    const ct = { region: 'bridgeport_ct', propertyId: '65_calderwood' };
+    const wrongRegion = greenFacts({ ...ct, recipients: [{ display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'cape_ann' }] });
+    assert.ok(failing(wrongRegion).includes('cleaner_recipient'));
+    assert.match(byKey(evaluateCutoverPreflight(wrongRegion), 'cleaner_recipient').detail, /another region/);
+    const right = greenFacts({ ...ct, recipients: [{ display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct' }] });
+    assert.ok(!failing(right).includes('cleaner_recipient'));
+  });
+});

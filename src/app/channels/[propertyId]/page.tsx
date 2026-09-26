@@ -19,7 +19,7 @@ import {
   type LastSyncRun,
 } from '@/lib/channels';
 import { carryoverFor, evaluateCutoverPreflight, listPmsEvents, loadCutoverFacts, type CutoverCheck, type CutoverPreflight, type PmsEvent } from '@/lib/cutover';
-import { CARRIED_SEASON_NOTE, type CarryRow, type Carryover } from '@/lib/cutover-carryover';
+import { CARRIED_SEASON_NOTE, echoFingerprint, type CarryRow, type Carryover } from '@/lib/cutover-carryover';
 import { loadPricingBundle, type PricingBundle } from '@/lib/property-rates';
 import { loadCalendarDayMap } from '@/lib/calendar-days';
 import { isOpenOn } from '@/lib/rental-periods';
@@ -246,7 +246,9 @@ export default async function ChannelsPropertyPage({
 
               {preflight && (
                 <ol style={{ listStyle: 'none', margin: 0, padding: 0, borderTop: '1px solid var(--rule)' }}>
-                  {preflight.checks.map((c) => (
+                  {/* After the flip there is no form to tick: the two
+                      acknowledgements were given when it happened. */}
+                  {preflight.checks.filter((c) => !(helmRun && c.acknowledgement)).map((c) => (
                     <CheckRow key={c.key} check={c} />
                   ))}
                 </ol>
@@ -287,7 +289,7 @@ export default async function ChannelsPropertyPage({
                   {preflight.dataOk ? (
                     <>
                       <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, margin: '0 0 14px' }}>
-                        The six data checks are green. Tick the two acknowledgements, type the property id, and flip. The action retires any Guesty aggregate feed row, parks the Guesty listing id, sets Helm as authority, writes the audit event and rebuilds the calendar mirror for today-90 to today+540.
+                        Every data check is green. Tick the two acknowledgements, type the property id, and flip. The action retires any Guesty aggregate feed row, parks the Guesty listing id, sets Helm as authority, writes the audit event and rebuilds the calendar mirror for today-90 to today+540.
                       </p>
                       <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
                         <input type="checkbox" name="ack_automations" required style={{ marginTop: 2 }} />
@@ -539,6 +541,7 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
                   <form action={confirmBookingComEchoAction}>
                     <input type="hidden" name="property_id" value={propertyId} />
                     <input type="hidden" name="id" value={r.id} />
+                    <input type="hidden" name="fingerprint" value={echoFingerprint(r)} />
                     <SubmitButton label="No reservation in the extranet: it is Booking.com copying Helm" busyLabel="Confirming…" spinnerTone="ink" style={linkButton} />
                   </form>
                 )}
@@ -622,12 +625,21 @@ function AttentionPanel({ carry, propertyId, helmRun, unfiltered, now }: { carry
         {carry.carriedSeasonsEnding.length > 0 && (
           <Item
             title="A closed season carried from Guesty is about to run out"
-            why="Guesty closed these nights with no end; the handover carried them as a Helm block that does end. The booking window reaches that end within two months, and the nights after it go on sale on staycapeann.com and every OTA. Extend the block (or shorten the booking window)."
+            why="Guesty closed these nights with no end; the handover carried them as a Helm block that does end. The booking window reaches the first open night within two months, and from there the season goes on sale on staycapeann.com and every OTA. Extend the block, or where a stay follows it, add a block from that night (or shorten the booking window)."
           >
             {carry.carriedSeasonsEnding.map((r) => (
               <li key={r.id}>
-                {rowLine(r)}{' '}
-                <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the block →</Link>
+                {rowLine(r)}
+                <span style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink-3)' }}>
+                  first night on sale {r.season_end}
+                </span>
+                {r.season_end && r.season_end !== r.check_out ? (
+                  <Link href={`/channels/bookings/new?property=${propertyId}&type=block&check_in=${r.season_end}&hold_kind=other&notes=${encodeURIComponent(`${CARRIED_SEASON_NOTE}: extend it before the booking window reaches its end`)}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>
+                    Add a block from {r.season_end} →
+                  </Link>
+                ) : (
+                  <Link href={`/channels/bookings/${r.id}`} style={{ fontSize: 12, marginLeft: 10, color: 'var(--ink)' }}>Open the block →</Link>
+                )}
               </li>
             ))}
           </Item>
@@ -805,7 +817,7 @@ function FeedRow({ channel, feed, helmRun, now }: { channel: string; feed: FeedH
           {feed && !isDirect && !isGuesty ? (
             <>
               <Dot color={dotColor(pullState)} title={`OTA pull of Helm's export: ${pullState}`} />
-              <span>{feed.last_pull ? `pulled ${relativeAge(feed.last_pull.pulled_at, now)}` : helmRun ? 'never pulled Helm' : 'reads Guesty, not Helm'}</span>
+              <span>{feed.last_pull ? `pulled ${relativeAge(feed.last_pull.pulled_at, now)}` : helmRun || feed.export_subscribed ? 'never pulled Helm' : 'reads Guesty, not Helm'}</span>
             </>
           ) : (
             <span style={{ color: 'var(--ink-4)' }}>-</span>

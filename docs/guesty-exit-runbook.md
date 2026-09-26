@@ -111,9 +111,19 @@ registry row, an empty `property_access` row, the rate plan, the CT tax
 config, four channel rows with no feed URLs). Then:
 
 ```bash
-node --env-file=.env.local scripts/seed_calderwood.mts --dry
-node --env-file=.env.local scripts/seed_calderwood.mts
+node --env-file=.env.local scripts/pull_guesty_seed.mts --property 65_calderwood --listing 66797ba7f51d72001388bc29 --out ./calderwood_guesty_seed.json
 ```
+
+```bash
+node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json --dry
+```
+
+```bash
+node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json
+```
+
+The pull writes the listing and its calendar only (no reservations; door
+codes, lock codes and wifi are dropped). Keep the file out of git.
 
 What switches on, deliberately: kb-facts starts feeding the concierge KB;
 reviews already keyed to the property count on the reviews lens; the 04:30
@@ -149,9 +159,12 @@ importing at the first "OTA imports Helm's export" tick in step 7.
   config; run the quote tester against a known Airbnb folio (accommodation
   must match Guesty's `fareAccommodation` before the channel markup).
 - `?tab=guest#listing`: confirm content, rooms and photos.
-- `/turnovers/schedule`: add Luana as a recipient (region `bridgeport_ct`,
-  property ids `65_calderwood`, language, enabled) and a `cleaner_phones` row
-  with `property_ids = {65_calderwood}` for done-text attribution. Send her
+- `/turnovers/schedule`: add Luana as a recipient (property ids
+  `65_calderwood`, language, enabled; the region follows the home's,
+  `bridgeport_ct`). For done-text attribution she also needs a
+  `cleaner_phones` row, which has no screen yet: in the SQL editor,
+  `insert into public.cleaner_phones (phone, display_name, vendor, property_ids) values ('+1XXXXXXXXXX', 'Luana', 'Luana', '{65_calderwood}');`
+  with her real number. Send her
   the `/c/<token>` link. Confirm one digest reaches her with only Calderwood
   on it and Rosa's digest is unchanged.
 - `?tab=guest#automations`: leave automations off for now; review the fleet rules
@@ -278,8 +291,9 @@ rewrites the calendar mirror in place. Set the booking window and advance
 notice Guesty used to enforce in the Helm rate plan and on each OTA. Then
 turn automations on and enable the property's rules in approve mode.
 
-Verify within 24 hours: the Guesty sync reports `helm_run_skipped` for the
-property; `guesty_reservations` gains no new rows for it; the mirror carries
+Verify within 24 hours: `guesty_listings` has no row for the property (the
+flip deletes it, so the Guesty sync never sees the home again);
+`guesty_reservations` gains no new rows for it; the mirror carries
 Helm blocks and rate-plan prices; the OTA calendars show a test Helm block
 after their next pull; the automations planner writes sends for upcoming
 stays; a guest text to the GUESTS line lands on a Helm thread.
@@ -328,6 +342,8 @@ read "Reserved" plus a code until the notification-email parser lands.
 Revenue shows Calderwood's Guesty-era money and then freezes; Books remains
 the LLC's ledger.
 
-Repeat steps 2 to 8 for 3246 NE 27th when ready. A managed Cape Ann home
+For 3246 NE 27th, steps 2 to 8 need their own registry migration and seed
+first (the Calderwood migration and `seed_calderwood.mts` are specific to
+it; `pull_guesty_seed.mts` works for any listing). A managed Cape Ann home
 additionally needs the staycapeann.com provider switch and an explicit
 `direct_markup_pct` decision (Guesty's Standard Rate adds 6% invisibly today).

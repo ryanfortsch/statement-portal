@@ -326,7 +326,7 @@ function RuleCard({
         <Badge tone="muted">{r.audience === 'cleaner' ? 'Cleaner' : 'Guest'}</Badge>
         <Badge tone={r.send_mode === 'auto' ? 'pos' : 'muted'}>{r.send_mode === 'auto' ? 'Auto' : 'Approve first'}</Badge>
         {pr.forcedApprove && <Badge tone="neg">Door code, no lock: approve forced</Badge>}
-        {r.configured_in_ota && <Badge tone="muted">Configured in Airbnb / VRBO</Badge>}
+        {r.configured_in_ota && <Badge tone="muted">Configured in Airbnb (Airbnb stays only)</Badge>}
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.5 }}>
         {describeTiming(r)}. {DELIVERY_LABELS[r.delivery]}.
@@ -586,7 +586,7 @@ function RuleForm({
         </label>
         {form.audience === 'guest' && (
           <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-            <input type="checkbox" checked={form.configured_in_ota} onChange={(e) => set('configured_in_ota', e.target.checked)} /> Already configured in Airbnb / VRBO scheduled messages
+            <input type="checkbox" checked={form.configured_in_ota} onChange={(e) => set('configured_in_ota', e.target.checked)} /> Already configured in Airbnb Scheduled Messages (VRBO and Booking.com stays still come here to paste)
           </label>
         )}
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 10 }}>

@@ -86,16 +86,23 @@ export type CarryRow = {
   notes?: string | null;
   /** Set on a listed Guesty hold whose end is Guesty's rolling horizon. */
   rolling?: boolean;
+  /** Set on a carriedSeasonsEnding row: the first night that goes on sale. */
+  season_end?: string;
   /** bookings.echo_confirmed: echoFingerprint of the closure when the
    *  operator confirmed it is Booking.com's copy of Helm's own row. */
   echo_confirmed?: string | null;
 };
 
-/** What an operator's echo confirmation is bound to: the closure's dates
- *  and age. A move or a restart of its age makes it a different closure. */
-export function echoFingerprint(r: { check_in: string; check_out: string; live_since?: string | null; created_at: string }): string {
-  const since = Date.parse(r.live_since ?? r.created_at);
-  return `${r.check_in}|${r.check_out}|${Number.isFinite(since) ? new Date(since).toISOString() : ''}`;
+/** What an operator's echo confirmation is bound to: the closure's dates,
+ *  its age, and its last cancel. A move, a restart of its age, or any cancel
+ *  since (a closure back within the hiccup allowance keeps its age, and the
+ *  nights it closes again may be a new guest's) makes it a different one. */
+export function echoFingerprint(r: { check_in: string; check_out: string; live_since?: string | null; created_at: string; cancelled_at?: string | null }): string {
+  const iso = (v: string | null | undefined) => {
+    const t = Date.parse(v ?? '');
+    return Number.isFinite(t) ? new Date(t).toISOString() : '';
+  };
+  return `${r.check_in}|${r.check_out}|${iso(r.live_since ?? r.created_at)}|${iso(r.cancelled_at)}`;
 }
 
 export type CarryListing = {
@@ -736,17 +743,23 @@ export function evaluateCarryover(input: {
   // after the season does not carry it on: the nights after them open.
   const holders = rows.filter((r) => r.duplicate_of == null && LIVE.has(r.status) && !isOtaHold(r) && !(fromAggregate(r) && r.status === 'block'));
   const noted = (r: CarryRow) => r.status === 'block' && r.source !== 'ical_import' && String(r.notes ?? '').startsWith(CARRIED_SEASON_NOTE);
-  const carriedSeasonsEnding = rows.filter((r) => {
-    if (r.duplicate_of != null || !noted(r) || r.check_out <= todayIso) return false;
+  const seasonEnd = (r: CarryRow): string | null => {
     let end = r.check_out;
     for (let steps = 0; steps < 200 && end <= soon; steps += 1) {
       const next = holders.filter((o) => o.id !== r.id && o.check_in <= end && end < o.check_out);
-      if (next.length === 0) return true;
-      if (next.some(noted)) return false;
+      if (next.length === 0) return end;
+      if (next.some(noted)) return null;
       end = next.reduce((m, o) => (o.check_out > m ? o.check_out : m), end);
     }
-    return end <= soon;
-  });
+    return end <= soon ? end : null;
+  };
+  const carriedSeasonsEnding: CarryRow[] = [];
+  for (const r of rows) {
+    if (r.duplicate_of != null || !noted(r) || r.check_out <= todayIso) continue;
+    const end = seasonEnd(r);
+    // season_end: the first night on sale, where the chain of holders stops.
+    if (end) carriedSeasonsEnding.push({ ...r, season_end: end });
+  }
 
   const byDate = (a: CarryRow, b: CarryRow) => a.check_in.localeCompare(b.check_in) || a.id.localeCompare(b.id);
   return {

@@ -89,6 +89,7 @@ const ERR_COPY: Record<string, string> = {
   bad_name: 'A recipient needs a display name.',
   bad_property: 'One of those property ids is not in the registry.',
   bad_region: 'That region is not in the registry.',
+  mixed_region: 'Those homes are in different regions. A recipient gets one region\'s digest: add one row per region.',
   phone_taken: 'A recipient with that phone already exists.',
   recipient_gone: 'That recipient no longer exists.',
   save_failed: 'That did not save.',

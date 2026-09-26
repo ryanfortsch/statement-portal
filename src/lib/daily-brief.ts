@@ -1428,7 +1428,7 @@ async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
         items.push(`${n(c.bookingComOrphaned.length, 'Booking.com closure', 'Booking.com closures')} on a feed Helm no longer reads: release once checked`);
       }
       if (c.carriedSeasonsEnding.length > 0) {
-        items.push(`${n(c.carriedSeasonsEnding.length, 'closed season', 'closed seasons')} carried from Guesty end within the booking window soon (first ends ${c.carriedSeasonsEnding[0].check_out}): extend the block`);
+        items.push(`${n(c.carriedSeasonsEnding.length, 'closed season', 'closed seasons')} carried from Guesty end within the booking window soon (first night on sale ${c.carriedSeasonsEnding[0].season_end ?? c.carriedSeasonsEnding[0].check_out}): extend the season's block`);
       }
       if (c.unreadFeedStays.length > 0) {
         items.push(`${n(c.unreadFeedStays.length, 'stay', 'stays')} from a feed Helm no longer reads (first ${c.unreadFeedStays[0].check_in}): a cancellation cannot reach Helm, check each on its channel`);

@@ -518,14 +518,20 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
     const { data } = await supabase.from('properties').select('id, region').in('id', propertyIds);
     const known = new Map(((data ?? []) as Array<{ id: string; region: string | null }>).map((p) => [p.id, p.region]));
     if (propertyIds.some((id) => !known.has(id))) redirect(`${PAGE}?err=bad_property${anchor}`);
-    propertyRegion = known.get(propertyIds[0]) ?? null;
+    // The digest is drafted and sent per region, to that region's
+    // recipients: a recipient scoped to homes must be in their region, and
+    // to one region only. Saved under the form's default (Cape Ann) with a
+    // Bridgeport home, the cleaner was texted "no checkouts" every night.
+    const regions = new Set(propertyIds.map((id) => known.get(id) || CAPE_ANN_REGION));
+    if (regions.size > 1) redirect(`${PAGE}?err=mixed_region${anchor}`);
+    propertyRegion = [...regions][0] ?? null;
   }
 
-  // Region: what the form says, else the first listed home's, else Cape Ann.
+  // Region: the listed homes' own, else what the form says, else Cape Ann.
   // Validated against the registry's known regions (the FK would reject an
   // unknown one anyway, but a plain redirect beats a thrown insert).
   const rawRegion = String(formData.get('region') || '').trim();
-  const region = rawRegion || propertyRegion || CAPE_ANN_REGION;
+  const region = propertyRegion || rawRegion || CAPE_ANN_REGION;
   const { data: regionRows } = await supabase.from('regions').select('id');
   const knownRegions = new Set([
     ...Object.keys(REGION_LABELS),

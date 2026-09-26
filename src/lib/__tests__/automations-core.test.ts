@@ -679,6 +679,14 @@ describe('decideDispatch', () => {
     assert.equal(decideDispatch({ ...clean, booking: airbnb, approved: true }).outcome, 'send');
   });
 
+  test('"configured in Airbnb" answers for Airbnb stays only: a VRBO guest still gets the paste card (round 11)', () => {
+    const vrbo = booking({ channel: 'vrbo', guest_phone: null, guest_email: null });
+    const d = decideDispatch({ ...clean, booking: vrbo, rule: rule({ configured_in_ota: true }) });
+    assert.deepEqual([d.outcome, d.rail], ['awaiting_approval', 'ota_manual']);
+    const bcom = booking({ channel: 'booking_com', guest_phone: null, guest_email: null });
+    assert.equal(decideDispatch({ ...clean, booking: bcom, rule: rule({ configured_in_ota: true }) }).outcome, 'awaiting_approval');
+  });
+
   test('missing fields park the row even in auto mode', () => {
     const d = decideDispatch({ ...clean, rendered: { missing: ['door_code'] } });
     assert.equal(d.outcome, 'awaiting_approval');

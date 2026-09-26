@@ -73,3 +73,28 @@ test('round 10: the echo confirmation only stamps a live Booking.com closure, bo
 test('round 10: the pre-tick hold list waits for a cutover to be prepared', () => {
   assert.ok(read('src/app/channels/[propertyId]/page.tsx').includes('{!helmRun && !cutoverUnderway && factsOrError.facts?.ratePlan && carry && carry.guestyHoldsUncarried.length > 0 && ('));
 });
+
+test('round 11: a recipient takes its homes\' region, one region per row', () => {
+  const src = read('src/app/turnovers/schedule/actions.ts');
+  assert.ok(src.includes('if (regions.size > 1) redirect(`${PAGE}?err=mixed_region${anchor}`);'));
+  assert.ok(src.includes('const region = propertyRegion || rawRegion || CAPE_ANN_REGION;'));
+});
+
+test('round 11: the echo confirmation stamps only the closure the operator saw', () => {
+  const src = read('src/app/channels/[propertyId]/cutover-actions.ts');
+  assert.ok(src.includes('if (seen !== echoFingerprint(row!)) {'));
+  assert.ok(read('src/app/channels/[propertyId]/page.tsx').includes('<input type="hidden" name="fingerprint" value={echoFingerprint(r)} />'));
+});
+
+test('round 11: the seed reads an export someone pulled, and the pull never keeps codes or reservations', () => {
+  const seed = read('scripts/seed_calderwood.mts');
+  assert.ok(!seed.includes('/private/tmp/'), 'no seed path inside one session scratchpad');
+  assert.ok(seed.includes("if (!args.seedPath) fail('--seed <path> is required"));
+  const pull = read('scripts/pull_guesty_seed.mts');
+  assert.ok(!pull.includes('/v1/reservations'));
+  assert.ok(pull.includes('const SECRET_KEY = /(door|lock|access|gate|key)_?code|wifi|password|checkininstructions/i;'));
+});
+
+test('round 11: "configured in Airbnb" answers for Airbnb stays only', () => {
+  assert.ok(read('src/lib/automations-core.ts').includes("return rule.configured_in_ota && booking.channel === 'airbnb'"));
+});

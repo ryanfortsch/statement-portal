@@ -104,6 +104,14 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
   const check = property && datesOk ? await runCheck(property, checkIn, checkOut, guests) : null;
 
   const channelChoices: BookingChannel[] = isBlock ? ['block'] : ['direct', 'manual', 'airbnb', 'vrbo', 'booking_com', 'other'];
+  // The channel hub's "Enter the Booking.com booking": nights held only by
+  // OTA closures, which the writer lets a Booking.com booking go in over.
+  const bcomHandEntry =
+    !isBlock &&
+    one(sp.channel).trim() === 'booking_com' &&
+    !!check &&
+    check.conflicting.length > 0 &&
+    check.conflicting.every((b) => b.status === 'block' && b.hold_kind === 'ota' && b.source === 'ical_import');
   // ?channel= prefills the choice (the channel hub links a Booking.com
   // closure nobody has entered here with channel=booking_com).
   const presetChannel = one(sp.channel).trim() as BookingChannel;
@@ -287,8 +295,11 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
           <div style={{ display: 'flex', gap: 10, marginTop: 8, alignItems: 'center' }}>
             <SubmitButton label={isBlock ? 'Create block' : 'Create booking'} busyLabel="Creating…" style={primaryButton} disabled={!property} />
             <Link href="/channels/bookings" style={secondaryButton}>Cancel</Link>
-            {check && check.range && !check.range.available && !isBlock && (
+            {check && check.range && !check.range.available && !isBlock && !bcomHandEntry && (
               <span style={{ fontSize: 12, color: 'var(--negative)' }}>These nights are not open; the database will refuse a confirmed stay over them.</span>
+            )}
+            {bcomHandEntry && (
+              <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Only OTA closures hold these nights: a Booking.com booking may go in over them (see below).</span>
             )}
           </div>
         </form>

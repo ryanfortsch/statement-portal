@@ -1017,8 +1017,13 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
   if (!rail) return { outcome: 'skipped_no_contact', rail: null, reason: rule.audience === 'cleaner' ? 'no cleaner recipient covers this home' : 'guest has no phone or email on file' };
   if (rail === 'ota_manual') {
     if (input.approved) return { outcome: 'send', rail, reason: null };
-    return rule.configured_in_ota
-      ? { outcome: 'configured_in_ota', rail, reason: 'handled by the OTA scheduled message' }
+    // configured_in_ota means the message was recreated in Airbnb's
+    // Scheduled Messages (runbook step 7): it answers for Airbnb stays only.
+    // Read for every OTA, a VRBO or contactless Booking.com guest never got
+    // the pre-arrival message, door code included, and the ledger said
+    // "Handled in the OTA app".
+    return rule.configured_in_ota && booking.channel === 'airbnb'
+      ? { outcome: 'configured_in_ota', rail, reason: 'handled by the Airbnb scheduled message' }
       : { outcome: 'awaiting_approval', rail, reason: 'paste into the OTA app' };
   }
   if (input.rendered.missing.length > 0) {

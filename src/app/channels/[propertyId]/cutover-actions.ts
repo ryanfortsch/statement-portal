@@ -159,17 +159,22 @@ export async function readGuestyCalendarAheadAction(formData: FormData) {
 export async function confirmBookingComEchoAction(formData: FormData) {
   const propertyId = String(formData.get('property_id') || '').trim();
   const id = String(formData.get('id') || '').trim();
+  // The closure as the operator saw it when they checked the extranet.
+  const seen = String(formData.get('fingerprint') || '');
   if (!propertyId || !id) throw new Error('Missing ids.');
   const actor = await actorEmail();
   const { data, error } = await supabaseAdmin
     .from('bookings')
-    .select('id, property_id, source, channel, status, hold_kind, check_in, check_out, created_at, live_since')
+    .select('id, property_id, source, channel, status, hold_kind, check_in, check_out, created_at, live_since, cancelled_at')
     .eq('id', id)
     .maybeSingle();
   if (error) throw new Error(`read closure: ${error.message}`);
-  const row = data as { property_id: string; source: string; channel: string; status: string; hold_kind: string | null; check_in: string; check_out: string; created_at: string; live_since: string | null } | null;
+  const row = data as { property_id: string; source: string; channel: string; status: string; hold_kind: string | null; check_in: string; check_out: string; created_at: string; live_since: string | null; cancelled_at: string | null } | null;
   if (!row || row.property_id !== propertyId || row.source !== 'ical_import' || row.channel !== 'booking_com' || row.status !== 'block' || row.hold_kind !== 'ota') {
     redirect(`/channels/${propertyId}?flip_error=${encodeURIComponent('That row is not a live Booking.com closure.')}#attention`);
+  }
+  if (seen !== echoFingerprint(row!)) {
+    redirect(`/channels/${propertyId}?flip_error=${encodeURIComponent('That Booking.com closure changed since the page loaded. Check its nights in the extranet again.')}#attention`);
   }
   const { error: upErr } = await supabaseAdmin
     .from('bookings')

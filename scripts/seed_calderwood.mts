@@ -1,9 +1,9 @@
 // Seed 65 Calderwood's Helm-native listing record from the Guesty export.
 //
-//   node --env-file=.env.local scripts/seed_calderwood.mts --dry
-//   node --env-file=.env.local scripts/seed_calderwood.mts
-//   node --env-file=.env.local scripts/seed_calderwood.mts --seed /path/to/calderwood_guesty_seed.json
-//   node --env-file=.env.local scripts/seed_calderwood.mts --force-plan   # overwrite an operator-edited plan / tax row
+//   node --env-file=.env.local scripts/pull_guesty_seed.mts --property 65_calderwood --listing 66797ba7f51d72001388bc29 --out ./calderwood_guesty_seed.json
+//   node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json --dry
+//   node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json
+//   node --env-file=.env.local scripts/seed_calderwood.mts --seed ./calderwood_guesty_seed.json --force-plan   # overwrite an operator-edited plan / tax row
 //
 // Required env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 // Optional:     BLOB_READ_WRITE_TOKEN. With it, every Guesty original is copied to
@@ -56,8 +56,6 @@ const SEED_BY = 'seed:guesty-2026-09-25';
 const RATE_DAY_NOTE = 'PriceLabs via Guesty 2026-09-25';
 const NOTE_TITLE = 'Arrival and parking';
 const PARKING_TEXT = 'Driveway in the back of the house; use the back door.';
-const DEFAULT_SEED_PATH =
-  '/private/tmp/claude-501/-Users-maguire-Developer-statement-portal--claude-worktrees-guesty-migration-planning-7b6df3/a4a1ac57-c323-448d-b9db-4f301594cc2d/scratchpad/calderwood_guesty_seed.json';
 const BLOB_PREFIX = `listings/${PROPERTY_ID}`;
 const RATE_DAY_CHUNK = 200;
 
@@ -69,7 +67,7 @@ const CODE_LINE = /\b(key\s*code|keycode|door\s*code|lock\s*code|access\s*code|p
 type Args = { dry: boolean; forcePlan: boolean; seedPath: string };
 
 function parseArgs(argv: readonly string[]): Args {
-  const args: Args = { dry: false, forcePlan: false, seedPath: DEFAULT_SEED_PATH };
+  const args: Args = { dry: false, forcePlan: false, seedPath: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry' || a === '--dry-run') args.dry = true;
@@ -82,6 +80,9 @@ function parseArgs(argv: readonly string[]): Args {
     } else if (a.startsWith('--seed=')) args.seedPath = resolve(a.slice('--seed='.length));
     else fail(`unknown argument ${a}`);
   }
+  // No default: the export comes from scripts/pull_guesty_seed.mts, run by
+  // whoever seeds, not from a file only one session ever had.
+  if (!args.seedPath) fail('--seed <path> is required (make one with scripts/pull_guesty_seed.mts)');
   return args;
 }
 

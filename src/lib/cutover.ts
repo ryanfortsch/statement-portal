@@ -484,8 +484,10 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
   }
 
   // 6. cleaner recipient
+  // The digest goes to a region's own recipients (sendDigest), so one named
+  // for this home but filed under another region never receives its day.
   const covering = facts.recipients.filter(
-    (r) => r.enabled && propertyInScope({ id: facts.propertyId, region }, recipientScope(r)),
+    (r) => r.enabled && (r.region || CAPE_ANN_REGION) === region && propertyInScope({ id: facts.propertyId, region }, recipientScope(r)),
   );
   checks.push({
     key: 'cleaner_recipient',
@@ -494,7 +496,7 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     detail:
       covering.length > 0
         ? `${covering.map((r) => r.display_name).join(', ')} ${covering.length === 1 ? 'receives' : 'receive'} the checkout digest for this home.`
-        : `No enabled cleaner_schedule_recipients row covers this home (property_ids containing it, or '{}' in region ${region}). Add the cleaner on the schedule page.`,
+        : `No enabled cleaner_schedule_recipients row in region ${region} covers this home (property_ids containing it, or '{}'). Add the cleaner on the schedule page; a row for this home filed under another region never receives its digest.`,
     acknowledgement: false,
     href: '/turnovers/schedule',
   });

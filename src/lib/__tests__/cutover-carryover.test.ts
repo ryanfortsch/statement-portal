@@ -731,3 +731,23 @@ describe('round 10: the operator confirms an echo; a season past the horizon is 
     assert.deepEqual(carried.carriedSeasonBlockIds, ['HB2']);
   });
 });
+
+describe('round 11: an echo confirmation does not outlive a cancel; a carried season reports its first night on sale', () => {
+  test('a confirmed closure cancelled and back within the hiccup allowance is judged afresh', () => {
+    const closure = bcomHold({ created_at: '2026-09-01T10:00:00Z', live_since: '2026-09-01T10:00:00Z' });
+    const helm = row({ source: 'manual', channel: 'block', status: 'block', hold_kind: 'owner', channel_listing_id: null, created_at: '2026-09-28T10:05:00Z' });
+    const confirmed = { ...closure, echo_confirmed: echoFingerprint(closure) };
+    assert.deepEqual(run([confirmed, helm]).bookingComUnexplained, []);
+    // Cancelled at 11:00 and back at 11:30 under the same UID: its age is
+    // kept (nextAge) but cancelled_at now says it went away.
+    const back = { ...confirmed, cancelled_at: '2026-09-30T11:00:00Z' };
+    assert.deepEqual(ids(run([back, helm]).bookingComUnexplained), [closure.id]);
+  });
+
+  test('season_end is where the chain of holders stops', () => {
+    const block = row({ id: 'SB', source: 'manual', channel: 'block', status: 'block', hold_kind: 'other', channel_listing_id: null, notes: `${CARRIED_SEASON_NOTE}: extend`, check_in: '2026-11-02', check_out: '2027-09-24' });
+    const stay = row({ check_in: '2027-09-24', check_out: '2027-10-15' });
+    const c = evaluateCarryover({ rows: [block, stay], listings: LISTINGS, todayIso: TODAY, now: NOW, planWindowDays: 365 });
+    assert.deepEqual(c.carriedSeasonsEnding.map((r) => [r.id, r.season_end]), [['SB', '2027-10-15']]);
+  });
+});
