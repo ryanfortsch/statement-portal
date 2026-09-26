@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -13,6 +14,8 @@ import { ForMeFeed } from '@/components/ForMeFeed';
 import { AskHelm } from '@/components/AskHelm';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { CleaningsStrip } from '@/components/CleaningsStrip';
+import { AiStatusBanner } from '@/components/AiStatusBanner';
+import { ConciergeAlerts } from '@/components/ConciergeAlerts';
 
 export const dynamic = 'force-dynamic';
 // Today's signals read live from Supabase per request, so don't cache.
@@ -291,6 +294,16 @@ export default async function HelmHome() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+
+      {/* CONCIERGE — drafts paused, guest emergencies, and anything else the
+          guest concierge could not finish on its own. Streams in, so a slow
+          Mac Mini never holds up the page; renders nothing when all is well. */}
+      <Suspense fallback={null}>
+        <AiStatusBanner />
+      </Suspense>
+      <Suspense fallback={null}>
+        <ConciergeAlerts />
+      </Suspense>
 
       {/* ASK HELM — inline, full content width, no example prompts */}
       <section
