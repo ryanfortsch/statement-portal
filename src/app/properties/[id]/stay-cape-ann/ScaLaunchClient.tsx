@@ -598,10 +598,10 @@ export function ScaLaunchClient(props: Props) {
             Products and Payouts are never called by the booking site and stay on <span style={mono}>None</span>.
           </p>
           <p style={hintStyle}>
-            <strong>One catch.</strong> staycapeann&rsquo;s own key diagnostics still test for a literal{' '}
-            <span style={mono}>sk_live_</span> prefix, so a restricted key reads there as &ldquo;wrong
-            prefix&rdquo; even though bookings, captures and refunds all work. The booking code never inspects
-            the prefix.
+            <strong>One trade.</strong> Scoped this tightly the key cannot read the account object, so
+            staycapeann&rsquo;s key diagnostic confirms it authenticates but cannot print the account name
+            back for you to check against the owner. A plain <span style={mono}>sk_live_</span> key can.
+            Either kind passes both diagnostics.
           </p>
         </div>
 
