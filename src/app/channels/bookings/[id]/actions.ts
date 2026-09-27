@@ -128,7 +128,8 @@ export async function deleteBooking(formData: FormData) {
   const id = String(formData.get('id') || '').trim();
   if (!id) throw new Error('Missing booking id');
   const actor = await actorEmail();
-  const result = await deleteOrCancelBooking(id, actor);
+  const rendered = String(formData.get('rendered_status') || '').trim() || null;
+  const result = await deleteOrCancelBooking(id, actor, { expectedStatus: rendered });
   revalidateBooking(id, result.booking.property_id);
   if (result.outcome === 'deleted') redirect('/channels/bookings?deleted=1');
   redirect(`/channels/bookings/${id}?kept=cancelled`);

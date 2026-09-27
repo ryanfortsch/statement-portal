@@ -335,15 +335,18 @@ async function insertMessage(
         })
         .eq('thread_id', thread.id)
         .eq('external_message_id', m.externalMessageId)
-        .select('id')
+        .select('id, sent_at')
         .maybeSingle();
-      const id = (replaced as { id?: string } | null)?.id ?? null;
-      if (id) {
+      const hit = replaced as { id?: string; sent_at?: string } | null;
+      const id = hit?.id ?? null;
+      // The preview is the echo's text when the echo is the thread's newest
+      // message; the stored row's time says so (the echo's, not this send's).
+      if (id && hit?.sent_at) {
         await supabaseAdmin
           .from('guest_threads')
           .update({ last_preview: previewOf(m.body) })
           .eq('id', thread.id)
-          .eq('last_message_at', isoInstant(m.at));
+          .eq('last_message_at', isoInstant(hit.sent_at));
       }
       return { threadId: thread.id, messageId: id, duplicate: true };
     }

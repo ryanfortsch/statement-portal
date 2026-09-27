@@ -718,6 +718,15 @@ begin
          booked_at = case when v_before.status in ('inquiry', 'pending') and p_status in ('confirmed', 'completed') then now() else booked_at end,
          updated_at = now()
    where id = p_booking_id returning * into v_row;
+  -- A stay moved off confirmed/completed (back to pending or inquiry, or
+  -- cancelled) pauses its waiting messages at once, as helm_cancel_booking
+  -- does: its nights are back on sale, so no door code may go to it. The
+  -- planner resumes them if it is confirmed again (automations-core
+  -- PAUSE_REASON_STAY_CANCELLED, the same text).
+  if v_before.status in ('confirmed','completed') and p_status not in ('confirmed','completed') then
+    update public.automation_sends set status = 'cancelled', error = 'stay cancelled', updated_at = now()
+     where booking_id = p_booking_id and status in ('scheduled','awaiting_approval');
+  end if;
   insert into public.booking_events (booking_id, kind, actor, before, after)
   values (p_booking_id, case when v_before.status <> v_row.status then 'status_changed' else 'dates_changed' end, p_actor, to_jsonb(v_before), to_jsonb(v_row));
   return v_row;

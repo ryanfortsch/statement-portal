@@ -631,11 +631,23 @@ export type DeleteOutcome = {
  * soft cancel with a reason, so a stay that produced a turnover, a PIN or a
  * thread never vanishes from the record.
  */
-export async function deleteOrCancelBooking(id: string, actor: string): Promise<DeleteOutcome> {
+export async function deleteOrCancelBooking(
+  id: string,
+  actor: string,
+  opts: {
+    /** The status the operator's page showed. A row that has moved on since
+     *  (an inquiry confirmed from another tab) is refused, never deleted or
+     *  cancelled on a decision made about what it used to be. */
+    expectedStatus?: string | null;
+  } = {},
+): Promise<DeleteOutcome> {
   ensureConfigured();
   if (!id) throw new Error('Missing booking id.');
   const before = await getBooking(id);
   if (!before) throw new Error('Booking not found.');
+  if (opts.expectedStatus && opts.expectedStatus !== before.status) {
+    throw new Error(`This booking changed since the page loaded (it was ${opts.expectedStatus}, it is now ${before.status}). Reload and look again before deleting or cancelling it.`);
+  }
 
   if (await isFeedOwned(before)) throw new Error(FEED_OWNED_MESSAGE);
 

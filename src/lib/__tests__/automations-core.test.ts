@@ -995,3 +995,25 @@ describe('round 17: a feed row\'s confirmation waits for the sync\'s dedupe', ()
     assert.equal(planAutomationSends({ bookings: [feed], rules: [confirm], plans: {}, adjustments: {}, now: later })[0].fire_at, later.toISOString());
   });
 });
+
+describe('round 18: only a live stay gets its messages', () => {
+  test('a stay moved back to pending or inquiry, or reclassified as a hold, pauses; confirmed or completed sends', () => {
+    const base = {
+      row: { planned_check_in: '2026-07-15', planned_check_out: '2026-07-18' },
+      rule: rule({ body: 'Door {{door_code}}', send_mode: 'auto' }),
+      property: { automations_enabled: true, calendar_authority: 'helm' },
+      guest: null,
+      recipients: [],
+      rendered: { missing: [] },
+      lockMapped: true,
+      approved: false,
+    };
+    for (const status of ['pending', 'inquiry', 'block']) {
+      const d = decideDispatch({ ...base, booking: booking({ status }) });
+      assert.deepEqual(d, { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_STAY_CANCELLED }, status);
+    }
+    // An operator approval does not override it either.
+    assert.equal(decideDispatch({ ...base, booking: booking({ status: 'pending' }), approved: true }).outcome, 'cancelled');
+    assert.equal(decideDispatch({ ...base, booking: booking({ status: 'confirmed' }) }).outcome, 'send');
+  });
+});

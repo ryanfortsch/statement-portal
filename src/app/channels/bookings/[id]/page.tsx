@@ -144,6 +144,8 @@ export default async function BookingDetailPage({ params, searchParams }: { para
         <div className="eyebrow" style={{ marginBottom: 12 }}>{isBlock ? 'The hold' : 'The stay'}</div>
         <form action={updateBooking} style={{ borderTop: '1px solid var(--ink)', paddingTop: 18, display: 'grid', gap: 18 }}>
           <input type="hidden" name="id" value={booking.id} />
+          {/* What the page showed: Delete refuses if the row has moved on since (a Confirm from another tab). */}
+          <input type="hidden" name="rendered_status" value={booking.status} />
 
           <Row>
             <Field label="Check-in" required>

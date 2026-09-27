@@ -1200,6 +1200,13 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
   if (booking.status === 'cancelled' && !(rule?.trigger === 'post_checkout' && rolledOffAfterStay(booking))) {
     return { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_STAY_CANCELLED };
   }
+  // Any other status that is not a stay (a confirmed stay moved back to
+  // pending or inquiry, a stay reclassified as a hold) is not live either:
+  // its nights are back on sale, so no door code goes to it. The same
+  // resumable pause: confirmed again, it resumes.
+  if (booking.status !== 'cancelled' && booking.status !== 'confirmed' && booking.status !== 'completed') {
+    return { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_STAY_CANCELLED };
+  }
   if (booking.duplicate_of) return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_duplicate' };
   if (booking.check_in !== row.planned_check_in || booking.check_out !== row.planned_check_out) {
     return { outcome: 'skipped_dates_moved', rail: null, reason: `dates moved to ${booking.check_in}..${booking.check_out}` };
