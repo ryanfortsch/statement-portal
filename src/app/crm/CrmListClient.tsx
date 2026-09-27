@@ -29,12 +29,16 @@ type Props = {
   counts: Record<ContactType | 'all', number>;
   lastTouchByContact: Record<string, LastTouch>;
   unknownNumbers: UnknownNumberRow[];
+  /** phone -> "Beth Dowling · 17 Beach · arriving today" when the number
+   *  belongs to a guest on a real stay (bookings.guest_phone). Resolved on
+   *  the server; absent for a cleaner, a vendor or a genuine stranger. */
+  guestByPhone: Record<string, string>;
   suggestions: ContactReconcileSuggestionRow[];
 };
 
 type FilterId = 'all' | ContactType;
 
-export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers, suggestions }: Props) {
+export function CrmListClient({ contacts, properties, counts, lastTouchByContact, unknownNumbers, guestByPhone, suggestions }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const [filter, setFilter] = useState<FilterId>('all');
@@ -249,6 +253,30 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                         }}
                       >
                         {QUO_LINES[u.quo_line].label}
+                      </span>
+                    )}
+                    {/* Helm already knows this number: it is on a booking.
+                        Say so, because a guest is not a CRM contact (there is
+                        no guest type) and filing one puts a four-night visitor
+                        in the owners-and-vendors ledger. */}
+                    {guestByPhone[u.phone] && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--signal)',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-flex',
+                          alignItems: 'baseline',
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          className="eyebrow"
+                          style={{ fontSize: 10, padding: '2px 7px', border: '1px solid var(--signal)' }}
+                        >
+                          Guest
+                        </span>
+                        <span style={{ fontWeight: 600 }}>{guestByPhone[u.phone]}</span>
                       </span>
                     )}
                     <span style={{ flex: 1, minWidth: 200, fontSize: 12, color: 'var(--ink-3)' }}>
