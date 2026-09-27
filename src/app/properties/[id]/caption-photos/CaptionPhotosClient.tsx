@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import {
   loadListingPhotosAction,
   generateCaptionsAction,
@@ -30,6 +31,45 @@ const WRITE_PAUSED: boolean = false;
 const SAVE_ALL_ENABLED: boolean = false;
 
 /**
+ * Unsaved captions survive a reload.
+ *
+ * Every draft here lives only in React state until the operator clicks Save
+ * on that one photo, and this tab can be hard-reloaded at any moment by the
+ * global VersionGuard when a deploy lands. An operator part-way through 29
+ * captions lost all of them that way (2026-09-27). So drafts are mirrored to
+ * localStorage as they're typed and merged back over the live captions on
+ * load. Only edits that DIFFER from what Guesty already has are stored, so a
+ * saved caption prunes itself and a clean gallery leaves no key behind.
+ */
+const draftsKey = (propertyId: string) => `helm-caption-drafts:${propertyId}`;
+
+function readStoredDrafts(propertyId: string): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(draftsKey(propertyId));
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === 'string') out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredDrafts(propertyId: string, pending: Record<string, string>) {
+  try {
+    if (Object.keys(pending).length === 0) localStorage.removeItem(draftsKey(propertyId));
+    else localStorage.setItem(draftsKey(propertyId), JSON.stringify(pending));
+  } catch {
+    // Storage full or blocked: drafts just don't survive a reload, which is
+    // the old behavior. Never break typing over it.
+  }
+}
+
+/**
  * Operator surface for the Guesty photo-caption tool. Lives at
  * /properties/[id]/caption-photos.
  *
@@ -44,6 +84,7 @@ export function CaptionPhotosClient({ propertyId }: Props) {
 
   const [photos, setPhotos] = useState<ListingPhoto[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [restoredCount, setRestoredCount] = useState(0);
 
   const [brief, setBrief] = useState('');
   const [generating, setGenerating] = useState(false);
@@ -64,7 +105,21 @@ export function CaptionPhotosClient({ propertyId }: Props) {
       return;
     }
     setPhotos(res.photos);
-    setDrafts(Object.fromEntries(res.photos.map((p) => [p.id, p.caption])));
+    // Live captions first, then anything typed but not yet saved (restored
+    // from a reload). Stored entries for photos no longer on the listing
+    // are dropped on the floor.
+    const stored = readStoredDrafts(propertyId);
+    const merged = Object.fromEntries(res.photos.map((p) => [p.id, p.caption]));
+    let restored = 0;
+    for (const p of res.photos) {
+      const held = stored[p.id];
+      if (typeof held === 'string' && held.trim() !== p.caption.trim()) {
+        merged[p.id] = held;
+        restored += 1;
+      }
+    }
+    setDrafts(merged);
+    setRestoredCount(restored);
     setLoadError(null);
     setLoadState('ready');
   }, [propertyId]);
@@ -82,6 +137,18 @@ export function CaptionPhotosClient({ propertyId }: Props) {
 
   const emptyIds = photos.filter((p) => !p.caption.trim()).map((p) => p.id);
   const changedIds = photos.filter((p) => (drafts[p.id] ?? '').trim() !== p.caption.trim()).map((p) => p.id);
+
+  // Mirror the unsaved edits to localStorage on every keystroke, and hold
+  // off the deploy-skew reload while any exist. Gated on 'ready' so the
+  // pre-load empty state never clears a stored set.
+  const pendingJson = loadState === 'ready'
+    ? JSON.stringify(Object.fromEntries(changedIds.map((id) => [id, drafts[id] ?? ''])))
+    : null;
+  useEffect(() => {
+    if (pendingJson === null) return;
+    writeStoredDrafts(propertyId, JSON.parse(pendingJson) as Record<string, string>);
+  }, [propertyId, pendingJson]);
+  useUnsavedWorkGuard(changedIds.length > 0);
 
   async function generate(scope: 'empty' | 'all') {
     const ids = scope === 'empty' ? emptyIds : photos.map((p) => p.id);
@@ -229,6 +296,13 @@ export function CaptionPhotosClient({ propertyId }: Props) {
           style={{ ...inputStyle, resize: 'vertical', marginTop: 10, fontFamily: 'inherit', lineHeight: 1.5 }}
         />
       </details>
+
+      {restoredCount > 0 && (
+        <Notice tone="warn">
+          Restored {restoredCount} caption{restoredCount === 1 ? '' : 's'} you had typed but not
+          saved. They are held in this browser until you save them to Guesty.
+        </Notice>
+      )}
 
       {genError && <Notice tone="error">{genError}</Notice>}
 
