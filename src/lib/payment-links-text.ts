@@ -226,12 +226,17 @@ export const UNPAID_AFTER_HOURS = 24;
 
 /**
  * When an unpaid link comes back as a reminder card in the Guests queue
- * (stay-concierge payment_reminders.py). The first a day after the link was
- * texted, the second three days after the first went out, then no more: the
- * home feed's unpaid card carries it from there. Dotti, 2026-09-26: "auto
- * populate nudges in the messaging box ... at the appropriate time".
+ * (stay-concierge payment_reminders.py). The first two days after the link
+ * was texted, the second three days after the first went out, then no more:
+ * the home feed's unpaid card carries it from there. Dotti, 2026-09-26:
+ * "auto populate nudges in the messaging box ... at the appropriate time".
+ *
+ * The first gap was 24h until 2026-09-27, when Laura Gunson's Saturday
+ * pet-fee link produced a chase card on Sunday: "we just texted her
+ * yesterday.. i do think we should stay on top of them but back to back on
+ * a weekend?" A day is not a pause, it is the next morning.
  */
-export const REMINDER_AFTER_HOURS = [24, 72] as const;
+export const REMINDER_AFTER_HOURS = [48, 72] as const;
 /** A link this old is a dead deal: nobody gets chased for it. */
 export const REMINDER_MAX_AGE_DAYS = 14;
 
@@ -251,8 +256,25 @@ export type ReminderInput = {
  * never one Helm cannot read from Stripe (it may well be paid), and a hand
  * nudge from Helm counts as a reminder, so the next one waits its turn.
  */
+/** Sat or Sun in Gloucester. UTC will not do: 9 PM Sunday ET is already
+ *  Monday in UTC, which is exactly the hour a weekend hold has to hold. */
+const ET_WEEKDAY_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  weekday: 'short',
+});
+export function isWeekendET(ms: number): boolean {
+  const day = ET_WEEKDAY_FMT.format(new Date(ms));
+  return day === 'Sat' || day === 'Sun';
+}
+
 export function reminderDue(row: ReminderInput, nowMs = Date.now()): number {
   if (row.paid_at || row.deactivated_at || !row.sent_at || row.paid_check_error) return 0;
+  // Chasing money is weekday work. A pet fee is not worth a Sunday text, and
+  // the operator should not be handed the decision on a Sunday either. The
+  // link is not forgotten: the home feed's unpaid card carries it, a hand
+  // nudge is always available, and this comes back Monday. Held, not skipped:
+  // nudge_count is untouched, so nothing is consumed by waiting.
+  if (isWeekendET(nowMs)) return 0;
   const created = Date.parse(row.created_at);
   if (Number.isFinite(created) && nowMs - created > REMINDER_MAX_AGE_DAYS * 86_400_000) return 0;
   const n = (row.nudge_count || 0) + 1;
