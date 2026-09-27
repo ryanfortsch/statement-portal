@@ -1423,9 +1423,21 @@ export function explainError(error: StayConciergeError): string {
     return 'That time has already passed. Pick a time a little further out.';
   }
   if (error.status === 503) return 'Guesty is in OAuth cooldown. Try again in a minute.';
-  // 502/504 from the Cloudflare Tunnel mean the stay-concierge origin is down or
-  // mid-restart, NOT a send failure. This surfaces on plain list calls too, so
-  // keep the message generic to the service rather than implying a draft action.
+  // A 502 means one of two very different things and they must not share a
+  // message. The Cloudflare Tunnel returns a BARE 502/504 when the origin is
+  // down or mid-restart. But the concierge itself raises 502 with a detail
+  // when an approved draft fails to SEND, and calling that "unreachable" is
+  // how a dead send channel stayed invisible for six days: every approve of
+  // an early-checkout notice was 400ing at Quo, and the operator read
+  // "it may be restarting" and texted the cleaner by hand instead
+  // (2026-09-27). A detail present means the service answered, so say what
+  // it said.
+  if (error.status === 502 && typeof error.detail === 'string' && error.detail.trim()) {
+    const quo = error.detail.match(/^quo_error:\s*([\s\S]*)$/);
+    return quo
+      ? `The reply was not sent: the texting service rejected it (${quo[1].trim()}). The card is still pending.`
+      : `The reply was not sent (${error.detail}). The card is still pending.`;
+  }
   if (error.status === 502 || error.status === 504)
     return 'Messaging service is unreachable (it may be restarting). Try again in a moment.';
   // detail can be a FastAPI validation payload (an array of error objects);
