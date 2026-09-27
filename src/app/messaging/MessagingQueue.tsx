@@ -77,6 +77,20 @@ const QUOTE_TONE = 'var(--ink-3)';
 // Add-on payment-link block: money being collected, so its own tone —
 // distinct from the slip teal, the queued bronze, and the extension sage.
 const ADDON_TONE = '#6b4f7a';
+/** The teammate handoff block. Distinct from the add-on purple: this one
+ *  files internal work, it never touches the guest or their money. */
+const HANDOFF_TONE = '#3d6b63';
+/** What the eyebrow calls each audience, and where the drafted note lands. */
+const HANDOFF_LABEL: Record<string, string> = {
+  cleaner: 'Cleaner note',
+  contractor: 'Contractor note',
+  owner: 'Owner note',
+};
+const HANDOFF_SURFACE: Record<string, string> = {
+  cleaner: 'Cleaner messaging',
+  contractor: 'Contractor messaging',
+  owner: 'Owner messaging',
+};
 
 /** One colour per quote state, so a row reads before it is parsed. Sent and
  *  accepted are the two the operator is looking for; the rest stay quiet. */
@@ -379,10 +393,18 @@ function ApprovalCard({
   const addon = approval.addon ?? null;
   const addonSmsPossible = !!(addon && addon.payment_link_url && addon.guest_phone);
   const [sendAddonSms, setSendAddonSms] = useState(true);
+  // A note to a teammate this reply commits us to. Ticked by default: the
+  // whole point is that she does not have to remember Rosa exists.
+  const handoff = approval.handoff ?? null;
+  const [createHandoff, setCreateHandoff] = useState(true);
   const [linkCopied, setLinkCopied] = useState(false);
-  const approveOpts = addon
-    ? { sendAddonSms: addonSmsPossible && sendAddonSms }
-    : undefined;
+  const approveOpts =
+    addon || handoff
+      ? {
+          ...(addon ? { sendAddonSms: addonSmsPossible && sendAddonSms } : {}),
+          ...(handoff ? { createHandoff } : {}),
+        }
+      : undefined;
   const copyAddonLink = async () => {
     if (!addon?.payment_link_url) return;
     try {
@@ -1153,6 +1175,93 @@ function ApprovalCard({
                 : addon.link_error === 'stripe_permission'
                   ? "The property's Stripe key is read-only, so the payment link couldn't be created. Add write access for Payment Links, Products, and Prices to the restricted key, update STRIPE_KEYS_JSON in Vercel, and future links will mint automatically."
                   : `Payment link creation failed (${addon.link_error || 'unknown error'}). Approve sends the reply only; make the link manually.`}
+            </p>
+          )}
+        </div>
+      )}
+
+      {handoff && (
+        <div
+          style={{
+            marginTop: 16,
+            border: '1px solid var(--rule)',
+            borderLeft: `3px solid ${HANDOFF_TONE}`,
+            background: 'var(--paper)',
+            padding: '12px 14px',
+          }}
+        >
+          <div
+            className="eyebrow"
+            style={{ color: HANDOFF_TONE, marginBottom: 6 }}
+          >
+            {HANDOFF_LABEL[handoff.audience] ?? 'Teammate'}
+            {handoff.target_name ? ` · ${handoff.target_name}` : ''}
+            {handoff.urgency === 'today' ? ' · today' : ''}
+          </div>
+
+          {handoff.reason && (
+            <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--ink-2)' }}>
+              This reply commits us to something {handoff.target_name || 'the crew'} needs
+              to know: {handoff.reason}.
+            </p>
+          )}
+
+          <p
+            style={{
+              margin: 0,
+              fontSize: 13,
+              lineHeight: 1.55,
+              color: 'var(--ink-1)',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {handoff.preview}
+          </p>
+          {handoff.preview_english && (
+            <p
+              style={{
+                margin: '6px 0 0',
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: 'var(--ink-3)',
+                fontStyle: 'italic',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {handoff.preview_english}
+            </p>
+          )}
+
+          <label
+            style={{
+              marginTop: 10,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 7,
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={createHandoff}
+              onChange={(e) => setCreateHandoff(e.target.checked)}
+              style={{ accentColor: HANDOFF_TONE, marginTop: 2 }}
+            />
+            <span>
+              Draft this for {handoff.target_name || 'them'} when I approve
+              <span style={{ color: 'var(--ink-4)' }}>
+                {' '}(it waits on {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'} for
+                your approval, nothing sends now)
+              </span>
+            </span>
+          </label>
+
+          {handoff.create_error && (
+            <p style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>
+              Filing this last time failed ({handoff.create_error}). Approving
+              tries again.
             </p>
           )}
         </div>

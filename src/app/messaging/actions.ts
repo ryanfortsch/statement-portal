@@ -46,7 +46,7 @@ async function requireSession(): Promise<{ ok: true; email: string } | { ok: fal
 
 export async function approveDraft(
   approvalId: string,
-  opts?: { sendAddonSms?: boolean },
+  opts?: { sendAddonSms?: boolean; createHandoff?: boolean },
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
