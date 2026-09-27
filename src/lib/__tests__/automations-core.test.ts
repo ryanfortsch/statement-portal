@@ -17,6 +17,7 @@ import {
   rolledOffAfterStay,
   keyDecided,
   stayCancelPausedKeys,
+  FEED_CONFIRM_SETTLE_MS,
   PAUSE_REASON_STAY_CANCELLED,
   PAUSE_REASON_NO_LONGER_APPLIES,
   anchorDateFor,
@@ -101,6 +102,7 @@ function booking(over: Partial<AutomationBooking> = {}): AutomationBooking {
     num_guests: over.num_guests ?? 2,
     cancel_reason: over.cancel_reason ?? null,
     cancelled_at: over.cancelled_at ?? null,
+    source: over.source ?? null,
   };
 }
 
@@ -710,7 +712,9 @@ describe('decideDispatch', () => {
   });
 
   test('a cancelled booking skips; a duplicate skips; a missing booking skips', () => {
-    assert.equal(decideDispatch({ ...clean, booking: booking({ status: 'cancelled' }) }).outcome, 'skipped_cancelled');
+    // A cancelled stay pauses (round 17): a revived stay resumes its message.
+    assert.deepEqual(decideDispatch({ ...clean, booking: booking({ status: 'cancelled' }) }), { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_STAY_CANCELLED });
+    assert.equal(isResumablePause({ status: 'cancelled', error: PAUSE_REASON_STAY_CANCELLED }), true);
     assert.equal(decideDispatch({ ...clean, booking: booking({ duplicate_of: 'other' }) }).outcome, 'skipped_cancelled');
     assert.equal(decideDispatch({ ...clean, booking: null }).outcome, 'skipped_cancelled');
   });
@@ -901,10 +905,10 @@ describe('round 14: pauses that resume, moved cards, key dedupe, withdrawals', (
     const rolled = booking({ status: 'cancelled', cancel_reason: 'missing_from_feed', cancelled_at: '2026-07-20T00:00:00Z' });
     assert.equal(rolledOffAfterStay(rolled), true);
     assert.equal(decideDispatch({ ...base, booking: rolled }).outcome, 'send');
-    assert.equal(decideDispatch({ ...base, rule: rule({ send_mode: 'auto' }), booking: rolled }).outcome, 'skipped_cancelled');
+    assert.equal(decideDispatch({ ...base, rule: rule({ send_mode: 'auto' }), booking: rolled }).reason, PAUSE_REASON_STAY_CANCELLED);
     const realCancel = booking({ status: 'cancelled', cancel_reason: 'missing_from_feed', cancelled_at: '2026-07-12T00:00:00Z' });
     assert.equal(rolledOffAfterStay(realCancel), false);
-    assert.equal(decideDispatch({ ...base, booking: realCancel }).outcome, 'skipped_cancelled');
+    assert.equal(decideDispatch({ ...base, booking: realCancel }).reason, PAUSE_REASON_STAY_CANCELLED);
     assert.equal(rolledOffAfterStay(booking({ status: 'cancelled', cancel_reason: 'guest', cancelled_at: '2026-07-20T00:00:00Z' })), false);
   });
 
@@ -974,5 +978,20 @@ describe('round 16: dispatch-time cancels are pauses', () => {
     assert.equal(reverted.outcome, 'cancelled');
     assert.equal(isResumablePause({ status: 'cancelled', error: reverted.reason }), true);
     assert.equal(sendStatusLabel('cancelled', reverted.reason), 'Paused: automations off');
+  });
+});
+
+describe('round 17: a feed row\'s confirmation waits for the sync\'s dedupe', () => {
+  const confirm = rule({ id: 'f-conf', key: 'booking_confirmed', trigger: 'booking_confirmed', offset_days: 0, at_local: null });
+  test('an imported stay first seen now is confirmed after the settle, a Helm-native one at once', () => {
+    const now = new Date('2026-07-10T12:00:00Z');
+    const feed = booking({ source: 'ical_import', first_seen_at: '2026-07-10T12:00:00Z' });
+    const [row] = planAutomationSends({ bookings: [feed], rules: [confirm], plans: {}, adjustments: {}, now });
+    assert.equal(Date.parse(row.fire_at), Date.parse('2026-07-10T12:00:00Z') + FEED_CONFIRM_SETTLE_MS);
+    const typed = booking({ source: 'manual', first_seen_at: '2026-07-10T12:00:00Z' });
+    assert.equal(planAutomationSends({ bookings: [typed], rules: [confirm], plans: {}, adjustments: {}, now })[0].fire_at, now.toISOString());
+    // Once settled, a feed row's confirmation goes at once.
+    const later = new Date('2026-07-10T12:40:00Z');
+    assert.equal(planAutomationSends({ bookings: [feed], rules: [confirm], plans: {}, adjustments: {}, now: later })[0].fire_at, later.toISOString());
   });
 });

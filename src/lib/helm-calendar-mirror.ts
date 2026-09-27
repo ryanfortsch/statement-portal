@@ -328,24 +328,21 @@ export async function writeHelmCalendarMirror(
         if (error) throw new Error(`blocks upsert: ${error.message}`);
       }
 
-      // Sweep what this run did not write: a released hold, a day that
-      // stopped being a block. Same window, same property, older stamp.
-      const { error: sweepDaysErr } = await supabaseAdmin
-        .from('property_calendar_days')
-        .delete()
-        .eq('property_id', propertyId)
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .lt('synced_at', runStartIso);
-      if (sweepDaysErr) throw new Error(`days sweep: ${sweepDaysErr.message}`);
-      const { error: sweepBlocksErr } = await supabaseAdmin
-        .from('property_calendar_blocks')
-        .delete()
-        .eq('property_id', propertyId)
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .lt('synced_at', runStartIso);
-      if (sweepBlocksErr) throw new Error(`blocks sweep: ${sweepBlocksErr.message}`);
+      // Every day of the window was just written, so no day needs sweeping.
+      // A block row for a day this run found NOT held (a released hold, a
+      // day that stopped being a block) is deleted by date, on this run's
+      // own verdict. Sweeping by an older synced_at deleted rows a second
+      // writer for the same home had just written (a price edit racing the
+      // cron), and a missing hold day read as a retracted paid extension.
+      const freeDates = rows.filter((r) => r.block_type == null).map((r) => r.date);
+      for (let i = 0; i < freeDates.length; i += 200) {
+        const { error: sweepBlocksErr } = await supabaseAdmin
+          .from('property_calendar_blocks')
+          .delete()
+          .eq('property_id', propertyId)
+          .in('date', freeDates.slice(i, i + 200));
+        if (sweepBlocksErr) throw new Error(`blocks sweep: ${sweepBlocksErr.message}`);
+      }
 
       result.properties_written += 1;
       result.days_written += rows.length;

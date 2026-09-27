@@ -44,5 +44,8 @@ test('a hold in the tick-to-flip window is not told to live in Helm only', () =>
 });
 
 test('the revert copy says what happens to automations', () => {
-  assert.ok(read('src/app/channels/[propertyId]/page.tsx').includes('Message automations pause while Guesty runs the home'));
+  const hub = read('src/app/channels/[propertyId]/page.tsx');
+  assert.ok(hub.includes('Message automations pause while Guesty runs the home'));
+  // Round 17: arrival messages and confirmations are not "missed" after 12h.
+  assert.ok(hub.includes('an arrival message still goes that day if the flip back comes before the arrival day ends'));
 });

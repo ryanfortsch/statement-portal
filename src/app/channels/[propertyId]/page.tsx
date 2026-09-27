@@ -320,7 +320,7 @@ export default async function ChannelsPropertyPage({
                 <div className="eyebrow" style={{ marginBottom: 10 }}>Revert to Guesty</div>
                 <p style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, margin: '0 0 12px' }}>
                   {helmRun
-                    ? "Sets the switch back and restores the parked Guesty listing id. It does not recreate the listing in Guesty, reconnect any channel, or undo anything done in Guesty or the OTAs. The next Guesty calendar sync overwrites Helm's mirror rows for this home only if the listing still exists in Guesty; until then the Helm rows stand. Message automations pause while Guesty runs the home and pick up again if it is flipped back (a message whose moment passed more than 12 hours earlier reads Missed its time)."
+                    ? "Sets the switch back and restores the parked Guesty listing id. It does not recreate the listing in Guesty, reconnect any channel, or undo anything done in Guesty or the OTAs. The next Guesty calendar sync overwrites Helm's mirror rows for this home only if the listing still exists in Guesty; until then the Helm rows stand. Message automations pause while Guesty runs the home and pick up again if it is flipped back: an arrival message still goes that day if the flip back comes before the arrival day ends, and a booking confirmation within 24 hours of the booking, so check Guesty did not already send them; any other message whose moment passed more than 12 hours earlier reads Missed its time."
                     : 'Guesty already runs this home; there is nothing to revert. The button stays here so the path back is always visible.'}
                 </p>
                 <SubmitButton

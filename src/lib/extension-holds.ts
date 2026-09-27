@@ -233,6 +233,18 @@ export async function detectExtensionHolds(
         const stillHeld = holdByKey.get(`${a.property_id}|${a.original_check_out}`);
         const keyEnd = a.miner_key?.split(':')[3] ?? null;
         if (stillHeld && (!keyEnd || stillHeld.block_end === keyEnd)) continue;
+        // Retract only on evidence the hold is gone: the hold's first day
+        // must be in the mirror and not a hold. A missing day is unknown,
+        // not removed: two calendar writers for one home can briefly sweep
+        // each other's rows, and a dismissed extension never comes back
+        // (its miner key is spent), which put the crew in an occupied house.
+        const { data: dayRow, error: dayErr } = await supabase
+          .from('property_calendar_days')
+          .select('date')
+          .eq('property_id', a.property_id)
+          .eq('date', a.original_check_out)
+          .maybeSingle();
+        if (dayErr || !dayRow) continue;
         const { data: gone } = await supabase
           .from('checkout_adjustments')
           .update({

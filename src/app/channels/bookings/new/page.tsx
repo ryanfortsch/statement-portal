@@ -12,6 +12,7 @@ import { quoteStay, TaxJurisdictionUnknownError, type StayQuote } from '@/lib/ra
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import { conflictFromSearchParams, describeConflict, isYmd } from '@/lib/bookings-write-core';
 import { authorityBadge, sourceGlyph } from '@/lib/calendar-model';
+import { isGuestyRuleArtifactUid } from '@/lib/calendar-holds';
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { createManualBooking } from './actions';
 
@@ -30,6 +31,10 @@ type Check = {
   guests: number;
   range: RangeCheck | null;
   conflicting: BookingEx[];
+  /** Guesty's rule artifacts over the nights (advance notice, booking
+   *  window, closed from a date, padding): shown, never a conflict, because
+   *  the writer (helm_row_conflicts) lets a stay in over them. */
+  ruleBlocks: BookingEx[];
   quote: StayQuote | null;
   quoteError: string | null;
   hasPlan: boolean;
@@ -37,7 +42,7 @@ type Check = {
 
 async function runCheck(property: FleetProperty, checkIn: string, checkOut: string, guests: number): Promise<Check> {
   const helmRun = property.calendar_authority === 'helm';
-  const out: Check = { property, checkIn, checkOut, guests, range: null, conflicting: [], quote: null, quoteError: null, hasPlan: false };
+  const out: Check = { property, checkIn, checkOut, guests, range: null, conflicting: [], ruleBlocks: [], quote: null, quoteError: null, hasPlan: false };
   try {
     const [bookings, bundle] = await Promise.all([
       // Past both edges: a neighbour's turnover buffer reaches these nights.
@@ -46,7 +51,11 @@ async function runCheck(property: FleetProperty, checkIn: string, checkOut: stri
       helmRun ? loadPricingBundle(property.id, shiftIsoDay(checkIn, -1), checkOut) : Promise.resolve(null as PricingBundle | null),
     ]);
     const live = bookings.filter((b) => b.status !== 'cancelled');
-    out.conflicting = live.filter((b) => (b.status === 'confirmed' || b.status === 'completed' || b.status === 'block') && b.check_in < checkOut && b.check_out > checkIn);
+    const overlapping = live.filter((b) => (b.status === 'confirmed' || b.status === 'completed' || b.status === 'block') && b.check_in < checkOut && b.check_out > checkIn);
+    // The writer's own rule: Guesty's rule artifacts never conflict.
+    const isRule = (b: BookingEx) => b.status === 'block' && b.source === 'ical_import' && b.hold_kind !== 'ota' && isGuestyRuleArtifactUid(b.ical_uid);
+    out.ruleBlocks = overlapping.filter(isRule);
+    out.conflicting = overlapping.filter((b) => !isRule(b));
     out.hasPlan = !!bundle?.plan;
     const days = buildAvailability({
       bookings: live,
@@ -361,6 +370,11 @@ function AvailabilityBlock({ check, isBlock }: { check: Check; isBlock: boolean 
           </span>
         ) : (
           <span style={{ color: 'var(--negative)' }}>Not available.</span>
+        )}
+        {check.ruleBlocks.length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-3)' }}>
+            Guesty rule over {check.ruleBlocks.length === 1 ? 'some of these nights' : 'these nights'} (advance notice, booking window, closed from a date, or padding): not a hold, and the database lets a stay in over it.
+          </div>
         )}
         {!helmRun && (
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-3)' }}>

@@ -123,12 +123,15 @@ export function nightHolds(bookings: readonly AvailabilityBooking[]): {
 export const TURNOVER_BUFFER_MAX_DAYS = 30;
 
 /** A row that is a guest's stay for the buffer: a canonical stay, or a live
- *  Booking.com closure (on a Helm-run home a Booking.com guest exists only
- *  as that closure; see nightHolds), whatever its duplicate mark. */
+ *  Booking.com closure not filed under a Helm row (on a Helm-run home a
+ *  Booking.com guest exists only as that closure; see nightHolds). A filed
+ *  closure is an echo whose cause is on file and buffers itself if it is a
+ *  stay: an owner hold's echo must not give the hold a turnover. */
 function isBufferedStay(b: AvailabilityBooking): boolean {
+  if (b.duplicate_of) return false;
   const status = String(b.status ?? '').toLowerCase();
   if (status === 'block') return b.hold_kind === 'ota' && b.source === 'ical_import' && b.channel === 'booking_com';
-  return !b.duplicate_of && STAY_STATUSES.has(status);
+  return STAY_STATUSES.has(status);
 }
 
 /**

@@ -95,6 +95,8 @@ export type AutomationBooking = {
   booked_at?: string | null;
   external_confirmation_code?: string | null;
   num_guests?: number | null;
+  /** bookings.source: an 'ical_import' row may yet be filed under a hand-typed twin by the sync's dedupe. */
+  source?: string | null;
   /** Why and when it was cancelled; a feed roll-off of a finished stay is not a cancel for post_checkout. */
   cancel_reason?: string | null;
   cancelled_at?: string | null;
@@ -764,6 +766,15 @@ export function triggerAppliesTo(
 
 export const PLAN_WINDOW_DAYS = 30;
 export const CONFIRMED_WINDOW_MS = 24 * 60 * 60 * 1000;
+/**
+ * A feed row's confirmation waits this long after its first sight. The sync
+ * inserts new feed rows listing by listing and files them under a
+ * hand-typed twin only in its end-of-run dedupe, while the automations cron
+ * fires at the same minute: without the wait, a stay the team typed in from
+ * the confirmation email got a second "new booking" text for its feed twin.
+ * By then the dispatcher's duplicate check sees the dedupe's verdict.
+ */
+export const FEED_CONFIRM_SETTLE_MS = 15 * 60 * 1000;
 
 export type PlannedStatus = 'scheduled' | 'skipped_cancelled';
 
@@ -893,7 +904,11 @@ export function planAutomationSends(input: PlanInput): PlannedSend[] {
         const paused = input.resumable?.has(key) ?? false;
         if (!revived && (!paused || !isFreshlyBooked(b, nowMs, undefined))) continue;
       }
-      const fireAt = fireAtFor(rule, b, plan, adjustment, input.now);
+      let fireAt = fireAtFor(rule, b, plan, adjustment, input.now);
+      if (fireAt && rule.trigger === 'booking_confirmed' && b.source === 'ical_import') {
+        const settled = Date.parse(b.first_seen_at) + FEED_CONFIRM_SETTLE_MS;
+        if (Number.isFinite(settled) && settled > fireAt.getTime()) fireAt = new Date(settled);
+      }
       const base = {
         booking_id: b.id,
         automation_id: rule.id,
@@ -1177,8 +1192,13 @@ export type DecisionInput = {
 export function decideDispatch(input: DecisionInput): DispatchDecision {
   const { row, booking, rule, property } = input;
   if (!booking) return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_missing' };
+  // A cancelled stay pauses the message (resumable) rather than killing it:
+  // a feed that drops a stay and lists it again revives the same row, and a
+  // dispatcher that claimed the row a second before ical-sync's own pause
+  // must not turn that into a verdict the revival cannot undo. The planner
+  // plans only live stays, so a stay that stays cancelled never resumes.
   if (booking.status === 'cancelled' && !(rule?.trigger === 'post_checkout' && rolledOffAfterStay(booking))) {
-    return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_cancelled' };
+    return { outcome: 'cancelled', rail: null, reason: PAUSE_REASON_STAY_CANCELLED };
   }
   if (booking.duplicate_of) return { outcome: 'skipped_cancelled', rail: null, reason: 'booking_duplicate' };
   if (booking.check_in !== row.planned_check_in || booking.check_out !== row.planned_check_out) {

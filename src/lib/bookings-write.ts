@@ -661,9 +661,20 @@ export async function deleteOrCancelBooking(id: string, actor: string): Promise<
   }
 
   if (deletable) {
-    const { error } = await supabaseAdmin.from('bookings').delete().eq('id', id);
+    // Guarded on the status read above: a Confirm from another tab, the
+    // concierge or staycapeann.com that lands in between must never be
+    // hard-deleted as if it were still an unanswered inquiry.
+    const { data: gone, error } = await supabaseAdmin
+      .from('bookings')
+      .delete()
+      .eq('id', id)
+      .eq('status', 'inquiry')
+      .select('id');
     if (error) throw new Error(`delete booking: ${error.message}`);
-    return { outcome: 'deleted', booking: before, artifacts };
+    if ((gone ?? []).length > 0) return { outcome: 'deleted', booking: before, artifacts };
+    const now = await getBooking(id);
+    if (!now) throw new Error('Booking not found.');
+    throw new Error(`This request changed while it was being deleted (it is now ${now.status}). Reload and look again before deleting or cancelling it.`);
   }
 
   const booking = before.status === 'cancelled'

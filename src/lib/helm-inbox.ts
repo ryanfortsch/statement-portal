@@ -316,8 +316,38 @@ async function insertMessage(
     .select('id')
     .maybeSingle();
   if (error) {
-    if (error.code === UNIQUE_VIOLATION) return { threadId: thread.id, messageId: null, duplicate: true };
-    throw new Error(`record message: ${error.message}`);
+    if (error.code !== UNIQUE_VIOLATION) throw new Error(`record message: ${error.message}`);
+    // An automation's send raced Quo's delivered echo of the same message,
+    // and the echo landed first with Quo's copy of the text: the UNMASKED
+    // door code, filed as a person typing in the Quo app. The automation's
+    // record is the true one (masked, attributed, linked to its ledger
+    // row), so it replaces the echo's.
+    if (m.automationSendId && m.externalMessageId) {
+      const { data: replaced } = await supabaseAdmin
+        .from('guest_messages')
+        .update({
+          body: m.body,
+          sender_kind: m.senderKind,
+          sender_label: m.senderLabel ?? null,
+          provider: m.provider ?? null,
+          automation_send_id: m.automationSendId,
+          raw: m.raw ?? null,
+        })
+        .eq('thread_id', thread.id)
+        .eq('external_message_id', m.externalMessageId)
+        .select('id')
+        .maybeSingle();
+      const id = (replaced as { id?: string } | null)?.id ?? null;
+      if (id) {
+        await supabaseAdmin
+          .from('guest_threads')
+          .update({ last_preview: previewOf(m.body) })
+          .eq('id', thread.id)
+          .eq('last_message_at', isoInstant(m.at));
+      }
+      return { threadId: thread.id, messageId: id, duplicate: true };
+    }
+    return { threadId: thread.id, messageId: null, duplicate: true };
   }
 
   // Every thread stamp here holds when a message HAPPENED, and Quo delivers
@@ -351,6 +381,32 @@ async function insertMessage(
     .or(`last_message_at.is.null,last_message_at.lte.${at}`);
 
   return { threadId: thread.id, messageId: (data?.id as string | undefined) ?? null, duplicate: false };
+}
+
+/**
+ * Overwrite a recorded message (by provider id) with an automation's own
+ * record of it: its masked body, its sender and its ledger link. The
+ * thread's preview follows when that message is the thread's newest.
+ */
+async function replaceEchoWithAutomation(
+  externalMessageId: string,
+  m: { body: string; senderKind: SenderKind; senderLabel: string | null; automationSendId: string; raw: Record<string, unknown> | null },
+): Promise<{ threadId: string; messageId: string } | null> {
+  const { data, error } = await supabaseAdmin
+    .from('guest_messages')
+    .update({ body: m.body, sender_kind: m.senderKind, sender_label: m.senderLabel, automation_send_id: m.automationSendId, provider: 'quo', raw: m.raw })
+    .eq('external_message_id', externalMessageId)
+    .select('id, thread_id, sent_at');
+  if (error || !data || data.length === 0) return null;
+  const rows = data as Array<{ id: string; thread_id: string; sent_at: string }>;
+  for (const r of rows) {
+    await supabaseAdmin
+      .from('guest_threads')
+      .update({ last_preview: previewOf(m.body) })
+      .eq('id', r.thread_id)
+      .eq('last_message_at', isoInstant(r.sent_at));
+  }
+  return { threadId: rows[0].thread_id, messageId: rows[0].id };
 }
 
 /** True when any thread already holds this provider message id. Used so a
@@ -484,6 +540,19 @@ export async function recordOutboundSms(input: OutboundSmsInput): Promise<Outbou
   const e164 = normalizeThreadKey('sms', input.phone);
   if (!e164) return { recorded: false, reason: 'bad_phone' };
   if (input.quoMessageId && (await isMessageRecorded(input.quoMessageId))) {
+    // Quo's delivered echo of an automation's text got here first, with
+    // Quo's copy of the body: the unmasked door code, filed as a person in
+    // the Quo app. The automation's record is the true one.
+    if (input.automationSendId) {
+      const id = await replaceEchoWithAutomation(input.quoMessageId, {
+        body: input.body,
+        senderKind: input.senderKind,
+        senderLabel: input.senderLabel ?? null,
+        automationSendId: input.automationSendId,
+        raw: input.raw ?? null,
+      });
+      if (id) return { recorded: true, threadId: id.threadId, messageId: id.messageId, duplicate: true };
+    }
     return { recorded: false, reason: 'already_recorded' };
   }
 

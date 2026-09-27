@@ -311,8 +311,10 @@ describe('the buffer reaches a request from a neighbour it does not overlap (rou
     assert.deepEqual(checkRange(days, '2026-10-19', '2026-10-22').unavailableDates, ['2026-10-19']);
   });
   test('a Booking.com guest, which a Helm-run home holds only as a closure, gets a buffer; an owner hold does not', () => {
-    const bcom: AvailabilityBooking = { status: 'block', hold_kind: 'ota', source: 'ical_import', channel: 'booking_com', check_in: '2026-10-16', check_out: '2026-10-19', duplicate_of: 'x' };
+    const bcom: AvailabilityBooking = { status: 'block', hold_kind: 'ota', source: 'ical_import', channel: 'booking_com', check_in: '2026-10-16', check_out: '2026-10-19' };
     assert.deepEqual([...bufferNights([bcom], 1)].sort(), ['2026-10-15', '2026-10-19']);
+    // Filed under a Helm row (an echo of an owner hold, say): its cause buffers itself, or needs none (round 17).
+    assert.equal(bufferNights([{ ...bcom, duplicate_of: 'owner-hold-id' }], 1).size, 0);
     const owner: AvailabilityBooking = { status: 'block', hold_kind: 'owner', source: 'manual', check_in: '2026-10-16', check_out: '2026-10-19' };
     assert.equal(bufferNights([owner], 1).size, 0);
     const airbnbClosure: AvailabilityBooking = { status: 'block', hold_kind: 'ota', source: 'ical_import', channel: 'airbnb', check_in: '2026-10-16', check_out: '2026-10-19' };

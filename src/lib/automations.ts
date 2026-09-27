@@ -107,7 +107,7 @@ const RULE_COLS =
   'id, key, property_id, audience, trigger, offset_days, at_local, timezone, channel_exclusions, delivery, send_mode, min_nights, subject, body, enabled, configured_in_ota, created_by, created_at, updated_at';
 
 const BOOKING_COLS =
-  'id, property_id, channel, status, check_in, check_out, guest_name, guest_phone, guest_email, guest_id, duplicate_of, first_seen_at, booked_at, external_confirmation_code, num_guests, cancel_reason, cancelled_at';
+  'id, property_id, channel, status, check_in, check_out, guest_name, guest_phone, guest_email, guest_id, duplicate_of, first_seen_at, booked_at, external_confirmation_code, num_guests, source, cancel_reason, cancelled_at';
 
 const SEND_COLS =
   'id, booking_id, automation_id, automation_key, property_id, fire_at, status, delivery_used, to_address, subject_rendered, body_rendered, secrets_sent, missing_fields, provider_message_id, guest_message_id, error, planned_check_in, planned_check_out, approved_by, approved_at, sent_at, created_at, updated_at';
