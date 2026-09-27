@@ -86,6 +86,11 @@ const HANDOFF_LABEL: Record<string, string> = {
   contractor: 'Contractor note',
   owner: 'Owner note',
 };
+const HANDOFF_HREF: Record<string, string> = {
+  cleaner: '/cleaner-messaging',
+  contractor: '/contractor-messaging',
+  owner: '/owner-messaging',
+};
 const HANDOFF_SURFACE: Record<string, string> = {
   cleaner: 'Cleaner messaging',
   contractor: 'Contractor messaging',
@@ -402,7 +407,7 @@ function ApprovalCard({
     addon || handoff
       ? {
           ...(addon ? { sendAddonSms: addonSmsPossible && sendAddonSms } : {}),
-          ...(handoff ? { createHandoff } : {}),
+          ...(handoff && !handoff.filed ? { createHandoff } : {}),
         }
       : undefined;
   const copyAddonLink = async () => {
@@ -1201,8 +1206,9 @@ function ApprovalCard({
 
           {handoff.reason && (
             <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--ink-2)' }}>
-              This reply commits us to something {handoff.target_name || 'the crew'} needs
-              to know: {handoff.reason}.
+              {handoff.filed
+                ? `${handoff.target_name || 'The crew'} needs to know: ${handoff.reason}.`
+                : `This reply commits us to something ${handoff.target_name || 'the crew'} needs to know: ${handoff.reason}.`}
             </p>
           )}
 
@@ -1232,6 +1238,9 @@ function ApprovalCard({
             </p>
           )}
 
+          {/* Same row either way, so the eye learns one shape: a tick means a
+              note exists for the crew. Live, it is a decision; filed, it is a
+              receipt for one another module already made. */}
           <label
             style={{
               marginTop: 10,
@@ -1240,21 +1249,40 @@ function ApprovalCard({
               gap: 7,
               fontSize: 12,
               color: 'var(--ink-2)',
-              cursor: 'pointer',
+              cursor: handoff.filed ? 'default' : 'pointer',
             }}
           >
             <input
               type="checkbox"
-              checked={createHandoff}
+              checked={handoff.filed ? true : createHandoff}
+              disabled={handoff.filed}
               onChange={(e) => setCreateHandoff(e.target.checked)}
               style={{ accentColor: HANDOFF_TONE, marginTop: 2 }}
             />
             <span>
-              Draft this for {handoff.target_name || 'them'} when I approve
-              <span style={{ color: 'var(--ink-4)' }}>
-                {' '}(it waits on {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'} for
-                your approval, nothing sends now)
-              </span>
+              {handoff.filed ? (
+                <>
+                  Drafted for {handoff.target_name || 'them'}
+                  <span style={{ color: 'var(--ink-4)' }}>
+                    {' '}(waiting on{' '}
+                    <a
+                      href={HANDOFF_HREF[handoff.audience] ?? '/messaging'}
+                      style={{ color: 'var(--ink-3)' }}
+                    >
+                      {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'}
+                    </a>
+                    {' '}for your approval, nothing has sent)
+                  </span>
+                </>
+              ) : (
+                <>
+                  Draft this for {handoff.target_name || 'them'} when I approve
+                  <span style={{ color: 'var(--ink-4)' }}>
+                    {' '}(it waits on {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'} for
+                    your approval, nothing sends now)
+                  </span>
+                </>
+              )}
             </span>
           </label>
 

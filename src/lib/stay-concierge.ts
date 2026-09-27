@@ -108,6 +108,12 @@ export type AddonCharge = {
  * the guest card. Absent on ordinary cards, and absent once the teammate card
  * exists, so a re-opened card never offers to file a duplicate. */
 export type TeamHandoff = {
+  /** True when the teammate card ALREADY EXISTS: this reply was approved, or
+   * another module filed it off the same inbound message (early_checkout does,
+   * because an empty house cannot wait on a reply being approved). The block
+   * renders read-only rather than disappearing, so the operator can see from
+   * the guest queue that the crew was told. */
+  filed: boolean;
   audience: 'cleaner' | 'contractor' | 'owner';
   /** Rosa, the handyman, the owner. '' when the roster had no name. */
   target_name: string;
