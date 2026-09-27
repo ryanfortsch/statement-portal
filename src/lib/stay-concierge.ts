@@ -54,6 +54,9 @@ export type Approval = {
   /** Mined add-on charge (Tesla charger, pet fee, early check-in fee) with
    * its Stripe payment link. Null/absent for ordinary cards. */
   addon?: AddonCharge | null;
+  /** Note to a teammate this reply commits us to. Null/absent for ordinary
+   * cards. See TeamHandoff. */
+  handoff?: TeamHandoff | null;
   /** The guest's email, when the card's channel knows it: a 2027 request
    * carries it in its own sidecar, an email card IS an address. Empty on OTA
    * chat. Helm uses it to open the quote composer complete and to find this
@@ -93,6 +96,35 @@ export type AddonCharge = {
   guest_phone: string;
   /** UTC ISO when the guest completed checkout; '' / absent = not yet paid. */
   paid_at?: string;
+};
+
+/** A note to a TEAMMATE that this guest reply commits us to, composed at
+ * draft time so the operator sees the exact text before she approves.
+ *
+ * The reply says "11am works, you're all set" and Rosa has to plan the
+ * turnover around it. Leaving the box ticked files this as a PENDING card in
+ * that audience's own queue (/cleaner-messaging, /contractor-messaging,
+ * /owner-messaging), where it waits for a second approve. Nothing sends from
+ * the guest card. Absent on ordinary cards, and absent once the teammate card
+ * exists, so a re-opened card never offers to file a duplicate. */
+export type TeamHandoff = {
+  audience: 'cleaner' | 'contractor' | 'owner';
+  /** Rosa, the handyman, the owner. '' when the roster had no name. */
+  target_name: string;
+  /** E.164 line the teammate card will send on. */
+  target_contact: string;
+  /** Short why, e.g. "checkout moved to 11am". */
+  reason: string;
+  /** What will SEND. Portuguese for a cleaner (#1614: stored is sent). */
+  preview: string;
+  /** The English alongside it, '' when the send language is already English. */
+  preview_english: string;
+  /** 'today' | 'soon' | 'routine' */
+  urgency: string;
+  /** 'high' | 'medium' | 'low' */
+  confidence: string;
+  /** Non-empty when a previous approve failed to file the card. */
+  create_error: string;
 };
 
 export type ApprovalsResponse = {
@@ -401,7 +433,21 @@ export async function listRecentApprovals(hours = 24) {
   return request<ApprovalsResponse>(`/api/approvals/recent?hours=${hours}`);
 }
 
-export async function approveApproval(id: string, opts?: { sendAddonSms?: boolean; actor?: string }) {
+/** Only the overrides the card actually carries travel; an ordinary approval
+ * keeps its empty-body shape. Pass the RAW object: request() stringifies, and
+ * pre-stringifying double-encoded it into a JSON string, which FastAPI
+ * rejected with a 422 on every addon-carrying approve (2026-08-20). */
+export function buildApproveBody(opts?: { sendAddonSms?: boolean; createHandoff?: boolean }) {
+  const body: Record<string, boolean> = {};
+  if (opts?.sendAddonSms !== undefined) body.send_addon_sms = opts.sendAddonSms;
+  if (opts?.createHandoff !== undefined) body.create_handoff = opts.createHandoff;
+  return Object.keys(body).length > 0 ? body : undefined;
+}
+
+export async function approveApproval(
+  id: string,
+  opts?: { sendAddonSms?: boolean; createHandoff?: boolean; actor?: string },
+) {
   return request<{ status: string; id: string }>(`/api/approvals/${id}/approve`, {
     method: 'POST',
     actor: opts?.actor,
@@ -410,10 +456,7 @@ export async function approveApproval(id: string, opts?: { sendAddonSms?: boolea
     // and pre-stringifying here double-encoded the body into a JSON string,
     // which FastAPI rejected with a 422 on every addon-carrying approve
     // (Leah / 3 Locust EV fee, 2026-08-20).
-    body:
-      opts && opts.sendAddonSms !== undefined
-        ? { send_addon_sms: opts.sendAddonSms }
-        : undefined,
+    body: buildApproveBody(opts),
   });
 }
 

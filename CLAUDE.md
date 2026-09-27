@@ -114,6 +114,23 @@ The four messaging surfaces share a client panel (`src/components/ProactiveRemin
 but keep separate server-action files by audience. That split is deliberate: Next server actions
 are per-route.
 
+**A guest reply can draft a note to a teammate.** When the AI sees that a reply COMMITS something
+a teammate must act on (an 11 AM late checkout Rosa has to plan the turnover around, a repair for
+a contractor), the guest card carries a preview of that teammate's message and a ticked checkbox.
+Approving files it as a PENDING card in that audience's own queue, where it waits for a second
+approve. Nothing sends from the guest card, and nothing reaches the crew unattended.
+
+Detection and the preview live in stay-concierge (`src/team_handoffs.py`), because that is what
+composes the draft; Helm renders the block and passes `create_handoff` back on approve. Two rules
+are load-bearing and were both learned the hard way:
+
+- The gate reads the guest's message AND the reply, never the reply alone. The settlement is the
+  shortest line in the thread and carries no vocabulary at all ("11am works, you're all set"); the
+  ask carries all of it.
+- The commitment is created by the approve TAP, not by history. The three thread miners
+  (`messages-to-slips`, `mine-checkout-changes`, `turnover-notes`) all read the past on a cron and
+  all three miss this by design or by timing. Do not "fix" one of them to cover it.
+
 ## Auth and routing
 
 `src/proxy.ts` gates everything by default. A route is public only if it appears in
