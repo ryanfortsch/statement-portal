@@ -26,7 +26,7 @@ async function requireSession(): Promise<ActionResult> {
  * case the backend applies its inferred defaults. */
 export async function approveCleanerDraft(
   id: string,
-  opts?: { fileSlip?: boolean; slipPropertyId?: string },
+  opts?: { fileSlip?: boolean; slipPropertyId?: string; createHandoff?: boolean },
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;

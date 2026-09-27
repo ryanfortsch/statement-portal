@@ -1012,6 +1012,10 @@ export type CleanerApproval = {
   /** Work-slip proposal mined from the message; null when there is none.
    * property_id/property_name above may be non-empty (inferred) for these. */
   proposed_slip: ProposedWorkSlip | null;
+  /** A note to an outside trade this damage report owes, previewed with a
+   * ticked box. Approving files it as a PENDING card on
+   * /contractor-messaging; nothing sends from here. See TeamHandoff. */
+  handoff?: TeamHandoff | null;
   /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
    * Empty otherwise. */
   send_at: string;
@@ -1036,14 +1040,24 @@ export async function listRecentCleanerApprovals(hours = 24) {
  * operator actually decided travel. */
 export async function approveCleanerApproval(
   id: string,
-  opts?: { fileSlip?: boolean; slipPropertyId?: string },
+  opts?: { fileSlip?: boolean; slipPropertyId?: string; createHandoff?: boolean },
 ) {
   return request<{ status: string; id: string; slip?: { id: string; deduped: boolean } | null }>(
     `/api/cleaner-approvals/${id}/approve`,
     {
       method: 'POST',
+      // Only what the card actually carries travels; a key the card has no
+      // control for would record a decision the operator never made.
       ...(opts !== undefined
-        ? { body: { file_slip: opts.fileSlip, slip_property_id: opts.slipPropertyId } }
+        ? {
+            body: {
+              file_slip: opts.fileSlip,
+              slip_property_id: opts.slipPropertyId,
+              ...(opts.createHandoff !== undefined
+                ? { create_handoff: opts.createHandoff }
+                : {}),
+            },
+          }
         : {}),
     },
   );

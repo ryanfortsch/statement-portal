@@ -39,6 +39,9 @@ const PAGE_REFRESH_MS = 60_000;
 // Teal for the work-slip-on-approval block: an operational side effect,
 // distinct from both the draft (ink) and error/stale (signal) tones.
 const SLIP_TONE = '#1f5e6b';
+/** The contractor-note block. Distinct from the slip tone: a slip records
+ *  that we know, this gets someone to the house. */
+const HANDOFF_TONE = '#3d6b63';
 
 export function CleanerMessagingQueue({ initialPending, properties }: Props) {
   // The cards come from the queue's own feed. Seeded by the server render.
@@ -159,6 +162,10 @@ function CleanerApprovalCard({
     slip && inferredKnown ? approval.property_id : '',
   );
   const [fileSlip, setFileSlip] = useState(true);
+  // A note to an outside trade this report owes. Ticked by default: the slip
+  // records that we know, it does not get anyone to the house.
+  const handoff = approval.handoff ?? null;
+  const [createHandoff, setCreateHandoff] = useState(true);
   // Filing needs a destination: block approve rather than silently dropping
   // the slip (or filing it nowhere). Unticking the box unblocks.
   const slipBlocked = !!slip && fileSlip && !slipPropertyId;
@@ -443,6 +450,64 @@ function CleanerApprovalCard({
         </div>
       )}
 
+      {handoff && (
+        <div
+          style={{
+            marginTop: 14,
+            border: '1px solid var(--rule)',
+            borderLeft: `3px solid ${HANDOFF_TONE}`,
+            background: 'var(--paper)',
+            padding: '12px 14px',
+          }}
+        >
+          <div className="eyebrow" style={{ color: HANDOFF_TONE, marginBottom: 6 }}>
+            Contractor note
+            {handoff.target_name ? ` · ${handoff.target_name}` : ''}
+            {handoff.urgency === 'today' ? ' · today' : ''}
+          </div>
+          {handoff.reason && (
+            <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--ink-2)' }}>
+              {handoff.reason}
+            </p>
+          )}
+          <p
+            style={{
+              margin: 0,
+              fontSize: 13,
+              lineHeight: 1.55,
+              color: 'var(--ink-1)',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {handoff.preview}
+          </p>
+          <label
+            style={{
+              marginTop: 10,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 7,
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={createHandoff}
+              onChange={(e) => setCreateHandoff(e.target.checked)}
+              style={{ accentColor: HANDOFF_TONE, width: 14, height: 14, marginTop: 2 }}
+            />
+            <span>
+              Draft this for {handoff.target_name || 'them'} when I approve
+              <span style={{ color: 'var(--ink-4)' }}>
+                {' '}(it waits on Contractor messaging for your approval, nothing sends now)
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       {error && (
         <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
           {error}
@@ -485,8 +550,13 @@ function CleanerApprovalCard({
                 run('approve', () =>
                   approveCleanerDraft(
                     approval.id,
-                    slip
-                      ? { fileSlip, slipPropertyId: slipPropertyId || undefined }
+                    slip || handoff
+                      ? {
+                          ...(slip
+                            ? { fileSlip, slipPropertyId: slipPropertyId || undefined }
+                            : {}),
+                          ...(handoff ? { createHandoff } : {}),
+                        }
                       : undefined,
                   ),
                 )
