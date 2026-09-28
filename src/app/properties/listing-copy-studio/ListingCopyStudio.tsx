@@ -58,7 +58,7 @@ function toRow(c: ListingCopyRow): Row {
     description: c.description,
     highlights: c.highlights.length ? c.highlights : [''],
     baseline: sig(c.tagline, c.description, c.highlights),
-    staged: false,
+    staged: c.staged,
     status: 'idle',
     open: false,
   };

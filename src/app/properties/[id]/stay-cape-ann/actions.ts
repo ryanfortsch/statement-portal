@@ -24,6 +24,7 @@ import {
   SCA_DEMO_MODE_SENTINEL,
 } from '@/lib/sca-config';
 import * as gh from '@/lib/github';
+import { loadListingCopyEntries } from '@/lib/sca-listing-copy';
 import { getGuestyListing } from '@/lib/guesty';
 import type { HelmPropertyRow } from '@/lib/properties';
 
@@ -592,6 +593,8 @@ export type ListingCopyRow = {
   tagline: string;
   description: string;
   highlights: string[];
+  /** Editorial changes saved on the batch branch and not yet live. */
+  staged: boolean;
   /** Human-readable copy problems, e.g. "OTA bullets", "no copy". Empty = clean. */
   flags: string[];
 };
@@ -626,8 +629,8 @@ function assessListingCopy(e: Record<string, unknown>): string[] {
 /**
  * List every listing in the SCA registry with its current editorial copy and a
  * quality assessment, so the operator reviews all listings on one screen and
- * fixes the bad ones. Reads the registry directly (the source of what's on the
- * site), so it covers ALL listings, not only the ones Helm launched.
+ * fixes the bad ones. Restores pending batch edits over the live registry, so it
+ * covers ALL listings and staged work survives reopening the editor.
  */
 export async function listScaListingCopy(): Promise<
   { ok: true; rows: ListingCopyRow[] } | { ok: false; error: string }
@@ -636,10 +639,8 @@ export async function listScaListingCopy(): Promise<
   if (!email) return { ok: false, error: 'Not signed in' };
   if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
   try {
-    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
-    if (!file) return { ok: false, error: `Could not read ${SCA_REGISTRY_PATH}` };
-    const obj = JSON.parse(file.contentUtf8) as RegistryShape;
-    const rows: ListingCopyRow[] = Object.entries(obj.listings ?? {}).map(([id, v]) => ({
+    const entries = await loadListingCopyEntries(gh, SCA_REGISTRY_PATH, SCA_PROD_BRANCH, COPY_BRANCH);
+    const rows: ListingCopyRow[] = entries.map(({ id, entry: v, staged }) => ({
       guestyListingId: id,
       internalName: String(v.internalName ?? '').trim(),
       publicName: String(v.publicName ?? id).trim(),
@@ -648,6 +649,7 @@ export async function listScaListingCopy(): Promise<
       description: String(v.description ?? ''),
       highlights: Array.isArray(v.highlights) ? (v.highlights as unknown[]).map((h) => String(h ?? '')) : [],
       flags: assessListingCopy(v),
+      staged,
     }));
     // Flagged listings first (the ones that need attention), then alphabetical.
     rows.sort(
