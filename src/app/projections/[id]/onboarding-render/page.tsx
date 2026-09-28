@@ -78,7 +78,8 @@ function buildGroups(d: OnboardingData): Group[] {
       items: [
         { label: 'Currently listed', value: d.currently_listed },
         { label: 'Listing URLs', value: d.listing_urls },
-        { label: 'STR registration #', value: d.str_registration },
+        { label: 'MA Room Occupancy Cert #', value: d.room_occupancy_cert },
+        { label: 'Local STR permit #', value: d.str_registration },
         { label: 'STR insurance', value: d.str_insurance },
         { label: 'Guest access method', value: d.guest_access_method },
         { label: 'Smart lock brand', value: d.smart_lock_brand },
