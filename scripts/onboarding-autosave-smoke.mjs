@@ -81,7 +81,7 @@ try {
   const edit = value => page.$eval('input', (input, value) => {
     input.value = value; input.dispatchEvent(new Event('input', { bubbles: true }));
   }, value);
-  const status = () => page.$eval('[role=status]', el => el.textContent);
+  const status = () => page.$eval('[role=status]', el => el.innerText);
   const waitSaves = (count, timeout = 3000) => page.waitForFunction(count => window.saves.length === count, { timeout }, count);
   const resolveSave = (index, ok = true) => page.evaluate((index, ok) => {
     window.saves[index].resolve(ok ? { ok: true, savedAt: new Date().toISOString() } : { ok: false, reason: 'Synthetic failure' });
@@ -97,17 +97,17 @@ try {
   await edit('First'); assert.equal(await status(), 'Unsaved changes');
   await waitSaves(1);
   await edit('Latest'); await resolveSave(0);
-  await page.waitForFunction(() => document.querySelector('[role=status]').textContent === 'Unsaved changes');
+  await page.waitForFunction(() => document.querySelector('[role=status]').innerText === 'Unsaved changes');
   await hide(); await waitSaves(2, 750);
   assert.equal(await page.evaluate(() => window.saves[1].answer), 'Latest');
   await resolveSave(1);
-  await page.waitForFunction(() => document.querySelector('[role=status]').textContent.startsWith('Saved'));
+  await page.waitForFunction(() => document.querySelector('[role=status]').innerText.startsWith('Saved'));
   pass('old success leaves newer edits unsaved and tab-hide saves the latest answers');
 
   await reset(); await edit('Retry me'); await waitSaves(1); await resolveSave(0, false);
-  await page.waitForFunction(() => document.querySelector('[role=status]').textContent.includes('Couldn’t save'));
+  await page.waitForFunction(() => document.querySelector('[role=status]').innerText.includes('Couldn’t save'));
   await hide(); await waitSaves(2, 750); await resolveSave(1);
-  await page.waitForFunction(() => document.querySelector('[role=status]').textContent.startsWith('Saved'));
+  await page.waitForFunction(() => document.querySelector('[role=status]').innerText.startsWith('Saved'));
   pass('failed draft remains retryable and only success displays Saved');
 
   await reset(); await edit('Old snapshot'); await waitSaves(1);
