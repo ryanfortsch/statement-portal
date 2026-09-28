@@ -6,6 +6,7 @@ on:
       - 'src/**'
       - 'package*.json'
       - 'scripts/property-document-smoke.mjs'
+      - 'scripts/photo-upload-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -39,6 +40,8 @@ jobs:
           TZ: America/New_York
       - name: Verify access and real Chromium PDFs with synthetic data
         run: node scripts/property-document-smoke.mjs
+      - name: Verify batch photo uploads with synthetic files
+        run: node scripts/photo-upload-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()
