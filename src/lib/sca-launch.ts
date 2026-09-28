@@ -219,6 +219,26 @@ export function buildRegistryEntry(form: z.infer<typeof scaFormSchema>): ScaRegi
 
 type RawRegistry = { description?: string; listings?: Record<string, unknown> };
 
+/** Compare registry content independent of object-key order, retaining array order. */
+export function scaPreviewSignature(listingId: string, entry: unknown): string | null {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, child]) => [key, canonical(child)]));
+    }
+    return value;
+  };
+  return JSON.stringify([listingId.trim(), canonical(entry)]);
+}
+
+/** Use the exact validation/serialization used when opening the preview PR. */
+export function scaDraftPreviewSignature(draft: ScaFormDraft): string | null {
+  const valid = validateScaForm(draft);
+  return valid.ok ? scaPreviewSignature(valid.data.guestyListingId, buildRegistryEntry(valid.data)) : null;
+}
+
 function parseRegistry(raw: string): RawRegistry {
   const obj = JSON.parse(raw) as RawRegistry;
   if (!obj || typeof obj !== 'object') throw new Error('Registry JSON is not an object');

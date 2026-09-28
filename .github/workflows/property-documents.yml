@@ -9,6 +9,7 @@ on:
       - 'scripts/photo-upload-smoke.mjs'
       - 'scripts/onboarding-autosave-smoke.mjs'
       - 'scripts/listing-editor-smoke.mjs'
+      - 'scripts/sca-launch-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -48,6 +49,8 @@ jobs:
         run: node scripts/onboarding-autosave-smoke.mjs
       - name: Verify listing editor recovery with synthetic copy
         run: node scripts/listing-editor-smoke.mjs
+      - name: Verify launch draft and preview safeguards with synthetic listings
+        run: node scripts/sca-launch-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()

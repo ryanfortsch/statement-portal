@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useTransition, type CSSProperties, type ReactNode } from 'react';
 import { PhotoUploader } from '@/components/PhotoUploader';
-import type { ScaFormDraft, ScaLaunchRow, PaymentVerifySignal } from '@/lib/sca-launch';
+import { scaDraftPreviewSignature, type ScaFormDraft, type ScaLaunchRow, type PaymentVerifySignal } from '@/lib/sca-launch';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import {
   scaStripeEnvVarNames,
   scaStripeWebhookUrl,
@@ -62,11 +63,15 @@ export function ScaLaunchClient(props: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const busyRef = useRef(false);
+  const [savedForm, setSavedForm] = useState(() => JSON.stringify(form));
+  const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(() => new Set());
   const [previewState, setPreviewState] = useState<PreviewState>('none');
+  const [previewSignature, setPreviewSignature] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [verifyResult, setVerifyResult] = useState<{ signal: PaymentVerifySignal; target: string } | null>(null);
   const [guestyInfo, setGuestyInfo] = useState<{ bedrooms: number | null; bathrooms: number | null; accommodates: number | null; photos: number; amenities: number } | null>(null);
   const [, startTransition] = useTransition();
-  const polling = useRef(false);
   const noticeRef = useRef<HTMLDivElement | null>(null);
 
   // The notice banner renders at the top of a long form, but the buttons that
@@ -82,31 +87,50 @@ export function ScaLaunchClient(props: Props) {
   const isLive = status === 'live';
   // A live listing with an open update PR (copy edited post-launch, awaiting publish).
   const hasPendingUpdate = isLive && (row?.branch_name?.startsWith('sca-update/') ?? false);
+  const hasContentPreview = status === 'pr_open' || hasPendingUpdate;
+  const dirty = JSON.stringify(form) !== savedForm;
+  const blocked = busy !== null || uploadingSlots.size > 0;
+  const previewMatches = previewSignature !== null && scaDraftPreviewSignature(form) === previewSignature;
+  useUnsavedWorkGuard(dirty || blocked);
   const env = scaStripeEnvVarNames(form.stripeAccountKey || 'ACCOUNT_KEY');
   const webhookUrl = scaStripeWebhookUrl(form.stripeAccountKey || 'ACCOUNT_KEY');
   const paymentsReady = !!(row?.payment_publishable_set && row?.payment_secret_set && row?.payment_webhook_set);
 
   // Auto-poll the preview deploy while a PR is open and not yet resolved.
   useEffect(() => {
-    if (status !== 'pr_open') return;
-    if (previewState === 'success' || previewState === 'failure') return;
+    if (!hasContentPreview || blocked) return;
+    let cancelled = false;
+    let polling = false;
+    let complete = false;
     const tick = async () => {
-      if (polling.current) return;
-      polling.current = true;
+      if (polling || complete) return;
+      polling = true;
       try {
         const r = await refreshPreviewStatus(props.propertyId);
+        if (cancelled) return;
         if (r.ok) {
           setPreviewState(r.state);
-          if (r.url) setRow((prev) => (prev ? { ...prev, preview_url: r.url } : prev));
+          setPreviewSignature(r.signature);
+          setPreviewError(r.hint ?? null);
+          setRow((prev) => (prev ? { ...prev, preview_url: r.url } : prev));
+          complete = r.state === 'success' || r.state === 'failure';
+        } else {
+          setPreviewSignature(null);
+          setPreviewError(r.error);
+        }
+      } catch {
+        if (!cancelled) {
+          setPreviewSignature(null);
+          setPreviewError('Could not check the preview. Retrying automatically; you can also use Check now.');
         }
       } finally {
-        polling.current = false;
+        polling = false;
       }
     };
     void tick();
     const iv = setInterval(tick, 12000);
-    return () => clearInterval(iv);
-  }, [status, previewState, props.propertyId]);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [hasContentPreview, blocked, row?.branch_name, props.propertyId]);
 
   function set<K extends keyof ScaFormDraft>(key: K, value: ScaFormDraft[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -116,6 +140,8 @@ export function ScaLaunchClient(props: Props) {
   }
 
   function run(name: string, fn: () => Promise<void>) {
+    if (busyRef.current || uploadingSlots.size > 0) return;
+    busyRef.current = true;
     setBusy(name);
     setNotice(null);
     startTransition(async () => {
@@ -124,6 +150,7 @@ export function ScaLaunchClient(props: Props) {
       } catch (e) {
         setNotice({ kind: 'err', text: (e as Error).message });
       } finally {
+        busyRef.current = false;
         setBusy(null);
       }
     });
@@ -134,6 +161,7 @@ export function ScaLaunchClient(props: Props) {
       const res = await saveScaDraft(props.propertyId, form);
       if (res.ok) {
         setRow(res.row);
+        setSavedForm(JSON.stringify(form));
         // A successful save invalidates any field errors left from an earlier
         // failed PR attempt. Leaving them up made the form read as still-broken
         // ("Draft saved." banner + a red iCal error from ten minutes ago), and
@@ -206,10 +234,14 @@ export function ScaLaunchClient(props: Props) {
 
   const onOpenPr = () =>
     run('pr', async () => {
+      setPreviewSignature(null);
+      setPreviewError(null);
       setErrors({});
       const res = await openScaPr(props.propertyId, form);
       if (res.ok) {
         setRow(res.row);
+        setSavedForm(JSON.stringify(form));
+        setPreviewSignature(scaDraftPreviewSignature(form));
         setPreviewState('pending');
         setNotice({ kind: 'ok', text: 'Pull request opened. Building a preview…' });
       } else if (res.errors) {
@@ -224,10 +256,14 @@ export function ScaLaunchClient(props: Props) {
 
   const onUpdateLive = () =>
     run('update', async () => {
+      setPreviewSignature(null);
+      setPreviewError(null);
       setErrors({});
       const res = await openScaUpdatePr(props.propertyId, form);
       if (res.ok) {
         setRow(res.row);
+        setSavedForm(JSON.stringify(form));
+        setPreviewSignature(scaDraftPreviewSignature(form));
         setPreviewState('pending');
         setNotice({ kind: 'ok', text: 'Update PR opened. The listing stays live until you publish. Review the preview, then click Publish update.' });
       } else if (res.errors) {
@@ -241,8 +277,9 @@ export function ScaLaunchClient(props: Props) {
 
   const onPublishUpdate = () =>
     run('publish', async () => {
+      if (!previewMatches) return;
       if (!window.confirm('Publish this update? It merges the PR and the live page updates within a couple minutes.')) return;
-      const res = await publishScaUpdate(props.propertyId);
+      const res = await publishScaUpdate(props.propertyId, form);
       if (res.ok) {
         setRow(res.row);
         setPreviewState('none');
@@ -270,8 +307,9 @@ export function ScaLaunchClient(props: Props) {
 
   const onGoLive = (override: boolean) =>
     run('golive', async () => {
+      if (!previewMatches) return;
       if (override && !window.confirm('Go live now, skipping the readiness checks? This merges the PR and the page goes public immediately.')) return;
-      const res = await goLiveSca(props.propertyId, override);
+      const res = await goLiveSca(props.propertyId, override, form);
       if (res.ok) {
         setRow(res.row);
         setNotice({ kind: 'ok', text: 'Live. The property is on staycapeann.com.' });
@@ -313,12 +351,16 @@ export function ScaLaunchClient(props: Props) {
       )}
 
       {/* ── Stage 1: Content ─────────────────────────────────────────── */}
-      <section style={card}>
+      <fieldset disabled={blocked} style={{ ...card, minWidth: 0 }}>
         <div className="eyebrow">Step 1</div>
         <h2 className="font-serif" style={sectionTitle}>Listing content</h2>
         <p style={hintStyle}>
           This becomes the entry in <code style={mono}>data/ical-urls.json</code>. Editorial voice: concrete and
           place-anchored, no exclamation marks, no em dashes. Only name a restaurant that&rsquo;s on the verified list.
+        </p>
+        <p role="status" style={hintStyle}>
+          {dirty ? 'Unsaved changes. Save your draft before leaving.' : 'No unsaved changes.'}
+          {uploadingSlots.size > 0 ? ' Wait for the photo upload to finish before saving.' : ''}
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 18 }}>
@@ -446,7 +488,12 @@ export function ScaLaunchClient(props: Props) {
                   value={Array.isArray(s.photo) ? s.photo : []}
                   onChange={(next) => updateAt('sleepingArrangements', i, { ...s, photo: next })}
                   folder={`sca/${props.propertyId}/bedrooms`}
-                  disabled={busy !== null}
+                  disabled={blocked}
+                  onUploadingChange={(uploading) => setUploadingSlots((prev) => {
+                    const next = new Set(prev);
+                    if (uploading) next.add(i); else next.delete(i);
+                    return next;
+                  })}
                 />
               </div>
             </>
@@ -484,7 +531,7 @@ export function ScaLaunchClient(props: Props) {
               {hasPendingUpdate && (
                 <>
                   {row?.pr_url && <a href={row.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>Update PR ↗</a>}
-                  <button type="button" style={btnBase} disabled={busy !== null} onClick={onPublishUpdate}>
+                  <button type="button" style={btnBase} disabled={blocked || !previewMatches} onClick={onPublishUpdate}>
                     {busy === 'publish' ? 'Publishing…' : 'Publish update'}
                   </button>
                 </>
@@ -502,7 +549,7 @@ export function ScaLaunchClient(props: Props) {
             </button>
           </div>
         )}
-      </section>
+      </fieldset>
 
       {/* ── Stage 2: Preview ─────────────────────────────────────────── */}
       <section style={{ ...card, opacity: prOpen ? 1 : 0.55 }}>
@@ -523,16 +570,20 @@ export function ScaLaunchClient(props: Props) {
               <button
                 type="button"
                 style={{ ...btnBase, padding: '4px 10px', marginLeft: 10 }}
-                disabled={busy !== null}
+                disabled={blocked}
                 onClick={() =>
                   run('preview', async () => {
                     const r = await refreshPreviewStatus(props.propertyId);
                     if (!r.ok) {
+                      setPreviewSignature(null);
+                      setPreviewError(r.error);
                       setNotice({ kind: 'err', text: r.error });
                       return;
                     }
                     setPreviewState(r.state);
-                    if (r.url) setRow((p) => (p ? { ...p, preview_url: r.url } : p));
+                    setPreviewSignature(r.signature);
+                    setPreviewError(r.hint ?? null);
+                    setRow((p) => (p ? { ...p, preview_url: r.url } : p));
                     if (r.state === 'success') {
                       setNotice({ kind: 'ok', text: 'Preview is ready. Open it to review the page.' });
                     } else if (r.state === 'pending') {
@@ -553,6 +604,14 @@ export function ScaLaunchClient(props: Props) {
                 Check now
               </button>
             </Row>
+            {hasContentPreview && !previewMatches && (
+              <p role="status" style={hintStyle}>
+                {previewSignature === null
+                  ? 'Checking the preview content. Publishing is unavailable until it matches this form.'
+                  : 'This form differs from the preview. Refresh the preview PR before publishing; Save draft alone does not update it.'}
+              </p>
+            )}
+            {previewError && <p role="alert" style={{ ...hintStyle, color: 'var(--negative)' }}>{previewError}</p>}
             <p style={hintStyle}>Open the preview and confirm the page reads right before you go live. Edit content above and click &ldquo;Update preview PR&rdquo; to revise.</p>
           </div>
         )}
@@ -666,12 +725,12 @@ export function ScaLaunchClient(props: Props) {
               <button
                 type="button"
                 style={{ ...btnPrimary, opacity: paymentsReady ? 1 : 0.5 }}
-                disabled={busy !== null || !prOpen || !paymentsReady}
+                disabled={blocked || !prOpen || !paymentsReady || !previewMatches}
                 onClick={() => onGoLive(false)}
               >
                 {busy === 'golive' ? 'Merging…' : 'Approve & go live →'}
               </button>
-              <button type="button" style={{ ...btnBase, fontSize: 11 }} disabled={busy !== null || !prOpen} onClick={() => onGoLive(true)}>
+              <button type="button" style={{ ...btnBase, fontSize: 11 }} disabled={blocked || !prOpen || !previewMatches} onClick={() => onGoLive(true)}>
                 Force go-live…
               </button>
               {previewState === 'failure' && (
