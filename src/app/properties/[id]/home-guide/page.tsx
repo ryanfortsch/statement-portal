@@ -8,6 +8,7 @@ import {
   type HomeGuideSlot,
 } from '@/lib/properties';
 import { civicForProperty } from '@/lib/civic';
+import { requirePropertyDocumentAccess } from '@/lib/property-document-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,6 +33,7 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  */
 export default async function HomeGuidePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePropertyDocumentAccess(id, 'home-guide');
   const p = await getProperty(id);
   if (!p) notFound();
 
@@ -46,7 +48,7 @@ export default async function HomeGuidePage({ params }: { params: Promise<{ id: 
   return (
     <>
       <style>{guideCss}</style>
-      <div className="rt-doc">
+      <div className="rt-doc" data-property-document="home-guide">
         <article className="rt-page">
           {/* Top: SCA logo mark + display headline */}
           <header className="rt-head">

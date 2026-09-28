@@ -23,6 +23,8 @@
  * /api/version reports, and hard-reloads at most once per new id.
  */
 
+import { hasUnsavedWork } from './unsaved-work';
+
 const CLIENT_DEPLOYMENT_ID = process.env.NEXT_PUBLIC_DEPLOYMENT_ID || '';
 
 // Remembers which server deployment id this tab last hard-reloaded for.
@@ -81,6 +83,11 @@ export function reloadedForNewDeployment(): Promise<boolean> {
     }
     if (!serverId || serverId === CLIENT_DEPLOYMENT_ID) return false;
     if (alreadyReloadedFor(serverId)) return true;
+    // Never yank a reload out from under typing that isn't saved yet. The
+    // caller still skips its own refresh (the bundle IS stale), and the
+    // next tick reloads once the work is saved or discarded. Not marked as
+    // reloaded-for, so the guard doesn't swallow the real reload later.
+    if (hasUnsavedWork()) return true;
     markReloadedFor(serverId);
     window.location.reload();
     return true;

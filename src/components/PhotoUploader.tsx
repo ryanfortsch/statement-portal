@@ -16,7 +16,12 @@ type Props = {
   /** Upload endpoint. Defaults to the staff/SSO route; contractors pass the
    *  contractor-auth route '/api/field/upload'. */
   endpoint?: string;
+  /** Lets non-form parents hold their save/next buttons until the batch ends. */
+  onUploadingChange?: (uploading: boolean) => void;
 };
+
+type FailedUpload = { id: number; file: File; error: string };
+type UploadProgress = { completed: number; total: number; filename: string };
 
 /**
  * Mobile-first photo uploader. Renders existing thumbnails (with a small
@@ -29,42 +34,93 @@ type Props = {
  * work-slip request, 2026-08-06). The OS sheet keeps "Take Photo" one tap
  * away for the live case.
  *
- * Uploads happen one at a time to /api/upload. On success the URL is
- * appended to `value` via onChange. The component does not write to
+ * Selected photos upload sequentially to /api/upload. Successful URLs are
+ * appended together via onChange, so parents persist once per batch. Failed
+ * files stay available for individual retry. The component does not write to
  * the database directly -- the parent is responsible for persisting
  * the URL list (e.g. via inspection_notes.photo_urls or
  * work_slips.photo_urls).
  */
-export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload' }: Props) {
+export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload', onUploadingChange }: Props) {
   const [uploading, setUploading] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [failures, setFailures] = useState<FailedUpload[]>([]);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
+  const [notice, setNotice] = useState('');
   // Same fullscreen viewer the read-only strips use — an uploaded photo you
   // can't open is half a photo (you can't check what you just shot).
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const uploadRef = useRef<AbortController | null>(null);
+  const nextId = useRef(0);
+  const latest = useRef({ value, onChange, onUploadingChange });
 
-  async function handleFile(rawFile: File) {
-    setErr(null);
+  useEffect(() => { latest.current = { value, onChange, onUploadingChange }; }, [value, onChange, onUploadingChange]);
+
+  useEffect(() => {
+    // A form must not save its old photo list while a batch is still running.
+    const form = rootRef.current?.closest('form');
+    function preventEarlySubmit(event: Event) {
+      if (!uploadRef.current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setNotice('Photos are still uploading. Please wait before saving.');
+    }
+    form?.addEventListener('submit', preventEarlySubmit, true);
+    return () => {
+      form?.removeEventListener('submit', preventEarlySubmit, true);
+      uploadRef.current?.abort();
+      latest.current.onUploadingChange?.(false);
+    };
+  }, []);
+
+  async function uploadFiles(items: Array<{ id: number; file: File }>) {
+    if (disabled || uploadRef.current || items.length === 0) return;
+    const controller = new AbortController();
+    uploadRef.current = controller;
+    latest.current.onUploadingChange?.(true);
     setUploading(true);
+    setNotice('');
+    const ids = new Set(items.map(item => item.id));
+    setFailures(previous => previous.filter(item => !ids.has(item.id)));
+    const uploaded: string[] = [];
+    const failed: FailedUpload[] = [];
 
     try {
-      const file = await compressImage(rawFile);
-      const fd = new FormData();
-      fd.append('file', file);
-      if (folder) fd.append('folder', folder);
+      for (const [index, item] of items.entries()) {
+        if (controller.signal.aborted) return;
+        setProgress({ completed: index, total: items.length, filename: item.file.name });
+        try {
+          const file = await compressImage(item.file);
+          if (controller.signal.aborted) return;
+          const fd = new FormData();
+          fd.append('file', file);
+          if (folder) fd.append('folder', folder);
 
-      const res = await fetch(endpoint, { method: 'POST', body: fd });
-      const body = (await res.json()) as { ok?: boolean; url?: string; error?: string };
-      if (!res.ok || !body.url) {
-        setErr(body.error || `Upload failed (HTTP ${res.status})`);
-      } else {
-        onChange([...value, body.url]);
+          const res = await fetch(endpoint, { method: 'POST', body: fd, signal: controller.signal });
+          const body = await res.json().catch(() => null) as { url?: string; error?: string } | null;
+          if (!res.ok || typeof body?.url !== 'string' || !body.url) {
+            throw new Error(body?.error || `Upload failed (HTTP ${res.status}). Please retry.`);
+          }
+          uploaded.push(body.url);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          failed.push({ ...item, error: error instanceof Error ? error.message : 'Upload failed. Please retry.' });
+        }
       }
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Upload failed');
+      if (controller.signal.aborted) return;
+      setFailures(previous => [...previous, ...failed]);
+      setNotice(`${uploaded.length} photo${uploaded.length === 1 ? '' : 's'} uploaded.`);
+      if (uploaded.length > 0) {
+        latest.current.onChange([...latest.current.value, ...uploaded]);
+      }
     } finally {
-      setUploading(false);
-      if (inputRef.current) inputRef.current.value = '';
+      if (!controller.signal.aborted) {
+        setUploading(false);
+        setProgress(null);
+        latest.current.onUploadingChange?.(false);
+      }
+      if (uploadRef.current === controller) uploadRef.current = null;
     }
   }
 
@@ -75,16 +131,19 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
   }
 
   return (
-    <div>
+    <div ref={rootRef}>
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
+        multiple
         style={{ display: 'none' }}
         disabled={disabled || uploading}
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFile(file);
+          const items = Array.from(e.target.files ?? []).map(file => ({ id: nextId.current++, file }));
+          // Reset immediately so picking the same file again still fires change.
+          e.target.value = '';
+          void uploadFiles(items);
         }}
       />
 
@@ -178,10 +237,22 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
           width: '100%',
         }}
       >
-        {uploading ? 'Uploading…' : value.length > 0 ? '+ Add another photo' : '+ Take or upload photo'}
+        {uploading ? 'Uploading photos…' : value.length > 0 ? '+ Add photos' : '+ Take or upload photos'}
       </button>
 
-      {err && (
+      <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: progress || notice ? 8 : 0 }}>
+        {progress ? (
+          <>
+            <div style={{ overflowWrap: 'anywhere' }}>
+              Uploading {progress.completed + 1} of {progress.total}: {progress.filename}
+            </div>
+            <progress aria-label="Photo upload progress" value={progress.completed} max={progress.total} style={{ width: '100%', marginTop: 6 }} />
+            {notice && <div>{notice}</div>}
+          </>
+        ) : notice}
+      </div>
+
+      {failures.length > 0 && (
         <div
           style={{
             marginTop: 8,
@@ -192,7 +263,18 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
             color: 'var(--negative)',
           }}
         >
-          {err}
+          <div role="alert">{failures.length} photo{failures.length === 1 ? '' : 's'} couldn’t upload. Retry or remove below.</div>
+          <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+            {failures.map(item => (
+              <li key={item.id} style={{ marginTop: 8 }}>
+                <div style={{ overflowWrap: 'anywhere' }}><strong>{item.file.name}</strong>: {item.error}</div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                  <button type="button" disabled={disabled || uploading} aria-label={`Retry ${item.file.name}`} onClick={() => { void uploadFiles([item]); }} style={retryButtonStyle}>Retry</button>
+                  <button type="button" disabled={disabled || uploading} aria-label={`Remove failed photo ${item.file.name}`} onClick={() => setFailures(previous => previous.filter(other => other.id !== item.id))} style={retryButtonStyle}>Remove</button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -202,6 +284,11 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
     </div>
   );
 }
+
+const retryButtonStyle: React.CSSProperties = {
+  background: 'transparent', border: '1px solid var(--rule)', color: 'var(--ink)',
+  padding: '8px 12px', minHeight: 36, font: 'inherit', cursor: 'pointer',
+};
 
 /** Read-only thumbnail strip — used wherever existing photos are surfaced
  *  (inspection summary, work slip detail, notes display, etc.). Tapping

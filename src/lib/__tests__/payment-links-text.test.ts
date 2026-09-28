@@ -11,6 +11,7 @@ import {
   helmRequestKey,
   reservationIdFromRequestKey,
   linkBelongsToReservation,
+  isWeekendET,
   reminderDue,
   REMINDER_MAX_AGE_DAYS,
   paymentLinkStatus,
@@ -174,21 +175,52 @@ test('money', () => {
   assert.equal(money(22340), '$223.40');
 });
 
-test('reminders: a day after the text, three days after the first, then none', () => {
-  // Laura Gunson's pet-fee link, texted 2026-09-26 at 15:59 UTC.
+test('reminders: two days after the text, three days after the first, then none', () => {
+  // Laura Gunson's pet-fee link, texted Sat 2026-09-26 at 15:59 UTC. The card
+  // it produced on the Sunday is what moved the first gap from 24h to 48h:
+  // "we just texted her yesterday.. back to back on a weekend?"
   const sent = '2026-09-26T15:59:48Z';
   const base = {
     created_at: '2026-09-26T15:58:00Z', sent_at: sent, paid_at: null, deactivated_at: null,
     nudged_at: null, nudge_count: 0, paid_check_error: null,
   };
   const at = (iso: string) => Date.parse(iso);
-  assert.equal(reminderDue(base, at('2026-09-27T15:00:00Z')), 0, 'not yet a day');
-  assert.equal(reminderDue(base, at('2026-09-27T16:00:00Z')), 1, 'a day later: first reminder');
-  const once = { ...base, nudged_at: '2026-09-27T17:00:00Z', nudge_count: 1 };
-  assert.equal(reminderDue(once, at('2026-09-29T17:00:00Z')), 0, 'two days after the first: wait');
-  assert.equal(reminderDue(once, at('2026-09-30T17:00:00Z')), 2, 'three days after the first: second');
-  const twice = { ...once, nudged_at: '2026-09-30T17:05:00Z', nudge_count: 2 };
-  assert.equal(reminderDue(twice, at('2026-10-06T00:00:00Z')), 0, 'two reminders is the end of it');
+  assert.equal(reminderDue(base, at('2026-09-27T16:00:00Z')), 0, 'Sunday, a day later: not a chance');
+  assert.equal(reminderDue(base, at('2026-09-28T15:00:00Z')), 0, 'Monday but not yet two days');
+  assert.equal(reminderDue(base, at('2026-09-28T16:00:00Z')), 1, 'Monday, two days later: first reminder');
+  // Second reminder: three days after the first WENT OUT, on a weekday.
+  const once = { ...base, nudged_at: '2026-09-28T17:00:00Z', nudge_count: 1 };
+  assert.equal(reminderDue(once, at('2026-09-30T17:00:00Z')), 0, 'two days after the first: wait');
+  assert.equal(reminderDue(once, at('2026-10-01T17:00:00Z')), 2, 'three days after the first: second');
+  const twice = { ...once, nudged_at: '2026-10-01T17:05:00Z', nudge_count: 2 };
+  assert.equal(reminderDue(twice, at('2026-10-08T00:00:00Z')), 0, 'two reminders is the end of it');
+});
+
+test('reminders: chasing money is weekday work, and the weekend HOLDS rather than skips', () => {
+  // Texted Thu, so the 48h gate clears on the Saturday.
+  const base = {
+    created_at: '2026-09-24T11:58:00Z', sent_at: '2026-09-24T12:00:00Z', paid_at: null,
+    deactivated_at: null, nudged_at: null, nudge_count: 0, paid_check_error: null,
+  };
+  const at = (iso: string) => Date.parse(iso);
+  assert.equal(reminderDue(base, at('2026-09-26T13:00:00Z')), 0, 'Saturday: due on the clock, held');
+  assert.equal(reminderDue(base, at('2026-09-27T13:00:00Z')), 0, 'Sunday: still held');
+  // 9 PM Sunday in Gloucester is already Monday in UTC. The hold is decided
+  // in ET, so this hour is exactly where a UTC weekday check would leak.
+  assert.equal(reminderDue(base, at('2026-09-28T01:00:00Z')), 0, 'Sunday 9 PM ET: held, not Monday yet');
+  // Nothing was consumed by waiting: the same untouched row is due on Monday.
+  assert.equal(reminderDue(base, at('2026-09-28T13:00:00Z')), 1, 'Monday: it comes back, still reminder 1');
+  // And a Friday link does not get chased on the Sunday either.
+  const friday = { ...base, created_at: '2026-10-02T11:58:00Z', sent_at: '2026-10-02T12:00:00Z' };
+  assert.equal(reminderDue(friday, at('2026-10-04T13:00:00Z')), 0, 'Sunday after a Friday text: held');
+  assert.equal(reminderDue(friday, at('2026-10-05T13:00:00Z')), 1, 'Monday: first reminder');
+});
+
+test('isWeekendET reads the day in Gloucester, not UTC', () => {
+  assert.equal(isWeekendET(Date.parse('2026-09-26T12:00:00Z')), true, 'Saturday midday');
+  assert.equal(isWeekendET(Date.parse('2026-09-28T01:00:00Z')), true, 'Sunday 9 PM ET, Monday in UTC');
+  assert.equal(isWeekendET(Date.parse('2026-09-28T13:00:00Z')), false, 'Monday morning ET');
+  assert.equal(isWeekendET(Date.parse('2026-09-26T02:00:00Z')), false, 'Friday 10 PM ET, Saturday in UTC');
 });
 
 test('reminders: never for a paid, cancelled, unsent, unreadable or stale link', () => {
@@ -196,7 +228,7 @@ test('reminders: never for a paid, cancelled, unsent, unreadable or stale link',
     created_at: '2026-09-26T15:58:00Z', sent_at: '2026-09-26T15:59:48Z', paid_at: null,
     deactivated_at: null, nudged_at: null, nudge_count: 0, paid_check_error: null,
   };
-  const later = Date.parse('2026-09-28T00:00:00Z');
+  const later = Date.parse('2026-09-29T14:00:00Z'); // Tuesday: past the weekend hold
   assert.equal(reminderDue({ ...base, paid_at: '2026-09-27T01:00:00Z' }, later), 0);
   assert.equal(reminderDue({ ...base, deactivated_at: '2026-09-27T01:00:00Z' }, later), 0);
   // Minted beside a draft and never texted: nobody was asked, nobody is chased.
@@ -207,5 +239,5 @@ test('reminders: never for a paid, cancelled, unsent, unreadable or stale link',
   assert.equal(reminderDue(base, stale), 0);
   // A hand nudge from Helm counts: the next card waits three days from it.
   const handNudged = { ...base, nudged_at: '2026-09-27T20:00:00Z', nudge_count: 1 };
-  assert.equal(reminderDue(handNudged, Date.parse('2026-09-28T20:00:00Z')), 0);
+  assert.equal(reminderDue(handNudged, Date.parse('2026-09-29T20:00:00Z')), 0);
 });

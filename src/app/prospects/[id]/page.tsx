@@ -1314,7 +1314,8 @@ function OnboardingSummary({ data }: { data: NonNullable<ProjectionRow['onboardi
       items: [
         { label: 'Currently listed', value: data.currently_listed },
         { label: 'Listing URLs', value: data.listing_urls },
-        { label: 'STR reg #', value: data.str_registration },
+        { label: 'MA occupancy cert #', value: data.room_occupancy_cert },
+        { label: 'Local STR permit #', value: data.str_registration },
         { label: 'STR insurance', value: data.str_insurance },
         { label: 'Access', value: data.guest_access_method },
         { label: 'Smart lock', value: data.smart_lock_brand },

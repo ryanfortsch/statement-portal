@@ -3,6 +3,7 @@ import 'server-only';
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
 import { getStripeKeysMap } from '@/lib/stripe-sync';
 import { addOnIsTaxable, splitAddOnTax, formatTaxRate } from '@/lib/addon-tax';
+import { isStayPrincipalTitle } from '@/lib/extras-markers';
 import { guestyGet } from '@/lib/guesty';
 import { sendMessage, quoFromNumber } from '@/lib/quo';
 import {
@@ -346,7 +347,7 @@ export async function mintPaymentLink(input: MintInput): Promise<MintResult> {
   // Product name = the statements-facing description. Guard the two prefixes
   // the ingest treats specially (SCA principal / Guesty code shapes).
   let productName = [label, guestName, propertyTitle].filter(Boolean).join(' - ');
-  if (/^stay at\b/i.test(productName) || /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]/.test(productName)) {
+  if (isStayPrincipalTitle(productName) || /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]/.test(productName)) {
     productName = `Add-on: ${productName}`;
   }
 

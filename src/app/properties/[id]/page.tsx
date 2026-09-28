@@ -873,7 +873,7 @@ export default async function PropertyDetailPage({
           inspection_notes: both capture boxes write to property_notes, so
           nothing a walkthrough dictated ever appeared under it. Source pill,
           one resolve verb, honest count. */}
-      {propertyFlags.flags.length > 0 && (
+      {(propertyFlags.flags.length > 0 || propertyFlags.total === null) && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
           <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
             <h2
@@ -889,12 +889,24 @@ export default async function PropertyDetailPage({
               Flagged at the house
             </h2>
             <span className="eyebrow">
-              {propertyFlags.total} open
-              {propertyFlags.total > propertyFlags.flags.length
+              {propertyFlags.total === null ? 'Count unavailable' : `${propertyFlags.total} open`}
+              {propertyFlags.total !== null && propertyFlags.total > propertyFlags.flags.length
                 ? ` · showing ${propertyFlags.flags.length}`
                 : ''}
             </span>
           </div>
+          {propertyFlags.total === null && (
+            <p role="status" style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              We couldn&rsquo;t load all flags for this house.{' '}
+              {propertyFlags.flags.length > 0 && 'The flags we could load are shown below. '}
+              <a
+                href={`/properties/${p.id}?tab=today`}
+                style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+              >
+                Refresh to try again
+              </a>
+            </p>
+          )}
           <div style={{ borderTop: '1px solid var(--ink)' }}>
             {propertyFlags.flags.map((f) => (
               <div

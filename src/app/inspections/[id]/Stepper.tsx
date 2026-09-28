@@ -1139,12 +1139,13 @@ function TaskCardScreen({
   onNext: () => void;
   onExit: () => void;
 }) {
+  const [uploading, setUploading] = useState(false);
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       {/* Task cards get a minimal bar — never the item TopBar's Pass/Issue triad,
           so a one-off can never write an inspection_result. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--paper)', borderBottom: '1px solid var(--rule)', padding: '12px clamp(16px,5vw,24px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <button type="button" onClick={onExit} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)' }}>← Exit</button>
+        <button type="button" onClick={onExit} disabled={uploading} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)' }}>← Exit</button>
         <span style={{ fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600 }}>
           Extra task{count > 1 ? ` · ${idx + 1} of ${count}` : ''}
         </span>
@@ -1175,24 +1176,24 @@ function TaskCardScreen({
               style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '10px 12px', resize: 'vertical', boxSizing: 'border-box' }}
             />
             <div style={{ marginTop: 10 }}>
-              <PhotoUploader value={state.photos} onChange={onPhotos} folder="field-maintenance" />
+              <PhotoUploader value={state.photos} onChange={onPhotos} folder="field-maintenance" disabled={state.saving} onUploadingChange={setUploading} />
             </div>
           </div>
         )}
         {state.error && <div style={{ marginTop: 12 }}><ErrorBlock error={state.error} /></div>}
 
         <div style={{ marginTop: 28, display: 'flex', gap: 10, alignItems: 'stretch' }}>
-          <button type="button" onClick={onBack} disabled={state.saving} style={ghostBtn()}>← Back</button>
+          <button type="button" onClick={onBack} disabled={state.saving || uploading} style={ghostBtn()}>← Back</button>
           {state.done ? (
             <button type="button" onClick={onNext} style={primaryBtn()}>Next →</button>
           ) : (
-            <button type="button" onClick={onDone} disabled={state.saving} style={{ ...primaryBtn(), opacity: state.saving ? 0.5 : 1 }}>
-              {state.saving ? 'Saving…' : 'Mark done →'}
+            <button type="button" onClick={onDone} disabled={state.saving || uploading} style={{ ...primaryBtn(), opacity: state.saving || uploading ? 0.5 : 1 }}>
+              {uploading ? 'Uploading photos…' : state.saving ? 'Saving…' : 'Mark done →'}
             </button>
           )}
         </div>
         {!state.done && (
-          <button type="button" onClick={onNext} style={{ marginTop: 14, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-4)', textDecoration: 'underline' }}>
+          <button type="button" onClick={onNext} disabled={uploading} style={{ marginTop: 14, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-4)', textDecoration: 'underline' }}>
             Skip for now
           </button>
         )}
@@ -1575,12 +1576,13 @@ function NoteModal({
   const [asProperty, setAsProperty] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const canSubmit = text.trim().length > 0 || photos.length > 0;
 
   async function handleSubmit() {
-    if (!canSubmit) return;
+    if (!canSubmit || uploading) return;
     setErr(null);
     setSubmitting(true);
     const e = await onSubmit(text, asProperty, photos);
@@ -1610,6 +1612,7 @@ function NoteModal({
           onChange={setPhotos}
           folder={`inspections/${inspectionId.slice(0, 8)}/notes`}
           disabled={submitting}
+          onUploadingChange={setUploading}
         />
       </div>
 
@@ -1660,8 +1663,8 @@ function NoteModal({
       <ModalActions
         onCancel={onClose}
         onSubmit={handleSubmit}
-        submitLabel={submitting ? 'Saving…' : 'Save Note'}
-        submitDisabled={submitting || !canSubmit}
+        submitLabel={uploading ? 'Uploading photos…' : submitting ? 'Saving…' : 'Save Note'}
+        submitDisabled={submitting || uploading || !canSubmit}
       />
     </ModalShell>
   );
@@ -1699,6 +1702,7 @@ function WorkSlipModal({
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Defaults (category=maintenance, priority=normal) are right for the
   // vast majority of inspection-driven slips, so we hide all three of
@@ -1714,7 +1718,7 @@ function WorkSlipModal({
   const [photosOpen, setPhotosOpen] = useState(false);
 
   async function handleSubmit() {
-    if (!title.trim()) return;
+    if (!title.trim() || uploading) return;
     setErr(null);
     setSubmitting(true);
     const e = await onSubmit({ title, description, location, category, priority, photoUrls: photos });
@@ -1835,6 +1839,7 @@ function WorkSlipModal({
             onChange={setPhotos}
             folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}
             disabled={submitting}
+            onUploadingChange={setUploading}
           />
           {!showMore && (
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}>
@@ -1851,8 +1856,8 @@ function WorkSlipModal({
       <ModalActions
         onCancel={onClose}
         onSubmit={handleSubmit}
-        submitLabel={submitting ? 'Creating…' : 'Create Work Slip'}
-        submitDisabled={submitting || !title.trim()}
+        submitLabel={uploading ? 'Uploading photos…' : submitting ? 'Creating…' : 'Create Work Slip'}
+        submitDisabled={submitting || uploading || !title.trim()}
       />
     </ModalShell>
   );

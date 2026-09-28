@@ -39,7 +39,6 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
-    setCopy(null);
 
     startTransition(async () => {
       // Downscale every photo in the browser before upload. Phone
@@ -70,12 +69,17 @@ export function ListingCopyClient({ propertyId, propertyName }: Props) {
         formData.append('photos', new File([blob], `photo-${i + 1}.jpg`, { type: 'image/jpeg' }));
       });
 
-      const result: GenerateListingCopyResult = await generateListingCopyAction(propertyId, formData);
-      if (!result.ok) {
-        setError(result.error);
-        return;
+      try {
+        const result: GenerateListingCopyResult = await generateListingCopyAction(propertyId, formData);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        // Replace the current draft only after a new one is ready.
+        setCopy(result.copy);
+      } catch {
+        setError('Could not generate listing copy. Please try again.');
       }
-      setCopy(result.copy);
     });
   };
 

@@ -389,6 +389,8 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     title: 'Register on MassTaxConnect',
     description: 'Room occupancy tax account open for this property.',
     why: 'The cert ID recording is the launch step. The registration behind it starts here, and only covers channels that do not remit for us.',
+    href: '/onboarding/ma-str-registration',
+    hrefLabel: 'Owner guide',
   },
   {
     key: 'financial.cleaning_cost_estimate',

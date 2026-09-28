@@ -2,7 +2,12 @@
 
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
-import { getListingPhotos, updatePhotoCaption } from '@/lib/guesty';
+import {
+  getListingPhotos,
+  getPropertyPhotos,
+  resolvePropertyPhotoId,
+  updatePhotoCaption,
+} from '@/lib/guesty';
 import { generatePhotoCaptions, cleanCaption, type PhotoCaptionDraft } from '@/lib/ai/photo-captions';
 
 /**
@@ -279,10 +284,32 @@ export async function saveCaptionAction(
     norm(list.find((p) => keyOf(p) === targetKey)?.caption);
   const beforeByKey = new Map(before.map((p) => [keyOf(p), norm(p.caption)]));
 
+  // 1b. TRANSLATE the id. The listing's `pictures` array and Guesty's
+  //     property-photos resource describe the same 29 images with the same
+  //     CDN URLs and COMPLETELY DIFFERENT `_id`s (verified live on 19
+  //     Rackliffe, 2026-09-27: zero overlap across the two id sets). The
+  //     caption write is keyed by the property-photos id. Passing the
+  //     `pictures` id is exactly why every save returned 201 and then
+  //     showed up nowhere. Matched on the Cloudinary asset slug, which is
+  //     the one identity both representations share.
+  let writeId: string;
+  try {
+    writeId = await resolvePropertyPhotoId(listingId, target);
+  } catch (err) {
+    return { ok: false, error: `Could not read Guesty's photo records to locate this image: ${errMsg(err)}. Nothing changed.` };
+  }
+  if (!writeId || !isRealPhotoId(writeId)) {
+    return {
+      ok: false,
+      error:
+        'This image is in the listing gallery but not in Guesty\u2019s photo records, so there is nothing to attach a caption to. Caption it in Guesty directly.',
+    };
+  }
+
   // 2. write (isolated so a write failure reads as "nothing changed").
   let writeEcho: Pic[] | null = null;
   try {
-    writeEcho = await updatePhotoCaption(listingId, photoId, clean);
+    writeEcho = await updatePhotoCaption(listingId, writeId, clean);
   } catch (err) {
     return { ok: false, error: `Guesty rejected the caption write: ${errMsg(err)}. Nothing changed.` };
   }
@@ -337,20 +364,37 @@ export async function saveCaptionAction(
     // isn't the one backing this listing's `pictures` array, and the
     // re-read here would never see the change. Logging the raw echo lets
     // us tell that apart from a genuine propagation delay or a dead write.
+    // Which half failed? The caption may have landed on the photo RECORD
+    // while the listing's `pictures` array (what the gallery, the PDF and
+    // staycapeann.com read) hasn't caught up. That is a propagation story
+    // and worth saying out loud; a caption missing from BOTH is a dead
+    // write. Never conflate them again.
+    let onRecord: string | null = null;
+    try {
+      const recs = await getPropertyPhotos(listingId);
+      onRecord = norm(recs.find((p) => p._id === writeId)?.caption);
+    } catch {
+      onRecord = null;
+    }
     console.error('[saveCaptionAction] write not reflected', {
       listingId,
-      photoId,
+      picturesPhotoId: photoId,
+      propertyPhotoId: writeId,
       targetKey,
       sentCaption: clean,
       beforeCaption: beforeByKey.get(targetKey),
       afterCaption: targetCaptionAt(after),
+      captionOnPhotoRecord: onRecord,
       writeEchoPhotoCount: writeEcho?.length ?? null,
-      writeEchoTargetCaption:
-        writeEcho?.find((p) => p._id === photoId)?.caption ??
-        writeEcho?.find((p) => keyOf(p) === targetKey)?.caption ??
-        null,
       writeEchoSampleIds: writeEcho?.slice(0, 3).map((p) => p._id) ?? null,
     });
+    if (onRecord === clean) {
+      return {
+        ok: false,
+        error:
+          'Guesty saved the caption on the photo, but the listing gallery has not picked it up yet. Give it a minute and reload before re-saving. Nothing was harmed.',
+      };
+    }
     return {
       ok: false,
       error:
