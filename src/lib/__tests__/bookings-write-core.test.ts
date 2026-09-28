@@ -219,3 +219,12 @@ describe('feedChangeEvents (round 15)', () => {
     assert.deepEqual(ev[0].before, st('2026-10-10', '2026-10-13'));
   });
 });
+
+describe('17 Beach units are Airbnb only', () => {
+  test('a Helm-run OTA-only home is never on /book', () => {
+    const roster = new Set<string>();
+    assert.equal(isPublicBookable({ id: '17_beach_front', is_active: true, calendar_authority: 'helm' }, roster), false);
+    assert.equal(isPublicBookable({ id: '17_beach_back', is_active: true, calendar_authority: 'helm' }, roster), false);
+    assert.equal(isPublicBookable({ id: '65_calderwood', is_active: true, calendar_authority: 'helm' }, roster), true);
+  });
+});
