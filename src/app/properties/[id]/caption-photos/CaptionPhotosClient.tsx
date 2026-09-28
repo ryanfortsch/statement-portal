@@ -24,11 +24,17 @@ type LoadState = 'loading' | 'ready' | 'needs-listing' | 'error';
  */
 const WRITE_PAUSED: boolean = false;
 /**
- * "Save all" stays off for now: each verified save re-reads the whole
- * listing, so a bulk run is slow and we want one-at-a-time confidence while
- * the Guesty write is still being trusted. Re-enable once a save is proven.
+ * One button saves the whole gallery (Dotti, 2026-09-27: "i want one save
+ * all button"). Captioning 29 photos one click at a time is the actual job,
+ * so the bulk run is the primary control and per-photo Save stays as the
+ * repair tool for a single row.
+ *
+ * It is still SEQUENTIAL and still goes through the same self-verifying
+ * saveCaptionAction per photo (each one re-reads the listing, so a run is
+ * slow by construction), and it STOPS the moment a write reports collateral
+ * damage rather than marching through the rest of the gallery.
  */
-const SAVE_ALL_ENABLED: boolean = false;
+const SAVE_ALL_ENABLED: boolean = true;
 
 /**
  * Unsaved captions survive a reload.
@@ -93,6 +99,8 @@ export function CaptionPhotosClient({ propertyId }: Props) {
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [saveErr, setSaveErr] = useState<Record<string, string>>({});
   const [savingAll, setSavingAll] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
 
   // Fetch the gallery. First statement is the awaited action, so no
   // setState fires synchronously — safe to call straight from the effect
@@ -168,7 +176,7 @@ export function CaptionPhotosClient({ propertyId }: Props) {
     });
   }
 
-  async function saveOne(id: string): Promise<boolean> {
+  async function saveOne(id: string): Promise<{ ok: boolean; error?: string }> {
     setSaving((s) => ({ ...s, [id]: true }));
     setSaveErr((e) => {
       const rest = { ...e };
@@ -180,29 +188,56 @@ export function CaptionPhotosClient({ propertyId }: Props) {
     setSaving((s) => ({ ...s, [id]: false }));
     if (!res.ok) {
       setSaveErr((e) => ({ ...e, [id]: res.error }));
-      return false;
+      return { ok: false, error: res.error };
     }
     // Reflect the exact caption Guesty stored (the server may have scrubbed
     // it) as the new "current" AND draft, so the row reads clean and the
     // field shows what's actually live.
     setPhotos((ps) => ps.map((p) => (p.id === id ? { ...p, caption: res.caption } : p)));
     setDrafts((d) => ({ ...d, [id]: res.caption }));
-    return true;
+    return { ok: true };
   }
 
   async function saveAllChanged() {
     if (changedIds.length === 0) return;
+    const total = changedIds.length;
     const ok = window.confirm(
-      `Push ${changedIds.length} caption${changedIds.length === 1 ? '' : 's'} to the live Guesty listing? This updates what guests see on Airbnb, VRBO, and staycapeann.com.`,
+      `Push ${total} caption${total === 1 ? '' : 's'} to the live Guesty listing? This updates what guests see on Airbnb, VRBO, and staycapeann.com.`,
     );
     if (!ok) return;
     setSavingAll(true);
+    setBulkResult(null);
+    let done = 0;
+    let failed = 0;
+    let halted = false;
     // Sequential to stay gentle on Guesty's photo API and surface a clean
-    // per-photo error rather than a burst of 429s.
-    for (const id of changedIds) {
-      await saveOne(id);
+    // per-photo error rather than a burst of 429s. Each save verifies
+    // itself server-side, so this loop is slow on purpose.
+    for (const [i, id] of changedIds.entries()) {
+      setBulkProgress({ done: i, total });
+      const res = await saveOne(id);
+      if (res.ok) {
+        done += 1;
+        continue;
+      }
+      failed += 1;
+      // A write that moved ANOTHER photo's caption means the API is not
+      // safe on this listing. Stop: hammering 28 more saves would spread
+      // the damage while the operator is watching a progress counter.
+      if (res.error?.startsWith('Aborted:')) {
+        halted = true;
+        break;
+      }
     }
+    setBulkProgress(null);
     setSavingAll(false);
+    setBulkResult(
+      halted
+        ? `Stopped after ${done + failed} of ${total}: a save reported it had changed another photo, so the rest were not sent. See the photo marked in red.`
+        : failed === 0
+          ? `Saved ${done} caption${done === 1 ? '' : 's'} to Guesty.`
+          : `Saved ${done} of ${total}. ${failed} did not take; each is marked on its photo and still held here.`,
+    );
   }
 
   if (loadState === 'loading') {
@@ -272,14 +307,16 @@ export function CaptionPhotosClient({ propertyId }: Props) {
           >
             Draft all
           </button>
-          {SAVE_ALL_ENABLED && (
+          {SAVE_ALL_ENABLED && !WRITE_PAUSED && (
             <button
               type="button"
               onClick={saveAllChanged}
-              disabled={savingAll || changedIds.length === 0}
-              style={changedIds.length > 0 ? saveAllButtonStyle : ghostButtonStyle}
+              disabled={savingAll || generating || changedIds.length === 0}
+              style={changedIds.length > 0 && !savingAll ? saveAllButtonStyle : ghostButtonStyle}
             >
-              {savingAll ? 'Saving…' : `Save changed to Guesty (${changedIds.length})`}
+              {savingAll
+                ? `Saving ${(bulkProgress?.done ?? 0) + 1} of ${bulkProgress?.total ?? changedIds.length}…`
+                : `Save all to Guesty (${changedIds.length})`}
             </button>
           )}
         </div>
@@ -301,6 +338,12 @@ export function CaptionPhotosClient({ propertyId }: Props) {
         <Notice tone="warn">
           Restored {restoredCount} caption{restoredCount === 1 ? '' : 's'} you had typed but not
           saved. They are held in this browser until you save them to Guesty.
+        </Notice>
+      )}
+
+      {bulkResult && (
+        <Notice tone={bulkResult.startsWith('Saved ') && !bulkResult.includes('did not take') ? undefined : 'warn'}>
+          {bulkResult}
         </Notice>
       )}
 
