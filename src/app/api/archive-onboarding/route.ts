@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { auth } from '@/auth';
 import { renderOnboardingPdf, onboardingPdfFilename } from '@/lib/onboarding-pdf';
 import { getProperty } from '@/lib/properties';
 import { archiveToDrive } from '@/lib/drive-archive';
 
 /**
  * POST /api/archive-onboarding
- * Body: { projectionId }
+ * Body: { projectionId, token? }
+ * Access: a Helm staff session or the matching owner's onboarding token.
  *
  * Renders a submitted owner-onboarding intake to PDF and archives it
  * to the Rising Tide shared Drive at:
@@ -35,20 +37,33 @@ function getSupabase(): SupabaseClient {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { projectionId?: string };
-    const projectionId = body.projectionId;
-    if (!projectionId) {
+    const body = await request.json().catch(() => null);
+    const projectionId = body?.projectionId;
+    if (typeof projectionId !== 'string' || !projectionId) {
       return NextResponse.json({ ok: false, error: 'projectionId is required' }, { status: 400 });
     }
 
+    const hasStaffAuth = !!(await auth())?.user;
+    const token = typeof body?.token === 'string' ? body.token : null;
+    if (!hasStaffAuth && (!token || !/^[a-f0-9]{32}$/.test(token))) {
+      return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+    }
+
     const sb = getSupabase();
-    const { data: proj } = await sb
+    let query = sb
       .from('projections')
       .select('id, property_id, property_address, onboarding_token, onboarding_submitted_at, onboarding_drive_url')
-      .eq('id', projectionId)
-      .maybeSingle();
+      .eq('id', projectionId);
+    // Authorize the same record before returning an existing Drive URL or
+    // starting PDF/Drive work. A projection ID alone is not a capability.
+    if (!hasStaffAuth) query = query.eq('onboarding_token', token);
+    const { data: proj, error } = await query.maybeSingle();
+    if (error) throw new Error('Failed to load onboarding record');
     if (!proj) {
-      return NextResponse.json({ ok: false, error: 'projection not found' }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: hasStaffAuth ? 'projection not found' : 'unauthorized' },
+        { status: hasStaffAuth ? 404 : 401 },
+      );
     }
     const projection = proj as {
       property_id: string | null;

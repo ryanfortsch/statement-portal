@@ -45,6 +45,7 @@ export default async function OnboardingThanksPage({ params }: { params: Promise
       {prospect.onboarding_submitted_at && (
         <ArchiveOnboardingTrigger
           projectionId={prospect.id}
+          token={token}
           alreadyArchived={!!prospect.onboarding_drive_url}
         />
       )}

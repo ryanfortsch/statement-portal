@@ -16,9 +16,11 @@ import { useEffect } from 'react';
 
 export function ArchiveOnboardingTrigger({
   projectionId,
+  token,
   alreadyArchived,
 }: {
   projectionId: string;
+  token: string;
   alreadyArchived: boolean;
 }) {
   useEffect(() => {
@@ -26,12 +28,12 @@ export function ArchiveOnboardingTrigger({
     fetch('/api/archive-onboarding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectionId }),
+      body: JSON.stringify({ projectionId, token }),
       keepalive: true, // let the request finish even if the tab closes
     }).catch(() => {
       // Best-effort; a staff-side backfill can re-fire the idempotent route.
     });
-  }, [projectionId, alreadyArchived]);
+  }, [projectionId, token, alreadyArchived]);
 
   return null;
 }

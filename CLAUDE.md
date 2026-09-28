@@ -156,6 +156,11 @@ scoped to one property and document. `/api/property-pdf` authenticates staff bef
 URL. Keep the document-root check: Next can stream a 200 shell for an unauthorized not-found
 page. Printed WiFi QR codes encode network details directly and do not use these web routes.
 
+`/api/archive-onboarding` also self-guards: staff may archive by projection ID; owners must
+send that projection's onboarding token in the POST body. The thank-you page passes its
+validated token to the silent archive trigger. Keep authorization ahead of both the existing
+Drive URL response and all PDF/Drive work; the public proxy exemption is needed for owners.
+
 # Money: the canonical statement math
 
 **This chapter is load-bearing. Read it fully before touching anything that writes
