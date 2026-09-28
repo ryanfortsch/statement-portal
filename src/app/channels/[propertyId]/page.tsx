@@ -175,7 +175,7 @@ export default async function ChannelsPropertyPage({
         eyebrow={`Helm · Channels · ${property.name}`}
         title={property.name}
         emphasis={property.title ?? ''}
-        description={`${[property.address, property.city, regionLabel(property.region)].filter(Boolean).join(' · ')}. Who runs this home today, what each OTA sees and when, and exactly what would break if you flipped it.`}
+        description={`${[...new Set([property.address, property.city, regionLabel(property.region)].filter(Boolean))].join(' · ')}. Who runs this home today, what each OTA sees and when, and exactly what would break if you flipped it.`}
         belowDescription={
           <div style={{ marginTop: 14 }}>
             <Badge badge={badge} />
