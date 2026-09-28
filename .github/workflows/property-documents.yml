@@ -34,6 +34,9 @@ jobs:
           package-manager-cache: false
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
+        env:
+          # Existing civic date fixtures use local midnight in Massachusetts.
+          TZ: America/New_York
       - name: Verify access and real Chromium PDFs with synthetic data
         run: node scripts/property-document-smoke.mjs
       - run: npx tsc --noEmit
