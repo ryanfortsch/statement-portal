@@ -33,7 +33,7 @@ export const maxDuration = 60;
 
 const GUESTY_API = 'https://open-api.guesty.com';
 
-type Probe = { path: string; status: number; note: string; sample?: unknown };
+type Probe = { path: string; status: number; note: string; sample?: unknown; ids?: string[] };
 
 async function rawGet(path: string): Promise<Probe> {
   const token = await getGuestyToken();
@@ -50,20 +50,33 @@ async function rawGet(path: string): Promise<Probe> {
   if (!res.ok) {
     return { path, status: res.status, note: 'error', sample: String(text).slice(0, 400) };
   }
+  const o = body as Record<string, unknown> | null;
   const arr = Array.isArray(body)
     ? body
-    : Array.isArray((body as { results?: unknown[] })?.results)
-      ? (body as { results: unknown[] }).results
-      : null;
+    : Array.isArray(o?.results)
+      ? (o!.results as unknown[])
+      : Array.isArray(o?.photos)
+        ? (o!.photos as unknown[])
+        : null;
+  // The property-photos GET wraps its list: { propertyId, photos: [...] }.
+  // Carry the wrapper's own propertyId out, because THAT is the id the
+  // edit endpoint wants and the listing object never exposes it.
+  const wrapper = arr && o && !Array.isArray(body) ? { propertyId: o.propertyId, count: arr.length } : null;
   if (arr) {
     return {
       path,
       status: res.status,
-      note: `array of ${arr.length}`,
-      sample: arr.slice(0, 3).map((p) => {
-        const o = p as Record<string, unknown>;
-        return { _id: o._id, caption: o.caption, index: o.index, original: String(o.original ?? '').slice(0, 80) };
+      note: wrapper ? `wrapped list of ${arr.length}, propertyId=${String(wrapper.propertyId)}` : `array of ${arr.length}`,
+      sample: arr.slice(0, 5).map((p) => {
+        const q = p as Record<string, unknown>;
+        return {
+          _id: q._id,
+          caption: q.caption,
+          index: q.index,
+          original: String(q.original ?? '').slice(0, 110),
+        };
       }),
+      ids: arr.map((p) => String((p as Record<string, unknown>)._id ?? '')),
     };
   }
   return { path, status: res.status, note: 'object', sample: Object.keys(body as object).slice(0, 60) };
@@ -133,8 +146,9 @@ export async function GET(request: NextRequest) {
     _id: p._id,
     caption: p.caption,
     index: p.index,
-    original: String(p.original ?? '').slice(0, 80),
+    original: String(p.original ?? '').slice(0, 110),
   }));
+  out.pictureIds = pics.map((p) => String(p._id ?? ''));
 
   // 2. property-photos under every id worth trying.
   const candidates = new Set<string>([listingId]);
@@ -160,6 +174,31 @@ export async function GET(request: NextRequest) {
     probes.push({ path: 'properties list', status: 0, note: 'threw', sample: String(err) });
   }
   out.probes = probes;
+
+  // The question the whole probe exists to answer: are the photo ids on
+  // the property-photos resource the SAME ids we read off the listing's
+  // `pictures` array and send as {photoId}? If not, every write has been
+  // aimed at an id that resource has never heard of.
+  const pictureIds = new Set((out.pictureIds as string[]) ?? []);
+  out.idOverlap = probes
+    .filter((p) => p.ids)
+    .map((p) => {
+      const ids = p.ids ?? [];
+      const shared = ids.filter((id) => pictureIds.has(id));
+      return {
+        path: p.path,
+        photoCount: ids.length,
+        sharedWithPictures: shared.length,
+        verdict:
+          ids.length === 0
+            ? 'resource is EMPTY: the write has nothing to land on'
+            : shared.length === 0
+              ? 'DISJOINT ids: we have been writing to ids this resource does not have'
+              : shared.length === ids.length
+                ? 'ids match: the resource is the same gallery'
+                : 'partial overlap',
+      };
+    });
 
   return NextResponse.json(out, { status: 200 });
 }
