@@ -169,10 +169,10 @@ const PUBLIC_API_PREFIXES = [
  */
 const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract|onboarding-render)(\/.*)?$/;
 
-/** Same pattern for the Properties module. Guest-facing deliverables (Home
- * Guide, WiFi placard, Information Note, Welcome Card) need to be public
- * so puppeteer can render them to PDF. The property edit page at
- * `/properties/<id>` itself stays auth-gated. Property IDs are TEXT slugs
+/** Property deliverables pass the proxy so headless PDF rendering can reach
+ * them. Home Guide and WiFi placard SELF-GUARD before reading credentials:
+ * Helm staff session OR a short-lived, document-scoped render header.
+ * The property edit page stays auth-gated. Property IDs are TEXT slugs
  * (e.g. "21_horton") so the character class is wider than UUIDs. */
 const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard|info-note|welcome-card)(\/.*)?$/;
 

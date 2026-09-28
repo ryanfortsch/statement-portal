@@ -3,6 +3,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { renderQrForPlacard } from '@/lib/qr-sizing';
+import { requirePropertyDocumentAccess } from '@/lib/property-document-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  */
 export default async function WifiPlacardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePropertyDocumentAccess(id, 'wifi-placard');
   const p = await getProperty(id);
   if (!p) notFound();
 
@@ -68,7 +70,7 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
   return (
     <>
       <style>{placardCss}</style>
-      <div className="rt-doc">
+      <div className="rt-doc" data-property-document="wifi-placard">
         {cards.map((card, i) => (
           <article className="rt-card" key={i}>
             {/* Cream inner panel */}

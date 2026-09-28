@@ -149,6 +149,13 @@ Public surfaces that self-guard by token rather than session: `/onboarding/<toke
 `/book/*`, and the puppeteer-rendered deliverables under `/projections/<id>/`,
 `/properties/<id>/`, `/inspections/<id>/render`, `/statements/render`.
 
+The property Home Guide and WiFi placard contain credentials. They pass the proxy for PDF
+rendering but self-guard before data access: a Helm staff session or a two-minute HMAC token
+scoped to one property and document. `/api/property-pdf` authenticates staff before rendering.
+`property-pdf.ts` sends the token only on the exact document navigation, in a header, never a
+URL. Keep the document-root check: Next can stream a 200 shell for an unauthorized not-found
+page. Printed WiFi QR codes encode network details directly and do not use these web routes.
+
 # Money: the canonical statement math
 
 **This chapter is load-bearing. Read it fully before touching anything that writes
