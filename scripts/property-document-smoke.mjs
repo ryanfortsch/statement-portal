@@ -124,8 +124,18 @@ try {
     assert.match(pdf.headers.get('content-type') || '', /application\/pdf/);
     const bytes = new Uint8Array(await pdf.arrayBuffer());
     const document = await PDFDocument.load(bytes);
-    assert.equal(document.getPageCount(), type === 'wifi-placard' ? 2 : 1);
     writeFileSync(join(outputDir, `${type}.pdf`), bytes);
+    const pdfText = await require('pdf-parse/lib/pdf-parse.js')(Buffer.from(bytes), {
+      pagerender: async (page) => {
+        const content = await page.getTextContent();
+        const text = content.items.map(item => item.str).join(' ');
+        console.log(`${type} page ${page.pageIndex + 1}: ${text}`);
+        return text;
+      },
+    });
+    assert.ok(pdfText.text.includes('SYNTHETIC_NETWORK'));
+    assert.ok(pdfText.text.includes('SYNTHETIC_NETWORK_2'));
+    assert.equal(document.getPageCount(), type === 'wifi-placard' ? 2 : 1);
     pass(`${type}: staff download generates a valid ${document.getPageCount()}-page PDF`);
   }
   writeFileSync(join(outputDir, 'smoke-results.json'), JSON.stringify({ tests: passes.length, passed: passes, skipped, synthetic_data_only: true }, null, 2));
