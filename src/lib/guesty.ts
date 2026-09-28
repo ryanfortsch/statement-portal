@@ -256,7 +256,7 @@ export async function getListingParkingAndHero(
  * JSON write helper (POST/PATCH/PUT) sharing guestyGet's token cache +
  * 429 backoff. The GET-only guestyGet can't mutate.
  */
-async function guestyWrite<T = unknown>(
+export async function guestyWrite<T = unknown>(
   method: 'POST' | 'PATCH' | 'PUT',
   path: string,
   body: unknown,

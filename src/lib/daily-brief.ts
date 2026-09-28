@@ -10,6 +10,7 @@
  * handful of unindexed selects is fine.
  */
 
+import { linkedListingNotices } from '@/lib/listing-links';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadCleaningOutlook, cleaningFlags } from '@/lib/cleaning-schedule';
@@ -1445,6 +1446,14 @@ async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
     } catch (err) {
       out.push({ propertyId: id, propertyName: id, items: [`could not check: ${err instanceof Error ? err.message : String(err)}`] });
     }
+  }
+  // Linked listings (one house sold whole and as units): what Helm closed
+  // or reopened in the last day, and any double booking, loudest first.
+  try {
+    const notices = await linkedListingNotices(new Date(dayAgo).toISOString());
+    if (notices.length > 0) out.push({ propertyId: '17_beach_rd', propertyName: 'Linked listings', items: notices });
+  } catch (err) {
+    out.push({ propertyId: '', propertyName: 'Linked listings', items: [`could not check: ${err instanceof Error ? err.message : String(err)}`] });
   }
   return out;
 }
