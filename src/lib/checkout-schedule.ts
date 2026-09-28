@@ -42,13 +42,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { selectAllPaged } from '@/lib/paged-select';
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { NON_LIVE_STATUSES } from '@/lib/ghost-booking-reconcile';
 import { guestNameScore, displayGuestName, isContinuation } from '@/lib/stay-continuation';
 
-// Same exclusion set as lib/operations.ts NON_OPERATIONS_PROPERTY_IDS
-// (file-local there): out-of-region homes whose owners handle their own
-// turnovers. Rosa never cleans these.
-export const SCHEDULE_EXCLUDED_PROPERTY_IDS = new Set<string>(['65_calderwood', '3246_ne_27th']);
+// Which homes a schedule covers is a registry question (properties.region,
+// read through lib/property-scope.ts), never a literal id set: Rosa's Cape
+// Ann schedule is region cape_ann; an out-of-region home (65 Calderwood,
+// Bridgeport CT) gets its own recipient scoped by region or by explicit
+// property ids. See ScheduleScope below.
 
 // Mirrors operations.ts TURNOVER_STATUSES: stays that actually happen.
 const STAY_STATUSES = ['confirmed', 'completed'];
@@ -450,17 +452,37 @@ function nightsOf(checkIn: string, checkOut: string): string[] {
 
 // ─── the brain ────────────────────────────────────────────────────────
 
+/**
+ * Which homes a schedule covers. Default: every active Cape Ann home
+ * (region cape_ann). A recipient with an explicit property list (Luana,
+ * the Bridgeport house only) gets exactly those homes; a recipient with
+ * none gets every home in their region.
+ */
+export type ScheduleScope = { region?: string; propertyIds?: string[] };
+export const DEFAULT_SCHEDULE_SCOPE: ScheduleScope = { region: CAPE_ANN_REGION };
+
+/** Pure: does this property fall inside the scope? */
+export function inScheduleScope(
+  p: { id: string; region?: string | null },
+  scope: ScheduleScope = DEFAULT_SCHEDULE_SCOPE,
+): boolean {
+  if (scope.propertyIds && scope.propertyIds.length > 0) return scope.propertyIds.includes(p.id);
+  const region = scope.region ?? CAPE_ANN_REGION;
+  return (p.region ?? CAPE_ANN_REGION) === region;
+}
+
 export async function buildCheckoutSchedule(
   supabase: SupabaseClient,
-  opts: { startDate: string; days: number },
+  opts: { startDate: string; days: number; scope?: ScheduleScope },
 ): Promise<ScheduleDay[]> {
   const { startDate, days } = opts;
+  const scope = opts.scope ?? DEFAULT_SCHEDULE_SCOPE;
   const endDate = addDays(startDate, days - 1);
 
   const [propsRes, checkoutsRes, checkinsRes, adjRes] = await Promise.all([
     supabase
       .from('properties')
-      .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind'),
+      .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind, region'),
     supabase
       .from('bookings')
       .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at, external_confirmation_code')
@@ -500,8 +522,8 @@ export async function buildCheckoutSchedule(
   }
 
   const properties = new Map<string, PropertyLite>();
-  for (const p of (propsRes.data ?? []) as Array<PropertyLite & { is_active: boolean | null; kind: string | null }>) {
-    if (SCHEDULE_EXCLUDED_PROPERTY_IDS.has(p.id)) continue;
+  for (const p of (propsRes.data ?? []) as Array<PropertyLite & { is_active: boolean | null; kind: string | null; region: string | null }>) {
+    if (!inScheduleScope(p, scope)) continue;
     if (p.is_active === false) continue;
     if (p.kind === 'hq') continue;
     properties.set(p.id, p);

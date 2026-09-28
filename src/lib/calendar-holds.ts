@@ -83,3 +83,29 @@ export function heldNightReason(
   }
   return icalHeld ? 'the calendar is blocked that night' : null;
 }
+
+/**
+ * The rule that closes a night no real hold covers, from its Guesty block
+ * refs, most consequential first: a fixed-date closure ('bd') before the
+ * rolling booking window ('bw'), then advance notice and padding. Any other
+ * non-hold type is kept as-is, so an unknown rule reads as a rule, never as
+ * an open night. Null when every ref is a real hold, or there are none.
+ * calendar-days.ts stores it as property_calendar_days.block_rule_type; the
+ * cutover handover reads it (lib/cutover-carryover mirrorRunsFromDays).
+ */
+export function ruleTypeOf(refs: ReadonlyArray<{ type?: string | null }> | undefined | null): string | null {
+  if (!refs || refs.length === 0) return null;
+  const order = ['bd', 'bw', 'an', 'b', 'a'];
+  let best: string | null = null;
+  let bestRank = Infinity;
+  for (const r of refs) {
+    const t = r.type ?? '';
+    if (!t || REAL_HOLD_TYPES.has(t)) continue;
+    const k = order.includes(t) ? order.indexOf(t) : order.length;
+    if (k < bestRank) {
+      best = t;
+      bestRank = k;
+    }
+  }
+  return best;
+}

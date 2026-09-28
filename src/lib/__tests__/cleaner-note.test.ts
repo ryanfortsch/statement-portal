@@ -104,5 +104,8 @@ test('no send path appends the raw typed note', () => {
       );
     }
   }
-  assert.equal(seen, 3, 'a send path was added or removed; check it renders the note');
+  // Two since the per-region digest (PMS branch): sendDigest renders the
+  // note for every composed send (manual, update and the evening autosend),
+  // and the approve action for an edited, verbatim body.
+  assert.equal(seen, 2, 'a send path was added or removed; check it renders the note');
 });

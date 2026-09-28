@@ -588,6 +588,34 @@ export default async function TodayPage() {
 
         {/* Feeds-needing-attention surface. Only renders when something is
             stuck or stale, so a healthy day stays calm. */}
+        {brief.channelsAttention.length > 0 && (
+          <div
+            className="mt-12 pt-4 text-[12px]"
+            style={{ borderTop: '1px solid var(--rule-soft)', color: 'var(--ink-3)' }}
+          >
+            <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--signal)' }}>
+              Helm-run homes
+            </div>
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {brief.channelsAttention.map((h) => (
+                <li key={h.propertyId} style={{ padding: '4px 0' }}>
+                  {h.propertyId ? (
+                    <Link href={`/channels/${h.propertyId}#attention`} style={{ color: 'var(--ink)', fontWeight: 500 }}>
+                      {h.propertyName}
+                    </Link>
+                  ) : (
+                    <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{h.propertyName}</span>
+                  )}
+                  {h.items.map((it, i) => (
+                    <div key={i} style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>
+                      {it}
+                    </div>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {brief.feedsNeedingAttention.length > 0 && (
           <div
             className="mt-12 pt-4 text-[12px]"

@@ -65,6 +65,14 @@ import { OnboardingItemToggle } from './OnboardingItemToggle';
 import { RoomsEditor } from './RoomsEditor';
 import { RentalSeasonPanel } from './RentalSeasonPanel';
 import { getPropertyRooms } from '@/lib/property-rooms';
+import { RatesPanel } from './RatesPanel';
+import { ListingPanel } from './ListingPanel';
+import { AutomationsPanel } from './AutomationsPanel';
+import { loadPricingBundle } from '@/lib/property-rates';
+import { getListingRecord, bedSummary, AMENITY_CATALOG, FIELD_CONSUMERS } from '@/lib/listing-content';
+import { getAutomationsPanelView } from '@/lib/automations';
+import { isHelmRun } from '@/lib/property-scope';
+import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
 import { getOnboardingItemRows } from '@/lib/onboarding-items';
 import { hasOrderChecklistState } from '@/lib/order-checklist-db';
 import {
@@ -411,6 +419,10 @@ export default async function PropertyDetailPage({
     history: 'now',
     documents: 'owner',
     deliverables: 'guest',
+    // the PMS branch's three, folded into Guest & listing as sections
+    rates: 'guest',
+    listing: 'guest',
+    automations: 'guest',
   };
   const initialTab = TAB_ALIASES[rawTab] ?? rawTab;
   const p = await getProperty(id);
@@ -446,7 +458,7 @@ export default async function PropertyDetailPage({
     }),
     getClimateProfile(p.id),
     getGuestCodeView(p.id),
-    getPropertyCleaners(p.id),
+    getPropertyCleaners(p.id, { region: (p as unknown as { region?: string | null }).region ?? null }),
     getPropertyRooms(p.id),
     getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
@@ -459,6 +471,20 @@ export default async function PropertyDetailPage({
     getFleetCoverage().then((r) => (r.ok ? r.data : null)).catch(() => null),
   ]);
   const myEmail = session?.user?.email ?? '';
+
+  // PMS plumbing: who runs this home's calendar (properties.calendar_authority,
+  // read off the select('*') row), plus the three Helm-native records the
+  // Rates & taxes, Listing and Automations sections render. Each loader is
+  // null-safe so a missing migration on a preview env degrades to an empty
+  // panel instead of a 500.
+  const helmRun = isHelmRun(p as unknown as { calendar_authority?: string | null });
+  const pmsRegion = ((p as unknown as { region?: string | null }).region ?? null) as string | null;
+  const pmsToday = todayInEastern();
+  const [pricing, listingRecord, automationsView] = await Promise.all([
+    loadPricingBundle(p.id, pmsToday, shiftIsoDay(pmsToday, 365)).catch(() => null),
+    getListingRecord(p.id).catch(() => null),
+    getAutomationsPanelView(p.id).catch(() => null),
+  ]);
 
   // Management-contract registry facts (property_contracts). The active row
   // is the canonical agreement; contractFacts (projection columns) remains
@@ -798,7 +824,10 @@ export default async function PropertyDetailPage({
           { id: 'now', label: 'Now', badge: openSlips.length || undefined },
           { id: 'facts', label: 'Facts' },
           { id: 'owner', label: 'Owner & money', badge: crmContactsFull.length || undefined },
-          { id: 'guest', label: 'Guest & listing' },
+          // Rates & taxes, Listing and Automations (the Helm-native PMS
+          // records) are sections of this tab; the badge is sends waiting
+          // on an approval there.
+          { id: 'guest', label: 'Guest & listing', badge: automationsView?.counts.awaiting || undefined },
           // Setup leaves the strip once the house is established. The
           // onboarding percentage badge is gone with it: it counted N/A as
           // progress and could not reach 100 (108 items, 48 derives), so it
@@ -1275,8 +1304,13 @@ export default async function PropertyDetailPage({
               <GrowthTile
                 eyebrow="Distribution"
                 title="Channels"
-                description="Where this property is listed: per-channel listings, bookings, and its iCal export feed."
+                description={
+                  helmRun
+                    ? 'Helm runs this calendar: per-channel listings, iCal in and out, bookings. Rates live under Rates & taxes on the Guest & listing tab.'
+                    : 'Where this property is listed: per-channel listings, bookings, and its iCal export feed. Guesty still runs the calendar.'
+                }
                 href={`/channels/${p.id}`}
+                status={helmRun ? 'Helm ✓' : 'Guesty'}
               />
               <GrowthTile
                 eyebrow="Inspections"
@@ -1284,19 +1318,23 @@ export default async function PropertyDetailPage({
                 description="The room-by-room card deck a field inspection walks through at this property."
                 href={`/properties/${p.id}/layout`}
               />
-              <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div className="eyebrow">Integrations</div>
-                <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                  Fill blanks from Guesty
-                </h3>
-                <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                  Pulls bedrooms, bathrooms, property type, and coordinates from the live listing.
-                  Fills empty fields only, never overwrites.
-                </p>
-                <div style={{ marginTop: 'auto' }}>
-                  <PropertyBackfillButton propertyId={p.id} />
+              {/* A helm-run home has no live Guesty listing to fill from; the
+                  tile would only offer a call that returns nothing. */}
+              {!helmRun && (
+                <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="eyebrow">Integrations</div>
+                  <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                    Fill blanks from Guesty
+                  </h3>
+                  <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+                    Pulls bedrooms, bathrooms, property type, and coordinates from the live listing.
+                    Fills empty fields only, never overwrites.
+                  </p>
+                  <div style={{ marginTop: 'auto' }}>
+                    <PropertyBackfillButton propertyId={p.id} />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </section>
 
@@ -2200,6 +2238,58 @@ export default async function PropertyDetailPage({
               )}
             </div>
           </section>
+          {/* RATES & TAXES, LISTING, AUTOMATIONS: the Helm-native records
+              that replace Guesty's Pricing & policies, listing content and
+              Message Automation (property_rate_plans / property_rate_days /
+              property_tax_config, property_listing_content and photos,
+              message_automations). Authoritative once this home is
+              helm-run; a draft before. Deep links: ?tab=guest#rates,
+              #listing, #automations (the old ?tab=rates etc. alias here). */}
+          <CollapsibleSection
+            id="rates"
+            title="Rates & taxes"
+            summary={
+              pricing?.plan
+                ? `Base $${Math.round(pricing.plan.base_nightly_cents / 100).toLocaleString('en-US')} a night · ${pricing.plan.min_nights_default} night minimum`
+                : helmRun
+                ? 'No rate plan: Helm cannot price a night'
+                : 'No rate plan yet'
+            }
+          >
+            <RatesPanel
+              propertyId={p.id}
+              plan={pricing?.plan ?? null}
+              tax={pricing?.tax ?? null}
+              days={pricing ? [...pricing.days.values()] : []}
+              helmRun={helmRun}
+              region={pmsRegion}
+              today={pmsToday}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            id="listing"
+            title="Listing"
+            summary={`${listingRecord?.photos.length ?? 0} photo${listingRecord?.photos.length === 1 ? '' : 's'} · ${helmRun ? 'what staycapeann.com reads once it reads Helm' : 'draft; Guesty holds the live listing'}`}
+          >
+            <ListingPanel
+              propertyId={p.id}
+              content={listingRecord?.content ?? null}
+              photos={listingRecord?.photos ?? []}
+              rooms={propertyRooms}
+              bedSummaryText={bedSummary(propertyRooms).text}
+              catalog={AMENITY_CATALOG}
+              consumers={FIELD_CONSUMERS}
+              helmRun={helmRun}
+              registry={{ title: p.title ?? null, bedrooms: p.bedrooms ?? null, bathrooms: p.bathrooms ?? null }}
+            />
+          </CollapsibleSection>
+          <CollapsibleSection
+            id="automations"
+            title="Automations"
+            summary={automationsView ? `${automationsView.counts.awaiting} awaiting approval · ${automationsView.counts.scheduled} scheduled` : 'not loaded'}
+          >
+            <AutomationsPanel propertyId={p.id} view={automationsView} />
+          </CollapsibleSection>
       {/* GUEST DELIVERABLES — Stay Cape Ann home guide + WiFi placard +
           Information Note. */}
       <CollapsibleSection

@@ -69,14 +69,12 @@ describe('guest-facing booking reads take canonical rows only', () => {
    * has moved, so an unfiltered read does not merely double-count: it holds
    * nights nothing occupies.
    *
-   * The iCal export is the one that leaves the building. buildIcalExport
-   * emits a VEVENT per row with no dedupe, so every OTA subscribed to the
-   * feed blocks whatever a stale twin publishes.
+   * The iCal export is the one that leaves the building, and is audited
+   * apart below: it reads duplicates on purpose and the builder filters.
    */
   const AVAILABILITY_READS: Array<[string, string]> = [
     ['src/app/book/[propertyId]/actions.ts', 'the direct-booking conflict check refuses real bookings'],
     ['src/app/book/[propertyId]/page.tsx', 'the public availability calendar greys out free nights'],
-    ['src/app/api/channels/ical/[token]/route.ts', 'the OTA iCal feed blocks nights on every channel'],
     ['src/lib/climate.ts', 'the thermostat holds comfort on an empty house'],
     ['src/lib/ai/campaign-context.ts', 'campaign targeting double-counts a deduped stay'],
   ];
@@ -90,6 +88,20 @@ describe('guest-facing booking reads take canonical rows only', () => {
       );
     });
   }
+
+  test('the iCal export reads duplicates, and the builder takes canonical rows only', () => {
+    // Every OTA subscribed to the feed blocks whatever it publishes, so a
+    // superseded twin must never reach it. The filter lives in the builder
+    // (lib/ical-export exportableBooking), not in the query, because one
+    // kind of duplicate must travel: a Booking.com closure the dedupe filed
+    // under the stay it echoes may be a Booking.com guest, and dropped from
+    // the export Airbnb and VRBO reopened that guest's nights.
+    const route = queryFrom(read('src/app/api/channels/ical/[token]/route.ts'), 'bookings');
+    assert.ok(!route.includes(".is('duplicate_of', null)"), 'the route must leave the duplicate decision to the builder');
+    const builder = read('src/lib/ical-export.ts');
+    assert.match(builder, /\} else if \(b\.duplicate_of != null\) \{\n\s*return false;/, 'the builder stopped dropping superseded twins');
+    assert.match(read('src/lib/ical-export.ts'), /exportableBooking\(/);
+  });
 
   test('the iCal importer is exempt, and says why', () => {
     // It diffs the rows it created, keyed by ical_uid. Filtering would make

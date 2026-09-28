@@ -5,6 +5,7 @@ import { TurnoverTabs } from '@/components/TurnoverTabs';
 import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
+import { isCapeAnnOps } from '@/lib/property-scope';
 import { AutoRefresh } from '../revenue/AutoRefresh';
 import { CalendarMonthSelect } from './CalendarMonthSelect';
 import { PropertyFilterSelect } from './PropertyFilterSelect';
@@ -52,10 +53,9 @@ async function readPropertyName(propertyId: string): Promise<string | null> {
   }
 }
 
-// Mirrors NON_OPERATIONS_PROPERTY_IDS in lib/operations.ts (module-private
-// there): out-of-region homes Rising Tide doesn't turn over stay out of the
-// filter options, exactly as they stay out of the pipeline and calendar.
-const NON_OPERATIONS_PROPERTY_IDS = new Set<string>(['65_calderwood', '3246_ne_27th']);
+// Out-of-region homes (properties.region != cape_ann) stay out of the filter
+// options, exactly as they stay out of the pipeline and calendar. The gate is
+// the registry column, read through lib/property-scope.ts, not a literal set.
 
 /** Options for the header's property filter. Queried directly (not derived
  *  from the calendar rows) because loadOperationsData narrows its property
@@ -65,11 +65,11 @@ async function readPropertyOptions(): Promise<{ value: string; label: string }[]
   try {
     const { data } = await supabase
       .from('properties')
-      .select('id, name')
+      .select('id, name, region')
       .eq('is_active', true)
       .order('name');
-    return ((data ?? []) as { id: string; name: string }[])
-      .filter((p) => !NON_OPERATIONS_PROPERTY_IDS.has(p.id))
+    return ((data ?? []) as { id: string; name: string; region: string | null }[])
+      .filter(isCapeAnnOps)
       .map((p) => ({ value: p.id, label: p.name }));
   } catch {
     return [];

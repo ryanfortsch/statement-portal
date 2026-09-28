@@ -1,4 +1,5 @@
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
+import { isCapeAnnOps } from '@/lib/property-scope';
 
 /**
  * Who physically goes to a house.
@@ -29,7 +30,12 @@ export type PropertyCleaner = {
  * JS rather than building an array-contains-or-empty PostgREST filter. Same
  * shape as the fleet read in launch-context.ts.
  */
-export async function getPropertyCleaners(propertyId: string): Promise<PropertyCleaner[]> {
+export async function getPropertyCleaners(propertyId: string, opts: { region?: string | null } = {}): Promise<PropertyCleaner[]> {
+  // A catch-all row (property_ids '{}') is the Cape Ann crew: it serves every
+  // Cape Ann home and no other (the cleaner digest and the automations read
+  // it the same way). Counted for 65 Calderwood, the header named Gloucester's
+  // cleaners as a Bridgeport house's and hid the "No cleaner mapped" link.
+  const capeAnn = isCapeAnnOps({ region: opts.region ?? null });
   if (!propertyId || !isServiceConfigured) return [];
   try {
     const { data, error } = await supabase
@@ -50,7 +56,7 @@ export async function getPropertyCleaners(propertyId: string): Promise<PropertyC
       .map((r) => {
         const ids = r.property_ids ?? [];
         const fleetWide = ids.length === 0;
-        const serves = fleetWide || ids.includes(propertyId);
+        const serves = (fleetWide && capeAnn) || ids.includes(propertyId);
         return serves
           ? {
               phone: r.phone,

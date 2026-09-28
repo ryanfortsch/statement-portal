@@ -1,6 +1,6 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { heldNightReason, isGuestyRuleArtifactUid, isRealHoldType } from '../calendar-holds.ts';
+import { heldNightReason, isGuestyRuleArtifactUid, isRealHoldType, ruleTypeOf } from '../calendar-holds.ts';
 
 // Real uids from prod on 2026-09-15.
 const AN_UID = '67a1355216416a00122e976f_an_2026-09-15_2026-09-15@guesty.com_dSFmAqMbOo6DOKnIrBELDssxIVs=';
@@ -72,4 +72,18 @@ test('no mirror row: the iCal rows decide, artifacts discounted', () => {
   assert.equal(heldNightReason(null, []), null);
   assert.equal(heldNightReason(null, [{ ical_uid: MANUAL_UID }]), 'the calendar is blocked that night');
   assert.equal(heldNightReason(null, [{ ical_uid: null }]), 'the calendar is blocked that night');
+});
+
+describe('ruleTypeOf: the rule behind a night no hold covers', () => {
+  test('a fixed-date closure outranks the rolling window, which outranks advance notice and padding', () => {
+    assert.equal(ruleTypeOf([{ type: 'an' }, { type: 'bw' }, { type: 'bd' }]), 'bd');
+    assert.equal(ruleTypeOf([{ type: 'an' }, { type: 'bw' }]), 'bw');
+    assert.equal(ruleTypeOf([{ type: 'b' }, { type: 'an' }]), 'an');
+  });
+  test('real holds are not rules; an unknown type is still a rule; nothing is null', () => {
+    assert.equal(ruleTypeOf([{ type: 'm' }, { type: 'o' }]), null);
+    assert.equal(ruleTypeOf([{ type: 'zz' }]), 'zz');
+    assert.equal(ruleTypeOf([]), null);
+    assert.equal(ruleTypeOf(undefined), null);
+  });
 });

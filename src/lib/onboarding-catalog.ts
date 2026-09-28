@@ -163,9 +163,13 @@ export type OnboardingDeriveContext = {
    */
   conciergeCoverage: { kb: boolean; crosswalk: boolean; todos: number } | null;
   /**
-   * Distinct non-null nightly prices over the next 60 days of the Guesty
-   * calendar mirror (property_calendar_days). 0 = no priced days synced
-   * yet; 1 = flat base rate on every night, the listing-live-on-defaults
+   * Distinct non-null nightly prices over the next 60 days: the Guesty
+   * calendar mirror (property_calendar_days.price) for a Guesty-run home,
+   * Helm's own rate calendar (property_rate_days.nightly_cents) for a
+   * Helm-run one. Load it through loadForwardDistinctPrices in
+   * src/lib/launch-context.ts, the same probe the launch checklist's
+   * pricing_flowing step reads, so the two never disagree. 0 = no priced
+   * days yet; 1 = flat base rate on every night, the listing-live-on-defaults
    * state that underpriced 3 Windward's launch (PriceLabs not pushing);
    * 2+ = real rate variation is flowing.
    */
@@ -1058,10 +1062,14 @@ export const ONBOARDING_ITEMS: OnboardingItem[] = [
     stage: 'guest_experience',
     title: 'Trash day and cart location on file',
     description: 'Trash day, recycling day, and where the carts live recorded.',
-    why: 'Drives the trash-day reminder engine, the guest KB, the printed Information Note, and Guesty\'s trashCollectedOn. The city set-out rule comes from civic.ts, so the notes field only needs the cart location. Non-Gloucester homes need the day set by hand.',
+    why: 'Drives the trash-day reminder engine, the guest KB, the printed Information Note, and Guesty\'s trashCollectedOn. The city set-out rule comes from civic.ts, so the notes field only needs the cart location. Outside Gloucester leave the day blank and write where the bins go in the notes: the guest AI turns any trash day into Gloucester\'s cart rule (CLAUDE.md, Trash and recycling).',
     href: '/properties/{id}/edit',
     hrefLabel: 'Edit field',
-    derive: ({ p }) => has(p.trash_day),
+    // Outside Gloucester the location note is the fact on file: a trash day
+    // there makes stay-concierge's schedule block (no city gate) tell guests
+    // the Gloucester cart rule. Asked to set one, the operator did, for
+    // 65 Calderwood (Bridgeport, CT).
+    derive: ({ p }) => has(p.trash_day) || ((p.city || '').split(',')[0].trim() !== 'Gloucester' && has(p.trash_notes)),
   },
   {
     key: 'guest_experience.concierge_knows_home',

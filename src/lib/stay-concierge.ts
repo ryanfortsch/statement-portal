@@ -88,7 +88,7 @@ export type AddonCharge = {
   amount_usd: number;
   /** Empty when link creation failed; see link_error. */
   payment_link_url: string;
-  /** '' | 'no_key' | 'stripe_permission' | 'stripe_error' | 'amount_out_of_range' */
+  /** '' | 'no_key' | 'stripe_permission' | 'stripe_error' | 'amount_out_of_range' | 'tax_jurisdiction_unknown' */
   link_error: string;
   /** The exact SMS that will send on approve (already contains the link). */
   sms_body: string;

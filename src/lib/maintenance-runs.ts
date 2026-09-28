@@ -771,8 +771,12 @@ export async function planMaintenanceRuns(opts?: { skipClassify?: boolean }): Pr
     });
   }
 
-  // Suggested drafts for properties that no longer justify a run.
-  for (const e of existing) {
+  // Suggested drafts for properties that no longer justify a run. Not when
+  // the property read came back empty while slips are waiting: that is a
+  // failed read (a deploy ahead of its migration), not a fleet with nothing
+  // to do, and the drafts carry operator edits (price, instructions).
+  const readLooksFailed = fieldProps.size === 0 && pool.length > 0;
+  for (const e of readLooksFailed ? [] : existing) {
     const pid = propertyOfKey(e.suggestion_key);
     if (plannedProperties.has(pid)) continue;
     await fieldDb().from('inspection_packets').delete().eq('id', e.id).eq('status', 'draft');

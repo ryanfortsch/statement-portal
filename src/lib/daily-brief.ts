@@ -27,6 +27,8 @@ import {
 import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
+import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
+import { carryoverFor, loadCutoverFacts } from '@/lib/cutover';
 
 let _serviceSupabase: SupabaseClient | null = null;
 function serviceSupabase(): SupabaseClient {
@@ -126,6 +128,18 @@ export type BriefFeedHealth = {
   lastError: string | null;
 };
 
+/**
+ * A Helm-run home with something only a person can settle: the cutover
+ * handover reconciliation (lib/cutover-carryover) and pulls of its export
+ * that got the unfiltered feed. Each line names what and where; the channel
+ * hub's Needs attention panel has the actions.
+ */
+export type BriefChannelAttention = {
+  propertyId: string;
+  propertyName: string;
+  items: string[];
+};
+
 export type DailyBrief = {
   date: string;
   checkoutsToday: BriefStay[];
@@ -145,6 +159,8 @@ export type DailyBrief = {
   gmailConfigured: boolean;
   /** Feeds in error state or past their expected cadence. Watchdog surface. */
   feedsNeedingAttention: BriefFeedHealth[];
+  /** Helm-run homes with a handover or channel problem for a person. */
+  channelsAttention: BriefChannelAttention[];
   totals: {
     activeSlips: number;
     activeTasks: number;
@@ -1079,13 +1095,23 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       .in('status', ACTIVE_TASK_STATUSES)
       .order('priority', { ascending: false })
       .order('created_at', { ascending: false }),
+    // Today's departures and arrivals come from canonical bookings, the
+    // Helm-native stay source every ops surface reads, not from
+    // guesty_reservations: a home Helm runs after its Guesty cutover has no
+    // Guesty row at all, and a Guesty-run home is mirrored into bookings
+    // anyway. Same filters as operations.ts (confirmed/completed, canonical
+    // rows only) so the brief names the exact stays the turnover rail shows.
     supabase
-      .from('guesty_reservations')
+      .from('bookings')
       .select('property_id, guest_name, channel, check_in, check_out')
+      .in('status', ['confirmed', 'completed'])
+      .is('duplicate_of', null)
       .eq('check_out', todayIso),
     supabase
-      .from('guesty_reservations')
+      .from('bookings')
       .select('property_id, guest_name, channel, check_in, check_out')
+      .in('status', ['confirmed', 'completed'])
+      .is('duplicate_of', null)
       .eq('check_in', todayIso),
     // Last 14 days of inbound + outbound touches; we resolve "still
     // waiting" by checking if any outbound touch exists for the same
@@ -1142,11 +1168,16 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     contactById.set(c.id, c);
   }
 
+  // bookings.channel is the enum token ('booking_com'); the brief and /today
+  // print the display label ('Booking.com'), the vocabulary the old
+  // guesty_reservations read handed them. An iCal-imported stay can carry no
+  // guest name (Airbnb's feed withholds it): the name stays null so the
+  // renderer hides the span rather than printing a placeholder.
   const toStay = (r: ReservationPick): BriefStay => ({
     propertyId: r.property_id,
     propertyName: propertyById.get(r.property_id) ?? r.property_id,
-    guestName: r.guest_name,
-    channel: r.channel,
+    guestName: r.guest_name?.trim() || null,
+    channel: r.channel ? (CHANNEL_LABELS[r.channel as BookingChannel] ?? r.channel) : null,
     checkIn: r.check_in,
     checkOut: r.check_out,
   });
@@ -1287,6 +1318,8 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     { source: 'vendor-appointments', maxAgeMs: 36 * 3_600_000 }, // A-1 reminder texts; the 16:00 sweep runs daily
     { source: 'seam',                maxAgeMs: 36 * 3_600_000 },
     { source: 'ical',                maxAgeMs:  3 * 3_600_000 },
+    { source: 'helm-calendar',       maxAgeMs:  3 * 3_600_000 }, // the calendar mirror Helm writes for helm-run homes
+    { source: 'automations',         maxAgeMs:  2 * 3_600_000 }, // message-automation planner / dispatcher
     { source: 'stripe',              maxAgeMs: null }, // on-demand "Sync Stripe" button
     { source: 'csv-fallback',        maxAgeMs: null }, // on-demand monthly CSV upload
   ];
@@ -1339,6 +1372,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     lastGmailSyncAt,
     gmailConfigured: gmailConfigured(),
     feedsNeedingAttention,
+    channelsAttention: await loadChannelsAttention(),
     totals: {
       activeSlips: allSlips.length,
       activeTasks: allTasks.length,
@@ -1355,6 +1389,64 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
       cleaningFlags: cleaningFlagList.length,
     },
   };
+}
+
+/**
+ * The brief's Helm-run homes section. One cutover-facts read per Helm-run
+ * home (a handful at most). A home whose read fails is listed with the
+ * failure rather than left out: silence here would read as "all clear".
+ */
+async function loadChannelsAttention(): Promise<BriefChannelAttention[]> {
+  const out: BriefChannelAttention[] = [];
+  // Read here, not through the forgiving pms-guards loader: that one answers
+  // "no Helm-run homes" on a failed read, and this section would go silent.
+  const { data: helmRows, error: helmErr } = await supabase.from('properties').select('id').eq('calendar_authority', 'helm');
+  if (helmErr) {
+    return [{ propertyId: '', propertyName: 'Helm-run homes', items: [`could not read which homes Helm runs: ${helmErr.message}`] }];
+  }
+  const ids = ((helmRows ?? []) as Array<{ id: string }>).map((r) => r.id).sort();
+  const dayAgo = Date.now() - 86_400_000;
+  for (const id of ids) {
+    try {
+      const facts = await loadCutoverFacts(id);
+      const c = carryoverFor(facts);
+      const items: string[] = [];
+      const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+      if (c.bookingComUnexplained.length > 0) {
+        items.push(`${n(c.bookingComUnexplained.length, 'Booking.com closure', 'Booking.com closures')} with no reservation on file (first ${c.bookingComUnexplained[0].check_in}): check the extranet, then enter the booking or open the nights`);
+      }
+      if (c.bookingComNotShown.length > 0) {
+        items.push(`${n(c.bookingComNotShown.length, 'reservation', 'reservations')} Booking.com no longer shows (first ${c.bookingComNotShown[0].check_in}): cancelled there?`);
+      }
+      if (c.bookingComUnwatched.length > 0) {
+        items.push(`${n(c.bookingComUnwatched.length, 'Booking.com reservation', 'Booking.com reservations')} on file with no Booking.com feed read: a cancellation cannot reach Helm`);
+      }
+      if (c.untwinnedGuestyStays.length > 0) {
+        items.push(`${n(c.untwinnedGuestyStays.length, 'Guesty-era stay', 'Guesty-era stays')} with no twin on the OTA's own feed (first ${c.untwinnedGuestyStays[0].check_in})`);
+      }
+      if (c.bookingComOrphaned.length > 0) {
+        items.push(`${n(c.bookingComOrphaned.length, 'Booking.com closure', 'Booking.com closures')} on a feed Helm no longer reads: release once checked`);
+      }
+      if (c.carriedSeasonsEnding.length > 0) {
+        items.push(`${n(c.carriedSeasonsEnding.length, 'closed season', 'closed seasons')} carried from Guesty end within the booking window soon (first night on sale ${c.carriedSeasonsEnding[0].season_end ?? c.carriedSeasonsEnding[0].check_out}): extend the season's block`);
+      }
+      if (c.unreadFeedStays.length > 0) {
+        items.push(`${n(c.unreadFeedStays.length, 'stay', 'stays')} from a feed Helm no longer reads (first ${c.unreadFeedStays[0].check_in}): a cancellation cannot reach Helm, check each on its channel`);
+      }
+      const unfiltered = facts.pulls.filter(
+        (p) =>
+          Date.parse(p.pulled_at) > dayAgo &&
+          ((p.channel_guess == null && !p.requested_for) || (!!p.requested_for && !!p.ua_guess && p.requested_for !== p.ua_guess)),
+      );
+      if (unfiltered.length > 0) {
+        items.push(`${n(unfiltered.length, 'pull', 'pulls')} of the export in the last day got the unfiltered feed (an unidentified reader, or an OTA on another OTA's line)`);
+      }
+      if (items.length > 0) out.push({ propertyId: id, propertyName: facts.propertyName, items });
+    } catch (err) {
+      out.push({ propertyId: id, propertyName: id, items: [`could not check: ${err instanceof Error ? err.message : String(err)}`] });
+    }
+  }
+  return out;
 }
 
 export function briefHeadline(brief: DailyBrief): string {

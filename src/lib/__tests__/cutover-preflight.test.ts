@@ -1,0 +1,366 @@
+/**
+ * The cutover preflight: eight checks over loaded facts, pure.
+ *
+ * Run: npm test   (node --test, native TypeScript, no bundler, no database)
+ */
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  evaluateCutoverPreflight,
+  isOtaFeedChannel,
+  isUnclassifiedChannel,
+  latestPullFor,
+  NO_ACKNOWLEDGEMENTS,
+  type CutoverCheckKey,
+  type CutoverFacts,
+  type CutoverFeedFact,
+} from '../cutover.ts';
+
+const NOW = new Date('2026-10-01T15:00:00Z');
+const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000).toISOString();
+
+const feed = (channel: string, patch: Partial<CutoverFeedFact> = {}): CutoverFeedFact => ({
+  id: `${channel}-row`,
+  channel,
+  is_active: true,
+  ical_import_url: `https://${channel}.example/ical.ics`,
+  last_import_status: 'success',
+  last_imported_at: hoursAgo(0.5),
+  last_import_error: null,
+  export_subscribed: true,
+  export_subscribed_at: hoursAgo(20),
+  ...patch,
+});
+
+/** Every check green, both boxes ticked. Tests knock one thing out at a time. */
+function greenFacts(patch: Partial<CutoverFacts> = {}): CutoverFacts {
+  return {
+    propertyId: '65_calderwood',
+    propertyName: '65 Calderwood',
+    region: 'bridgeport_ct',
+    calendarAuthority: 'guesty',
+    guestyListingId: '68aef2c1',
+    formerGuestyListingId: null,
+    automationsEnabled: false,
+    ratePlan: { base_nightly_cents: 35000, min_nights_default: 3 },
+    taxConfig: { jurisdiction: 'CT', rate: 0.15 },
+    feeds: [feed('airbnb'), feed('vrbo'), feed('booking_com'), feed('direct', { ical_import_url: null, export_subscribed: false })],
+    pulls: [
+      { channel_guess: 'airbnb', pulled_at: hoursAgo(2) },
+      { channel_guess: 'vrbo', pulled_at: hoursAgo(5) },
+      { channel_guess: 'booking_com', pulled_at: hoursAgo(9) },
+    ],
+    bookings: [
+      { id: 'a', property_id: '65_calderwood', status: 'confirmed', check_in: '2026-10-10', check_out: '2026-10-14' },
+      { id: 'b', property_id: '65_calderwood', status: 'confirmed', check_in: '2026-10-14', check_out: '2026-10-18' },
+      { id: 'blk', property_id: '65_calderwood', status: 'block', check_in: '2026-10-12', check_out: '2026-10-13' },
+    ],
+    recipients: [
+      { display_name: 'Rosa', enabled: true, property_ids: [], region: 'cape_ann' },
+      { display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct' },
+    ],
+    automations: { fleet_rules: 4, property_rules: 1, enabled_rules: 0, configured_in_ota: 2 },
+    acknowledgements: { automations_reviewed: true, guesty_disconnect: true },
+    now: NOW,
+    ...patch,
+  };
+}
+
+function failing(facts: CutoverFacts): CutoverCheckKey[] {
+  return evaluateCutoverPreflight(facts).failing;
+}
+
+const byKey = (r: ReturnType<typeof evaluateCutoverPreflight>, key: string) => {
+  const c = r.checks.find((x) => x.key === key);
+  assert.ok(c, `no ${key} check`);
+  return c;
+};
+
+describe('evaluateCutoverPreflight', () => {
+  test('all green when every fact is in order', () => {
+    const r = evaluateCutoverPreflight(greenFacts());
+    assert.equal(r.ok, true);
+    assert.equal(r.dataOk, true);
+    assert.deepEqual(r.failing, []);
+    assert.equal(r.checks.length, 10);
+    assert.deepEqual(
+      r.checks.map((c) => c.key),
+      [
+        'rate_plan',
+        'tax_config',
+        'feeds_fresh',
+        'export_subscribed',
+        'no_double_bookings',
+        'guesty_stays_carried',
+        'booking_com_reconciled',
+        'cleaner_recipient',
+        'automations_reviewed',
+        'guesty_disconnect_acknowledged',
+      ],
+    );
+    assert.equal(r.checks.filter((c) => c.acknowledgement).length, 2);
+  });
+
+  test('no rate plan, or a zero base rate, is red', () => {
+    assert.deepEqual(failing(greenFacts({ ratePlan: null })), ['rate_plan']);
+    assert.deepEqual(failing(greenFacts({ ratePlan: { base_nightly_cents: 0, min_nights_default: 2 } })), ['rate_plan']);
+  });
+
+  test('tax config: a Cape Ann home may fall back to the MA table, any other region may not', () => {
+    assert.deepEqual(failing(greenFacts({ taxConfig: null, region: 'cape_ann' })), []);
+    const ct = evaluateCutoverPreflight(greenFacts({ taxConfig: null, region: 'bridgeport_ct' }));
+    assert.deepEqual(ct.failing, ['tax_config']);
+    assert.match(ct.checks[1].detail, /bridgeport_ct/);
+  });
+
+  test('feeds: a missing URL, a failed import or a success older than 2h each turn the check red and name the channel', () => {
+    const noUrl = evaluateCutoverPreflight(greenFacts({ feeds: [feed('airbnb', { ical_import_url: null }), feed('vrbo')] }));
+    assert.ok(noUrl.failing.includes('feeds_fresh'));
+    assert.match(noUrl.checks[2].detail, /Airbnb: no iCal URL/);
+
+    const errored = evaluateCutoverPreflight(
+      greenFacts({ feeds: [feed('airbnb'), feed('vrbo', { last_import_status: 'error', last_import_error: 'HTTP 403' })] }),
+    );
+    assert.match(errored.checks[2].detail, /VRBO: last import error \(HTTP 403\)/);
+
+    const old = evaluateCutoverPreflight(greenFacts({ feeds: [feed('airbnb', { last_imported_at: hoursAgo(3) }), feed('vrbo')] }));
+    assert.match(old.checks[2].detail, /Airbnb: last success 3h ago, older than 2h/);
+
+    // A retired row does not count.
+    const retired = evaluateCutoverPreflight(greenFacts({ feeds: [feed('airbnb'), feed('vrbo', { is_active: false, ical_import_url: null })] }));
+    assert.equal(retired.checks[2].ok, true);
+  });
+
+  test('no OTA feed rows at all is red: a Guesty-free OTA home must have its feeds wired', () => {
+    const r = evaluateCutoverPreflight(greenFacts({ feeds: [feed('direct', { ical_import_url: null })], pulls: [] }));
+    assert.ok(r.failing.includes('feeds_fresh'));
+    assert.ok(r.failing.includes('export_subscribed'));
+  });
+
+  test('the direct pseudo-channel and the Guesty aggregate row are never OTA feeds', () => {
+    assert.equal(isOtaFeedChannel('airbnb'), true);
+    assert.equal(isOtaFeedChannel('booking_com'), true);
+    assert.equal(isOtaFeedChannel('direct'), false);
+    assert.equal(isOtaFeedChannel('guesty'), false);
+    assert.equal(isOtaFeedChannel('block'), false);
+  });
+
+  test('export: every OTA row must be ticked subscribed AND have pulled within 24h, matched by channel', () => {
+    const unticked = evaluateCutoverPreflight(greenFacts({ feeds: [feed('airbnb', { export_subscribed: false }), feed('vrbo')] }));
+    assert.deepEqual(unticked.failing, ['export_subscribed']);
+    assert.match(unticked.checks[3].detail, /Airbnb: export not ticked/);
+
+    const neverPulled = evaluateCutoverPreflight(
+      greenFacts({ pulls: [{ channel_guess: 'airbnb', pulled_at: hoursAgo(1) }, { channel_guess: 'booking_com', pulled_at: hoursAgo(1) }] }),
+    );
+    assert.match(neverPulled.checks[3].detail, /VRBO: never pulled/);
+
+    const stalePull = evaluateCutoverPreflight(
+      greenFacts({
+        pulls: [
+          { channel_guess: 'airbnb', pulled_at: hoursAgo(30) },
+          { channel_guess: 'vrbo', pulled_at: hoursAgo(1) },
+          { channel_guess: 'booking_com', pulled_at: hoursAgo(1) },
+        ],
+      }),
+    );
+    assert.match(stalePull.checks[3].detail, /Airbnb: last pull 30h ago, older than 24h/);
+
+    // A pull with no channel guess is not evidence for any particular OTA.
+    const anon = evaluateCutoverPreflight(
+      greenFacts({
+        feeds: [feed('airbnb')],
+        pulls: [{ channel_guess: null, pulled_at: hoursAgo(1) }],
+      }),
+    );
+    assert.ok(anon.failing.includes('export_subscribed'));
+    assert.equal(latestPullFor([{ channel_guess: null, pulled_at: hoursAgo(1) }], 'airbnb'), null);
+  });
+
+  test("export: an 'other' feed passes only on a pull of its own listing line", () => {
+    assert.equal(isUnclassifiedChannel('other'), true);
+    assert.equal(isUnclassifiedChannel('airbnb'), false);
+    assert.equal(isOtaFeedChannel('other'), true);
+
+    // A fourth OTA wired as 'other' pulls its own ?listing= line, which the
+    // route credits 'other': the export check passes. The flip itself does
+    // not: a Helm-run home cannot read an 'other' feed yet (feeds_fresh),
+    // because Helm cannot tell that platform's bookings from its echoes.
+    const otherFeeds = [feed('airbnb'), feed('other')];
+    const green = evaluateCutoverPreflight(
+      greenFacts({
+        feeds: otherFeeds,
+        pulls: [
+          { channel_guess: 'airbnb', pulled_at: hoursAgo(2) },
+          { channel_guess: 'other', requested_for: 'other', pulled_at: hoursAgo(1) },
+        ],
+      }),
+    );
+    assert.equal(green.checks[3].ok, true, green.checks[3].detail);
+    assert.match(green.checks[3].detail, /Other pulled 1h ago \(its own listing line\)/);
+    assert.deepEqual(green.failing, ['feeds_fresh']);
+    assert.match(green.checks[2].detail, /cannot read an 'other' feed yet/);
+
+    // A bare-URL pull (no guess) does NOT count: that feed carries the
+    // platform's own holds back to it, the stuck-block loop.
+    const bare = evaluateCutoverPreflight(
+      greenFacts({
+        feeds: otherFeeds,
+        pulls: [
+          { channel_guess: 'airbnb', pulled_at: hoursAgo(2) },
+          { channel_guess: null, pulled_at: hoursAgo(1) },
+        ],
+      }),
+    );
+    assert.deepEqual(bare.failing, ['feeds_fresh', 'export_subscribed']);
+    assert.match(bare.checks[3].detail, /Other: never pulled its own export line/);
+
+    // A stale own-line pull is stale like any other.
+    const stale = evaluateCutoverPreflight(
+      greenFacts({
+        feeds: otherFeeds,
+        pulls: [
+          { channel_guess: 'airbnb', pulled_at: hoursAgo(2) },
+          { channel_guess: 'other', requested_for: 'other', pulled_at: hoursAgo(30) },
+        ],
+      }),
+    );
+    assert.match(stale.checks[3].detail, /Other: last pull 30h ago, older than 24h/);
+
+    // latestPullFor: 'other' takes only 'other' pulls; a named OTA never takes a null guess.
+    const pulls = [
+      { channel_guess: 'airbnb', pulled_at: hoursAgo(1) },
+      { channel_guess: null, pulled_at: hoursAgo(6) },
+      { channel_guess: 'other', pulled_at: hoursAgo(8) },
+    ];
+    assert.equal(latestPullFor(pulls, 'other')?.pulled_at, hoursAgo(8));
+    assert.equal(latestPullFor(pulls, 'vrbo'), null);
+    assert.equal(latestPullFor(pulls, 'airbnb')?.pulled_at, hoursAgo(1));
+  });
+
+  test('export: a pull of another OTA\'s line (the Airbnb URL pasted into VRBO) fails that channel', () => {
+    const feeds = [feed('airbnb'), feed('vrbo')];
+    const facts = greenFacts({
+      feeds,
+      pulls: [
+        { channel_guess: 'airbnb', requested_for: 'airbnb', ua_guess: 'airbnb', pulled_at: hoursAgo(2) },
+        // VRBO's fetcher pulled the ?for=airbnb URL: the route credits the user agent.
+        { channel_guess: 'vrbo', requested_for: 'airbnb', ua_guess: 'vrbo', pulled_at: hoursAgo(1) },
+      ],
+    });
+    const r = evaluateCutoverPreflight(facts);
+    assert.deepEqual(r.failing, ['export_subscribed']);
+    assert.match(r.checks[3].detail, /VRBO is importing the Airbnb line/);
+  });
+  test('two stays sharing a night is red; a block over a stay and a same-day turnover are not', () => {
+    const r = evaluateCutoverPreflight(
+      greenFacts({
+        bookings: [
+          { id: 'a', property_id: '65_calderwood', status: 'confirmed', check_in: '2026-10-10', check_out: '2026-10-14' },
+          { id: 'c', property_id: '65_calderwood', status: 'confirmed', check_in: '2026-10-13', check_out: '2026-10-15' },
+        ],
+      }),
+    );
+    assert.deepEqual(r.failing, ['no_double_bookings']);
+    assert.match(r.checks[4].detail, /2026-10-10 to 2026-10-14 overlaps 2026-10-13 to 2026-10-15 \(1 night\)/);
+    // Another property's overlap is not this home's problem.
+    const other = evaluateCutoverPreflight(
+      greenFacts({
+        bookings: [
+          { id: 'x', property_id: '21_horton', status: 'confirmed', check_in: '2026-10-10', check_out: '2026-10-14' },
+          { id: 'y', property_id: '21_horton', status: 'confirmed', check_in: '2026-10-12', check_out: '2026-10-15' },
+        ],
+      }),
+    );
+    assert.equal(other.checks[4].ok, true);
+  });
+
+  test('cleaner recipient: by explicit property id, or by region with an empty property list; disabled rows do not count', () => {
+    // Rosa's '{}' is Cape Ann; Calderwood is Bridgeport, so only Luana covers it.
+    const onlyRosa = evaluateCutoverPreflight(
+      greenFacts({ recipients: [{ display_name: 'Rosa', enabled: true, property_ids: [], region: 'cape_ann' }] }),
+    );
+    assert.deepEqual(onlyRosa.failing, ['cleaner_recipient']);
+
+    const regionWide = evaluateCutoverPreflight(
+      greenFacts({ recipients: [{ display_name: 'Luana', enabled: true, property_ids: [], region: 'bridgeport_ct' }] }),
+    );
+    assert.equal(byKey(regionWide, 'cleaner_recipient').ok, true);
+    assert.match(byKey(regionWide, 'cleaner_recipient').detail, /Luana receives/);
+
+    const disabled = evaluateCutoverPreflight(
+      greenFacts({ recipients: [{ display_name: 'Luana', enabled: false, property_ids: ['65_calderwood'], region: 'bridgeport_ct' }] }),
+    );
+    assert.deepEqual(disabled.failing, ['cleaner_recipient']);
+
+    // A Cape Ann home is covered by Rosa's fleet-wide row.
+    const capeAnn = evaluateCutoverPreflight(
+      greenFacts({
+        propertyId: '21_horton',
+        region: 'cape_ann',
+        bookings: [],
+        recipients: [{ display_name: 'Rosa', enabled: true, property_ids: [], region: 'cape_ann' }],
+      }),
+    );
+    assert.equal(byKey(capeAnn, 'cleaner_recipient').ok, true);
+  });
+
+  test('the two acknowledgements are red until ticked, and the data checks are reported separately', () => {
+    const r = evaluateCutoverPreflight(greenFacts({ acknowledgements: NO_ACKNOWLEDGEMENTS }));
+    assert.equal(r.ok, false);
+    assert.equal(r.dataOk, true);
+    assert.deepEqual(r.failing, ['automations_reviewed', 'guesty_disconnect_acknowledged']);
+    assert.match(byKey(r, 'automations_reviewed').detail, /4 fleet rules, 1 override for this home, 0 enabled, 2 marked configured in the OTA/);
+    assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /Guesty listing 68aef2c1 is still mapped/);
+
+    const half = evaluateCutoverPreflight(greenFacts({ acknowledgements: { automations_reviewed: true, guesty_disconnect: false } }));
+    assert.deepEqual(half.failing, ['guesty_disconnect_acknowledged']);
+  });
+
+  test('an active Guesty aggregate row is named in the disconnect check and never counted as an OTA feed', () => {
+    const r = evaluateCutoverPreflight(
+      greenFacts({ feeds: [feed('airbnb'), feed('vrbo'), feed('booking_com'), feed('guesty', { export_subscribed: false })] }),
+    );
+    assert.equal(r.ok, true);
+    assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /Guesty aggregate feed row is retired by the flip/);
+  });
+});
+
+describe('round 7: the booking window and the range past the mirror', () => {
+  test("an unlimited booking window (Guesty's all-future-dates, seeded -1) fails the rate plan check", () => {
+    for (const w of [-1, 0]) {
+      const r = evaluateCutoverPreflight(greenFacts({ ratePlan: { base_nightly_cents: 35000, min_nights_default: 3, booking_window_days: w } }));
+      assert.ok(failing(greenFacts({ ratePlan: { base_nightly_cents: 35000, min_nights_default: 3, booking_window_days: w } })).includes('rate_plan'), String(w));
+      assert.match(byKey(r, 'rate_plan').detail, /unlimited/);
+    }
+    assert.ok(!failing(greenFacts({ ratePlan: { base_nightly_cents: 35000, min_nights_default: 3, booking_window_days: 365 } })).includes('rate_plan'));
+  });
+
+  test("the range past Guesty's calendar mirror is named in the handover detail and the disconnect acknowledgement, without failing either", () => {
+    const facts = greenFacts({ mirrorHolds: [], mirrorLastDate: '2027-09-28', acknowledgements: { automations_reviewed: true, guesty_disconnect: false } });
+    const r = evaluateCutoverPreflight(facts);
+    assert.match(byKey(r, 'guesty_stays_carried').detail, /stops before 2027-09-29/);
+    assert.equal(byKey(r, 'guesty_stays_carried').ok, true);
+    assert.match(byKey(r, 'guesty_disconnect_acknowledged').detail, /from 2027-09-29 on/);
+  });
+});
+
+describe('round 8: when Helm last read Guesty\'s calendar', () => {
+  test('the disconnect acknowledgement says when, while Guesty runs the home', () => {
+    const facts = greenFacts({ mirrorReadAt: '2026-10-01T04:31:07.000Z', acknowledgements: { automations_reviewed: true, guesty_disconnect: false } });
+    assert.match(byKey(evaluateCutoverPreflight(facts), 'guesty_disconnect_acknowledged').detail, /last read Guesty's calendar ahead at 2026-10-01 04:31 UTC/);
+    const helm = greenFacts({ calendarAuthority: 'helm', mirrorReadAt: '2026-10-01T04:31:07.000Z', acknowledgements: { automations_reviewed: true, guesty_disconnect: false } });
+    assert.doesNotMatch(byKey(evaluateCutoverPreflight(helm), 'guesty_disconnect_acknowledged').detail, /last read/);
+  });
+});
+
+describe('round 11: a cleaner recipient counts only in its homes\' region', () => {
+  test("Luana filed under Cape Ann with Calderwood's id never gets its digest, so the check stays red", () => {
+    const ct = { region: 'bridgeport_ct', propertyId: '65_calderwood' };
+    const wrongRegion = greenFacts({ ...ct, recipients: [{ display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'cape_ann' }] });
+    assert.ok(failing(wrongRegion).includes('cleaner_recipient'));
+    assert.match(byKey(evaluateCutoverPreflight(wrongRegion), 'cleaner_recipient').detail, /another region/);
+    const right = greenFacts({ ...ct, recipients: [{ display_name: 'Luana', enabled: true, property_ids: ['65_calderwood'], region: 'bridgeport_ct' }] });
+    assert.ok(!failing(right).includes('cleaner_recipient'));
+  });
+});

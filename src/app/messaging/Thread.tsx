@@ -575,7 +575,9 @@ function Composer({
       )}
       <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
         <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-          Sends through Guesty on this guest&rsquo;s channel
+          {conversationId.startsWith('helm:')
+            ? 'Sends by SMS from the GUESTS line (978) 865-2575'
+            : <>Sends through Guesty on this guest&rsquo;s channel</>}
         </span>
         <button
           type="button"

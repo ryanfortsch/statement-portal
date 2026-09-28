@@ -1,17 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookSignature, webhookSecrets } from '@/lib/quo';
 import { dispatchQuoEvent, type QuoEventEnvelope } from '@/lib/quo-ingest';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 
 // Service role bypasses RLS so the raw-event audit insert works even with
 // permissive public policies. The downstream cross-table writes happen in
-// quo-ingest.ts (shared with /api/reprocess-quo).
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// quo-ingest.ts (shared with /api/reprocess-quo). No anon fallback: a
+// missing service key must fail loudly, not look like an empty database.
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
