@@ -121,6 +121,14 @@ export async function branchExists(branch: string): Promise<boolean> {
   }
 }
 
+/** Common ancestor distinguishes batch edits from newer production changes. */
+export async function getMergeBaseSha(base: string, head: string): Promise<string> {
+  const comparison = await gh<{ merge_base_commit: { sha: string } }>(
+    'GET', `${BASE}/compare/${refPath(base)}...${refPath(head)}`,
+  );
+  return comparison.merge_base_commit.sha;
+}
+
 // ── Writes ────────────────────────────────────────────────────────────────────
 
 export async function createBranch(branch: string, fromSha: string): Promise<void> {
