@@ -91,7 +91,6 @@ const server = createServer(async (req, res) => {
     const attempt = uploads.filter(item => item.name === file.name).length + 1;
     uploads.push({ name: file.name, folder: form.get('folder'), endpoint: req.url, attempt });
     if (file.name.startsWith('hold')) await new Promise(resolve => holds.set(file.name, resolve));
-    if (file.name === 'network.png' && attempt === 1) { req.socket.destroy(); return; }
     if (file.name === 'bad-json.png' && attempt === 1) { res.statusCode = 502; res.end('Temporary upstream failure'); return; }
     res.setHeader('Content-Type', 'application/json');
     if (file.name === 'retry.png' && attempt === 1) {
@@ -157,7 +156,12 @@ try {
 
   await select('last.png'); await idle();
   check('same file can be selected again and single upload still works', () => assert.equal(uploads.at(-1).attempt, 2));
-  await select('bad-json.png', 'network.png'); await idle();
+  await select('bad-json.png'); await idle();
+  // Browser offline mode is deterministic; a reset socket can be retried by
+  // Chromium itself and silently turn the intended failure into a success.
+  await page.setOfflineMode(true);
+  await select('network.png'); await idle();
+  await page.setOfflineMode(false);
   assert.equal((await page.$$('[aria-label^="Retry "]')).length, 2);
   passed.push('non-JSON and network failures stay individually retryable');
   await page.click('[aria-label="Remove failed photo bad-json.png"]');
@@ -176,6 +180,7 @@ try {
   await page.click('[aria-label^="Open photo 1 of "]');
   await page.waitForSelector('[role=dialog]');
   await page.keyboard.press('Escape');
+  await page.waitForSelector('[role=dialog]', { hidden: true });
   assert.equal(await page.$('[role=dialog]'), null);
   const beforeRemove = (await urls()).length;
   await page.click('[aria-label="Remove photo"]');
@@ -187,6 +192,7 @@ try {
   while (!holds.has('hold-unmount.png')) await new Promise(resolve => setTimeout(resolve, 20));
   const changes = await page.evaluate(() => window.changes.length);
   await page.evaluate(() => window.fixture.setMounted(false));
+  await page.waitForSelector('input[type=file]', { hidden: true });
   holds.get('hold-unmount.png')();
   await new Promise(resolve => setTimeout(resolve, 100));
   check('unmount stops queued work without a stale parent update', () => assert.equal(uploads.some(u => u.name === 'never-upload.png'), false));
