@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { auth } from '@/auth';
 import {
   renderPropertyPdf,
   propertyPdfFilename,
@@ -31,6 +32,10 @@ function getSupabase() {
 }
 
 export async function GET(request: NextRequest) {
+  // Only staff can ask the server to mint document-render access.
+  if (!(await auth())?.user) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
   try {
     const id = request.nextUrl.searchParams.get('id');
     const type = (request.nextUrl.searchParams.get('type') || '') as PropertyDeliverable;

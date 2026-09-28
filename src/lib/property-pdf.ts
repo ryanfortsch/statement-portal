@@ -1,5 +1,10 @@
 import chromium from '@sparticuz/chromium';
-import puppeteer, { Browser } from 'puppeteer-core';
+import puppeteer, { type Browser } from 'puppeteer-core';
+import {
+  createPropertyDocumentToken,
+  isProtectedPropertyDocument,
+  PROPERTY_RENDER_HEADER,
+} from './property-document-token.ts';
 
 /**
  * PDF rendering for the Properties module's guest-facing deliverables:
@@ -78,7 +83,27 @@ export async function renderPropertyPdf(args: {
       });
     }
 
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
+    if (isProtectedPropertyDocument(type)) {
+      const token = createPropertyDocumentToken(propertyId, type, process.env.AUTH_SECRET);
+      await page.setRequestInterception(true);
+      page.on('request', (request) => {
+        const headers = { ...request.headers() };
+        // Do not put this token in URLs, assets, redirects, or third-party requests.
+        delete headers[PROPERTY_RENDER_HEADER];
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame() && request.url() === url) {
+          headers[PROPERTY_RENDER_HEADER] = token;
+        }
+        void request.continue({ headers }).catch(() => {});
+      });
+    }
+
+    const response = await page.goto(url, { waitUntil: 'networkidle0', timeout: 30_000 });
+    if (isProtectedPropertyDocument(type)) {
+      // Next can stream a 200 shell before notFound(). Never download a denial as a PDF.
+      if (!response?.ok() || !(await page.$(`[data-property-document="${type}"]`))) {
+        throw new Error('Protected property document did not render; PDF download cancelled');
+      }
+    }
     await page.evaluate(() => (document as Document & { fonts: { ready: Promise<void> } }).fonts.ready);
 
     const pdf = await page.pdf({
