@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useTransition, type CSSProperties } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import {
   draftListingCopyFromGuesty,
   stageListingCopyEdit,
@@ -85,6 +86,9 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
     }
     return { total: rows.length, flagged, staged, unsaved };
   }, [rows]);
+
+  // Keep deployment reloads and accidental tab exits from interrupting edits or saves.
+  useUnsavedWorkGuard(counts.unsaved > 0 || busy);
 
   function runBusy(fn: () => Promise<void>) {
     setBusy(true);
