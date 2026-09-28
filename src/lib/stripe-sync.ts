@@ -42,7 +42,7 @@ import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
 import { splitFolio } from '@/lib/remittance';
 import { taxPortionOfNet } from '@/lib/addon-tax';
 import { chargeWindow } from './stripe-window';
-import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
+import { FUTURE_STAY_PRINCIPAL_MARK, isStayPrincipalTitle } from './extras-markers';
 import { FREEZE_FROM_MONTH, getFreezeStatus, assertStatementWritable, StatementFrozenError } from '@/lib/statement-finality';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
@@ -1207,14 +1207,14 @@ export async function syncPropertyStripe(opts: {
         const agg = byCodeAgg.get(o.code);
         if (!agg || agg.isGuestyCoded) continue;
         // SCA principal-payment links are auto-generated as "Stay at
-        // <name> - <dates>". When one misses its amount match (fee/tax
+        // <name> - <dates>" (or "Stay in ..." for 225 Washington). When one misses its amount match (fee/tax
         // drift, split charges) it's still a STAY payment, never an
         // add-on -- queueing it would invite double-counting revenue the
         // Guesty PDF already carries. The missing-charge gap on the
         // reservation flags it instead. A helm_request_key overrides the
         // text test: bridge-minted charges are add-ons by construction,
         // whatever their description says.
-        if (!agg.helmRequestKey && /^stay at\b/i.test(agg.fullDesc)) continue;
+        if (!agg.helmRequestKey && isStayPrincipalTitle(agg.fullDesc)) continue;
         const createdIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
         if (createdIso.slice(0, 7) !== month) continue;
         if (agg.refundedCents >= agg.grossCents) {
