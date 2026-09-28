@@ -208,6 +208,42 @@ async function processMessage(
       };
     }
 
+    // Cross-channel dedup. The website form hits /api/webhooks/inquiry
+    // (keyed `webhook:<requestId>`) AND emails the same submission here
+    // (keyed `gmail:<email>:<submittedAt>`), so the two keys never match
+    // and every form fill used to land twice. A webhook row for the same
+    // email within a day of this one is the same inquiry: tombstone this
+    // key against that prospect and stop.
+    const email = parsed.email.trim().toLowerCase();
+    const anchorMs = Date.parse(parsed.submittedAt || '');
+    if (email && Number.isFinite(anchorMs)) {
+      const day = 24 * 60 * 60 * 1000;
+      const { data: webhookHit } = await sb
+        .from('imported_inquiries')
+        .select('projection_id')
+        .eq('channel', 'rt_schedule_webhook')
+        .ilike('email', email)
+        .gte('created_at', new Date(anchorMs - day).toISOString())
+        .lte('created_at', new Date(anchorMs + day).toISOString())
+        .limit(1)
+        .maybeSingle();
+      if (webhookHit) {
+        const projectionId = (webhookHit as { projection_id: string | null }).projection_id;
+        await sb
+          .from('imported_inquiries')
+          .upsert(
+            { dedup_key: dedupKey, channel: 'gmail_inquiry', projection_id: projectionId, email },
+            { onConflict: 'dedup_key', ignoreDuplicates: true },
+          );
+        return {
+          message_id: messageId,
+          status: 'skipped',
+          reason: 'already imported via website webhook',
+          projection_id: projectionId ?? undefined,
+        };
+      }
+    }
+
     const addr = splitAddressLine(parsed.address);
     const city = addr.city || '';
     const market = inferMarketFromCity(city);
