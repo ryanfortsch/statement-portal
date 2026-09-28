@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { saveOnboardingDraft } from '@/app/projections/actions';
+import { createDraftAutosave } from '@/lib/draft-autosave';
 
 /**
  * Auto-save wrapper for the public onboarding form.
@@ -31,9 +32,7 @@ export function OnboardingAutoSave({
   children: React.ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirtyRef = useRef(false);
-  const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
+  const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>(
     initialSavedAt ? 'saved' : 'idle',
   );
   const [savedAt, setSavedAt] = useState<string | null>(initialSavedAt ?? null);
@@ -41,53 +40,62 @@ export function OnboardingAutoSave({
 
   useEffect(() => {
     const root = containerRef.current;
-    if (!root) return;
-
-    function saveNow() {
-      const form = root?.querySelector('form');
-      if (!form) return;
-      const fd = new FormData(form);
-      setStatus('saving');
-      startTransition(async () => {
-        try {
-          const res = await saveOnboardingDraft(fd);
-          if (res.ok) {
-            setSavedAt(res.savedAt);
-            setStatus('saved');
-            dirtyRef.current = false;
-          } else {
-            setStatus('error');
-          }
-        } catch {
-          setStatus('error');
-        }
-      });
-    }
-
-    function scheduleSave() {
-      dirtyRef.current = true;
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(saveNow, 1500);
-    }
-
-    // Don't fire on the form's own submit — let submitOnboarding take
-    // over. We also flush a final save on visibilitychange so a pending
-    // debounced edit isn't lost when the owner switches tabs.
+    const form = root?.querySelector('form');
+    if (!root || !form) return;
+    const targetForm = form;
+    let mounted = true;
+    let waitingToSubmit = false;
+    let replayingSubmit = false;
+    const autosave = createDraftAutosave({
+      capture: () => new FormData(form),
+      save: (fd) => new Promise((resolve, reject) => {
+        startTransition(async () => {
+          try { resolve(await saveOnboardingDraft(fd)); }
+          catch (error) { reject(error); }
+        });
+      }),
+      onState: (state) => {
+        setStatus(state.status);
+        if (state.savedAt) setSavedAt(state.savedAt);
+      },
+    });
+    function scheduleSave() { autosave.changed(); }
     function onVisibilityChange() {
-      if (document.visibilityState === 'hidden' && dirtyRef.current) {
-        if (debounceRef.current) clearTimeout(debounceRef.current);
-        saveNow();
-      }
+      if (document.visibilityState === 'hidden') void autosave.flush();
+    }
+
+    function onSubmit(event: SubmitEvent) {
+      if (event.defaultPrevented) return;
+      const olderWrite = autosave.pause();
+      if (replayingSubmit || !olderWrite) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (waitingToSubmit) return;
+      waitingToSubmit = true;
+      const submitter = event.submitter;
+      void olderWrite.then(() => {
+        if (!mounted) return;
+        waitingToSubmit = false;
+        // Re-run normal validation and the existing form action with the
+        // latest answers, after the older draft write has settled.
+        autosave.resume();
+        replayingSubmit = true;
+        try { targetForm.requestSubmit(submitter ?? undefined); }
+        finally { replayingSubmit = false; }
+      });
     }
 
     root.addEventListener('input', scheduleSave);
     root.addEventListener('change', scheduleSave);
+    form.addEventListener('submit', onSubmit, true);
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
+      mounted = false;
+      autosave.dispose();
       root.removeEventListener('input', scheduleSave);
       root.removeEventListener('change', scheduleSave);
+      form.removeEventListener('submit', onSubmit, true);
       document.removeEventListener('visibilitychange', onVisibilityChange);
-      if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
 
@@ -103,7 +111,7 @@ function DraftStatus({
   status,
   savedAt,
 }: {
-  status: 'idle' | 'saving' | 'saved' | 'error';
+  status: 'idle' | 'pending' | 'saving' | 'saved' | 'error';
   savedAt: string | null;
 }) {
   // Tick relative-time every 30s so "Saved 1 min ago" rolls forward
@@ -116,7 +124,10 @@ function DraftStatus({
 
   let label = '';
   let color = 'var(--ink-4)';
-  if (status === 'saving') {
+  if (status === 'pending') {
+    label = 'Unsaved changes';
+    color = 'var(--ink-3)';
+  } else if (status === 'saving') {
     label = 'Saving…';
     color = 'var(--ink-3)';
   } else if (status === 'error') {

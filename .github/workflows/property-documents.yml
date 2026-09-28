@@ -7,6 +7,7 @@ on:
       - 'package*.json'
       - 'scripts/property-document-smoke.mjs'
       - 'scripts/photo-upload-smoke.mjs'
+      - 'scripts/onboarding-autosave-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -42,6 +43,8 @@ jobs:
         run: node scripts/property-document-smoke.mjs
       - name: Verify batch photo uploads with synthetic files
         run: node scripts/photo-upload-smoke.mjs
+      - name: Verify onboarding autosave with synthetic answers
+        run: node scripts/onboarding-autosave-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()
