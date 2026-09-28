@@ -57,15 +57,16 @@ await new Promise((done, reject) => {
 const server = createServer(async (req, res) => {
   if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
   if (req.url === '/bundle.js') {
-    res.setHeader('Content-Type', 'text/javascript'); res.end(await readFile(join(scratch, 'bundle.js')));
+    res.setHeader('Content-Type', 'text/javascript; charset=utf-8'); res.end(await readFile(join(scratch, 'bundle.js')));
   } else {
-    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.end('<!doctype html><meta name="viewport" content="width=device-width"><div id="root"></div><script src="/bundle.js"></script>');
   }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser;
+let page;
 let checks = 0;
 try {
   browser = await puppeteer.launch({
@@ -73,7 +74,8 @@ try {
       ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : await chromium.executablePath()),
     headless: true, args: process.platform === 'darwin' ? ['--no-sandbox'] : chromium.args,
   });
-  const page = await browser.newPage();
+  page = await browser.newPage();
+  page.setDefaultTimeout(10000);
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.setRequestInterception(true);
   page.on('request', request => request.url().startsWith(origin + '/') ? request.continue() : request.abort());
@@ -143,6 +145,15 @@ try {
   assert.deepEqual(errors, []);
   pass('unmount does not replay a pending submit or produce React errors');
   console.log(`All ${checks} onboarding autosave browser checks passed.`);
+} catch (error) {
+  if (page && !page.isClosed()) {
+    console.error('Synthetic browser fixture state:', await page.evaluate(() => ({
+      status: document.querySelector('[role=status]')?.innerText,
+      saveCount: window.saves?.length,
+      submissions: window.submissions,
+    })).catch(() => null));
+  }
+  throw error;
 } finally {
   await browser?.close(); server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
