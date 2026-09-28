@@ -1144,6 +1144,16 @@ export async function otaPasteText(id: string): Promise<{ ok: true; text: string
       .eq('delivery_used', 'ota_manual');
     return { ok: false, error: `This stay now has ${decision.rail === 'sms' ? 'a phone' : 'an email'} on file, so the message goes by ${decision.rail === 'sms' ? 'SMS' : 'email'}. Reload and approve it there.` };
   }
+  // The stay is not live now (cancelled, or moved back to pending): pause
+  // the card resumably rather than ask for a skip, which would be final.
+  if (decision.outcome === 'cancelled' && decision.reason === PAUSE_REASON_STAY_CANCELLED) {
+    await supabaseAdmin
+      .from('automation_sends')
+      .update({ status: 'cancelled', error: PAUSE_REASON_STAY_CANCELLED, updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'awaiting_approval');
+    return { ok: false, error: 'The stay is not confirmed right now, so this message is paused. It comes back if the stay is confirmed again; nothing to paste now.' };
+  }
   if (decision.outcome !== 'send' || decision.rail !== 'ota_manual') {
     return { ok: false, error: `Not to be sent any more (${decision.reason ?? decision.outcome}): skip this message.` };
   }
