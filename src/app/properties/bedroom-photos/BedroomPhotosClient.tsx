@@ -53,6 +53,10 @@ function seedDraft(listing: BedroomListing): BedroomSlot[] {
   return Array.from({ length: n }, () => ({ photo: [] as string[] }));
 }
 
+function draftSignature(slots: BedroomSlot[]): string {
+  return JSON.stringify(slots.map((s) => [s.name ?? '', s.beds ?? '', s.photo]));
+}
+
 export function BedroomPhotosClient({
   listings: initial,
   initialListingId = null,
@@ -69,8 +73,11 @@ export function BedroomPhotosClient({
   const [draft, setDraft] = useState<BedroomSlot[]>(preselected ? seedDraft(preselected) : []);
   const [result, setResult] = useState<PublishBedroomResult | null>(null);
   const [pending, startTransition] = useTransition();
+  const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(() => new Set());
 
   const selected = listings.find((l) => l.guestyListingId === selectedId) ?? null;
+  const busy = pending || uploadingSlots.size > 0;
+  const dirty = selected !== null && draftSignature(draft) !== draftSignature(seedDraft(selected));
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,9 +91,21 @@ export function BedroomPhotosClient({
   }, [listings, query]);
 
   function select(listing: BedroomListing) {
+    if (listing.guestyListingId === selectedId || busy) return;
+    if (dirty && !window.confirm('You have unsaved bedroom changes. Discard them and switch properties?')) return;
     setSelectedId(listing.guestyListingId);
     setDraft(seedDraft(listing));
     setResult(null);
+  }
+
+  function setSlotUploading(i: number, uploading: boolean) {
+    setUploadingSlots((prev) => {
+      if (prev.has(i) === uploading) return prev;
+      const next = new Set(prev);
+      if (uploading) next.add(i);
+      else next.delete(i);
+      return next;
+    });
   }
 
   function updateSlot(i: number, patch: Partial<BedroomSlot>) {
@@ -102,7 +121,7 @@ export function BedroomPhotosClient({
   }
 
   function publish() {
-    if (!selected) return;
+    if (!selected || busy) return;
     setResult(null);
     startTransition(async () => {
       const res = await publishBedroomPhotos(
@@ -145,6 +164,7 @@ export function BedroomPhotosClient({
                 key={l.guestyListingId}
                 type="button"
                 onClick={() => select(l)}
+                disabled={busy}
                 style={{
                   display: 'block',
                   width: '100%',
@@ -153,7 +173,7 @@ export function BedroomPhotosClient({
                   borderBottom: '1px solid var(--rule)',
                   background: isSel ? 'var(--paper-2)' : 'transparent',
                   borderLeft: isSel ? '2px solid var(--signal)' : '2px solid transparent',
-                  cursor: 'pointer',
+                  cursor: busy ? 'wait' : 'pointer',
                 }}
               >
                 <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{l.internalName}</div>
@@ -175,7 +195,7 @@ export function BedroomPhotosClient({
       </aside>
 
       {/* RIGHT — editor */}
-      <section>
+      <section key={selectedId}>
         {!selected ? (
           <div style={{ padding: '40px 0', fontSize: 14, color: 'var(--ink-3)' }}>
             Pick a listing on the left to add or replace its bedroom photos. Drop the
@@ -219,7 +239,7 @@ export function BedroomPhotosClient({
                     <button
                       type="button"
                       onClick={() => removeBedroom(i)}
-                      disabled={pending}
+                      disabled={busy}
                       style={{ background: 'transparent', border: 'none', color: 'var(--ink-3)', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'pointer' }}
                     >
                       Remove
@@ -244,6 +264,7 @@ export function BedroomPhotosClient({
                     onChange={(next) => updateSlot(i, { photo: next })}
                     folder={`sca-bedrooms-${selected.guestyListingId}`}
                     disabled={pending}
+                    onUploadingChange={(uploading) => setSlotUploading(i, uploading)}
                   />
                 </div>
               ))}
@@ -252,7 +273,7 @@ export function BedroomPhotosClient({
             <button
               type="button"
               onClick={addBedroom}
-              disabled={pending}
+              disabled={busy}
               style={{ marginTop: 14, background: 'transparent', border: '1px dashed var(--rule)', padding: '10px 16px', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)', cursor: 'pointer', width: '100%', fontWeight: 500 }}
             >
               + Add bedroom
@@ -262,10 +283,10 @@ export function BedroomPhotosClient({
               <button
                 type="button"
                 onClick={publish}
-                disabled={pending}
-                style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', padding: '12px 26px', fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600, cursor: pending ? 'wait' : 'pointer' }}
+                disabled={busy}
+                style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', padding: '12px 26px', fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600, cursor: busy ? 'wait' : 'pointer' }}
               >
-                {pending ? 'Publishing…' : 'Publish to Stay Cape Ann'}
+                {pending ? 'Publishing…' : uploadingSlots.size > 0 ? 'Uploading photos…' : 'Publish to Stay Cape Ann'}
               </button>
               {result && <ResultNote result={result} />}
             </div>
