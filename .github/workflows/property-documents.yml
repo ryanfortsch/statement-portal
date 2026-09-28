@@ -1,0 +1,42 @@
+name: Property document access
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'package*.json'
+      - 'scripts/property-document-smoke.mjs'
+      - '.github/workflows/property-documents.yml'
+  push:
+    branches: ['codex/protect-property-wifi-documents']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: property-documents-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      PROPERTY_DOCUMENT_TEST_OUTPUT: ${{ runner.temp }}/property-documents
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - name: Verify access and real Chromium PDFs with synthetic data
+        run: node scripts/property-document-smoke.mjs
+      - run: npx tsc --noEmit
+      - name: Show local app log on failure
+        if: failure()
+        run: cat "$PROPERTY_DOCUMENT_TEST_OUTPUT/smoke-next.log" 2>/dev/null || true
