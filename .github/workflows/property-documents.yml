@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 10
     env:
       NEXT_TELEMETRY_DISABLED: '1'
-      PROPERTY_DOCUMENT_TEST_OUTPUT: ${{ runner.temp }}/property-documents
+      PROPERTY_DOCUMENT_TEST_OUTPUT: /tmp/helm-property-documents
     steps:
       - uses: actions/checkout@v7
         with:
