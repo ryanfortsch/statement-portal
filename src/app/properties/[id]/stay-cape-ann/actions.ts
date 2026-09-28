@@ -25,6 +25,7 @@ import {
 } from '@/lib/sca-config';
 import * as gh from '@/lib/github';
 import { loadListingCopyEntries } from '@/lib/sca-listing-copy';
+import { readScaPreviewContent, requireScaPreviewMatch } from '@/lib/sca-preview';
 import { getGuestyListing } from '@/lib/guesty';
 import type { HelmPropertyRow } from '@/lib/properties';
 
@@ -541,7 +542,7 @@ export async function openScaUpdatePr(propertyId: string, draft: ScaFormDraft): 
  * the merge half of goLiveSca but without the payment gating (the listing is
  * already live and wired).
  */
-export async function publishScaUpdate(propertyId: string): Promise<ActionResult> {
+export async function publishScaUpdate(propertyId: string, draft: ScaFormDraft): Promise<ActionResult> {
   const email = await requireEmail();
   if (!email) return { ok: false, error: 'Not signed in' };
   if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
@@ -551,7 +552,8 @@ export async function publishScaUpdate(propertyId: string): Promise<ActionResult
     return { ok: false, error: 'No pending update PR to publish. Open an update PR first.' };
   }
   try {
-    const merge = await gh.mergePullRequest(row.pr_number, 'squash');
+    const headSha = await requireScaPreviewMatch(gh, SCA_REGISTRY_PATH, row.branch_name, draft, row.guesty_listing_id);
+    const merge = await gh.mergePullRequest(row.pr_number, 'squash', headSha);
     if (!merge.merged) return { ok: false, error: 'GitHub did not merge the update PR' };
 
     if (row.branch_name) await gh.deleteBranch(row.branch_name).catch(() => {});
@@ -795,7 +797,7 @@ export async function publishListingCopyBatch(): Promise<
 export async function refreshPreviewStatus(
   propertyId: string,
 ): Promise<
-  | { ok: true; state: gh.PreviewState; url: string | null; hint?: string }
+  | { ok: true; state: gh.PreviewState; url: string | null; signature: string | null; hint?: string }
   | { ok: false; error: string }
 > {
   const email = await requireEmail();
@@ -803,7 +805,8 @@ export async function refreshPreviewStatus(
   const row = await loadRow(propertyId);
   if (!row?.branch_name) return { ok: false, error: 'No open PR yet — open the pull request first.' };
   try {
-    const status = await gh.getBranchPreviewStatus(row.branch_name);
+    const content = await readScaPreviewContent(gh, SCA_REGISTRY_PATH, row.branch_name, row.guesty_listing_id ?? '');
+    const status = await gh.getBranchPreviewStatus(content.headSha);
     if (status.url && status.url !== row.preview_url) {
       await supabase.from('sca_launches').update({ preview_url: status.url }).eq('property_id', propertyId);
       revalidate(propertyId);
@@ -811,7 +814,7 @@ export async function refreshPreviewStatus(
     const hint = status.forbidden
       ? 'GitHub blocked the deploy-status read (403). The Helm GitHub token needs read access to Checks and Deployments on the stay-cape-ann repo.'
       : undefined;
-    return { ok: true, state: status.state, url: status.url, hint };
+    return { ok: true, state: status.state, url: status.url, signature: content.signature, hint };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
@@ -881,13 +884,14 @@ export async function verifyPaymentWiring(
 }
 
 /**
- * Merge the PR and go live. Gated on a green preview + the payment checklist,
- * unless `override` is passed (explicit operator confirm). Flips the
+ * Merge the PR and go live. The form must match the preview commit. Existing
+ * payment checks can be overridden with operator confirmation. Flips the
  * sca_page_live launch-checklist step to done.
  */
 export async function goLiveSca(
   propertyId: string,
   override = false,
+  draft?: ScaFormDraft,
 ): Promise<ActionResult> {
   const email = await requireEmail();
   if (!email) return { ok: false, error: 'Not signed in' };
@@ -910,7 +914,8 @@ export async function goLiveSca(
   }
 
   try {
-    const merge = await gh.mergePullRequest(row.pr_number, 'squash');
+    const headSha = await requireScaPreviewMatch(gh, SCA_REGISTRY_PATH, row.branch_name, draft, row.guesty_listing_id);
+    const merge = await gh.mergePullRequest(row.pr_number, 'squash', headSha);
     if (!merge.merged) return { ok: false, error: 'GitHub did not merge the PR' };
 
     const liveUrl = scaListingUrl(row.guesty_listing_id);
