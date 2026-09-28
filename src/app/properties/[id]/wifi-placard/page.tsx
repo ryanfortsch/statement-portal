@@ -298,4 +298,18 @@ const placardCss = `
     letter-spacing: 0.04em;
     padding: 18px 0 22px;
   }
+
+  @media print {
+    /* Keep the full-size QR and footer on the same 4x6 card, including a
+       unit label. Screen spacing overflowed the fixed-height print card. */
+    .rt-panel { padding: 14px 28px; }
+    .rt-mark { margin-top: 0; }
+    .rt-mark svg { width: 36px; height: 36px; }
+    .rt-eyebrow { margin-top: 8px; font-size: 24px; }
+    .rt-unit { margin-top: 4px; }
+    .rt-qr { margin-top: 12px; flex-shrink: 0; }
+    .rt-fields { margin-top: 12px; }
+    .rt-row { padding: 5px 0; }
+    .rt-footer { padding: 10px 0 12px; }
+  }
 `;
