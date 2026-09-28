@@ -1661,7 +1661,7 @@ function parseOnboardingFormData(formData: FormData): OnboardingData {
     'electricity_provider', 'heating', 'cooling', 'internet_provider',
     'cable_provider', 'wifi_name', 'wifi_password', 'wifi_name_2', 'wifi_password_2',
     'num_tvs', 'smart_tv',
-    'currently_listed', 'listing_urls', 'str_registration', 'str_insurance',
+    'currently_listed', 'listing_urls', 'room_occupancy_cert', 'str_registration', 'str_insurance',
     'guest_access_method', 'smart_lock_brand', 'smart_lock_code', 'security_cameras',
     'key_code_location', 'alarm_system', 'known_issues', 'upcoming_maintenance', 'notes',
     'emergency_name', 'emergency_relationship', 'emergency_phone', 'emergency_email',
@@ -1709,6 +1709,10 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     currently_listed: ob.currently_listed || null,
     existing_listing_urls: ob.listing_urls || null,
     str_registration_id: ob.str_registration || null,
+    // Only written when the owner typed one: tax_cert_id feeds the monthly
+    // remittance filing, so a blank re-submit must not erase a certificate
+    // ops already recorded from the launch checklist.
+    ...(ob.room_occupancy_cert ? { tax_cert_id: ob.room_occupancy_cert } : {}),
     str_insurance_carrier: ob.str_insurance || null,
     guest_access_method: ob.guest_access_method || null,
     smart_lock_brand: ob.smart_lock_brand || null,
