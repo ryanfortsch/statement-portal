@@ -150,7 +150,11 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
     });
 
   const visible = onlyFlagged
-    ? rows.filter((r) => assess(r.tagline, r.description, r.highlights).length > 0)
+    ? rows.filter((r) =>
+        // Keep Stage edit reachable after the operator fixes the last flag.
+        assess(r.tagline, r.description, r.highlights).length > 0 ||
+        sig(r.tagline, r.description, r.highlights) !== r.baseline,
+      )
     : rows;
 
   return (
