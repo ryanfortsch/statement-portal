@@ -33,7 +33,7 @@ import React,{useState} from 'react';import {createRoot} from 'react-dom/client'
 import {QuickCapture} from './quick.js';import {WalkthroughCapture} from './walk.js';import {InlineField} from './inline.js';import {TaxCertEditor} from './cert.js';import {AddressEditor} from './address.js';import {hasUnsavedWork} from './unsaved.js';
 window.calls=[];window.refreshes=0;window.closeCount=0;window.guarded=hasUnsavedWork;
 window.confirmAnswer=true;window.confirm=()=>window.confirmAnswer;
-window.webkitSpeechRecognition=class {constructor(){window.voice=this;}start(){this.onstart?.();}stop(){this.onend?.();}};
+window.SpeechRecognition=window.webkitSpeechRecognition=class {constructor(){window.voice=this;}start(){this.onstart?.();}stop(){this.onend?.();}};
 function Fixture(){const mode=new URLSearchParams(location.search).get('mode');const [mounted,setMounted]=useState(true),[cert,setCert]=useState('C123456'),[address,setAddress]=useState(true);window.unmount=()=>setMounted(false);window.updateCert=v=>setCert(v);if(!mounted)return null;return <>
 {(mode==='quick'||mode==='all')&&<section id="quick"><QuickCapture propertyId="home-a" propertyName="Synthetic Home"/></section>}
 {mode==='walk'&&<section id="walk"><WalkthroughCapture propertyId="home-a" propertyName="Synthetic Home"/></section>}
