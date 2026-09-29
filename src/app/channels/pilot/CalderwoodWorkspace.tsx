@@ -15,14 +15,14 @@ function money(value: number | null, currency: string | null) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(Number(value));
 }
 
-export function CalderwoodWorkspace({ data }: { data: WorkspaceData }) {
+export function CalderwoodWorkspace({ data, initialBookingId }: { data: WorkspaceData; initialBookingId?: string }) {
   const today = localDay(data.asOf);
   const [start, setStart] = useState(today);
   const [daysCount, setDaysCount] = useState(14);
   const [tab, setTab] = useState<'calendar' | 'reservations' | 'baseline'>('calendar');
   const [query, setQuery] = useState('');
   const [channel, setChannel] = useState('all');
-  const [selection, setSelection] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string | null>(data.bookings.some(b => b.id === initialBookingId && !b.duplicate_of) ? initialBookingId! : null);
   const [showCancelled, setShowCancelled] = useState(false);
   const detailRef = useRef<HTMLElement>(null);
   useEffect(() => { if (selection) detailRef.current?.focus({ preventScroll: true }); }, [selection]);
@@ -62,7 +62,7 @@ export function CalderwoodWorkspace({ data }: { data: WorkspaceData }) {
     <div className={s.layout}>
       <aside className={s.sidebar}>
         <p className={s.eyebrow}>PROPERTY WORKSPACE</p><h1>65 Calderwood</h1><p className={s.address}>{data.property?.address ?? 'Property address not loaded'}</p><span className={s.pill}>Read-only pilot</span>
-        <nav aria-label="Calderwood workspace">{([['calendar', '▦', 'Calendar'], ['reservations', '▤', 'Reservations'], ['baseline', '≡', 'Migration baseline']] as const).map(([key, icon, label]) => <button key={key} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}><span aria-hidden>{icon}</span>{label}</button>)}</nav>
+        <nav aria-label="Calderwood workspace">{([['calendar', '▦', 'Calendar'], ['reservations', '▤', 'Reservations'], ['baseline', '≡', 'Migration baseline']] as const).map(([key, icon, label]) => <button key={key} aria-current={tab === key ? 'page' : undefined} onClick={() => setTab(key)}><span aria-hidden>{icon}</span>{label}</button>)}<Link className={s.inboxNav} href="/channels/pilot/inbox">Inbox</Link></nav>
         <div className={s.sidebarLinks}><Link href="/messaging">Existing guest messaging ↗</Link></div>
         <div className={s.sidebarNote}><strong>One property at a time</strong><p>This workspace reviews imported records. It does not change calendar authority or channel connections.</p></div>
       </aside>
@@ -127,7 +127,7 @@ export function CalderwoodWorkspace({ data }: { data: WorkspaceData }) {
         {selectedBooking ? <>
           <span className={s.pill}>{channelLabel(selectedBooking.channel)} · {selectedBooking.status}</span>
           <dl><dt>Arrival</dt><dd>{dateLabel(selectedBooking.check_in)}</dd><dt>Departure</dt><dd>{dateLabel(selectedBooking.check_out)}</dd><dt>Guests</dt><dd>{selectedBooking.num_guests ?? 'Not captured'}</dd><dt>Confirmation</dt><dd>{selectedBooking.external_confirmation_code ?? 'Not captured'}</dd></dl>
-          <h3>Recorded amounts</h3><dl>{([['Gross', selectedBooking.gross_amount], ['Cleaning', selectedBooking.cleaning_fee], ['Taxes', selectedBooking.taxes], ['Payout', selectedBooking.payout]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{money(value, selectedBooking.currency)}</dd></div>)}</dl><p className={s.caption}>Imported booking amounts. Outstanding balance and payment status have not been captured here.</p>
+          <Link href={`/channels/pilot/inbox?booking=${encodeURIComponent(selectedBooking.id)}`}>View guest conversations →</Link><h3>Recorded amounts</h3><dl>{([['Gross', selectedBooking.gross_amount], ['Cleaning', selectedBooking.cleaning_fee], ['Taxes', selectedBooking.taxes], ['Payout', selectedBooking.payout]] as const).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{money(value, selectedBooking.currency)}</dd></div>)}</dl><p className={s.caption}>Imported booking amounts. Outstanding balance and payment status have not been captured here.</p>
           <h3>Source evidence</h3><dl><dt>Source</dt><dd>{selectedBooking.source.replaceAll('_', ' ')}</dd><dt>Last seen</dt><dd>{timestamp(selectedBooking.last_seen_at)}</dd><dt>Updated</dt><dd>{timestamp(selectedBooking.updated_at)}</dd><dt>External ID</dt><dd>{selectedBooking.external_booking_id ?? 'Not recorded'}</dd></dl>
         </> : selectedComparison ? <><h3>Guesty copy</h3><dl><dt>Dates</dt><dd>{selectedComparison.guesty.check_in ?? '?'} → {selectedComparison.guesty.check_out ?? '?'}</dd><dt>Status</dt><dd>{selectedComparison.guesty.status ?? 'Unknown'}</dd><dt>Imported</dt><dd>{timestamp(selectedComparison.guesty.synced_at)}</dd><dt>Freshness</dt><dd>{freshness(selectedComparison.guesty.synced_at, data.asOf, 30)}</dd><dt>Guesty ID</dt><dd>{selectedComparison.guesty.guesty_reservation_id}</dd></dl><h3>Helm copy</h3>{selectedComparison.booking ? <><p>{selectedComparison.booking.check_in} → {selectedComparison.booking.check_out} · {selectedComparison.booking.status}</p><button onClick={() => setSelection(selectedComparison.booking!.id)}>Inspect Helm record</button></> : <p>No unique canonical match. Review the IDs in Guesty before changing anything.</p>}</> : selectedEvent ? <><p>{dateLabel(selectedEvent.start)} → {dateLabel(selectedEvent.end)}</p><p>Blocked nights copied from Guesty. Reason and complete source coverage are not stored.</p></> : <p>This record is no longer present in the snapshot.</p>}
         <div className={s.sidebarNote}>This workspace cannot change reservations or channel connections.</div>
