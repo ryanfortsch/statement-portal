@@ -4,6 +4,13 @@ import { useRef, useState, useTransition } from 'react';
 import type { WorkSlipOwnerActionType, WorkSlipOwnerStatus } from '@/lib/work-types';
 import { updateWorkSlipOwnerAction, updateWorkSlipOwnerStatus } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+
+type OwnerChange =
+  | { kind: 'flag'; value: boolean }
+  | { kind: 'type'; value: WorkSlipOwnerActionType | null }
+  | { kind: 'answer'; value: WorkSlipOwnerStatus }
+  | { kind: 'notes'; value: string };
 
 type Props = {
   slipId: string;
@@ -56,99 +63,90 @@ export function SlipOwnerActionEditor({
   const [drafting, setDrafting] = useState(false);
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<OwnerChange | null>(null);
+  const saving = useRef(false);
+  const draftingRef = useRef(false);
   const notesRef = useRef<HTMLTextAreaElement>(null);
+  const notesDirty = draft !== notes;
+  useUnsavedWorkGuard(notesDirty || pending || drafting || attempt !== null);
 
-  function arm() {
+  function saveChange(change: OwnerChange) {
+    if (saving.current || draftingRef.current) return;
+    if (change.kind === 'flag' && !change.value && notesDirty) {
+      setErr('Save or discard your notes before removing owner input.');
+      return;
+    }
+    saving.current = true;
     setErr(null);
+    setAttempt(change);
     startTransition(async () => {
-      const res = await updateWorkSlipOwnerAction({
-        id: slipId,
-        owner_action_required: true,
-        propertyId,
-      });
-      if (!res.ok) {
-        setErr(res.error);
-        return;
+      try {
+        const res = change.kind === 'answer'
+          ? await updateWorkSlipOwnerStatus({ id: slipId, owner_status: change.value })
+          : await updateWorkSlipOwnerAction({
+              id: slipId,
+              propertyId,
+              owner_action_required: change.kind === 'flag' ? change.value : true,
+              ...(change.kind === 'type' ? { owner_action_type: change.value } : {}),
+              ...(change.kind === 'notes' ? { owner_action_notes: change.value } : {}),
+            });
+        if (!res.ok) { setErr(res.error); return; }
+        if (change.kind === 'type') setType(change.value);
+        if (change.kind === 'answer') setStatus(change.value);
+        if (change.kind === 'notes') {
+          setNotes(change.value);
+          setDraft(change.value);
+          setEditingNotes(false);
+        }
+        if (change.kind === 'flag' && !change.value) {
+          setType(null);
+          setStatus('not_sent');
+          setNotes('');
+          setDraft('');
+          setEditingNotes(false);
+        }
+        setAttempt(null);
+        softRefresh();
+      } catch {
+        setErr('Could not confirm the owner-input change. Your selection is kept for retry.');
+      } finally {
+        saving.current = false;
       }
-      softRefresh();
-    });
-  }
-
-  function disarm() {
-    setErr(null);
-    startTransition(async () => {
-      const res = await updateWorkSlipOwnerAction({
-        id: slipId,
-        owner_action_required: false,
-        propertyId,
-      });
-      if (!res.ok) {
-        setErr(res.error);
-        return;
-      }
-      softRefresh();
     });
   }
 
   function chooseType(next: WorkSlipOwnerActionType) {
-    const target = next === type ? null : next;
-    const prev = type;
-    setErr(null);
-    setType(target);
-    startTransition(async () => {
-      const res = await updateWorkSlipOwnerAction({
-        id: slipId,
-        owner_action_required: true,
-        owner_action_type: target,
-        propertyId,
-      });
-      if (!res.ok) {
-        setType(prev);
-        setErr(res.error);
-      }
-    });
+    saveChange({ kind: 'type', value: next === type ? null : next });
   }
 
   function chooseAnswer(next: WorkSlipOwnerStatus) {
     // Toggling the active answer steps back to the pre-answer state:
     // 'sent' if an email ever went out, otherwise 'not_sent'.
     const base: WorkSlipOwnerStatus = ownerLastContactedAt ? 'sent' : 'not_sent';
-    const target = next === status ? base : next;
-    const prev = status;
-    setErr(null);
-    setStatus(target);
-    startTransition(async () => {
-      const res = await updateWorkSlipOwnerStatus({ id: slipId, owner_status: target });
-      if (!res.ok) {
-        setStatus(prev);
-        setErr(res.error);
-      }
-    });
+    saveChange({ kind: 'answer', value: next === status ? base : next });
   }
 
   function saveNotes() {
     const next = draft.trim();
+    if (saving.current || draftingRef.current) return;
+    if (next === notes.trim() && attempt?.kind !== 'notes') {
+      setDraft(notes);
+      setEditingNotes(false);
+      return;
+    }
+    saveChange({ kind: 'notes', value: next });
+  }
+
+  function cancelNotes() {
+    if (saving.current || draftingRef.current) return;
+    setDraft(notes);
     setEditingNotes(false);
-    if (next === notes.trim()) return;
-    const prev = notes;
-    setErr(null);
-    setNotes(next);
-    startTransition(async () => {
-      const res = await updateWorkSlipOwnerAction({
-        id: slipId,
-        owner_action_required: true,
-        owner_action_notes: next,
-        propertyId,
-      });
-      if (!res.ok) {
-        setNotes(prev);
-        setErr(res.error);
-      }
-    });
+    if (attempt?.kind === 'notes') { setAttempt(null); setErr(null); }
   }
 
   async function draftOwnerEmail() {
-    if (drafting) return;
+    if (draftingRef.current || saving.current || notesDirty || attempt) return;
+    draftingRef.current = true;
     setDrafting(true);
     setErr(null);
     try {
@@ -166,29 +164,42 @@ export function SlipOwnerActionEditor({
         window.open(data.draft_url, '_blank', 'noopener,noreferrer');
       }
       softRefresh();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+    } catch {
+      setErr('Could not confirm the email draft. Check Gmail Drafts before trying again.');
     } finally {
+      draftingRef.current = false;
       setDrafting(false);
     }
   }
 
+  const feedback = err && (
+    <div role="alert">
+      <ErrorStrip message={err} />
+      {attempt && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <button type="button" disabled={pending || drafting} onClick={() => attempt.kind === 'notes' ? saveNotes() : saveChange(attempt)} style={ghostBtnStyle}>Retry save</button>
+          <button type="button" disabled={pending || drafting} onClick={() => { setAttempt(null); setErr(null); }} style={ghostBtnStyle}>Dismiss error</button>
+        </div>
+      )}
+    </div>
+  );
+
   if (collapsed) {
     return (
       <div>
-        <button type="button" onClick={arm} disabled={pending} style={quietLinkStyle(pending)}>
+        <button type="button" onClick={() => saveChange({ kind: 'flag', value: true })} disabled={pending} style={quietLinkStyle(pending)}>
           {pending ? 'Saving…' : '+ Owner input'}
           <span style={{ marginLeft: 8, letterSpacing: 0, textTransform: 'none', color: 'var(--ink-4)', fontWeight: 400 }}>
             flag this for the owner&rsquo;s decision
           </span>
         </button>
-        {err && <ErrorStrip message={err} />}
+        {feedback}
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <fieldset disabled={pending || drafting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* THE ASK — what kind of input the owner owes us. Optional; the
           email reads fine without it, but a type adds the "Needs your
           approval" style line under the item. */}
@@ -203,6 +214,7 @@ export function SlipOwnerActionEditor({
                 type="button"
                 onClick={() => chooseType(o.value)}
                 disabled={pending}
+                aria-pressed={active}
                 title={o.hint}
                 style={chipStyle(active, pending)}
               >
@@ -227,8 +239,8 @@ export function SlipOwnerActionEditor({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveNotes();
-                if (e.key === 'Escape') setEditingNotes(false);
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNotes(); }
+                if (e.key === 'Escape') cancelNotes();
               }}
               rows={2}
               placeholder="Context for the owner - e.g. quote came in at $480, plumber can do Thursday"
@@ -236,8 +248,8 @@ export function SlipOwnerActionEditor({
               style={{ width: '100%', font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 6, padding: '8px 10px', outline: 'none', resize: 'vertical', lineHeight: 1.5 }}
             />
             <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
-              <button type="button" onClick={saveNotes} style={solidBtnStyle}>Save</button>
-              <button type="button" onClick={() => setEditingNotes(false)} style={ghostBtnStyle}>Cancel</button>
+              <button type="button" onClick={saveNotes} style={solidBtnStyle}>{pending && attempt?.kind === 'notes' ? 'Saving…' : 'Save'}</button>
+              <button type="button" onClick={cancelNotes} style={ghostBtnStyle}>Cancel</button>
               <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>⌘+Enter to save</span>
             </div>
           </div>
@@ -277,7 +289,7 @@ export function SlipOwnerActionEditor({
           <button
             type="button"
             onClick={draftOwnerEmail}
-            disabled={drafting}
+            disabled={drafting || pending || notesDirty || attempt !== null}
             style={solidBtnStyle}
           >
             {drafting ? 'Drafting…' : 'Draft owner email'}
@@ -288,6 +300,7 @@ export function SlipOwnerActionEditor({
               : 'Bundles every flagged item at this property into one Gmail draft.'}
           </span>
         </div>
+        {(notesDirty || attempt) && <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8 }}>Save or discard your unfinished changes before drafting the owner email.</p>}
 
         <div style={{ marginTop: 14 }}>
           <div className="eyebrow" style={{ marginBottom: 8 }}>Owner&rsquo;s answer</div>
@@ -300,6 +313,7 @@ export function SlipOwnerActionEditor({
                   type="button"
                   onClick={() => chooseAnswer(o.value)}
                   disabled={pending}
+                  aria-pressed={active}
                   style={chipStyle(active, pending)}
                 >
                   {o.label}
@@ -320,7 +334,7 @@ export function SlipOwnerActionEditor({
       </div>
 
       <div>
-        <button type="button" onClick={disarm} disabled={pending} style={quietLinkStyle(pending)}>
+        <button type="button" onClick={() => { if (!notesDirty) saveChange({ kind: 'flag', value: false }); }} disabled={pending || notesDirty} style={quietLinkStyle(pending || notesDirty)}>
           {pending ? 'Saving…' : 'Doesn’t need owner input'}
           <span style={{ marginLeft: 8, letterSpacing: 0, textTransform: 'none', color: 'var(--ink-4)', fontWeight: 400 }}>
             un-flag and clear the ask
@@ -328,8 +342,8 @@ export function SlipOwnerActionEditor({
         </button>
       </div>
 
-      {err && <ErrorStrip message={err} />}
-    </div>
+      {feedback}
+    </fieldset>
   );
 }
 

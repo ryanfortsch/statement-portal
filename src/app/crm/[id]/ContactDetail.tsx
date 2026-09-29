@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import type { ContactRow, ContactTouchRow, ContactType, TouchChannel } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS, TOUCH_CHANNEL_LABELS, touchSource, TOUCH_SOURCE_LABELS } from '@/lib/crm';
@@ -14,6 +14,7 @@ import {
 } from '../actions';
 import { ContactDraftEmailButton } from './ContactDraftEmailButton';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type PropertyMini = { id: string; name: string };
 
@@ -44,7 +45,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
   const [notes, setNotes] = useState(contact.notes ?? '');
   const [linkedPropertyIds, setLinkedPropertyIds] = useState<string[]>(contact.linked_property_ids ?? []);
 
-  // Touch list state (optimistic)
+  // Only confirmed touches belong in the activity list.
   const [touchList, setTouchList] = useState<ContactTouchRow[]>(touches);
 
   // Add-touch form
@@ -53,6 +54,11 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
   const [touchNotes, setTouchNotes] = useState('');
   const [touchSubmitting, setTouchSubmitting] = useState(false);
   const [touchErr, setTouchErr] = useState<string | null>(null);
+  const touchPosting = useRef(false);
+  const deletingTouches = useRef(new Set<string>());
+  const [touchDeletePending, setTouchDeletePending] = useState<string[]>([]);
+  const [touchDeleteErrors, setTouchDeleteErrors] = useState<Record<string, string>>({});
+  useUnsavedWorkGuard(touchSummary !== '' || touchNotes !== '' || touchSubmitting || touchDeletePending.length > 0);
 
   const propertyMap = new Map(properties.map((p) => [p.id, p.name]));
 
@@ -95,14 +101,14 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
 
   async function logTouch(e: React.FormEvent) {
     e.preventDefault();
+    if (touchPosting.current) return;
     setTouchErr(null);
     const summary = touchSummary.trim();
     if (!summary) return;
+    touchPosting.current = true;
     setTouchSubmitting(true);
 
-    const tempId = `temp-${Date.now()}`;
-    const optimistic: ContactTouchRow = {
-      id: tempId,
+    const submitted: Omit<ContactTouchRow, 'id'> = {
       contact_id: contact.id,
       touched_at: new Date().toISOString(),
       channel: touchChannel,
@@ -115,33 +121,40 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
       quo_call_id: null,
       created_at: new Date().toISOString(),
     };
-    setTouchList((prev) => [optimistic, ...prev]);
-    setTouchSummary('');
-    setTouchNotes('');
-
-    const res = await addContactTouch({
-      contact_id: contact.id,
-      channel: touchChannel,
-      summary,
-      notes: optimistic.notes,
-    });
-    setTouchSubmitting(false);
-    if (!res.ok) {
-      setTouchErr(res.error);
-      setTouchList((prev) => prev.filter((t) => t.id !== tempId));
-      return;
+    try {
+      const res = await addContactTouch({
+        contact_id: contact.id,
+        channel: submitted.channel,
+        summary,
+        notes: submitted.notes,
+      });
+      if (!res.ok) { setTouchErr(res.error); return; }
+      setTouchList((prev) => [{ ...submitted, id: res.id }, ...prev]);
+      setTouchSummary('');
+      setTouchNotes('');
+    } catch {
+      setTouchErr('Could not confirm whether this activity was logged. Your notes are kept. Check the saved activity in another tab before retrying to avoid a duplicate.');
+    } finally {
+      touchPosting.current = false;
+      setTouchSubmitting(false);
     }
-    setTouchList((prev) => prev.map((t) => (t.id === tempId ? { ...t, id: res.id } : t)));
   }
 
   function removeTouch(id: string) {
-    const prev = touchList;
-    setTouchList((curr) => curr.filter((t) => t.id !== id));
+    if (deletingTouches.current.has(id)) return;
+    deletingTouches.current.add(id);
+    setTouchDeletePending([...deletingTouches.current]);
+    setTouchDeleteErrors((prev) => ({ ...prev, [id]: '' }));
     startTransition(async () => {
-      const res = await deleteContactTouch({ id, contact_id: contact.id });
-      if (!res.ok) {
-        setTouchErr(res.error);
-        setTouchList(prev);
+      try {
+        const res = await deleteContactTouch({ id, contact_id: contact.id });
+        if (!res.ok) { setTouchDeleteErrors((prev) => ({ ...prev, [id]: res.error })); return; }
+        setTouchList((prev) => prev.filter((t) => t.id !== id));
+      } catch {
+        setTouchDeleteErrors((prev) => ({ ...prev, [id]: 'Could not confirm deletion. Retry to remove this activity.' }));
+      } finally {
+        deletingTouches.current.delete(id);
+        setTouchDeletePending([...deletingTouches.current]);
       }
     });
   }
@@ -538,7 +551,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
             <div className="flex gap-3" style={{ alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
                 <Field label="Channel">
-                  <select value={touchChannel} onChange={(e) => setTouchChannel(e.target.value as TouchChannel)} style={selectStyle()}>
+                  <select value={touchChannel} disabled={touchSubmitting} onChange={(e) => setTouchChannel(e.target.value as TouchChannel)} style={selectStyle()}>
                     {(Object.entries(TOUCH_CHANNEL_LABELS) as [TouchChannel, string][]).map(([v, l]) => (
                       <option key={v} value={v}>{l}</option>
                     ))}
@@ -550,6 +563,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                   <input
                     type="text"
                     value={touchSummary}
+                    disabled={touchSubmitting}
                     onChange={(e) => setTouchSummary(e.target.value)}
                     placeholder="e.g. Discussed Q3 maintenance budget"
                     required
@@ -580,6 +594,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
             </div>
             <textarea
               value={touchNotes}
+              disabled={touchSubmitting}
               onChange={(e) => setTouchNotes(e.target.value)}
               rows={2}
               maxLength={2000}
@@ -587,10 +602,12 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
               style={{ ...inputStyle(), fontFamily: 'inherit', resize: 'vertical' }}
             />
             {touchErr && (
-              <div style={{ padding: '8px 12px', borderLeft: '3px solid var(--negative)', background: 'var(--paper-2)', color: 'var(--negative)', fontSize: 12 }}>
+              <div role="alert" style={{ padding: '8px 12px', borderLeft: '3px solid var(--negative)', background: 'var(--paper-2)', color: 'var(--negative)', fontSize: 12 }}>
                 {touchErr}
+                {' '}<a href={`/crm/${contact.id}`} target="_blank" rel="noopener noreferrer">View saved activity</a>
               </div>
             )}
+            {(touchSummary || touchNotes) && <button type="button" disabled={touchSubmitting} onClick={() => { setTouchSummary(''); setTouchNotes(''); setTouchErr(null); }} style={{ alignSelf: 'flex-start', fontSize: 12 }}>Discard activity draft</button>}
           </form>
 
           {touchList.length === 0 ? (
@@ -632,6 +649,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, color: 'var(--ink)' }}>{t.summary}</div>
+                      {touchDeleteErrors[t.id] && <div role="alert" style={{ color: 'var(--negative)', fontSize: 12, marginTop: 4 }}>{touchDeleteErrors[t.id]}</div>}
                       {t.notes && (
                         <div style={{ marginTop: 4, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
                           {t.notes}
@@ -673,6 +691,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                       <button
                         type="button"
                         onClick={() => removeTouch(t.id)}
+                        disabled={touchDeletePending.includes(t.id)}
                         aria-label="Delete touch"
                         title="Delete (only you can delete your own touches)"
                         style={{
@@ -685,7 +704,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                           lineHeight: 1,
                         }}
                       >
-                        ×
+                        {touchDeletePending.includes(t.id) ? 'Deleting…' : '×'}
                       </button>
                     )}
                   </li>

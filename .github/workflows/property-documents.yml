@@ -14,6 +14,7 @@ on:
       - 'scripts/work-slip-editor-smoke.mjs'
       - 'scripts/work-slip-comments-smoke.mjs'
       - 'scripts/work-slip-routing-smoke.mjs'
+      - 'scripts/editor-recovery-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -63,6 +64,8 @@ jobs:
         run: node scripts/work-slip-comments-smoke.mjs
       - name: Verify assignment, routing, and snooze recovery with synthetic saves
         run: node scripts/work-slip-routing-smoke.mjs
+      - name: Verify owner input, CRM activity, tasks, Playbook, and room recovery
+        run: node scripts/editor-recovery-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()

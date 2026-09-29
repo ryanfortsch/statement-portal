@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, type CSSProperties } from 'react';
+import { useRef, useState, useTransition, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Markdown } from '@/components/Markdown';
@@ -12,6 +12,7 @@ import {
 } from '@/lib/playbook';
 import type { PropertyOption } from '@/lib/playbook-properties';
 import { createEntry, updateEntry } from './actions';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 const FIELD: CSSProperties = {
   width: '100%',
@@ -84,12 +85,19 @@ export function PlaybookEditor({
   const [status, setStatus] = useState<PlaybookStatus>(initial?.status ?? 'draft');
   const [pinned, setPinned] = useState(initial?.pinned ?? false);
   const [changeNote, setChangeNote] = useState('');
+  const saving = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
+  const snapshot = JSON.stringify([title, category, summary, body, tags, propertyId, status, pinned, changeNote]);
+  const [savedSnapshot, setSavedSnapshot] = useState(snapshot);
+  const dirty = snapshot !== savedSnapshot;
+  useUnsavedWorkGuard(dirty || pending || uncertain);
 
   // Include a custom (non-curated) category as an option so editing keeps it.
   const categoryOptions = PLAYBOOK_CATEGORIES.map((c) => c.key);
   if (initial?.category && !categoryOptions.includes(initial.category)) categoryOptions.push(initial.category);
 
   function save() {
+    if (saving.current) return;
     setError(null);
     if (!title.trim()) {
       setError('Title is required');
@@ -106,26 +114,41 @@ export function PlaybookEditor({
       pinned,
       change_note: changeNote || null,
     };
+    const submittedSnapshot = snapshot;
+    saving.current = true;
+    setUncertain(false);
     startTransition(async () => {
-      const res = mode === 'edit' && initial
-        ? await updateEntry({ ...payload, id: initial.id })
-        : await createEntry(payload);
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = mode === 'edit' && initial
+          ? await updateEntry({ ...payload, id: initial.id })
+          : await createEntry(payload);
+        if (!res.ok) { setError(res.error); return; }
+        setSavedSnapshot(submittedSnapshot);
+        startTransition(() => {
+          router.push(`/playbook/${res.slug}`);
+          router.refresh();
+        });
+      } catch {
+        setUncertain(true);
+        setError('Could not confirm the save. Your draft is kept. Check the Playbook in another tab before retrying, especially for a new entry.');
+      } finally {
+        saving.current = false;
       }
-      router.push(`/playbook/${res.slug}`);
-      router.refresh();
     });
   }
 
   const cancelHref = mode === 'edit' && initial ? `/playbook/${initial.slug}` : '/playbook';
+  function cancel(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (saving.current || pending || ((dirty || uncertain) && !window.confirm('Discard your unsaved Playbook changes?'))) e.preventDefault();
+  }
 
   return (
     <div className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 32, paddingBottom: 64 }}>
       <div style={{ marginBottom: 24 }}>
         <Link
           href={cancelHref}
+          onClick={cancel}
+          aria-disabled={pending}
           style={{ fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', fontWeight: 500, color: 'var(--ink-3)', textDecoration: 'none' }}
         >
           ← Cancel
@@ -137,11 +160,13 @@ export function PlaybookEditor({
       </h1>
 
       {error && (
-        <div style={{ borderLeft: '3px solid var(--negative)', background: 'var(--paper-2)', padding: '10px 14px', marginBottom: 18, color: 'var(--negative)', fontSize: 14 }}>
+        <div role="alert" style={{ borderLeft: '3px solid var(--negative)', background: 'var(--paper-2)', padding: '10px 14px', marginBottom: 18, color: 'var(--negative)', fontSize: 14 }}>
           {error}
+          {uncertain && <> <a href={cancelHref} target="_blank" rel="noopener noreferrer">View saved entries</a></>}
         </div>
       )}
 
+      <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 28, alignItems: 'start' }} className="pb-editor-grid">
         {/* Left: title + body */}
         <div>
@@ -257,6 +282,8 @@ export function PlaybookEditor({
             </button>
             <Link
               href={cancelHref}
+              onClick={cancel}
+              aria-disabled={pending}
               style={{ fontSize: 14, fontWeight: 600, padding: '11px 16px', borderRadius: 4, border: '1px solid var(--rule)', color: 'var(--ink-3)', textDecoration: 'none' }}
             >
               Cancel
@@ -264,6 +291,7 @@ export function PlaybookEditor({
           </div>
         </div>
       </div>
+      </fieldset>
 
       <style>{`
         @media (max-width: 720px) {
