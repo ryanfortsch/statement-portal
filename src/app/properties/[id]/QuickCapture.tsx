@@ -1,11 +1,13 @@
 'use client';
 
-import { useRef, useState, useTransition, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import {
   parsePropertyCaptureAction,
   applyPropertyCaptureAction,
 } from '@/app/properties/actions';
 import { captureColumn, isHighStakesColumn, type CaptureItem } from '@/lib/property-capture-catalog';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { looksLikeWalkthrough } from '@/lib/capture-routing';
 import { WalkthroughCapture } from './WalkthroughCapture';
@@ -37,9 +39,11 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   const [items, setItems] = useState<EditItem[]>([]);
   const [unrouted, setUnrouted] = useState<string | null>(null);
   const [current, setCurrent] = useState<Record<string, string | null>>({});
-  const [error, setError] = useState<string | null>(null);
   const [doneSummary, setDoneSummary] = useState<{ columns: number; notes: number; skipped: string[] } | null>(null);
-  const [pending, start] = useTransition();
+  const { pending, busy, error, setError, run } = useRecoverableAction();
+
+  useUnsavedWorkGuard(!handOff && (pending || (phase !== 'done' && !!text.trim())));
+  const progress = useRef({ columns: 0, notes: 0, skipped: [] as string[] });
 
   // ── Voice ──
   //
@@ -140,6 +144,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (e: any) => {
+      if (!wantRef.current) return;
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
@@ -230,6 +235,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   }
 
   function toggleMic() {
+    if (busy.current) return;
     const rec = recRef.current;
     if (!rec) return;
     if (listening) {
@@ -258,6 +264,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
    *  and the spoken layers reset, so the next result can't resurrect the
    *  pre-edit transcript over her correction. */
   function handleTextEdit(value: string) {
+    if (busy.current) return;
     if (listening || wantRef.current) {
       baseTextRef.current = value;
       finalsRef.current = '';
@@ -267,6 +274,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   }
 
   function process() {
+    if (busy.current) return;
     // The mic control is unmounted on the review screen, so stop capture
     // before leaving the input phase — never leave the device open with no
     // affordance to turn it off.
@@ -276,7 +284,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       setHandOff(text);
       return;
     }
-    start(async () => {
+    run(async () => {
       const res = await parsePropertyCaptureAction(propertyId, text);
       if (!res.ok) { setError(res.error); return; }
       if (res.proposal.items.length === 0 && !res.proposal.unrouted) {
@@ -289,21 +297,25 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       setItems(
         res.proposal.items.map((it, i) => ({
           ...it,
+          noteId: it.target === 'note' ? crypto.randomUUID() : undefined,
           include: !(it.target === 'column' && isHighStakesColumn(it.column)),
           _id: i,
         })),
       );
       setUnrouted(res.proposal.unrouted);
       setCurrent(res.currentValues);
+      progress.current = { columns: 0, notes: 0, skipped: [] };
       setPhase('review');
-    });
+    }, 'Could not process the note. Your text is kept; try again.');
   }
 
   function patchItem(id: number, patch: Partial<EditItem>) {
+    if (busy.current) return;
     setItems((prev) => prev.map((it) => (it._id === id ? { ...it, ...patch } : it)));
   }
 
   function addUnroutedAsNote() {
+    if (busy.current) return;
     if (!unrouted) return;
     setItems((prev) => [
       ...prev,
@@ -311,6 +323,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
         _id: (prev.at(-1)?._id ?? -1) + 1,
         include: true,
         target: 'note',
+        noteId: crypto.randomUUID(),
         column: null,
         value: null,
         noteTitle: unrouted.slice(0, 80),
@@ -325,22 +338,36 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
   }
 
   function apply() {
+    if (busy.current) return;
     setError(null);
-    const included: CaptureItem[] = items
-      .filter((i) => i.include)
-      .map(({ include, _id, ...rest }) => { void include; void _id; return rest; });
-    if (included.length === 0) { setError('Nothing checked to apply.'); return; }
-    start(async () => {
+    const selected = items.filter((i) => i.include);
+    const included: CaptureItem[] = selected.map(({ include, _id, ...rest }) => { void include; void _id; return rest; });
+    if (!included.length) { setError('Nothing checked to apply.'); return; }
+    run(async () => {
       const res = await applyPropertyCaptureAction(propertyId, included);
-      if (!res.ok) { setError(res.error); return; }
-      setDoneSummary({ columns: res.columns, notes: res.notes, skipped: res.skipped });
+      progress.current = {
+        columns: progress.current.columns + (res.columns || 0),
+        notes: progress.current.notes + (res.notes || 0),
+        skipped: [...new Set([...progress.current.skipped, ...(res.skipped || [])])],
+      };
+      if (!res.ok) {
+        const completed = new Set((res.completedIndices || []).map((i) => selected[i]?._id));
+        setItems((previous) => previous.filter((i) => !completed.has(i._id)));
+        setError(res.error + ' Saved items have been removed from this review. Retry the remaining items.');
+        softRefresh();
+        return;
+      }
+      setDoneSummary({ ...progress.current });
       setPhase('done');
       softRefresh();
-    });
+    }, 'Could not confirm the save. Your review is kept. Retry to check and save the remaining work.');
   }
 
   function reset() {
+    if (busy.current) return;
+    if (phase !== 'done' && !confirm('Discard this capture review? Any changes already saved will stay on the property.')) return;
     stopListening();
+    progress.current = { columns: 0, notes: 0, skipped: [] };
     setPhase('input');
     setText('');
     setItems([]);
@@ -365,7 +392,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
           propertyName={propertyName}
           initialText={handOff}
           autoStart
-          onBack={() => setHandOff(null)}
+          onBack={(completed, returnedText) => { setHandOff(null); handleTextEdit(completed ? '' : returnedText); }}
         />
       </section>
     );
@@ -376,6 +403,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       {/* Left tide accent instead of a full boxed plate: the capture bar
           should read as the tab's first affordance, not a billboard that
           pushes the day's actual work below the fold. */}
+      <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div
         style={{
           borderLeft: '3px solid var(--tide-deep)',
@@ -532,7 +560,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
               >
                 {pending ? 'Saving…' : `Apply ${includedCount} change${includedCount === 1 ? '' : 's'}`}
               </button>
-              <button type="button" onClick={() => setPhase('input')} style={linkBtn}>
+              <button type="button" onClick={() => { if (!busy.current && confirm('Return to the original note? Review edits will be discarded; saved changes stay on the property.')) setPhase('input'); }} style={linkBtn}>
                 Back to edit
               </button>
             </div>
@@ -578,6 +606,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
         )}
       </div>
       <style>{`@keyframes rtpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(200,90,58,0.5); } 50% { box-shadow: 0 0 0 6px rgba(200,90,58,0); } }`}</style>
+      </fieldset>
     </section>
   );
 }

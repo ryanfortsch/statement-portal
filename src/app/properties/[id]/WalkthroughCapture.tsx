@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { parseWalkthroughAction, applyWalkthroughAction } from './onboarding-actions';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { captureColumn, isHighStakesColumn } from '@/lib/property-capture-catalog';
 import type { CaptureItem } from '@/lib/property-capture-catalog';
@@ -56,7 +58,7 @@ export function WalkthroughCapture({
   propertyName: string;
   initialText?: string;
   autoStart?: boolean;
-  onBack?: () => void;
+  onBack?: (completed: boolean, text: string) => void;
 }) {
   const softRefresh = useSoftRefresh();
   const [phase, setPhase] = useState<Phase>('input');
@@ -65,9 +67,11 @@ export function WalkthroughCapture({
   const [roomItems, setRoomItems] = useState<ReviewRoomItem[]>([]);
   const [captureItems, setCaptureItems] = useState<ReviewCaptureItem[]>([]);
   const [unrouted, setUnrouted] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [doneSummary, setDoneSummary] = useState<{ rooms: number; roomFacts: number; columns: number; notes: number } | null>(null);
-  const [pending, start] = useTransition();
+  const [doneSummary, setDoneSummary] = useState<{ rooms: number; roomFacts: number; columns: number; notes: number; skipped: string[] } | null>(null);
+  const { pending, busy, error, setError, run } = useRecoverableAction();
+
+  useUnsavedWorkGuard(pending || (phase !== 'done' && !!text.trim()));
+  const progress = useRef({ rooms: 0, roomFacts: 0, columns: 0, notes: 0, skipped: [] as string[] });
 
   // ── Voice (QuickCapture's keep-alive pattern) ──
   const [listening, setListening] = useState(false);
@@ -92,6 +96,7 @@ export function WalkthroughCapture({
     rec.lang = 'en-US';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (e: any) => {
+      if (!wantRef.current) return;
       let chunk = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         chunk += e.results[i][0].transcript;
@@ -147,6 +152,7 @@ export function WalkthroughCapture({
   }
 
   function toggleMic() {
+    if (busy.current) return;
     const rec = recRef.current;
     if (!rec) return;
     if (listening) { stopListening(); return; }
@@ -178,9 +184,10 @@ export function WalkthroughCapture({
   }, [autoStart, initialText]);
 
   function process() {
+    if (busy.current) return;
     stopListening();
     setError(null);
-    start(async () => {
+    run(async () => {
       const res = await parseWalkthroughAction(propertyId, propertyName, text);
       if (!res.ok) { setError(res.error); return; }
       const p: WalkthroughProposal = res.proposal;
@@ -204,6 +211,7 @@ export function WalkthroughCapture({
         })),
         ...p.noteItems.map((n) => ({
           _id: id++, include: true,
+          noteId: crypto.randomUUID(),
           target: 'note' as const, column: null, value: null,
           noteTitle: n.noteTitle, noteBody: n.noteBody, noteTag: n.noteTag, guestFacing: n.guestFacing,
           sourceText: n.sourceText, confidence: n.confidence,
@@ -211,15 +219,18 @@ export function WalkthroughCapture({
       ];
       setCaptureItems(cap);
       setUnrouted(p.unrouted);
+      progress.current = { rooms: 0, roomFacts: 0, columns: 0, notes: 0, skipped: [] as string[] };
       setPhase('review');
-    });
+    }, 'Could not process the walkthrough. Your text is kept; try again.');
   }
 
   function apply() {
+    if (busy.current) return;
     setError(null);
-    start(async () => {
+    run(async () => {
       const inclRoomItems = roomItems.filter((i) => i.include);
-      const inclCapture = captureItems.filter((i) => i.include).map(({ _id, include, ...rest }) => { void _id; void include; return rest; });
+      const selectedCapture = captureItems.filter((i) => i.include);
+      const inclCapture = selectedCapture.map(({ _id, include, ...rest }) => { void _id; void include; return rest; });
       const usedRooms = rooms.filter((r) => inclRoomItems.some((i) => i.roomName === r.name));
       if (inclRoomItems.length === 0 && inclCapture.length === 0) { setError('Nothing checked to apply.'); return; }
       const res = await applyWalkthroughAction({
@@ -228,19 +239,35 @@ export function WalkthroughCapture({
         roomItems: inclRoomItems.map(({ roomName, kind, value, guestFacing }) => ({ roomName, kind, value, guestFacing })),
         captureItems: inclCapture,
       });
-      if (!res.ok) { setError(res.error); return; }
-      setDoneSummary({ rooms: res.rooms, roomFacts: res.roomFacts, columns: res.columns, notes: res.notes });
+      progress.current = {
+        rooms: progress.current.rooms + (res.rooms || 0), roomFacts: progress.current.roomFacts + (res.roomFacts || 0),
+        skipped: [...new Set([...progress.current.skipped, ...(res.skipped || [])])],
+        columns: progress.current.columns + (res.columns || 0), notes: progress.current.notes + (res.notes || 0),
+      };
+      if (!res.ok) {
+        const completedRooms = new Set(res.completedRooms || []);
+        const completedCapture = new Set((res.completedCaptureIndices || []).map((i) => selectedCapture[i]?._id));
+        setRoomItems((previous) => previous.filter((i) => !completedRooms.has(i.roomName)));
+        setCaptureItems((previous) => previous.filter((i) => !completedCapture.has(i._id)));
+        setError(res.error + ' Saved items have been removed from this review. Retry the remaining items.');
+        softRefresh();
+        return;
+      }
+      setDoneSummary({ ...progress.current });
       setPhase('done');
       softRefresh();
-    });
+    }, 'Could not confirm the walkthrough save. Your review is kept. Retry to check and save the remaining work.');
   }
 
   function reset() {
+    if (busy.current) return;
+    if (phase !== 'done' && !confirm('Discard this walkthrough review? Any changes already saved will stay on the property.')) return;
     stopListening();
+    progress.current = { rooms: 0, roomFacts: 0, columns: 0, notes: 0, skipped: [] as string[] };
     // Handed here by the single input box: "start over" belongs back at
     // that box, not at a second one this component would draw.
     if (onBack) {
-      onBack();
+      onBack(phase === 'done', text);
       return;
     }
     setPhase('input');
@@ -255,6 +282,7 @@ export function WalkthroughCapture({
   }
 
   return (
+    <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
     <div style={{ borderLeft: '3px solid var(--signal)', background: 'var(--paper-2)', padding: '14px 18px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
         <div className="eyebrow" style={{ color: 'var(--signal)', letterSpacing: '.18em' }}>
@@ -417,6 +445,7 @@ export function WalkthroughCapture({
         <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>
           Saved: {doneSummary.rooms} room{doneSummary.rooms === 1 ? '' : 's'} updated with {doneSummary.roomFacts} fact{doneSummary.roomFacts === 1 ? '' : 's'},
           {' '}{doneSummary.columns} field{doneSummary.columns === 1 ? '' : 's'}, {doneSummary.notes} note{doneSummary.notes === 1 ? '' : 's'}.
+          {doneSummary.skipped.length > 0 && <p role="status">Left unchanged: {doneSummary.skipped.join(', ')}. Check these values before trying again.</p>}
           {' '}
           <button type="button" onClick={reset} style={{ ...quietBtn, textDecoration: 'underline', textUnderlineOffset: 2 }}>
             Walk another area
@@ -428,6 +457,7 @@ export function WalkthroughCapture({
         <div style={{ marginTop: 10, fontSize: 12, color: 'var(--negative)' }}>{error}</div>
       )}
     </div>
+    </fieldset>
   );
 }
 
