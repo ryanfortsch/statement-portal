@@ -1,14 +1,14 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
-import { SubmitButton } from '@/components/SubmitButton';
-import { createAdHocPacketAction, type AdhocState } from '../actions';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { unstable_rethrow } from 'next/navigation';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { createAdHocPacketAction } from '../actions';
 import { OfferToPicker, type OfferableContractor } from '../OfferToPicker';
 
 /**
- * The one-off job form, as a client component with useActionState (same
- * pattern as field/apply's ApplyForm): a failure renders a specific inline
- * error above the buttons and the form stays mounted with everything typed.
+ * Keep native fields mounted after returned errors. Manual submission avoids
+ * React's automatic form reset, while successful server redirects still run.
  * The old server-rendered form fired a void action that silently re-landed
  * here on failure, which is how the ad_hoc enum bug (#1205) hid for a month.
  */
@@ -40,10 +40,53 @@ export function AdhocForm({
   properties: { id: string; name: string; city: string | null }[];
   offerable: OfferableContractor[];
 }) {
-  const [state, formAction] = useActionState<AdhocState, FormData>(createAdHocPacketAction, { error: '' });
+  const formRef = useRef<HTMLFormElement>(null);
+  const original = useRef('');
+  const lock = useRef(false);
+  const [dirty, setDirty] = useState(false);
+  const [offerIds, setOfferIds] = useState<string[]>([]);
+  const [pickerKey, setPickerKey] = useState(0);
+  const [error, setError] = useState('');
+  const [uncertain, setUncertain] = useState(false);
+  const [mode, setMode] = useState<'publish' | 'draft'>('publish');
+  const [pending, startTransition] = useTransition();
+  const snapshot = (form: HTMLFormElement) => JSON.stringify([...new FormData(form).entries()].filter(([name]) => name !== 'offer_to'));
+  useEffect(() => { if (formRef.current) original.current = snapshot(formRef.current); }, []);
+  useUnsavedWorkGuard(dirty || offerIds.length > 0 || pending || uncertain);
+
+  function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (lock.current) return;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const submittedMode = submitter?.value === 'draft' ? 'draft' : 'publish';
+    const data = new FormData(e.currentTarget);
+    data.set('mode', submittedMode);
+    lock.current = true;
+    setMode(submittedMode); setError(''); setUncertain(false);
+    startTransition(async () => {
+      try {
+        const result = await createAdHocPacketAction({ error: '' }, data);
+        setError(result.error);
+      } catch (err) {
+        unstable_rethrow(err);
+        setUncertain(true);
+        setError('Could not confirm whether the job was created. Your details are kept. Check the job list before retrying to avoid a duplicate or another contractor notification.');
+      } finally {
+        lock.current = false;
+      }
+    });
+  }
+
+  function discard() {
+    if (lock.current) return;
+    formRef.current?.reset();
+    setOfferIds([]); setPickerKey((key) => key + 1);
+    setDirty(false); setUncertain(false); setError('');
+  }
 
   return (
-    <form action={formAction} style={{ maxWidth: 560 }}>
+    <form ref={formRef} onSubmit={submit} onChange={(e) => setDirty(snapshot(e.currentTarget) !== original.current)} style={{ maxWidth: 560 }}>
+      <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <label style={lbl}>
         What&apos;s the job? *
         <input
@@ -92,18 +135,21 @@ export function AdhocForm({
         Bring <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(optional; folds into the supply-run pick list)</span>
         <input type="text" name="bring_list" maxLength={2000} placeholder="e.g. a spare furnace filter" style={inp} />
       </label>
-      <OfferToPicker contractors={offerable} />
+      <OfferToPicker key={pickerKey} contractors={offerable} onChange={setOfferIds} />
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-3)', margin: '2px 0 4px' }}>
         <input type="checkbox" name="supply_run" />
         Start with a supply-closet bag pickup at 85 Eastern Ave
       </label>
       <div style={{ marginTop: 16 }}>
-        <InlineError error={state.error} />
+        <InlineError error={error} />
+        {uncertain && <a href="/fieldwork/packets" target="_blank" rel="noopener noreferrer">View saved jobs</a>}
         <div style={{ display: 'flex', gap: 10 }}>
-          <SubmitButton name="mode" value="publish" label="Publish to contractors" busyLabel="Publishing…" style={btnDark} />
-          <SubmitButton name="mode" value="draft" label="Save as draft" busyLabel="Saving…" spinnerTone="ink" style={btnGhost} />
+          <button type="submit" name="mode" value="publish" style={btnDark}>{pending && mode === 'publish' ? 'Publishing…' : 'Publish to contractors'}</button>
+          <button type="submit" name="mode" value="draft" style={btnGhost}>{pending && mode === 'draft' ? 'Saving…' : 'Save as draft'}</button>
+          {(dirty || offerIds.length > 0 || uncertain) && <button type="button" onClick={discard} style={btnGhost}>Discard changes</button>}
         </div>
       </div>
+      </fieldset>
     </form>
   );
 }

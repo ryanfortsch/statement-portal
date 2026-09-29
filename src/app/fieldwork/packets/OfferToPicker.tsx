@@ -9,11 +9,12 @@ export type OfferableContractor = { id: string; name: string };
  *  packet and gets the text, never how it is claimed - first tap still wins.
  *  Picks ride out as repeated `offer_to` fields, so the form works unchanged
  *  if the toggles never hydrate. */
-export function OfferToPicker({ contractors }: { contractors: OfferableContractor[] }) {
+export function OfferToPicker({ contractors, onChange }: { contractors: OfferableContractor[]; onChange?: (ids: string[]) => void }) {
   const [offerTo, setOfferTo] = useState<string[]>([]);
   if (contractors.length === 0) return null;
 
-  const toggle = (id: string) => setOfferTo((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  function change(ids: string[]) { setOfferTo(ids); onChange?.(ids); }
+  const toggle = (id: string) => change(offerTo.includes(id) ? offerTo.filter((x) => x !== id) : [...offerTo, id]);
   const names = contractors.filter((c) => offerTo.includes(c.id)).map((c) => c.name.split(' ')[0]);
 
   return (
@@ -58,7 +59,7 @@ export function OfferToPicker({ contractors }: { contractors: OfferableContracto
         {offerTo.length > 0 && (
           <button
             type="button"
-            onClick={() => setOfferTo([])}
+            onClick={() => change([])}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11.5, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }}
           >
             everyone

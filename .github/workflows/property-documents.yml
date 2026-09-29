@@ -17,6 +17,7 @@ on:
       - 'scripts/editor-recovery-smoke.mjs'
       - 'scripts/forms-recovery-smoke.mjs'
       - 'scripts/queue-actions-smoke.mjs'
+      - 'scripts/sync-scheduling-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -50,6 +51,8 @@ jobs:
           TZ: America/New_York
       - name: Verify access and real Chromium PDFs with synthetic data
         run: node scripts/property-document-smoke.mjs
+      - name: Verify sync results, inspection plans, contractor jobs, and property shortcuts
+        run: node scripts/sync-scheduling-smoke.mjs
       - name: Verify new forms, contact details, vendors, and document recovery
         run: node scripts/forms-recovery-smoke.mjs
       - name: Verify bulk, quick completion, CRM triage, and vendor work-order recovery
