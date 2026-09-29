@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
+import { getOrCreatePropertyOnboardingToken } from '@/lib/property-onboarding-token';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderOnboardingInviteEmail } from '@/lib/onboarding-invite-email';
@@ -117,29 +117,6 @@ function buildMimeMessage(args: {
   return headers.join('\r\n') + '\r\n\r\n' + altPart + '\r\n';
 }
 
-/** Return the property's onboarding token, minting + persisting one if absent.
- * Mirrors ensurePropertyOnboardingToken (service-role: properties is RLS-locked
- * so an anon update would silently no-op and hand back a dead link). */
-async function ensureToken(sb: SupabaseClient, propertyId: string): Promise<string> {
-  const { data: existing, error } = await sb
-    .from('properties')
-    .select('onboarding_token')
-    .eq('id', propertyId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!existing) throw new Error('Property not found');
-  const current = (existing as { onboarding_token: string | null }).onboarding_token;
-  if (current) return current;
-
-  const token = randomBytes(16).toString('hex');
-  const { error: updateErr } = await sb
-    .from('properties')
-    .update({ onboarding_token: token })
-    .eq('id', propertyId);
-  if (updateErr) throw new Error(updateErr.message);
-  return token;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -168,7 +145,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const token = await ensureToken(sb, propertyId);
+    const token = await getOrCreatePropertyOnboardingToken(sb, propertyId);
     const origin = originIn || request.nextUrl.origin;
     const onboardingUrl = `${origin}/onboarding/${token}`;
 
