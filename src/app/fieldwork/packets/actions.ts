@@ -66,12 +66,12 @@ export async function detachSlipFromStop(packetId: string, attachmentId: string)
 
 export async function updateStopSlipNote(packetId: string, attachmentId: string, note: string): Promise<{ ok: boolean }> {
   await staffEmail();
-  const { error } = await fieldDb()
+  const { data, error } = await fieldDb()
     .from('packet_stop_work_slips')
     .update({ office_note: note.trim().slice(0, 2000) || null })
-    .eq('id', attachmentId);
+    .eq('id', attachmentId).select('id').maybeSingle();
   revalidatePath(`/fieldwork/packets/${packetId}`);
-  return { ok: !error };
+  return { ok: !error && !!data };
 }
 
 /** Edit the TASK a one-off/setup/maintenance stop IS (its work slip's text).
@@ -81,32 +81,32 @@ export async function updateStopSlipContent(packetId: string, workSlipId: string
   await staffEmail();
   const clean = text.trim().slice(0, 4000);
   if (!workSlipId || !clean) return { ok: false };
-  const { error } = await fieldDb()
+  const { data, error } = await fieldDb()
     .from('work_slips')
     .update({ title: clean.slice(0, 120), description: clean, updated_at: new Date().toISOString() })
-    .eq('id', workSlipId);
+    .eq('id', workSlipId).select('id').maybeSingle();
   revalidatePath(`/fieldwork/packets/${packetId}`);
-  return { ok: !error };
+  return { ok: !error && !!data };
 }
 
 export async function setStopInstructions(packetId: string, stopId: string, text: string): Promise<{ ok: boolean }> {
   await staffEmail();
-  const { error } = await fieldDb()
+  const { data, error } = await fieldDb()
     .from('packet_stops')
     .update({ instructions: text.trim().slice(0, 4000) || null })
-    .eq('id', stopId);
+    .eq('id', stopId).select('id').maybeSingle();
   revalidatePath(`/fieldwork/packets/${packetId}`);
-  return { ok: !error };
+  return { ok: !error && !!data };
 }
 
 export async function setPacketInstructions(packetId: string, text: string): Promise<{ ok: boolean }> {
   await staffEmail();
-  const { error } = await fieldDb()
+  const { data, error } = await fieldDb()
     .from('inspection_packets')
     .update({ instructions: text.trim().slice(0, 4000) || null })
-    .eq('id', packetId);
+    .eq('id', packetId).select('id').maybeSingle();
   revalidatePath(`/fieldwork/packets/${packetId}`);
-  return { ok: !error };
+  return { ok: !error && !!data };
 }
 
 /** Office-only: decrypt a contractor's full TIN for filing their 1099. */
@@ -816,31 +816,38 @@ export async function addPacketStop(formData: FormData): Promise<void> {
  *  client sends the complete ordered id list; we only accept an exact
  *  permutation of the live stop set (a stale tab can't drop or invent stops)
  *  and write walk_order = index, so numbering never drifts. */
-export async function reorderPacketStops(packetId: string, orderedIds: string[]): Promise<void> {
+export async function reorderPacketStops(packetId: string, orderedIds: string[]): Promise<{ ok: boolean; error?: string }> {
   const email = await staffEmail();
-  if (!packetId || !Array.isArray(orderedIds) || orderedIds.length === 0) return;
-  const { data: pkt } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
-  if (!pkt || !['draft', 'published', 'claimed', 'in_progress'].includes((pkt as { status: string }).status)) return;
+  if (!packetId || !Array.isArray(orderedIds) || orderedIds.length === 0) return { ok: false, error: 'No stops to reorder.' };
+  const { data: pkt, error: packetError } = await fieldDb().from('inspection_packets').select('status').eq('id', packetId).maybeSingle();
+  if (packetError) return { ok: false, error: 'Could not load the trip. Please try again.' };
+  if (!pkt || !['draft', 'published', 'claimed', 'in_progress'].includes((pkt as { status: string }).status)) return { ok: false, error: 'This trip can no longer be reordered.' };
 
-  const { data: sData } = await fieldDb().from('packet_stops').select('id, walk_order').eq('packet_id', packetId);
+  const { data: sData, error: stopsError } = await fieldDb().from('packet_stops').select('id, walk_order').eq('packet_id', packetId);
+  if (stopsError) return { ok: false, error: 'Could not load the stops. Please try again.' };
   const rows = (sData ?? []) as { id: string; walk_order: number }[];
   const live = new Set(rows.map((r) => r.id));
   const isPermutation =
     orderedIds.length === rows.length &&
     new Set(orderedIds).size === orderedIds.length &&
     orderedIds.every((id) => live.has(id));
-  if (!isPermutation) return;
+  if (!isPermutation) return { ok: false, error: 'The stops changed. Refresh the trip before reordering.' };
 
   const currentOrder = new Map(rows.map((r) => [r.id, r.walk_order]));
   const updates = orderedIds
     .map((id, i) => ({ id, i }))
     .filter(({ id, i }) => currentOrder.get(id) !== i)
-    .map(({ id, i }) => fieldDb().from('packet_stops').update({ walk_order: i }).eq('id', id).eq('packet_id', packetId));
-  if (updates.length === 0) return;
-  await Promise.all(updates);
+    .map(({ id, i }) => fieldDb().from('packet_stops').update({ walk_order: i }).eq('id', id).eq('packet_id', packetId).select('id').maybeSingle());
+  if (updates.length === 0) return { ok: true };
+  const results = await Promise.all(updates);
+  if (results.some((r) => r.error || !r.data)) {
+    revalidatePath(`/fieldwork/packets/${packetId}`);
+    return { ok: false, error: 'Some stops could not be saved. Refresh the trip to check its order before retrying.' };
+  }
   await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'stops_reordered' });
   revalidatePath(`/fieldwork/packets/${packetId}`);
   revalidatePath('/fieldwork/packets');
+  return { ok: true };
 }
 
 /**
@@ -909,7 +916,8 @@ export async function orderStopsByCleaningTime(formData: FormData): Promise<void
   const rest = movable.filter((s) => !times.get(s.property_id));
 
   const ordered = [...pinned, ...announced, ...rest].map((s) => s.id);
-  await reorderPacketStops(packetId, ordered);
+  const result = await reorderPacketStops(packetId, ordered);
+  if (!result.ok) throw new Error(result.error || 'Could not save the stop order.');
   revalidatePath(`/fieldwork/packets/${packetId}`);
 }
 

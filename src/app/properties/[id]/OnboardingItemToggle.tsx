@@ -1,6 +1,7 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { setOnboardingItemAction } from './onboarding-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { OnboardingItemStatus } from '@/lib/onboarding-items';
@@ -25,6 +26,12 @@ export function OnboardingItemToggle({
 }) {
   const [pending, start] = useTransition();
   const softRefresh = useSoftRefresh();
+  const lock = useRef(false);
+  const [error, setError] = useState('');
+  const [failedTarget, setFailedTarget] = useState<OnboardingItemStatus | null>(null);
+  const [confirmed, setConfirmed] = useState({ source: status, value: status });
+  if (confirmed.source !== status) setConfirmed({ source: status, value: status });
+  useUnsavedWorkGuard(pending);
 
   if (derived) {
     return (
@@ -38,18 +45,27 @@ export function OnboardingItemToggle({
   }
 
   function set(next: OnboardingItemStatus) {
+    if (lock.current) return;
+    lock.current = true; setError(''); setFailedTarget(null);
     start(async () => {
-      await setOnboardingItemAction({ propertyId, itemKey, status: next });
-      softRefresh();
+      try {
+        const result = await setOnboardingItemAction({ propertyId, itemKey, status: next });
+        if (!result.ok) { setError(result.error || 'Could not save this checklist item.'); setFailedTarget(next); return; }
+        setConfirmed({ source: status, value: next });
+        softRefresh();
+      } catch {
+        setError('Could not confirm this checklist change. Retry to save your choice.'); setFailedTarget(next);
+      } finally { lock.current = false; }
     });
   }
 
   const btn = (label: string, value: OnboardingItemStatus, activeColor: string): React.ReactNode => {
-    const active = status === value;
+    const active = confirmed.value === value;
     return (
       <button
         type="button"
         disabled={pending}
+        aria-pressed={active}
         onClick={() => set(active ? 'todo' : value)}
         style={{
           background: active ? activeColor : 'none',
@@ -71,9 +87,12 @@ export function OnboardingItemToggle({
   };
 
   return (
-    <span style={{ display: 'inline-flex', gap: 6, flexShrink: 0 }}>
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+      <span style={{ display: 'inline-flex', gap: 6 }}>
       {btn('Done', 'done', 'var(--positive)')}
       {btn('N/A', 'n_a', 'var(--ink-4)')}
+      </span>
+      {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)', maxWidth: 240 }}>{error} {failedTarget && <button type="button" disabled={pending} onClick={() => set(failedTarget)}>Retry</button>}</span>}
     </span>
   );
 }

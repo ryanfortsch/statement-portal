@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { PacketTextEditor } from './PacketTextEditor';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import type { AttachedSlip, WorkSlipLite } from '@/lib/field-types';
 import { updateStopSlipContent, attachSlipToStop, detachSlipFromStop, updateStopSlipNote, setStopInstructions, setPacketInstructions } from '../actions';
@@ -56,30 +58,23 @@ function slipAge(iso: string | undefined): string | null {
   return d === 0 ? 'new today' : d === 1 ? '1 day old' : `${d} days old`;
 }
 
-/** Everything in here autosaves (selects on change, text on click-away). The
- *  header pins that promise so the operator never hunts for a Save button. */
-function SaveState({ pending }: { pending: boolean }) {
-  return (
-    <span style={{ fontSize: 11, color: pending ? 'var(--signal)' : 'var(--ink-4)', flexShrink: 0 }}>
-      {pending ? 'Saving…' : 'Saves automatically'}
-    </span>
-  );
-}
-
 /** One attached slip: a tight row. The per-slip note stays tucked behind
  *  "+ add note" unless one exists, so empty note boxes never stack up. */
 function AttachedRow({
   packetId,
   a,
-  onSave,
+  onDirtyChange,
   onDetach,
+  pending,
 }: {
   packetId: string;
   a: AttachedSlip;
-  onSave: (fn: () => Promise<unknown>) => void;
+  onDirtyChange: (dirty: boolean) => void;
+  pending: boolean;
   onDetach: () => void;
 }) {
   const [showNote, setShowNote] = useState(!!a.officeNote);
+  const [dirty, setDirty] = useState(false);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'baseline' }}>
@@ -92,23 +87,15 @@ function AttachedRow({
             add note
           </button>
         )}
-        <button type="button" onClick={onDetach} style={quietBtn}>
+        <button type="button" disabled={pending || dirty} title={dirty ? 'Save or discard the note before removing' : undefined} onClick={onDetach} style={quietBtn}>
           remove
         </button>
       </div>
       {showNote && (
-        <textarea
-          rows={1}
-          defaultValue={a.officeNote ?? ''}
-          placeholder="Note for the inspector on this one"
-          autoFocus={!a.officeNote}
-          onBlur={(e) => {
-            const v = e.target.value;
-            if (v !== (a.officeNote ?? '')) onSave(() => updateStopSlipNote(packetId, a.attachmentId, v));
-            if (!v.trim() && !a.officeNote) setShowNote(false);
-          }}
-          style={box}
-        />
+        <PacketTextEditor value={a.officeNote ?? ''} label={`Note for ${a.title}`} rows={1} maxLength={2000}
+          placeholder="Note for the inspector on this one" autoFocus={!a.officeNote} style={box}
+          save={(text) => updateStopSlipNote(packetId, a.attachmentId, text)}
+          onDirtyChange={(value) => { setDirty(value); onDirtyChange(value); }} />
       )}
     </div>
   );
@@ -149,9 +136,16 @@ export function StopAttachments({
 }) {
   const [open, setOpen] = useState(attached.length > 0 || !!instructions);
   const [pending, start] = useTransition();
-  const [instr, setInstr] = useState(instructions ?? '');
   const [showInstr, setShowInstr] = useState(!!instructions);
   const softRefresh = useSoftRefresh();
+  const locks = useRef(new Set<string>());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, boolean>>({});
+  const reportDirty = useCallback((key: string, dirty: boolean) => setDrafts((previous) => previous[key] === dirty ? previous : { ...previous, [key]: dirty }), []);
+  const hasDrafts = Object.values(drafts).some(Boolean);
+  useUnsavedWorkGuard(pending);
+  function clearError(key: string) { setErrors((previous) => { const next = { ...previous }; delete next[key]; return next; }); }
+
 
   // Attach/detach render optimistically and the server actions skip
   // revalidation, so stacking five slips onto a stop is five instant row
@@ -185,21 +179,34 @@ export function StopAttachments({
   const pickable = attachable.filter(
     (w) => !attachedSlipIds.has(w.id) && w.id !== stopWorkSlipId && !optAttached.some((o) => o.id === w.id),
   );
-  const onSave = (fn: () => Promise<unknown>) => start(async () => { await fn(); });
   const onAttach = (w: WorkSlipLite) => {
+    const key = `attach:${w.id}`;
+    if (locks.current.has(key)) return;
+    locks.current.add(key); clearError(key);
     setOptAttached((p) => [...p, w]);
     start(async () => {
-      const r = await attachSlipToStop(packetId, stopId, w.id).catch(() => ({ ok: false }));
-      if (!r.ok) setOptAttached((p) => p.filter((o) => o.id !== w.id));
-      queueRefresh();
+      try {
+        const r = await attachSlipToStop(packetId, stopId, w.id);
+        if (!r.ok) throw new Error('Attachment was not confirmed');
+      } catch {
+        setOptAttached((p) => p.filter((o) => o.id !== w.id));
+        setErrors((p) => ({ ...p, [key]: `Could not confirm attaching "${w.title}". Check the list, then retry attaching it.` }));
+      } finally { locks.current.delete(key); queueRefresh(); }
     });
   };
   const onDetach = (a: AttachedSlip) => {
+    const key = `detach:${a.attachmentId}`;
+    if (locks.current.has(key)) return;
+    locks.current.add(key); clearError(key);
     setOptDetached((p) => new Set([...p, a.attachmentId]));
     start(async () => {
-      const r = await detachSlipFromStop(packetId, a.attachmentId).catch(() => ({ ok: false }));
-      if (!r.ok) setOptDetached((p) => new Set([...p].filter((id) => id !== a.attachmentId)));
-      queueRefresh();
+      try {
+        const r = await detachSlipFromStop(packetId, a.attachmentId);
+        if (!r.ok) throw new Error('Removal was not confirmed');
+      } catch {
+        setOptDetached((p) => new Set([...p].filter((id) => id !== a.attachmentId)));
+        setErrors((p) => ({ ...p, [key]: `Could not confirm removing "${a.title}". Check the list, then retry removing it.` }));
+      } finally { locks.current.delete(key); queueRefresh(); }
     });
   };
 
@@ -223,7 +230,9 @@ export function StopAttachments({
     <div style={{ marginTop: 8 }}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => { if (!open || (!hasDrafts && !pending)) setOpen((o) => !o); }}
+        disabled={open && (hasDrafts || pending)}
+        title={hasDrafts ? 'Save or discard edits before closing' : undefined}
         style={{ background: open ? 'rgba(58,107,138,0.08)' : 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 999, cursor: 'pointer', padding: '4px 12px', fontSize: 12, fontWeight: 600, color: 'var(--tide-deep)' }}
       >
         {open ? '− ' : '+ '}Work slips &amp; instructions
@@ -234,11 +243,11 @@ export function StopAttachments({
             : ''}
       </button>
 
-      {open && (
-        <div style={{ marginTop: 10, maxWidth: 540, background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12, opacity: pending ? 0.7 : 1 }}>
+      {Object.entries(errors).map(([key, message]) => <div key={key} role="alert" style={{ fontSize: 12, color: 'var(--negative)', marginTop: 6 }}>{message} <button type="button" onClick={() => clearError(key)}>Dismiss</button></div>)}
+      <div style={{ marginTop: 10, maxWidth: 540, background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 14px', display: open ? 'flex' : 'none', flexDirection: 'column', gap: 12, opacity: pending ? 0.7 : 1 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
             <span style={eyebrow}>At this stop</span>
-            <SaveState pending={pending} />
+            <span style={{ fontSize: 11 }}>{pending ? 'Saving…' : hasDrafts ? 'Unsaved edits' : 'Saves automatically'}</span>
           </div>
           {/* Since 2026-09-14 the inspector's stop lists EVERY open slip at
               the home by default, with a tap-open detail on each. Pinning is
@@ -257,16 +266,9 @@ export function StopAttachments({
               <div style={{ fontSize: 10.5, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
                 The job
               </div>
-              <textarea
-                rows={3}
-                defaultValue={stopSlip.text}
-                disabled={!editable}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v && v !== stopSlip.text) onSave(() => updateStopSlipContent(packetId, stopSlip.id, v));
-                }}
-                style={box}
-              />
+              <PacketTextEditor value={stopSlip.text} label="The job" rows={3} required style={box}
+                save={(text) => updateStopSlipContent(packetId, stopSlip.id, text)}
+                onDirtyChange={(dirty) => reportDirty('job', dirty)} />
             </div>
           )}
 
@@ -279,7 +281,7 @@ export function StopAttachments({
                 a.attachmentId.startsWith('opt-') ? (
                   <div key={a.attachmentId} style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>{a.title}</div>
                 ) : (
-                  <AttachedRow key={a.attachmentId} packetId={packetId} a={a} onSave={onSave} onDetach={() => onDetach(a)} />
+                  <AttachedRow key={a.attachmentId} packetId={packetId} a={a} pending={pending} onDirtyChange={(dirty) => reportDirty(a.attachmentId, dirty)} onDetach={() => onDetach(a)} />
                 ),
               )}
             </div>
@@ -352,33 +354,22 @@ export function StopAttachments({
 
           {/* Per-stop instructions, tucked away until wanted */}
           {showInstr ? (
-            <textarea
-              rows={2}
-              value={instr}
-              autoFocus={!instructions}
-              onChange={(e) => setInstr(e.target.value)}
-              onBlur={() => {
-                if (instr !== (instructions ?? '')) onSave(() => setStopInstructions(packetId, stopId, instr));
-                if (!instr.trim() && !instructions) setShowInstr(false);
-              }}
-              placeholder="Anything else you want them to do at this stop"
-              style={box}
-            />
+            <PacketTextEditor value={instructions ?? ''} label="Instructions for this stop" rows={2}
+              placeholder="Anything else you want them to do at this stop" autoFocus={!instructions} style={box}
+              save={(text) => setStopInstructions(packetId, stopId, text)}
+              onDirtyChange={(dirty) => reportDirty('instructions', dirty)} />
           ) : (
             <button type="button" onClick={() => setShowInstr(true)} style={{ ...quietBtn, alignSelf: 'flex-start' }}>
               + add instructions for this stop
             </button>
           )}
         </div>
-      )}
     </div>
   );
 }
 
 /** Packet-wide instructions, shown once at the top of the stops list. */
 export function PacketInstructions({ packetId, instructions, editable }: { packetId: string; instructions: string | null; editable: boolean }) {
-  const [pending, start] = useTransition();
-  const [text, setText] = useState(instructions ?? '');
   // Same tuck-away as the per-slip notes: no empty textarea squatting on the
   // page — a quiet link until there's actually a note to write.
   const [show, setShow] = useState(!!instructions);
@@ -401,19 +392,14 @@ export function PacketInstructions({ packetId, instructions, editable }: { packe
     );
   }
   return (
-    <div style={{ marginBottom: 16, maxWidth: 540, opacity: pending ? 0.7 : 1 }}>
+    <div style={{ marginBottom: 16, maxWidth: 540 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
         <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>Instructions for the whole packet (optional)</span>
-        <SaveState pending={pending} />
+
       </div>
-      <textarea
-        rows={2}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => { if (text !== (instructions ?? '')) start(async () => { await setPacketInstructions(packetId, text); }); }}
-        placeholder="A note the inspector sees across all stops on this trip"
-        style={box}
-      />
+      <PacketTextEditor value={instructions ?? ''} label="Instructions for the whole packet" rows={2}
+        placeholder="A note the inspector sees across all stops on this trip" style={box}
+        save={(text) => setPacketInstructions(packetId, text)} />
     </div>
   );
 }

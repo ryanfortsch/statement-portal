@@ -52,7 +52,7 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
     id: 'new', full_name, area, has_transport, availability, about, heard_about, video_url, trade,
   }).catch(() => null);
 
-  await fieldDb().from('contractor_applications').insert({
+  const { data: saved, error } = await fieldDb().from('contractor_applications').insert({
     full_name,
     email,
     phone: phone || null,
@@ -69,7 +69,8 @@ export async function submitApplication(_prev: ApplyState, formData: FormData): 
     ai_score: verdict?.score ?? null,
     ai_reason: verdict?.reason ?? null,
     ai_assessed_at: verdict ? new Date().toISOString() : null,
-  });
+  }).select('id').maybeSingle();
+  if (error || !saved) return { error: 'Could not save your application. Your answers are kept; please try again.' };
 
   sendNewApplicantEmail({ full_name, email, phone, area, has_transport, source }).catch(() => {});
 

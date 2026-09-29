@@ -368,7 +368,7 @@ export async function completeOnboarding(
   }
 
   const { ip, userAgent } = await reqContext();
-  await fieldDb()
+  const { data: saved, error: saveError } = await fieldDb()
     .from('contractors')
     .update({
       full_name: fullName || contractor.full_name,
@@ -384,7 +384,8 @@ export async function completeOnboarding(
       status: 'active',
       updated_at: new Date().toISOString(),
     })
-    .eq('id', contractor.id);
+    .eq('id', contractor.id).select('id').maybeSingle();
+  if (saveError || !saved) return { error: 'Could not finish account setup. Your answers are kept; please try again.' };
 
   await logEvent({ contractorId: contractor.id, actorEmail: contractor.email, eventType: 'onboarded' });
   await sendContractorOnboardedEmail({
@@ -497,13 +498,14 @@ export async function saveProfilePhoto(url: string): Promise<void> {
 
 /** Toggle the "text me when new work is posted" preference (opt-out; default on).
  *  notifyContractorsOfPacket gates the blast on this. */
-export async function setSmsOptIn(optIn: boolean): Promise<{ ok: boolean }> {
+export async function setSmsOptIn(optIn: boolean): Promise<{ ok: boolean; error?: string }> {
   const contractor = await resolveContractorFromCookie();
-  if (!contractor) return { ok: false };
-  await fieldDb()
+  if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
+  const { data, error } = await fieldDb()
     .from('contractors')
     .update({ sms_opt_in: optIn, updated_at: new Date().toISOString() })
-    .eq('id', contractor.id);
+    .eq('id', contractor.id).select('id').maybeSingle();
+  if (error || !data) return { ok: false, error: 'Could not save your text preference. Please try again.' };
   revalidatePath('/field/profile');
   return { ok: true };
 }
