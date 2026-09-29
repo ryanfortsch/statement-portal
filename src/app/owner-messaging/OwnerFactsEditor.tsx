@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { Section } from '@/components/Section';
 import { saveOwnerFacts } from './actions';
 
@@ -29,12 +30,17 @@ export function OwnerFactsEditor({ initialContent, initialBytes, learnedContent 
   const [pending, startTransition] = useTransition();
 
   const dirty = content !== savedContent;
+  const saving = useRef(false);
+  useUnsavedWorkGuard(dirty || pending);
   const bytes = new TextEncoder().encode(content).length;
 
   const onSave = () => {
+    if (saving.current) return;
+    saving.current = true;
     setStatus('idle');
     setError(null);
     startTransition(async () => {
+      try {
       const res = await saveOwnerFacts(content);
       if (res.ok) {
         setSavedContent(content);
@@ -42,6 +48,12 @@ export function OwnerFactsEditor({ initialContent, initialBytes, learnedContent 
       } else {
         setStatus('error');
         setError(res.error);
+      }
+      } catch {
+        setStatus('error');
+        setError('Could not confirm the facts save. Your edits are kept. Retry to apply them.');
+      } finally {
+        saving.current = false;
       }
     });
   };
@@ -70,6 +82,7 @@ export function OwnerFactsEditor({ initialContent, initialBytes, learnedContent 
       </div>
 
       <textarea
+        disabled={pending}
         value={content}
         onChange={(e) => {
           setContent(e.target.value);
@@ -124,13 +137,14 @@ export function OwnerFactsEditor({ initialContent, initialBytes, learnedContent 
           {bytes.toLocaleString()} bytes
           {dirty && ' · unsaved changes'}
         </span>
-        {status === 'saved' && (
+        {dirty && <button type="button" disabled={pending} onClick={() => { if (saving.current) return; setContent(savedContent); setStatus('idle'); setError(null); }}>Discard changes</button>}
+        {status === 'saved' && !dirty && (
           <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
             Saved. Next draft picks up the changes.
           </span>
         )}
         {status === 'error' && error && (
-          <span className="eyebrow" style={{ color: 'var(--signal)' }}>
+          <span role="alert" className="eyebrow" style={{ color: 'var(--signal)' }}>
             {error}
           </span>
         )}

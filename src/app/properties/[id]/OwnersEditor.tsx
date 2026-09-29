@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { saveOwnerCards, type OwnerCard } from '@/app/properties/actions';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
@@ -34,7 +35,10 @@ export function OwnersEditor({
   const [isPending, startTransition] = useTransition();
   const softRefresh = useSoftRefresh();
 
-  const isDirty = JSON.stringify(owners) !== JSON.stringify(initialOwners);
+  const [savedOwners, setSavedOwners] = useState(initialOwners);
+  const saving = useRef(false);
+  const isDirty = JSON.stringify(owners) !== JSON.stringify(savedOwners);
+  useUnsavedWorkGuard(isDirty || isPending);
 
   const update = (i: number, patch: Partial<OwnerCard>) => {
     setOwners((prev) => prev.map((o, idx) => (idx === i ? { ...o, ...patch } : o)));
@@ -69,23 +73,32 @@ export function OwnersEditor({
   };
 
   const save = () => {
+    if (saving.current) return;
+    saving.current = true;
     setError(null);
     startTransition(async () => {
+      try {
       const res = await saveOwnerCards(propertyId, owners);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setOwners(res.owners);
+      setSavedOwners(res.owners);
       setSavedAt(new Date().toLocaleTimeString());
       // Re-pull server data so the rest of the People tab (contact count,
       // primary card) reflects the persisted write, not just local state.
       softRefresh();
+      } catch {
+        setError('Could not confirm the owner contacts save. Your edits are kept. Retry to apply them.');
+      } finally {
+        saving.current = false;
+      }
     });
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <fieldset disabled={isPending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 560 }}>
           The primary card auto-syncs from the Owner block above. Add cards
@@ -206,11 +219,12 @@ export function OwnersEditor({
         >
           {isPending ? 'Saving…' : 'Save owners'}
         </button>
+        {isDirty && <button type="button" disabled={isPending} onClick={() => { if (saving.current) return; setOwners(savedOwners); setError(null); }} style={linkButton}>Discard changes</button>}
         {savedAt && !isDirty && (
           <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>saved at {savedAt}</span>
         )}
       </div>
-    </div>
+    </fieldset>
   );
 }
 

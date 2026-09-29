@@ -15,6 +15,7 @@ on:
       - 'scripts/work-slip-comments-smoke.mjs'
       - 'scripts/work-slip-routing-smoke.mjs'
       - 'scripts/editor-recovery-smoke.mjs'
+      - 'scripts/forms-recovery-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -66,6 +67,8 @@ jobs:
         run: node scripts/work-slip-routing-smoke.mjs
       - name: Verify owner input, CRM activity, tasks, Playbook, and room recovery
         run: node scripts/editor-recovery-smoke.mjs
+      - name: Verify new forms, contact details, vendors, and document recovery
+        run: node scripts/forms-recovery-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()

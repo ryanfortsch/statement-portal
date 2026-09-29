@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
@@ -24,6 +24,7 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { suppliesLabel } from '@/lib/inspection-supplies';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyForPicker = {
@@ -1437,6 +1438,20 @@ function WorkSlipModal({
   const [photosOpen, setPhotosOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const saving = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
+  const uploadBusy = useRef(false);
+  const [uploading, setUploading] = useState(false);
+  const snapshot = JSON.stringify([propertyId, title, description, location, category, priority, scheduledDate, assignedToEmail, photos]);
+  const original = useRef(snapshot);
+  const dirty = snapshot !== original.current;
+  useUnsavedWorkGuard(dirty || submitting || uploading || uncertain);
+
+  function requestClose() {
+    if (saving.current || uploadBusy.current) return;
+    if ((dirty || uncertain) && !window.confirm('Discard this unfinished work slip?')) return;
+    onClose();
+  }
 
   const showMore =
     moreOpen ||
@@ -1448,8 +1463,12 @@ function WorkSlipModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving.current || uploadBusy.current) return;
+    saving.current = true;
+    setUncertain(false);
     setError(null);
     setSubmitting(true);
+    try {
     const res = await createWorkSlip({
       property_id: propertyId,
       title,
@@ -1468,11 +1487,19 @@ function WorkSlipModal({
     }
     onClose();
     router.push(`/work/${res.id}`);
+    } catch {
+      setUncertain(true);
+      setError('Could not confirm whether the work slip was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
+    }
   }
 
   return (
-    <ModalShell title="New Work Slip" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <ModalShell title="New Work Slip" onClose={requestClose} busy={submitting || uploading}>
+      <form onSubmit={handleSubmit}>
+        <fieldset disabled={submitting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Property *">
           <select
             value={propertyId}
@@ -1606,6 +1633,7 @@ function WorkSlipModal({
             <PhotoUploader
               value={photos}
               onChange={setPhotos}
+              onUploadingChange={(value) => { uploadBusy.current = value; setUploading(value); }}
               folder="work_slips"
               disabled={submitting}
             />
@@ -1619,9 +1647,10 @@ function WorkSlipModal({
           </Field>
         )}
 
-        {error && <ErrorBlock message={error} />}
+        {error && <div role="alert"><ErrorBlock message={error} />{uncertain && <a href="/work" target="_blank" rel="noopener noreferrer">View saved work</a>}</div>}
 
-        <ModalActions onCancel={onClose} submitLabel="Create Work Slip" submitting={submitting} />
+        <ModalActions onCancel={requestClose} submitLabel="Create Work Slip" submitting={submitting || uploading} />
+      </fieldset>
       </form>
     </ModalShell>
   );
@@ -1658,11 +1687,27 @@ function TaskModal({
   const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const saving = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
+  const snapshot = JSON.stringify([title, description, scope, priority, dueDate, propertyIds, tagsInput, assignedToEmail]);
+  const original = useRef(snapshot);
+  const dirty = snapshot !== original.current;
+  useUnsavedWorkGuard(dirty || submitting || uncertain);
+
+  function requestClose() {
+    if (saving.current) return;
+    if ((dirty || uncertain) && !window.confirm('Discard this unfinished task?')) return;
+    onClose();
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving.current) return;
+    saving.current = true;
+    setUncertain(false);
     setError(null);
     setSubmitting(true);
+    try {
     const tags = tagsInput
       .split(',')
       .map((t) => t.trim())
@@ -1684,11 +1729,19 @@ function TaskModal({
     }
     onClose();
     router.push(`/work/tasks/${res.id}`);
+    } catch {
+      setUncertain(true);
+      setError('Could not confirm whether the task was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
+    }
   }
 
   return (
-    <ModalShell title="New Task" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <ModalShell title="New Task" onClose={requestClose} busy={submitting}>
+      <form onSubmit={handleSubmit}>
+        <fieldset disabled={submitting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Title *">
           <input
             type="text"
@@ -1778,15 +1831,16 @@ function TaskModal({
           />
         </Field>
 
-        {error && <ErrorBlock message={error} />}
+        {error && <div role="alert"><ErrorBlock message={error} />{uncertain && <a href="/work" target="_blank" rel="noopener noreferrer">View saved work</a>}</div>}
 
-        <ModalActions onCancel={onClose} submitLabel="Create Task" submitting={submitting} />
+        <ModalActions onCancel={requestClose} submitLabel="Create Task" submitting={submitting} />
+      </fieldset>
       </form>
     </ModalShell>
   );
 }
 
-function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function ModalShell({ title, onClose, busy, children }: { title: string; onClose: () => void; busy: boolean; children: React.ReactNode }) {
   return (
     <div
       role="dialog"
@@ -1823,6 +1877,8 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
             style={{
               background: 'none',
               border: 'none',

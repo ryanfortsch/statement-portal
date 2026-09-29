@@ -1,18 +1,18 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
-import { SubmitButton } from '@/components/SubmitButton';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { unstable_rethrow } from 'next/navigation';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { TRADE_CATEGORIES, STANDING_ORDER, STANDING_META, type TradeVendorRow } from '@/lib/trades';
-import { saveTradeVendor, type TradeFormState } from './actions';
+import { saveTradeVendor } from './actions';
 
 /**
  * The one add/edit form for a trade vendor. Same component both ways,
  * discriminated by whether a `vendor` came in: a hidden id turns the
  * insert into an update.
  *
- * useActionState (the AdhocForm pattern) so a rejected save renders an
- * inline reason and the form stays mounted with everything typed,
- * instead of silently re-landing on the list.
+ * Keep the native fields mounted until the action redirects on success.
+ * A returned error must not trigger React's automatic form reset.
  *
  * Only name and trade are required. A number scrawled off a truck door
  * is worth capturing before we know the license number or whether the
@@ -49,11 +49,49 @@ export function VendorForm({
   trade: string;
   defaultCategory?: string;
 }) {
-  const [state, formAction] = useActionState<TradeFormState, FormData>(saveTradeVendor, { error: '' });
+  const formRef = useRef<HTMLFormElement>(null);
+  const original = useRef('');
+  const saving = useRef(false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState('');
+  const [uncertain, setUncertain] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const snapshot = (form: HTMLFormElement) => JSON.stringify([...new FormData(form).entries()]);
+  useEffect(() => { if (formRef.current) original.current = snapshot(formRef.current); }, []);
+  useUnsavedWorkGuard(dirty || pending || uncertain);
+
+  function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (saving.current) return;
+    const data = new FormData(e.currentTarget);
+    saving.current = true;
+    setError('');
+    setUncertain(false);
+    startTransition(async () => {
+      try {
+        const result = await saveTradeVendor({ error: '' }, data);
+        setError(result.error);
+      } catch (err) {
+        // Successful actions redirect; let Next finish that navigation.
+        unstable_rethrow(err);
+        setUncertain(true);
+        setError('Could not confirm the vendor save. Your details are kept. Check the directory before retrying to avoid a duplicate.');
+      } finally {
+        saving.current = false;
+      }
+    });
+  }
+
+  function discard() {
+    if (saving.current) return;
+    formRef.current?.reset();
+    setDirty(false); setUncertain(false); setError('');
+  }
   const insuredDefault = vendor?.insured == null ? '' : vendor.insured ? 'yes' : 'no';
 
   return (
-    <form action={formAction} style={{ maxWidth: 620 }}>
+    <form ref={formRef} onSubmit={submit} onChange={(e) => setDirty(snapshot(e.currentTarget) !== original.current)} style={{ maxWidth: 620 }}>
+      <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       {vendor && <input type="hidden" name="id" value={vendor.id} />}
       <input type="hidden" name="trade" value={trade} />
 
@@ -174,12 +212,11 @@ export function VendorForm({
         <textarea name="notes" rows={3} defaultValue={vendor?.notes ?? ''} style={{ ...inp, resize: 'vertical' }} />
       </label>
 
-      <InlineError error={state.error} />
-      <SubmitButton
-        label={vendor ? 'Save changes' : 'Add to the directory'}
-        busyLabel="Saving…"
-        style={btnDark}
-      />
+      <InlineError error={error} />
+      {uncertain && <p><a href={`/fieldwork/trades?trade=${encodeURIComponent(trade)}`} target="_blank" rel="noopener noreferrer">View saved vendors</a></p>}
+      <button type="submit" disabled={pending} style={btnDark}>{pending ? 'Saving…' : vendor ? 'Save changes' : 'Add to the directory'}</button>
+      {(dirty || uncertain) && <button type="button" disabled={pending} onClick={discard} style={{ marginLeft: 12 }}>Discard changes</button>}
+      </fieldset>
     </form>
   );
 }

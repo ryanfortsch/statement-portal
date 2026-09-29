@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
@@ -19,6 +19,7 @@ import {
 import { SyncGmailButton } from './SyncGmailButton';
 import { SyncQuoButton } from './SyncQuoButton';
 import { SyncQuoContactsButton } from './SyncQuoContactsButton';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyMini = { id: string; name: string };
@@ -593,12 +594,28 @@ function NewContactModal({
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const saving = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
+  const snapshot = JSON.stringify([type, name, emails, phone, organization, tags, linkedPropertyIds, notes]);
+  const original = useRef(snapshot);
+  const dirty = snapshot !== original.current;
+  useUnsavedWorkGuard(dirty || submitting || uncertain);
+
+  function requestClose() {
+    if (saving.current) return;
+    if ((dirty || uncertain) && !window.confirm('Discard this unfinished contact?')) return;
+    onClose();
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving.current) return;
+    saving.current = true;
+    setUncertain(false);
     setErr(null);
     setSubmitting(true);
     const submitFn = onSubmit ?? createContact;
+    try {
     const res = await submitFn({
       type,
       name,
@@ -615,13 +632,20 @@ function NewContactModal({
       return;
     }
     onCreated(res.id);
+    } catch {
+      setUncertain(true);
+      setErr('Could not confirm whether the contact was created. Your draft is kept. Check the contact list in another tab before retrying to avoid a duplicate.');
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
+    }
   }
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      onClick={onClose}
+      onClick={requestClose}
       style={{
         position: 'fixed',
         inset: 0,
@@ -652,7 +676,8 @@ function NewContactModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
+            disabled={submitting}
             aria-label="Close"
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--ink-3)', padding: '0 4px' }}
           >
@@ -660,7 +685,8 @@ function NewContactModal({
           </button>
         </div>
 
-        <form onSubmit={submit} className="flex flex-col gap-4">
+        <form onSubmit={submit}>
+          <fieldset disabled={submitting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <div className="flex gap-3">
             <div style={{ flex: 1 }}>
               <Field label="Type *">
@@ -760,14 +786,14 @@ function NewContactModal({
 
           {err && (
             <div style={{ padding: '10px 12px', borderLeft: '3px solid var(--negative)', background: 'var(--paper-2)', color: 'var(--negative)', fontSize: 12 }}>
-              {err}
+              {err}{uncertain && <> <a href="/crm" target="_blank" rel="noopener noreferrer">View saved contacts</a></>}
             </div>
           )}
 
           <div className="flex justify-end gap-3" style={{ marginTop: 6 }}>
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               style={{
                 background: 'transparent',
                 border: '1px solid var(--rule)',
@@ -799,6 +825,7 @@ function NewContactModal({
               {submitting ? 'Saving…' : (submitLabel ?? 'Create Contact')}
             </button>
           </div>
+        </fieldset>
         </form>
       </div>
     </div>
