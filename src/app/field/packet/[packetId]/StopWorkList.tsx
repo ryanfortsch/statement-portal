@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useCallback, useRef, useState, useTransition } from 'react';
+import { StopSlipEditor } from './StopSlipEditor';
 import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
-import { resolveSlipFromStop, updateSlipFromStop } from '../../actions';
+import { resolveSlipFromStop } from '../../actions';
 
 export type StopWorkItem = {
   slipId: string;
@@ -93,8 +94,12 @@ export function StopWorkList({
   const [photos, setPhotos] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [expense, setExpense] = useState('');
-  const [editTitle, setEditTitle] = useState('');
-  const [editDesc, setEditDesc] = useState('');
+  const [savedPhotos, setSavedPhotos] = useState<Map<string, string[]>>(new Map());
+  const editGuard = useRef({ dirty: false, busy: false });
+  const reportEditGuard = useCallback((dirty: boolean, busy: boolean) => { editGuard.current = { dirty, busy }; }, []);
+  function canLeaveEdit() {
+    return !editGuard.current.busy && (!editGuard.current.dirty || window.confirm('Discard unsaved slip text and photos?'));
+  }
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [, start] = useTransition();
@@ -114,23 +119,25 @@ export function StopWorkList({
     setErr(null);
   }
   function openPanel(i: StopWorkItem, m: PanelMode) {
+    if (!canLeaveEdit()) return;
     resetForms();
-    const cur = edits.get(i.slipId);
-    setEditTitle(cur?.title ?? i.title);
-    setEditDesc(cur?.description ?? i.description ?? '');
     setOpenId(i.slipId);
     setMode(m);
   }
   function closePanel() {
+    if (!canLeaveEdit()) return;
     setOpenId(null);
     setMode('info');
     resetForms();
   }
 
   function tap(i: StopWorkItem) {
-    if (readOnly || doneIds.has(i.slipId)) return;
+    if (readOnly || doneIds.has(i.slipId) || !canLeaveEdit()) return;
     markDone(i.slipId);
-    if (openId === i.slipId) closePanel();
+    if (openId === i.slipId) {
+      editGuard.current = { dirty: false, busy: false };
+      closePanel();
+    }
     start(async () => {
       const res = await resolveSlipFromStop({ packetId, stopId, workSlipId: i.slipId, outcome: 'done', note: '', photoUrls: [] });
       if (!res.ok) unmark(i.slipId);
@@ -178,26 +185,6 @@ export function StopWorkList({
     });
   }
 
-  function submitEdit(i: StopWorkItem) {
-    if (saving) return;
-    const title = editTitle.trim();
-    if (title.length < 3) {
-      setErr('Give it a short title first.');
-      return;
-    }
-    setSaving(true);
-    setErr(null);
-    start(async () => {
-      const res = await updateSlipFromStop({ packetId, stopId, workSlipId: i.slipId, title, description: editDesc });
-      setSaving(false);
-      if (!res.ok) {
-        setErr("Couldn't save that. Check your signal and try again.");
-        return;
-      }
-      setEdits((prev) => new Map(prev).set(i.slipId, { title, description: editDesc.trim() || null }));
-      setMode('info');
-    });
-  }
 
   const tasks = items.filter((i) => i.kind === 'task');
   const pinned = tasks.filter((i) => i.group === 'stop');
@@ -218,7 +205,8 @@ export function StopWorkList({
     const shown = edits.get(i.slipId);
     const title = shown?.title ?? i.title;
     const description = shown ? shown.description : i.description;
-    const meta = [i.sub, i.priority === 'high' ? 'high priority' : null, i.thumbs.length ? `${i.thumbs.length} ${i.thumbs.length === 1 ? 'photo' : 'photos'}` : null].filter(Boolean);
+    const thumbs = savedPhotos.get(i.slipId) ?? i.thumbs;
+    const meta = [i.sub, i.priority === 'high' ? 'high priority' : null, thumbs.length ? `${thumbs.length} ${thumbs.length === 1 ? 'photo' : 'photos'}` : null].filter(Boolean);
     return (
       <div key={i.slipId} style={{ borderBottom: '1px solid var(--rule-soft, var(--rule))' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 0' }}>
@@ -263,33 +251,15 @@ export function StopWorkList({
         {open && (
           <div style={{ margin: '0 0 12px', background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 14px', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink)' }}>
             {mode === 'edit' ? (
-              <div>
-                <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 8 }}>Edit this slip</div>
-                <input
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  maxLength={200}
-                  placeholder="What needs attention"
-                  style={field}
-                />
-                <textarea
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  rows={3}
-                  maxLength={4000}
-                  placeholder="Details (optional)"
-                  style={{ ...field, marginTop: 8, resize: 'vertical' }}
-                />
-                {err && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                  <button type="button" onClick={() => submitEdit(i)} disabled={saving} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                  <button type="button" onClick={() => { setMode('info'); setErr(null); }} disabled={saving} style={pillGhost}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              <StopSlipEditor key={i.slipId} packetId={packetId} stopId={stopId} workSlipId={i.slipId}
+                title={title} description={description} photos={thumbs} readOnly={readOnly || done}
+                onGuardChange={reportEditGuard}
+                onCancel={() => { if (canLeaveEdit()) { setMode('info'); setErr(null); } }}
+                onSaved={saved => {
+                  setEdits(previous => new Map(previous).set(i.slipId, { title: saved.title, description: saved.description }));
+                  setSavedPhotos(previous => new Map(previous).set(i.slipId, saved.photoUrls));
+                  editGuard.current = { dirty: false, busy: false }; setMode('info');
+                }}/>
             ) : (
               <>
                 <div style={{ whiteSpace: 'pre-wrap', color: description ? 'var(--ink)' : 'var(--ink-4)' }}>
@@ -317,7 +287,7 @@ export function StopWorkList({
                     <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{i.bring}
                   </div>
                 )}
-                {i.thumbs.length > 0 && <PhotoThumbs urls={i.thumbs} size={64} />}
+                {thumbs.length > 0 && <PhotoThumbs urls={thumbs} size={64} />}
 
                 {mode === 'photo' && !done && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule-soft, var(--rule))' }}>

@@ -1,6 +1,9 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useRef, useState } from 'react';
+import { useChecklistSaves } from '@/lib/use-checklist-saves';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { saveLayout, createCustomItem } from './actions';
 
 /**
@@ -20,8 +23,6 @@ export type EditorCard = {
   isCustom: boolean;
 };
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
-
 type Props = {
   propertyId: string;
   initialDeck: EditorCard[];
@@ -32,20 +33,24 @@ type Props = {
 export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustomized }: Props) {
   const [deck, setDeck] = useState<EditorCard[]>(initialDeck);
   const [addable, setAddable] = useState<EditorCard[]>(initialAddable);
-  const [status, setStatus] = useState<SaveStatus>('idle');
+  const saves = useChecklistSaves();
+  const customAction = useRecoverableAction();
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
 
   const [showAdd, setShowAdd] = useState(false);
   const [customTitle, setCustomTitle] = useState('');
   const [customDesc, setCustomDesc] = useState('');
-  const [savingCustom, setSavingCustom] = useState(false);
+  const savingCustom = customAction.pending;
+  const customRequest = useRef<{ signature: string; id: string } | null>(null);
+  useDraftNavigationGuard(!!(customTitle || customDesc), savingCustom);
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragId = useRef<string | null>(null);
   const deckRef = useRef<EditorCard[]>(initialDeck);
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [, startTransition] = useTransition();
+  const beforeDrag = useRef<EditorCard[] | null>(null);
+  useDraftNavigationGuard(!!draggingId);
 
   function setDeckBoth(next: EditorCard[]) {
     deckRef.current = next;
@@ -54,15 +59,15 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
 
   function persist(nextDeck: EditorCard[]) {
     setTouched(true);
-    startTransition(async () => {
-      setStatus('saving');
-      const r = await saveLayout(propertyId, nextDeck.map((c) => c.itemId));
-      if (r.ok) {
-        setStatus('saved');
-        setError(null);
-      } else {
-        setStatus('error');
-        setError(r.error);
+    setError(null);
+    saves.queue.enqueue('layout', async () => {
+      try {
+        const r = await saveLayout(propertyId, nextDeck.map((c) => c.itemId));
+        if (!r.ok) throw new Error(r.error);
+        if (deckRef.current === nextDeck) setError(null);
+      } catch (err) {
+        if (deckRef.current === nextDeck) setError(err instanceof Error ? err.message : 'Could not save the checklist.');
+        throw err;
       }
     });
   }
@@ -75,6 +80,8 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
   // ── Drag to reorder (desktop). The grip initiates; the card body is the
   //    drop zone. We reflow the list live on dragover and persist on drop.
   function onDragStart(e: React.DragEvent, itemId: string) {
+    if (customAction.busy.current) { e.preventDefault(); return; }
+    beforeDrag.current = deckRef.current;
     dragId.current = itemId;
     setDraggingId(itemId);
     e.dataTransfer.effectAllowed = 'move';
@@ -94,23 +101,35 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
     next.splice(to, 0, moved);
     setDeckBoth(next);
   }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    if (!dragId.current) return;
+    const next = deckRef.current;
+    const changed = next.some((card, i) => card.itemId !== beforeDrag.current?.[i]?.itemId);
+    beforeDrag.current = null;
+    dragId.current = null;
+    setDraggingId(null);
+    if (changed) persist(next);
+  }
   function onDragEnd() {
-    if (dragId.current) persist(deckRef.current);
+    if (dragId.current && beforeDrag.current) setDeckBoth(beforeDrag.current);
+    beforeDrag.current = null;
     dragId.current = null;
     setDraggingId(null);
   }
 
   function moveBy(index: number, dir: 'up' | 'down') {
+    if (customAction.busy.current || dragId.current) return;
     const j = dir === 'up' ? index - 1 : index + 1;
-    if (j < 0 || j >= deck.length) return;
-    const next = [...deck];
+    if (j < 0 || j >= deckRef.current.length) return;
+    const next = [...deckRef.current];
     [next[index], next[j]] = [next[j], next[index]];
     commit(next);
   }
 
   function removeCard(card: EditorCard) {
-    if (deck.length <= 1) {
-      setStatus('error');
+    if (customAction.busy.current || dragId.current) return;
+    if (deckRef.current.length <= 1) {
       setError('An inspection needs at least one card.');
       return;
     }
@@ -119,50 +138,46 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
         (a, b) => Number(a.isCustom) - Number(b.isCustom) || a.title.localeCompare(b.title),
       ),
     );
-    commit(deck.filter((c) => c.itemId !== card.itemId));
+    commit(deckRef.current.filter((c) => c.itemId !== card.itemId));
   }
 
   function addStandard(card: EditorCard) {
+    if (customAction.busy.current || dragId.current || deckRef.current.some(c => c.itemId === card.itemId)) return;
     setAddable((prev) => prev.filter((c) => c.itemId !== card.itemId));
-    commit([...deck, card]);
+    commit([...deckRef.current, card]);
   }
 
-  async function addCustom() {
-    const title = customTitle.trim();
-    if (!title) {
-      setStatus('error');
-      setError('Give the card a title.');
-      return;
-    }
-    setSavingCustom(true);
-    const r = await createCustomItem({
-      propertyId,
-      title,
-      description: customDesc.trim() || null,
-    });
-    setSavingCustom(false);
-    if (!r.ok || !r.data) {
-      setStatus('error');
-      setError(r.ok ? 'Could not create the card.' : r.error);
-      return;
-    }
-    const card: EditorCard = {
-      itemId: r.data.id,
-      title: r.data.title,
-      description: r.data.description,
-      category: r.data.category,
-      isCustom: true,
-    };
-    setCustomTitle('');
-    setCustomDesc('');
-    commit([...deck, card]);
+  function addCustom() {
+    if (customAction.busy.current || dragId.current) return;
+    const title = customTitle.trim(), description = customDesc.trim() || null;
+    if (!title) { setError('Give the card a title.'); return; }
+    const signature = JSON.stringify([title, description]);
+    if (customRequest.current?.signature !== signature) customRequest.current = { signature, id: crypto.randomUUID() };
+    const requestId = customRequest.current.id;
+    setError(null);
+    customAction.run(async () => {
+      if (!(await saves.queue.flush())) {
+        setError('Retry the unsaved checklist changes before adding a custom card.');
+        return;
+      }
+      const r = await createCustomItem({ propertyId, title, description, requestId, itemIds: deckRef.current.map(c => c.itemId) });
+      if (!r.ok || !r.data) { setError(r.ok ? 'Could not confirm the card save.' : r.error); return; }
+      const card: EditorCard = { itemId: r.data.id, title: r.data.title, description: r.data.description, category: r.data.category, isCustom: true };
+      setDeckBoth([...deckRef.current.filter(c => c.itemId !== card.itemId), card]);
+      setAddable(previous => previous.filter(c => c.itemId !== card.itemId));
+      setTouched(true);
+      setCustomTitle(''); setCustomDesc(''); customRequest.current = null;
+    }, 'Could not confirm the card save. Your wording is kept. Retry to check the same card.');
   }
+
+  const displayError = error || customAction.error;
+  const status = saves.saving || savingCustom ? 'saving' : saves.failures || displayError ? 'error' : 'saved';
 
   const statusLabel =
     status === 'saving'
       ? 'Saving…'
       : status === 'error'
-        ? error || 'Couldn’t save'
+        ? displayError || 'Could not save. Retry your changes.'
         : touched || isCustomized
           ? 'All changes saved'
           : 'Standard layout — edit to customize';
@@ -203,6 +218,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
         </span>
         <span style={{ fontSize: 11, letterSpacing: '.06em', color: statusColor }}>
           {statusLabel}
+          {saves.failures > 0 && <button type="button" disabled={savingCustom || saves.saving} onClick={() => { setError(null); void saves.queue.retry(); }}>Retry saving</button>}
         </span>
       </div>
 
@@ -217,6 +233,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
             }}
             className="rt-card"
             onDragOver={(e) => onDragOverCard(e, card.itemId)}
+            onDrop={onDrop}
             style={{
               display: 'grid',
               gridTemplateColumns: 'auto 28px 1fr auto',
@@ -231,7 +248,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
             {/* Grip — initiates drag */}
             <span
               className="rt-grip"
-              draggable
+              draggable={!savingCustom}
               onDragStart={(e) => onDragStart(e, card.itemId)}
               onDragEnd={onDragEnd}
               title="Drag to reorder"
@@ -279,7 +296,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
                 type="button"
                 className="rt-mini-btn"
                 onClick={() => moveBy(i, 'up')}
-                disabled={i === 0}
+                disabled={savingCustom || !!draggingId || i === 0}
                 title="Move up"
                 aria-label="Move up"
               >
@@ -289,7 +306,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
                 type="button"
                 className="rt-mini-btn"
                 onClick={() => moveBy(i, 'down')}
-                disabled={i === deck.length - 1}
+                disabled={savingCustom || !!draggingId || i === deck.length - 1}
                 title="Move down"
                 aria-label="Move down"
               >
@@ -298,6 +315,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
               <button
                 type="button"
                 className="rt-mini-btn rt-mini-btn--danger"
+                disabled={savingCustom || !!draggingId}
                 onClick={() => removeCard(card)}
                 title="Remove card"
                 aria-label={`Remove ${card.title}`}
@@ -339,7 +357,8 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
               <button
                 type="button"
                 className="rt-mini-btn"
-                onClick={() => setShowAdd(false)}
+                disabled={savingCustom}
+                onClick={() => { if (!customAction.busy.current) setShowAdd(false); }}
                 aria-label="Close"
                 title="Close"
               >
@@ -367,6 +386,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
                       key={card.itemId}
                       type="button"
                       className="rt-chip"
+                      disabled={savingCustom || !!draggingId}
                       onClick={() => addStandard(card)}
                       title={card.description || card.title}
                     >
@@ -394,6 +414,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
               <input
                 className="rt-input"
                 placeholder="Card title (e.g. “Check hot tub cover”)"
+                disabled={savingCustom}
                 value={customTitle}
                 maxLength={120}
                 onChange={(e) => setCustomTitle(e.target.value)}
@@ -401,6 +422,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
               <textarea
                 className="rt-input"
                 placeholder="What should the inspector confirm? (optional)"
+                disabled={savingCustom}
                 value={customDesc}
                 onChange={(e) => setCustomDesc(e.target.value)}
                 style={{ marginTop: 8, minHeight: 56, resize: 'vertical' }}
@@ -414,9 +436,9 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
                   gap: 12,
                 }}
               >
-                {status === 'error' && error && (
+                {status === 'error' && displayError && (
                   <span style={{ fontSize: 12, color: 'var(--signal)', marginRight: 'auto' }}>
-                    {error}
+                    {displayError}
                   </span>
                 )}
                 <button

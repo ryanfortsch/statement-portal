@@ -22,6 +22,9 @@ on:
       - 'scripts/property-capture-smoke.mjs'
       - 'scripts/guest-materials-smoke.mjs'
       - 'scripts/messaging-drafts-smoke.mjs'
+      - 'scripts/layout-field-photos-smoke.mjs'
+      - 'scripts/tests/layout-field-photos*'
+      - 'supabase/migrations/20260929151500_atomic_inspection_layout_and_field_photos.sql'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -61,6 +64,8 @@ jobs:
         run: node scripts/intake-jobs-smoke.mjs
       - name: Verify property capture, walkthrough, inline edits, and address recovery
         run: node scripts/property-capture-smoke.mjs
+      - name: Verify inspection layout recovery and inline work slip photos
+        run: node scripts/layout-field-photos-smoke.mjs
       - name: Verify reminder and saved reply draft recovery
         run: node scripts/messaging-drafts-smoke.mjs
       - name: Verify guest materials, checklist saves, and owner request recovery
@@ -91,3 +96,33 @@ jobs:
       - name: Show local app log on failure
         if: failure()
         run: cat "$PROPERTY_DOCUMENT_TEST_OUTPUT/smoke-next.log" 2>/dev/null || true
+
+  layout-database:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: synthetic-only
+          POSTGRES_DB: helm_synthetic_layout
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: synthetic-only
+      PGDATABASE: helm_synthetic_layout
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify atomic layout, custom retries, photo appends and RPC permissions
+        run: psql -v ON_ERROR_STOP=1 -f scripts/tests/layout-field-photos.sql
+      - name: Verify simultaneous photo additions
+        run: bash scripts/tests/layout-field-photos-concurrency.sh

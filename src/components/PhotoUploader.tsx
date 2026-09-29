@@ -18,6 +18,8 @@ type Props = {
   endpoint?: string;
   /** Lets non-form parents hold their save/next buttons until the batch ends. */
   onUploadingChange?: (uploading: boolean) => void;
+  /** Optional parent guard for selected files that still need retry or removal. */
+  onFailedUploadsChange?: (count: number) => void;
 };
 
 type FailedUpload = { id: number; file: File; error: string };
@@ -41,9 +43,10 @@ type UploadProgress = { completed: number; total: number; filename: string };
  * the URL list (e.g. via inspection_notes.photo_urls or
  * work_slips.photo_urls).
  */
-export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload', onUploadingChange }: Props) {
+export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload', onUploadingChange, onFailedUploadsChange }: Props) {
   const [uploading, setUploading] = useState(false);
   const [failures, setFailures] = useState<FailedUpload[]>([]);
+  useEffect(() => { onFailedUploadsChange?.(failures.length); }, [failures.length, onFailedUploadsChange]);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [notice, setNotice] = useState('');
   // Same fullscreen viewer the read-only strips use — an uploaded photo you
