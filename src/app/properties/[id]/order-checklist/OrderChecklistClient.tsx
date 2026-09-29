@@ -1,7 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useChecklistSaves } from '@/lib/use-checklist-saves';
+import { ChecklistSaveStatus } from '@/components/ChecklistSaveStatus';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { setOrderHaveAction, setOrderNoteAction } from './actions';
 import type { RenderedItem } from '@/lib/projections-readiness';
 import {
@@ -14,8 +17,8 @@ import {
 /**
  * Interactive outfitting order checklist. Same one-handed interaction
  * grammar as the prospect readiness walkthrough (tap a row to toggle
- * none/all, tap the number for a partial count, optimistic writes with
- * rollback), reframed around ordering: the gap between have and need rolls
+ * none/all, tap the number for a partial count, queued writes with
+ * retained drafts), reframed around ordering: the gap between have and need rolls
  * up into the "To order" list at the bottom, which is the thing you read
  * to Fix Linens or into an Amazon cart. Cmd+P prints the whole sheet with
  * the interactive chrome stripped.
@@ -37,9 +40,11 @@ export function OrderChecklistClient({
 }) {
   const [have, setHave] = useState<Record<string, number>>(() => ({ ...(initial.have ?? {}) }));
   const [notes, setNotes] = useState<Record<string, string>>(() => ({ ...(initial.notes ?? {}) }));
-  const [lastSaved, setLastSaved] = useState<string | null>(initial.updated_at ?? null);
-  const [, startTransition] = useTransition();
-  const noteTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const saves = useChecklistSaves();
+  const lastSaved = saves.lastSaved ?? initial.updated_at ?? null;
+  const haveRef = useRef(have);
+  const notesRef = useRef(notes);
+
 
   const totals = useMemo(() => {
     let itemsTotal = 0;
@@ -56,25 +61,17 @@ export function OrderChecklistClient({
     return { itemsTotal, itemsDone, unitsToOrder };
   }, [groups, have]);
 
-  function persistHave(label: string, count: number, prevCount: number) {
-    startTransition(async () => {
-      const res = await setOrderHaveAction({ propertyId, itemLabel: label, count }).catch(
-        (err) => ({ ok: false as const, error: String(err) }),
-      );
-      if (res.ok) {
-        setLastSaved(new Date().toISOString());
-      } else {
-        setHave((prev) => ({ ...prev, [label]: prevCount }));
-        console.error('setOrderHaveAction failed:', res.error);
-      }
-    });
+  function persistHave(label: string, count: number) {
+    saves.queue.enqueue('have:' + label, async () => { const result = await setOrderHaveAction({ propertyId, itemLabel: label, count });
+      if (!result.ok) throw new Error(result.error || 'Save failed'); });
   }
 
   function toggleItem(item: RenderedItem) {
-    const current = have[item.label] ?? 0;
+    const current = haveRef.current[item.label] ?? 0;
     const next = current >= item.count ? 0 : item.count;
-    setHave((prev) => ({ ...prev, [item.label]: next }));
-    persistHave(item.label, next, current);
+    haveRef.current = { ...haveRef.current, [item.label]: next };
+    setHave(haveRef.current);
+    persistHave(item.label, next);
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try { (navigator as Navigator & { vibrate?: (p: number) => void }).vibrate?.(8); } catch { /* ignore */ }
     }
@@ -82,43 +79,22 @@ export function OrderChecklistClient({
 
   function setItemCount(item: RenderedItem, rawValue: string) {
     const parsed = parseInt(rawValue, 10);
-    const current = have[item.label] ?? 0;
+    const current = haveRef.current[item.label] ?? 0;
     const next = Number.isFinite(parsed) ? Math.max(0, Math.min(item.count, parsed)) : 0;
     if (next === current) return;
-    setHave((prev) => ({ ...prev, [item.label]: next }));
-    persistHave(item.label, next, current);
-  }
-
-  function persistNote(key: string, value: string) {
-    startTransition(async () => {
-      const res = await setOrderNoteAction({ propertyId, noteKey: key, value }).catch(
-        (err) => ({ ok: false as const, error: String(err) }),
-      );
-      if (res.ok) setLastSaved(new Date().toISOString());
-      else console.error('setOrderNoteAction failed:', res.error);
-    });
+    haveRef.current = { ...haveRef.current, [item.label]: next };
+    setHave(haveRef.current);
+    persistHave(item.label, next);
   }
 
   function onNoteChange(key: string, value: string) {
-    setNotes((prev) => ({ ...prev, [key]: value }));
-    const timer = noteTimers.current[key];
-    if (timer) clearTimeout(timer);
-    noteTimers.current[key] = setTimeout(() => persistNote(key, value), 800);
+    notesRef.current = { ...notesRef.current, [key]: value };
+    setNotes(notesRef.current);
+    saves.queue.enqueue('note:' + key, async () => { const result = await setOrderNoteAction({ propertyId, noteKey: key, value });
+      if (!result.ok) throw new Error(result.error || 'Save failed'); }, 800);
   }
 
-  function flushNote(key: string) {
-    const timer = noteTimers.current[key];
-    if (timer) clearTimeout(timer);
-    noteTimers.current[key] = null;
-    persistNote(key, notes[key] ?? '');
-  }
-
-  useEffect(() => {
-    const timers = noteTimers.current;
-    return () => {
-      Object.values(timers).forEach((t) => { if (t) clearTimeout(t); });
-    };
-  }, []);
+  function flushNote() { void saves.queue.flush(); }
 
   // The order itself: everything with have < need, grouped.
   const toOrder = useMemo(() => {
@@ -187,7 +163,8 @@ export function OrderChecklistClient({
                 style={{ width: `${totals.itemsTotal > 0 ? Math.round((totals.itemsDone / totals.itemsTotal) * 100) : 0}%` }}
               />
             </div>
-            {lastSaved && <div className="rt-oc-saved">Last edit {formatSavedAt(lastSaved)}</div>}
+            <ChecklistSaveStatus status={saves} retry={saves.queue.retry} />
+            {!saves.dirty && lastSaved && <div className="rt-oc-saved">Last edit {formatSavedAt(lastSaved)}</div>}
           </div>
         </header>
 
@@ -229,7 +206,7 @@ export function OrderChecklistClient({
               rows={3}
               value={notes.order_notes ?? ''}
               onChange={(e) => onNoteChange('order_notes', e.target.value)}
-              onBlur={() => flushNote('order_notes')}
+              onBlur={() => flushNote()}
             />
           </label>
         </section>
@@ -293,6 +270,8 @@ function ItemRow({
   const [draft, setDraft] = useState<string>(String(haveCount));
   useEffect(() => { setDraft(String(haveCount)); }, [haveCount]);
 
+  useDraftNavigationGuard(draft !== String(haveCount));
+
   const isFull = haveCount >= item.count;
   const isPartial = haveCount > 0 && haveCount < item.count;
 
@@ -326,8 +305,8 @@ function ItemRow({
           max={item.count}
           step={1}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => onSetCount(draft)}
+          onChange={(e) => { setDraft(e.target.value); if (/^\d+$/.test(e.target.value)) onSetCount(e.target.value); }}
+          onBlur={() => { onSetCount(draft); const count = parseInt(draft, 10); setDraft(String(Number.isFinite(count) ? Math.max(0, Math.min(item.count, count)) : 0)); }}
           onFocus={(e) => e.target.select()}
           className="rt-oc-qty-input rt-oc-noprint"
           aria-label={`${item.label} on-hand count`}

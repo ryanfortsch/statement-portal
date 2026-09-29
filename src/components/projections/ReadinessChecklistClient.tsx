@@ -1,7 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useChecklistSaves } from '@/lib/use-checklist-saves';
+import { ChecklistSaveStatus } from '@/components/ChecklistSaveStatus';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import {
   setReadinessHave,
   setReadinessNote,
@@ -26,8 +29,8 @@ import type { ReadinessState } from '@/lib/projections-types';
  *     half-filled checkbox and the gap renders as "12 / 18".
  *   - Notes textareas debounce-save 800ms after the last keystroke and
  *     flush on blur, so a brief pause persists without an explicit Save.
- *   - All writes are optimistic (UI updates immediately) and rolled back
- *     if the server action throws. No revalidatePath — keeps the page
+ *   - Writes are queued across counts and notes. Failed drafts stay visible
+ *     for an explicit retry. No revalidatePath — keeps the page
  *     from flashing the parent prospects loading.tsx mid-tap.
  *
  * Outstanding-items summary at the bottom of the page lists everything
@@ -76,14 +79,15 @@ export function ReadinessChecklistClient({
 
   const [have, setHave] = useState<Record<string, number>>(buildInitialHave);
   const [notes, setNotes] = useState<Record<string, string>>(() => ({ ...(initial.notes ?? {}) }));
-  const [lastSaved, setLastSaved] = useState<string | null>(initial.updated_at ?? null);
-  const [, startTransition] = useTransition();
-  const noteTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const saves = useChecklistSaves();
+  const lastSaved = saves.lastSaved ?? initial.updated_at ?? null;
+  const haveRef = useRef(have);
+  const notesRef = useRef(notes);
 
   // Review-email send state for the bottom-of-page "Send to team" button.
-  // Tri-state: 'idle' / 'sending' / 'sent' / 'error'. 'sent' auto-resets
-  // to 'idle' after 6s so a second send is reachable if needed.
+  // Keep the sent confirmation until another edit, to prevent accidental re-sends.
   const [reviewStatus, setReviewStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const sending = useRef(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
   // Aggregate progress: an item counts as "done" when have >= need.
@@ -108,28 +112,18 @@ export function ReadinessChecklistClient({
     ? Math.round((totals.totalHave / totals.totalNeeded) * 100)
     : 0;
 
-  function persistHave(label: string, count: number, prevCount: number) {
-    startTransition(async () => {
-      try {
-        await setReadinessHave(projectionId, label, count);
-        setLastSaved(new Date().toISOString());
-      } catch (err) {
-        // Roll back optimistic update on failure.
-        setHave((prev) => ({ ...prev, [label]: prevCount }));
-        console.error('setReadinessHave failed:', err);
-      }
-    });
+  function persistHave(label: string, count: number) {
+    saves.queue.enqueue('have:' + label, async () => { await setReadinessHave(projectionId, label, count); });
   }
 
-  /**
-   * Whole-row tap: cycle 0 ↔ full. If currently partial (0 < have < need)
-   * treat it as a "complete it" — go to full.
-   */
   function toggleItem(item: RenderedItem) {
-    const current = have[item.label] ?? 0;
+    if (sending.current) return;
+    setReviewStatus('idle');
+    const current = haveRef.current[item.label] ?? 0;
     const next = current >= item.count ? 0 : item.count;
-    setHave((prev) => ({ ...prev, [item.label]: next }));
-    persistHave(item.label, next, current);
+    haveRef.current = { ...haveRef.current, [item.label]: next };
+    setHave(haveRef.current);
+    persistHave(item.label, next);
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try { (navigator as Navigator & { vibrate?: (p: number) => void }).vibrate?.(8); } catch { /* ignore */ }
     }
@@ -140,67 +134,51 @@ export function ReadinessChecklistClient({
    * Clamps to [0, need-count].
    */
   function setItemCount(item: RenderedItem, rawValue: string) {
+    if (sending.current) return;
+    setReviewStatus('idle');
     const parsed = parseInt(rawValue, 10);
-    const current = have[item.label] ?? 0;
+    const current = haveRef.current[item.label] ?? 0;
     const next = Number.isFinite(parsed)
       ? Math.max(0, Math.min(item.count, parsed))
       : 0;
     if (next === current) return;
-    setHave((prev) => ({ ...prev, [item.label]: next }));
-    persistHave(item.label, next, current);
-  }
-
-  function persistNote(key: string, value: string) {
-    startTransition(async () => {
-      try {
-        await setReadinessNote(projectionId, key, value);
-        setLastSaved(new Date().toISOString());
-      } catch (err) {
-        console.error('setReadinessNote failed:', err);
-      }
-    });
+    haveRef.current = { ...haveRef.current, [item.label]: next };
+    setHave(haveRef.current);
+    persistHave(item.label, next);
   }
 
   function onNoteChange(key: string, value: string) {
-    setNotes((prev) => ({ ...prev, [key]: value }));
-    const timer = noteTimers.current[key];
-    if (timer) clearTimeout(timer);
-    noteTimers.current[key] = setTimeout(() => persistNote(key, value), 800);
+    if (sending.current) return;
+    setReviewStatus('idle');
+    notesRef.current = { ...notesRef.current, [key]: value };
+    setNotes(notesRef.current);
+    saves.queue.enqueue('note:' + key, async () => { await setReadinessNote(projectionId, key, value); }, 800);
   }
 
-  function flushNote(key: string) {
-    const timer = noteTimers.current[key];
-    if (timer) clearTimeout(timer);
-    noteTimers.current[key] = null;
-    persistNote(key, notes[key] ?? '');
-  }
+  function flushNote() { void saves.queue.flush(); }
 
-  useEffect(() => {
-    const timers = noteTimers.current;
-    return () => {
-      Object.values(timers).forEach((t) => { if (t) clearTimeout(t); });
-    };
-  }, []);
-
-  function sendReview() {
+  async function sendReview() {
+    if (sending.current) return;
+    sending.current = true;
     setReviewStatus('sending');
     setReviewError(null);
-    startTransition(async () => {
-      try {
-        const result = await requestReadinessReview(projectionId);
-        if (result.ok) {
-          setReviewStatus('sent');
-          setTimeout(() => setReviewStatus('idle'), 6000);
-        } else {
-          setReviewStatus('error');
-          setReviewError(result.reason || 'send failed');
-        }
-      } catch (err) {
+    try {
+      if (!await saves.queue.flush()) {
         setReviewStatus('error');
-        setReviewError(err instanceof Error ? err.message : String(err));
+        setReviewError('Save the remaining checklist changes before sending.');
+        return;
       }
-    });
+      const result = await requestReadinessReview(projectionId);
+      setReviewStatus(result.ok ? 'sent' : 'error');
+      if (!result.ok) setReviewError(result.reason || 'Could not send the summary.');
+    } catch {
+      setReviewStatus('error');
+      setReviewError('Could not confirm delivery. Check your email before trying again.');
+    } finally {
+      sending.current = false;
+    }
   }
+  useDraftNavigationGuard(reviewStatus === 'sending', reviewStatus === 'sending');
 
   // Build the "still needed" list for the summary at the bottom.
   const stillNeeded = useMemo(() => {
@@ -232,7 +210,7 @@ export function ReadinessChecklistClient({
             <Link href={`/prospects/${projectionId}`} className="rt-rc-back">
               ← Prospect
             </Link>
-            <Link href={printHref} target="_blank" className="rt-rc-print">
+            <Link href={printHref} target="_blank" className="rt-rc-print" onClick={(event) => { if (saves.queue.getSnapshot().dirty) { event.preventDefault(); setReviewError('Finish saving before opening the print version.'); setReviewStatus('error'); void saves.queue.flush(); } }}>
               Print version ↗
             </Link>
           </div>
@@ -255,7 +233,8 @@ export function ReadinessChecklistClient({
             <div className="rt-rc-progress-bar" aria-hidden>
               <div className="rt-rc-progress-bar-fill" style={{ width: `${pct}%` }} />
             </div>
-            {lastSaved && (
+            <ChecklistSaveStatus status={saves} retry={saves.queue.retry} />
+            {!saves.dirty && lastSaved && (
               <div className="rt-rc-saved">
                 Last edit {formatSavedAt(lastSaved)}
               </div>
@@ -263,6 +242,7 @@ export function ReadinessChecklistClient({
           </div>
         </header>
 
+        <fieldset disabled={reviewStatus === 'sending'} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {/* ─── Item groups ────────────────────────────────────────── */}
         {groups.map((g) => {
           const groupDone = g.items.filter(
@@ -301,7 +281,7 @@ export function ReadinessChecklistClient({
                 field={f}
                 value={notes[f.key] ?? ''}
                 onChange={(v) => onNoteChange(f.key, v)}
-                onBlur={() => flushNote(f.key)}
+                onBlur={() => flushNote()}
               />
             ))}
           </div>
@@ -343,7 +323,7 @@ export function ReadinessChecklistClient({
               type="button"
               className="rt-rc-send-btn"
               onClick={sendReview}
-              disabled={reviewStatus === 'sending'}
+              disabled={reviewStatus === 'sending' || reviewStatus === 'sent'}
               data-status={reviewStatus}
             >
               {reviewStatus === 'sending' && 'Sending…'}
@@ -355,12 +335,13 @@ export function ReadinessChecklistClient({
               {reviewStatus === 'sent'
                 ? `Allie, Ryan, and you should have it shortly. Review and forward to ${salutation.split(' ')[0]} when ready.`
                 : reviewStatus === 'error'
-                  ? `Send failed: ${reviewError ?? 'unknown error'}. Try again or check the logs.`
+                  ? reviewError ?? 'Could not send the summary.'
                   : 'Emails the current still-needed list + walkthrough notes to Allie, Ryan, and you for review. Owner is not on the thread.'}
             </p>
           </div>
         </section>
 
+        </fieldset>
         <footer className="rt-rc-foot">
           Walk-through · Rising Tide · risingtidestr.com
         </footer>
@@ -383,6 +364,8 @@ function ItemRow({
   // Local input value so typing doesn't fight the optimistic state update.
   const [draft, setDraft] = useState<string>(String(haveCount));
   useEffect(() => { setDraft(String(haveCount)); }, [haveCount]);
+
+  useDraftNavigationGuard(draft !== String(haveCount));
 
   const isFull = haveCount >= item.count;
   const isPartial = haveCount > 0 && haveCount < item.count;
@@ -427,8 +410,8 @@ function ItemRow({
           max={item.count}
           step={1}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => onSetCount(draft)}
+          onChange={(e) => { setDraft(e.target.value); if (/^\d+$/.test(e.target.value)) onSetCount(e.target.value); }}
+          onBlur={() => { onSetCount(draft); const count = parseInt(draft, 10); setDraft(String(Number.isFinite(count) ? Math.max(0, Math.min(item.count, count)) : 0)); }}
           onFocus={(e) => e.target.select()}
           className="rt-rc-qty-input"
           aria-label={`${item.label} count`}

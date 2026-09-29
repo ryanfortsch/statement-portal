@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import type {
   OwnerRequestCandidate,
   OwnerRequestSelections,
@@ -157,22 +159,23 @@ function HouseBlock({
             </span>
           )}
         </div>
-        <button
-          onClick={() => setAdding(a => !a)}
+        {!adding && <button
+          onClick={() => setAdding(true)}
           style={{
             background: 'transparent', border: '1px solid var(--rule)', cursor: 'pointer',
             fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
             color: 'var(--ink-3)', padding: '4px 10px',
           }}
         >
-          {adding ? 'Cancel' : '+ Add request'}
-        </button>
+          + Add request
+        </button>}
       </div>
 
       {adding && (
         <AddRequestForm
           propertyId={house.propertyId}
           onDone={() => { setAdding(false); onReloadHouse(house.propertyId); }}
+          onCancel={() => setAdding(false)}
         />
       )}
 
@@ -343,29 +346,33 @@ function CandidateRow({
   );
 }
 
-function AddRequestForm({ propertyId, onDone }: { propertyId: string; onDone: () => void }) {
+function AddRequestForm({ propertyId, onDone, onCancel }: { propertyId: string; onDone: () => void; onCancel: () => void }) {
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [type, setType] = useState<WorkSlipOwnerActionType>('approve');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const { pending: saving, busy, error: err, setError: setErr, run } = useRecoverableAction();
+  const requestId = useRef<string | null>(null);
+  const dirty = !!title || !!notes || type !== 'approve';
+  useDraftNavigationGuard(dirty, saving);
 
   const field: React.CSSProperties = {
     width: '100%', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink)',
     background: 'var(--paper)', border: '1px solid var(--rule)', padding: '7px 9px',
   };
 
-  async function submit() {
-    setErr(null);
-    setSaving(true);
-    const res = await addOwnerRequestSlipAction({ propertyId, title, notes, actionType: type });
-    setSaving(false);
-    if (!res.ok) { setErr(res.error); return; }
-    onDone();
+  function submit() {
+    if (busy.current || !title.trim()) return;
+    requestId.current ??= crypto.randomUUID();
+    run(async () => {
+      const res = await addOwnerRequestSlipAction({ propertyId, title, notes, actionType: type, requestId: requestId.current! });
+      if (!res.ok) { setErr(res.error); return; }
+      onDone();
+    }, 'Could not confirm the request was filed. Your draft is kept. Retry the same request, or check the Work board before changing it.');
   }
 
   return (
     <div style={{ marginTop: 10, padding: 10, background: 'var(--paper)', border: '1px solid var(--rule)' }}>
+      <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <input
         value={title}
         onChange={e => setTitle(e.target.value)}
@@ -398,7 +405,9 @@ function AddRequestForm({ propertyId, onDone }: { propertyId: string; onDone: ()
         >{saving ? 'Filing…' : 'File request'}</button>
         <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>Also opens a work slip on the board</span>
       </div>
-      {err && <div style={{ fontSize: 11, color: 'var(--signal)', marginTop: 8 }}>{err}</div>}
+      </fieldset>
+      <button type="button" disabled={saving} style={{ marginTop: 8, padding: '6px 10px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => { if (!busy.current && (!dirty || confirm('Discard this request draft?'))) onCancel(); }}>Cancel</button>
+      {err && <div role="alert" style={{ fontSize: 11, color: 'var(--signal)', marginTop: 8 }}>{err}</div>}
     </div>
   );
 }

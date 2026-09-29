@@ -663,6 +663,7 @@ export async function saveOwnerRequestSelectionsAction(
  */
 export async function addOwnerRequestSlipAction(args: {
   propertyId: string;
+  requestId?: string;
   title: string;
   notes: string;
   actionType: WorkSlipOwnerActionType;
@@ -673,23 +674,28 @@ export async function addOwnerRequestSlipAction(args: {
   const title = args.title.trim();
   if (!title) return { ok: false, error: 'Give the request a title' };
 
-  const { data, error } = await supabaseAdmin
-    .from('work_slips')
-    .insert({
-      property_id: args.propertyId,
-      title,
-      category: 'owner',
-      status: 'open',
-      priority: 'normal',
-      location: args.location?.trim() || null,
-      owner_action_required: true,
-      owner_action_type: args.actionType,
-      owner_action_notes: args.notes.trim() || null,
-      owner_status: 'not_sent',
-      created_by_email: session.user.email,
-    })
-    .select('id')
-    .single();
+  const requestId = args.requestId;
+  if (requestId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) return { ok: false, error: 'Invalid request ID' };
+  const row = {
+    property_id: args.propertyId, title, category: 'owner', status: 'open', priority: 'normal',
+    location: args.location?.trim() || null,
+    owner_action_required: true, owner_action_type: args.actionType,
+    owner_action_notes: args.notes.trim() || null, owner_status: 'not_sent',
+    created_by_email: session.user.email,
+  };
+  if (requestId) {
+    const { error } = await supabaseAdmin.from('work_slips').upsert({ id: requestId, ...row }, { onConflict: 'id', ignoreDuplicates: true });
+    if (error) return { ok: false, error: error.message };
+    const { data, error: readError } = await supabaseAdmin.from('work_slips')
+      .select('id,property_id,title,location,owner_action_type,owner_action_notes,created_by_email')
+      .eq('id', requestId).eq('property_id', args.propertyId).maybeSingle();
+    if (readError) return { ok: false, error: readError.message };
+    if (!data || data.title !== row.title || data.location !== row.location || data.owner_action_type !== row.owner_action_type || data.owner_action_notes !== row.owner_action_notes || data.created_by_email !== row.created_by_email) {
+      return { ok: false, error: 'Could not confirm this request. Check the Work board before creating another.' };
+    }
+    return { ok: true, slipId: data.id };
+  }
+  const { data, error } = await supabaseAdmin.from('work_slips').insert(row).select('id').single();
 
   if (error || !data) return { ok: false, error: error?.message || 'Could not create the request' };
   return { ok: true, slipId: data.id as string };

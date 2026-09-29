@@ -666,6 +666,23 @@ function noticePayload(formData: FormData): { eyebrow: string | null; title: str
   return { eyebrow, title, body };
 }
 
+/** Reuse a form's ID after an uncertain response; never overwrite an existing entry. */
+async function insertGuestMaterial(table: 'property_notes' | 'property_notices', row: Record<string, unknown>, formData: FormData): Promise<string> {
+  const id = String(formData.get('submission_id') || randomUUID());
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error('Invalid entry ID');
+  const client = getServiceClient();
+  const { error } = await client.from(table).upsert({ id, ...row }, { onConflict: 'id', ignoreDuplicates: true });
+  if (error) throw new Error(error.message);
+  const { data, error: readError } = await client.from(table).select(['id', ...Object.keys(row)].join(','))
+    .eq('id', id).eq('property_id', String(row.property_id)).maybeSingle();
+  if (readError) throw new Error(readError.message);
+  const saved = data as unknown as Record<string, unknown> | null;
+  if (!saved || Object.entries(row).some(([key, value]) => saved[key] !== value)) {
+    throw new Error('Could not confirm this entry. Check the property before creating another.');
+  }
+  return id;
+}
+
 /** Create a new bespoke notice for a property. Redirects back to the property page. */
 export async function createPropertyNotice(propertyId: string, formData: FormData) {
   const session = await auth();
@@ -674,16 +691,10 @@ export async function createPropertyNotice(propertyId: string, formData: FormDat
   const payload = noticePayload(formData);
   if (!payload) throw new Error('Title and body are required.');
 
-  const { data: created, error } = await getServiceClient()
-    .from('property_notices')
-    .insert({ property_id: propertyId, ...payload })
-    .select('id')
-    .single();
-  if (error) throw new Error(error.message);
-  if (!created) throw new Error('Notice insert returned no row.');
+  const createdId = await insertGuestMaterial('property_notices', { property_id: propertyId, ...payload }, formData);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=guest#notice-${created.id}`);
+  redirect(`/properties/${propertyId}?tab=guest#notice-${createdId}`);
 }
 
 /**
@@ -698,12 +709,14 @@ export async function updatePropertyNotice(propertyId: string, noticeId: string,
   const payload = noticePayload(formData);
   if (!payload) throw new Error('Title and body are required.');
 
-  const { error } = await getServiceClient()
+  const { data, error } = await getServiceClient()
     .from('property_notices')
     .update({ ...payload, updated_at: new Date().toISOString() })
     .eq('id', noticeId)
-    .eq('property_id', propertyId);
+    .eq('property_id', propertyId)
+    .select('id');
   if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Notice not found. Your changes were not saved.');
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/notice/${noticeId}`);
@@ -760,14 +773,7 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   // Service role: guest_facing is a recent column, so go through the
   // service-role client to dodge the anon schema-cache / grants edge
   // case that silently dropped new-column writes on 2026-06-02.
-  const { error } = await getServiceClient()
-    .from('property_notes')
-    .insert({
-      property_id: propertyId,
-      ...payload,
-      author_email: session.user.email,
-    });
-  if (error) throw new Error(error.message);
+  await insertGuestMaterial('property_notes', { property_id: propertyId, ...payload, author_email: session.user.email }, formData);
 
   revalidatePath(`/properties/${propertyId}`);
   redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
@@ -780,12 +786,14 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   const payload = notePayload(formData);
   if (!payload) throw new Error('Title is required.');
 
-  const { error } = await getServiceClient()
+  const { data, error } = await getServiceClient()
     .from('property_notes')
     .update(payload)
     .eq('id', noteId)
-    .eq('property_id', propertyId);
+    .eq('property_id', propertyId)
+    .select('id');
   if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Note not found. Your changes were not saved.');
 
   revalidatePath(`/properties/${propertyId}`);
   redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);

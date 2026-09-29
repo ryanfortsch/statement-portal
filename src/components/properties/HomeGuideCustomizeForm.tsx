@@ -1,5 +1,5 @@
 import { updateHomeGuideOverrides } from '@/app/properties/actions';
-import { SubmitButton } from '@/components/SubmitButton';
+import { RetainedPropertyForm } from './RetainedPropertyForm';
 import {
   HOME_GUIDE_CATALOG,
   HOME_GUIDE_CATALOG_KEYS,
@@ -132,7 +132,9 @@ export function HomeGuideCustomizeForm({
         </div>
       </summary>
 
-      <form
+      <RetainedPropertyForm
+        submitLabel="Save changes"
+        buttonStyle={{ background: 'var(--ink)', color: 'var(--paper)', fontSize: 11, fontWeight: 600, letterSpacing: '.18em', textTransform: 'uppercase', padding: '11px 22px', border: 0, cursor: 'pointer' }}
         action={updateHomeGuideOverrides.bind(null, propertyId)}
         style={{ padding: '4px 18px 22px' }}
       >
@@ -176,26 +178,11 @@ export function HomeGuideCustomizeForm({
         </div>
 
         <div style={{ marginTop: 18, display: 'flex', gap: 12, alignItems: 'center' }}>
-          <SubmitButton
-            label="Save changes"
-            busyLabel="Saving…"
-            style={{
-              background: 'var(--ink)',
-              color: 'var(--paper)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              padding: '11px 22px',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          />
           <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
             Saved customization takes effect immediately on the rendered guide.
           </span>
         </div>
-      </form>
+      </RetainedPropertyForm>
 
       <style>{customizeCss}</style>
     </details>
