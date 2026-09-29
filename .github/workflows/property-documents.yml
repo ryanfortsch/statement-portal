@@ -12,6 +12,7 @@ on:
       - 'scripts/sca-launch-smoke.mjs'
       - 'scripts/field-report-smoke.mjs'
       - 'scripts/work-slip-editor-smoke.mjs'
+      - 'scripts/work-slip-comments-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -57,6 +58,8 @@ jobs:
         run: node scripts/field-report-smoke.mjs
       - name: Verify work slip editing recovery with synthetic saves
         run: node scripts/work-slip-editor-smoke.mjs
+      - name: Verify work slip comments and completion notes with synthetic saves
+        run: node scripts/work-slip-comments-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()
