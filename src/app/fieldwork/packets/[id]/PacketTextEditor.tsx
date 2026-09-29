@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 /** Retain a text draft until the server confirms it, including after a blur. */
@@ -18,7 +18,7 @@ export function PacketTextEditor({ value, label, save, rows = 2, maxLength = 400
 }) {
   const [text, setText] = useState(value);
   const [saved, setSaved] = useState({ source: value, text: value });
-  const [pending, setPending] = useState(false);
+  const [pending, start] = useTransition();
   const [error, setError] = useState('');
   const [uncertain, setUncertain] = useState(false);
   const lock = useRef(false);
@@ -35,20 +35,22 @@ export function PacketTextEditor({ value, label, save, rows = 2, maxLength = 400
     return () => report.current?.(false);
   }, [dirty, pending]);
 
-  async function submit() {
+  function submit() {
     if (lock.current || (!dirty && !error)) return;
     const submitted = text.trim();
     if (required && !submitted) { setError('The job needs a description. Your saved text has not changed.'); return; }
-    lock.current = true; setPending(true); setError('');
-    try {
-      const result = await save(submitted);
-      if (!result.ok) { setError('Could not save this text. Your edit is kept; please retry.'); return; }
-      setSaved({ source: value, text: submitted });
-      setText(submitted); setUncertain(false);
-    } catch {
-      setUncertain(true);
-      setError('Could not confirm this save. Your edit is kept; retry to save this version.');
-    } finally { lock.current = false; setPending(false); }
+    lock.current = true; setError('');
+    start(async () => {
+      try {
+        const result = await save(submitted);
+        if (!result.ok) { setError('Could not save this text. Your edit is kept; please retry.'); return; }
+        setSaved({ source: value, text: submitted });
+        setText(submitted); setUncertain(false);
+      } catch {
+        setUncertain(true);
+        setError('Could not confirm this save. Your edit is kept; retry to save this version.');
+      } finally { lock.current = false; }
+    });
   }
   function discard() {
     if (lock.current) return;

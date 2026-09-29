@@ -92,7 +92,7 @@ export function ApplyForm({ source, trade = 'inspection' }: { source: string; tr
   const form = useRetainedSubmission(submitApplication, {
     blocked: () => uploadBusy.current,
     extraDirty: uploading || hasVideo,
-    uncertainMessage: 'Could not confirm your application. Your answers are kept. Check whether you received a confirmation before submitting again.',
+    uncertainMessage: 'Could not confirm your application. Your answers are kept. Check with the office before submitting again to avoid a duplicate.',
   });
   const creative = trade === 'creative';
 

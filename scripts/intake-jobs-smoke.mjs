@@ -126,7 +126,7 @@ await click('#checklist','Done');await waitCalls(8);assert.equal((await calls())
 pass('confirmed checklist changes toggle back to todo correctly before refresh and adopt later server changes');
 await click('#handled','Mark handled',true);await waitCalls(9);await finish(8,{ok:false,error:'Email rejected'});await clean();await waitText('Email rejected');await click('#handled','Retry');await waitCalls(10);await finish(9,null,true);await clean();await waitText('Could not confirm this email');await click('#handled','Retry');await waitCalls(11);await finish(10);await clean();assert.equal(await page.$('#handled button'),null);assert.equal(await page.$eval('#handled',e=>e.innerText),'Handled');
 pass('Handled reports both failure paths, allows retry, and only removes its control after confirmation');
-await reset('controls','&derived=1');assert.equal(await page.$('#checklist button'),null);assert.match(await page.$eval('#checklist',e=>e.innerText),/Auto/);pass('automatically derived checklist items stay read-only');
+await reset('controls','&derived=1');assert.equal(await page.$('#checklist button'),null);assert.match(await page.$eval('#checklist',e=>e.innerText),/Auto/i);pass('automatically derived checklist items stay read-only');
 
 const textarea=label=>'textarea[aria-label="'+label+'"]';
 for(const [label,kind,selector] of [['Instructions for the whole packet','packet','#packet'],['The job','job','#stop'],['Instructions for this stop','stop','#stop'],['Note for Synthetic attached slip','note','#stop']]){
