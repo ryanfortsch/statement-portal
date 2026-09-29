@@ -1,6 +1,10 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { unstable_rethrow } from 'next/navigation';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useReminderResource } from '@/lib/use-reminder-resource';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { Section } from '@/components/Section';
 import type {
   ProactiveTarget,
@@ -86,38 +90,27 @@ function cadenceLabel(r: RecurringMessage): string {
 
 export function ProactiveRemindersPanel({ audience, actions }: Props) {
   const [open, setOpen] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [targetsLoaded, setTargetsLoaded] = useState(false);
-  const [targets, setTargets] = useState<ProactiveTarget[]>([]);
-  const [recurring, setRecurring] = useState<RecurringMessage[]>([]);
-  const [, startTransition] = useTransition();
-
-  // Fast: the scheduled list (local DB). Gates the section's content so it
-  // renders right away instead of waiting on the slower target lookup.
-  const loadRecurring = () => {
-    startTransition(async () => {
-      const res = await actions.fetchReminders();
-      if (res.ok) setRecurring(res.recurring);
-      setLoaded(true);
-    });
-  };
-
-  // Slower: who can be messaged. Loads in parallel and only feeds the
-  // create-form dropdown, so it never blocks the panel from showing.
-  const loadTargets = () => {
-    startTransition(async () => {
-      const res = await actions.fetchTargets();
-      if (res.ok) setTargets(res.targets);
-      setTargetsLoaded(true);
-    });
-  };
+  const [endedIds, setEndedIds] = useState<Set<string>>(new Set());
+  const [creating, setCreating] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const scheduled = useReminderResource(async () => {
+    const result = await actions.fetchReminders();
+    return result.ok ? { ok: true, items: result.recurring } : result;
+  }, 'Could not load scheduled messages. Try again.');
+  const recipients = useReminderResource(async () => {
+    const result = await actions.fetchTargets();
+    return result.ok ? { ok: true, items: result.targets } : result;
+  }, 'Could not load recipients. Try again.');
+  const recurring = scheduled.items.filter((row) => !endedIds.has(row.id));
+  const loadRecurring = scheduled.load;
 
   const handleToggle = () => {
+    if (creating || ending) return;
     const next = !open;
     setOpen(next);
-    if (next && !loaded) {
-      loadRecurring();
-      loadTargets();
+    if (next) {
+      if (!scheduled.loaded) scheduled.load();
+      if (!recipients.loaded) recipients.load();
     }
   };
 
@@ -137,6 +130,7 @@ export function ProactiveRemindersPanel({ audience, actions }: Props) {
         <button
           type="button"
           onClick={handleToggle}
+          disabled={creating || ending}
           style={{
             fontSize: 10,
             letterSpacing: '0.16em',
@@ -154,7 +148,7 @@ export function ProactiveRemindersPanel({ audience, actions }: Props) {
         </button>
       }
     >
-      {!open ? (
+      {!open && (
         <div
           style={{
             borderTop: '1px solid var(--rule)',
@@ -165,24 +159,32 @@ export function ProactiveRemindersPanel({ audience, actions }: Props) {
         >
           {whoBlurb} Click <b>Show</b> to set one up.
         </div>
-      ) : !loaded ? (
-        <div
-          style={{ borderTop: '1px solid var(--rule)', padding: '20px 0', fontSize: 13, color: 'var(--ink-3)' }}
-        >
-          Loading…
-        </div>
-      ) : (
+      )}
+      <div hidden={!open}>
+        {scheduled.error && <p role="alert">{scheduled.error}</p>}
+        <button type="button" onClick={loadRecurring} disabled={scheduled.pending}>
+          {scheduled.pending ? 'Loading scheduled messages…' : 'Refresh scheduled messages'}
+        </button>
+        {recipients.error && <p role="alert">{recipients.error}</p>}
+        {(!recipients.loaded || recipients.error) && (
+          <button type="button" onClick={recipients.load} disabled={recipients.pending}>
+            {recipients.pending ? 'Loading recipients…' : 'Retry loading recipients'}
+          </button>
+        )}
+        {scheduled.loaded && (
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
-          <ActiveList recurring={recurring} actions={actions} onChanged={loadRecurring} />
+          <ActiveList onBusyChange={setEnding} recurring={recurring} actions={actions} onChanged={(id) => { setEndedIds((previous) => new Set(previous).add(id)); loadRecurring(); }} />
           <CreateForm
             audience={audience}
             actions={actions}
-            targets={targets}
-            targetsLoaded={targetsLoaded}
+            targets={recipients.items}
+            targetsLoaded={recipients.loaded}
             onCreated={loadRecurring}
+            onBusyChange={setCreating}
           />
         </div>
-      )}
+        )}
+      </div>
     </Section>
   );
 }
@@ -191,39 +193,41 @@ function ActiveList({
   recurring,
   actions,
   onChanged,
+  onBusyChange,
 }: {
   recurring: RecurringMessage[];
   actions: ProactiveReminderActions;
-  onChanged: () => void;
+  onChanged: (id: string) => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const softRefresh = useSoftRefresh();
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  if (recurring.length === 0) {
-    return (
-      <div style={{ fontSize: 13, color: 'var(--ink-4)', marginBottom: 24 }}>
-        Nothing scheduled.
-      </div>
-    );
-  }
+  const action = useRecoverableAction();
+  const { pending: isPending, error, setError } = action;
+  const [ended, setEnded] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState('');
+  const visibleRecurring = recurring.filter((r) => !ended.has(r.id));
+  useDraftNavigationGuard(false, isPending);
+  useEffect(() => { onBusyChange(isPending); }, [isPending, onBusyChange]);
 
   const handleEnd = (id: string) => {
-    setError(null);
-    startTransition(async () => {
+    if (action.busy.current || ended.has(id)) return;
+    action.run(async () => {
+      setNotice('');
       const res = await actions.end(id);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      onChanged();
+      if (!res.ok) { setError(res.error); return; }
+      setEnded((previous) => new Set(previous).add(id));
+      setNotice('Reminder ended.');
+      onChanged(id);
       softRefresh();
-    });
+    }, 'Could not confirm that the reminder ended. Refresh the scheduled list to check, or try End again.');
   };
 
   return (
+    <>
+    {notice && <p role="status">{notice}</p>}
+    {visibleRecurring.length === 0 && <p>Nothing scheduled.</p>}
     <ul style={{ listStyle: 'none', margin: '0 0 28px', padding: 0 }}>
-      {recurring.map((r) => (
+      {visibleRecurring.map((r) => (
         <li
           key={r.id}
           style={{
@@ -284,6 +288,7 @@ function ActiveList({
         </li>
       )}
     </ul>
+    </>
   );
 }
 
@@ -293,17 +298,22 @@ function CreateForm({
   targets,
   targetsLoaded,
   onCreated,
+  onBusyChange,
 }: {
   audience: Audience;
   actions: ProactiveReminderActions;
   targets: ProactiveTarget[];
   targetsLoaded: boolean;
   onCreated: () => void;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const softRefresh = useSoftRefresh();
-  const [isPending, startTransition] = useTransition();
+  const action = useRecoverableAction();
+  const { pending: isPending, error, setError } = action;
   const [polishing, startPolish] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const polishBusy = useRef(false);
+  const revision = useRef(0);
+  const savedSettings = useRef({ atLocal: '09:00', sendMode: 'approve', mode: 'recurring' as Mode });
   const [done, setDone] = useState(false);
 
   const [mode, setMode] = useState<Mode>('recurring');
@@ -323,6 +333,10 @@ function CreateForm({
 
   const picked = targets.find((t) => t.contact === contact);
 
+  const dirty = !!(contact || label || body || days.size || fireDate || endDate || mode !== savedSettings.current.mode || atLocal !== savedSettings.current.atLocal || sendMode !== savedSettings.current.sendMode);
+  useDraftNavigationGuard(dirty, isPending || polishing);
+  useEffect(() => { onBusyChange(isPending || polishing); }, [isPending, polishing, onBusyChange]);
+
   const toggleDay = (v: string) => {
     setDays((prev) => {
       const next = new Set(prev);
@@ -333,24 +347,34 @@ function CreateForm({
   };
 
   const handlePolish = () => {
+    if (action.busy.current || polishBusy.current) return;
     setError(null);
     if (!body.trim()) {
       setError('Write a rough note first');
       return;
     }
+    polishBusy.current = true;
+    const requestedRevision = revision.current;
     startPolish(async () => {
-      const res = await actions.polish(picked?.name || '', body);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      setBody(res.polished);
-      setEnglish(audience === 'cleaner' ? res.english : '');
-      setPolished(true);
+      try {
+        const res = await actions.polish(picked?.name || '', body);
+        if (revision.current !== requestedRevision) return;
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setBody(res.polished);
+        setEnglish(audience === 'cleaner' ? res.english : '');
+        setPolished(true);
+      } catch (err) {
+        unstable_rethrow(err);
+        if (revision.current === requestedRevision) setError('Could not polish this message. Your wording is kept. Try again.');
+      } finally { polishBusy.current = false; }
     });
   };
 
   const handleCreate = () => {
+    if (action.busy.current || polishBusy.current) return;
     setError(null);
     setDone(false);
     if (!picked) {
@@ -363,7 +387,7 @@ function CreateForm({
       );
       return;
     }
-    startTransition(async () => {
+    action.run(async () => {
       const res = await actions.create({
         label:
           label.trim() ||
@@ -388,6 +412,8 @@ function CreateForm({
         setError(res.error);
         return;
       }
+      savedSettings.current = { atLocal, sendMode, mode };
+      revision.current++;
       setDone(true);
       setContact('');
       setLabel('');
@@ -399,7 +425,7 @@ function CreateForm({
       setFireDate('');
       onCreated();
       softRefresh();
-    });
+    }, 'Could not confirm scheduling. Your draft is kept. Refresh the scheduled list before trying again.');
   };
 
   const inputStyle: React.CSSProperties = {
@@ -427,7 +453,7 @@ function CreateForm({
         : "Type quick and dirty - e.g. 'june statement is out, strong month, call me if questions'. Then hit Polish.";
 
   return (
-    <div style={{ background: 'var(--paper-2)', border: '1px solid var(--rule)', padding: 18 }}>
+    <fieldset disabled={isPending} style={{ minWidth: 0, margin: 0, background: 'var(--paper-2)', border: '1px solid var(--rule)', padding: 18 }}>
       <div
         style={{
           display: 'flex',
@@ -485,7 +511,7 @@ function CreateForm({
           </span>
           <select
             value={contact}
-            onChange={(e) => setContact(e.target.value)}
+            onChange={(e) => { revision.current++; setContact(e.target.value); setPolished(false); setEnglish(''); }}
             disabled={!targetsLoaded}
             style={inputStyle}
           >
@@ -524,7 +550,7 @@ function CreateForm({
           <button
             type="button"
             onClick={handlePolish}
-            disabled={polishing || !body.trim()}
+            disabled={isPending || polishing || !body.trim()}
             title={
               audience === 'cleaner'
                 ? 'Rewrite your note in our voice, in Portuguese, using the same engine that drafts cleaner replies.'
@@ -548,6 +574,7 @@ function CreateForm({
         <textarea
           value={body}
           onChange={(e) => {
+            revision.current++;
             setBody(e.target.value);
             setPolished(false);
             setEnglish('');
@@ -671,7 +698,7 @@ function CreateForm({
       <button
         type="button"
         onClick={handleCreate}
-        disabled={isPending || !canCreate}
+        disabled={isPending || polishing || !canCreate}
         style={{
           background: isPending || !canCreate ? 'var(--ink-4)' : 'var(--ink)',
           color: 'var(--paper)',
@@ -684,8 +711,15 @@ function CreateForm({
           cursor: isPending || !canCreate ? 'not-allowed' : 'pointer',
         }}
       >
-        {mode === 'once' ? 'Schedule message' : 'Create reminder'}
+        {isPending ? 'Scheduling…' : mode === 'once' ? 'Schedule message' : 'Create reminder'}
       </button>
-    </div>
+      {dirty && <button type="button" disabled={isPending || polishing} onClick={() => {
+        if (action.busy.current || polishBusy.current || !window.confirm('Discard this unsaved message?')) return;
+        revision.current++; setContact(''); setLabel(''); setBody(''); setDays(new Set()); setFireDate('');
+        setEndDate(''); setEnglish('');
+        setMode(savedSettings.current.mode); setAtLocal(savedSettings.current.atLocal); setSendMode(savedSettings.current.sendMode);
+        setPolished(false); setDone(false); setError(null);
+      }}>Discard draft</button>}
+    </fieldset>
   );
 }

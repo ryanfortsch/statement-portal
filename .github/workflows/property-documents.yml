@@ -21,6 +21,7 @@ on:
       - 'scripts/intake-jobs-smoke.mjs'
       - 'scripts/property-capture-smoke.mjs'
       - 'scripts/guest-materials-smoke.mjs'
+      - 'scripts/messaging-drafts-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -60,6 +61,8 @@ jobs:
         run: node scripts/intake-jobs-smoke.mjs
       - name: Verify property capture, walkthrough, inline edits, and address recovery
         run: node scripts/property-capture-smoke.mjs
+      - name: Verify reminder and saved reply draft recovery
+        run: node scripts/messaging-drafts-smoke.mjs
       - name: Verify guest materials, checklist saves, and owner request recovery
         run: node scripts/guest-materials-smoke.mjs
       - name: Verify new forms, contact details, vendors, and document recovery
