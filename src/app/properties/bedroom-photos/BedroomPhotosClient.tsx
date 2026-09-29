@@ -72,7 +72,7 @@ export function BedroomPhotosClient({
   const [listings, setListings] = useState<BedroomListing[]>(initial);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(preselected?.guestyListingId ?? null);
-  const [draft, setDraft] = useState<BedroomSlot[]>(preselected ? seedDraft(preselected) : []);
+  const [draft, setDraft] = useState<BedroomSlot[]>(() => preselected ? seedDraft(preselected) : []);
   const [result, setResult] = useState<PublishBedroomResult | null>(null);
   const action = useRecoverableAction();
   const pending = action.pending;

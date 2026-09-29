@@ -130,10 +130,10 @@ export function PropertyOnboardingLink({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Draft failed (${res.status})`);
-      if (typeof data.draft_url !== 'string' || !data.draft_url) throw new Error('Could not confirm the draft. Check Gmail before retrying.');
+      if (typeof data.draft_url !== 'string' || !data.draft_url) throw new Error('Could not confirm the draft.');
       setDraftUrl(data.draft_url);
     } catch (err) {
-      setDraftError(err instanceof Error ? err.message : String(err));
+      setDraftError(`${err instanceof Error ? err.message : String(err)} Check Gmail before retrying if no draft confirmation arrived.`);
     } finally {
       draftBusy.current = false;
       setDrafting(false);
