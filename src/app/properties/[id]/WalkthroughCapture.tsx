@@ -241,7 +241,7 @@ export function WalkthroughCapture({
       });
       progress.current = {
         rooms: progress.current.rooms + (res.rooms || 0), roomFacts: progress.current.roomFacts + (res.roomFacts || 0),
-        skipped: [...new Set([...progress.current.skipped, ...(res.skipped || [])])],
+        skipped: res.skipped || [],
         columns: progress.current.columns + (res.columns || 0), notes: progress.current.notes + (res.notes || 0),
       };
       if (!res.ok) {

@@ -348,7 +348,7 @@ export function QuickCapture({ propertyId, propertyName }: { propertyId: string;
       progress.current = {
         columns: progress.current.columns + (res.columns || 0),
         notes: progress.current.notes + (res.notes || 0),
-        skipped: [...new Set([...progress.current.skipped, ...(res.skipped || [])])],
+        skipped: res.skipped || [],
       };
       if (!res.ok) {
         const completed = new Set((res.completedIndices || []).map((i) => selected[i]?._id));
@@ -700,6 +700,7 @@ function ItemCard({
               onClick={() =>
                 onPatch({
                   target: 'note',
+                  noteId: crypto.randomUUID(),
                   column: null,
                   value: null,
                   noteTitle: col?.label ?? 'Captured note',
