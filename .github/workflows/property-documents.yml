@@ -16,6 +16,7 @@ on:
       - 'scripts/work-slip-routing-smoke.mjs'
       - 'scripts/editor-recovery-smoke.mjs'
       - 'scripts/forms-recovery-smoke.mjs'
+      - 'scripts/queue-actions-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -51,6 +52,8 @@ jobs:
         run: node scripts/property-document-smoke.mjs
       - name: Verify new forms, contact details, vendors, and document recovery
         run: node scripts/forms-recovery-smoke.mjs
+      - name: Verify bulk, quick completion, CRM triage, and vendor work-order recovery
+        run: node scripts/queue-actions-smoke.mjs
       - name: Verify batch photo uploads with synthetic files
         run: node scripts/photo-upload-smoke.mjs
       - name: Verify onboarding autosave with synthetic answers

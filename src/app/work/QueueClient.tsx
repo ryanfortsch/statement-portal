@@ -184,9 +184,12 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   const [selectedSlipIds, setSelectedSlipIds] = useState<Set<string>>(() => new Set());
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
   const [bulkPending, startBulkTransition] = useTransition();
+  const bulkLock = useRef(false);
+  useUnsavedWorkGuard(bulkPending);
   const [bulkErr, setBulkErr] = useState<string | null>(null);
 
   function toggleSlip(id: string) {
+    if (bulkLock.current) return;
     setSelectedSlipIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -195,6 +198,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     });
   }
   function toggleTask(id: string) {
+    if (bulkLock.current) return;
     setSelectedTaskIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -203,6 +207,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     });
   }
   function clearSelection() {
+    if (bulkLock.current) return;
     setSelectedSlipIds(new Set());
     setSelectedTaskIds(new Set());
     setBulkErr(null);
@@ -213,50 +218,56 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     priority?: WorkSlipPriority;
     assigned_to_email?: string | null;
   }) {
-    setBulkErr(null);
+    if (bulkLock.current) return;
     const slipIds = Array.from(selectedSlipIds);
     const taskIds = Array.from(selectedTaskIds);
     if (slipIds.length === 0 && taskIds.length === 0) return;
+    bulkLock.current = true;
+    setBulkErr(null);
 
     startBulkTransition(async () => {
-      const ops: Promise<{ ok: boolean; error?: string }>[] = [];
-      if (slipIds.length > 0) {
-        ops.push(
-          bulkUpdateWorkSlips({
-            ids: slipIds,
-            patch: {
-              status: patch.status,
-              priority: patch.priority,
-              assigned_to_email: patch.assigned_to_email,
-            },
-          }) as Promise<{ ok: boolean; error?: string }>,
-        );
-      }
-      if (taskIds.length > 0) {
-        // Tasks share priority shape with slips (low/normal/high vs low/medium/high) —
-        // map normal → medium when bulk-setting from the slip-style picker.
-        const taskPriority: TaskPriority | undefined =
-          patch.priority === 'normal' ? 'medium' : (patch.priority as TaskPriority | undefined);
-        ops.push(
-          bulkUpdateTasks({
+      // Each server action updates a whole group. A failure in one group
+      // must not hide the other group's confirmed result or retry its IDs.
+      const groups = [
+        {
+          label: 'Work slips', ids: slipIds, deselect: setSelectedSlipIds,
+          run: () => bulkUpdateWorkSlips({ ids: slipIds, patch }),
+        },
+        {
+          label: 'Tasks', ids: taskIds, deselect: setSelectedTaskIds,
+          run: () => bulkUpdateTasks({
             ids: taskIds,
-            patch: {
-              status: patch.status,
-              priority: taskPriority,
-              assigned_to_email: patch.assigned_to_email,
-            },
-          }) as Promise<{ ok: boolean; error?: string }>,
-        );
+            patch: { ...patch, priority: patch.priority === 'normal' ? 'medium' : patch.priority },
+          }),
+        },
+      ].filter((group) => group.ids.length > 0);
+      try {
+        const results = await Promise.allSettled(groups.map((group) => Promise.resolve().then(group.run)));
+        const messages: string[] = [];
+        let failed = false;
+        results.forEach((result, index) => {
+          const group = groups[index];
+          if (result.status === 'fulfilled' && result.value.ok) {
+            group.deselect((current) => {
+              const next = new Set(current);
+              for (const id of group.ids) next.delete(id);
+              return next;
+            });
+            messages.push(`${group.label}: update confirmed for ${result.value.updated}.`);
+          } else {
+            failed = true;
+            if (result.status === 'rejected') {
+              messages.push(`${group.label}: could not confirm the update. Check their current status before retrying.`);
+            } else if (!result.value.ok) {
+              messages.push(`${group.label}: ${result.value.error}`);
+            }
+          }
+        });
+        if (failed) setBulkErr(`${messages.join(' ')} Items without a confirmed update remain selected.`);
+        softRefresh();
+      } finally {
+        bulkLock.current = false;
       }
-
-      const results = await Promise.all(ops);
-      const firstErr = results.find((r) => !r.ok);
-      if (firstErr && firstErr.error) {
-        setBulkErr(firstErr.error);
-        return;
-      }
-      clearSelection();
-      softRefresh();
     });
   }
 
@@ -512,6 +523,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                   myEmail={myEmail}
                   expanded={openProps.has(propId)}
                   onToggleExpanded={() => toggleOpenProp(propId)}
+                  bulkPending={bulkPending}
                   selectedIds={selectedSlipIds}
                   onToggleSelect={toggleSlip}
                   commentCounts={slipCommentCounts}
@@ -541,6 +553,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                 <TaskRowItem
                   key={t.id}
                   task={t}
+                  bulkPending={bulkPending}
                   selected={selectedTaskIds.has(t.id)}
                   onToggleSelect={toggleTask}
                   commentCount={taskCommentCounts[t.id] ?? 0}
@@ -798,6 +811,7 @@ function PropertyGroup({
   onToggleExpanded,
   selectedIds,
   onToggleSelect,
+  bulkPending = false,
   commentCounts,
   reporterNames,
   onAddSlip,
@@ -814,6 +828,7 @@ function PropertyGroup({
   onToggleExpanded: () => void;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  bulkPending?: boolean;
   commentCounts: Record<string, number>;
   reporterNames: Record<string, string>;
   onAddSlip: () => void;
@@ -1070,6 +1085,7 @@ function PropertyGroup({
             <WorkSlipRowItem
               key={s.id}
               slip={s}
+              bulkPending={bulkPending}
               isSupply
               selected={selectedIds.has(s.id)}
               onToggleSelect={onToggleSelect}
@@ -1084,6 +1100,7 @@ function PropertyGroup({
             <WorkSlipRowItem
               key={s.id}
               slip={s}
+              bulkPending={bulkPending}
               selected={selectedIds.has(s.id)}
               onToggleSelect={onToggleSelect}
               commentCount={commentCounts[s.id] ?? 0}
@@ -1100,6 +1117,7 @@ function WorkSlipRowItem({
   slip,
   selected,
   onToggleSelect,
+  bulkPending = false,
   commentCount,
   reporterName,
   isSupply = false,
@@ -1107,6 +1125,7 @@ function WorkSlipRowItem({
   slip: WorkSlipRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  bulkPending?: boolean;
   commentCount: number;
   reporterName?: string;
   isSupply?: boolean;
@@ -1120,14 +1139,30 @@ function WorkSlipRowItem({
   // here usually means Vercel shed the response AFTER the update committed,
   // so the refresh clears the row even on the "failure" path.
   const [hidden, setHidden] = useState(false);
+  const doneLock = useRef(false);
+  const [doneError, setDoneError] = useState<string | null>(null);
+  useUnsavedWorkGuard(isPending);
   const isOverdue = !!slip.scheduled_date && slip.scheduled_date < new Date().toISOString().slice(0, 10);
 
   function markDone() {
+    if (doneLock.current || hidden || bulkPending) return;
+    doneLock.current = true;
+    setDoneError(null);
     setHidden(true);
     startTransition(async () => {
-      const res = await updateWorkSlipStatus({ id: slip.id, status: 'done' }).catch(() => null);
-      if (!res || !res.ok) setHidden(false);
-      softRefresh();
+      try {
+        const res = await updateWorkSlipStatus({ id: slip.id, status: 'done' });
+        if (!res.ok) {
+          setHidden(false);
+          setDoneError(`Could not mark done: ${res.error}`);
+        }
+      } catch {
+        setHidden(false);
+        setDoneError('Could not confirm completion. Check the current status before retrying.');
+      } finally {
+        doneLock.current = false;
+        softRefresh();
+      }
     });
   }
 
@@ -1147,6 +1182,7 @@ function WorkSlipRowItem({
       <span className="rt-no-print">
         <SelectCheckbox
           checked={selected}
+          disabled={bulkPending || isPending}
           onChange={() => onToggleSelect(slip.id)}
           ariaLabel={`Select work slip ${slip.title}`}
         />
@@ -1178,6 +1214,7 @@ function WorkSlipRowItem({
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
+          {doneError && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: 'var(--negative)' }}>{doneError}</div>}
           {/* The detail is what you triage on — surface it right on the row
               (one clamped line, full text on hover) so you don't have to
               open the slip just to see what it's about. Assignment info
@@ -1249,7 +1286,7 @@ function WorkSlipRowItem({
       <button
         type="button"
         onClick={markDone}
-        disabled={isPending}
+        disabled={isPending || bulkPending}
         className="rt-no-print"
         style={{
           background: 'none',
@@ -1274,11 +1311,13 @@ function TaskRowItem({
   task,
   selected,
   onToggleSelect,
+  bulkPending = false,
   commentCount,
 }: {
   task: TaskRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  bulkPending?: boolean;
   commentCount: number;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -1287,13 +1326,29 @@ function TaskRowItem({
   // Same optimistic removal as WorkSlipRowItem: hide now, reconcile on
   // the refresh, restore only if the action reports a real failure.
   const [hidden, setHidden] = useState(false);
+  const doneLock = useRef(false);
+  const [doneError, setDoneError] = useState<string | null>(null);
+  useUnsavedWorkGuard(isPending);
 
   function markDone() {
+    if (doneLock.current || hidden || bulkPending) return;
+    doneLock.current = true;
+    setDoneError(null);
     setHidden(true);
     startTransition(async () => {
-      const res = await updateTaskStatus({ id: task.id, status: 'done' }).catch(() => null);
-      if (!res || !res.ok) setHidden(false);
-      softRefresh();
+      try {
+        const res = await updateTaskStatus({ id: task.id, status: 'done' });
+        if (!res.ok) {
+          setHidden(false);
+          setDoneError(`Could not mark done: ${res.error}`);
+        }
+      } catch {
+        setHidden(false);
+        setDoneError('Could not confirm completion. Check the current status before retrying.');
+      } finally {
+        doneLock.current = false;
+        softRefresh();
+      }
     });
   }
 
@@ -1312,6 +1367,7 @@ function TaskRowItem({
     >
       <SelectCheckbox
         checked={selected}
+        disabled={bulkPending || isPending}
         onChange={() => onToggleSelect(task.id)}
         ariaLabel={`Select task ${task.title}`}
       />
@@ -1341,6 +1397,7 @@ function TaskRowItem({
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{task.title}</div>
+          {doneError && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: 'var(--negative)' }}>{doneError}</div>}
           {task.description && (
             <div
               style={{
@@ -1375,7 +1432,7 @@ function TaskRowItem({
       <button
         type="button"
         onClick={markDone}
-        disabled={isPending}
+        disabled={isPending || bulkPending}
         style={{
           background: 'none',
           border: '1px solid var(--rule)',
@@ -2030,16 +2087,19 @@ function CommentBadge({ count }: { count: number }) {
  */
 function SelectCheckbox({
   checked,
+  disabled = false,
   onChange,
   ariaLabel,
 }: {
   checked: boolean;
+  disabled?: boolean;
   onChange: () => void;
   ariaLabel: string;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       role="checkbox"
       aria-checked={checked}
       aria-label={ariaLabel}
@@ -2161,6 +2221,7 @@ function BulkActionBar({
 
       {err && (
         <div
+          role="alert"
           style={{
             width: '100%',
             background: 'var(--negative)',
