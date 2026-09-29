@@ -299,7 +299,13 @@ export default async function ShootDetail({
               const deliverables = driveFiles.filter((f) => f.in_finals || f.asset_id);
               const raws = driveFiles.filter((f) => !f.in_finals && !f.asset_id);
               return (
-                <div style={{ marginTop: 10 }}>
+                // Folded by default: a finished shoot can carry dozens of
+                // versions, and the list shouldn't bury the pay controls below.
+                <details style={{ marginTop: 10 }}>
+                  <summary style={{ ...quietSummary, fontSize: 11.5 }}>
+                    {deliverables.length} file{deliverables.length === 1 ? '' : 's'} delivered ▾
+                  </summary>
+                  <div style={{ marginTop: 4 }}>
                   {deliverables.map((f) => (
                     <DriveFileLine key={f.id} f={f} assetLabel={assetLabelFor(f, detail.assets)} />
                   ))}
@@ -320,7 +326,8 @@ export default async function ShootDetail({
                       </div>
                     </details>
                   )}
-                </div>
+                  </div>
+                </details>
               );
             })()}
 
