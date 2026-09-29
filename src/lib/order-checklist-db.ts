@@ -70,7 +70,7 @@ async function writeState(
   updatedByEmail: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!isServiceConfigured) return { ok: false, error: 'Service role not configured' };
-  const { error } = await getServiceClient()
+  const { data, error } = await getServiceClient()
     .from('property_order_checklist')
     .upsert(
       {
@@ -80,8 +80,9 @@ async function writeState(
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'property_id' },
-    );
+    ).select('property_id');
   if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: 'Could not confirm the checklist was saved' };
   return { ok: true };
 }
 

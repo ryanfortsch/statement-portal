@@ -756,7 +756,8 @@ async function readReadinessState(projectionId: string): Promise<ReadinessState>
     .eq('id', projectionId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  const raw = (data?.readiness_state ?? null) as ReadinessState | null;
+  if (!data) throw new Error('Prospect not found');
+  const raw = (data.readiness_state ?? null) as ReadinessState | null;
   return {
     have: raw?.have && typeof raw.have === 'object' ? raw.have : {},
     checked: Array.isArray(raw?.checked) ? raw.checked : [],
@@ -767,11 +768,13 @@ async function readReadinessState(projectionId: string): Promise<ReadinessState>
 
 async function writeReadinessState(projectionId: string, next: ReadinessState): Promise<void> {
   const stamped: ReadinessState = { ...next, updated_at: new Date().toISOString() };
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('projections')
     .update({ readiness_state: stamped })
-    .eq('id', projectionId);
+    .eq('id', projectionId)
+    .select('id');
   if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Prospect not found. Changes were not saved.');
   // Intentionally NO revalidatePath — see header comment.
 }
 
