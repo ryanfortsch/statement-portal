@@ -926,7 +926,7 @@ export async function completeAttachedSlipInFlow(input: {
 // work this trip actually touched.
 
 type StopSlipContext =
-  | { ok: true; propertyId: string; slip: { id: string; title: string; description: string | null; status: string } }
+  | { ok: true; propertyId: string; slip: { id: string; title: string; description: string | null; status: string; photoUrls: string[] } }
   | { ok: false; error: string };
 
 /** Ownership + liveness for anything an inspector does to a slip from a stop:
@@ -952,12 +952,12 @@ async function stopSlipContext(args: { contractorId: string; packetId: string; s
   if (!stop) return { ok: false, error: 'bad-stop' };
   const { data: wData } = await fieldDb()
     .from('work_slips')
-    .select('id, property_id, title, description, status')
+    .select('id, property_id, title, description, status, photo_urls')
     .eq('id', args.workSlipId)
     .maybeSingle();
-  const slip = wData as { id: string; property_id: string | null; title: string; description: string | null; status: string } | null;
+  const slip = wData as { id: string; property_id: string | null; title: string; description: string | null; status: string; photo_urls: string[] | null } | null;
   if (!slip || slip.property_id !== stop.property_id) return { ok: false, error: 'bad-slip' };
-  return { ok: true, propertyId: stop.property_id, slip: { id: slip.id, title: slip.title, description: slip.description, status: slip.status } };
+  return { ok: true, propertyId: stop.property_id, slip: { id: slip.id, title: slip.title, description: slip.description, status: slip.status, photoUrls: slip.photo_urls || [] } };
 }
 
 export type StopSlipOutcome = 'done' | 'already_handled';
@@ -1020,7 +1020,7 @@ export async function resolveSlipFromStop(input: {
 }
 
 /** Fix a slip's wording from the door: a typo, a vague title, a detail only
- *  someone standing in the room can add. Title + details only; category,
+ *  someone standing in the room can add. Title, details and added photos; category,
  *  priority and status stay the office's. The slip's thread gets a line so
  *  the office sees what changed and who changed it. */
 export async function updateSlipFromStop(input: {
@@ -1029,7 +1029,8 @@ export async function updateSlipFromStop(input: {
   workSlipId: string;
   title: string;
   description: string;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+  photoUrls?: string[];
+}): Promise<{ ok: true; photoUrls: string[] } | { ok: false; error: string }> {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) return { ok: false, error: 'not-signed-in' };
   const ctx = await stopSlipContext({ contractorId: contractor.id, packetId: input.packetId, stopId: input.stopId, workSlipId: input.workSlipId });
@@ -1040,16 +1041,18 @@ export async function updateSlipFromStop(input: {
   const description = (input.description || '').trim().slice(0, 4000) || null;
   const titleChanged = title !== ctx.slip.title;
   const detailsChanged = (description ?? '') !== (ctx.slip.description ?? '');
-  if (!titleChanged && !detailsChanged) return { ok: true };
+  const photos = input.photoUrls ?? [];
+  if (!Array.isArray(photos) || photos.length > 12 || photos.some(url => typeof url !== 'string' || url.length > 2000 || !/^https:\/\//.test(url))) return { ok: false, error: 'invalid-photos' };
+  const newPhotos = [...new Set(photos)].filter(url => !ctx.slip.photoUrls.includes(url));
+  if (!titleChanged && !detailsChanged && newPhotos.length === 0) return { ok: true, photoUrls: ctx.slip.photoUrls };
 
-  const nowIso = new Date().toISOString();
-  const { error } = await fieldDb()
-    .from('work_slips')
-    .update({ title, description, updated_at: nowIso })
-    .eq('id', input.workSlipId)
-    .eq('property_id', ctx.propertyId);
+  const { data, error } = await fieldDb().rpc('helm_edit_field_slip', {
+    p_slip_id: input.workSlipId, p_property_id: ctx.propertyId, p_title: title,
+    p_description: description, p_photo_urls: newPhotos,
+  });
   if (error) return { ok: false, error: error.message };
-  const what = [titleChanged ? `title was "${ctx.slip.title}"` : null, detailsChanged ? 'details updated' : null].filter(Boolean).join('; ');
+  if (!data) return { ok: false, error: 'Could not confirm the slip save.' };
+  const what = [newPhotos.length ? `${newPhotos.length} photo(s) added` : null, titleChanged ? `title was "${ctx.slip.title}"` : null, detailsChanged ? 'details updated' : null].filter(Boolean).join('; ');
   await fieldDb()
     .from('work_slip_comments')
     .insert({ work_slip_id: input.workSlipId, author_email: contractor.email, body: `Edited from the field by ${contractor.full_name} (${what}).` });
@@ -1064,7 +1067,7 @@ export async function updateSlipFromStop(input: {
   revalidatePath(`/field/packet/${input.packetId}`);
   revalidatePath('/work');
   revalidatePath(`/work/${input.workSlipId}`);
-  return { ok: true };
+  return { ok: true, photoUrls: (data as { photo_urls: string[] }).photo_urls };
 }
 
 /** Submit the whole packet for office review once every stop is complete. */
