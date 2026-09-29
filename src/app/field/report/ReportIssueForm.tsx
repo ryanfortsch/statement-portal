@@ -1,8 +1,9 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState } from 'react';
 import Link from 'next/link';
 import { PhotoUploader } from '@/components/PhotoUploader';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { reportFieldWorkSlip, type ReportState } from '../actions';
 
 export type VisitOption = {
@@ -47,10 +48,28 @@ const field: React.CSSProperties = {
 };
 
 export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]; windowHours: number }) {
-  const [state, formAction, isPending] = useActionState<ReportState, FormData>(reportFieldWorkSlip, { ok: false });
-  const [selected, setSelected] = useState(visits.length === 1 ? visits[0].propertyId : '');
+  const submitting = useRef(false);
+  const [state, formAction, isPending] = useActionState<ReportState, FormData>(async (previous, data) => {
+    try {
+      return await reportFieldWorkSlip(previous, data);
+    } catch {
+      // The request may have reached the office even if its response was lost.
+      // Keep the draft and avoid automatically sending a duplicate report.
+      return { ok: false, error: 'Could not confirm whether the report was filed. Your details are still here. Check with the office before trying again.' };
+    } finally {
+      submitting.current = false;
+    }
+  }, { ok: false });
+  const [initialSelected] = useState(visits.length === 1 ? visits[0].propertyId : '');
+  const [selected, setSelected] = useState(initialSelected);
   const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal');
   const [photos, setPhotos] = useState<string[]>([]);
+  // Controlled values survive React's form reset after a returned action error.
+  const [details, setDetails] = useState({ title: '', location: '', description: '', expenseDollars: '' });
+  const [uploading, setUploading] = useState(false);
+  const dirty = selected !== initialSelected || priority !== 'normal' || photos.length > 0
+    || Object.values(details).some(value => value.length > 0);
+  useUnsavedWorkGuard(!state.ok && (dirty || uploading || isPending));
 
   const chosen = visits.find((v) => v.propertyId === selected) ?? null;
 
@@ -78,7 +97,14 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
   }
 
   return (
-    <form action={formAction} style={{ ...card, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <form action={formAction} onSubmit={event => {
+      if (submitting.current || uploading) {
+        event.preventDefault();
+        return;
+      }
+      submitting.current = true;
+    }} style={card}>
+      <fieldset disabled={isPending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <input type="hidden" name="priority" value={priority} />
       <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
 
@@ -113,19 +139,19 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       {/* What */}
       <div>
         <label htmlFor="rf-title" style={label}>What needs attention?</label>
-        <input id="rf-title" name="title" required minLength={3} maxLength={200} autoComplete="off" placeholder="e.g. Master bath faucet is dripping" style={field} />
+        <input id="rf-title" name="title" value={details.title} onChange={e => setDetails(d => ({ ...d, title: e.target.value }))} required minLength={3} maxLength={200} autoComplete="off" placeholder="e.g. Master bath faucet is dripping" style={field} />
       </div>
 
       {/* Where */}
       <div>
         <label htmlFor="rf-loc" style={label}>Where in the home? <span style={optional}>(optional)</span></label>
-        <input id="rf-loc" name="location" maxLength={200} autoComplete="off" placeholder="e.g. Master bathroom" style={field} />
+        <input id="rf-loc" name="location" value={details.location} onChange={e => setDetails(d => ({ ...d, location: e.target.value }))} maxLength={200} autoComplete="off" placeholder="e.g. Master bathroom" style={field} />
       </div>
 
       {/* Details */}
       <div>
         <label htmlFor="rf-desc" style={label}>Anything else? <span style={optional}>(optional)</span></label>
-        <textarea id="rf-desc" name="description" rows={3} maxLength={4000} placeholder="A sentence of detail helps the team come prepared." style={{ ...field, resize: 'vertical', lineHeight: 1.5 }} />
+        <textarea id="rf-desc" name="description" value={details.description} onChange={e => setDetails(d => ({ ...d, description: e.target.value }))} rows={3} maxLength={4000} placeholder="A sentence of detail helps the team come prepared." style={{ ...field, resize: 'vertical', lineHeight: 1.5 }} />
       </div>
 
       {/* How soon */}
@@ -163,7 +189,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       {/* Photo */}
       <div>
         <span style={label}>Add a photo <span style={optional}>(optional, but it helps)</span></span>
-        <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
+        <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" disabled={isPending} onUploadingChange={setUploading} />
       </div>
 
       {/* Receipt — bought something for the house out of pocket? The amount
@@ -176,6 +202,8 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
         </span>
         <input
           name="expense_dollars"
+          value={details.expenseDollars}
+          onChange={e => setDetails(d => ({ ...d, expenseDollars: e.target.value }))}
           type="number"
           min={0}
           max={500}
@@ -186,27 +214,27 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       </div>
 
       {state.error && (
-        <div style={{ fontSize: 13.5, color: 'var(--signal)', background: 'rgba(200,90,58,0.07)', border: '1px solid var(--signal)', borderRadius: 8, padding: '10px 13px', lineHeight: 1.5 }}>
+        <div role="alert" style={{ fontSize: 13.5, color: 'var(--signal)', background: 'rgba(200,90,58,0.07)', border: '1px solid var(--signal)', borderRadius: 8, padding: '10px 13px', lineHeight: 1.5 }}>
           {state.error}
         </div>
       )}
 
       <button
         type="submit"
-        disabled={isPending}
+        disabled={isPending || uploading}
         style={{
           background: 'var(--ink)',
           color: 'var(--paper)',
           border: 'none',
           borderRadius: 8,
-          cursor: isPending ? 'wait' : 'pointer',
+          cursor: isPending || uploading ? 'wait' : 'pointer',
           fontSize: 13,
           fontWeight: 600,
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
           padding: '16px 24px',
           minHeight: 52,
-          opacity: isPending ? 0.8 : 1,
+          opacity: isPending || uploading ? 0.8 : 1,
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -214,8 +242,14 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
         }}
       >
         {isPending && <span aria-hidden className="animate-spin" style={{ display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(245,239,226,0.4)', borderTopColor: 'var(--paper)', borderRadius: '50%' }} />}
-        {isPending ? 'Sending to the office…' : 'Send to the office'}
+        {isPending ? 'Sending to the office…' : uploading ? 'Wait for photos…' : 'Send to the office'}
       </button>
+      {(dirty || uploading) && !isPending && !state.error && (
+        <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          Your report has not been sent yet. Keep this page open until you send it.
+        </p>
+      )}
+      </fieldset>
     </form>
   );
 }
