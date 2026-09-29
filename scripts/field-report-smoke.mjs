@@ -129,7 +129,7 @@ try{
       Object.getOwnPropertyDescriptor(proto,'value').set.call(input,value);
       input.dispatchEvent(new Event('input',{bubbles:true}));
     },value);
-    const waitText=text=>page.waitForFunction(text=>document.body.innerText.includes(text),{},text);
+    const waitText=text=>page.waitForFunction(text=>document.body.textContent.includes(text),{},text);
     const waitCalls=n=>page.waitForFunction(n=>window.calls.length===n,{},n);
     const guard=()=>page.evaluate(()=>window.guarded());
     const data=()=>page.$eval('form',form=>Object.fromEntries(new FormData(form)));
