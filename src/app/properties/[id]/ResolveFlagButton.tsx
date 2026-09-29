@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { resolveInspectionNote } from '@/app/inspections/actions';
 import { togglePropertyNoteResolved } from '@/app/properties/actions';
 import type { FlagSource } from '@/lib/property-flags';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 /**
  * One Resolve verb for both note tables.
@@ -14,8 +16,8 @@ import type { FlagSource } from '@/lib/property-flags';
  * action; the button reads the same either way.
  *
  * Neither action deletes: the observation is preserved, it just stops being
- * open. The row disappears optimistically and comes back if the write fails,
- * so a failure is visible rather than silently swallowed.
+ * open. Show Resolved only after confirmation; a retry must never toggle a
+ * successfully resolved property note back open after a lost response.
  */
 export function ResolveFlagButton({
   propertyId,
@@ -26,27 +28,34 @@ export function ResolveFlagButton({
   flagId: string;
   source: FlagSource;
 }) {
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
+  const lock = useRef(false);
+  const softRefresh = useSoftRefresh();
+  useUnsavedWorkGuard(pending);
   const [resolved, setResolved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   function resolve() {
+    if (lock.current || resolved) return;
+    lock.current = true;
     setErr(null);
-    setResolved(true);
     startTransition(async () => {
       try {
         if (source === 'walk') {
           const res = await resolveInspectionNote(flagId);
           if (!res.ok) {
-            setResolved(false);
             setErr(res.error);
+            return;
           }
-          return;
+        } else {
+          await togglePropertyNoteResolved(propertyId, flagId, true);
         }
-        await togglePropertyNoteResolved(propertyId, flagId);
-      } catch (e) {
-        setResolved(false);
-        setErr(e instanceof Error ? e.message : 'Could not resolve');
+        setResolved(true);
+        softRefresh();
+      } catch {
+        setErr('Could not confirm resolution. Check the flag before retrying.');
+      } finally {
+        lock.current = false;
       }
     });
   }
@@ -71,6 +80,7 @@ export function ResolveFlagButton({
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
       <button
         type="button"
+        disabled={pending}
         onClick={resolve}
         title="Mark resolved. The note is kept, it just stops being open."
         style={{
@@ -85,9 +95,9 @@ export function ResolveFlagButton({
           fontWeight: 500,
         }}
       >
-        Resolve
+        {pending ? 'Resolving…' : 'Resolve'}
       </button>
-      {err && <span style={{ fontSize: 10, color: 'var(--negative)' }}>{err}</span>}
+      {err && <span role="alert" style={{ fontSize: 10, color: 'var(--negative)' }}>{err}</span>}
     </div>
   );
 }

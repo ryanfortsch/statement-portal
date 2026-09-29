@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { updateWorkSlipStatus } from '@/app/work/actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 /**
  * Inline "Done" control on the property page's Open Work list. Marks the
@@ -21,29 +22,44 @@ export function MarkSlipDoneButton({ slipId, propertyId }: { slipId: string; pro
   const softRefresh = useSoftRefresh();
   const [pending, start] = useTransition();
   const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const lock = useRef(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current); }, []);
+  useUnsavedWorkGuard(pending);
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
     <button
       type="button"
-      disabled={pending}
+      disabled={pending || done}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        setError(false);
+        if (lock.current || done) return;
+        setError(null);
         if (!confirming) {
           setConfirming(true);
-          setTimeout(() => setConfirming(false), 3000);
+          if (confirmTimer.current) clearTimeout(confirmTimer.current);
+          confirmTimer.current = setTimeout(() => setConfirming(false), 3000);
           return;
         }
+        lock.current = true;
+        if (confirmTimer.current) clearTimeout(confirmTimer.current);
+        setConfirming(false);
         start(async () => {
-          const res = await updateWorkSlipStatus({ id: slipId, status: 'done', propertyId });
-          if (!res.ok) {
-            setError(true);
-            setConfirming(false);
-            return;
+          try {
+            const res = await updateWorkSlipStatus({ id: slipId, status: 'done', propertyId });
+            if (!res.ok) { setError(res.error); return; }
+            setDone(true);
+            softRefresh();
+          } catch {
+            setError('Could not confirm completion. Check the slip before retrying.');
+            softRefresh();
+          } finally {
+            lock.current = false;
           }
-          softRefresh();
         });
       }}
       title="Mark this work slip done"
@@ -61,7 +77,9 @@ export function MarkSlipDoneButton({ slipId, propertyId }: { slipId: string; pro
         whiteSpace: 'nowrap',
       }}
     >
-      {pending ? 'Saving…' : error ? 'Retry' : confirming ? 'Confirm ✓' : 'Done'}
+      {pending ? 'Saving…' : done ? 'Done ✓' : error ? 'Retry' : confirming ? 'Confirm ✓' : 'Done'}
     </button>
+    {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)', maxWidth: 240 }}>{error}</span>}
+    </div>
   );
 }

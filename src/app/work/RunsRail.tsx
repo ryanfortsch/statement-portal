@@ -306,19 +306,31 @@ function WorkOrderComposer({
 function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerson[] }) {
   const softRefresh = useSoftRefresh();
   const [publishing, startPublish] = useTransition();
+  const publishLock = useRef(false);
+  const [published, setPublished] = useState(false);
+  useUnsavedWorkGuard(publishing);
   const [composing, setComposing] = useState(false);
   const [error, setError] = useState('');
 
   function onPublish() {
+    if (publishLock.current || published) return;
+    publishLock.current = true;
+    setError('');
     startPublish(async () => {
-      setError('');
-      const res = await publishRun(run.packetId);
-      if (!res.ok) setError(res.error);
-      else softRefresh();
+      try {
+        const res = await publishRun(run.packetId);
+        if (!res.ok) { setError(res.error); return; }
+        setPublished(true);
+        softRefresh();
+      } catch {
+        setError('Could not confirm publishing. Open the packet to check its status before retrying.');
+      } finally {
+        publishLock.current = false;
+      }
     });
   }
 
-  const statusLabel = run.suggested ? 'Suggested' : (STATUS_LABEL[run.status] ?? (run.status === 'draft' ? 'Draft' : run.status));
+  const statusLabel = published ? 'Published' : run.suggested ? 'Suggested' : (STATUS_LABEL[run.status] ?? (run.status === 'draft' ? 'Draft' : run.status));
 
   return (
     <div
@@ -375,7 +387,7 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 2, flexWrap: 'wrap' }}>
-        {run.status === 'draft' && (
+        {run.status === 'draft' && !published && (
           <button
             type="button"
             onClick={onPublish}
@@ -415,7 +427,7 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
         >
           Open packet →
         </Link>
-        {error && <span style={{ fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
+        {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
       </div>
       {composing && (
         <WorkOrderComposer
@@ -477,6 +489,9 @@ function VendorGroup({ propertyName, slips, roster }: { propertyName: string; sl
 export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone?: boolean }) {
   const softRefresh = useSoftRefresh();
   const [planning, startPlanning] = useTransition();
+  const planLock = useRef(false);
+  const [planError, setPlanError] = useState('');
+  useUnsavedWorkGuard(planning);
   const [note, setNote] = useState('');
 
   const vendorGroups = useMemo(() => {
@@ -499,11 +514,13 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
     data.unclassifiedCount > 0;
 
   function onPlanNow() {
+    if (planLock.current) return;
+    planLock.current = true;
+    setNote(''); setPlanError('');
     startPlanning(async () => {
-      setNote('');
-      const res = await planRunsNow();
-      if (!res.ok) setNote(res.error);
-      else {
+      try {
+        const res = await planRunsNow();
+        if (!res.ok) { setPlanError(res.error); return; }
         const parts: string[] = [];
         if (res.created) parts.push(`${res.created} planned`);
         if (res.kept) parts.push(`${res.kept} unchanged`);
@@ -511,6 +528,10 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
         if (res.classifying) parts.push(`triaging ${res.classifying} new slips in the background — check back in a few minutes`);
         setNote(parts.length ? parts.join(' · ') : 'Nothing to plan right now');
         softRefresh();
+      } catch {
+        setPlanError('Could not confirm planning. Check the current runs before retrying.');
+      } finally {
+        planLock.current = false;
       }
     });
   }
@@ -527,6 +548,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
             Maintenance runs
           </h2>
           {note && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{note}</span>}
+          {planError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{planError}</span>}
           <button
             type="button"
             onClick={onPlanNow}

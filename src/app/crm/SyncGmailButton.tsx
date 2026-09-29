@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRef, useState } from 'react';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { summarizeManualSync } from '@/lib/manual-sync-result';
 
 /**
  * Manual trigger for /api/cron/sync-gmail-replies. The cron also runs
@@ -13,13 +15,17 @@ import { useRouter } from 'next/navigation';
  * trust here).
  */
 export function SyncGmailButton() {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
+  const lock = useRef(false);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  useUnsavedWorkGuard(pending);
+
   async function sync() {
-    if (pending) return;
+    if (lock.current) return;
+    lock.current = true;
     setPending(true);
     setErr(null);
     setResult(null);
@@ -28,23 +34,19 @@ export function SyncGmailButton() {
         method: 'POST',
         headers: { 'x-helm-manual-sync': '1' },
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setErr(data?.error || `Failed (${res.status})`);
+        setErr(typeof data?.error === 'string' ? data.error : `Failed (${res.status})`);
         return;
       }
-      const inserted = Number(data.inserted ?? 0);
-      const matched = Number(data.matched ?? 0);
-      const scanned = Number(data.scanned ?? 0);
-      setResult(
-        inserted > 0
-          ? `Captured ${inserted} new ${inserted === 1 ? 'reply' : 'replies'} (${scanned} scanned, ${matched} matched).`
-          : `No new replies (${scanned} scanned, ${matched} matched but already on file).`
-      );
-      if (inserted > 0) router.refresh();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const summary = summarizeManualSync('gmail', data);
+      if (summary.warning) setErr(summary.message);
+      else setResult(summary.message);
+      if (summary.refresh) softRefresh();
+    } catch {
+      setErr('Could not confirm the sync result. Check the latest activity before retrying.');
     } finally {
+      lock.current = false;
       setPending(false);
     }
   }
@@ -73,6 +75,7 @@ export function SyncGmailButton() {
       </button>
       {(result || err) && (
         <div
+          role={err ? 'alert' : 'status'}
           style={{
             fontSize: 11,
             color: err ? 'var(--negative)' : 'var(--ink-4)',

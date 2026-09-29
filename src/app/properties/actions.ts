@@ -811,7 +811,7 @@ export async function deletePropertyNote(propertyId: string, noteId: string) {
  * full edit form. Re-running on an already-resolved note un-resolves
  * it (toggle semantics).
  */
-export async function togglePropertyNoteResolved(propertyId: string, noteId: string) {
+export async function togglePropertyNoteResolved(propertyId: string, noteId: string, resolveOnly = false) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
@@ -824,6 +824,14 @@ export async function togglePropertyNoteResolved(propertyId: string, noteId: str
     .maybeSingle();
   if (readErr) throw new Error(readErr.message);
   if (!current) throw new Error('Note not found');
+
+  // The flags shortcut is a Resolve command, including after a lost reply.
+  // Preserve the original resolver and timestamp on a repeated command.
+  // Existing callers without this option retain their toggle behavior.
+  if (resolveOnly && current.resolved_at) {
+    revalidatePath(`/properties/${propertyId}`);
+    return;
+  }
 
   const nextResolvedAt = current.resolved_at ? null : new Date().toISOString();
   const nextResolvedBy = nextResolvedAt ? session.user.email : null;

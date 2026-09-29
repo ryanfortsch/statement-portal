@@ -255,6 +255,7 @@ export function CompactTurnoverRow({
                   planId={t.plan?.id ?? null}
                   plannedForDate={t.plan?.planned_for_date ?? null}
                   plannedBy={t.plan?.planned_by_email ?? null}
+                  plannedNotes={t.plan?.notes ?? null}
                   assignedToEmail={t.plan?.assigned_to_email ?? null}
                   myEmail={myEmail}
                 />
@@ -425,6 +426,7 @@ function PrimaryAction({
         planId={t.plan.id}
         plannedForDate={t.plan.planned_for_date}
         plannedBy={t.plan.planned_by_email}
+        plannedNotes={t.plan.notes}
         assignedToEmail={t.plan.assigned_to_email}
         myEmail={myEmail}
       />

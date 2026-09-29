@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { markOwnerContacted, type OwnerContactChannel } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type Props = { propertyId: string };
 
@@ -27,7 +28,10 @@ export function MarkContactedButton({ propertyId }: Props) {
   const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
-  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const lock = useRef(false);
+  const [failedChannel, setFailedChannel] = useState<OwnerContactChannel | null>(null);
+  useUnsavedWorkGuard(pending);
   const [err, setErr] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -42,16 +46,23 @@ export function MarkContactedButton({ propertyId }: Props) {
   }, [open]);
 
   function pick(channel: OwnerContactChannel) {
+    if (lock.current) return;
+    lock.current = true;
     setErr(null);
+    setSavedAt(null); setFailedChannel(null);
     setOpen(false);
     startTransition(async () => {
-      const res = await markOwnerContacted({ property_id: propertyId, channel });
-      if (!res.ok) {
-        setErr(res.error);
-        return;
+      try {
+        const res = await markOwnerContacted({ property_id: propertyId, channel });
+        if (!res.ok) { setErr(res.error); setFailedChannel(channel); return; }
+        setSavedAt(res.at);
+        softRefresh();
+      } catch {
+        setFailedChannel(channel);
+        setErr('Could not confirm the contact update. Check Last contacted before retrying.');
+      } finally {
+        lock.current = false;
       }
-      setSavedAt(Date.now());
-      softRefresh();
     });
   }
 
@@ -59,7 +70,7 @@ export function MarkContactedButton({ propertyId }: Props) {
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => { if (!lock.current) setOpen((o) => !o); }}
         disabled={pending}
         title="Record an off-thread touch (call, text, in person)"
         style={{
@@ -116,6 +127,7 @@ export function MarkContactedButton({ propertyId }: Props) {
 
       {err && (
         <div
+          role="alert"
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
@@ -130,6 +142,8 @@ export function MarkContactedButton({ propertyId }: Props) {
           }}
         >
           {err}
+          {failedChannel && <button type="button" disabled={pending} onClick={() => pick(failedChannel)} style={{ display: 'block', marginTop: 6 }}>Retry {CHANNELS.find((c) => c.id === failedChannel)?.label}</button>}
+          <button type="button" disabled={pending} onClick={() => { setErr(null); setFailedChannel(null); }}>Dismiss</button>
         </div>
       )}
     </div>
