@@ -1,12 +1,12 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
-import { useFormStatus } from 'react-dom';
-import { submitApplication, type ApplyState } from './actions';
+import { useEffect, useRef, useState } from 'react';
+import { useRetainedSubmission } from '@/lib/use-retained-submission';
+import { submitApplication } from './actions';
 import { ApplyVideo } from './ApplyVideo';
 
 /**
- * The public application form, as a client component with useActionState
+ * The public application form uses manual submission to retain native fields
  * (same pattern as OnboardingForm): a validation failure renders a specific
  * inline error next to the submit button and the form stays mounted with
  * everything the applicant typed — including an uploaded intro video —
@@ -30,12 +30,11 @@ const input: React.CSSProperties = {
 };
 const lbl: React.CSSProperties = { fontSize: 13, color: 'var(--ink-3)', display: 'block', marginBottom: 20 };
 
-function SubmitButton() {
-  const { pending } = useFormStatus();
+function SubmitButton({ pending, uploading }: { pending: boolean; uploading: boolean }) {
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || uploading}
       style={{
         background: 'var(--signal)',
         color: 'var(--paper)',
@@ -61,7 +60,7 @@ function SubmitButton() {
           style={{ display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(250,247,241,0.35)', borderTopColor: 'var(--paper)', borderRadius: '50%' }}
         />
       )}
-      {pending ? 'Sending application…' : 'Submit application'}
+      {pending ? 'Sending application…' : uploading ? 'Waiting for video…' : 'Submit application'}
     </button>
   );
 }
@@ -87,11 +86,19 @@ function InlineError({ error }: { error: string }) {
 }
 
 export function ApplyForm({ source, trade = 'inspection' }: { source: string; trade?: string }) {
-  const [state, formAction] = useActionState<ApplyState, FormData>(submitApplication, { error: '' });
+  const uploadBusy = useRef(false);
+  const [uploading, setUploading] = useState(false);
+  const [hasVideo, setHasVideo] = useState(false);
+  const form = useRetainedSubmission(submitApplication, {
+    blocked: () => uploadBusy.current,
+    extraDirty: uploading || hasVideo,
+    uncertainMessage: 'Could not confirm your application. Your answers are kept. Check whether you received a confirmation before submitting again.',
+  });
   const creative = trade === 'creative';
 
   return (
-    <form action={formAction} style={{ maxWidth: 520, paddingBottom: 40 }}>
+    <form onSubmit={form.submit} onChange={form.markDirty} style={{ maxWidth: 520, paddingBottom: 40 }}>
+      <fieldset disabled={form.pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <input type="hidden" name="source" value={source} />
       <input type="hidden" name="trade" value={trade} />
       <label style={lbl}>
@@ -135,9 +142,12 @@ export function ApplyForm({ source, trade = 'inspection' }: { source: string; tr
         {creative ? 'Your work and handles' : 'Tell us a little about yourself'}
         <textarea name="about" rows={4} placeholder={creative ? 'Your Instagram / portfolio, your three best pieces, what you shoot and edit with, and why this work.' : 'Any property, hospitality, cleaning, or home-maintenance experience? Why this work?'} style={{ ...input, resize: 'vertical' }} />
       </label>
-      <ApplyVideo />
-      <InlineError error={state.error} />
-      <SubmitButton />
+      <ApplyVideo onStateChange={(busy, attached) => {
+        uploadBusy.current = busy; setUploading(busy); setHasVideo(attached);
+      }} />
+      <InlineError error={form.error} />
+      <SubmitButton pending={form.pending} uploading={uploading} />
+      </fieldset>
     </form>
   );
 }

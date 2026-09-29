@@ -1,33 +1,41 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { setSmsOptIn } from './actions';
 
 /**
  * The "text me when new work is posted" switch on the profile. Opt-out: on by
- * default, flip it off to stop the new-work texts. Optimistic: the switch moves
- * instantly, persists via the server action, and reverts if the save fails.
+ * default, flip it off to stop the new-work texts. The switch changes only
+ * after the server confirms the saved preference; failures keep the intended retry target.
  */
 export function SmsToggle({ initial }: { initial: boolean }) {
   const [on, setOn] = useState(initial);
   const [saved, setSaved] = useState(false);
   const [pending, start] = useTransition();
 
-  function toggle() {
-    const next = !on;
-    setOn(next);
-    setSaved(false);
+  const lock = useRef(false);
+  const [error, setError] = useState('');
+  const [failedTarget, setFailedTarget] = useState<boolean | null>(null);
+  useUnsavedWorkGuard(pending);
+
+  function toggle(next = !on) {
+    if (lock.current) return;
+    lock.current = true;
+    setSaved(false); setError(''); setFailedTarget(null);
     start(async () => {
-      const res = await setSmsOptIn(next);
-      if (!res?.ok) {
-        setOn(!next); // revert
-      } else {
-        setSaved(true);
-      }
+      try {
+        const res = await setSmsOptIn(next);
+        if (!res.ok) { setError(res.error || 'Could not save your text preference.'); setFailedTarget(next); return; }
+        setOn(next); setSaved(true);
+      } catch {
+        setError('Could not confirm your text preference. Retry to save your choice.'); setFailedTarget(next);
+      } finally { lock.current = false; }
     });
   }
 
   return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
       <span
         aria-hidden
@@ -47,7 +55,7 @@ export function SmsToggle({ initial }: { initial: boolean }) {
         role="switch"
         aria-checked={on}
         aria-label="Text me when new work is posted"
-        onClick={toggle}
+        onClick={() => toggle()}
         disabled={pending}
         style={{
           position: 'relative',
@@ -76,6 +84,11 @@ export function SmsToggle({ initial }: { initial: boolean }) {
           }}
         />
       </button>
+    </div>
+    {error && <div role="alert" style={{ fontSize: 12, maxWidth: 280, color: 'var(--signal)' }}>
+      {error}
+      {failedTarget !== null && <button type="button" disabled={pending} onClick={() => toggle(failedTarget)}>Retry {failedTarget ? 'turning texts on' : 'turning texts off'}</button>}
+    </div>}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
-import { useFormStatus } from 'react-dom';
-import { completeOnboarding, type OnboardingState } from '../actions';
+import { useEffect, useRef } from 'react';
+import { useRetainedSubmission } from '@/lib/use-retained-submission';
+import { completeOnboarding } from '../actions';
 import { PhoneInput } from '@/components/PhoneInput';
 import { PaymentFields } from './PaymentFields';
 import { TinInput } from './TinInput';
@@ -28,8 +28,7 @@ const inputStyle: React.CSSProperties = {
 
 /** Submit button with a live pending state so a click is obviously registered
  *  and the (multi-second) save can't be double-fired. */
-function FinishButton({ idleLabel }: { idleLabel: string }) {
-  const { pending } = useFormStatus();
+function FinishButton({ idleLabel, pending }: { idleLabel: string; pending: boolean }) {
   return (
     <button
       type="submit"
@@ -60,7 +59,7 @@ function FinishButton({ idleLabel }: { idleLabel: string }) {
 }
 
 /**
- * Contractor onboarding form. Uses useActionState so a validation/save failure
+ * Contractor onboarding form. Manual submission ensures a validation/save failure
  * returns a SPECIFIC inline error and the form stays mounted with everything
  * the contractor typed (W-9, address, payout) intact, instead of redirecting
  * back to a wiped form with a generic message.
@@ -81,11 +80,14 @@ export function OnboardingForm({
   // Creative contributors never inspect — the agreement clause reflects that.
   isCreative?: boolean;
 }) {
-  const [state, formAction] = useActionState<OnboardingState, FormData>(completeOnboarding, { error: '' });
+  const form = useRetainedSubmission(completeOnboarding, {
+    uncertainMessage: 'Could not confirm your account setup. Your answers are kept. Reopen your portal in another tab to check before trying again.',
+  });
 
   return (
     <>
-      <form action={formAction} style={{ display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 480 }}>
+      <form onSubmit={form.submit} onChange={form.markDirty} style={{ maxWidth: 480 }}>
+        <fieldset disabled={form.pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 22 }}>
         <div>
           <label style={labelStyle}>Full name</label>
           <input name="full_name" type="text" defaultValue={defaultName} required autoComplete="name" style={inputStyle} />
@@ -191,8 +193,9 @@ export function OnboardingForm({
         {/* The error renders HERE, beside the button the contractor just
             tapped — the old top-of-form banner sat ~2000px off-screen after a
             failed submit, so the Finish button just looked dead. */}
-        <InlineError error={state.error} />
-        <FinishButton idleLabel={isCreative ? 'Finish setup' : 'Finish & start browsing'} />
+        <InlineError error={form.error} />
+        <FinishButton pending={form.pending} idleLabel={isCreative ? 'Finish setup' : 'Finish & start browsing'} />
+        </fieldset>
       </form>
     </>
   );
