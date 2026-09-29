@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { snoozeWorkSlip } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type Props = {
   slipId: string;
@@ -60,7 +61,10 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
   const [customDate, setCustomDate] = useState('');
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<{ until: string | null } | null>(null);
+  const saving = useRef(false);
   const ref = useRef<HTMLDivElement>(null);
+  useUnsavedWorkGuard(pending || attempt !== null || customDate !== '');
 
   useEffect(() => {
     if (!open) return;
@@ -73,19 +77,27 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
   }, [open]);
 
   function apply(until: string | null) {
+    if (saving.current) return;
+    saving.current = true;
     setErr(null);
-    setOpen(false);
-    const prev = snoozedUntil;
-    setSnoozedUntil(until);
+    setAttempt({ until });
     startTransition(async () => {
-      const res = await snoozeWorkSlip({ id: slipId, until });
-      if (!res.ok) {
-        setErr(res.error);
-        // Roll back optimistic state on failure
-        setSnoozedUntil(prev);
-        return;
+      try {
+        const res = await snoozeWorkSlip({ id: slipId, until });
+        if (!res.ok) {
+          setErr(res.error);
+          return;
+        }
+        setSnoozedUntil(until);
+        setCustomDate('');
+        setAttempt(null);
+        setOpen(false);
+        softRefresh();
+      } catch {
+        setErr('Could not confirm the snooze change. Retry to apply your selection.');
+      } finally {
+        saving.current = false;
       }
-      softRefresh();
     });
   }
 
@@ -96,7 +108,6 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
     // in the picker but not against a hand-typed date.
     const floor = utcDay(1);
     apply(customDate >= floor ? customDate : floor);
-    setCustomDate('');
   }
 
   const isSnoozed = !!snoozedUntil && snoozedUntil > utcDay(0);
@@ -107,6 +118,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         disabled={pending}
+        aria-expanded={open}
         style={{
           background: isSnoozed ? 'var(--paper-2)' : 'transparent',
           border: `1px solid ${isSnoozed ? 'var(--tide-deep)' : 'var(--rule)'}`,
@@ -121,6 +133,14 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
       >
         {pending ? 'Saving…' : isSnoozed ? `Snoozed until ${snoozedUntil}` : '+ Snooze'}
       </button>
+
+      {!open && (attempt || customDate) && (
+        <div style={{ marginTop: 4 }}>
+          <button type="button" disabled={pending} onClick={() => setOpen(true)} style={{ fontSize: 11 }}>
+            {err ? 'Snooze needs attention' : 'Unsaved snooze selection'}
+          </button>
+        </div>
+      )}
 
       {open && (
         <div
@@ -141,6 +161,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
               key={p.id}
               type="button"
               onClick={() => apply(snoozeDay(p.daysFromNow))}
+              disabled={pending}
               style={{
                 display: 'block',
                 width: '100%',
@@ -163,8 +184,10 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
           <form onSubmit={handleCustom} style={{ display: 'flex', gap: 6, padding: '6px 10px', marginTop: 4, borderTop: '1px solid var(--rule)' }}>
             <input
               type="date"
+              aria-label="Snooze until"
               value={customDate}
               onChange={(e) => setCustomDate(e.target.value)}
+              disabled={pending}
               min={snoozeDay(1)}
               style={{
                 flex: 1,
@@ -178,7 +201,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
             />
             <button
               type="submit"
-              disabled={!customDate}
+              disabled={pending || !customDate}
               style={{
                 background: 'var(--ink)',
                 color: 'var(--paper)',
@@ -200,6 +223,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
               <button
                 type="button"
                 onClick={() => apply(null)}
+                disabled={pending}
                 style={{
                   display: 'block',
                   width: '100%',
@@ -216,12 +240,15 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
               </button>
             </div>
           )}
-        </div>
-      )}
-
-      {err && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, fontSize: 11, color: 'var(--negative)', background: 'var(--paper)', border: '1px solid var(--negative)', padding: '6px 10px', maxWidth: 240 }}>
-          {err}
+          {err && attempt && (
+            <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', padding: '6px 10px', borderTop: '1px solid var(--rule)' }}>
+              <div>{attempt.until ? `Snooze until ${attempt.until}` : 'Un-snooze'}: {err} Showing the last confirmed snooze.</div>
+              <button type="button" disabled={pending} onClick={() => apply(attempt.until)} style={{ marginTop: 6 }}>Retry snooze change</button>
+            </div>
+          )}
+          <button type="button" disabled={pending} onClick={() => { setCustomDate(''); setAttempt(null); setErr(null); setOpen(false); }} style={{ margin: '6px 10px', fontSize: 11 }}>
+            Dismiss
+          </button>
         </div>
       )}
     </div>

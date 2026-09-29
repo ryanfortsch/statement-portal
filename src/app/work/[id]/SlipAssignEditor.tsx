@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { TeamPicker } from '@/components/TeamPicker';
+import { displayNameForEmail } from '@/lib/team';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { updateWorkSlipAssignment } from '../actions';
 
 type Props = {
@@ -13,22 +15,41 @@ type Props = {
 /**
  * Inline assignee editor, compact enough to live in the detail page's
  * stat grid. Uses TeamPicker for the actual selection and persists via
- * the server action. Optimistic local state keeps the trigger snappy
- * while the write is in flight.
+ * the server action. The trigger keeps the last confirmed assignment
+ * until a save succeeds; failed choices remain available for retry.
  */
 export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail }: Props) {
   const [value, setValue] = useState<string | null>(initialAssignedToEmail);
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState<{ email: string | null } | null>(null);
+  const saving = useRef(false);
+  useUnsavedWorkGuard(pending || attempt !== null);
 
   function handleChange(next: string | null) {
-    setValue(next);
+    if (saving.current) return;
+    saving.current = true;
+    const email = next?.trim() || null;
+    setAttempt({ email });
     setErr(null);
     startTransition(async () => {
-      const res = await updateWorkSlipAssignment({ id: slipId, assigned_to_email: next });
-      if (!res.ok) setErr(res.error);
+      try {
+        const res = await updateWorkSlipAssignment({ id: slipId, assigned_to_email: email });
+        if (!res.ok) {
+          setErr(res.error);
+          return;
+        }
+        setValue(email);
+        setAttempt(null);
+      } catch {
+        setErr('Could not confirm the assignment. Retry to apply your selection.');
+      } finally {
+        saving.current = false;
+      }
     });
   }
+
+  const targetLabel = attempt?.email ? displayNameForEmail(attempt.email) : 'Unassigned';
 
   return (
     <div>
@@ -40,8 +61,14 @@ export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail }: Pr
         disabled={pending}
       />
       {(pending || err) && (
-        <div style={{ marginTop: 4, fontSize: 11, color: err ? 'var(--negative)' : 'var(--ink-4)' }}>
-          {err ?? 'Saving…'}
+        <div role={err ? 'alert' : 'status'} style={{ marginTop: 4, fontSize: 11, color: err ? 'var(--negative)' : 'var(--ink-4)' }}>
+          {err ? `${targetLabel}: ${err} Showing the last confirmed assignment.` : `Saving assignment: ${targetLabel}…`}
+          {err && attempt && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button type="button" disabled={pending} onClick={() => handleChange(attempt.email)}>Retry assignment</button>
+              <button type="button" disabled={pending} onClick={() => { setAttempt(null); setErr(null); }}>Dismiss</button>
+            </div>
+          )}
         </div>
       )}
     </div>
