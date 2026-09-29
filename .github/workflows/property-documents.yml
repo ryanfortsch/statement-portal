@@ -67,6 +67,8 @@ jobs:
         run: node scripts/intake-jobs-smoke.mjs
       - name: Verify property capture, walkthrough, inline edits, and address recovery
         run: node scripts/property-capture-smoke.mjs
+      - name: Verify campaign creation and delete recovery
+        run: node scripts/campaign-delete-recovery-smoke.mjs
       - name: Verify PDF downloads and onboarding navigation
         run: node scripts/pdf-download-recovery-smoke.mjs
       - name: Verify owner email drafts and shoot reply recovery

@@ -1,19 +1,12 @@
 'use client';
 
-import { useFormStatus } from 'react-dom';
-
-/**
- * Submit button for the AI campaign drafter. Uses useFormStatus so the
- * button visibly disables and changes label while the server action is
- * in flight (the AI generation takes 10 to 20 seconds and the original
- * button gave zero feedback during that wait).
- */
-export function DraftButton() {
-  const { pending } = useFormStatus();
+/** Shared pending state prevents competing campaign creation requests. */
+export function DraftButton({ pending, disabled }: { pending: boolean; disabled: boolean }) {
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={disabled}
+      aria-busy={pending}
       style={{
         background: 'var(--ink)',
         color: 'var(--paper)',
