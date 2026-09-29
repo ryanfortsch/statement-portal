@@ -301,6 +301,12 @@ try{
   assert.equal(await guard(),true);await click('scope','Dismiss');await waitClean();
   pass('a confirmed snooze shows its date while another editor is still pending or failed');
 
+  await reset();await click('scope','Handyman');await waitCalls(1);await snoozeCustom('2026-10-10');await waitCalls(2);
+  await finish(1,{ok:false,error:'Snooze failed before routing finished'});await waitText('Snooze failed before routing finished');
+  assert.equal(await trigger(),'Snoozed until 2026-10-01');assert.equal(await date(),'2026-10-10');assert.equal(await guard(),true);
+  await finish(0);await ready('snooze');await click('snooze','Dismiss');await waitClean();
+  pass('a failed snooze shows the last confirmed date even while a different request remains pending');
+
   await reset();await custom('pending@example.test');await click('scope','Handyman');await snoozeCustom('2026-10-10');await waitCalls(3);
   await page.evaluate(()=>window.unmount());await waitClean();
   await finish(0);await finish(1,null,true);await finish(2,{ok:false,error:'Late snooze error'});
