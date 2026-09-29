@@ -107,6 +107,8 @@ export function isHighStakesColumn(key: string | null | undefined): boolean {
 export type CaptureItem = {
   /** 'column' writes into a structured field; 'note' creates a property note. */
   target: 'column' | 'note';
+  /** Stable ID for a reviewed note, retained across retries. Never supplied by the parser. */
+  noteId?: string;
   /** For target=column: the exact column key. Null for notes. */
   column: string | null;
   /** For target=column: the cleaned value to store. Null for notes. */

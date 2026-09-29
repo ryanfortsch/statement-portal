@@ -187,11 +187,11 @@ export async function updateTaxCertId(
   if (certId && !/^[A-Z0-9-]{4,32}$/i.test(certId)) {
     return { ok: false, error: 'Cert ID must be 4-32 letters/digits (e.g. C0585051070).' };
   }
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('properties')
     .update({ tax_cert_id: certId, last_synced_at: new Date().toISOString() })
-    .eq('id', propertyId);
-  if (error) return { ok: false, error: error.message };
+    .eq('id', propertyId).select('id').maybeSingle();
+  if (error || !data) return { ok: false, error: error?.message || 'Property not found. The certificate ID was not saved.' };
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath('/statements');
   return { ok: true };

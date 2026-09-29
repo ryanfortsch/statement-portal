@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { applyPropertyCaptureAction } from '@/app/properties/actions';
 import { captureColumn, isHighStakesColumn } from '@/lib/property-capture-catalog';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
@@ -44,18 +46,20 @@ export function InlineField({
   const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
+  const { pending, busy, error, setError, run } = useRecoverableAction();
+
+  useUnsavedWorkGuard(pending || (open && !!value.trim()));
 
   const col = captureColumn(column);
   const numeric = col?.type === 'int' || col?.type === 'float';
   const highStakes = isHighStakesColumn(column);
 
   function save() {
+    if (busy.current) return;
     const raw = value.trim();
     if (!raw) return;
     setError(null);
-    start(async () => {
+    run(async () => {
       const res = await applyPropertyCaptureAction(propertyId, [
         {
           target: 'column',
@@ -85,7 +89,7 @@ export function InlineField({
       setOpen(false);
       setValue('');
       softRefresh();
-    });
+    }, 'Could not confirm this field was saved. Your value is kept; try again.');
   }
 
   if (!open) {
@@ -112,12 +116,14 @@ export function InlineField({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <input
+          disabled={pending}
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') save();
-            if (e.key === 'Escape') {
+            if (busy.current) return;
+            if (e.key === 'Enter') { e.preventDefault(); save(); }
+            if (e.key === 'Escape' && (!value.trim() || confirm('Discard this field edit?'))) {
               setOpen(false);
               setValue('');
               setError(null);

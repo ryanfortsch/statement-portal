@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, type FormEvent } from 'react';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+
 import type { AddressMatch } from '@/lib/competitors/types';
 import { setListingAddress, clearListingAddress } from '@/app/competitors/actions';
 
@@ -30,39 +33,41 @@ export function AddressEditor({
   currentAddress,
   onClose,
 }: Props) {
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  async function onSubmit(formData: FormData) {
-    setError(null);
-    startTransition(async () => {
-      try {
-        await setListingAddress(competitorId, listingSlug, formData);
-        onClose();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    });
+  const { pending: isPending, busy, error, setError, run } = useRecoverableAction();
+  const [dirty, setDirty] = useState(false);
+  useUnsavedWorkGuard(dirty || isPending);
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy.current) return;
+    const formData = new FormData(event.currentTarget);
+    setDirty(true);
+    run(async () => {
+      await setListingAddress(competitorId, listingSlug, formData);
+      setDirty(false);
+      onClose();
+    }, 'Could not confirm the address was saved. Your fields are kept; try again.');
   }
-
-  async function onClear() {
-    if (!confirm('Remove the user-verified address? Listing will revert to the research overlay.')) return;
+  function onClear() {
+    if (busy.current || !confirm('Remove the user-verified address? Listing will revert to the research overlay. Unsaved edits will be discarded after removal succeeds.')) return;
+    run(async () => {
+      await clearListingAddress(competitorId, listingSlug);
+      setDirty(false);
+      onClose();
+    }, 'Could not confirm removal. Your fields are kept; try again.');
+  }
+  function cancel() {
+    if (busy.current || (dirty && !confirm('Discard these address edits?'))) return;
+    setDirty(false);
     setError(null);
-    startTransition(async () => {
-      try {
-        await clearListingAddress(competitorId, listingSlug);
-        onClose();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    });
+    onClose();
   }
 
   const vgsiUrl = vgsiUrlForCity(city);
 
   return (
     <form
-      action={onSubmit}
+      onSubmit={onSubmit}
+      onChange={() => setDirty(true)}
       style={{
         gridColumn: '1 / -1',
         background: 'var(--paper-2)',
@@ -75,6 +80,7 @@ export function AddressEditor({
         gap: 16,
       }}
     >
+      <fieldset disabled={isPending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'contents' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
           <div className="eyebrow" style={{ color: 'var(--signal)', marginBottom: 4 }}>
@@ -196,7 +202,7 @@ export function AddressEditor({
 
         <button
           type="button"
-          onClick={onClose}
+          onClick={cancel}
           disabled={isPending}
           style={{
             fontSize: 11,
@@ -235,6 +241,7 @@ export function AddressEditor({
           </button>
         )}
       </div>
+      </fieldset>
     </form>
   );
 }
