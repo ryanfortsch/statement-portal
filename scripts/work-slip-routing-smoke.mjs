@@ -284,11 +284,22 @@ try{
 
   await reset();await custom('pending@example.test');await waitCalls(1);
   await click('scope','Handyman');await waitCalls(2);await snoozeCustom('2026-10-10');await waitCalls(3);
-  await finish(0);await ready('assignment');assert.equal(await guard(),true);
-  await finish(1);await ready('scope');assert.equal(await guard(),true);
+  // React may entangle overlapping transitions, leaving all controls pending
+  // until the final action settles. Check confirmed values independently.
+  await finish(0);await page.waitForFunction(()=>document.querySelector('#assignment button').textContent.includes('pending@example.test'));
+  assert.equal(await page.$('#assignment [role="status"]'),null);assert.equal(await guard(),true);
+  await finish(1);await page.waitForFunction(()=>document.querySelector('#scope button[aria-pressed="true"]').textContent==='Handyman');
+  assert.equal(await page.$('#scope [role="status"]'),null);assert.equal(await guard(),true);
   await finish(2,{ok:false,error:'Snooze still needs retry'});await ready('snooze');assert.equal(await guard(),true);
   await click('snooze','Dismiss');await waitClean();
   pass('one successful editor cannot release another editor’s pending or failed selection guard');
+
+  await reset();await click('scope','Handyman');await waitCalls(1);await snoozeCustom('2026-10-10');await waitCalls(2);
+  await finish(1);await waitText('Snoozed until 2026-10-10');assert.equal(await guard(),true);
+  assert.equal(await page.$('#snooze input'),null);assert.equal(await page.evaluate(()=>window.refreshes),1);
+  await finish(0,{ok:false,error:'Routing still needs retry'});await waitText('Routing still needs retry');await ready('scope');
+  assert.equal(await guard(),true);await click('scope','Dismiss');await waitClean();
+  pass('a confirmed snooze shows its date while another editor is still pending or failed');
 
   await reset();await custom('pending@example.test');await click('scope','Handyman');await snoozeCustom('2026-10-10');await waitCalls(3);
   await page.evaluate(()=>window.unmount());await waitClean();

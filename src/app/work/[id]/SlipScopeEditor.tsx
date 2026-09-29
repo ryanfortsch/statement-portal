@@ -87,7 +87,7 @@ export function SlipScopeEditor({ slipId, initialScope, initialNote }: Props) {
           );
         })}
       </div>
-      {(pending || error) && (
+      {((pending && attempt) || error) && (
         <div role={error ? 'alert' : 'status'} style={{ fontSize: 11, marginTop: 8, color: error ? 'var(--negative)' : 'var(--ink-3)' }}>
           {error
             ? `${targetLabel}: ${error} Showing the last confirmed routing.`

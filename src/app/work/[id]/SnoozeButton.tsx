@@ -131,7 +131,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
           fontWeight: 500,
         }}
       >
-        {pending ? 'Saving…' : isSnoozed ? `Snoozed until ${snoozedUntil}` : '+ Snooze'}
+        {pending && attempt ? 'Saving…' : isSnoozed ? `Snoozed until ${snoozedUntil}` : '+ Snooze'}
       </button>
 
       {!open && (attempt || customDate) && (

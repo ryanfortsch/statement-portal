@@ -60,7 +60,7 @@ export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail }: Pr
         placeholder="Unassigned"
         disabled={pending}
       />
-      {(pending || err) && (
+      {((pending && attempt) || err) && (
         <div role={err ? 'alert' : 'status'} style={{ marginTop: 4, fontSize: 11, color: err ? 'var(--negative)' : 'var(--ink-4)' }}>
           {err ? `${targetLabel}: ${err} Showing the last confirmed assignment.` : `Saving assignment: ${targetLabel}…`}
           {err && attempt && (
