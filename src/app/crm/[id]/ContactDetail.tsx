@@ -45,6 +45,22 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
   const [notes, setNotes] = useState(contact.notes ?? '');
   const [linkedPropertyIds, setLinkedPropertyIds] = useState<string[]>(contact.linked_property_ids ?? []);
 
+  const savingContact = useRef(false);
+  const deletingContact = useRef(false);
+  const snapshot = JSON.stringify([type, name, emails, phone, organization, tagsInput, notes, linkedPropertyIds]);
+  const [savedSnapshot, setSavedSnapshot] = useState(snapshot);
+  const contactDirty = snapshot !== savedSnapshot;
+  useUnsavedWorkGuard(contactDirty || submitting || deleting);
+
+  function cancelContact() {
+    if (savingContact.current || deletingContact.current) return;
+    if (contactDirty && !window.confirm('Discard your unsaved contact changes?')) return;
+    const [t, n, e, p, o, tags, note, ids] = JSON.parse(savedSnapshot);
+    setType(t); setName(n); setEmails(e); setPhone(p); setOrganization(o);
+    setTagsInput(tags); setNotes(note); setLinkedPropertyIds(ids);
+    setError(null); setEditing(false);
+  }
+
   // Only confirmed touches belong in the activity list.
   const [touchList, setTouchList] = useState<ContactTouchRow[]>(touches);
 
@@ -64,9 +80,13 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
 
   async function saveContact(e: React.FormEvent) {
     e.preventDefault();
+    if (savingContact.current || deletingContact.current) return;
+    savingContact.current = true;
+    const submittedSnapshot = snapshot;
     setError(null);
     setSavedAt(null);
     setSubmitting(true);
+    try {
     const res = await updateContact({
       id: contact.id,
       type,
@@ -83,17 +103,27 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
       setError(res.error);
       return;
     }
+    setSavedSnapshot(submittedSnapshot);
     setSavedAt(new Date().toISOString());
     setEditing(false);
     softRefresh();
+    } catch {
+      setError('Could not confirm the contact save. Your edits are kept. Retry to apply them.');
+    } finally {
+      savingContact.current = false;
+      setSubmitting(false);
+    }
   }
 
   async function removeContact() {
+    if (savingContact.current || deletingContact.current || touchPosting.current || deletingTouches.current.size) return;
     if (!confirm(`Delete contact "${contact.name}"? This cannot be undone.`)) return;
+    deletingContact.current = true;
     setDeleting(true);
     try {
       await deleteContact({ id: contact.id });
     } catch (e) {
+      deletingContact.current = false;
       setDeleting(false);
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -101,7 +131,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
 
   async function logTouch(e: React.FormEvent) {
     e.preventDefault();
-    if (touchPosting.current) return;
+    if (touchPosting.current || deletingContact.current) return;
     setTouchErr(null);
     const summary = touchSummary.trim();
     if (!summary) return;
@@ -141,7 +171,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
   }
 
   function removeTouch(id: string) {
-    if (deletingTouches.current.has(id)) return;
+    if (deletingTouches.current.has(id) || deletingContact.current) return;
     deletingTouches.current.add(id);
     setTouchDeletePending([...deletingTouches.current]);
     setTouchDeleteErrors((prev) => ({ ...prev, [id]: '' }));
@@ -271,6 +301,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                   </div>
                 )}
               </dl>
+              {error && <div role="alert" style={{ color: 'var(--negative)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
                   Added by {displayNameForEmail(contact.created_by_email)} on {formatDate(contact.created_at)}
@@ -280,7 +311,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                   <button
                     type="button"
                     onClick={removeContact}
-                    disabled={deleting}
+                    disabled={deleting || submitting || touchSubmitting || touchDeletePending.length > 0}
                     style={{
                       background: 'transparent',
                       border: deleting ? '1px solid var(--ink-4)' : '1px solid var(--negative)',
@@ -296,7 +327,8 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                   </button>
                   <button
                     type="button"
-                    onClick={() => setEditing(true)}
+                    onClick={() => { if (!deletingContact.current) setEditing(true); }}
+                    disabled={deleting}
                     style={{
                       background: 'var(--ink)',
                       color: 'var(--paper)',
@@ -314,7 +346,8 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
               </div>
             </>
           ) : (
-            <form onSubmit={saveContact} className="flex flex-col gap-4">
+            <form onSubmit={saveContact}>
+              <fieldset disabled={submitting || deleting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
               <div className="flex gap-3">
                 <div style={{ flex: 1 }}>
                   <Field label="Type">
@@ -400,7 +433,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
               <div className="flex justify-end gap-3" style={{ marginTop: 6 }}>
                 <button
                   type="button"
-                  onClick={() => setEditing(false)}
+                  onClick={cancelContact}
                   style={{
                     background: 'transparent',
                     border: '1px solid var(--rule)',
@@ -432,6 +465,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                   {submitting ? 'Saving…' : 'Save'}
                 </button>
               </div>
+              </fieldset>
             </form>
           )}
         </div>
@@ -551,7 +585,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
             <div className="flex gap-3" style={{ alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
                 <Field label="Channel">
-                  <select value={touchChannel} disabled={touchSubmitting} onChange={(e) => setTouchChannel(e.target.value as TouchChannel)} style={selectStyle()}>
+                  <select value={touchChannel} disabled={touchSubmitting || deleting} onChange={(e) => setTouchChannel(e.target.value as TouchChannel)} style={selectStyle()}>
                     {(Object.entries(TOUCH_CHANNEL_LABELS) as [TouchChannel, string][]).map(([v, l]) => (
                       <option key={v} value={v}>{l}</option>
                     ))}
@@ -563,7 +597,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                   <input
                     type="text"
                     value={touchSummary}
-                    disabled={touchSubmitting}
+                    disabled={touchSubmitting || deleting}
                     onChange={(e) => setTouchSummary(e.target.value)}
                     placeholder="e.g. Discussed Q3 maintenance budget"
                     required
@@ -574,7 +608,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
               </div>
               <button
                 type="submit"
-                disabled={touchSubmitting || !touchSummary.trim()}
+                disabled={touchSubmitting || deleting || !touchSummary.trim()}
                 style={{
                   background: touchSubmitting || !touchSummary.trim() ? 'var(--ink-4)' : 'var(--ink)',
                   color: 'var(--paper)',
@@ -594,7 +628,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
             </div>
             <textarea
               value={touchNotes}
-              disabled={touchSubmitting}
+              disabled={touchSubmitting || deleting}
               onChange={(e) => setTouchNotes(e.target.value)}
               rows={2}
               maxLength={2000}
@@ -607,7 +641,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                 {' '}<a href={`/crm/${contact.id}`} target="_blank" rel="noopener noreferrer">View saved activity</a>
               </div>
             )}
-            {(touchSummary || touchNotes) && <button type="button" disabled={touchSubmitting} onClick={() => { setTouchSummary(''); setTouchNotes(''); setTouchErr(null); }} style={{ alignSelf: 'flex-start', fontSize: 12 }}>Discard activity draft</button>}
+            {(touchSummary || touchNotes) && <button type="button" disabled={touchSubmitting || deleting} onClick={() => { setTouchSummary(''); setTouchNotes(''); setTouchErr(null); }} style={{ alignSelf: 'flex-start', fontSize: 12 }}>Discard activity draft</button>}
           </form>
 
           {touchList.length === 0 ? (
@@ -691,7 +725,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
                       <button
                         type="button"
                         onClick={() => removeTouch(t.id)}
-                        disabled={touchDeletePending.includes(t.id)}
+                        disabled={deleting || touchDeletePending.includes(t.id)}
                         aria-label="Delete touch"
                         title="Delete (only you can delete your own touches)"
                         style={{

@@ -15,6 +15,7 @@ on:
       - 'scripts/work-slip-comments-smoke.mjs'
       - 'scripts/work-slip-routing-smoke.mjs'
       - 'scripts/editor-recovery-smoke.mjs'
+      - 'scripts/forms-recovery-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -48,6 +49,8 @@ jobs:
           TZ: America/New_York
       - name: Verify access and real Chromium PDFs with synthetic data
         run: node scripts/property-document-smoke.mjs
+      - name: Verify new forms, contact details, vendors, and document recovery
+        run: node scripts/forms-recovery-smoke.mjs
       - name: Verify batch photo uploads with synthetic files
         run: node scripts/photo-upload-smoke.mjs
       - name: Verify onboarding autosave with synthetic answers
