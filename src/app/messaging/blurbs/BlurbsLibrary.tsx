@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import type { SavedBlurb } from '@/lib/stay-concierge';
@@ -11,6 +13,16 @@ import { saveBlurbAction, setBlurbStatusAction, createBlurbAction } from './blur
  * the responder; drafts are review-only. Grouped Fleet -> areas -> properties
  * so the operator reads it the way she thinks about it.
  */
+
+type DraftState = { dirty: boolean; pending: boolean };
+type ReportDraft = (id: string, state: DraftState | null) => void;
+
+function useReportDraft(id: string, dirty: boolean, pending: boolean, report: ReportDraft) {
+  useEffect(() => {
+    report(id, { dirty, pending });
+    return () => report(id, null);
+  }, [id, dirty, pending, report]);
+}
 
 type Props = {
   initial: SavedBlurb[];
@@ -58,6 +70,16 @@ function scopeRank(scope: string): number {
 }
 
 export function BlurbsLibrary({ initial, categories, properties }: Props) {
+  const [draftStates, setDraftStates] = useState<Record<string, DraftState>>({});
+  const reportDraft = useCallback<ReportDraft>((id, state) => {
+    setDraftStates((previous) => {
+      const next = { ...previous };
+      if (state) next[id] = state;
+      else delete next[id];
+      return next;
+    });
+  }, []);
+  useDraftNavigationGuard(Object.values(draftStates).some((s) => s.dirty), Object.values(draftStates).some((s) => s.pending));
   const drafts = initial.filter((b) => b.status === 'draft').length;
   const live = initial.filter((b) => b.status === 'approved').length;
   // Two tabs: the review pile (drafts) and what's live. Approving moves a
@@ -66,10 +88,9 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
   const [tab, setTab] = useState<'review' | 'live'>(drafts > 0 ? 'review' : 'live');
 
   const groups = useMemo(() => {
-    const want = tab === 'review' ? 'draft' : 'approved';
     const byScope = new Map<string, SavedBlurb[]>();
     for (const b of initial) {
-      if (b.status !== want) continue;
+      if (b.status !== 'draft' && b.status !== 'approved') continue;
       const list = byScope.get(b.scope) ?? [];
       list.push(b);
       byScope.set(b.scope, list);
@@ -77,7 +98,7 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
     return [...byScope.entries()].sort(
       (a, b) => scopeRank(a[0]) - scopeRank(b[0]) || a[0].localeCompare(b[0]),
     );
-  }, [initial, tab]);
+  }, [initial]);
 
   const tabBtn = (id: 'review' | 'live', label: string): React.CSSProperties => ({
     padding: '8px 16px',
@@ -115,9 +136,9 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
           Live{live > 0 ? ` (${live})` : ''}
         </button>
       </div>
-      <AddBlurbForm categories={categories} properties={properties} />
+      <AddBlurbForm categories={categories} properties={properties} reportDraft={reportDraft} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28, marginTop: 24 }}>
-        {groups.length === 0 && (
+        {(tab === 'review' ? drafts === 0 : live === 0) && (
           <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>
             {tab === 'review'
               ? 'Nothing left to review. Everything you approved is on the Live tab.'
@@ -125,7 +146,7 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
           </div>
         )}
         {groups.map(([scope, blurbs]) => (
-          <div key={scope}>
+          <div key={scope} hidden={!blurbs.some((b) => b.status === (tab === 'review' ? 'draft' : 'approved'))}>
             <div
               className="eyebrow"
               style={{ color: 'var(--tide-deep)', borderBottom: '1px solid var(--rule)', paddingBottom: 6, marginBottom: 12 }}
@@ -134,7 +155,7 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {blurbs.map((b) => (
-                <BlurbCard key={b.id} blurb={b} />
+                <div key={b.id} hidden={b.status !== (tab === 'review' ? 'draft' : 'approved')}><BlurbCard blurb={b} reportDraft={reportDraft} /></div>
               ))}
             </div>
           </div>
@@ -144,25 +165,40 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
   );
 }
 
-function BlurbCard({ blurb }: { blurb: SavedBlurb }) {
+function BlurbCard({ blurb, reportDraft }: { blurb: SavedBlurb; reportDraft: ReportDraft }) {
   const router = useRouter();
   const [title, setTitle] = useState(blurb.title);
   const [body, setBody] = useState(blurb.body);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-  const dirty = title !== blurb.title || body !== blurb.body;
+  const action = useRecoverableAction();
+  const { error, setError, pending } = action;
+  const [saved, setSaved] = useState({ title: blurb.title, body: blurb.body });
+  const [notice, setNotice] = useState('');
+  const dirty = title !== saved.title || body !== saved.body;
+  useReportDraft(blurb.id, dirty, pending, reportDraft);
+  // Adopt refreshed server text only if this card has no local work to protect.
+  useEffect(() => {
+    if (!action.busy.current && !dirty) {
+      setTitle(blurb.title); setBody(blurb.body);
+      setSaved({ title: blurb.title, body: blurb.body });
+    }
+    // Only new server text should trigger this, never a local save baseline change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blurb.title, blurb.body]);
   const isLive = blurb.status === 'approved';
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
-    startTransition(async () => {
-      setError(null);
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, savedEdit = false) => {
+    if (action.busy.current || (!savedEdit && dirty)) return;
+    action.run(async () => {
+      setNotice('');
       const res = await fn();
-      if (!res.ok) setError(res.error ?? 'Something went wrong.');
-      else router.refresh();
-    });
+      if (!res.ok) { setError(res.error ?? 'Something went wrong.'); return; }
+      if (savedEdit) { setSaved({ title, body }); setNotice('Saved.'); }
+      router.refresh();
+    }, 'Could not confirm the change. Your edits are kept. Refresh to check the saved reply before trying again.');
+  };
 
   return (
-    <div style={{ border: '1px solid var(--rule)', padding: 14, background: 'var(--paper)' }}>
+    <fieldset disabled={pending} style={{ minWidth: 0, margin: 0, border: '1px solid var(--rule)', padding: 14, background: 'var(--paper)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={chip(isLive ? 'var(--tide-deep)' : 'transparent', isLive ? 'var(--paper)' : 'var(--signal)')}>
           {isLive ? 'Live' : 'Draft'}
@@ -172,7 +208,7 @@ function BlurbCard({ blurb }: { blurb: SavedBlurb }) {
         </span>
         <input
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => { setTitle(e.target.value); setNotice(''); }}
           style={{
             flex: 1,
             minWidth: 180,
@@ -188,7 +224,7 @@ function BlurbCard({ blurb }: { blurb: SavedBlurb }) {
       </div>
       <textarea
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={(e) => { setBody(e.target.value); setNotice(''); }}
         rows={Math.min(8, Math.max(2, Math.ceil(body.length / 90)))}
         style={{
           width: '100%',
@@ -208,18 +244,24 @@ function BlurbCard({ blurb }: { blurb: SavedBlurb }) {
         </div>
       )}
       {error && (
-        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>{error}</div>
+        <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>{error}</div>
       )}
+      {notice && !dirty && <p role="status">{notice}</p>}
+      {dirty && <p style={{ fontSize: 12 }}>Save or discard edits before changing this reply&apos;s status.</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         {dirty && (
           <button
             disabled={pending}
-            onClick={() => run(() => saveBlurbAction(blurb.id, { title, body }))}
+            onClick={() => run(() => saveBlurbAction(blurb.id, { title, body }), true)}
             style={btn(true)}
           >
             {pending ? 'Saving…' : 'Save'}
           </button>
         )}
+        {dirty && <button disabled={pending} style={btn()} onClick={() => {
+          if (action.busy.current || !window.confirm('Discard these unsaved reply edits?')) return;
+          setTitle(saved.title); setBody(saved.body); setError(null); setNotice('');
+        }}>Discard edits</button>}
         {!isLive ? (
           <button
             disabled={pending || dirty}
@@ -231,7 +273,7 @@ function BlurbCard({ blurb }: { blurb: SavedBlurb }) {
           </button>
         ) : (
           <button
-            disabled={pending}
+            disabled={pending || dirty}
             onClick={() => run(() => setBlurbStatusAction(blurb.id, 'unapprove'))}
             style={btn()}
           >
@@ -239,23 +281,25 @@ function BlurbCard({ blurb }: { blurb: SavedBlurb }) {
           </button>
         )}
         <button
-          disabled={pending}
+          disabled={pending || dirty}
           onClick={() => run(() => setBlurbStatusAction(blurb.id, 'retire'))}
           style={{ ...btn(), border: '1px solid var(--rule)', color: 'var(--ink-4)' }}
         >
           Retire
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }
 
 function AddBlurbForm({
   categories,
   properties,
+  reportDraft,
 }: {
   categories: string[];
   properties: { id: string; name: string }[];
+  reportDraft: ReportDraft;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -263,8 +307,10 @@ function AddBlurbForm({
   const [category, setCategory] = useState('other');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const action = useRecoverableAction();
+  const { pending, error, setError } = action;
+  const dirty = !!(title || body || scope !== 'fleet' || category !== 'other');
+  useReportDraft('new-reply', open && dirty, pending, reportDraft);
 
   if (!open) {
     return (
@@ -277,8 +323,7 @@ function AddBlurbForm({
   }
 
   const submit = () =>
-    startTransition(async () => {
-      setError(null);
+    action.run(async () => {
       const res = await createBlurbAction({ scope, category, title, body });
       if (!res.ok) {
         setError(res.error ?? 'Something went wrong.');
@@ -286,9 +331,11 @@ function AddBlurbForm({
       }
       setTitle('');
       setBody('');
+      setScope('fleet');
+      setCategory('other');
       setOpen(false);
       router.refresh();
-    });
+    }, 'Could not confirm the new reply. Your draft is kept. Check the library before trying again.');
 
   const selectStyle: React.CSSProperties = {
     fontSize: 12,
@@ -299,7 +346,7 @@ function AddBlurbForm({
   };
 
   return (
-    <div style={{ marginTop: 14, border: '1px solid var(--ink)', padding: 14 }}>
+    <fieldset disabled={pending} style={{ minWidth: 0, margin: '14px 0 0', border: '1px solid var(--ink)', padding: 14 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <select value={scope} onChange={(e) => setScope(e.target.value)} style={selectStyle}>
           <option value="fleet">Every property</option>
@@ -340,15 +387,18 @@ function AddBlurbForm({
           resize: 'vertical',
         }}
       />
-      {error && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>{error}</div>}
+      {error && <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button disabled={pending || !title.trim() || !body.trim()} onClick={submit} style={btn(true)}>
           {pending ? 'Adding…' : 'Add as draft'}
         </button>
-        <button disabled={pending} onClick={() => setOpen(false)} style={btn()}>
+        <button disabled={pending} onClick={() => {
+          if (action.busy.current || (dirty && !window.confirm('Discard this new saved reply?'))) return;
+          setTitle(''); setBody(''); setScope('fleet'); setCategory('other'); setError(null); setOpen(false);
+        }} style={btn()}>
           Cancel
         </button>
       </div>
-    </div>
+    </fieldset>
   );
 }

@@ -1,0 +1,99 @@
+/** Scheduled message and saved reply recovery; synthetic records and controlled I/O only. */
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createServer} from 'node:http';
+import ts from 'typescript';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+const require=createRequire(import.meta.url),{webpack}=require('next/dist/compiled/webpack/webpack');
+const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-messaging-'));
+const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
+
+for(const [name,path] of [
+ ['guest','src/app/messaging/RemindersSection.tsx'],['shared','src/components/ProactiveRemindersPanel.tsx'],['blurbs','src/app/messaging/blurbs/BlurbsLibrary.tsx'],
+ ['recover','src/lib/use-recoverable-action.ts'],['resource','src/lib/use-reminder-resource.ts'],['unsaved','src/lib/unsaved-work.ts'],['guard','src/lib/use-draft-navigation-guard.ts'],
+])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
+await writeFile(join(scratch,'actions.js'),`
+export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
+export const fetchRecurringReminders=()=>save('load',{});
+export const fetchReservationPicks=()=>save('targets',{});
+export const createReminderAction=input=>save('create',input);
+export const endReminderAction=id=>save('end',{id});
+export const polishProactiveAction=(id,body)=>save('polish',{id,body});
+export const shared={fetchReminders:fetchRecurringReminders,fetchTargets:fetchReservationPicks,create:createReminderAction,end:endReminderAction,polish:polishProactiveAction};
+export const saveBlurbAction=(id,fields)=>save('edit',{id,fields}).then(res=>{if(res.ok)Object.assign(window.rows.find(r=>r.id===id),fields);return res;});
+export const setBlurbStatusAction=(id,action)=>save('status',{id,action}).then(res=>{if(res.ok)window.rows.find(r=>r.id===id).status={approve:'approved',unapprove:'draft',retire:'retired'}[action];return res;});
+export const createBlurbAction=input=>save('add',input).then(res=>{if(res.ok)window.rows.push({id:'new-row',status:'draft',...input});return res;});
+`);
+await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser'; export const useRouter=()=>({refresh:()=>{window.refreshes++;window.refresh?.();}});`);
+await writeFile(join(scratch,'refresh.js'),`export const useSoftRefresh=()=>()=>window.refreshes++;`);
+await writeFile(join(scratch,'section.js'),compile(`import React from 'react';export function Section({title,right,children}){return <section><h2>{title}</h2>{right}{children}</section>;}`));
+await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({children,...props}){return <a {...props} onClick={e=>{if(!e.defaultPrevented){window.navs++;e.preventDefault();}}}>{children}</a>;}`));
+await writeFile(join(scratch,'entry.js'),compile(`
+import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import Link from './link.js';
+import {RemindersSection} from './guest.js';import {ProactiveRemindersPanel} from './shared.js';import {BlurbsLibrary} from './blurbs.js';import {shared} from './actions.js';import {hasUnsavedWork} from './unsaved.js';
+window.calls=[];window.navs=0;window.refreshes=0;window.guarded=hasUnsavedWork;window.confirmAnswer=false;window.confirm=()=>window.confirmAnswer;
+window.rows=[{id:'draft-a',scope:'fleet',category:'other',title:'Draft reply',body:'Original draft',status:'draft'},{id:'live-a',scope:'fleet',category:'other',title:'Live reply',body:'Original live',status:'approved'}];
+function Fixture(){const mode=new URLSearchParams(location.search).get('mode');const [rows,setRows]=useState(window.rows.map(r=>({...r})));const [mounted,setMounted]=useState(true);window.refresh=()=>setRows(window.rows.map(r=>({...r})));window.unmount=()=>setMounted(false);if(!mounted)return null;return <><Link href="/away">Leave page</Link><main id={mode}>
+{mode==='guest'&&<RemindersSection/>}{['owner','cleaner','contractor'].includes(mode)&&<ProactiveRemindersPanel audience={mode} actions={shared}/>}
+{mode==='blurbs'&&<BlurbsLibrary initial={rows} categories={['other','parking']} properties={[{id:'home-a',name:'Synthetic home'}]}/>}
+</main></>;}createRoot(document.getElementById('root')).render(<Fixture/>);
+`));
+const alias={'./reminders-actions':'actions','./blurbs-actions':'actions','@/lib/use-recoverable-action':'recover','./use-recoverable-action':'recover','@/lib/use-reminder-resource':'resource','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/use-draft-navigation-guard':'guard','@/lib/use-soft-refresh':'refresh','@/components/Section':'section','next/navigation':'router'};
+await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
+if(process.argv.includes('--compile-only')){console.log('Messaging drafts fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
+const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic messaging drafts</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
+await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+const origin='http://127.0.0.1:'+server.address().port;let browser,page,checks=0;
+try{
+browser=await puppeteer.launch({executablePath:process.env.CHROME_EXECUTABLE_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':await chromium.executablePath()),headless:true,args:process.platform==='darwin'?['--no-sandbox']:chromium.args});
+page=await browser.newPage();page.setDefaultTimeout(10000);await page.setViewport({width:1250,height:1100});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
+const reset=async(mode,extra='')=>{await page.goto(origin+'/?mode='+mode+extra);await page.waitForSelector('#'+mode);};
+const click=(scope,label,twice=false)=>page.$$eval(scope+' button',(bs,label,twice)=>{const b=bs.filter(b=>b.checkVisibility()).find(b=>b.textContent.trim()===label||b.getAttribute('aria-label')===label);if(!b)throw Error('Missing button '+label);b.click();if(twice)b.click();},label,twice);
+const edit=(selector,value)=>page.$eval(selector,(e,value)=>{const proto=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));},value);
+const calls=()=>page.evaluate(()=>window.calls.map(({kind,args})=>({kind,args}))),waitCalls=n=>page.waitForFunction(n=>window.calls.length===n,{},n);
+const finish=(i,result={ok:true},reject=false)=>page.evaluate((i,result,reject)=>reject?window.calls[i].reject(Error('Synthetic lost response')):window.calls[i].resolve(result),i,result,reject);
+const value=s=>page.$eval(s,e=>e.value),ready=s=>page.waitForFunction(s=>document.querySelector(s)&&!document.querySelector(s).matches(':disabled'),{},s);
+const text=()=>page.$eval('body',e=>e.innerText),waitText=t=>page.waitForFunction(t=>document.body.textContent.includes(t),{},t);
+const guard=()=>page.evaluate(()=>window.guarded()),clean=()=>page.waitForFunction(()=>!window.guarded());
+const blur=s=>page.$eval(s,e=>e.dispatchEvent(new FocusEvent('focusout',{bubbles:true})));
+const pass=m=>{checks++;console.log('PASS '+m);};
+const submit=(scope,twice=false)=>page.$eval(scope+' form',(form,twice)=>{form.requestSubmit();if(twice)form.requestSubmit();},twice);
+
+const nav=()=>page.evaluate(()=>window.navs);
+const leave=()=>page.$$eval('a',links=>links.find(a=>a.textContent==='Leave page').click());
+
+const recipientRows=[{reservation_id:'guest-a',conversation_id:'thread-a',listing_id:'home-a',guest_first:'Synthetic Guest',property_name:'Synthetic home',check_in:'2026-09-30',check_out:'2026-10-03',module:'sms'}, {reservation_id:'guest-b',conversation_id:'thread-b',listing_id:'home-b',guest_first:'Second Guest',property_name:'Second home',check_in:'2026-09-30',check_out:'2026-10-03',module:'sms'}];
+const targetRows=[{contact:'person-a',name:'Synthetic Person',property_id:'home-a'}, {contact:'person-b',name:'Second Person',property_id:'home-b'}];
+const reminder={id:'reminder-a',label:'Existing reminder',body:'Existing wording',kind:'recurring',weekdays:'0',at_local:'09:00',start_date:'2026-09-29',end_date:'2026-10-03',send_mode:'approve'};
+const targetResult=mode=>mode==='guest'?{ok:true,reservations:recipientRows}:{ok:true,targets:targetRows};
+const count=async()=> (await calls()).length;
+const enabledButton=label=>page.waitForFunction(label=>[...document.querySelectorAll('button')].some(b=>b.checkVisibility()&&b.textContent.trim()===label&&!b.matches(':disabled')),{},label);
+for(const mode of ['guest','owner','cleaner','contractor']){
+ const scope='#'+mode,body=scope+' textarea',picker=scope+' fieldset select',schedule='Create reminder',polish='✨ Polish into our voice';
+ await reset(mode);await click(scope,'Show ▾',true);await waitCalls(2);
+ await finish(0,{ok:false,error:'Schedule unavailable'});await finish(1,null,true);await waitText('Schedule unavailable');await waitText('Could not load recipients');assert.equal((await text()).includes('Nothing scheduled.'),false);pass(mode+': failed loads are errors, not an empty schedule');
+ await click(scope,'Refresh scheduled messages',true);await waitCalls(3);await finish(2,{ok:true,recurring:[reminder]});await waitText('Existing reminder');
+ await click(scope,'Retry loading recipients',true);await waitCalls(4);await finish(3,targetResult(mode));await ready(picker);pass(mode+': independent list and recipient retries recover without repeat requests');
+ await edit(picker,mode==='guest'?'guest-a':'person-a');await edit(body,'My rough wording');await click(scope,'Mon');assert.equal(await guard(),true);await click(scope,'Hide ▴');await click(scope,'Show ▾');assert.equal(await value(body),'My rough wording');await leave();assert.equal(await nav(),0);pass(mode+': collapsing retains the draft and navigation cannot silently discard it');
+ await click(scope,polish,true);await waitCalls(5);await edit(body,'Newer wording');await finish(4,{ok:true,polished:'Old polish',english:'Old translation'});await enabledButton(polish);assert.equal(await value(body),'Newer wording');assert.equal((await text()).includes('Old translation'),false);pass(mode+': late AI polish cannot overwrite newer wording');
+ await click(scope,polish);await waitCalls(6);await edit(picker,mode==='guest'?'guest-b':'person-b');await finish(5,{ok:true,polished:'Wrong person wording',english:'Wrong person translation'});await enabledButton(polish);assert.equal(await value(body),'Newer wording');pass(mode+': changing recipient invalidates an in-flight polish');
+ await click(scope,polish);await waitCalls(7);await finish(6,null,true);await waitText('Could not polish this message');assert.equal(await value(body),'Newer wording');await click(scope,polish);await waitCalls(8);await finish(7,{ok:true,polished:'Current polished wording',english:'Current translation'});await enabledButton(polish);assert.equal(await value(body),'Current polished wording');pass(mode+': polish failures keep the draft, and a current successful result applies');
+ await click(scope,schedule,true);await waitCalls(9);assert.equal(await page.$eval(body,e=>e.matches(':disabled')),true);await click(scope,'Hide ▴');assert.equal(await page.$eval(body,e=>e.checkVisibility()),true);await leave();assert.equal(await nav(),0);await finish(8,null,true);await waitText('Could not confirm scheduling');assert.equal(await value(body),'Current polished wording');assert.equal(await guard(),true);pass(mode+': scheduling is single-flight, locks edits and closes, and retains an unconfirmed draft');
+ await click(scope,schedule);await waitCalls(10);await finish(9,{ok:false,error:'Synthetic scheduling refusal'});await waitText('Synthetic scheduling refusal');assert.equal(await value(body),'Current polished wording');await click(scope,schedule);await waitCalls(11);const input=(await calls())[10].args;assert.equal(input.body,'Current polished wording');assert.equal(input.send_mode,'approve');assert.equal(input.kind,'recurring');assert.equal(input.weekdays,'0');await finish(10,{ok:true});await waitCalls(12);await finish(11,{ok:true,recurring:[reminder]});await waitText('Scheduled.');await clean();assert.equal(await value(body),'');pass(mode+': returned errors retain the draft; only confirmed scheduling clears it');
+ await click(scope,'End',true);await waitCalls(13);await finish(12,null,true);await waitText('Could not confirm that the reminder ended');assert.equal((await text()).includes('Existing reminder'),true);await click(scope,'End');await waitCalls(14);await finish(13,{ok:false,error:'Synthetic End refusal'});await waitText('Synthetic End refusal');await click(scope,'End');await waitCalls(15);await finish(14,{ok:true});await waitCalls(16);await finish(15,{ok:false,error:'Refresh failed after End'});await waitText('Reminder ended.');await waitText('Refresh failed after End');assert.equal((await text()).includes('Existing reminder'),false);pass(mode+': failed End actions are recoverable and confirmed completion survives a failed reload');
+ await edit(body,'Discard only explicitly');await click(scope,'Discard draft');assert.equal(await value(body),'Discard only explicitly');await page.evaluate(()=>window.confirmAnswer=true);await click(scope,'Discard draft');await clean();assert.equal(await value(body),'');pass(mode+': draft discard requires explicit confirmation');
+}
+await reset('blurbs');const draft='#blurbs fieldset textarea',draftTitle='#blurbs fieldset input';await edit(draft,'Edited saved reply');await click('#blurbs','Live (1)');await click('#blurbs','To review (1)');assert.equal(await value(draft),'Edited saved reply');await leave();assert.equal(await nav(),0);assert.equal(await page.$$eval('#blurbs button',bs=>bs.find(b=>b.checkVisibility()&&b.textContent.trim()==='Retire').disabled),true);pass('saved replies: tab switches preserve edits and dirty text blocks navigation and status changes');
+await click('#blurbs','Save',true);await waitCalls(1);assert.equal(await page.$eval(draft,e=>e.matches(':disabled')),true);await click('#blurbs','Live (1)');await click('#blurbs','To review (1)');await finish(0,null,true);await waitText('Could not confirm the change');assert.equal(await value(draft),'Edited saved reply');await click('#blurbs','Save');await waitCalls(2);await finish(1,{ok:false,error:'Synthetic reply refusal'});await waitText('Synthetic reply refusal');await click('#blurbs','Save');await waitCalls(3);await finish(2,{ok:true});await waitText('Saved.');await clean();pass('saved replies: save locks editing, blocks repeats, recovers errors and acknowledges only confirmed wording');
+await click('#blurbs','Approve',true);await waitCalls(4);await finish(3,null,true);await waitText('Could not confirm the change');assert.equal((await text()).includes('To review (1)'),true);await click('#blurbs','Approve');await waitCalls(5);await finish(4,{ok:true});await waitText('Live (2)');await click('#blurbs','Live (2)');assert.equal(await value(draft),'Edited saved reply');pass('saved replies: approval failure preserves the card; confirmed approval moves it with its saved wording');
+await edit(draft,'Unsaved live wording');assert.equal(await page.$$eval('#blurbs button',bs=>bs.find(b=>b.checkVisibility()&&b.textContent.trim()==='Back to draft').disabled),true);await click('#blurbs','Discard edits');assert.equal(await value(draft),'Unsaved live wording');await page.evaluate(()=>window.confirmAnswer=true);await click('#blurbs','Discard edits');await clean();assert.equal(await value(draft),'Edited saved reply');await click('#blurbs','Back to draft');await waitCalls(6);await finish(5,{ok:true});await waitText('To review (1)');await click('#blurbs','To review (1)');await click('#blurbs','Retire',true);await waitCalls(7);await finish(6,{ok:false,error:'Synthetic retirement refusal'});await waitText('Synthetic retirement refusal');await click('#blurbs','Retire');await waitCalls(8);await finish(7,{ok:true});await waitText('Nothing left to review.');pass('saved replies: moving and retiring cannot discard dirty text and failures keep the card available');
+await reset('blurbs');await click('#blurbs','+ Add a saved reply');const add='#blurbs fieldset',addBody=add+' textarea',addTitle=add+' input';await edit(addTitle,'New reply title');await edit(addBody,'New reply wording');await edit(add+' select','home-a');await click('#blurbs','Cancel');assert.equal(await value(addTitle),'New reply title');await click('#blurbs','Add as draft',true);await waitCalls(1);assert.equal(await page.$eval(addBody,e=>e.matches(':disabled')),true);await click('#blurbs','Cancel');assert.equal(await value(addTitle),'New reply title');await finish(0,null,true);await waitText('Could not confirm the new reply');assert.equal(await value(addBody),'New reply wording');assert.equal(await value(add+' select'),'home-a');await leave();assert.equal(await nav(),0);pass('new saved replies: cancel/pending guards and interrupted submissions preserve all fields');
+await click('#blurbs','Add as draft');await waitCalls(2);await finish(1,{ok:false,error:'Synthetic new reply refusal'});await waitText('Synthetic new reply refusal');await click('#blurbs','Add as draft');await waitCalls(3);await finish(2,{ok:true});await waitText('To review (2)');await clean();assert.equal((await calls())[2].args.scope,'home-a');assert.equal(await page.$$eval('#blurbs input',els=>els.some(e=>e.value==='New reply title')),true);pass('new saved replies: returned failures retain the draft and confirmed creation adds it as a draft');
+await click('#blurbs','+ Add a saved reply');await edit(addTitle,'Cancel this one');await page.evaluate(()=>window.confirmAnswer=true);await click('#blurbs','Cancel');await clean();await click('#blurbs','+ Add a saved reply');assert.equal(await value(addTitle),'');pass('new saved replies: explicit confirmed cancellation clears the unsaved form');
+assert.deepEqual(errors,[]);console.log('PASS '+checks+' messaging drafts browser checks; no live records or messages used.');
+}finally{await browser?.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}

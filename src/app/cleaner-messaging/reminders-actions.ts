@@ -19,8 +19,8 @@ import {
  * hardcodes the audience ('cleaner') and its own revalidate path, so the
  * shared client panel just receives these via its `actions` prop and never
  * needs to know which page it lives on. Mirrors the guest
- * src/app/messaging/reminders-actions.ts split: the two fetches degrade
- * failures to empty arrays so the panel renders instead of erroring.
+ * src/app/messaging/reminders-actions.ts split: the two fetches report
+ * failures so the panel can retain its last confirmed data and offer retry.
  */
 
 const AUDIENCE = 'cleaner';
@@ -38,7 +38,8 @@ export async function fetchProactiveReminders(): Promise<
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const rec = await listRecurring(AUDIENCE);
-  return { ok: true, recurring: rec.ok ? rec.data.recurring : [] };
+  if (!rec.ok) return { ok: false, error: explainError(rec.error) };
+  return { ok: true, recurring: rec.data.recurring };
 }
 
 export async function fetchProactiveTargets(): Promise<
@@ -47,7 +48,8 @@ export async function fetchProactiveTargets(): Promise<
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const res = await listProactiveTargets(AUDIENCE);
-  return { ok: true, targets: res.ok ? res.data.targets : [] };
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  return { ok: true, targets: res.data.targets };
 }
 
 export async function createProactiveReminder(
