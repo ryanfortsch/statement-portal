@@ -156,9 +156,13 @@ try{
     await page.setRequestInterception(true);
     page.on('request',request=>request.url().startsWith(origin+'/')?request.continue():request.abort());
     const click=async text=>{
-      const button=await page.evaluateHandle(text=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text),text);
-      assert.ok(button.asElement(),`Missing button: ${text}`);
-      await button.asElement().click();await button.dispose();
+      // Resolve and activate in one DOM turn: a status render can replace
+      // the previous element between handle lookup and pointer dispatch.
+      await page.evaluate(text=>{
+        const button=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===text);
+        if(!button||button.matches(':disabled'))throw Error(`Button not ready: ${text}`);
+        button.click();
+      },text);
     };
     const reset=async(query='')=>{await page.goto(origin+'/'+query);await page.waitForSelector('fieldset');};
     const field='input[placeholder="Stay at Granite Point"]';
@@ -226,9 +230,10 @@ try{
 
     await reset('?error=1');await waitText('Could not check the preview.');
     assert.equal(await enabled('Publish update'),false);
-    await page.evaluate(()=>{window.previewMode='error';});await click('Check now');
+    await waitEnabled('Check now');await page.evaluate(()=>{window.previewMode='error';});await click('Check now');
     await waitText('Synthetic returned preview failure');assert.equal(await enabled('Publish update'),false);
-    await page.evaluate(()=>{window.previewMode='success';});await click('Check now');await waitEnabled('Publish update');
+    // Error text can commit before useTransition releases its busy button.
+    await waitEnabled('Check now');await page.evaluate(()=>{window.previewMode='success';});await click('Check now');await waitEnabled('Publish update');
     pass('thrown and returned preview failures block publishing and manual retry recovers');
 
     await reset('?hold=1');await page.waitForFunction(()=>window.held.length===1);
