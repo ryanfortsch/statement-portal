@@ -2,6 +2,10 @@
 
 # Rising Tide Helm
 
+Claude Code remains the primary agent. Shared roles, work preservation, data access,
+verification, and deployment rules live in `AGENTS.md` and apply to every agent.
+This file remains the business and architecture reference for all agents.
+
 ## What this is
 
 **Helm** is the internal operations hub for Rising Tide STR, a vacation rental management
@@ -762,7 +766,9 @@ Also present, and NOT part of `npm test`:
 - `scripts/paged_select_check.mjs`: exercises `selectAllPaged` page boundaries via Node's native
   TypeScript stripping.
 
-The gate before shipping is `npx tsc --noEmit` **and `npm test`**. Run both. Chain commits on them.
+For code changes, the gate before shipping is `npx tsc --noEmit` **and `npm test`**.
+Run both before committing. Documentation-only validation and deployment authorization
+are defined in `AGENTS.md`.
 
 # Known watch-outs
 
