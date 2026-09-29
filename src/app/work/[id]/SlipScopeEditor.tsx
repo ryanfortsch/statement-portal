@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import type { RunScope } from '@/lib/work-types';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { updateWorkSlipScope } from '../actions';
 
 type Props = {
@@ -26,23 +27,34 @@ export function SlipScopeEditor({ slipId, initialScope, initialNote }: Props) {
   const [note, setNote] = useState<string | null>(initialNote);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState<{ scope: RunScope | null } | null>(null);
+  const saving = useRef(false);
+  useUnsavedWorkGuard(pending || attempt !== null);
 
-  function choose(next: RunScope) {
-    const target = next === scope ? null : next;
+  function save(target: RunScope | null) {
+    if (saving.current) return;
+    saving.current = true;
+    setAttempt({ scope: target });
+    setError('');
     startTransition(async () => {
-      setError('');
-      const prevScope = scope;
-      const prevNote = note;
-      setScope(target);
-      setNote(target ? null : prevNote);
-      const res = await updateWorkSlipScope({ id: slipId, run_scope: target });
-      if (!res.ok) {
-        setScope(prevScope);
-        setNote(prevNote);
-        setError(res.error);
+      try {
+        const res = await updateWorkSlipScope({ id: slipId, run_scope: target });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setScope(target);
+        setNote(null);
+        setAttempt(null);
+      } catch {
+        setError('Could not confirm the routing change. Retry to apply your selection.');
+      } finally {
+        saving.current = false;
       }
     });
   }
+
+  const targetLabel = attempt?.scope ? OPTIONS.find((o) => o.value === attempt.scope)?.label : 'Clear routing';
 
   return (
     <div>
@@ -53,8 +65,9 @@ export function SlipScopeEditor({ slipId, initialScope, initialNote }: Props) {
             <button
               key={o.value}
               type="button"
-              onClick={() => choose(o.value)}
+              onClick={() => save(o.value === scope ? null : o.value)}
               disabled={pending}
+              aria-pressed={active}
               title={o.hint}
               style={{
                 background: active ? 'var(--ink)' : 'none',
@@ -74,14 +87,25 @@ export function SlipScopeEditor({ slipId, initialScope, initialNote }: Props) {
           );
         })}
       </div>
+      {((pending && attempt) || error) && (
+        <div role={error ? 'alert' : 'status'} style={{ fontSize: 11, marginTop: 8, color: error ? 'var(--negative)' : 'var(--ink-3)' }}>
+          {error
+            ? `${targetLabel}: ${error} Showing the last confirmed routing.`
+            : `Saving routing: ${targetLabel}…`}
+          {error && attempt && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button type="button" disabled={pending} onClick={() => save(attempt.scope)}>Retry routing</button>
+              <button type="button" disabled={pending} onClick={() => { setAttempt(null); setError(''); }}>Dismiss</button>
+            </div>
+          )}
+        </div>
+      )}
       <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, marginBottom: 0 }}>
-        {error
-          ? error
-          : note
-            ? note
-            : scope
-              ? OPTIONS.find((o) => o.value === scope)?.hint
-              : 'Not triaged yet. The planner will classify it on its next pass.'}
+        {note
+          ? note
+          : scope
+            ? OPTIONS.find((o) => o.value === scope)?.hint
+            : 'Not triaged yet. The planner will classify it on its next pass.'}
       </p>
     </div>
   );
