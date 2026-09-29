@@ -60,7 +60,7 @@ export function PilotFrame({ section, children, onSection }: {
           })}
         </nav>
         <div className={s.bottom}>
-          <Link href="/messaging"><PilotIcon name="message"/><span>Existing messaging</span><PilotIcon name="external" size={14}/></Link>
+          <Link href="/messaging"><PilotIcon name="message"/><span>Guest messaging</span><PilotIcon name="external" size={14}/></Link>
           <div className={s.pilotNote}><PilotIcon name="baseline" size={17}/><div><strong>Calderwood pilot</strong><p>Read-only workspace</p></div></div>
         </div>
       </aside>
