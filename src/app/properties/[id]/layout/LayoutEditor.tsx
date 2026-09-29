@@ -128,7 +128,7 @@ export function LayoutEditor({ propertyId, initialDeck, initialAddable, isCustom
   }
 
   function removeCard(card: EditorCard) {
-    if (customAction.busy.current || dragId.current) return;
+    if (customAction.busy.current || dragId.current || !deckRef.current.some(c => c.itemId === card.itemId)) return;
     if (deckRef.current.length <= 1) {
       setError('An inspection needs at least one card.');
       return;

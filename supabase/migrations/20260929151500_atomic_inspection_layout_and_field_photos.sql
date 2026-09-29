@@ -1,5 +1,6 @@
 -- Apply before deploying the layout/field-photo actions. Additive functions only.
 -- Only authenticated server actions using the service role may execute these.
+begin;
 create or replace function public.helm_save_inspection_layout(p_property_id text, p_item_ids uuid[])
 returns void language plpgsql security invoker set search_path = public, pg_temp as $$
 begin
@@ -73,3 +74,6 @@ revoke all on function public.helm_edit_field_slip(uuid, text, text, text, text[
 grant execute on function public.helm_save_inspection_layout(text, uuid[]) to service_role;
 grant execute on function public.helm_create_inspection_card(text, uuid[], uuid, uuid, text, text) to service_role;
 grant execute on function public.helm_edit_field_slip(uuid, text, text, text, text[]) to service_role;
+
+notify pgrst, 'reload schema';
+commit;
