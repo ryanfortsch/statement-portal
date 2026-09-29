@@ -1187,13 +1187,15 @@ export async function acceptShoot(formData: FormData) {
   const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
   if (shoot.shoot_date < todayEt) redirect(`/field/shoot/${shootId}?answer=expired`);
 
-  const { data: updated } = await fieldDb()
+  const { data: updated, error } = await fieldDb()
     .from('creative_shoots')
     .update({ status: 'scheduled', responded_at: new Date().toISOString(), decline_reason: null, updated_at: new Date().toISOString() })
     .eq('id', shootId)
     .eq('status', 'offered')
     .select('id')
     .maybeSingle();
+  if (error) return { error: 'Could not save your acceptance. Please try again.' };
+  if (!updated) return { error: 'This offer has changed. Refresh the page to see its current status.' };
   // Only a real transition sends the confirmation, so a double tap cannot
   // text them the same brief twice.
   if (updated) {
@@ -1225,13 +1227,15 @@ export async function declineShoot(formData: FormData) {
   if (!contractor) redirect('/field');
   if (!shoot) redirect('/field');
 
-  const { data: updated } = await fieldDb()
+  const { data: updated, error } = await fieldDb()
     .from('creative_shoots')
     .update({ status: 'declined', responded_at: new Date().toISOString(), decline_reason: reason, updated_at: new Date().toISOString() })
     .eq('id', shootId)
     .eq('status', 'offered')
     .select('id')
     .maybeSingle();
+  if (error) return { error: 'Could not save your pass. Your reason is kept; please try again.' };
+  if (!updated) return { error: 'This offer has changed. Refresh the page to see its current status.' };
   if (updated) {
     // The office is the party who has to act on a no, so this one does email.
     const propertyName = await shootPropertyName(shoot.property_id);

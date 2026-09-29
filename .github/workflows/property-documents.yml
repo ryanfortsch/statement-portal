@@ -24,6 +24,7 @@ on:
       - 'scripts/messaging-drafts-smoke.mjs'
       - 'scripts/layout-field-photos-smoke.mjs'
       - 'scripts/photos-onboarding-feed-smoke.mjs'
+      - 'scripts/owner-drafts-shoot-replies-smoke.mjs'
       - 'scripts/tests/layout-field-photos*'
       - 'supabase/migrations/20260929151500_atomic_inspection_layout_and_field_photos.sql'
       - '.github/workflows/property-documents.yml'
@@ -65,6 +66,8 @@ jobs:
         run: node scripts/intake-jobs-smoke.mjs
       - name: Verify property capture, walkthrough, inline edits, and address recovery
         run: node scripts/property-capture-smoke.mjs
+      - name: Verify owner email drafts and shoot reply recovery
+        run: node scripts/owner-drafts-shoot-replies-smoke.mjs
       - name: Verify bedroom photos, onboarding invitations and feed recovery
         run: node scripts/photos-onboarding-feed-smoke.mjs
       - name: Verify inspection layout recovery and inline work slip photos
