@@ -25,6 +25,7 @@ import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { suppliesLabel } from '@/lib/inspection-supplies';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyForPicker = {
@@ -833,8 +834,6 @@ function PropertyGroup({
   reporterNames: Record<string, string>;
   onAddSlip: () => void;
 }) {
-  const [drafting, setDrafting] = useState(false);
-  const [draftErr, setDraftErr] = useState<string | null>(null);
   const highCount = slips.filter((s) => s.priority === 'high').length;
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
   const supplySlips = slips.filter(isSupplySlip);
@@ -855,30 +854,7 @@ function PropertyGroup({
     window.open(`/properties/${propertyId}/work-slips/print?auto=1`, '_blank', 'noopener,noreferrer');
   }
 
-  async function draftOwnerEmail() {
-    if (!propertyId || drafting) return;
-    setDrafting(true);
-    setDraftErr(null);
-    try {
-      const res = await fetch('/api/work/draft-owner-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ property_id: propertyId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setDraftErr(data?.error || `Failed (${res.status})`);
-        return;
-      }
-      if (data?.draft_url) {
-        window.open(data.draft_url, '_blank', 'noopener,noreferrer');
-      }
-    } catch (err) {
-      setDraftErr(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDrafting(false);
-    }
-  }
+  const { pending: drafting, error: draftErr, draftUrl, draft: draftOwnerEmail } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
 
   return (
     // Anchor target for /work?open=X#prop-X (the slip page's back link);
@@ -992,7 +968,7 @@ function PropertyGroup({
               opacity: drafting ? 0.6 : 1,
             }}
           >
-            {drafting ? 'Drafting…' : 'Draft Owner Email'}
+            {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : 'Draft Owner Email'}
           </button>
         )}
         {propertyId && (
@@ -1056,8 +1032,9 @@ function PropertyGroup({
         </button>
       </div>
 
+      {draftUrl && <a className="rt-no-print" href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
       {draftErr && (
-        <div
+        <div role="alert"
           style={{
             margin: '0 0 12px 56px',
             padding: '8px 12px',
