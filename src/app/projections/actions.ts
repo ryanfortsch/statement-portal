@@ -1,6 +1,7 @@
 'use server';
 
 import crypto from 'node:crypto';
+import { getOrCreatePropertyOnboardingToken } from '@/lib/property-onboarding-token';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
@@ -1626,29 +1627,7 @@ export async function ensurePropertyOnboardingToken(propertyId: string): Promise
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  // `properties` is RLS-protected — an anon UPDATE silently no-ops, which
-  // would persist no token and hand back a dead onboarding link. Use the
-  // service-role client for the write.
-  const sb = supabase; // already service-role
-
-  const { data: existing, error: lookupErr } = await sb
-    .from('properties')
-    .select('onboarding_token')
-    .eq('id', propertyId)
-    .maybeSingle();
-  if (lookupErr) throw new Error(lookupErr.message);
-  if (!existing) throw new Error('Property not found');
-
-  if ((existing as { onboarding_token: string | null }).onboarding_token) {
-    return (existing as { onboarding_token: string }).onboarding_token;
-  }
-
-  const token = newOnboardingToken();
-  const { error: updateErr } = await sb
-    .from('properties')
-    .update({ onboarding_token: token })
-    .eq('id', propertyId);
-  if (updateErr) throw new Error(updateErr.message);
+  const token = await getOrCreatePropertyOnboardingToken(supabase, propertyId);
 
   revalidatePath(`/properties/${propertyId}`);
   return token;

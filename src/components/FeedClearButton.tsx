@@ -1,6 +1,6 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { dismissFeedItem } from '@/app/feed-actions';
 
 /**
@@ -9,17 +9,20 @@ import { dismissFeedItem } from '@/app/feed-actions';
  * the home path, so the item drops out and the next one backfills.
  */
 export function FeedClearButton({ itemType, itemId }: { itemType: string; itemId: string }) {
-  const [pending, startTransition] = useTransition();
+  const action = useRecoverableAction();
+  const pending = action.pending;
   return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
     <button
       type="button"
-      aria-label="Clear from feed"
+      aria-label={action.error ? "Retry clearing from feed" : "Clear from feed"}
       title="Clear"
       disabled={pending}
       onClick={() =>
-        startTransition(async () => {
-          await dismissFeedItem(itemType, itemId);
-        })
+        action.run(async () => {
+          const result = await dismissFeedItem(itemType, itemId);
+          if (!result.ok) action.setError(result.error);
+        }, 'Could not confirm the clear. Try again.')
       }
       style={{
         flexShrink: 0,
@@ -40,5 +43,7 @@ export function FeedClearButton({ itemType, itemId }: { itemType: string; itemId
     >
       ×
     </button>
+    {action.error && <span role="alert" style={{ color: 'var(--signal)', fontSize: 12, maxWidth: 180 }}>{action.error} Click × to retry.</span>}
+    </span>
   );
 }
