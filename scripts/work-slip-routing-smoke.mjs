@@ -240,7 +240,7 @@ try{
   pass('lost snooze response survives closing and reopening; confirmed retry clears the draft and refreshes once');
 
   for(const [label,expected] of [['Tomorrow','2026-09-30'],['3 days','2026-10-01'],['Next week','2026-10-05'],['Two weeks','2026-10-12'],['Next month','2026-10-28']]){
-    await reset('?active=1');await page.click('#snooze button');await click('snooze',label+' (',{includes:true,twice:true});await waitCalls(1);
+    await reset('?active=1');await page.click('#snooze button');await click('snooze',label+'(',{includes:true,twice:true});await waitCalls(1);
     await finish(0,null,true);await waitText('Could not confirm the snooze change.');await ready('snooze');assert.equal(await trigger(),'+ Snooze');
     await click('snooze','Retry snooze change');await waitCalls(2);await finish(1);await waitClean();
     assert.equal(await trigger(),'Snoozed until '+expected);
@@ -279,7 +279,7 @@ try{
   await reset();await page.click('#snooze button');await page.evaluate(()=>window.disableSnooze());
   await page.waitForFunction(()=>document.querySelector('#snooze fieldset').disabled);
   assert.equal(await page.$$eval('#snooze input,#snooze button',els=>els.every(el=>el.matches(':disabled'))),true);
-  await click('snooze','Tomorrow (',{includes:true});assert.equal(await page.evaluate(()=>window.calls.length),0);
+  await click('snooze','Tomorrow(',{includes:true});assert.equal(await page.evaluate(()=>window.calls.length),0);
   pass('the surrounding completion panel can still disable every snooze control');
 
   await reset();await custom('pending@example.test');await waitCalls(1);
