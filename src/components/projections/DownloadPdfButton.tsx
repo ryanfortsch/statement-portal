@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { usePdfDownload } from '@/lib/use-pdf-download';
 import type { DeliverableType } from '@/lib/projection-pdf';
 
 /**
@@ -17,42 +17,18 @@ export function DownloadPdfButton({
   type: DeliverableType;
   label: string;
 }) {
-  const [busy, setBusy] = useState(false);
+  const { pending: busy, error, download } = usePdfDownload(
+    `/api/projection-pdf?id=${encodeURIComponent(projectionId)}&type=${encodeURIComponent(type)}`,
+    `${type}-${projectionId}.pdf`,
+  );
 
   return (
+    <span>
     <button
       type="button"
       disabled={busy}
       aria-label={label}
-      onClick={async () => {
-        setBusy(true);
-        try {
-          const res = await fetch(
-            `/api/projection-pdf?id=${encodeURIComponent(projectionId)}&type=${encodeURIComponent(type)}`,
-          );
-          if (!res.ok) {
-            let msg = `${res.status}`;
-            try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
-            throw new Error(msg);
-          }
-          const blob = await res.blob();
-          const cd = res.headers.get('Content-Disposition') || '';
-          const match = cd.match(/filename="([^"]+)"/);
-          const filename = match?.[1] || `${type}-${projectionId}.pdf`;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-        } catch (err) {
-          alert(`Download failed: ${err instanceof Error ? err.message : err}`);
-        } finally {
-          setBusy(false);
-        }
-      }}
+      onClick={download}
       style={{
         background: 'transparent',
         color: 'var(--ink)',
@@ -90,5 +66,7 @@ export function DownloadPdfButton({
         </>
       )}
     </button>
+    {error && <span role="alert" style={{ display: 'block', color: 'var(--negative)', fontSize: 13 }}>{error} Use the download button to retry.</span>}
+    </span>
   );
 }
