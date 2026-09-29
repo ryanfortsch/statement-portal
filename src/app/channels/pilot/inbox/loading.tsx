@@ -1,1 +1,2 @@
-export default function Loading() { return <div role="status" style={{ padding: 40 }}>Loading Calderwood conversations…</div>; }
+import { PilotLoading } from '../PilotLoading';
+export default function Loading() { return <PilotLoading inbox />; }

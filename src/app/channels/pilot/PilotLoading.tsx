@@ -1,0 +1,5 @@
+import { PilotFrame } from './PilotFrame';
+import s from './loading.module.css';
+export function PilotLoading({ inbox = false }: { inbox?: boolean }) {
+ return <PilotFrame section={inbox ? 'inbox' : 'calendar'}><div className={s.loading} role="status" aria-live="polite" aria-busy="true"><div className={s.heading}><p>65 CALDERWOOD</p><h1>{inbox ? 'Inbox' : 'Calendar'}</h1><span>{inbox ? 'Bringing your conversations together…' : 'Loading your property workspace…'}</span></div><div className={inbox ? s.inbox : s.calendar} aria-hidden="true">{inbox ? <><div className={s.list}>{Array.from({length:5},(_,i)=><div className={s.row} key={i}><i/><div><b/><span/><small/></div></div>)}</div><div className={s.thread}><div className={s.threadTop}/><div className={s.bubble}/><div className={s.reply}/><div className={s.bubble}/></div><div className={s.detail}><b/><span/><span/><span/><span/></div></> : <><div className={s.metrics}><i/><i/><i/></div><div className={s.grid}><div/>{Array.from({length:14},(_,i)=><span key={i}/>)}</div></>}</div><p className={s.hint}>Your existing bookings and messages stay unchanged.</p></div></PilotFrame>;
+}
