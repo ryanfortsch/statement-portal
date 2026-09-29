@@ -68,7 +68,7 @@ export function CalderwoodWorkspace({ data, initialBookingId, initialView = 'cal
         <div className={s.summary}>
           <div><span>Upcoming & current stays</span><strong>{data.sources.bookings ? '—' : bookings.filter(b => ['confirmed', 'completed'].includes(b.status) && b.check_out > today).length}</strong><small>Across all future dates</small></div>
           <div><span><a href="#reservation-review">Records to review ↗</a></span><strong>{comparisonAvailable ? problems.length : '—'}</strong><small>{comparisonAvailable ? 'All imported history, not just this view' : 'Comparison unavailable'}</small></div>
-          <div><span>Imported blocked nights</span><strong>{data.sources.blocks ? '—' : data.blocks.length}</strong><small>Coverage still needs verification</small></div>
+          <div><span>Imported calendar blocks</span><strong>{data.sources.blocks ? '—' : data.blocks.length}</strong><small>Coverage still needs verification</small></div>
         </div>
         {tab !== 'baseline' && <>
           <div className={s.toolbar}>
