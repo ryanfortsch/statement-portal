@@ -47,13 +47,17 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
   const [showNew, setShowNew] = useState(false);
   const [promotePhone, setPromotePhone] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const [busyPhone, setBusyPhone] = useState<string | null>(null);
+  const phoneLocks = useRef(new Set<string>());
+  const [busyPhones, setBusyPhones] = useState<Set<string>>(new Set());
   // Per-unknown-row "attach to existing contact" selection + inline result.
   const [attachSel, setAttachSel] = useState<Record<string, string>>({});
   const [attachMsg, setAttachMsg] = useState<Record<string, string>>({});
-  // Suggestions: dismissed row IDs (optimistic hide), busy id, add-contact type picker.
+  // Hide only confirmed suggestions; each row owns its pending state and type picker.
   const [hiddenSuggestions, setHiddenSuggestions] = useState<Set<string>>(new Set());
-  const [busySuggestion, setBusySuggestion] = useState<string | null>(null);
+  const suggestionLocks = useRef(new Set<string>());
+  const [busySuggestions, setBusySuggestions] = useState<Set<string>>(new Set());
+  const [acceptedSuggestions, setAcceptedSuggestions] = useState<Record<string, { name: string; contactId?: string }>>({});
+  useUnsavedWorkGuard(busyPhones.size > 0 || busySuggestions.size > 0);
   const [suggestionTypeFor, setSuggestionTypeFor] = useState<Record<string, ContactType>>({});
   const [suggestionErr, setSuggestionErr] = useState<Record<string, string>>({});
 
@@ -76,35 +80,46 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
   );
 
   async function onDismiss(phone: string) {
-    setBusyPhone(phone);
-    const res = await dismissUnknownNumber({ phone });
-    setBusyPhone(null);
-    if (res.ok) {
+    if (phoneLocks.current.has(phone)) return;
+    phoneLocks.current.add(phone);
+    setBusyPhones(new Set(phoneLocks.current));
+    setAttachMsg((m) => ({ ...m, [phone]: '' }));
+    try {
+      const res = await dismissUnknownNumber({ phone });
+      if (!res.ok) { setAttachMsg((m) => ({ ...m, [phone]: res.error })); return; }
       setHidden((h) => new Set(h).add(phone));
       softRefresh();
+    } catch {
+      setAttachMsg((m) => ({ ...m, [phone]: 'Could not confirm dismissal. The number is still shown so you can check and retry.' }));
+    } finally {
+      phoneLocks.current.delete(phone);
+      setBusyPhones(new Set(phoneLocks.current));
     }
   }
 
   async function onAttach(phone: string) {
     const contactId = attachSel[phone];
-    if (!contactId) return;
-    setBusyPhone(phone);
-    const res = await attachUnknownToContact({ phone, contactId });
-    setBusyPhone(null);
-    if (res.ok) {
+    if (!contactId || phoneLocks.current.has(phone)) return;
+    phoneLocks.current.add(phone);
+    setBusyPhones(new Set(phoneLocks.current));
+    setAttachMsg((m) => ({ ...m, [phone]: '' }));
+    try {
+      const res = await attachUnknownToContact({ phone, contactId });
+      if (!res.ok) { setAttachMsg((m) => ({ ...m, [phone]: res.error })); return; }
       if (res.filled) {
         setHidden((h) => new Set(h).add(phone));
         softRefresh();
       } else {
-        // Linked, but the contact already had a different primary number, so
-        // this one won't auto-recognize. Keep the row visible with a note.
         setAttachMsg((m) => ({
           ...m,
           [phone]: `Linked to ${res.contactName}, but they already have a primary phone, so edit the contact to make this their main number.`,
         }));
       }
-    } else {
-      setAttachMsg((m) => ({ ...m, [phone]: res.error }));
+    } catch {
+      setAttachMsg((m) => ({ ...m, [phone]: 'Could not confirm the link. Your selected contact is retained. Check their phone before retrying.' }));
+    } finally {
+      phoneLocks.current.delete(phone);
+      setBusyPhones(new Set(phoneLocks.current));
     }
   }
 
@@ -114,26 +129,42 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
   );
 
   async function onAcceptSuggestion(s: ContactReconcileSuggestionRow) {
-    setBusySuggestion(s.id);
-    setSuggestionErr((m) => { const n = { ...m }; delete n[s.id]; return n; });
+    if (suggestionLocks.current.has(s.id)) return;
+    suggestionLocks.current.add(s.id);
+    setBusySuggestions(new Set(suggestionLocks.current));
+    setSuggestionErr((m) => ({ ...m, [s.id]: '' }));
     const contactType = suggestionTypeFor[s.id] ?? 'other';
-    const res = await acceptContactSuggestion({ id: s.id, contactType });
-    setBusySuggestion(null);
-    if (!res.ok) {
-      setSuggestionErr((m) => ({ ...m, [s.id]: res.error }));
-      return;
+    try {
+      const res = await acceptContactSuggestion({ id: s.id, contactType });
+      if (!res.ok) { setSuggestionErr((m) => ({ ...m, [s.id]: res.error })); return; }
+      setHiddenSuggestions((h) => new Set(h).add(s.id));
+      // Stay here: another row or the new-contact form may still be busy.
+      // A deliberate link replaces navigation triggered by a late response.
+      setAcceptedSuggestions((m) => ({ ...m, [s.id]: { name: s.suggested_name ?? formatPhone(s.phone ?? ''), contactId: res.contactId } }));
+      softRefresh();
+    } catch {
+      setSuggestionErr((m) => ({ ...m, [s.id]: 'Could not confirm this change. Check your contacts before retrying to avoid a duplicate.' }));
+    } finally {
+      suggestionLocks.current.delete(s.id);
+      setBusySuggestions(new Set(suggestionLocks.current));
     }
-    setHiddenSuggestions((h) => new Set(h).add(s.id));
-    softRefresh();
-    if (res.contactId) router.push(`/crm/${res.contactId}`);
   }
 
   async function onDismissSuggestion(id: string) {
-    setBusySuggestion(id);
-    const res = await dismissContactSuggestion({ id });
-    setBusySuggestion(null);
-    if (res.ok) {
+    if (suggestionLocks.current.has(id)) return;
+    suggestionLocks.current.add(id);
+    setBusySuggestions(new Set(suggestionLocks.current));
+    setSuggestionErr((m) => ({ ...m, [id]: '' }));
+    try {
+      const res = await dismissContactSuggestion({ id });
+      if (!res.ok) { setSuggestionErr((m) => ({ ...m, [id]: res.error })); return; }
       setHiddenSuggestions((h) => new Set(h).add(id));
+      softRefresh();
+    } catch {
+      setSuggestionErr((m) => ({ ...m, [id]: 'Could not confirm Skip. The suggestion is still shown so you can check and retry.' }));
+    } finally {
+      suggestionLocks.current.delete(id);
+      setBusySuggestions(new Set(suggestionLocks.current));
     }
   }
 
@@ -157,6 +188,12 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
 
   return (
     <>
+      {Object.entries(acceptedSuggestions).map(([id, result]) => (
+        <div key={id} role="status" className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 12, width: '100%', fontSize: 12 }}>
+          Updated {result.name}.{' '}
+          {result.contactId && <Link href={`/crm/${result.contactId}`} target="_blank" rel="noopener noreferrer">View contact →</Link>}
+        </div>
+      ))}
       {/* QUO ADDRESS BOOK SUGGESTIONS */}
       {visibleSuggestions.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 8, paddingBottom: 16, width: '100%' }}>
@@ -181,6 +218,8 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                     </span>
                     {s.suggestion_type === 'add_contact' && (
                       <select
+                        disabled={busySuggestions.has(s.id)}
+                        aria-label={`Contact type for ${s.suggested_name ?? s.phone}`}
                         value={suggestionTypeFor[s.id] ?? 'other'}
                         onChange={(e) => setSuggestionTypeFor((m) => ({ ...m, [s.id]: e.target.value as ContactType }))}
                         style={{
@@ -200,15 +239,15 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                     )}
                     <button
                       type="button"
-                      disabled={busySuggestion === s.id}
+                      disabled={busySuggestions.has(s.id)}
                       onClick={() => onAcceptSuggestion(s)}
                       style={smallBtn(true)}
                     >
-                      {busySuggestion === s.id ? '…' : suggestionLabel(s.suggestion_type)}
+                      {busySuggestions.has(s.id) ? '…' : suggestionLabel(s.suggestion_type)}
                     </button>
                     <button
                       type="button"
-                      disabled={busySuggestion === s.id}
+                      disabled={busySuggestions.has(s.id)}
                       onClick={() => onDismissSuggestion(s.id)}
                       style={smallBtn(false)}
                     >
@@ -216,7 +255,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                     </button>
                   </div>
                   {suggestionErr[s.id] && (
-                    <div style={{ fontSize: 11, color: 'var(--negative)', paddingLeft: 2 }}>{suggestionErr[s.id]}</div>
+                    <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', paddingLeft: 2 }}>{suggestionErr[s.id]}</div>
                   )}
                 </div>
               ))}
@@ -290,6 +329,8 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                         the "create new" path, so an owner already in Helm isn't
                         duplicated. */}
                     <select
+                      disabled={busyPhones.has(u.phone)}
+                      aria-label={`Attach ${formatPhone(u.phone)} to contact`}
                       value={attachSel[u.phone] ?? ''}
                       onChange={(e) => setAttachSel((s) => ({ ...s, [u.phone]: e.target.value }))}
                       style={{
@@ -312,26 +353,26 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                     </select>
                     <button
                       type="button"
-                      disabled={busyPhone === u.phone || !attachSel[u.phone]}
+                      disabled={busyPhones.has(u.phone) || !attachSel[u.phone]}
                       onClick={() => onAttach(u.phone)}
                       style={smallBtn(!!attachSel[u.phone])}
                     >
-                      {busyPhone === u.phone ? '…' : 'Attach'}
+                      {busyPhones.has(u.phone) ? '…' : 'Attach'}
                     </button>
-                    <button type="button" onClick={() => setPromotePhone(u.phone)} style={smallBtn(false)}>
+                    <button type="button" disabled={busyPhones.has(u.phone)} onClick={() => { if (!phoneLocks.current.has(u.phone)) setPromotePhone(u.phone); }} style={smallBtn(false)}>
                       Add as new
                     </button>
                     <button
                       type="button"
-                      disabled={busyPhone === u.phone}
+                      disabled={busyPhones.has(u.phone)}
                       onClick={() => onDismiss(u.phone)}
                       style={smallBtn(false)}
                     >
-                      {busyPhone === u.phone ? '…' : 'Dismiss'}
+                      {busyPhones.has(u.phone) ? '…' : 'Dismiss'}
                     </button>
                   </div>
                   {attachMsg[u.phone] && (
-                    <div style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 2 }}>{attachMsg[u.phone]}</div>
+                    <div role="status" style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 2 }}>{attachMsg[u.phone]}</div>
                   )}
                 </div>
               ))}

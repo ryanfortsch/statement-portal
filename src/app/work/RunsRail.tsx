@@ -17,11 +17,12 @@
  * the operator reviews and hits Send in Gmail, never here.
  */
 
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import type { RunsBoardData, MaintenanceRunCard, RosterPerson, VendorNeededSlip } from '@/lib/work-types';
 import { planRunsNow, publishRun, emailWorkOrder, markRunScheduled } from './runs-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 const LABEL: React.CSSProperties = {
   fontSize: 10,
@@ -80,17 +81,23 @@ function WorkOrderComposer({
   contextLabel: string;
   onClose: () => void;
 }) {
-  const [selected, setSelected] = useState(roster.length > 0 ? roster[0].email : 'custom');
+  const [initialRecipient] = useState(roster.length > 0 ? roster[0].email : 'custom');
+  const [selected, setSelected] = useState(initialRecipient);
   const [customName, setCustomName] = useState('');
   const [customEmail, setCustomEmail] = useState('');
   const [note, setNote] = useState('');
   const [sending, startSending] = useTransition();
-  const [done, setDone] = useState<{ message: string; draftUrl: string } | null>(null);
+  const sendLock = useRef(false);
+  const markLock = useRef(false);
+  const [done, setDone] = useState<{
+    message: string; draftUrl: string; slipIds: string[]; vendorName: string; vendorOrganization: string | null;
+  } | null>(null);
   const [error, setError] = useState('');
   // Close-out step: once the vendor confirms the day, one click stamps
   // every slip Scheduled + due + vendor-labeled.
   const softRefresh = useSoftRefresh();
-  const [schedDate, setSchedDate] = useState(visitDate ?? '');
+  const [initialDate] = useState(visitDate ?? '');
+  const [schedDate, setSchedDate] = useState(initialDate);
   const [marking, startMarking] = useTransition();
   const [marked, setMarked] = useState('');
   const [markError, setMarkError] = useState('');
@@ -98,42 +105,67 @@ function WorkOrderComposer({
   const person = roster.find((r) => r.email === selected) ?? null;
   const toName = person ? person.name : customName;
   const toEmail = person ? person.email : customEmail;
+  const dirty = !done
+    ? selected !== initialRecipient || !!customName || !!customEmail || !!note
+    : !marked && schedDate !== initialDate;
+  useUnsavedWorkGuard(dirty || sending || marking);
+
+  function requestClose() {
+    if (sendLock.current || markLock.current) return;
+    if (dirty && !window.confirm('Discard your unsaved work order changes?')) return;
+    onClose();
+  }
 
   function onMarkScheduled() {
+    if (!done || marked || markLock.current) return;
+    markLock.current = true;
+    setMarkError('');
+    const scheduledDate = schedDate || null;
     startMarking(async () => {
-      setMarkError('');
-      const res = await markRunScheduled({
-        slipIds,
-        scheduledDate: schedDate || null,
-        vendorName: toName,
-        vendorOrganization: person?.organization ?? null,
-      });
-      if (!res.ok) {
-        setMarkError(res.error);
-        return;
+      try {
+        const res = await markRunScheduled({
+          slipIds: done.slipIds,
+          scheduledDate,
+          vendorName: done.vendorName,
+          vendorOrganization: done.vendorOrganization,
+        });
+        if (!res.ok) { setMarkError(res.error); return; }
+        setMarked(
+          `${res.updated} ${res.updated === 1 ? 'slip' : 'slips'} scheduled${scheduledDate ? ` for ${fmtDate(scheduledDate)}` : ''} · ${res.label}`,
+        );
+        softRefresh();
+      } catch {
+        setMarkError('Could not confirm scheduling. Your date is retained. Check the slips before retrying.');
+      } finally {
+        markLock.current = false;
       }
-      setMarked(
-        `${res.updated} ${res.updated === 1 ? 'slip' : 'slips'} scheduled${schedDate ? ` for ${fmtDate(schedDate)}` : ''} · ${res.label}`,
-      );
-      softRefresh();
     });
   }
 
   function onSend() {
+    if (done || sendLock.current || !toEmail.trim() || !toName.trim()) return;
+    sendLock.current = true;
+    setError('');
+    const snapshot = { slipIds: [...slipIds], toName, toEmail, note, visitDate };
+    const vendorOrganization = person?.organization ?? null;
     startSending(async () => {
-      setError('');
-      const res = await emailWorkOrder({ slipIds, toName, toEmail, note, visitDate });
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = await emailWorkOrder(snapshot);
+        if (!res.ok) { setError(res.error); return; }
+        const w = res.warnings.length > 0 ? ` (${res.warnings.join('; ')})` : '';
+        setDone({
+          message: `Draft ready for ${snapshot.toEmail}: ${res.jobCount} jobs, ${res.photoCount} photos, cc Allie + Ryan${w}`,
+          draftUrl: res.draftUrl,
+          slipIds: snapshot.slipIds,
+          vendorName: snapshot.toName,
+          vendorOrganization,
+        });
+        window.open(res.draftUrl, '_blank', 'noopener');
+      } catch {
+        setError('Could not confirm draft creation. Your note and recipient are retained. Check Gmail Drafts before retrying to avoid a duplicate.');
+      } finally {
+        sendLock.current = false;
       }
-      const w = res.warnings.length > 0 ? ` (${res.warnings.join('; ')})` : '';
-      setDone({
-        message: `Draft ready for ${toEmail} — ${res.jobCount} jobs, ${res.photoCount} photos, cc Allie + Ryan${w}`,
-        draftUrl: res.draftUrl,
-      });
-      // The whole point is reviewing in Gmail — take her straight there.
-      window.open(res.draftUrl, '_blank', 'noopener');
     });
   }
 
@@ -158,6 +190,8 @@ function WorkOrderComposer({
             <span style={{ ...LABEL, color: 'var(--ink-3)' }}>Vendor confirmed?</span>
             <input
               type="date"
+              aria-label="Confirmed vendor date"
+              disabled={marking}
               value={schedDate}
               onChange={(e) => setSchedDate(e.target.value)}
               style={{ border: '1px solid var(--rule)', background: 'var(--paper)', color: 'var(--ink)', fontSize: 12, padding: '4px 6px' }}
@@ -179,19 +213,21 @@ function WorkOrderComposer({
               {marking ? 'Saving…' : 'Mark scheduled'}
             </button>
             <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              stamps each slip: Scheduled · due that day · {toName ? `Vendor: ${toName}` : 'vendor-labeled'}
+              stamps each slip: Scheduled · due that day · Vendor: {done.vendorName}
             </span>
-            {markError && <span style={{ fontSize: 11, color: 'var(--negative)' }}>{markError}</span>}
+            {markError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{markError}</span>}
           </div>
         )}
+        <button type="button" onClick={requestClose} disabled={marking} style={{ alignSelf: 'flex-start' }}>Close work order</button>
       </div>
     );
   }
 
   return (
-    <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <fieldset disabled={sending} style={{ border: 0, borderTop: '1px solid var(--rule-soft)', padding: '10px 0 0', margin: '4px 0 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={{ ...LABEL, color: 'var(--ink-3)' }}>Email work order — {contextLabel}</span>
       <select
+        aria-label="Work order recipient"
         value={selected}
         onChange={(e) => setSelected(e.target.value)}
         style={{
@@ -256,14 +292,14 @@ function WorkOrderComposer({
         </span>
         <button
           type="button"
-          onClick={onClose}
+          onClick={requestClose}
           style={{ background: 'none', border: 'none', color: 'var(--ink-3)', fontSize: 11, cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3 }}
         >
           Cancel
         </button>
-        {error && <span style={{ fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
+        {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
       </div>
-    </div>
+    </fieldset>
   );
 }
 
@@ -359,7 +395,8 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
         )}
         <button
           type="button"
-          onClick={() => setComposing((v) => !v)}
+          onClick={() => setComposing(true)}
+          disabled={composing}
           style={{
             background: 'none',
             border: '1px solid var(--rule)',
@@ -401,7 +438,8 @@ function VendorGroup({ propertyName, slips, roster }: { propertyName: string; sl
         <span className="font-serif" style={{ fontSize: 14, fontWeight: 500 }}>{propertyName}</span>
         <button
           type="button"
-          onClick={() => setComposing((v) => !v)}
+          onClick={() => setComposing(true)}
+          disabled={composing}
           style={{
             background: 'none',
             border: '1px solid var(--rule)',
