@@ -74,6 +74,12 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
         description="Listings, rates, calendars, bookings and the cutover. Every home in the registry, who runs its calendar today, when Helm last read each OTA and when each OTA last read Helm."
       />
 
+      <section className="max-w-[1100px] mx-auto px-10 pb-8 w-full">
+        <Link href="/channels/pilot" className="block rounded-xl border border-teal-200 bg-teal-50 p-5 text-teal-900">
+          <strong>65 Calderwood · Read-only pilot →</strong>
+          <p className="mt-2 text-sm">Review the calendar, reservation details and imported-record differences. No operational changes.</p>
+        </Link>
+      </section>
       {!dbReady && <DbSetupBlock />}
 
       {dbReady && (
