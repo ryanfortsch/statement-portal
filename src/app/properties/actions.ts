@@ -1201,14 +1201,14 @@ export async function applyPropertyCaptureAction(
  *  geocoded best-effort so the home can join route maps and bundles right away.
  *  Owner columns are NOT NULL on properties; they stay empty strings until the
  *  home actually signs (real onboarding fills them). */
-export async function createProspectProperty(formData: FormData): Promise<void> {
+export async function createProspectProperty(formData: FormData): Promise<{ error: string }> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
   const name = String(formData.get('name') || '').trim().slice(0, 80);
   const address = String(formData.get('address') || '').trim().slice(0, 160);
   const city = String(formData.get('city') || '').trim().slice(0, 80) || 'Gloucester';
-  if (name.length < 2 || address.length < 3) redirect('/properties/prospects?prospect=err');
+  if (name.length < 2 || address.length < 3) return { error: 'Enter a name of at least 2 characters and an address of at least 3 characters.' };
 
   const db = getServiceClient();
   const base =
@@ -1236,7 +1236,7 @@ export async function createProspectProperty(formData: FormData): Promise<void> 
     owner_greeting: '',
     management_fee_pct: 0,
   });
-  if (error) redirect('/properties/prospects?prospect=err');
+  if (error) return { error: 'Could not create the prospective property. Your details are still here. Please retry.' };
 
   revalidatePath('/properties');
   revalidatePath('/properties/prospects');
