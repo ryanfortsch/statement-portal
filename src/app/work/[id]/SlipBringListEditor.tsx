@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react';
 import { updateWorkSlipBringList } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type Props = {
   slipId: string;
@@ -24,6 +25,9 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const saving = useRef(false);
+
+  useUnsavedWorkGuard(pending || (editing && (draft !== value || !!err)));
 
   function beginEdit() {
     setDraft(value);
@@ -32,27 +36,35 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
     setTimeout(() => ref.current?.focus(), 0);
   }
   function cancel() {
+    if (pending || saving.current) return;
     setEditing(false);
     setErr(null);
   }
   function save() {
+    if (pending || saving.current) return;
     const next = draft.trim();
-    if (next === value.trim()) {
+    if (next === value.trim() && !err) {
       cancel();
       return;
     }
     setErr(null);
-    setEditing(false);
-    const prev = value;
-    setValue(next);
+    saving.current = true;
     startTransition(async () => {
-      const res = await updateWorkSlipBringList({ id: slipId, bringList: next });
-      if (!res.ok) {
-        setValue(prev);
-        setErr(res.error);
-        return;
+      try {
+        const res = await updateWorkSlipBringList({ id: slipId, bringList: next });
+        if (!res.ok) {
+          setErr(res.error);
+          return;
+        }
+        setValue(next);
+        setDraft(next);
+        setEditing(false);
+        softRefresh();
+      } catch {
+        setErr('Could not confirm the save. Your supply list is still here. Try saving again.');
+      } finally {
+        saving.current = false;
       }
-      softRefresh();
     });
   }
 
@@ -97,9 +109,13 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
           <textarea
             ref={ref}
             value={draft}
+            disabled={pending}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save();
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                save();
+              }
               if (e.key === 'Escape') cancel();
             }}
             rows={2}
@@ -108,8 +124,8 @@ export function SlipBringListEditor({ slipId, initialBringList }: Props) {
             style={{ width: '100%', font: 'inherit', fontSize: 14, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', borderRadius: 6, padding: '8px 10px', outline: 'none', resize: 'vertical', lineHeight: 1.5 }}
           />
           <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
-            <button type="button" onClick={save} style={{ background: 'var(--ink)', color: 'var(--paper)', border: '1px solid var(--ink)', padding: '5px 14px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', fontWeight: 600, cursor: 'pointer' }}>Save</button>
-            <button type="button" onClick={cancel} style={{ background: 'none', border: '1px solid var(--rule)', padding: '5px 14px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)', cursor: 'pointer' }}>Cancel</button>
+            <button type="button" onClick={save} disabled={pending} style={{ background: 'var(--ink)', color: 'var(--paper)', border: '1px solid var(--ink)', padding: '5px 14px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', fontWeight: 600, cursor: pending ? 'wait' : 'pointer' }}>{pending ? 'Saving…' : 'Save'}</button>
+            <button type="button" onClick={cancel} disabled={pending} style={{ background: 'none', border: '1px solid var(--rule)', padding: '5px 14px', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)', cursor: 'pointer' }}>Cancel</button>
             <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>⌘+Enter to save</span>
           </div>
         </div>
@@ -139,6 +155,6 @@ function quietLinkStyle(pending: boolean): React.CSSProperties {
 
 function ErrorStrip({ message }: { message: string }) {
   return (
-    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)', border: '1px solid var(--negative)', background: 'rgba(138, 58, 46, 0.06)', padding: '6px 10px' }}>{message}</div>
+    <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)', border: '1px solid var(--negative)', background: 'rgba(138, 58, 46, 0.06)', padding: '6px 10px' }}>{message}</div>
   );
 }

@@ -11,6 +11,7 @@ on:
       - 'scripts/listing-editor-smoke.mjs'
       - 'scripts/sca-launch-smoke.mjs'
       - 'scripts/field-report-smoke.mjs'
+      - 'scripts/work-slip-editor-smoke.mjs'
       - '.github/workflows/property-documents.yml'
   push:
     branches: ['codex/protect-property-wifi-documents']
@@ -54,6 +55,8 @@ jobs:
         run: node scripts/sca-launch-smoke.mjs
       - name: Verify field report recovery with synthetic submissions
         run: node scripts/field-report-smoke.mjs
+      - name: Verify work slip editing recovery with synthetic saves
+        run: node scripts/work-slip-editor-smoke.mjs
       - run: npx tsc --noEmit
       - name: Show local app log on failure
         if: failure()
