@@ -42,31 +42,26 @@ export function PilotFrame({ section, children, onSection }: {
   return (
     <div className={`${s.frame} ${section === 'inbox' ? s.inboxFrame : ''}`}>
       <aside className={s.sidebar}>
-        <Link href="/channels" className={s.brand} aria-label="Helm channels">
-          <span className={s.mark}><PilotIcon name="helm" size={25}/></span>
-          <span>helm<span className={s.brandDot}>.</span></span>
-        </Link>
-        <div className={s.property}>
-          <span className={s.propertyMark}>65</span>
-          <div><strong>65 Calderwood</strong><span>Property workspace</span></div>
-        </div>
-        <span className={s.navLabel}>Workspace</span>
+        <Link href="/channels" className={s.brand} aria-label="Helm channels"><PilotIcon name="helm" size={25}/><span>Helm</span></Link>
         <nav aria-label="Calderwood workspace">
           {(['inbox', 'calendar', 'reservations', 'baseline'] as const).map(key => {
-            const content = <><PilotIcon name={key}/><span>{labels[key]}</span></>;
+            const content = <><PilotIcon name={key} size={20}/><span>{labels[key]}</span></>;
             return onSection && key !== 'inbox'
-              ? <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => onSection(key)}>{content}</button>
-              : <Link key={key} aria-current={section === key ? 'page' : undefined} href={key === 'inbox' ? '/channels/pilot/inbox' : `/channels/pilot?view=${key}`}>{content}</Link>;
+              ? <button key={key} aria-label={labels[key]} aria-current={section === key ? 'page' : undefined} onClick={() => onSection(key)}>{content}</button>
+              : <Link key={key} aria-label={labels[key]} aria-current={section === key ? 'page' : undefined} href={key === 'inbox' ? '/channels/pilot/inbox' : `/channels/pilot?view=${key}`}>{content}</Link>;
           })}
         </nav>
         <div className={s.bottom}>
-          <Link href="/messaging"><PilotIcon name="message"/><span>Guest messaging</span><PilotIcon name="external" size={14}/></Link>
-          <div className={s.pilotNote}><PilotIcon name="baseline" size={17}/><div><strong>Calderwood pilot</strong><p>Read-only workspace</p></div></div>
+          <Link href="/messaging" aria-label="Guest messaging"><PilotIcon name="message" size={20}/><span>Guest messaging</span></Link>
+          <Link href="/" aria-label="Back to Helm"><PilotIcon name="home" size={20}/><span>Back to Helm</span></Link>
         </div>
       </aside>
       <header className={s.top}>
-        <div className={s.breadcrumb}><Link href="/channels">Channels</Link><PilotIcon name="chevron" size={12}/><span>65 Calderwood</span><PilotIcon name="chevron" size={12}/><strong>{labels[section]}</strong></div>
-        <div className={s.topRight}><span className={s.mode}><PilotIcon name="lock" size={12}/>Read-only</span><Link href="/">Back to Helm <PilotIcon name="external" size={13}/></Link></div>
+        <div className={s.product}><Link href="/">helm<span>.</span></Link><i/><span>Channels</span></div>
+        <div className={s.topRight}>
+          <span className={s.property}><PilotIcon name="home" size={15}/><strong>65 Calderwood</strong></span>
+          <span className={s.mode}><PilotIcon name="lock" size={12}/>Read-only pilot</span>
+        </div>
       </header>
       <div className={s.content}>{children}</div>
     </div>
