@@ -84,10 +84,10 @@ export function ProposedActions({
   return (
     <section
       style={{ border: '1px solid var(--rule)', padding: '14px 18px', background: 'var(--paper-2)' }}
-      aria-label="What approving also does"
+      aria-label="Follow-up work"
     >
       <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 10 }}>
-        Approving also creates {summary}
+        Follow-up work: {summary}
       </div>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
         {actions.map((action, i) => {
@@ -131,7 +131,7 @@ export function ProposedActions({
         style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}
       >
         <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
-        Create these when I approve
+        Create these when I approve or mark handled
       </label>
       {notes > 0 && (
         <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>

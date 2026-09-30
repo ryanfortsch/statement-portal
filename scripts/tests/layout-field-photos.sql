@@ -62,3 +62,5 @@ select pg_temp.must_fail($q$select helm_edit_field_slip('00000000-0000-0000-0000
 update work_slips set status='open';
 select pg_temp.check_true((select title='Cupboard repair' from work_slips),'closed slips refuse mutation inside the row lock');
 select pg_temp.check_true(not has_function_privilege('anon','helm_edit_field_slip(uuid,text,text,text,text[])','execute') and not has_function_privilege('authenticated','helm_edit_field_slip(uuid,text,text,text,text[])','execute') and not has_function_privilege('anon','helm_save_inspection_layout(text,uuid[])','execute') and not has_function_privilege('authenticated','helm_create_inspection_card(text,uuid[],uuid,uuid,text,text)','execute'),'RPCs cannot bypass server authentication');
+
+\ir message-work-routing.sql
