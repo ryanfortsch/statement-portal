@@ -7,9 +7,9 @@ export function PilotLoading({ inbox = false }: { inbox?: boolean }) {
       {inbox ? <div className={s.inbox}>
         <div className={s.list}>
           <div className={s.listHeading}><h1>Inbox</h1><span>Loading conversations…</span></div>
-          <div aria-hidden="true"><div className={s.search}/><div className={s.filters}/>{Array.from({ length: 6 }, (_, i) => <div className={s.row} key={i}><b/><span/><small/></div>)}</div>
+          <div aria-hidden="true"><div className={s.search}/><div className={s.filters}/><div className={s.listOrder}/>{Array.from({ length: 6 }, (_, i) => <div className={s.row} key={i}><i/><div><b/><span/><small/></div></div>)}</div>
         </div>
-        <div className={s.thread} aria-hidden="true"><div className={s.threadTop}><i/><b/></div><div className={s.timeline}><div className={s.bubble}/><div className={s.reply}/><div className={s.bubble}/></div></div>
+        <div className={s.thread} aria-hidden="true"><div className={s.threadTop}><i/><b/></div><div className={s.stayStrip}/><div className={s.timeline}><div className={s.automation}/><div className={s.reply}/><div className={s.bubble}/><div className={s.reply}/></div></div>
         <div className={s.detail} aria-hidden="true"><div className={s.detailTop}/><b/><span/><span/><span/><span/></div>
       </div> : <>
         <div className={s.heading}><h1>Calendar</h1><span>Loading property records…</span></div>
