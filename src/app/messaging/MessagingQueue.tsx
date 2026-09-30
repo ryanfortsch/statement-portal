@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
@@ -1276,7 +1277,7 @@ function ApprovalCard({
 
           {handoff.audience === 'cleaner' ? (
             handoff.note_status === 'approved' ? <p style={{ fontSize: 12 }}>Sent to {handoff.target_name || 'the cleaner'}.</p> :
-            ['sending', 'scheduled', 'rejected', 'superseded'].includes(handoff.note_status || '') ? <p style={{ fontSize: 12 }}>This note is {handoff.note_status}. Review it in <a href="/cleaner-messaging">Cleaner messaging</a>.</p> :
+            ['sending', 'scheduled', 'rejected', 'superseded'].includes(handoff.note_status || '') ? <p style={{ fontSize: 12 }}>This note is {handoff.note_status}. Review it in <Link href="/cleaner-messaging">Cleaner messaging</Link>.</p> :
             <>
               <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: '10px 0 0', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 12 }}>
                 <legend className="sr-only">Note to {handoff.target_name || 'the cleaner'}</legend>
@@ -1349,8 +1350,7 @@ function ApprovalCard({
 
           {handoff.create_error && (
             <p style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>
-              Filing this last time failed ({handoff.create_error}). Approving
-              tries again.
+              {handoff.audience === 'cleaner' ? <>Note needs review: {handoff.create_error} <Link href="/cleaner-messaging">Open Cleaner messaging</Link>.</> : <>Filing this last time failed ({handoff.create_error}). Approving tries again.</>}
             </p>
           )}
         </div>
