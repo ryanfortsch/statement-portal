@@ -1186,6 +1186,22 @@ function ApprovalCard({
         </div>
       )}
 
+      {approval.maintenance_work && (
+        <div style={{ marginTop: 16, border: '1px solid var(--rule)', borderLeft: `3px solid ${HANDOFF_TONE}`, background: 'var(--paper)', padding: '12px 14px' }}>
+          <div className="eyebrow" style={{ color: HANDOFF_TONE, marginBottom: 6 }}>
+            Property work slip
+          </div>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-1)' }}>{approval.maintenance_work.title}</p>
+          <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-2)' }}>
+            {approval.maintenance_work.status === 'filed' && approval.maintenance_work.slip_id ? (
+              <><a href={`/work/${encodeURIComponent(approval.maintenance_work.slip_id)}`} style={{ color: 'var(--ink-2)' }}>Work slip created</a> · Requires a qualified professional.</>
+            ) : approval.maintenance_work.error ? (
+              <span style={{ color: 'var(--signal)' }}>Work slip not confirmed. Retrying automatically; the office still needs to follow up.</span>
+            ) : 'Checking and filing the reported issue…'}
+          </p>
+        </div>
+      )}
+
       {handoff && (
         <div
           style={{
