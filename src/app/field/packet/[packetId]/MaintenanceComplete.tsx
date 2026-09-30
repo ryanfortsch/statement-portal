@@ -14,6 +14,11 @@ import { completeMaintenanceTask, checkFieldTaskCompletion } from '../../actions
  * gated on writing prose). Serves a maintenance STOP (stopId) and an ATTACHED
  * slip riding on any stop (attachmentId).
  */
+function MaintenanceDraftStatus({ status }: Parameters<typeof FieldDraftStatus>[0]) {
+  const { pending } = useFormStatus();
+  return pending ? null : <FieldDraftStatus status={status} />;
+}
+
 function CompletionFields({ ready, children }: { ready: boolean; children: React.ReactNode }) {
   const { pending } = useFormStatus();
   return <fieldset disabled={!ready || pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>{children}</fieldset>;
@@ -98,7 +103,7 @@ export function MaintenanceComplete({
   if (confirmed) return <p role="status" style={{ fontSize: 13, color: 'var(--positive)' }}>✓ Saved</p>;
   return (
     <form action={save} onSubmit={event => { if (busy.current || photoBusy || failedPhotos || !formDraft.ready) event.preventDefault(); else busy.current = true; }} style={{ margin: compact ? '8px 0 0' : '10px 0 0' }}>
-      {!retrying && <FieldDraftStatus status={formDraft.status} />}
+      {!retrying && <MaintenanceDraftStatus status={formDraft.status} />}
       <CompletionFields ready={formDraft.ready && !retrying}>
       <input type="hidden" name="packet_id" value={packetId} />
       {isAttachment ? (

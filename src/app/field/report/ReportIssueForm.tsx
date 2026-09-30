@@ -146,7 +146,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       <input type="hidden" name="priority" value={priority} />
       <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
 
-      {!retrying && <FieldDraftStatus status={formDraft.status} />}
+      {!isPending && !retrying && <FieldDraftStatus status={formDraft.status} />}
       {selected && !chosen && <p role="alert">This home is no longer in your reporting window. Your draft is kept; contact the office before reporting it elsewhere.</p>}
       {/* Which home */}
       <div>
