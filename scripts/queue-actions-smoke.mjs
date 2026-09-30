@@ -190,3 +190,6 @@ pass('both parent Email buttons preserve open composers; closing one cannot rele
 assert.deepEqual(errors,[]);console.log('All '+checks+' queue action browser checks passed.');
 }catch(error){if(page)console.error('Synthetic action state:',await page.evaluate(()=>({body:document.body.innerText,calls:window.calls?.map(({kind,args})=>({kind,args})),guarded:window.guarded?.()})));throw error;}
 finally{await browser?.close();await new Promise(r=>server.close(r));await rm(scratch,{recursive:true,force:true});}
+
+// Run the shared messaging-feed refresh fixture through this existing CI entry.
+if (!process.argv.includes('--serve')) await import('./queue-refresh-smoke.mjs');

@@ -42,7 +42,7 @@ const SLIP_TONE = '#1f5e6b';
 
 export function CleanerMessagingQueue({ initialPending, properties }: Props) {
   // The cards come from the queue's own feed. Seeded by the server render.
-  const { approvals, updatedTick, refresh, watchRegen, stalledId } =
+  const { approvals, updatedTick, refreshStatus, refresh, watchRegen, stalledId } =
     useApprovalQueue(initialPending, 'cleaners');
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
@@ -75,7 +75,7 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
     <Section
       id="needs-review"
       title={title}
-      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+      right={<QueueRefreshControl onRefresh={refresh} refreshTick={updatedTick} status={refreshStatus} />}
       empty={approvals.length === 0}
       emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
     >

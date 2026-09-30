@@ -109,7 +109,7 @@ function quoteStatusTone(status: ScaQuoteStatus): string {
 export function MessagingQueue({ initialPending, initialQuotes }: Props) {
   // The cards come from the queue's own feed, so a slow page render can never
   // hold a finished draft back. Seeded by the server render above.
-  const { approvals, context: quotes, updatedTick, refresh, watchRegen, stalledId } =
+  const { approvals, context: quotes, updatedTick, refreshStatus, refresh, watchRegen, stalledId } =
     useApprovalQueue<Approval, GuestQuoteContext>(initialPending, 'guests', initialQuotes);
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
@@ -163,7 +163,7 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
     <Section
       id="needs-review"
       title={title}
-      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+      right={<QueueRefreshControl onRefresh={refresh} refreshTick={updatedTick} status={refreshStatus} />}
       empty={approvals.length === 0}
       emptyMessage="No drafts waiting. New guest messages will show up here automatically when the AI drafts a reply."
     >

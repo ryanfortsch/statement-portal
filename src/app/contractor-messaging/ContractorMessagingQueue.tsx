@@ -50,7 +50,7 @@ export function ContractorMessagingQueue({ initialPending, properties, context }
   const {
     approvals,
     context: liveContext,
-    updatedTick,
+    updatedTick, refreshStatus,
     refresh,
     watchRegen,
     stalledId,
@@ -90,7 +90,7 @@ export function ContractorMessagingQueue({ initialPending, properties, context }
     <Section
       id="needs-review"
       title={title}
-      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+      right={<QueueRefreshControl onRefresh={refresh} refreshTick={updatedTick} status={refreshStatus} />}
       empty={approvals.length === 0}
       emptyMessage="No contractor drafts waiting. Texts from Delaney show up here automatically."
     >
