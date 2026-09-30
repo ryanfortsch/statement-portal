@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, useTransition, type MouseEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { PilotConversation } from '@/lib/calderwood-inbox-core';
@@ -8,6 +8,7 @@ import type { ThreadMessage } from '@/lib/stay-concierge';
 import { CHANNEL_LABELS } from '@/lib/channels-types';
 import { validInterval } from '@/lib/calderwood-workspace';
 import { PilotFrame, PilotIcon } from '../PilotFrame';
+import { syncReservationInspector } from './reservation-inspector';
 import s from './inbox.module.css';
 
 export type InboxData = {
@@ -67,6 +68,15 @@ function ChannelBadge({ channel }: { channel: string }) {
 const stayLabels: Record<string, string> = { in_house: 'Staying now', upcoming: 'Upcoming', checked_out: 'Past stay' };
 const viaLabels: Record<string, string> = { guesty_auto: 'Automated', helm_ai: 'AI-assisted', team: 'Team', operator: 'Sent from Helm' };
 
+const dockedQuery = '(min-width: 1380px)';
+function subscribeToLayout(onChange: () => void) {
+  const query = window.matchMedia(dockedQuery);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+function getDockedLayout() { return window.matchMedia(dockedQuery).matches; }
+function getServerLayout() { return false; }
+
 export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: string }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -76,11 +86,13 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
   const [matchIndex, setMatchIndex] = useState(0);
   const [mobileThread, setMobileThread] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const docked = useSyncExternalStore(subscribeToLayout, getDockedLayout, getServerLayout);
   const [pending, transition] = useTransition();
   const router = useRouter();
   const timeline = useRef<HTMLDivElement>(null);
   const detailsPanel = useRef<HTMLDialogElement>(null);
   const detailsButton = useRef<HTMLButtonElement>(null);
+  const detailsOpener = useRef<HTMLButtonElement | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const searchButton = useRef<HTMLButtonElement>(null);
   const c = data.selected;
@@ -91,6 +103,8 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
   const departure = c?.booking?.check_out || c?.check_out || '';
   const nights = validInterval(arrival, departure) ? Math.round((Date.parse(departure) - Date.parse(arrival)) / 86400000) : null;
   const conversationNights = c && validInterval(c.check_in, c.check_out) ? Math.round((Date.parse(c.check_out) - Date.parse(c.check_in)) / 86400000) : null;
+  const datesDiffer = !!c?.booking && ((!!c.check_in && c.check_in !== c.booking.check_in) || (!!c.check_out && c.check_out !== c.booking.check_out));
+  const stayIssue = c ? !c.booking ? 'Unmatched stay' : datesDiffer ? 'Dates differ' : c.booking.status === 'cancelled' ? 'Cancelled reservation' : null : null;
   const rows = data.conversations.filter(r =>
     (!bookingId || r.booking?.id === bookingId) &&
     (filter === 'all' || r.stay_status === filter) &&
@@ -101,9 +115,14 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
   useEffect(() => {
     const panel = detailsPanel.current;
     if (!panel) return;
-    if (showDetails && !panel.open) panel.showModal();
-    if (!showDetails && panel.open) { panel.close(); detailsButton.current?.focus(); }
-  }, [showDetails]);
+    const opener = detailsOpener.current;
+    syncReservationInspector(
+      panel,
+      showDetails ? docked ? 'docked' : 'modal' : 'closed',
+      document.activeElement instanceof HTMLElement ? document.activeElement : null,
+      opener?.isConnected ? opener : detailsButton.current,
+    );
+  }, [showDetails, docked]);
   useEffect(() => { const el = timeline.current; if (el) el.scrollTop = el.scrollHeight; }, [c?.conversation_id, data.messages.length, mobileThread]);
 
   useEffect(() => { if (searchOpen) searchInput.current?.focus(); }, [searchOpen]);
@@ -114,13 +133,13 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
 
   function closeSearch() { setSearchOpen(false); setMessageQuery(''); setMatchIndex(0); searchButton.current?.focus(); }
   function closeDetails() { setShowDetails(false); }
+  function openDetails(button: HTMLButtonElement) { detailsOpener.current = button; setShowDetails(true); }
   function navigate(e: MouseEvent<HTMLAnchorElement>, href: string) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
     setMobileThread(true);
     setMessageQuery('');
     setMatchIndex(0);
-    setShowDetails(false);
     transition(() => router.push(href, { scroll: false }));
   }
 
@@ -138,7 +157,7 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
         </dl></div>
         {c.booking ? <>
           <Link className={s.reservationLink} href={`/channels/pilot?booking=${encodeURIComponent(c.booking.id)}`}><PilotIcon name="reservations" size={15}/>View reservation<PilotIcon name="arrow" size={14}/></Link>
-          {((c.check_in && c.check_in !== c.booking.check_in) || (c.check_out && c.check_out !== c.booking.check_out)) && <div className={s.contextNote}><PilotIcon name="info" size={16}/><p>Dates need review. The conversation shows {date(c.check_in, true)} to {date(c.check_out, true)}.</p></div>}
+          {datesDiffer && <div className={s.contextNote}><PilotIcon name="info" size={16}/><p>Dates need review. The conversation shows {date(c.check_in, true)} to {date(c.check_out, true)}.</p></div>}
         </> : <div className={s.contextNote}><PilotIcon name="info" size={16}/><p>No unique reservation match. Dates are from conversation metadata.</p></div>}
       </> : <p className={s.note}>Select a guest to see their stay details.</p>}
       <details className={s.sourceDetails}><summary>Source & history</summary><p>{c?.source === 'guesty' ? 'Messages are read through Guesty via Stay Concierge.' : 'Messages are read from Helm’s existing records.'} Up to 200 messages are shown. Attachments and complete history are not yet verified.</p><p>Updated {time(data.asOf, true)} ET. Opening or refreshing this view does not mark messages read.</p></details>
@@ -149,7 +168,7 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
   return <PilotFrame section="inbox">
     <div className={s.workspace}>
       {data.errors.map(e => <div key={e} role="alert" className={s.warning}><PilotIcon name="info" size={16}/><span>{e}</span></div>)}
-      <div className={`${s.columns} ${mobileThread ? s.mobileThread : ''}`}>
+      <div className={`${s.columns} ${mobileThread ? s.mobileThread : ''} ${docked && showDetails ? s.withDetails : ''}`}>
         <aside className={s.list} aria-label="Conversations">
           <div className={s.listHeading}>
             <div><h1>Inbox</h1><span className={s.total} aria-label={`${rows.length} matching conversations`}>{rows.length}</span></div>
@@ -168,7 +187,7 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
             {rows.map(r => {
               const href = `/channels/pilot/inbox?conversation=${encodeURIComponent(r.conversation_id)}${bookingId ? `&booking=${encodeURIComponent(bookingId)}` : ''}`;
               return <Link key={r.conversation_id} className={`${s.row} ${r.conversation_id === c?.conversation_id ? s.active : ''}`} aria-current={r.conversation_id === c?.conversation_id ? 'true' : undefined} href={href} onClick={e => navigate(e, href)}>
-                <span className={s.rowAvatar} aria-hidden="true" data-tone={initials(r.guest_full).charCodeAt(0) % 4}>{initials(r.guest_full)}</span>
+                <span className={s.rowAvatar} aria-hidden="true">{initials(r.guest_full)}</span>
                 <div className={s.rowContent}><div className={s.rowTitle}><strong title={r.guest_full}>{r.guest_full || 'Guest'}</strong><time dateTime={r.last_activity_at} title={`${time(r.last_activity_at, true)} ET`}>{activity(r.last_activity_at, data.asOf)}</time></div>
                 <p>{r.last_preview || 'Open conversation'}</p>
                 <div className={s.rowMeta}><ChannelBadge channel={r.channel}/><span>{date(r.check_in)} – {date(r.check_out)}</span>{stayLabels[r.stay_status] && <small data-status={r.stay_status} title={stayLabels[r.stay_status]}>{r.stay_status === 'in_house' ? 'In house' : stayLabels[r.stay_status]}</small>}</div></div>
@@ -183,12 +202,11 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
           <div className={s.threadHeader}>
             <header className={s.threadHead}>
               <button className={s.backButton} aria-label="Back to conversations" onClick={() => setMobileThread(false)}><PilotIcon name="back"/></button>
-              <span className={s.headerAvatar} aria-hidden="true">{c ? initials(c.guest_full) : <PilotIcon name="message"/>}</span>
-              <div className={s.threadIdentity}><h2 title={c?.guest_full}>{c?.guest_full || 'Your guest conversations'}</h2><p>{c ? <><ChannelBadge channel={c.channel}/>{c.booking?.external_confirmation_code && <><span>·</span><span className={s.headerReference} title={c.booking.external_confirmation_code}>{c.booking.external_confirmation_code}</span></>}</> : 'Choose a conversation to get started'}</p></div>
+              <div className={s.threadIdentity}><h2 title={c?.guest_full}>{c?.guest_full || 'Your guest conversations'}</h2>{!c && <p>Choose a conversation to get started</p>}</div>
               <button ref={searchButton} className={`${s.iconButton} ${searchOpen ? s.pressed : ''}`} aria-label="Search this conversation" aria-expanded={searchOpen} disabled={!c || !!data.threadError || !data.messages.length} title="Search this conversation" onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}><PilotIcon name="search" size={17}/></button>
-              <button ref={detailsButton} className={s.detailsButton} aria-label="View reservation details" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}><PilotIcon name="panel" size={16}/><span>Stay details</span></button>
+              <button ref={detailsButton} className={s.detailsButton} aria-label={showDetails ? 'Hide reservation details' : 'View reservation details'} aria-controls="reservation-details" aria-expanded={showDetails} disabled={!c} onClick={e => showDetails ? closeDetails() : openDetails(e.currentTarget)}><PilotIcon name="panel" size={16}/><span>Stay details</span></button>
             </header>
-            {c && <div className={s.stayStrip}><div><PilotIcon name="calendar" size={16}/><strong>{date(c.check_in)} <span>→</span> {date(c.check_out)}</strong>{conversationNights !== null && <span>{conversationNights} {conversationNights === 1 ? 'night' : 'nights'}</span>}{c.booking?.num_guests != null && <span className={s.stayGuests}><PilotIcon name="people" size={14}/>{c.booking.num_guests} {c.booking.num_guests === 1 ? 'guest' : 'guests'}</span>}</div>{stayLabels[c.stay_status] && <span className={s.stayChip} data-status={c.stay_status}>{stayLabels[c.stay_status]}</span>}</div>}
+            {c && <div className={s.stayStrip}><div><ChannelBadge channel={c.channel}/><strong>{date(c.check_in)} <span>→</span> {date(c.check_out)}</strong>{conversationNights !== null && <span>{conversationNights} {conversationNights === 1 ? 'night' : 'nights'}</span>}</div>{stayIssue ? <button className={s.stayIssue} aria-controls="reservation-details" aria-expanded={showDetails} onClick={e => openDetails(e.currentTarget)}><PilotIcon name="info" size={14}/>{stayIssue}</button> : stayLabels[c.stay_status] && <span className={s.stayChip} data-status={c.stay_status}>{stayLabels[c.stay_status]}</span>}</div>}
           </div>
           {searchOpen && <div className={s.threadSearch} onKeyDown={e => { if (e.key === 'Escape') closeSearch(); if (e.key === 'Enter' && e.target === searchInput.current && matches.length) setMatchIndex((currentMatch + (e.shiftKey ? matches.length - 1 : 1)) % matches.length); }}>
             <PilotIcon name="search" size={15}/><input ref={searchInput} aria-label="Find in conversation" placeholder="Find in this conversation…" value={messageQuery} onChange={e => { setMessageQuery(e.target.value); setMatchIndex(0); }}/><span role="status">{messageQuery.trim() ? matches.length ? `${currentMatch + 1} of ${matches.length} ${matches.length === 1 ? 'message' : 'messages'}` : 'No matches' : ''}</span>
@@ -202,7 +220,6 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
                 <summary><span className={s.automationIcon}><PilotIcon name="automation" size={15}/></span><span className={s.automationTitle}><strong><PilotIcon name="automation" size={12}/>Automated message</strong><span>{m.sender_name || 'Host'} · {m.body?.replace(/\s+/g, ' ').trim().slice(0, 140) || 'No text content'}</span></span><time dateTime={m.at} title={`${time(m.at, true)} ET`}>{time(m.at)}</time><PilotIcon name="down" size={14}/></summary>
                 <div className={s.automatedBody}><Highlight text={m.body || 'This message has no text content.'} query={messageQuery}/></div>
               </details> : <article className={`${s.message} ${m.who === 'host' ? s.host : ''}`}>
-                <span className={s.messageAvatar} aria-hidden="true">{m.who === 'host' ? <PilotIcon name="helm" size={16}/> : initials(m.sender_name || c?.guest_full || 'Guest')}</span>
                 <div className={s.messageContent}>
                   <div className={s.sender}><strong>{m.sender_name || (m.who === 'guest' ? c?.guest_full || 'Guest' : 'Host')}</strong>{m.via && <span>{viaLabels[m.via] || m.via}</span>}<time dateTime={m.at} title={`${time(m.at, true)} ET`}>{time(m.at)}</time></div>
                   <div className={s.bubble}><Highlight text={m.body || 'This message has no text content.'} query={messageQuery}/></div>
@@ -214,13 +231,8 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
           <footer className={s.readOnly}><span><PilotIcon name="lock" size={13}/>Read-only conversation</span><Link href="/messaging">Open guest messaging <PilotIcon name="external" size={13}/></Link></footer>
         </main>
 
-        <aside className={s.context} aria-label="Stay overview">
-          <div className={s.contextHeading}><h2>Stay overview</h2><PilotIcon name="reservations" size={16}/></div>
-          {reservationDetails}
-        </aside>
-
-        <dialog ref={detailsPanel} onCancel={e => { e.preventDefault(); closeDetails(); }} className={s.details} aria-label="Reservation context">
-          <div className={s.detailsHeading}><h2>Reservation</h2><span className={s.detailsLabel}>65 Calderwood</span><button className={s.closeDetails} aria-label="Close reservation details" autoFocus onClick={closeDetails}><PilotIcon name="close" size={17}/></button></div>
+        <dialog id="reservation-details" ref={detailsPanel} onCancel={e => { e.preventDefault(); closeDetails(); }} onKeyDown={e => { if (docked && e.key === 'Escape') { e.preventDefault(); closeDetails(); } }} className={`${s.details} ${docked ? s.docked : ''}`} aria-labelledby="reservation-title">
+          <div className={s.detailsHeading}><h2 id="reservation-title">Stay details</h2><button className={s.closeDetails} aria-label="Close reservation details" autoFocus onClick={closeDetails}><PilotIcon name="close" size={17}/></button></div>
           {reservationDetails}
         </dialog>
       </div>

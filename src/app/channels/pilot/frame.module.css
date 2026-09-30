@@ -65,7 +65,7 @@
 @media (prefers-reduced-motion: reduce) { .frame *, .frame *::before, .frame *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 
 /* Inbox chrome uses a single brand bar above the focused work surface. */
-.inboxShell { display: flex; flex-direction: column; height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 480px; overflow: hidden; letter-spacing: -.15px; background: #edf1f4; }
+.inboxShell { composes: theme from './inbox/theme.module.css'; display: flex; flex-direction: column; height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 480px; overflow: hidden; letter-spacing: -.15px; background: var(--canvas); }
 .inboxBar { display: flex; align-items: center; gap: 19px; height: 48px; padding: 0 20px; flex-shrink: 0; background: #17303d; border-bottom: 1px solid #102935; color: #c9d7dd; }
 .inboxBrand { display: flex; align-items: center; gap: 9px; flex-shrink: 0; color: #a8d8ca !important; }
 .inboxBrand>span { color: #fff; font-size: 25px; font-weight: 600; letter-spacing: -1.2px; }
