@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -453,17 +454,19 @@ export function Stepper({
       return m;
     });
   }
-  async function markTaskDone(task: TrailingTask) {
-    if (!onCompleteTask || !packetId) return;
+  async function markTaskDone(task: TrailingTask, note: string) {
+    if (!onCompleteTask || !packetId) return false;
     const cur = taskState.get(task.attachmentId) ?? emptyTask;
     patchTask(task.attachmentId, { saving: true, error: null });
-    const res = await onCompleteTask({ packetId, attachmentId: task.attachmentId, note: cur.note, photoUrls: cur.photos });
+    const res = await onCompleteTask({ packetId, attachmentId: task.attachmentId, note, photoUrls: cur.photos });
     if (res.ok) {
       await clearPhotoDraft(`inspection:${inspectionId}:task:${task.attachmentId}`, cur.photos);
       patchTask(task.attachmentId, { saving: false, done: true });
       setActiveIdx((i) => Math.min(i + 1, deckLength));
+      return true;
     } else {
       patchTask(task.attachmentId, { saving: false, error: res.error || 'Could not save. Try again.' });
+      return false;
     }
   }
   const undoneTasks = trailingTasks.filter((t) => !taskState.get(t.attachmentId)?.done);
@@ -756,7 +759,7 @@ export function Stepper({
         state={st}
         onNote={(v) => patchTask(task.attachmentId, { note: v })}
         onPhotos={(v) => patchTask(task.attachmentId, { photos: v })}
-        onDone={() => markTaskDone(task)}
+        onDone={(note) => markTaskDone(task, note)}
         onBack={() => setActiveIdx((i) => Math.max(0, i - 1))}
         onNext={() => setActiveIdx((i) => Math.min(i + 1, deckLength))}
         onExit={exitStepper}
@@ -1151,11 +1154,12 @@ function TaskCardScreen({
   state: { done: boolean; saving: boolean; note: string; photos: string[]; error: string | null };
   onNote: (v: string) => void;
   onPhotos: (v: string[]) => void;
-  onDone: () => void;
+  onDone: (note: string) => Promise<boolean>;
   onBack: () => void;
   onNext: () => void;
   onExit: () => void;
 }) {
+  const formDraft = useFieldFormDraft(draftKey, { note: state.note });
   const clearDraft = useClearPhotoDraft(draftKey);
   useEffect(() => { if (state.done) void clearDraft(state.photos); }, [state.done, state.photos, clearDraft]);
   const [uploading, setUploading] = useState(false);
@@ -1189,9 +1193,11 @@ function TaskCardScreen({
           <div style={{ marginTop: 22, fontSize: 15, color: 'var(--positive)', fontWeight: 600 }}>✓ Done</div>
         ) : (
           <div style={{ marginTop: 22 }}>
+            <FieldDraftStatus status={formDraft.status} />
             <textarea
-              value={state.note}
-              onChange={(e) => onNote(e.target.value)}
+              value={formDraft.value.note}
+              disabled={!formDraft.ready || state.saving}
+              onChange={(e) => { formDraft.set('note', e.target.value); onNote(e.target.value); }}
               rows={2}
               placeholder="What you did (optional)"
               style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '10px 12px', resize: 'vertical', boxSizing: 'border-box' }}
@@ -1204,11 +1210,11 @@ function TaskCardScreen({
         {state.error && <div style={{ marginTop: 12 }}><ErrorBlock error={state.error} /></div>}
 
         <div style={{ marginTop: 28, display: 'flex', gap: 10, alignItems: 'stretch' }}>
-          <button type="button" onClick={onBack} disabled={state.saving || photosPending} style={ghostBtn()}>← Back</button>
+          <button type="button" onClick={onBack} disabled={!formDraft.ready || state.saving || photosPending} style={ghostBtn()}>← Back</button>
           {state.done ? (
             <button type="button" onClick={onNext} style={primaryBtn()}>Next →</button>
           ) : (
-            <button type="button" onClick={onDone} disabled={state.saving || photosPending} style={{ ...primaryBtn(), opacity: state.saving || photosPending ? 0.5 : 1 }}>
+            <button type="button" onClick={async () => { if (await onDone(formDraft.value.note)) formDraft.clear(); }} disabled={!formDraft.ready || state.saving || photosPending} style={{ ...primaryBtn(), opacity: state.saving || photosPending ? 0.5 : 1 }}>
               {failedPhotos > 0 ? 'Retry or remove failed photos' : uploading ? 'Uploading photos…' : state.saving ? 'Saving…' : 'Mark done →'}
             </button>
           )}
@@ -1595,8 +1601,10 @@ function NoteModal({
   onClose: () => void;
   onSubmit: (text: string, asProperty: boolean, photoUrls: string[]) => Promise<string | null>;
 }) {
-  const [text, setText] = useState('');
-  const [asProperty, setAsProperty] = useState(false);
+  const formDraft = useFieldFormDraft(draftKey, { text: '', asProperty: false as boolean });
+  const { text, asProperty } = formDraft.value;
+  const setText = (value: string) => formDraft.set('text', value);
+  const setAsProperty = (value: boolean) => formDraft.set('asProperty', value);
   const clearDraft = useClearPhotoDraft(draftKey);
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -1605,7 +1613,7 @@ function NoteModal({
   const photosPending = uploading || failedPhotos > 0;
   const [err, setErr] = useState<string | null>(null);
 
-  const canSubmit = text.trim().length > 0 || photos.length > 0;
+  const canSubmit = formDraft.ready && (text.trim().length > 0 || photos.length > 0);
 
   function close() {
     if (submitting || photosPending) {
@@ -1622,7 +1630,7 @@ function NoteModal({
     try {
       const e = await onSubmit(text, asProperty, photos);
       if (e) setErr(e);
-      else await clearDraft(photos);
+      else { formDraft.clear(); await clearDraft(photos); }
     } catch {
       setErr('Couldn’t confirm the save. Your entries are still here; check your connection and retry.');
     } finally {
@@ -1632,8 +1640,10 @@ function NoteModal({
 
   return (
     <ModalShell onClose={close} title="Add a Note" subtitle={`Re: ${itemTitle}`}>
+      <FieldDraftStatus status={formDraft.status} />
       <div className="eyebrow" style={{ marginBottom: 8 }}>Note</div>
       <textarea
+        disabled={!formDraft.ready || submitting}
         value={text}
         onChange={(e) => setText(e.target.value)}
         autoFocus
@@ -1671,6 +1681,7 @@ function NoteModal({
         }}
       >
         <input
+        disabled={!formDraft.ready || submitting}
           type="checkbox"
           checked={asProperty}
           onChange={(e) => setAsProperty(e.target.checked)}
@@ -1738,11 +1749,13 @@ function WorkSlipModal({
     photoUrls: string[];
   }) => Promise<string | null>;
 }) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
-  const [category, setCategory] = useState<WorkSlipCategory>('maintenance');
-  const [priority, setPriority] = useState<WorkSlipPriority>('normal');
+  const formDraft = useFieldFormDraft(draftKey, { title: '', description: '', location: '', category: 'maintenance' as WorkSlipCategory, priority: 'normal' as WorkSlipPriority });
+  const { title, description, location, category, priority } = formDraft.value;
+  const setTitle = (v: string) => formDraft.set('title', v);
+  const setDescription = (v: string) => formDraft.set('description', v);
+  const setLocation = (v: string) => formDraft.set('location', v);
+  const setCategory = (v: WorkSlipCategory) => formDraft.set('category', v);
+  const setPriority = (v: WorkSlipPriority) => formDraft.set('priority', v);
   const clearDraft = useClearPhotoDraft(draftKey);
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -1772,13 +1785,13 @@ function WorkSlipModal({
   }
 
   async function handleSubmit() {
-    if (!title.trim() || photosPending || submitting) return;
+    if (!formDraft.ready || !title.trim() || photosPending || submitting) return;
     setErr(null);
     setSubmitting(true);
     try {
       const e = await onSubmit({ title, description, location, category, priority, photoUrls: photos });
       if (e) setErr(e);
-      else await clearDraft(photos);
+      else { formDraft.clear(); await clearDraft(photos); }
     } catch {
       setErr('Couldn’t confirm the save. Your entries are still here; check your connection and retry.');
     } finally {
@@ -1796,11 +1809,13 @@ function WorkSlipModal({
       title="New Work Slip"
       subtitle={scope === 'property' ? `On: ${itemTitle}` : `From: ${itemTitle}`}
     >
+      <FieldDraftStatus status={formDraft.status} />
       {/* No explicit field labels for the two everyday fields - the
           placeholders carry the meaning, the modal title carries the
           intent, and stripping the labels saves two label-rows of
           vertical chrome which is what was making the form feel busy. */}
       <input
+        disabled={!formDraft.ready || submitting}
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
@@ -1810,6 +1825,7 @@ function WorkSlipModal({
       />
 
       <textarea
+        disabled={!formDraft.ready || submitting}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         rows={2}
@@ -1846,6 +1862,7 @@ function WorkSlipModal({
             <div>
               <FieldLabel>Category</FieldLabel>
               <select
+                disabled={!formDraft.ready || submitting}
                 value={category}
                 onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
                 style={modalSelectStyle()}
@@ -1861,6 +1878,7 @@ function WorkSlipModal({
             <div>
               <FieldLabel>Priority</FieldLabel>
               <select
+                disabled={!formDraft.ready || submitting}
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as WorkSlipPriority)}
                 style={modalSelectStyle()}
@@ -1874,6 +1892,7 @@ function WorkSlipModal({
           <div style={{ marginTop: 10 }}>
             <FieldLabel>Location (optional)</FieldLabel>
             <input
+        disabled={!formDraft.ready || submitting}
               type="text"
               value={location}
               onChange={(e) => setLocation(e.target.value)}

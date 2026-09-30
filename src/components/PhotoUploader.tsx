@@ -13,7 +13,7 @@ const PhotoDraftActor = createContext<string | null>(null);
 export function PhotoDraftScope({ actor, children }: { actor: string | null; children: React.ReactNode }) {
   return <PhotoDraftActor.Provider value={actor}>{children}</PhotoDraftActor.Provider>;
 }
-function useDraftScope(local?: string) {
+export function useDraftScope(local?: string) {
   const actor = useContext(PhotoDraftActor);
   return actor && local ? JSON.stringify([actor, local]) : undefined;
 }

@@ -2,6 +2,7 @@
 
 import { unstable_rethrow } from 'next/navigation';
 import { useState } from 'react';
+import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
 import { useFormStatus } from 'react-dom';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { completeMaintenanceStop, completeAttachedSlip } from '../../actions';
@@ -12,6 +13,11 @@ import { completeMaintenanceStop, completeAttachedSlip } from '../../actions';
  * gated on writing prose). Serves a maintenance STOP (stopId) and an ATTACHED
  * slip riding on any stop (attachmentId).
  */
+function CompletionFields({ ready, children }: { ready: boolean; children: React.ReactNode }) {
+  const { pending } = useFormStatus();
+  return <fieldset disabled={!ready || pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>{children}</fieldset>;
+}
+
 function DoneButton({ label, compact = false }: { label: string; compact?: boolean }) {
   const { pending } = useFormStatus();
   return (
@@ -48,12 +54,17 @@ export function MaintenanceComplete({
 }) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [showDetail, setShowDetail] = useState(false);
-  const [note, setNote] = useState('');
-  const [expense, setExpense] = useState('');
+  const draftKey = `maintenance:${packetId}:${attachmentId ?? stopId}`;
+  const formDraft = useFieldFormDraft(draftKey, { note: '', expense: '' });
+  const { note, expense } = formDraft.value;
+  const setNote = (v: string) => formDraft.set('note', v);
+  const setExpense = (v: string) => formDraft.set('expense', v);
   const [error, setError] = useState<string | null>(null);
   const isAttachment = !!attachmentId;
   async function save(data: FormData) {
+    if (!formDraft.ready) return;
     setError(null);
+    formDraft.markSubmitted();
     try {
       await (isAttachment ? completeAttachedSlip : completeMaintenanceStop)(data);
     } catch (cause) {
@@ -63,6 +74,8 @@ export function MaintenanceComplete({
   }
   return (
     <form action={save} style={{ margin: compact ? '8px 0 0' : '10px 0 0' }}>
+      <FieldDraftStatus status={formDraft.status} />
+      <CompletionFields ready={formDraft.ready}>
       <input type="hidden" name="packet_id" value={packetId} />
       {isAttachment ? (
         <input type="hidden" name="attachment_id" value={attachmentId} />
@@ -72,7 +85,7 @@ export function MaintenanceComplete({
       <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
 
       {(
-        <div hidden={!showDetail} style={{ marginBottom: 10 }}>
+        <div hidden={!showDetail && !note && !expense} style={{ marginBottom: 10 }}>
           {photoNudge && (
             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tide-deep)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
               📷 Snap a photo of the finished work
@@ -113,7 +126,7 @@ export function MaintenanceComplete({
       {error && <p role="alert" style={{ color: 'var(--negative)', fontSize: 13 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <DoneButton label={label} compact={compact} />
-        {!showDetail && (
+        {!showDetail && !note && !expense && (
           <button
             type="button"
             onClick={() => setShowDetail(true)}
@@ -126,6 +139,7 @@ export function MaintenanceComplete({
           </button>
         )}
       </div>
+      </CompletionFields>
     </form>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useActionState, useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
 import { PhotoUploader, useClearPhotoDraft } from '@/components/PhotoUploader';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { reportFieldWorkSlip, type ReportState } from '../actions';
@@ -61,14 +62,18 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
     }
   }, { ok: false });
   const [initialSelected] = useState(visits.length === 1 ? visits[0].propertyId : '');
-  const [selected, setSelected] = useState(initialSelected);
+  const selectionDraft = useFieldFormDraft('report-selection', { selected: initialSelected });
+  const { selected } = selectionDraft.value;
+  const setSelected = (v: string) => selectionDraft.set('selected', v);
+  const formDraft = useFieldFormDraft(selected ? `report:${selected}` : undefined, { priority: 'normal' as 'low' | 'normal' | 'high', title: '', location: '', description: '', expenseDollars: '' });
+  const { priority, ...details } = formDraft.value;
+  const setPriority = (v: 'low' | 'normal' | 'high') => formDraft.set('priority', v);
   const draftKey = selected ? `report:${selected}` : '';
   const clearDraft = useClearPhotoDraft(draftKey);
-  const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal');
   const [photos, setPhotos] = useState<string[]>([]);
-  useEffect(() => { if (state.ok) void clearDraft(photos); }, [state.ok, photos, clearDraft]);
+  const clearForm = formDraft.clear, clearSelection = selectionDraft.clear;
+  useEffect(() => { if (state.ok) { clearForm(); clearSelection(); void clearDraft(photos); } }, [state.ok, photos, clearDraft, clearForm, clearSelection]);
   // Controlled values survive React's form reset after a returned action error.
-  const [details, setDetails] = useState({ title: '', location: '', description: '', expenseDollars: '' });
   const [uploading, setUploading] = useState(false);
   const dirty = selected !== initialSelected || priority !== 'normal' || photos.length > 0
     || Object.values(details).some(value => value.length > 0);
@@ -101,16 +106,18 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
 
   return (
     <form action={formAction} onSubmit={event => {
-      if (submitting.current || uploading) {
+      if (!formDraft.ready || !chosen || submitting.current || uploading) {
         event.preventDefault();
         return;
       }
       submitting.current = true;
     }} style={card}>
-      <fieldset disabled={isPending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <fieldset disabled={isPending || !selectionDraft.ready || !formDraft.ready} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <input type="hidden" name="priority" value={priority} />
       <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
 
+      <FieldDraftStatus status={formDraft.status} />
+      {selected && !chosen && <p role="alert">This home is no longer in your reporting window. Your draft is kept; contact the office before reporting it elsewhere.</p>}
       {/* Which home */}
       <div>
         <label htmlFor="rf-prop" style={label}>Which home?</label>
@@ -142,19 +149,19 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       {/* What */}
       <div>
         <label htmlFor="rf-title" style={label}>What needs attention?</label>
-        <input id="rf-title" name="title" value={details.title} onChange={e => setDetails(d => ({ ...d, title: e.target.value }))} required minLength={3} maxLength={200} autoComplete="off" placeholder="e.g. Master bath faucet is dripping" style={field} />
+        <input id="rf-title" name="title" disabled={!selected} value={details.title} onChange={e => formDraft.set('title', e.target.value)} required minLength={3} maxLength={200} autoComplete="off" placeholder="e.g. Master bath faucet is dripping" style={field} />
       </div>
 
       {/* Where */}
       <div>
         <label htmlFor="rf-loc" style={label}>Where in the home? <span style={optional}>(optional)</span></label>
-        <input id="rf-loc" name="location" value={details.location} onChange={e => setDetails(d => ({ ...d, location: e.target.value }))} maxLength={200} autoComplete="off" placeholder="e.g. Master bathroom" style={field} />
+        <input id="rf-loc" name="location" disabled={!selected} value={details.location} onChange={e => formDraft.set('location', e.target.value)} maxLength={200} autoComplete="off" placeholder="e.g. Master bathroom" style={field} />
       </div>
 
       {/* Details */}
       <div>
         <label htmlFor="rf-desc" style={label}>Anything else? <span style={optional}>(optional)</span></label>
-        <textarea id="rf-desc" name="description" value={details.description} onChange={e => setDetails(d => ({ ...d, description: e.target.value }))} rows={3} maxLength={4000} placeholder="A sentence of detail helps the team come prepared." style={{ ...field, resize: 'vertical', lineHeight: 1.5 }} />
+        <textarea id="rf-desc" name="description" disabled={!selected} value={details.description} onChange={e => formDraft.set('description', e.target.value)} rows={3} maxLength={4000} placeholder="A sentence of detail helps the team come prepared." style={{ ...field, resize: 'vertical', lineHeight: 1.5 }} />
       </div>
 
       {/* How soon */}
@@ -167,6 +174,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
               <button
                 key={p.value}
                 type="button"
+                disabled={!selected}
                 onClick={() => setPriority(p.value)}
                 aria-pressed={on}
                 style={{
@@ -192,7 +200,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       {/* Photo */}
       <div>
         <span style={label}>Add a photo <span style={optional}>(optional, but it helps)</span></span>
-        <PhotoUploader draftKey={draftKey || undefined} value={photos} onChange={setPhotos} folder="field-maintenance" disabled={isPending} onUploadingChange={setUploading} />
+        <PhotoUploader draftKey={draftKey || undefined} value={photos} onChange={setPhotos} folder="field-maintenance" disabled={isPending || !selected} onUploadingChange={setUploading} />
       </div>
 
       {/* Receipt — bought something for the house out of pocket? The amount
@@ -205,8 +213,8 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
         </span>
         <input
           name="expense_dollars"
-          value={details.expenseDollars}
-          onChange={e => setDetails(d => ({ ...d, expenseDollars: e.target.value }))}
+          disabled={!selected} value={details.expenseDollars}
+          onChange={e => formDraft.set('expenseDollars', e.target.value)}
           type="number"
           min={0}
           max={500}
@@ -249,7 +257,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       </button>
       {(dirty || uploading) && !isPending && !state.error && (
         <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          Your report has not been sent yet. Keep this page open until you send it.
+          Your report has not been sent yet.
         </p>
       )}
       </fieldset>

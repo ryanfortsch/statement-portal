@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
 import { PhotoUploader, PhotoThumbs, useClearPhotoDraft } from '@/components/PhotoUploader';
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
@@ -14,29 +15,34 @@ export function StopSlipEditor({ packetId, stopId, workSlipId, title, descriptio
   const draftKey = `slip-edit:${packetId}:${stopId}:${workSlipId}`;
   const clearDraft = useClearPhotoDraft(draftKey);
   const [tab, setTab] = useState<'details' | 'photos'>('details');
-  const [draftTitle, setTitle] = useState(title), [draftDescription, setDescription] = useState(description || '');
+  const formDraft = useFieldFormDraft(readOnly ? undefined : draftKey, { title, description: description || '' });
+  const { title: draftTitle, description: draftDescription } = formDraft.value;
+  const setTitle = (v: string) => formDraft.set('title', v);
+  const setDescription = (v: string) => formDraft.set('description', v);
   const [added, setAdded] = useState<string[]>([]), [uploading, setUploading] = useState(false);
   const uploadingRef = useRef(false);
   const [failedUploads, setFailedUploads] = useState(0);
   const action = useRecoverableAction();
   const dirty = draftTitle !== title || draftDescription !== (description || '') || added.length > 0 || failedUploads > 0;
-  const busy = action.pending || uploading;
+  const busy = !formDraft.ready || action.pending || uploading;
   useDraftNavigationGuard(dirty, busy);
   useEffect(() => { onGuardChange(dirty, busy); }, [dirty, busy, onGuardChange]);
   useEffect(() => () => onGuardChange(false, false), [onGuardChange]);
   function save() {
-    if (readOnly || action.busy.current || uploadingRef.current || failedUploads > 0) return;
+    if (!formDraft.ready || readOnly || action.busy.current || uploadingRef.current || failedUploads > 0) return;
     if (added.length > 12) { action.setError('Save up to 12 new photos at a time. Remove extra photos before saving.'); return; }
     const cleanTitle = draftTitle.trim();
     if (cleanTitle.length < 3) { action.setError('Give it a short title first.'); return; }
     action.run(async () => {
       const result = await updateSlipFromStop({ packetId, stopId, workSlipId, title: cleanTitle, description: draftDescription, photoUrls: added });
       if (!result.ok) { action.setError('Could not save this slip. Your text and photos are kept. Try again.'); return; }
+      formDraft.clear();
       await clearDraft(added);
       onSaved({ title: cleanTitle, description: draftDescription.trim() || null, photoUrls: result.photoUrls });
     }, 'Could not confirm the save. Your text and photos are kept. Retry to save the same photos.');
   }
   return <div>
+    <FieldDraftStatus status={formDraft.status} />
     <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 8 }}>Edit this slip</div>
     <div role="tablist" aria-label="Slip editor" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
       <button type="button" role="tab" aria-selected={tab === 'details'} onClick={() => setTab('details')} style={tab === 'details' ? dark : ghost}>Details</button>
