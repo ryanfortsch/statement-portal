@@ -6,6 +6,8 @@ export type RentalInquiry = {
   history_checked: boolean;
   checked_at: string;
   needs: string[];
+  decision?: string;
+  budget_mentions?: number[];
   homes: Array<{
     title: string;
     listing_id: string;
@@ -13,8 +15,8 @@ export type RentalInquiry = {
     sleeps: number | null;
     availability: string;
     quote: { total: number; currency: string } | null;
-    work_slip_id?: string;
-    work_error?: string;
+    estimate?: { total: number; currency: string; estimated: true } | null;
+    request_url?: string;
   }>;
 };
 
@@ -27,4 +29,12 @@ export function inquiryQuoteHref(inquiry: RentalInquiry, property: string, guest
   if (inquiry.guests) params.set('guests', String(inquiry.guests));
   if (guest.email) params.set('email', guest.email);
   return `/guests/quotes/new?${params}`;
+}
+
+/** Undo MIME hard wrapping without flattening real paragraphs or lists. */
+export function inquiryMessageText(text: string): string {
+  return text.replace(/\r\n/g, '\n').split(/\n[ \t]*\n/).map(paragraph => {
+    if (/^\s*(?:[-*•>] |\d+[.)] )/m.test(paragraph)) return paragraph;
+    return paragraph.split('\n').map(line => line.trim()).join(' ');
+  }).join('\n\n');
 }

@@ -29,6 +29,7 @@ import {
   dismissMaintenanceSlip,
 } from './actions';
 import { RentalInquiryPanel } from './RentalInquiryPanel';
+import { inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
 import { ThreadPanel } from './Thread';
 import { UndoToast, type Decision } from './UndoToast';
 import {
@@ -347,9 +348,9 @@ function ApprovalCard({
   }, [approval.draft, isPending, editing]);
 
   const inquiry = approval.rental_inquiry;
-  const inquiryNeedsQuote = !!inquiry?.needs.length;
+  const inquiryNeedsDecision = !!inquiry?.decision && !(savedDraft ?? approval.draft).trim();
   const propertyLabel =
-    (inquiry ? `Rental inquiry${inquiry.homes.length ? ` · ${inquiry.homes.length} ${inquiry.homes.length === 1 ? 'home' : 'homes'} to compare` : ''}` : '') ||
+    (inquiry ? 'Rental inquiry' : '') ||
     approval.listing_name ||
     prettifySlug(approval.listing_id) ||
     'unknown property';
@@ -367,7 +368,7 @@ function ApprovalCard({
   // The email the card knows: the pre-release sidecar's, else the address the
   // thread itself is with.
   const quoteEmail = pre?.guest_email || approval.guest_email || '';
-  const quoteHref =
+  const quoteHref = inquiry ? inquiryQuoteHref(inquiry, inquiry.homes.length === 1 ? inquiry.homes[0].property_id : '', { first: guestLabel, email: quoteEmail, source: approval.guesty_message_id }) :
     `/guests/quotes/new?property=${encodeURIComponent(quoteProperty)}` +
     `&check_in=${encodeURIComponent(approval.check_in || '')}` +
     `&check_out=${encodeURIComponent(approval.check_out || '')}` +
@@ -853,8 +854,6 @@ function ApprovalCard({
         )}
       </header>
 
-      {inquiry && <RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} />}
-
       <div
         className="rt-msg-grid"
         style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}
@@ -864,10 +863,10 @@ function ApprovalCard({
           subLabel={kind ? '' : guestReceivedSubLabel(approval.guest_received_at, approval.created_at)}
           subLabelTitle={approval.guest_received_at || approval.created_at || undefined}
         >
-          <BodyText>{approval.guest_text || '(empty)'}</BodyText>
+          <BodyText>{(inquiry ? inquiryMessageText(approval.guest_text || '') : approval.guest_text) || '(empty)'}</BodyText>
         </FieldBlock>
         <FieldBlock
-          label={editing ? 'Editing reply' : inquiryNeedsQuote ? 'Optional guest update' : 'Proposed reply'}
+          label={editing ? 'Editing reply' : inquiryNeedsDecision ? 'Needs your decision' : 'Proposed reply'}
           labelTone={editing ? 'var(--ink)' : undefined}
           action={
             !isScheduled && !editing ? (
@@ -953,8 +952,13 @@ function ApprovalCard({
                 </SecondaryButton>
               </div>
             </div>
+          ) : inquiryNeedsDecision && inquiry ? (
+            <RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} />
           ) : (
-            <BodyText emphasis>{(savedDraft ?? approval.draft) || '(no draft)'}</BodyText>
+            <>
+              <BodyText emphasis>{(savedDraft ?? approval.draft) || '(no draft)'}</BodyText>
+              {inquiry && <details style={{ marginTop: 14 }}><summary className="eyebrow" style={{ cursor: 'pointer', color: 'var(--ink-3)' }}>Pricing context</summary><div style={{ marginTop: 10 }}><RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} /></div></details>}
+            </>
           )}
         </FieldBlock>
       </div>
@@ -1461,10 +1465,11 @@ function ApprovalCard({
               Dismiss
             </SecondaryButton>
           </>
-        ) : inquiryNeedsQuote && !showMore ? (
+        ) : inquiryNeedsDecision ? (
           <>
-            <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>Prepare the quotes above before making an offer.</span>
-            <SecondaryButton onClick={() => setShowMore(true)} disabled={busy}>Reply options</SecondaryButton>
+            <PrimaryLink href={quoteHref} disabled={busy}>Set a price</PrimaryLink>
+            <SecondaryButton onClick={startEdit} disabled={busy}>Write reply</SecondaryButton>
+            <SecondaryButton onClick={() => setShowHandled(v => !v)} disabled={busy}>Mark handled</SecondaryButton>
           </>
         ) : isPrereleaseRequest && !showMore ? (
           <>
@@ -1519,7 +1524,6 @@ function ApprovalCard({
               <>
                 <SplitSendButton
                   onApprove={handleApprove}
-                  label={inquiryNeedsQuote ? "Send guest update" : undefined}
                   onToggle={toggleSchedule}
                   disabled={busy}
                   loading={pendingAction === 'approve'}
