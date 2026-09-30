@@ -17,3 +17,6 @@ supabase/.temp/
 
 # Guesty seed exports (scripts/pull_guesty_seed.mts): never committed
 *_guesty_seed.json
+
+# Local synthetic Channex test journal; never production data
+.channex-staging/
