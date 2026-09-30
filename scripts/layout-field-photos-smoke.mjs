@@ -13,6 +13,7 @@ const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-layout-'));
 const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 
 for(const [name,path] of [
+ ['confirmed-save','src/lib/confirmed-save.ts'],
  ['form-draft','src/components/FieldFormDraft.tsx'],['form-store','src/lib/field-form-drafts.ts'],
  ['layout','src/app/properties/[id]/layout/LayoutEditor.tsx'],['stop','src/app/field/packet/[packetId]/StopWorkList.tsx'],['StopSlipEditor','src/app/field/packet/[packetId]/StopSlipEditor.tsx'],['photos','src/components/PhotoUploader.tsx'],
  ['recover','src/lib/use-recoverable-action.ts'],['saves','src/lib/use-checklist-saves.ts'],['queue','src/lib/checklist-save-queue.ts'],['unsaved','src/lib/unsaved-work.ts'],['guard','src/lib/use-draft-navigation-guard.ts'],
@@ -22,6 +23,7 @@ export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({
 export const saveLayout=(propertyId,itemIds)=>save('layout',{propertyId,itemIds});
 export const createCustomItem=input=>save('custom',input);
 export const updateSlipFromStop=input=>save('edit',input);
+export const checkFieldTaskCompletion=async()=>{window.checks=(window.checks||0)+1;return {ok:!!window.taskConfirmed};};
 export const resolveSlipFromStop=input=>save('complete',input);
 `);
 await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser';`);
@@ -35,7 +37,7 @@ const item=(slipId,title)=>({slipId,title,description:'Original details',thumbs:
 const mode=new URLSearchParams(location.search).get('mode');
 createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='layout'?<LayoutEditor propertyId="home-a" initialDeck={[card('a','Alpha'),card('b','Bravo'),card('c','Charlie')]} initialAddable={[card('d','Delta')]} isCustomized/>:<StopWorkList packetId="packet-a" stopId="stop-a" items={[item('slip-a','Cupboard'),item('slip-b','Lounge chair')]} readOnly={mode==='readonly'}/>}</main>);
 `));
-const alias={'@/components/FieldFormDraft':'form-draft','@/lib/field-form-drafts':'form-store','./actions':'actions','../../actions':'actions','@/components/PhotoUploader':'photos','@/lib/image-compress':'compress','@/lib/use-recoverable-action':'recover','./use-recoverable-action':'recover','@/lib/use-checklist-saves':'saves','./checklist-save-queue':'queue','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/use-draft-navigation-guard':'guard','./use-draft-navigation-guard':'guard','next/navigation':'router'};
+const alias={'@/lib/confirmed-save':'confirmed-save','@/components/FieldFormDraft':'form-draft','@/lib/field-form-drafts':'form-store','./actions':'actions','../../actions':'actions','@/components/PhotoUploader':'photos','@/lib/image-compress':'compress','@/lib/use-recoverable-action':'recover','./use-recoverable-action':'recover','@/lib/use-checklist-saves':'saves','./checklist-save-queue':'queue','@/lib/unsaved-work':'unsaved','./unsaved-work':'unsaved','@/lib/use-draft-navigation-guard':'guard','./use-draft-navigation-guard':'guard','next/navigation':'router'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Layout and photos fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' https://synthetic.test data:");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic layout and photos</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -92,5 +94,13 @@ await click('#photos','Details');assert.equal(await value(slipDetails),'The top 
 await click('#photos','Save');await waitCalls(4);await finish(3,{ok:false,error:'Refused'});await waitText('Could not save this slip');await click('#photos','Save');await waitCalls(5);await finish(4,{ok:true,photoUrls:['https://synthetic.test/old.jpg','https://synthetic.test/new.jpg']});await clean();await waitText('Cupboard hinge needs repair');assert.equal((await calls()).some(c=>c.kind==='complete'),false);assert.equal(await page.$$eval('img',els=>els.some(e=>e.src==='https://synthetic.test/old.jpg')&&els.some(e=>e.src==='https://synthetic.test/new.jpg')),true);pass('confirmed save shows both old and new photos without completing the slip');
 await click('#photos','Edit');await click('#photos','Photos (2)');await click('#photos','Details');await edit(slipDetails,'Unsaved followup');await click('#photos','Cancel');assert.equal(await value(slipDetails),'Unsaved followup');await page.evaluate(()=>window.confirmAnswer=true);await click('#photos','Cancel');await clean();pass('discard requires explicit confirmation while saved photos remain available on reopen');
 await reset('readonly');await click('#readonly','Details for Cupboard');assert.equal(await page.$$eval('button',bs=>bs.some(b=>b.textContent.trim()==='Edit')),false);assert.equal((await calls()).length,0);pass('read-only packet cannot edit or attach photos');
+await reset('photos');
+await click('#photos','Mark Cupboard done',true);await waitCalls(1);
+assert.equal(await page.$$eval('button',bs=>bs.some(b=>b.getAttribute('aria-label')==='Done')),false);
+await finish(0,null,true);await waitText('Could not confirm the save.');
+assert.equal((await calls()).length,1);
+await page.evaluate(()=>{window.taskConfirmed=true;});await click('#photos','Check / retry save');
+await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.getAttribute('aria-label')==='Done'));
+assert.equal((await calls()).length,1);pass('quick completion waits for confirmation, blocks double taps and checks the original save before retrying');
 assert.deepEqual(errors,[]);console.log('PASS '+checks+' layout and photos browser checks; synthetic data only.');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));await rm(scratch,{recursive:true,force:true});}

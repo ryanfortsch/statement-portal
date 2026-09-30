@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
+import { confirmedSave } from '@/lib/confirmed-save';
+import { checkFieldTaskCompletion } from '@/app/field/actions';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -454,21 +456,34 @@ export function Stepper({
       return m;
     });
   }
+  const taskBusy = useRef(false);
+  const taskAttempts = useRef(new Map<string, { note: string; photoUrls: string[] }>());
   async function markTaskDone(task: TrailingTask, note: string) {
-    if (!onCompleteTask || !packetId) return false;
+    if (!onCompleteTask || !packetId || taskBusy.current) return false;
+    taskBusy.current = true;
     const cur = taskState.get(task.attachmentId) ?? emptyTask;
     patchTask(task.attachmentId, { saving: true, error: null });
-    const res = await onCompleteTask({ packetId, attachmentId: task.attachmentId, note, photoUrls: cur.photos });
-    if (res.ok) {
-      await clearPhotoDraft(`inspection:${inspectionId}:task:${task.attachmentId}`, cur.photos);
-      patchTask(task.attachmentId, { saving: false, done: true });
-      setActiveIdx((i) => Math.min(i + 1, deckLength));
-      return true;
-    } else {
-      patchTask(task.attachmentId, { saving: false, error: res.error || 'Could not save. Try again.' });
+    const input = taskAttempts.current.get(task.attachmentId) ?? { note, photoUrls: cur.photos };
+    const retrying = taskAttempts.current.has(task.attachmentId);
+    taskAttempts.current.set(task.attachmentId, input);
+    try {
+      const confirm = () => checkFieldTaskCompletion({ packetId, attachmentId: task.attachmentId });
+      const res = await confirmedSave(async () => {
+        if (retrying && (await confirm()).ok) return { ok: true };
+        return onCompleteTask({ packetId, attachmentId: task.attachmentId, ...input });
+      }, confirm, { checkReturnedFailure: true });
+      if (res.ok) {
+        await clearPhotoDraft(`inspection:${inspectionId}:task:${task.attachmentId}`, input.photoUrls);
+        taskAttempts.current.delete(task.attachmentId);
+        patchTask(task.attachmentId, { saving: false, done: true });
+        setActiveIdx((i) => Math.min(i + 1, deckLength));
+        return true;
+      }
+      patchTask(task.attachmentId, { saving: false, error: res.error || 'Could not confirm completion. Retry to check the same task.' });
       return false;
-    }
+    } finally { taskBusy.current = false; }
   }
+
   const undoneTasks = trailingTasks.filter((t) => !taskState.get(t.attachmentId)?.done);
 
   async function complete() {
@@ -1193,17 +1208,17 @@ function TaskCardScreen({
           <div style={{ marginTop: 22, fontSize: 15, color: 'var(--positive)', fontWeight: 600 }}>✓ Done</div>
         ) : (
           <div style={{ marginTop: 22 }}>
-            <FieldDraftStatus status={formDraft.status} />
+            {!state.saving && !state.error && <FieldDraftStatus status={formDraft.status} />}
             <textarea
               value={formDraft.value.note}
-              disabled={!formDraft.ready || state.saving}
+              disabled={!formDraft.ready || state.saving || !!state.error}
               onChange={(e) => { formDraft.set('note', e.target.value); onNote(e.target.value); }}
               rows={2}
               placeholder="What you did (optional)"
               style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '10px 12px', resize: 'vertical', boxSizing: 'border-box' }}
             />
             <div style={{ marginTop: 10 }}>
-              <PhotoUploader draftKey={draftKey} value={state.photos} onChange={onPhotos} folder="field-maintenance" disabled={state.saving} onUploadingChange={setUploading} onFailedUploadsChange={setFailedPhotos} />
+              <PhotoUploader draftKey={draftKey} value={state.photos} onChange={onPhotos} folder="field-maintenance" disabled={state.saving || !!state.error} onUploadingChange={setUploading} onFailedUploadsChange={setFailedPhotos} />
             </div>
           </div>
         )}
@@ -1215,7 +1230,7 @@ function TaskCardScreen({
             <button type="button" onClick={onNext} style={primaryBtn()}>Next →</button>
           ) : (
             <button type="button" onClick={async () => { if (await onDone(formDraft.value.note)) formDraft.clear(); }} disabled={!formDraft.ready || state.saving || photosPending} style={{ ...primaryBtn(), opacity: state.saving || photosPending ? 0.5 : 1 }}>
-              {failedPhotos > 0 ? 'Retry or remove failed photos' : uploading ? 'Uploading photos…' : state.saving ? 'Saving…' : 'Mark done →'}
+              {failedPhotos > 0 ? 'Retry or remove failed photos' : uploading ? 'Uploading photos…' : state.saving ? 'Saving and confirming…' : state.error ? 'Check / retry save' : 'Mark done →'}
             </button>
           )}
         </div>

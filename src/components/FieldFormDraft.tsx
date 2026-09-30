@@ -37,9 +37,9 @@ export function useFieldFormDraft<T extends DraftFields>(local: string | undefin
     setSnapshot({ scope, value: next, status });
   }, [scope]);
   // Capture the submitted version. An in-flight response cannot clear later edits.
-  const clear = useCallback(() => {
+  const clear = useCallback((submitted: T = snapshot.value) => {
     if (scope) {
-      try { clearFormDraft(localStorage, scope, JSON.stringify(snapshot.value)); }
+      try { clearFormDraft(localStorage, scope, JSON.stringify(submitted)); }
       catch { /* A confirmed server save stays successful if device cleanup fails. */ }
     }
   }, [scope, snapshot.value]);
