@@ -34,6 +34,7 @@ function Fixture() {
   const [disabled, setDisabled] = useState(false);
   const [mounted, setMounted] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(0);
   const [endpoint, setEndpoint] = useState('/api/upload');
   window.fixture = { setDisabled, setMounted, setEndpoint,
     addExternal: () => setUrls(v => [...v, '/synthetic/external.png']) };
@@ -42,9 +43,9 @@ function Fixture() {
       {mounted && <PhotoUploader value={urls} onChange={next => {
         window.changes.push(next); setUrls(next);
       }} folder="synthetic-work-slip" endpoint={endpoint} disabled={disabled}
-        onUploadingChange={value => { setBusy(value); window.busyEvents.push(value); }} />}
+        onFailedUploadsChange={setFailed} onUploadingChange={value => { setBusy(value); window.busyEvents.push(value); }} />}
       <button id="submit" type="submit">Save form</button>
-      <button id="direct-save" type="button" disabled={busy}>Save dialog</button>
+      <button id="direct-save" type="button" disabled={busy || failed > 0}>Save dialog</button>
     </form>
     <output id="urls">{JSON.stringify(urls)}</output>
   </main>;
@@ -145,6 +146,12 @@ try {
   assert.equal(await page.evaluate(() => window.changes.length), 1);
   assert.equal(peak, 1);
   assert.equal(uploads.every(item => item.folder === 'synthetic-work-slip'), true);
+  await page.click('#submit');
+  assert.equal(await page.evaluate(() => window.submits), 0);
+  assert.equal(await page.$eval('[aria-label="Take a photo"]', el => el.getAttribute('capture')), 'environment');
+  assert.ok(await page.$eval('[aria-label="Retry retry.png"]', el => el.getBoundingClientRect().height >= 44));
+  assert.equal(await page.$eval('#direct-save', el => el.disabled), true);
+  passed.push('failed photos block completion and mobile retry targets are at least 44px');
   await page.screenshot({ path: join(output, 'partial-failure-mobile.png'), fullPage: true });
   await page.click('[aria-label="Retry retry.png"]');
   await idle();

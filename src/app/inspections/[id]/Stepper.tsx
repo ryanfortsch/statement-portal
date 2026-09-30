@@ -1150,12 +1150,14 @@ function TaskCardScreen({
   onExit: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState(0);
+  const photosPending = uploading || failedPhotos > 0;
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       {/* Task cards get a minimal bar — never the item TopBar's Pass/Issue triad,
           so a one-off can never write an inspection_result. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--paper)', borderBottom: '1px solid var(--rule)', padding: '12px clamp(16px,5vw,24px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <button type="button" onClick={onExit} disabled={uploading} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)' }}>← Exit</button>
+        <button type="button" onClick={onExit} disabled={photosPending || state.saving} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--ink-4)' }}>← Exit</button>
         <span style={{ fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600 }}>
           Extra task{count > 1 ? ` · ${idx + 1} of ${count}` : ''}
         </span>
@@ -1186,24 +1188,24 @@ function TaskCardScreen({
               style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '10px 12px', resize: 'vertical', boxSizing: 'border-box' }}
             />
             <div style={{ marginTop: 10 }}>
-              <PhotoUploader value={state.photos} onChange={onPhotos} folder="field-maintenance" disabled={state.saving} onUploadingChange={setUploading} />
+              <PhotoUploader value={state.photos} onChange={onPhotos} folder="field-maintenance" disabled={state.saving} onUploadingChange={setUploading} onFailedUploadsChange={setFailedPhotos} />
             </div>
           </div>
         )}
         {state.error && <div style={{ marginTop: 12 }}><ErrorBlock error={state.error} /></div>}
 
         <div style={{ marginTop: 28, display: 'flex', gap: 10, alignItems: 'stretch' }}>
-          <button type="button" onClick={onBack} disabled={state.saving || uploading} style={ghostBtn()}>← Back</button>
+          <button type="button" onClick={onBack} disabled={state.saving || photosPending} style={ghostBtn()}>← Back</button>
           {state.done ? (
             <button type="button" onClick={onNext} style={primaryBtn()}>Next →</button>
           ) : (
-            <button type="button" onClick={onDone} disabled={state.saving || uploading} style={{ ...primaryBtn(), opacity: state.saving || uploading ? 0.5 : 1 }}>
-              {uploading ? 'Uploading photos…' : state.saving ? 'Saving…' : 'Mark done →'}
+            <button type="button" onClick={onDone} disabled={state.saving || photosPending} style={{ ...primaryBtn(), opacity: state.saving || photosPending ? 0.5 : 1 }}>
+              {failedPhotos > 0 ? 'Retry or remove failed photos' : uploading ? 'Uploading photos…' : state.saving ? 'Saving…' : 'Mark done →'}
             </button>
           )}
         </div>
         {!state.done && (
-          <button type="button" onClick={onNext} disabled={uploading} style={{ marginTop: 14, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-4)', textDecoration: 'underline' }}>
+          <button type="button" onClick={onNext} disabled={photosPending || state.saving} style={{ marginTop: 14, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-4)', textDecoration: 'underline' }}>
             Skip for now
           </button>
         )}
@@ -1587,21 +1589,36 @@ function NoteModal({
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState(0);
+  const photosPending = uploading || failedPhotos > 0;
   const [err, setErr] = useState<string | null>(null);
 
   const canSubmit = text.trim().length > 0 || photos.length > 0;
 
+  function close() {
+    if (submitting || photosPending) {
+      setErr(submitting ? 'Please wait for the save to finish.' : 'Retry or remove failed photos before closing. Keep this screen open while photos upload.');
+      return;
+    }
+    onClose();
+  }
+
   async function handleSubmit() {
-    if (!canSubmit || uploading) return;
+    if (!canSubmit || photosPending || submitting) return;
     setErr(null);
     setSubmitting(true);
-    const e = await onSubmit(text, asProperty, photos);
-    setSubmitting(false);
-    if (e) setErr(e);
+    try {
+      const e = await onSubmit(text, asProperty, photos);
+      if (e) setErr(e);
+    } catch {
+      setErr('Couldn’t confirm the save. Your entries are still here; check your connection and retry.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <ModalShell onClose={onClose} title="Add a Note" subtitle={`Re: ${itemTitle}`}>
+    <ModalShell onClose={close} title="Add a Note" subtitle={`Re: ${itemTitle}`}>
       <div className="eyebrow" style={{ marginBottom: 8 }}>Note</div>
       <textarea
         value={text}
@@ -1622,7 +1639,7 @@ function NoteModal({
           onChange={setPhotos}
           folder={`inspections/${inspectionId.slice(0, 8)}/notes`}
           disabled={submitting}
-          onUploadingChange={setUploading}
+          onUploadingChange={setUploading} onFailedUploadsChange={setFailedPhotos}
         />
       </div>
 
@@ -1671,10 +1688,10 @@ function NoteModal({
       {err && <ErrorBlock error={err} />}
 
       <ModalActions
-        onCancel={onClose}
+        onCancel={close}
         onSubmit={handleSubmit}
         submitLabel={uploading ? 'Uploading photos…' : submitting ? 'Saving…' : 'Save Note'}
-        submitDisabled={submitting || uploading || !canSubmit}
+        submitDisabled={submitting || photosPending || !canSubmit}
       />
     </ModalShell>
   );
@@ -1713,6 +1730,8 @@ function WorkSlipModal({
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState(0);
+  const photosPending = uploading || failedPhotos > 0;
   const [err, setErr] = useState<string | null>(null);
   // Defaults (category=maintenance, priority=normal) are right for the
   // vast majority of inspection-driven slips, so we hide all three of
@@ -1727,13 +1746,26 @@ function WorkSlipModal({
   // photo is already attached so reopening mid-flow doesn't hide it.
   const [photosOpen, setPhotosOpen] = useState(false);
 
+  function close() {
+    if (submitting || photosPending) {
+      setErr(submitting ? 'Please wait for the save to finish.' : 'Retry or remove failed photos before closing. Keep this screen open while photos upload.');
+      return;
+    }
+    onClose();
+  }
+
   async function handleSubmit() {
-    if (!title.trim() || uploading) return;
+    if (!title.trim() || photosPending || submitting) return;
     setErr(null);
     setSubmitting(true);
-    const e = await onSubmit({ title, description, location, category, priority, photoUrls: photos });
-    setSubmitting(false);
-    if (e) setErr(e);
+    try {
+      const e = await onSubmit({ title, description, location, category, priority, photoUrls: photos });
+      if (e) setErr(e);
+    } catch {
+      setErr('Couldn’t confirm the save. Your entries are still here; check your connection and retry.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   // "More details" auto-expands if any of its fields drifted off defaults,
@@ -1742,7 +1774,7 @@ function WorkSlipModal({
 
   return (
     <ModalShell
-      onClose={onClose}
+      onClose={close}
       title="New Work Slip"
       subtitle={scope === 'property' ? `On: ${itemTitle}` : `From: ${itemTitle}`}
     >
@@ -1849,7 +1881,7 @@ function WorkSlipModal({
             onChange={setPhotos}
             folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}
             disabled={submitting}
-            onUploadingChange={setUploading}
+            onUploadingChange={setUploading} onFailedUploadsChange={setFailedPhotos}
           />
           {!showMore && (
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}>
@@ -1864,10 +1896,10 @@ function WorkSlipModal({
       {err && <ErrorBlock error={err} />}
 
       <ModalActions
-        onCancel={onClose}
+        onCancel={close}
         onSubmit={handleSubmit}
         submitLabel={uploading ? 'Uploading photos…' : submitting ? 'Creating…' : 'Create Work Slip'}
-        submitDisabled={submitting || uploading || !title.trim()}
+        submitDisabled={submitting || photosPending || !title.trim()}
       />
     </ModalShell>
   );
