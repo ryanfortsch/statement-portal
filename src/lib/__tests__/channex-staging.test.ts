@@ -166,7 +166,11 @@ test('stopped inventory sends correct currency units and verifies read-back', as
   const posts = calls.filter((r) => r.init?.method === 'POST');
   assert.match(posts[0].url.pathname, /restrictions$/);
   const values = JSON.parse(String(posts[0].init?.body)).values;
-  assert.equal(values.length, 2);
+  assert.equal(values.length, 1);
+  assert.equal(posts.length, 4);
+  assert.match(posts[1].url.pathname, /restrictions$/);
+  assert.match(posts[2].url.pathname, /availability$/);
+  for (const post of posts) assert.equal(new Set(JSON.parse(String(post.init?.body)).values.map((v: {property_id: string}) => v.property_id)).size, 1, 'one property per request');
   for (const value of values) { assert.equal(value.rate, '100.00'); assert.equal(value.min_stay_arrival, 20); assert.equal(value.stop_sell, true); }
 });
 test('HTTP 200 warnings are failures and stop subsequent availability writes', async () => {
@@ -196,6 +200,6 @@ test('network and server failures do not leak secrets or response bodies', async
 test('accepted tasks are not reported as verified when inventory read-back differs', async () => {
   const { client, calls } = fakeApi({ readBackMismatch: true });
   await assert.rejects(() => client.publishStoppedInventory(availability(emptyLedger(), [], '2027-02-01', '2027-02-02', full)), /read-back did not match/);
-  assert.equal(calls.filter((r) => r.init?.method === 'POST').length, 2, 'no repeated writes while polling');
+  assert.equal(calls.filter((r) => r.init?.method === 'POST').length, 4, 'no repeated writes while polling');
   assert.equal(calls.filter((r) => r.url.pathname.endsWith('/availability') && r.init?.method === 'GET').length, 8);
 });

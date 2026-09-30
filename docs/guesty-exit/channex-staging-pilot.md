@@ -1,6 +1,6 @@
 # 17 Beach Channex staging connector
 
-Status: implemented locally, API authentication and actual Channex read/write verification pending API-key approval. This is a CLI integration harness in the Helm repository, not a deployed Helm screen or a running sync service.
+Status: authenticated and verified against Channex staging on September 30, 2026. Actual inventory read/write and a five-revision synthetic booking lifecycle passed. This is a CLI integration harness in the Helm repository, not a deployed Helm screen or a running sync service.
 
 ## Scope and isolation
 
@@ -14,7 +14,7 @@ No production DB, Guesty client, calendar writer, cron, public webhook route, ch
 | Front | `0767ca11-cdab-4405-8450-9216643fa97e` | `296b90c7-4f73-4207-881f-36bdde8e2e06` | 12 |
 | Back | `f6740c33-d499-43b3-873b-35a3df980f87` | `34c31cac-51ed-4043-80b5-8f280f9b0fb4` | 4 |
 
-The back unit's capacity includes the queen sleeper sofa available upon request. Each room represents one rentable unit. Both properties use USD and America/New_York. Messages was installed on each through the staging UI. Actual messaging delivery is not tested.
+The back unit's capacity includes the queen sleeper sofa available upon request. Each room represents one rentable unit. Both properties use USD and America/New_York. Messages and Booking CRS are installed on each through the staging UI. Actual messaging delivery is not tested.
 
 Each has one rate plan named `TEST ONLY - 20-night pilot - $100 placeholder`. The $100 is a synthetic test value, not an approved price. Stop-sell is enabled on all seven weekdays. The adapter discovers the rate-plan ID using the exact title and property/room relationships; ambiguous mappings fail. Any attached channel, including an inactive one, blocks the test harness.
 
@@ -41,11 +41,12 @@ node scripts/channex-staging.mts simulate
 node scripts/channex-staging.mts status
 node scripts/channex-staging.mts pull
 CHANNEX_STAGING_ALLOW_TEST_WRITES=yes node scripts/channex-staging.mts publish-test
+CHANNEX_STAGING_ALLOW_TEST_WRITES=yes node scripts/channex-booking-smoke.mts
 ```
 
 `simulate` uses no network or credentials and prints the six booking/cancellation transitions.
 
-The other commands require `CHANNEX_STAGING_API_KEY` in the process environment. No `.env` files are automatically loaded or copied. Provision it through protected local configuration after approval; do not paste keys in chat, command arguments, source, logs, screenshots, or PRs. The prepared browser form is named `Helm - 17 Beach staging pilot` and restricted to only the two staging properties. The form currently allows all IP addresses. No key has been created by this task yet.
+The network commands require `CHANNEX_STAGING_API_KEY` in the process environment. The user created the scoped key named `Helm - 17 Beach staging pilot` and copied it in Channex. It is saved at `.channex-staging/credential.env` in this isolated checkout (ignored by Git, 0600 inside a 0700 directory). No existing production environment was copied. Use Node's explicit `--env-file=.channex-staging/credential.env` option to run these commands locally. Keep keys out of chat, command arguments, source, logs, screenshots and PRs. The key permits only the two pilot staging properties and currently allows all IP addresses.
 
 `status` validates property identity, timezone/currency, room capacity and ownership, exact rate mapping, all-week stop-sell defaults, and absence of channels. It outputs only identifiers and configuration.
 
@@ -53,7 +54,23 @@ The other commands require `CHANNEX_STAGING_API_KEY` in the process environment.
 
 Exact replay is idempotent. Older revisions are retained as evidence but cannot replace newer state. Timestamp comparison preserves Channex microseconds. Identical timestamps with different revision IDs are treated as ambiguous and require reconciliation. ACK failure leaves the durable revision available for safe retry. Production persistence, webhook verification, periodic polling and multi-host locking are future work; do not deploy this local file journal to Vercel.
 
-`publish-test` writes ONLY February 1-3, 2027 to these two staging properties. It uses a synthetic back-unit stay, so front availability is 1 and back availability is 0. It first sets both rate plans to stop-sell with the $100 placeholder, minimum arrival stay 20 and minimum through stay 1. It then publishes availability, requires warning-free responses, and compares every value with Channex GET read-back. No method can clear stop-sell. Task acceptance (HTTP 200) alone is not called verified. Missing read-back values are retried briefly; persistent mismatch fails. Staging configuration can later be connected to real OTA listings, which is why this harness refuses all channel mappings.
+`publish-test` writes ONLY February 1-3, 2027 to these two staging properties. It uses a synthetic back-unit stay, so front availability is 1 and back availability is 0. It first sets both rate plans to stop-sell with the $100 placeholder, minimum arrival stay 20 and minimum through stay 1. It sends one property per API request, closes both rate plans before publishing either unit's availability, requires warning-free responses, and compares every value with Channex GET read-back. No method can clear stop-sell. Task acceptance (HTTP 200) alone is not called verified. Missing read-back values are retried briefly; persistent mismatch fails. Staging configuration can later be connected to real OTA listings, which is why this harness refuses all channel mappings.
+
+`channex-booking-smoke.mts` requires the same explicit write flag and creates exactly two synthetic Offline bookings without contact/payment details. It records create intent before the request and stores returned IDs in a private checkpoint. If a create outcome is uncertain, it reconciles by its unique run-specific code rather than blindly retrying. Every mutation checks for stopped rate plans and no channel mappings. The script moves the front booking, cancels each booking separately, imports all five revisions through the adapter, checks linked availability from those imported records and checks the post-ACK feed is empty. A completed run does not create more bookings when rerun. The local whole-house source and holds are synthetic; no Guesty parent feed is connected.
+
+## Actual staging verification, September 30, 2026
+
+- Authenticated with the user-created scoped key; both property/room identities and capacities matched. Channel count was zero.
+- Discovered front rate plan `64426823-a62a-47c2-8eba-249a34dae7d2` and back rate plan `f19afc51-1f72-4d65-99a0-ca762ecd730b`.
+- The first combined-property write was rejected with HTTP 422 before inventory changed. Channex requires one property per request. The adapter and regression tests now enforce that contract.
+- Corrected inventory test passed GET read-back for all six unit-nights, February 1-3, 2027: $100 placeholder, stop-sell true, arrival minimum 20, through minimum 1, front availability 1/back 0.
+- Real CRS new back booking: 1 revision saved and acknowledged; whole/front/back availability `[0, 1, 0]`.
+- Real CRS new front booking: 1 revision saved and acknowledged; availability `[0, 0, 0]`.
+- Front moved from February 1-21 to February 10-March 2: 1 revision saved and acknowledged. Old front nights released; parent remained blocked by back.
+- Back cancelled: 1 revision saved and acknowledged; February 15 availability `[0, 0, 1]`. The front stay correctly kept the whole house blocked.
+- Front cancelled: 1 revision saved and acknowledged; availability `[1, 1, 1]` in the local rule model. Both test bookings remain visibly cancelled and acknowledged in Channex.
+- A further pull returned zero revisions, confirming acknowledgements cleared the feed. Restart/failure behavior remains covered by synthetic unit tests, not an injected crash during this real API run.
+- Final API read-back: all 120 January-April nights for each pilot remain stop-sell with arrival minimum 20. No live OTA connections, guest message sends or production changes occurred.
 
 ## Acceptance and remaining gates
 
@@ -67,12 +84,10 @@ Completed locally:
 
 Pending:
 
-1. Approve/create the scoped staging API key, store securely, run `status` and verify the actual API response shapes.
-2. Run the explicit stopped-inventory test and verify the read-back in Channex.
-3. Enable Booking CRS in staging and add an isolated `HELMTEST-` booking lifecycle runner. Exercise actual new/modified/cancelled revisions through `pull`, including restart after save and before ACK. Current tests use documented fixtures; no actual Channex booking has been created by this connector.
-4. Connect the test report to an authenticated Helm staging screen, with durable non-production storage and signed webhooks/fallback polling. Current code is operator-driven only.
-5. Prove whole-house Guesty coordination, existing stays/holds, recovery/outages, seasonal boundaries and the dynamic minimum-stay policy before any OTA authorization.
-6. Certify the integration with Channex. Test actual Airbnb booking/message delivery separately. No certification or live readiness is claimed.
+1. Exercise an injected process interruption after save and before ACK against actual staging. Unit-level restart/retry checks already pass.
+2. Connect the test report to an authenticated Helm staging screen, with durable non-production storage and signed webhooks/fallback polling. Current code is operator-driven only.
+3. Prove whole-house Guesty coordination, existing stays/holds, recovery/outages, seasonal boundaries and the dynamic minimum-stay policy before any OTA authorization.
+4. Certify the integration with Channex. Test actual Airbnb booking/message delivery separately. No certification or live readiness is claimed.
 
 ## Official references checked September 30, 2026
 

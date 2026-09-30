@@ -109,10 +109,13 @@ export class ChannexStagingClient {
     const dates = [...new Set(units.map((d) => d.date))].sort();
     if (units.length !== dates.length * 2) throw new Error('Both pilot units must be present for every date');
     const mappings = await this.inspect(); // Recheck absence of all channel mappings before every write.
-    const restrictions = mappings.flatMap((m) => dates.map((date) => ({ property_id: m.propertyId, rate_plan_id: m.ratePlanId, date, rate: '100.00', min_stay_arrival: 20, min_stay_through: 1, stop_sell: true })));
-    // Close first. A failed availability request cannot leave the property sellable.
-    await this.#request('/restrictions', 'POST', { values: restrictions });
-    await this.#request('/availability', 'POST', { values: units.map((day) => ({ property_id: PILOTS[day.member as Unit].propertyId, room_type_id: PILOTS[day.member as Unit].roomTypeId, date: day.date, availability: day.availability })) });
+    // Channex rejects mixed-property writes. Close BOTH before publishing either.
+    for (const m of mappings) {
+      await this.#request('/restrictions', 'POST', { values: dates.map((date) => ({ property_id: m.propertyId, rate_plan_id: m.ratePlanId, date, rate: '100.00', min_stay_arrival: 20, min_stay_through: 1, stop_sell: true })) });
+    }
+    for (const m of mappings) {
+      await this.#request('/availability', 'POST', { values: units.filter((day) => day.member === m.unit).map((day) => ({ property_id: m.propertyId, room_type_id: m.roomTypeId, date: day.date, availability: day.availability })) });
+    }
     // A 200 is only task acceptance. Require actual inventory values to match.
     for (let attempt = 0; attempt < 4; attempt++) {
       let matching = true;
