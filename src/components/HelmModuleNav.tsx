@@ -36,18 +36,15 @@ export function HelmModuleNav() {
 }
 
 function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean }) {
-  // The Messaging tab carries a pending-count badge so Dotti can see from
-  // any module when a draft is waiting; the Field tab carries the packets
-  // pill that lived on WorkTabs before Field became its own section. Both
-  // are silent at 0.
-  const badge =
-    m.id === 'messaging' ? (
-      <MessagingPendingBadge />
-    ) : m.id === 'field' ? (
-      <NavTabCount kind="fieldPackets" />
-    ) : null;
+  const badge = m.id === 'messaging' ? <MessagingPendingBadge /> : null;
 
   const label = m.navLabel ?? m.title;
+  if (m.id === 'field') {
+    return <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <Link href={m.href} style={{ color: active ? 'var(--ink)' : 'var(--ink-3)', textDecoration: 'none' }}>{label}</Link>
+      <NavTabCount kind="fieldPackets" href="/fieldwork/packets#needs-review" />
+    </span>;
+  }
 
   // Active still links to the module's own href (its "home" page), not just a
   // static label -- this module now covers several nested routes (e.g. Work

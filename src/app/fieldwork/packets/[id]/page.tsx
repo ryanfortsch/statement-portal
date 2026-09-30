@@ -1,3 +1,4 @@
+import { RefreshNavCounts } from '@/components/NavTabCount';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -245,6 +246,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <RefreshNavCounts revision={`${packet.id}:${packet.status}`} />
       {/* parseTrade guards legacy rows whose stored trade predates the enum;
           non-nav trades (cleaning) would light no tab, so clamp to inspection. */}
       <FieldTabs current="packets" trade={navTrade(parseTrade(packet.trade))} />
