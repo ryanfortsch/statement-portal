@@ -34,7 +34,7 @@ const job = params.get('job') || 'job-a';
 const scope = JSON.stringify([actor, job]);
 window.readDrafts = () => readPhotoDrafts(scope);
 window.clearSavedDrafts = urls => clearPhotoDrafts(scope, urls);
-window.addConcurrentDraft = () => writePhotoDrafts([{ id: crypto.randomUUID(), scope, file: new File(['synthetic'], 'other-tab.png', {type: 'image/png'}) }]);
+window.addConcurrentDraft = () => writePhotoDrafts([{ id: crypto.randomUUID(), scope, createdAt: Date.now(), file: new File(['synthetic'], 'other-tab.png', {type: 'image/png'}) }]);
 window.changes = []; window.submits = 0; window.busyEvents = [];
 function Fixture() {
   const [urls, setUrls] = useState(['/synthetic/existing.png']);

@@ -8,7 +8,7 @@ import { compressImage } from '@/lib/image-compress';
 // Each file is committed before its upload starts. Uploaded URLs stay in the
 // draft until the parent confirms its own save, so a reload between those two
 // writes does not lose the attachment.
-type PhotoDraft = { id: string; scope: string; file: File; url?: string };
+type PhotoDraft = { id: string; scope: string; file: File; createdAt: number; url?: string };
 const PhotoDraftActor = createContext<string | null>(null);
 export function PhotoDraftScope({ actor, children }: { actor: string | null; children: React.ReactNode }) {
   return <PhotoDraftActor.Provider value={actor}>{children}</PhotoDraftActor.Provider>;
@@ -48,7 +48,7 @@ async function draftTransaction<T>(mode: IDBTransactionMode, work: (store: IDBOb
 export function readPhotoDrafts(scope: string): Promise<PhotoDraft[]> {
   return draftTransaction('readonly', (store, done) => {
     const request = store.index('scope').getAll(scope);
-    request.onsuccess = () => done(request.result as PhotoDraft[]);
+    request.onsuccess = () => done((request.result as PhotoDraft[]).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)));
   });
 }
 export function writePhotoDrafts(records: PhotoDraft[]): Promise<void> {
@@ -225,7 +225,8 @@ function PhotoUploaderInner({ value, onChange, folder, disabled, endpoint = '/ap
 
     try {
       if (scope) {
-        const records = items.map(item => ({ ...item, scope }));
+        const selectedAt = Date.now();
+        const records = items.map((item, index) => ({ ...item, scope, createdAt: draftsRef.current.get(item.id)?.createdAt ?? selectedAt + index / 1000 }));
         for (const record of records) draftsRef.current.set(record.id, record);
         try {
           await writePhotoDrafts(records);
@@ -254,7 +255,7 @@ function PhotoUploaderInner({ value, onChange, folder, disabled, endpoint = '/ap
           }
           uploaded.push(body.url);
           if (scope) {
-            const record = { ...item, scope, url: body.url };
+            const record = { ...item, scope, createdAt: draftsRef.current.get(item.id)?.createdAt ?? Date.now(), url: body.url };
             draftsRef.current.set(item.id, record);
             try { await writePhotoDrafts([record]); }
             catch { setStorageWarning('Couldn’t update the device copy. Keep this screen open until the task is saved.'); }
