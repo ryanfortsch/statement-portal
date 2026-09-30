@@ -1,14 +1,17 @@
 /**
  * Compute layer for the Projections module. Pure functions, no IO.
  *
- * Mirrors Rising_Tide_Property_Analyzer vF.xlsx exactly:
+ * Based on Rising_Tide_Property_Analyzer vF.xlsx, with an operator-calibrated
+ * monthly revenue distribution:
  *   1. Method 1 — Tiered Percentage Rule: home value × tier rate
  *   2. Method 2 — AirDNA 3-Year Average: market × bedroom × trailing 3 years
  *   3. Blended Gross Revenue = average of methods 1 and 2
  *   4. Year 1 Low/Mid/High = blended × 0.9 / 1.0 / 1.1
  *   5. Year 1 Ramped = applies a start-month ramp curve (0.2 → 0.5 → 1.0) to Mid
  *   6. Year 2 = Year 1 Mid × (1 + year2_growth_pct)
- *   7. Monthly forecast = annual × seasonality % from the AirDNA history
+ *   7. Monthly forecast = annual × AirDNA seasonality, calibrated to Rising
+ *      Tide's 40% Jul/Aug benchmark in Rockport and Gloucester before the
+ *      existing premium-home overlay
  *
  * Cleaning is a fixed expense in the spreadsheet model:
  *   (base_cleaning + max(0, bedrooms - 2) × addl_per_br) × turnovers_per_year
@@ -16,8 +19,8 @@
  * in the math because the deliverable's "net payout" is gross-of-cleaning.
  */
 
-import { AIRDNA, type AirDnaMarket, type AirDnaMonth } from './projections-airdna';
-import { type ProjectionRow, VALUE_TIERS } from './projections-types';
+import { AIRDNA, type AirDnaMarket, type AirDnaMonth } from './projections-airdna.ts';
+import { type ProjectionRow, VALUE_TIERS } from './projections-types.ts';
 
 export type Money = number;
 
@@ -189,12 +192,32 @@ function airdnaSeasonality(market: AirDnaMarket, _br: number, lastFullYear: numb
   return total > 0 ? avgMonths.map((m) => m / total) : Array(12).fill(1 / 12);
 }
 
+/**
+ * Rising Tide's operating assumption for typical Cape Ann homes: July and
+ * August earn 40% of annual revenue. Preserve AirDNA's relative weights
+ * within summer and within the other ten months, only reallocating the
+ * annual total between those groups. Beverly keeps its own market curve.
+ * This is an operator calibration, not a claim about the AirDNA sample.
+ */
+function capeAnnSeasonality(base: number[], market: AirDnaMarket): number[] {
+  if (market !== 'Rockport' && market !== 'Gloucester') return base;
+  const summerShare = 0.4;
+  const summerTotal = base[6] + base[7];
+  const otherTotal = base.reduce((sum, weight, month) =>
+    sum + (month === 6 || month === 7 ? 0 : weight), 0);
+  return base.map((weight, month) => {
+    const summer = month === 6 || month === 7;
+    const target = summer ? summerShare : 1 - summerShare;
+    const total = summer ? summerTotal : otherTotal;
+    return total > 0 ? weight / total * target : target / (summer ? 2 : 10);
+  });
+}
+
 // ─── Premium-tier seasonality overlay ──────────────────────────────────────
 /**
  * Cape Ann demand is bimodal by price tier. Mass-market vacation rentals
- * follow the pooled AirDNA curve (broad shoulders, ~29% of revenue in
- * Jul/Aug). But trophy properties — the ones renting for $15K+ a week —
- * are renting to a different buyer who only wants peak summer. Those
+ * use the calibrated curve (40% of revenue in Jul/Aug). Trophy properties
+ * renting for $15K+ a week attract a different buyer who wants peak summer. Those
  * homes effectively don't book in Jan–Mar, and Jul/Aug compresses to
  * ~50% of the year's revenue.
  *
@@ -219,11 +242,11 @@ const PREMIUM_SEASONALITY: number[] = [
 ];
 
 /**
- * Where the curve transitions from pooled (mass-market) to premium
+ * Where the curve transitions from calibrated (mass-market) to premium
  * (trophy). Aligned with the tiered % rule's $2.5M+ break — that's the
  * "trophy" tier where mgmt fee drops to 10%.
  *
- *   home_value ≤ $1.5M  → 100% pooled curve
+ *   home_value ≤ $1.5M  → 100% base curve (40% Jul/Aug in Cape Ann)
  *   $1.5M → $2.5M       → linear blend
  *   home_value ≥ $2.5M  → 100% premium curve
  */
@@ -237,7 +260,7 @@ function premiumBlendFactor(homeValue: number): number {
 }
 
 /**
- * Blend the pooled AirDNA curve with the premium overlay based on
+ * Blend the market's calibrated base curve with the premium overlay based on
  * home value. Returns a 12-month weight vector summing to 1.0.
  */
 function blendedSeasonality(base: number[], homeValue: number): number[] {
@@ -315,8 +338,10 @@ export function computeProjection(inputs: ProjectionRow): ProjectionComputed {
     ? airdnaSeasonality(inputs.market, inputs.bedrooms, lastFullYear)
     : Array(12).fill(1 / 12);
   // Trophy properties ($2.5M+) book disproportionately in Jul/Aug. Blend
-  // the pooled curve toward a premium overlay based on home value.
-  const seasonality = blendedSeasonality(baseSeasonality, inputs.home_value);
+  // the calibrated curve toward a premium overlay based on home value.
+  const seasonality = blendedSeasonality(
+    capeAnnSeasonality(baseSeasonality, inputs.market), inputs.home_value,
+  );
 
   // Blended (or override)
   const blendedGrossRevenue = (tRevenue + airdna3YrAvg) / 2;
