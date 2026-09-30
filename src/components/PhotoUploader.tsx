@@ -46,12 +46,18 @@ type UploadProgress = { completed: number; total: number; filename: string };
 export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload', onUploadingChange, onFailedUploadsChange }: Props) {
   const [uploading, setUploading] = useState(false);
   const [failures, setFailures] = useState<FailedUpload[]>([]);
+  const failuresRef = useRef<FailedUpload[]>([]);
+  function updateFailures(next: FailedUpload[]) {
+    failuresRef.current = next;
+    setFailures(next);
+  }
   useEffect(() => { onFailedUploadsChange?.(failures.length); }, [failures.length, onFailedUploadsChange]);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const [notice, setNotice] = useState('');
   // Same fullscreen viewer the read-only strips use — an uploaded photo you
   // can't open is half a photo (you can't check what you just shot).
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<AbortController | null>(null);
@@ -64,10 +70,10 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
     // A form must not save its old photo list while a batch is still running.
     const form = rootRef.current?.closest('form');
     function preventEarlySubmit(event: Event) {
-      if (!uploadRef.current) return;
+      if (!uploadRef.current && failuresRef.current.length === 0) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      setNotice('Photos are still uploading. Please wait before saving.');
+      setNotice(uploadRef.current ? 'Photos are still uploading. Please wait before saving.' : 'Retry or remove the failed photos before saving.');
     }
     form?.addEventListener('submit', preventEarlySubmit, true);
     return () => {
@@ -95,7 +101,7 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
     setUploading(true);
     setNotice('');
     const ids = new Set(items.map(item => item.id));
-    setFailures(previous => previous.filter(item => !ids.has(item.id)));
+    updateFailures(failuresRef.current.filter(item => !ids.has(item.id)));
     const uploaded: string[] = [];
     const failed: FailedUpload[] = [];
 
@@ -122,7 +128,7 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
         }
       }
       if (controller.signal.aborted) return;
-      setFailures(previous => [...previous, ...failed]);
+      updateFailures([...failuresRef.current, ...failed]);
       setNotice(`${uploaded.length} photo${uploaded.length === 1 ? '' : 's'} uploaded.`);
       if (uploaded.length > 0) {
         latest.current.onChange([...latest.current.value, ...uploaded]);
@@ -159,6 +165,13 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
           void uploadFiles(items);
         }}
       />
+
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" aria-label="Take a photo" style={{ display: 'none' }} disabled={disabled || uploading}
+        onChange={e => {
+          const items = Array.from(e.target.files ?? []).map(file => ({ id: nextId.current++, file }));
+          e.target.value = '';
+          void uploadFiles(items);
+        }} />
 
       {value.length > 0 && (
         <div
@@ -211,12 +224,12 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
                   position: 'absolute',
                   top: 4,
                   right: 4,
-                  width: 22,
-                  height: 22,
+                  width: 44,
+                  height: 44,
                   background: 'var(--ink)',
                   color: 'var(--paper)',
                   border: 'none',
-                  borderRadius: 11,
+                  borderRadius: 22,
                   fontSize: 14,
                   lineHeight: 1,
                   cursor: 'pointer',
@@ -232,6 +245,9 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
           ))}
         </div>
       )}
+
+      <button type="button" disabled={disabled || uploading} onClick={() => cameraRef.current?.click()}
+        style={{ ...retryButtonStyle, width: '100%', marginBottom: 8 }}>Take photo</button>
 
       <button
         type="button"
@@ -276,14 +292,14 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
             color: 'var(--negative)',
           }}
         >
-          <div role="alert">{failures.length} photo{failures.length === 1 ? '' : 's'} couldn’t upload. Retry or remove below.</div>
+          <div role="alert">{failures.length} photo{failures.length === 1 ? '' : 's'} couldn’t upload. Keep this screen open and retry, or remove below.</div>
           <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
             {failures.map(item => (
               <li key={item.id} style={{ marginTop: 8 }}>
                 <div style={{ overflowWrap: 'anywhere' }}><strong>{item.file.name}</strong>: {item.error}</div>
                 <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
                   <button type="button" disabled={disabled || uploading} aria-label={`Retry ${item.file.name}`} onClick={() => { void uploadFiles([item]); }} style={retryButtonStyle}>Retry</button>
-                  <button type="button" disabled={disabled || uploading} aria-label={`Remove failed photo ${item.file.name}`} onClick={() => setFailures(previous => previous.filter(other => other.id !== item.id))} style={retryButtonStyle}>Remove</button>
+                  <button type="button" disabled={disabled || uploading} aria-label={`Remove failed photo ${item.file.name}`} onClick={() => updateFailures(failuresRef.current.filter(other => other.id !== item.id))} style={retryButtonStyle}>Remove</button>
                 </div>
               </li>
             ))}
@@ -300,7 +316,7 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
 
 const retryButtonStyle: React.CSSProperties = {
   background: 'transparent', border: '1px solid var(--rule)', color: 'var(--ink)',
-  padding: '8px 12px', minHeight: 36, font: 'inherit', cursor: 'pointer',
+  padding: '8px 12px', minHeight: 44, font: 'inherit', cursor: 'pointer',
 };
 
 /** Read-only thumbnail strip — used wherever existing photos are surfaced

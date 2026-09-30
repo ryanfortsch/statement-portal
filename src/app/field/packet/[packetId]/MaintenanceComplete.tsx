@@ -1,5 +1,6 @@
 'use client';
 
+import { unstable_rethrow } from 'next/navigation';
 import { useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { PhotoUploader } from '@/components/PhotoUploader';
@@ -17,7 +18,7 @@ function DoneButton({ label, compact = false }: { label: string; compact?: boole
     <button
       type="submit"
       disabled={pending}
-      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 999, cursor: pending ? 'wait' : 'pointer', fontSize: compact ? 10.5 : 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: compact ? '8px 14px' : '9px 18px', minHeight: compact ? 34 : 38, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
+      style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 999, cursor: pending ? 'wait' : 'pointer', fontSize: compact ? 10.5 : 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', padding: compact ? '8px 14px' : '9px 18px', minHeight: 44, display: 'inline-flex', alignItems: 'center', gap: 8, opacity: pending ? 0.8 : 1 }}
     >
       {pending && <span aria-hidden className="animate-spin" style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(245,239,226,0.4)', borderTopColor: 'var(--paper)', borderRadius: '50%' }} />}
       {pending ? 'Saving…' : label}
@@ -47,9 +48,21 @@ export function MaintenanceComplete({
 }) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [showDetail, setShowDetail] = useState(false);
+  const [note, setNote] = useState('');
+  const [expense, setExpense] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const isAttachment = !!attachmentId;
+  async function save(data: FormData) {
+    setError(null);
+    try {
+      await (isAttachment ? completeAttachedSlip : completeMaintenanceStop)(data);
+    } catch (cause) {
+      unstable_rethrow(cause);
+      setError('Couldn’t confirm completion. Your note, photos, and receipt amount are still here. Check your connection and try Mark done again.');
+    }
+  }
   return (
-    <form action={isAttachment ? completeAttachedSlip : completeMaintenanceStop} style={{ margin: compact ? '8px 0 0' : '10px 0 0' }}>
+    <form action={save} style={{ margin: compact ? '8px 0 0' : '10px 0 0' }}>
       <input type="hidden" name="packet_id" value={packetId} />
       {isAttachment ? (
         <input type="hidden" name="attachment_id" value={attachmentId} />
@@ -71,6 +84,8 @@ export function MaintenanceComplete({
           <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
           <textarea
             name="resolution"
+            value={note}
+            onChange={e => setNote(e.target.value)}
             rows={2}
             placeholder={placeholder ?? 'What you did (optional)'}
             style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical', marginTop: 8 }}
@@ -82,6 +97,8 @@ export function MaintenanceComplete({
             <input
               type="number"
               name="expense_dollars"
+              value={expense}
+              onChange={e => setExpense(e.target.value)}
               min={0}
               step={0.01}
               inputMode="decimal"
@@ -93,6 +110,7 @@ export function MaintenanceComplete({
         </div>
       )}
 
+      {error && <p role="alert" style={{ color: 'var(--negative)', fontSize: 13 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <DoneButton label={label} compact={compact} />
         {!showDetail && (
@@ -102,7 +120,7 @@ export function MaintenanceComplete({
             // One loud button per task: Mark done. The photo prompt is a quiet
             // link either way — photoNudge only changes the wording and the
             // photo-first ordering inside the expanded detail.
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', margin: '-10px -12px', minHeight: 40, fontSize: 12.5, color: photoNudge ? 'var(--tide-deep)' : 'var(--ink-4)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', margin: '-10px -12px', minHeight: 44, fontSize: 12.5, color: photoNudge ? 'var(--tide-deep)' : 'var(--ink-4)', textDecoration: 'underline', textUnderlineOffset: 3 }}
           >
             {photoNudge ? '📷 add a photo' : '+ add note or photo'}
           </button>

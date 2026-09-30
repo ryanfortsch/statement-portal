@@ -731,21 +731,23 @@ export async function completeMaintenanceStop(formData: FormData) {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
-  const { data: pData } = await fieldDb()
+  const { data: pData, error: packetError } = await fieldDb()
     .from('inspection_packets')
     .select('id, status, awarded_contractor_id')
     .eq('id', packetId)
     .maybeSingle();
+  if (packetError) throw new Error('Could not check the job. Please retry.');
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
   if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
 
-  const { data: sData } = await fieldDb()
+  const { data: sData, error: stopError } = await fieldDb()
     .from('packet_stops')
     .select('*')
     .eq('id', stopId)
     .eq('packet_id', packetId)
     .maybeSingle();
+  if (stopError) throw new Error('Could not check the task. Please retry.');
   const stop = sData as PacketStopRow | null;
   if (!stop || !stop.work_slip_id) redirect(`/field/packet/${packetId}`);
   // A completion note is optional now — a restock or a quick fix shouldn't be
@@ -766,7 +768,7 @@ export async function completeMaintenanceStop(formData: FormData) {
   // Contractor self-report records the resolution but does NOT close the slip —
   // it stays in_progress until the office approves the packet (then it goes
   // done). Prevents a self-reported "done" from being the terminal truth.
-  await fieldDb()
+  const { data: savedSlip, error: saveError } = await fieldDb()
     .from('work_slips')
     .update({
       status: 'in_progress',
@@ -776,9 +778,11 @@ export async function completeMaintenanceStop(formData: FormData) {
       ...(expenseCents != null ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', stop.work_slip_id);
+    .eq('id', stop.work_slip_id).select('id').maybeSingle();
+  if (saveError || !savedSlip) throw new Error('Could not save the task details. Please retry.');
   if (expenseCents != null) await recomputePacketExpenses(packetId).catch(() => {});
-  await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId);
+  const { data: savedStop, error: completeError } = await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId).eq('packet_id', packetId).select('id').maybeSingle();
+  if (completeError || !savedStop) throw new Error('Could not confirm completion. Please retry.');
   await advancePacketToInProgress(packetId);
   await logEvent({
     packetId,
@@ -816,28 +820,31 @@ async function applyAttachedSlipCompletion(args: {
    *  from work found done. */
   eventType?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { data: pData } = await fieldDb()
+  const { data: pData, error: packetError } = await fieldDb()
     .from('inspection_packets')
     .select('id, status, awarded_contractor_id')
     .eq('id', args.packetId)
     .maybeSingle();
+  if (packetError) return { ok: false, error: 'Could not check the job. Please retry.' };
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== args.contractor.id) return { ok: false, error: 'not-your-packet' };
   if (!isWorkingStatus(packet.status)) return { ok: false, error: 'packet-not-live' };
 
-  const { data: aData } = await fieldDb()
+  const { data: aData, error: attachmentError } = await fieldDb()
     .from('packet_stop_work_slips')
     .select('id, work_slip_id, completed_at, packet_stops!inner(packet_id, property_id)')
     .eq('id', args.attachmentId)
     .maybeSingle();
+  if (attachmentError) return { ok: false, error: 'Could not check the task. Please retry.' };
   const att = aData as { id: string; work_slip_id: string; completed_at: string | null; packet_stops: { packet_id: string; property_id: string } } | null;
   if (!att || att.packet_stops.packet_id !== args.packetId) return { ok: false, error: 'bad-attachment' };
   if (att.completed_at) return { ok: true }; // already done — idempotent no-op
 
-  const { data: cur } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
+  const { data: cur, error: photosError } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
+  if (photosError) return { ok: false, error: 'Could not load existing photos. Please retry.' };
   const existing = ((cur as { photo_urls: string[] } | null)?.photo_urls) ?? [];
   const mergedPhotos = [...new Set([...existing, ...args.photoUrls])];
-  await fieldDb()
+  const { data: savedSlip, error: saveError } = await fieldDb()
     .from('work_slips')
     .update({
       status: 'in_progress',
@@ -847,16 +854,18 @@ async function applyAttachedSlipCompletion(args: {
       ...(args.expenseCents && args.expenseCents > 0 ? { expense_cents: Math.min(Math.round(args.expenseCents), 50000), receipt_contractor_id: args.contractor.id } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', att.work_slip_id);
+    .eq('id', att.work_slip_id).select('id').maybeSingle();
+  if (saveError || !savedSlip) return { ok: false, error: 'Could not save the task details. Please retry.' };
   // Guard the stamp so a race (two submits both seeing null) can't double-fire
   // the packet bump + audit event.
-  const { data: stamped } = await fieldDb()
+  const { data: stamped, error: stampError } = await fieldDb()
     .from('packet_stop_work_slips')
     .update({ completed_at: new Date().toISOString() })
     .eq('id', args.attachmentId)
     .is('completed_at', null)
     .select('id')
     .maybeSingle();
+  if (stampError) return { ok: false, error: 'Could not confirm completion. Please retry.' };
   if (!stamped) return { ok: true }; // lost the race; already stamped elsewhere
   await advancePacketToInProgress(args.packetId);
   await logEvent({
@@ -887,7 +896,8 @@ export async function completeAttachedSlip(formData: FormData) {
   })();
   const expRaw = Number(formData.get('expense_dollars') || 0);
   const expenseCents = Number.isFinite(expRaw) && expRaw > 0 ? Math.round(expRaw * 100) : null;
-  await applyAttachedSlipCompletion({ contractor: { id: contractor.id, email: contractor.email }, packetId, attachmentId, note, photoUrls: photos, expenseCents });
+  const result = await applyAttachedSlipCompletion({ contractor: { id: contractor.id, email: contractor.email }, packetId, attachmentId, note, photoUrls: photos, expenseCents });
+  if (!result.ok) throw new Error(result.error || 'Could not confirm completion. Please retry.');
   revalidatePath(`/field/packet/${packetId}`);
   redirect(`/field/packet/${packetId}`);
 }
