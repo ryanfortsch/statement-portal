@@ -1,10 +1,95 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { compressImage } from '@/lib/image-compress';
 
+
+// Each file is committed before its upload starts. Uploaded URLs stay in the
+// draft until the parent confirms its own save, so a reload between those two
+// writes does not lose the attachment.
+type PhotoDraft = { id: string; scope: string; file: File; url?: string };
+const PhotoDraftActor = createContext<string | null>(null);
+export function PhotoDraftScope({ actor, children }: { actor: string | null; children: React.ReactNode }) {
+  return <PhotoDraftActor.Provider value={actor}>{children}</PhotoDraftActor.Provider>;
+}
+function useDraftScope(local?: string) {
+  const actor = useContext(PhotoDraftActor);
+  return actor && local ? JSON.stringify([actor, local]) : undefined;
+}
+async function photoDraftDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    let blocked = false;
+    const request = indexedDB.open('helm-field-photos', 1);
+    request.onupgradeneeded = () => {
+      const store = request.result.createObjectStore('photos', { keyPath: 'id' });
+      store.createIndex('scope', 'scope');
+    };
+    request.onsuccess = () => {
+      if (blocked) { request.result.close(); return; }
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => { blocked = true; reject(new Error('Photo storage is blocked')); };
+  });
+}
+async function draftTransaction<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore, setResult: (value: T) => void) => void): Promise<T> {
+  const db = await photoDraftDB();
+  return new Promise<T>((resolve, reject) => {
+    let result: T;
+    const tx = db.transaction('photos', mode);
+    tx.oncomplete = () => { db.close(); resolve(result); };
+    tx.onabort = tx.onerror = () => { db.close(); reject(tx.error ?? new Error('Photo storage unavailable')); };
+    try { work(tx.objectStore('photos'), value => { result = value; }); }
+    catch (error) { tx.abort(); reject(error); }
+  });
+}
+export function readPhotoDrafts(scope: string): Promise<PhotoDraft[]> {
+  return draftTransaction('readonly', (store, done) => {
+    const request = store.index('scope').getAll(scope);
+    request.onsuccess = () => done(request.result as PhotoDraft[]);
+  });
+}
+export function writePhotoDrafts(records: PhotoDraft[]): Promise<void> {
+  return draftTransaction('readwrite', store => { for (const record of records) store.put(record); });
+}
+function removePhotoDrafts(ids: string[]): Promise<void> {
+  return draftTransaction('readwrite', store => { for (const id of ids) store.delete(id); });
+}
+export async function clearPhotoDrafts(scope: string, confirmedUrls: string[]): Promise<void> {
+  return draftTransaction('readwrite', store => {
+    const cursor = store.index('scope').openCursor(scope);
+    cursor.onsuccess = () => {
+      const item = cursor.result;
+      if (item) {
+        if (item.value.url && confirmedUrls.includes(item.value.url)) store.delete(item.primaryKey);
+        item.continue();
+      }
+    };
+  });
+}
+/** Cleanup failure must never turn a confirmed server save into a failed save. */
+export function usePhotoDraftCleaner() {
+  const actor = useContext(PhotoDraftActor);
+  return useCallback(async (local: string, confirmedUrls: string[]) => {
+    if (actor) await clearPhotoDrafts(JSON.stringify([actor, local]), confirmedUrls).catch(() => {});
+  }, [actor]);
+}
+export function useClearPhotoDraft(local: string) {
+  const scope = useDraftScope(local);
+  return useCallback(async (confirmedUrls: string[]) => { if (scope) await clearPhotoDrafts(scope, confirmedUrls).catch(() => {}); }, [scope]);
+}
+export function ClearPhotoDraft({ draftKey, confirmedUrls }: { draftKey: string; confirmedUrls: string[] }) {
+  const clear = useClearPhotoDraft(draftKey);
+  useEffect(() => { void clear(confirmedUrls); }, [clear, confirmedUrls]);
+  return null;
+}
+
 type Props = {
+  /** Stable job/form identity, isolated by the authenticated Field actor. */
+  draftKey?: string;
+  onRecovered?: () => void;
   /** Photos already uploaded (their public URLs). */
   value: string[];
   /** Called whenever the photo array changes (add or remove). */
@@ -22,7 +107,7 @@ type Props = {
   onFailedUploadsChange?: (count: number) => void;
 };
 
-type FailedUpload = { id: number; file: File; error: string };
+type FailedUpload = { id: string; file: File; error: string };
 type UploadProgress = { completed: number; total: number; filename: string };
 
 /**
@@ -30,11 +115,8 @@ type UploadProgress = { completed: number; total: number; filename: string };
  * remove button) plus a "+ Photo" tile that opens the OS chooser on phones
  * (camera or photo library) and the file picker on desktop.
  *
- * Deliberately NO capture="environment": forcing the camera blocked the
- * photo library, and Delaney's real workflow is shooting as she walks, then
- * filing work slips with those shots when the inspection is done (her own
- * work-slip request, 2026-08-06). The OS sheet keeps "Take Photo" one tap
- * away for the live case.
+ * The gallery picker stays separate from the explicit camera input, so
+ * contractors can attach earlier shots or take a new photo on site.
  *
  * Selected photos upload sequentially to /api/upload. Successful URLs are
  * appended together via onChange, so parents persist once per batch. Failed
@@ -43,7 +125,17 @@ type UploadProgress = { completed: number; total: number; filename: string };
  * the URL list (e.g. via inspection_notes.photo_urls or
  * work_slips.photo_urls).
  */
-export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/api/upload', onUploadingChange, onFailedUploadsChange }: Props) {
+export function PhotoUploader(props: Props) {
+  const scope = useDraftScope(props.draftKey);
+  return <PhotoUploaderInner key={scope ?? 'volatile'} {...props} scope={scope} />;
+}
+
+function PhotoUploaderInner({ value, onChange, folder, disabled, endpoint = '/api/upload', onUploadingChange, onFailedUploadsChange, onRecovered, scope }: Props & { scope?: string }) {
+  const [restoring, setRestoring] = useState(!!scope);
+  const restoringRef = useRef(!!scope);
+  const [storageWarning, setStorageWarning] = useState('');
+  const [deviceSaved, setDeviceSaved] = useState(false);
+  const draftsRef = useRef(new Map<string, PhotoDraft>());
   const [uploading, setUploading] = useState(false);
   const [failures, setFailures] = useState<FailedUpload[]>([]);
   const failuresRef = useRef<FailedUpload[]>([]);
@@ -61,19 +153,45 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<AbortController | null>(null);
-  const nextId = useRef(0);
-  const latest = useRef({ value, onChange, onUploadingChange });
+  const latest = useRef({ value, onChange, onUploadingChange, onRecovered });
 
-  useEffect(() => { latest.current = { value, onChange, onUploadingChange }; }, [value, onChange, onUploadingChange]);
+  useEffect(() => { latest.current = { value, onChange, onUploadingChange, onRecovered }; }, [value, onChange, onUploadingChange, onRecovered]);
+
+  useEffect(() => {
+    if (!scope) return;
+    let active = true;
+    latest.current.onUploadingChange?.(true);
+    void readPhotoDrafts(scope).then(records => {
+      if (!active) return;
+      draftsRef.current = new Map(records.map(record => [record.id, record]));
+      const pending = records.filter(record => !record.url);
+      updateFailures(pending.map(record => ({ id: record.id, file: record.file, error: 'Recovered from this device. Ready to retry.' })));
+      const urls = records.flatMap(record => record.url ? [record.url] : []);
+      if (urls.length) latest.current.onChange([...new Set([...latest.current.value, ...urls])]);
+      if (records.length) {
+        setDeviceSaved(true);
+        setNotice(`Recovered ${records.length} photo${records.length === 1 ? '' : 's'} from this device. Review them before saving.`);
+        latest.current.onRecovered?.();
+      }
+    }).catch(() => {
+      if (active) setStorageWarning('Device storage is unavailable. Keep this screen open until your photos and task are saved.');
+    }).finally(() => {
+      if (!active) return;
+      restoringRef.current = false;
+      setRestoring(false);
+      latest.current.onUploadingChange?.(false);
+    });
+    return () => { active = false; };
+  }, [scope]);
 
   useEffect(() => {
     // A form must not save its old photo list while a batch is still running.
     const form = rootRef.current?.closest('form');
     function preventEarlySubmit(event: Event) {
-      if (!uploadRef.current && failuresRef.current.length === 0) return;
+      if (!restoringRef.current && !uploadRef.current && failuresRef.current.length === 0) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      setNotice(uploadRef.current ? 'Photos are still uploading. Please wait before saving.' : 'Retry or remove the failed photos before saving.');
+      setNotice(restoringRef.current ? 'Restoring photos from this device. Please wait.' : uploadRef.current ? 'Photos are still uploading. Please wait before saving.' : 'Retry or remove the failed photos before saving.');
     }
     form?.addEventListener('submit', preventEarlySubmit, true);
     return () => {
@@ -93,8 +211,8 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
     return () => window.removeEventListener('beforeunload', beforeUnload);
   }, [failures.length, uploading]);
 
-  async function uploadFiles(items: Array<{ id: number; file: File }>) {
-    if (disabled || uploadRef.current || items.length === 0) return;
+  async function uploadFiles(items: Array<{ id: string; file: File }>) {
+    if (disabled || restoringRef.current || uploadRef.current || items.length === 0) return;
     const controller = new AbortController();
     uploadRef.current = controller;
     latest.current.onUploadingChange?.(true);
@@ -106,6 +224,19 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
     const failed: FailedUpload[] = [];
 
     try {
+      if (scope) {
+        const records = items.map(item => ({ ...item, scope }));
+        for (const record of records) draftsRef.current.set(record.id, record);
+        try {
+          await writePhotoDrafts(records);
+          if (!controller.signal.aborted) setDeviceSaved(true);
+        } catch {
+          if (!controller.signal.aborted) {
+            setDeviceSaved(false);
+            setStorageWarning('Couldn’t save photos on this device. Keep this screen open until your photos and task are saved.');
+          }
+        }
+      }
       for (const [index, item] of items.entries()) {
         if (controller.signal.aborted) return;
         setProgress({ completed: index, total: items.length, filename: item.file.name });
@@ -122,6 +253,12 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
             throw new Error(body?.error || `Upload failed (HTTP ${res.status}). Please retry.`);
           }
           uploaded.push(body.url);
+          if (scope) {
+            const record = { ...item, scope, url: body.url };
+            draftsRef.current.set(item.id, record);
+            try { await writePhotoDrafts([record]); }
+            catch { setStorageWarning('Couldn’t update the device copy. Keep this screen open until the task is saved.'); }
+          }
         } catch (error) {
           if (controller.signal.aborted) return;
           failed.push({ ...item, error: error instanceof Error ? error.message : 'Upload failed. Please retry.' });
@@ -143,7 +280,17 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
     }
   }
 
-  function removeAt(index: number) {
+  async function discard(ids: string[]) {
+    if (scope) {
+      try { await removePhotoDrafts(ids); }
+      catch { setStorageWarning('Couldn’t remove the device copy. Try removing it again.'); return false; }
+    }
+    for (const id of ids) draftsRef.current.delete(id);
+    return true;
+  }
+  async function removeAt(index: number) {
+    const ids = [...draftsRef.current.values()].filter(record => record.url === value[index]).map(record => record.id);
+    if (!(await discard(ids))) return;
     const next = [...value];
     next.splice(index, 1);
     onChange(next);
@@ -151,24 +298,27 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
 
   return (
     <div ref={rootRef}>
+      {restoring && <p role="status">Restoring photos…</p>}
+      {storageWarning && <p role="alert" style={{ fontSize: 13, color: 'var(--negative)' }}>{storageWarning}</p>}
+      {scope && deviceSaved && !storageWarning && <p style={{ fontSize: 12, color: 'var(--ink-3)' }}>Photo copies saved on this device until you save the task. Reopen this same form to recover them.</p>}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
         multiple
         style={{ display: 'none' }}
-        disabled={disabled || uploading}
+        disabled={disabled || uploading || restoring}
         onChange={(e) => {
-          const items = Array.from(e.target.files ?? []).map(file => ({ id: nextId.current++, file }));
+          const items = Array.from(e.target.files ?? []).map(file => ({ id: crypto.randomUUID(), file }));
           // Reset immediately so picking the same file again still fires change.
           e.target.value = '';
           void uploadFiles(items);
         }}
       />
 
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" aria-label="Take a photo" style={{ display: 'none' }} disabled={disabled || uploading}
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" aria-label="Take a photo" style={{ display: 'none' }} disabled={disabled || uploading || restoring}
         onChange={e => {
-          const items = Array.from(e.target.files ?? []).map(file => ({ id: nextId.current++, file }));
+          const items = Array.from(e.target.files ?? []).map(file => ({ id: crypto.randomUUID(), file }));
           e.target.value = '';
           void uploadFiles(items);
         }} />
@@ -218,7 +368,7 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
               <button
                 type="button"
                 onClick={() => removeAt(i)}
-                disabled={disabled || uploading}
+                disabled={disabled || uploading || restoring}
                 aria-label="Remove photo"
                 style={{
                   position: 'absolute',
@@ -246,13 +396,13 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
         </div>
       )}
 
-      <button type="button" disabled={disabled || uploading} onClick={() => cameraRef.current?.click()}
+      <button type="button" disabled={disabled || uploading || restoring} onClick={() => cameraRef.current?.click()}
         style={{ ...retryButtonStyle, width: '100%', marginBottom: 8 }}>Take photo</button>
 
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        disabled={disabled || uploading}
+        disabled={disabled || uploading || restoring}
         style={{
           background: 'transparent',
           border: '1px dashed var(--rule)',
@@ -292,14 +442,14 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
             color: 'var(--negative)',
           }}
         >
-          <div role="alert">{failures.length} photo{failures.length === 1 ? '' : 's'} couldn’t upload. Keep this screen open and retry, or remove below.</div>
+          <div role="alert">{failures.length} photo{failures.length === 1 ? '' : 's'} couldn’t upload. {scope && deviceSaved && !storageWarning ? 'Saved on this device. Retry or remove below.' : 'Keep this screen open and retry, or remove below.'}</div>
           <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
             {failures.map(item => (
               <li key={item.id} style={{ marginTop: 8 }}>
                 <div style={{ overflowWrap: 'anywhere' }}><strong>{item.file.name}</strong>: {item.error}</div>
                 <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-                  <button type="button" disabled={disabled || uploading} aria-label={`Retry ${item.file.name}`} onClick={() => { void uploadFiles([item]); }} style={retryButtonStyle}>Retry</button>
-                  <button type="button" disabled={disabled || uploading} aria-label={`Remove failed photo ${item.file.name}`} onClick={() => updateFailures(failuresRef.current.filter(other => other.id !== item.id))} style={retryButtonStyle}>Remove</button>
+                  <button type="button" disabled={disabled || uploading || restoring} aria-label={`Retry ${item.file.name}`} onClick={() => { void uploadFiles([item]); }} style={retryButtonStyle}>Retry</button>
+                  <button type="button" disabled={disabled || uploading || restoring} aria-label={`Remove failed photo ${item.file.name}`} onClick={async () => { if (await discard([item.id])) updateFailures(failuresRef.current.filter(other => other.id !== item.id)); }} style={retryButtonStyle}>Remove</button>
                 </div>
               </li>
             ))}

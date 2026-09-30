@@ -1,3 +1,4 @@
+import { PhotoDraftScope } from '@/components/PhotoUploader';
 import type { Metadata } from 'next';
 import { redirect, notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -212,7 +213,7 @@ export default async function FieldInspectPage({
     .map((w) => ({ id: w.id, title: w.title, location: w.location }));
 
   return (
-    <Stepper
+    <PhotoDraftScope actor={contractor.id}><Stepper
       inspectionId={inspectionId}
       propertyId={(property as { id: string }).id}
       propertyName={(property as { name: string }).name}
@@ -231,6 +232,6 @@ export default async function FieldInspectPage({
       verifySlips={verifySlips}
       packetId={stop.packet_id}
       onCompleteTask={completeAttachedSlipInFlow}
-    />
+    /></PhotoDraftScope>
   );
 }

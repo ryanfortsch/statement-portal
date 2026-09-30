@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { PhotoDraftScope } from '@/components/PhotoUploader';
 import { signOutField } from './actions';
 import { RyanContact } from './RyanContact';
 import { FieldNav } from './FieldNav';
@@ -102,7 +103,7 @@ export async function FieldShell({
       </header>
       {contractorName && showNav && <FieldNav showPropertyWork={showPropertyWork} showRates={showRates} showSchedule={showSchedule} homeLabel={isCreative ? 'Shoots' : undefined} />}
       <main style={{ flex: 1, width: '100%', maxWidth: 760, margin: '0 auto', padding: 'clamp(24px, 5vw, 32px) clamp(16px, 5vw, 24px) 40px' }}>
-        {children}
+        <PhotoDraftScope actor={shellContractor?.id ?? null}>{children}</PhotoDraftScope>
       </main>
       {contractorName && <RyanContact />}
       <footer

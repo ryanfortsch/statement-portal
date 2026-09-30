@@ -31,6 +31,7 @@ await writeFile(join(scratch, 'link.js'), compile(`
   export default function Link(props) {return <a {...props}/>;}
 `));
 await writeFile(join(scratch, 'upload.js'), compile(`
+  export const useClearPhotoDraft=()=>async()=>{};
   import React from 'react';
   export function PhotoUploader({value,onChange,onUploadingChange,disabled}) {
     return <div>

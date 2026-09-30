@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
+import { PhotoUploader, PhotoThumbs, useClearPhotoDraft } from '@/components/PhotoUploader';
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { updateSlipFromStop } from '../../actions';
@@ -11,6 +11,8 @@ export function StopSlipEditor({ packetId, stopId, workSlipId, title, descriptio
   packetId: string; stopId: string; workSlipId: string; title: string; description: string | null; photos: string[]; readOnly?: boolean;
   onSaved: (saved: Saved) => void; onCancel: () => void; onGuardChange: (dirty: boolean, busy: boolean) => void;
 }) {
+  const draftKey = `slip-edit:${packetId}:${stopId}:${workSlipId}`;
+  const clearDraft = useClearPhotoDraft(draftKey);
   const [tab, setTab] = useState<'details' | 'photos'>('details');
   const [draftTitle, setTitle] = useState(title), [draftDescription, setDescription] = useState(description || '');
   const [added, setAdded] = useState<string[]>([]), [uploading, setUploading] = useState(false);
@@ -30,6 +32,7 @@ export function StopSlipEditor({ packetId, stopId, workSlipId, title, descriptio
     action.run(async () => {
       const result = await updateSlipFromStop({ packetId, stopId, workSlipId, title: cleanTitle, description: draftDescription, photoUrls: added });
       if (!result.ok) { action.setError('Could not save this slip. Your text and photos are kept. Try again.'); return; }
+      await clearDraft(added);
       onSaved({ title: cleanTitle, description: draftDescription.trim() || null, photoUrls: result.photoUrls });
     }, 'Could not confirm the save. Your text and photos are kept. Retry to save the same photos.');
   }
@@ -46,7 +49,7 @@ export function StopSlipEditor({ packetId, stopId, workSlipId, title, descriptio
     <div hidden={tab !== 'photos'} role="tabpanel" aria-label="Photos">
       {photos.length > 0 && <PhotoThumbs urls={photos} size={64}/>}
       <p style={{ fontSize: 13 }}>Add photos of the issue. Saving keeps this slip open.</p>
-      <PhotoUploader value={added} onChange={setAdded} folder="field-maintenance" onFailedUploadsChange={setFailedUploads} endpoint="/api/field/upload" disabled={action.pending || readOnly} onUploadingChange={value => { uploadingRef.current = value; setUploading(value); onGuardChange(dirty, value || action.busy.current); }}/>
+      <PhotoUploader draftKey={draftKey} onRecovered={() => setTab('photos')} value={added} onChange={setAdded} folder="field-maintenance" onFailedUploadsChange={setFailedUploads} endpoint="/api/field/upload" disabled={action.pending || readOnly} onUploadingChange={value => { uploadingRef.current = value; setUploading(value); onGuardChange(dirty, value || action.busy.current); }}/>
     </div>
     {failedUploads > 0 && <p role="alert">Retry or remove failed uploads before saving.</p>}
     {action.error && <p role="alert" style={{ color: 'var(--signal)' }}>{action.error}</p>}

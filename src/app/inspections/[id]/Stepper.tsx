@@ -15,7 +15,7 @@ import type {
   WorkSlipCategory,
   WorkSlipPriority,
 } from '@/lib/inspections-types';
-import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
+import { PhotoUploader, PhotoThumbs, useClearPhotoDraft, usePhotoDraftCleaner } from '@/components/PhotoUploader';
 import { compressImage } from '@/lib/image-compress';
 import { SaveQueue } from '@/lib/save-queue';
 import { readInspectionDrafts } from '@/lib/inspection-drafts';
@@ -154,6 +154,7 @@ export function Stepper({
   onCompleteTask,
 }: Props) {
   const router = useRouter();
+  const clearPhotoDraft = usePhotoDraftCleaner();
   const resultsRef = useRef(new Map(initialResults.map((r) => [cardKeyOf(r.item_id, r.zone_id), r])));
   const [results, setResults] = useState<Map<string, StepperResult>>(resultsRef.current);
   const [notes, setNotesList] = useState<StepperNote[]>(initialNotes);
@@ -458,6 +459,7 @@ export function Stepper({
     patchTask(task.attachmentId, { saving: true, error: null });
     const res = await onCompleteTask({ packetId, attachmentId: task.attachmentId, note: cur.note, photoUrls: cur.photos });
     if (res.ok) {
+      await clearPhotoDraft(`inspection:${inspectionId}:task:${task.attachmentId}`, cur.photos);
       patchTask(task.attachmentId, { saving: false, done: true });
       setActiveIdx((i) => Math.min(i + 1, deckLength));
     } else {
@@ -501,6 +503,7 @@ export function Stepper({
       itemTitle={activeCard ? activeCard.title : propertyName}
       scope={activeCard ? 'card' : 'property'}
       inspectionId={inspectionId}
+      draftKey={`inspection:${inspectionId}:slip:${activeCard?.cardKey ?? 'property'}`}
       onClose={() => setShowWorkSlipModal(false)}
       onSubmit={async (input) => {
         const err = await submitWorkSlip(input);
@@ -747,6 +750,7 @@ export function Stepper({
     return (
       <TaskCardScreen
         task={task}
+        draftKey={`inspection:${inspectionId}:task:${task.attachmentId}`}
         idx={activeTaskIdx}
         count={taskCount}
         state={st}
@@ -1066,6 +1070,7 @@ export function Stepper({
         <NoteModal
           itemTitle={activeCard.title}
           inspectionId={inspectionId}
+          draftKey={`inspection:${inspectionId}:note:${activeCard.cardKey}`}
           onClose={() => setShowNoteModal(false)}
           onSubmit={async (text, asProperty, photos) => {
             const err = await submitNote(text, asProperty, photos);
@@ -1128,6 +1133,7 @@ export function Stepper({
 
 function TaskCardScreen({
   task,
+  draftKey,
   idx,
   count,
   state,
@@ -1139,6 +1145,7 @@ function TaskCardScreen({
   onExit,
 }: {
   task: TrailingTask;
+  draftKey: string;
   idx: number;
   count: number;
   state: { done: boolean; saving: boolean; note: string; photos: string[]; error: string | null };
@@ -1149,6 +1156,8 @@ function TaskCardScreen({
   onNext: () => void;
   onExit: () => void;
 }) {
+  const clearDraft = useClearPhotoDraft(draftKey);
+  useEffect(() => { if (state.done) void clearDraft(state.photos); }, [state.done, state.photos, clearDraft]);
   const [uploading, setUploading] = useState(false);
   const [failedPhotos, setFailedPhotos] = useState(0);
   const photosPending = uploading || failedPhotos > 0;
@@ -1188,7 +1197,7 @@ function TaskCardScreen({
               style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '10px 12px', resize: 'vertical', boxSizing: 'border-box' }}
             />
             <div style={{ marginTop: 10 }}>
-              <PhotoUploader value={state.photos} onChange={onPhotos} folder="field-maintenance" disabled={state.saving} onUploadingChange={setUploading} onFailedUploadsChange={setFailedPhotos} />
+              <PhotoUploader draftKey={draftKey} value={state.photos} onChange={onPhotos} folder="field-maintenance" disabled={state.saving} onUploadingChange={setUploading} onFailedUploadsChange={setFailedPhotos} />
             </div>
           </div>
         )}
@@ -1576,16 +1585,19 @@ function StatusBadge({ status }: { status: InspectionStatus | null }) {
 function NoteModal({
   itemTitle,
   inspectionId,
+  draftKey,
   onClose,
   onSubmit,
 }: {
   itemTitle: string;
   inspectionId: string;
+  draftKey: string;
   onClose: () => void;
   onSubmit: (text: string, asProperty: boolean, photoUrls: string[]) => Promise<string | null>;
 }) {
   const [text, setText] = useState('');
   const [asProperty, setAsProperty] = useState(false);
+  const clearDraft = useClearPhotoDraft(draftKey);
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1610,6 +1622,7 @@ function NoteModal({
     try {
       const e = await onSubmit(text, asProperty, photos);
       if (e) setErr(e);
+      else await clearDraft(photos);
     } catch {
       setErr('Couldn’t confirm the save. Your entries are still here; check your connection and retry.');
     } finally {
@@ -1635,6 +1648,7 @@ function NoteModal({
       <div style={{ marginTop: 16 }}>
         <div className="eyebrow" style={{ marginBottom: 8 }}>Photos</div>
         <PhotoUploader
+          draftKey={draftKey}
           value={photos}
           onChange={setPhotos}
           folder={`inspections/${inspectionId.slice(0, 8)}/notes`}
@@ -1701,6 +1715,7 @@ function WorkSlipModal({
   itemTitle,
   scope = 'card',
   inspectionId,
+  draftKey,
   onClose,
   onSubmit,
 }: {
@@ -1712,6 +1727,7 @@ function WorkSlipModal({
    */
   scope?: 'card' | 'property';
   inspectionId: string;
+  draftKey: string;
   onClose: () => void;
   onSubmit: (input: {
     title: string;
@@ -1727,6 +1743,7 @@ function WorkSlipModal({
   const [location, setLocation] = useState('');
   const [category, setCategory] = useState<WorkSlipCategory>('maintenance');
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
+  const clearDraft = useClearPhotoDraft(draftKey);
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1761,6 +1778,7 @@ function WorkSlipModal({
     try {
       const e = await onSubmit({ title, description, location, category, priority, photoUrls: photos });
       if (e) setErr(e);
+      else await clearDraft(photos);
     } catch {
       setErr('Couldn’t confirm the save. Your entries are still here; check your connection and retry.');
     } finally {
@@ -1877,6 +1895,7 @@ function WorkSlipModal({
         <div style={{ marginTop: 14 }}>
           <FieldLabel>Photos</FieldLabel>
           <PhotoUploader
+          draftKey={draftKey}
             value={photos}
             onChange={setPhotos}
             folder={`inspections/${inspectionId.slice(0, 8)}/work_slips`}

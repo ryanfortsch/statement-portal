@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState, useTransition } from 'react';
 import { StopSlipEditor } from './StopSlipEditor';
-import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
+import { PhotoUploader, PhotoThumbs, usePhotoDraftCleaner } from '@/components/PhotoUploader';
 import { resolveSlipFromStop } from '../../actions';
 
 export type StopWorkItem = {
@@ -85,6 +85,9 @@ export function StopWorkList({
   onOtherTrip?: number;
   readOnly?: boolean;
 }) {
+  const clearPhotoDraft = usePhotoDraftCleaner();
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState(0);
   const [doneIds, setDoneIds] = useState<Set<string>>(() => new Set(items.filter((i) => i.done).map((i) => i.slipId)));
   const [openId, setOpenId] = useState<string | null>(null);
   const [mode, setMode] = useState<PanelMode>('info');
@@ -98,7 +101,7 @@ export function StopWorkList({
   const editGuard = useRef({ dirty: false, busy: false });
   const reportEditGuard = useCallback((dirty: boolean, busy: boolean) => { editGuard.current = { dirty, busy }; }, []);
   function canLeaveEdit() {
-    return !editGuard.current.busy && (!editGuard.current.dirty || window.confirm('Discard unsaved slip text and photos?'));
+    return !photoBusy && !failedPhotos && !editGuard.current.busy && (!editGuard.current.dirty || window.confirm('Discard unsaved slip text and photos?'));
   }
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -145,7 +148,7 @@ export function StopWorkList({
   }
 
   function submitDone(i: StopWorkItem) {
-    if (doneIds.has(i.slipId) || saving) return;
+    if (doneIds.has(i.slipId) || saving || photoBusy || failedPhotos > 0) return;
     setSaving(true);
     setErr(null);
     const expNum = Number(expense);
@@ -164,13 +167,14 @@ export function StopWorkList({
         setErr("Couldn't save that. Check your signal and try again.");
         return;
       }
+      await clearPhotoDraft(`slip-complete:${packetId}:${stopId}:${i.slipId}`, photos);
       markDone(i.slipId);
       closePanel();
     });
   }
 
   function submitHandled(i: StopWorkItem) {
-    if (doneIds.has(i.slipId) || saving) return;
+    if (doneIds.has(i.slipId) || saving || photoBusy || failedPhotos > 0) return;
     setSaving(true);
     setErr(null);
     start(async () => {
@@ -180,6 +184,7 @@ export function StopWorkList({
         setErr("Couldn't save that. Check your signal and try again.");
         return;
       }
+      await clearPhotoDraft(`slip-complete:${packetId}:${stopId}:${i.slipId}`, photos);
       markDone(i.slipId);
       closePanel();
     });
@@ -291,7 +296,7 @@ export function StopWorkList({
 
                 {mode === 'photo' && !done && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule-soft, var(--rule))' }}>
-                    <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
+                    <PhotoUploader draftKey={`slip-complete:${packetId}:${stopId}:${i.slipId}`} onUploadingChange={setPhotoBusy} onFailedUploadsChange={setFailedPhotos} value={photos} onChange={setPhotos} folder="field-maintenance" />
                     <textarea
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
@@ -315,10 +320,10 @@ export function StopWorkList({
                     </label>
                     {err && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                      <button type="button" onClick={() => submitDone(i)} disabled={saving} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
+                      <button type="button" onClick={() => submitDone(i)} disabled={saving || photoBusy || failedPhotos > 0} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
                         {saving ? 'Saving…' : 'Mark done'}
                       </button>
-                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={saving} style={pillGhost}>
+                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={saving || photoBusy || failedPhotos > 0} style={pillGhost}>
                         Cancel
                       </button>
                     </div>
@@ -339,10 +344,10 @@ export function StopWorkList({
                     />
                     {err && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                      <button type="button" onClick={() => submitHandled(i)} disabled={saving} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
+                      <button type="button" onClick={() => submitHandled(i)} disabled={saving || photoBusy || failedPhotos > 0} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
                         {saving ? 'Saving…' : 'Yes, take it off the list'}
                       </button>
-                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={saving} style={pillGhost}>
+                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={saving || photoBusy || failedPhotos > 0} style={pillGhost}>
                         Cancel
                       </button>
                     </div>
