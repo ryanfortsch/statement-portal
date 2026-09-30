@@ -16,6 +16,9 @@ import {
   editApproval,
   explainError,
   type StayConciergeError,
+  type FollowupOptions,
+  listApprovals,
+  markMaintenanceDismissed,
 } from '@/lib/stay-concierge';
 
 // `stale: true` means the card moved on under the operator: a 409 from the
@@ -24,7 +27,7 @@ import {
 // red error. This is the fix for an approve landing on a card that a just-
 // submitted coaching pass had already replaced.
 export type ActionResult =
-  | { ok: true }
+  | { ok: true; warning?: string }
   | { ok: false; error: string; stale?: boolean };
 
 type ClientResult = { ok: true } | { ok: false; error: StayConciergeError };
@@ -46,11 +49,13 @@ async function requireSession(): Promise<{ ok: true; email: string } | { ok: fal
 
 export async function approveDraft(
   approvalId: string,
-  opts?: { sendAddonSms?: boolean; createHandoff?: boolean },
+  opts?: FollowupOptions,
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  return mapResult(await approveApproval(approvalId, { ...(opts ?? {}), actor: sess.email }));
+  const result = await approveApproval(approvalId, { ...(opts ?? {}), actor: sess.email });
+  const mapped = mapResult(result);
+  return mapped.ok && result.ok ? { ...mapped, warning: result.data.followup_warning } : mapped;
 }
 
 export async function rejectDraft(approvalId: string): Promise<ActionResult> {
@@ -100,11 +105,11 @@ export async function coachDraft(approvalId: string, feedback: string): Promise<
 }
 
 /** Queue the draft to send at a future time. sendAt is a UTC ISO string. */
-export async function scheduleDraft(approvalId: string, sendAt: string): Promise<ActionResult> {
+export async function scheduleDraft(approvalId: string, sendAt: string, opts?: FollowupOptions): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
-  return mapResult(await scheduleApproval(approvalId, sendAt));
+  return mapResult(await scheduleApproval(approvalId, sendAt, opts));
 }
 
 /** Unschedule a queued send, returning it to the pending queue. */
@@ -121,4 +126,22 @@ export async function editDraft(approvalId: string, text: string): Promise<Actio
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, error: 'The reply cannot be empty' };
   return mapResult(await editApproval(approvalId, trimmed));
+}
+
+export async function dismissMaintenanceSlip(approvalId: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const queue = await listApprovals();
+  if (!queue.ok) return mapResult(queue);
+  const approval = queue.data.approvals.find((row) => row.id === approvalId);
+  const id = approval?.maintenance_work?.slip_id;
+  if (!id) return { ok: false, error: 'The work slip changed. Refresh the card.' };
+  const { supabaseAdmin } = await import('@/lib/supabase-admin');
+  const { data, error } = await supabaseAdmin.from('work_slips')
+    .update({ status: 'dismissed', closed_at: new Date().toISOString(), closed_by_email: sess.email })
+    .eq('id', id).in('status', ['open', 'dismissed']).is('assigned_to_email', null).select('id').maybeSingle();
+  if (error || !data) return { ok: false, error: 'This slip may already be assigned or in progress. Open it to review before dismissing.' };
+  const marked = await markMaintenanceDismissed(approvalId);
+  revalidatePath('/work'); revalidatePath(`/work/${id}`); revalidatePath('/properties');
+  return mapResult(marked);
 }
