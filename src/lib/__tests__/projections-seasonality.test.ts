@@ -25,11 +25,13 @@ const moneyFields: (keyof PayoutBreakdown)[] = [
 ];
 
 for (const market of ['Rockport', 'Gloucester'] as const) {
-  test(`${market}: typical homes allocate 40% to July/August at every bedroom size`, () => {
+  test(`${market}: July and August each earn 20% at every bedroom size and price tier`, () => {
     for (const bedrooms of [1, 2, 3, 4, 5, 6]) {
-      for (const home_value of [500_000, 1_000_000, 1_500_000]) {
+      for (const home_value of [500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000]) {
         const c = computeProjection(inputs({ market, bedrooms, home_value }));
         close(c.seasonality[6] + c.seasonality[7], 0.4);
+        assert.equal(c.seasonality[6], 0.2);
+        assert.equal(c.seasonality[7], 0.2);
         close(c.seasonality.reduce((a, b) => a + b, 0), 1);
         assert.ok(c.seasonality.every(w => Number.isFinite(w) && w >= 0));
         for (const [rows, annual] of [
@@ -39,19 +41,17 @@ for (const market of ['Rockport', 'Gloucester'] as const) {
             close(rows.reduce((sum, row) => sum + row[field], 0), annual[field]);
           }
           close((rows[6].grossRevenue + rows[7].grossRevenue) / annual.grossRevenue, 0.4);
+          for (const field of moneyFields) close(rows[6][field], rows[7][field]);
         }
         assert.deepEqual(c.monthlyYear1Ramped, c.monthlyYear1);
       }
     }
   });
 
-  test(`${market}: premium transition remains gradual and reaches the existing 50% curve`, () => {
-    for (const [home_value, share] of [[1_500_000, 0.4], [2_000_000, 0.45], [2_500_000, 0.5], [3_000_000, 0.5]]) {
-      const c = computeProjection(inputs({ market, home_value }));
-      close(c.seasonality[6] + c.seasonality[7], share);
-    }
-    assert.deepEqual(computeProjection(inputs({ market, home_value: 2_500_000 })).seasonality,
-      [0.015, 0.015, 0.02, 0.025, 0.04, 0.1, 0.25, 0.25, 0.11, 0.08, 0.04, 0.055]);
+  test(`${market}: premium homes retain their non-summer shape within the remaining 60%`, () => {
+    const c = computeProjection(inputs({ market, home_value: 2_500_000 }));
+    const expected = [0.018, 0.018, 0.024, 0.03, 0.048, 0.12, 0.2, 0.2, 0.132, 0.096, 0.048, 0.066];
+    c.seasonality.forEach((weight, month) => close(weight, expected[month]));
   });
 }
 
@@ -67,14 +67,11 @@ test('annual economics keep the pre-calibration baseline', () => {
   close(c.heroHigh, 71_737.271);
 });
 
-test('calibration preserves the relative AirDNA shape within each group', () => {
+test('typical homes preserve the relative AirDNA shape outside July and August', () => {
   const c = computeProjection(inputs());
   // Independently recorded pre-calibration Rockport weights.
-  const july = 0.12380366038281827;
-  const august = 0.15350149298547208;
-  close(c.seasonality[6] / c.seasonality[7], july / august);
   close(c.seasonality[0] / c.seasonality[11], 0.04218859287402118 / 0.06551696347424081);
-  assert.ok(c.seasonality[7] > c.seasonality[6]);
+  assert.equal(c.seasonality[6], c.seasonality[7]);
 });
 
 test('Beverly keeps its distinct market curve', () => {
