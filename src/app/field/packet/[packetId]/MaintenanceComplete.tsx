@@ -1,11 +1,12 @@
 'use client';
 
-import { unstable_rethrow } from 'next/navigation';
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { confirmedSave } from '@/lib/confirmed-save';
+import { useRef, useState } from 'react';
 import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
 import { useFormStatus } from 'react-dom';
-import { PhotoUploader } from '@/components/PhotoUploader';
-import { completeMaintenanceStop, completeAttachedSlip } from '../../actions';
+import { PhotoUploader, useClearPhotoDraft } from '@/components/PhotoUploader';
+import { completeMaintenanceTask, checkFieldTaskCompletion } from '../../actions';
 
 /**
  * Completion for a maintenance task. One tap marks it done — the note and photo
@@ -52,30 +53,53 @@ export function MaintenanceComplete({
    *  work (still optional — Mark done never blocks on it). */
   photoNudge?: boolean;
 }) {
+  const router = useRouter();
+  const submittedData = useRef<FormData | null>(null);
+  const busy = useRef(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState(0);
   const [photos, setPhotos] = useState<string[]>([]);
   const [showDetail, setShowDetail] = useState(false);
   const draftKey = `maintenance:${packetId}:${attachmentId ?? stopId}`;
   const formDraft = useFieldFormDraft(draftKey, { note: '', expense: '' });
+  const clearPhotos = useClearPhotoDraft(draftKey);
   const { note, expense } = formDraft.value;
   const setNote = (v: string) => formDraft.set('note', v);
   const setExpense = (v: string) => formDraft.set('expense', v);
   const [error, setError] = useState<string | null>(null);
   const isAttachment = !!attachmentId;
   async function save(data: FormData) {
-    if (!formDraft.ready) return;
+    if (!formDraft.ready) { busy.current = false; return; }
     setError(null);
+    setRetrying(true);
     formDraft.markSubmitted();
+    const original = submittedData.current ?? data;
+    const wasRetry = !!submittedData.current;
+    submittedData.current = original;
     try {
-      await (isAttachment ? completeAttachedSlip : completeMaintenanceStop)(data);
-    } catch (cause) {
-      unstable_rethrow(cause);
-      setError('Couldn’t confirm completion. Your note, photos, and receipt amount are still here. Check your connection and try Mark done again.');
-    }
+      const confirm = () => checkFieldTaskCompletion({ packetId, stopId, attachmentId });
+      const result = await confirmedSave(async () => {
+        if (wasRetry && (await confirm()).ok) return { ok: true };
+        return completeMaintenanceTask(original);
+      }, confirm, { checkReturnedFailure: true });
+      if (result.ok) {
+        formDraft.clear();
+        await clearPhotos(photos);
+        setConfirmed(true);
+        router.refresh();
+      } else {
+        setRetrying(true);
+        setError(result.error || 'Could not confirm completion. Retry to check the same task.');
+      }
+    } finally { busy.current = false; }
   }
+  if (confirmed) return <p role="status" style={{ fontSize: 13, color: 'var(--positive)' }}>✓ Saved</p>;
   return (
-    <form action={save} style={{ margin: compact ? '8px 0 0' : '10px 0 0' }}>
-      <FieldDraftStatus status={formDraft.status} />
-      <CompletionFields ready={formDraft.ready}>
+    <form action={save} onSubmit={event => { if (busy.current || photoBusy || failedPhotos || !formDraft.ready) event.preventDefault(); else busy.current = true; }} style={{ margin: compact ? '8px 0 0' : '10px 0 0' }}>
+      {!retrying && <FieldDraftStatus status={formDraft.status} />}
+      <CompletionFields ready={formDraft.ready && !retrying}>
       <input type="hidden" name="packet_id" value={packetId} />
       {isAttachment ? (
         <input type="hidden" name="attachment_id" value={attachmentId} />
@@ -94,7 +118,7 @@ export function MaintenanceComplete({
           {/* /api/upload accepts the contractor cookie too (dual-plane) and
               honors the folder hint — /api/field/upload is avatar-specific
               and filed these under field-avatars/. Photo first when nudging. */}
-          <PhotoUploader draftKey={`maintenance:${packetId}:${attachmentId ?? stopId}`} onRecovered={() => setShowDetail(true)} value={photos} onChange={setPhotos} folder="field-maintenance" />
+          <PhotoUploader disabled={retrying} onUploadingChange={setPhotoBusy} onFailedUploadsChange={setFailedPhotos} draftKey={`maintenance:${packetId}:${attachmentId ?? stopId}`} onRecovered={() => setShowDetail(true)} value={photos} onChange={setPhotos} folder="field-maintenance" />
           <textarea
             name="resolution"
             value={note}
@@ -123,10 +147,11 @@ export function MaintenanceComplete({
         </div>
       )}
 
+      </CompletionFields>
       {error && <p role="alert" style={{ color: 'var(--negative)', fontSize: 13 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <DoneButton label={label} compact={compact} />
-        {!showDetail && !note && !expense && (
+        <DoneButton label={retrying ? 'Check / retry save' : photoBusy ? 'Uploading photos…' : failedPhotos ? 'Retry or remove failed photos' : label} compact={compact} />
+        {!retrying && !showDetail && !note && !expense && (
           <button
             type="button"
             onClick={() => setShowDetail(true)}
@@ -139,7 +164,6 @@ export function MaintenanceComplete({
           </button>
         )}
       </div>
-      </CompletionFields>
     </form>
   );
 }

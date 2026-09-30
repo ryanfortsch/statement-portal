@@ -18,12 +18,19 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX,
 } }).outputText;
 for (const [name, path] of [
+  ['confirmed-save', 'src/lib/confirmed-save.ts'],
+  ['maintenance', 'src/app/field/packet/[packetId]/MaintenanceComplete.tsx'],
   ['form-draft', 'src/components/FieldFormDraft.tsx'],
   ['form-store', 'src/lib/field-form-drafts.ts'],
   ['component', 'src/app/field/report/ReportIssueForm.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
+await writeFile(join(scratch, 'confirmed-save.js'), compile((await readFile(join(root,'src/lib/confirmed-save.ts'),'utf8')).replace('options.timeoutMs ?? 15_000', "options.timeoutMs ?? (location.search.includes('timeout=1') ? 250 : 15_000)")));
+await writeFile(join(scratch, 'router.js'), 'export const useRouter=()=>({refresh:()=>{window.refreshes++;}});');
 await writeFile(join(scratch, 'actions.js'), `
+  export const checkFieldReportSubmission = async () => { window.checks++; return {ok:!!window.confirmedReport,uncertain:!window.confirmedReport}; };
+  export const checkFieldTaskCompletion = async () => {window.checks++;return {ok:!!window.taskConfirmed};};
+  export const completeMaintenanceTask = data => reportFieldWorkSlip({},data);
   export const reportFieldWorkSlip = (previous, data) => new Promise((resolve, reject) => {
     window.calls.push({data:Object.fromEntries(data), resolve, reject});
   });
@@ -52,8 +59,9 @@ await writeFile(join(scratch, 'entry.js'), compile(`
   import React, {useEffect, useState} from 'react';
   import {createRoot} from 'react-dom/client';
   import {ReportIssueForm} from './component.js';
+  import {MaintenanceComplete} from './maintenance.js';
   import {hasUnsavedWork} from './unsaved-work.js';
-  window.calls=[];window.guarded=hasUnsavedWork;
+  window.calls=[];window.checks=0;window.refreshes=0;window.guarded=hasUnsavedWork;
   const params=new URLSearchParams(location.search);
   const visits=['North','South'].slice(0,params.has('single')?1:2).map(name=>({
     propertyId:name,propertyName:'Synthetic '+name,city:'Gloucester',agoLabel:'today',leftLabel:'Within reporting window',
@@ -74,7 +82,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
           <button onClick={()=>setMounted(v=>!v)}>Toggle form</button>
         </>}
       </aside>
-      {mounted && <ReportIssueForm visits={visits} windowHours={72}/>}
+      {mounted && (params.has('maintenance') ? <MaintenanceComplete packetId="packet-a" stopId="stop-a"/> : <ReportIssueForm visits={visits} windowHours={72}/>)}
     </>;
   }
   createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -85,6 +93,9 @@ await new Promise((done,reject)=>{
     resolve:{modules:[join(root,'node_modules')],alias:{
       '@/components/FieldFormDraft':join(scratch,'form-draft.js'),
       '@/lib/field-form-drafts':join(scratch,'form-store.js'),
+      '@/lib/confirmed-save':join(scratch,'confirmed-save.js'),
+      'next/navigation':join(scratch,'router.js'),
+      '../../actions':join(scratch,'actions.js'),
       '../actions':join(scratch,'actions.js'),
       'next/link':join(scratch,'link.js'),
       '@/components/PhotoUploader':join(scratch,'upload.js'),
@@ -139,7 +150,8 @@ try{
     const waitText=text=>page.waitForFunction(text=>document.body.textContent.includes(text),{},text);
     const waitCalls=n=>page.waitForFunction(n=>window.calls.length===n,{},n);
     const guard=()=>page.evaluate(()=>window.guarded());
-    const data=()=>page.$eval('form',form=>Object.fromEntries(new FormData(form)));
+    const data=()=>page.$eval('form',form=>Object.fromEntries([...form.querySelectorAll('[name]')].map(e=>[e.name,e.value])));
+    const sent=()=>page.evaluate(()=>{const {submission_id,...fields}=window.calls.at(-1).data;return fields;});
     const finish=(result,reject=false)=>page.evaluate((result,reject)=>{
       const call=window.calls.at(-1);reject?call.reject(new Error('Synthetic lost response')):call.resolve(result);
     },result,reject);
@@ -159,7 +171,7 @@ try{
     assert.equal(await guard(),true);
     assert.equal(await page.evaluate(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;}),true);
     await click('Send to the office');await waitCalls(1);
-    assert.deepEqual(await page.evaluate(()=>window.calls[0].data),original);
+    assert.deepEqual(await sent(),original);
     assert.equal(await page.$$eval('form input:not([type=hidden]),form select,form textarea,form button',elements=>elements.every(e=>e.matches(':disabled'))),true);
     await finish({ok:false,error:'Synthetic returned failure'});await waitText('Synthetic returned failure');
     await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
@@ -167,15 +179,18 @@ try{
     pass('returned failures retain every text field, receipt, home, priority and photo for retry');
 
     await click('Send to the office');await waitCalls(2);await finish(null,true);
-    await waitText('Could not confirm whether the report was filed.');
-    await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    await waitText('Could not confirm the save.');
+    assert.equal(await page.$eval('fieldset',e=>e.disabled),true);
+    assert.equal(await page.evaluate(()=>window.checks),1);
+    const retryId=await page.evaluate(()=>window.calls.at(-1).data.submission_id);
     assert.deepEqual(await data(),original);assert.equal(await guard(),true);
     assert.equal(await page.evaluate(()=>window.calls.length),2);
     pass('lost responses preserve the draft, explain uncertainty and do not auto-resubmit');
 
     await page.evaluate(()=>{const form=document.querySelector('form');form.requestSubmit();form.requestSubmit();});
     await waitCalls(3);
-    assert.deepEqual(await page.evaluate(()=>window.calls.at(-1).data),original);
+    assert.equal(await page.evaluate(()=>window.calls.at(-1).data.submission_id),retryId);
+    assert.deepEqual(await sent(),original);
     assert.equal(await page.$$eval('form input:not([type=hidden]),form select,form textarea,form button',elements=>elements.every(e=>e.matches(':disabled'))),true);
     await finish({ok:true,home:'Synthetic North'});await waitText('Flagged. The office has it.');
     await page.waitForFunction(()=>!window.guarded());
@@ -261,6 +276,39 @@ try{
     await click('Send to the office');await waitCalls(1);await finish({ok:false,error:'Still editable'});await waitText('Still editable');
     assert.equal((await data()).title,'Still in memory');assert.deepEqual(errors,[]);
     pass('storage failure is visible and does not block in-memory editing or submission');
+    await reset('?single=1');await edit('title','Response lost after save');
+    await click('Send to the office');await waitCalls(1);
+    await page.evaluate(()=>{window.confirmedReport=true;});await finish(null,true);
+    await waitText('Flagged. The office has it.');
+    assert.equal(await page.evaluate(()=>window.calls.length),1);assert.equal(await page.evaluate(()=>window.checks),1);
+    pass('a lost response is confirmed without a second write');
+
+    await reset('?single=1');await edit('title','Pending across reload');await click('Send to the office');await waitCalls(1);
+    const pendingAttempt=await page.evaluate(()=>window.calls[0].data);
+    await page.reload();await waitText('This report still needs confirmation.');
+    assert.equal(await page.$eval('fieldset',e=>e.disabled),true);
+    await click('Check / retry report');await waitCalls(1);
+    assert.deepEqual(await page.evaluate(()=>window.calls[0].data),pendingAttempt);
+    await finish({ok:true});await waitText('Flagged. The office has it.');
+    pass('reopening an uncertain report retries its original identity and exact payload');
+
+    await reset('?single=1&timeout=1');await edit('title','Slow connection');await click('Send to the office');await waitCalls(1);
+    await waitText('Could not confirm the save.');
+    assert.equal(await page.evaluate(()=>window.calls.length),1);assert.equal(await page.evaluate(()=>window.checks),1);
+    assert.equal(await page.$$eval('button',bs=>bs.find(b=>b.textContent.trim()==='Check / retry report').disabled),false);
+    pass('a hung request releases the retry control without pretending it failed or resubmitting');
+
+    await page.goto(origin+'/?maintenance=1');await page.evaluate(()=>localStorage.clear());await page.reload();await page.waitForSelector('form');
+    await click('+ add note or photo');await edit('resolution','Replaced the synthetic hinge');await edit('expense_dollars','12.50');
+    await page.evaluate(()=>{const form=document.querySelector('form');form.requestSubmit();form.requestSubmit();});await waitCalls(1);
+    assert.equal(await page.$eval('fieldset',e=>e.disabled),true);
+    await finish(null,true);await waitText('Could not confirm the save.');
+    assert.equal(await page.$eval('[name=resolution]',e=>e.value),'Replaced the synthetic hinge');
+    assert.equal(await page.$eval('fieldset',e=>e.disabled),true);
+    await page.evaluate(()=>{window.taskConfirmed=true;});await click('Check / retry save');await waitText('Saved');
+    assert.equal(await page.evaluate(()=>window.calls.length),1);assert.equal(await page.evaluate(()=>window.refreshes),1);
+    assert.deepEqual(errors,[]);
+    pass('maintenance double taps serialize; an uncertain completion keeps details and confirms before retrying the write');
     console.log(`All ${checks} field report browser checks passed.`);
   }
 }catch(error){
