@@ -65,7 +65,7 @@
 @media (prefers-reduced-motion: reduce) { .frame *, .frame *::before, .frame *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 
 /* The inbox owns a full-height workspace rather than a page-level masthead. */
-.inboxShell { height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 540px; grid-template-columns: 196px minmax(0,1fr); grid-template-rows: minmax(0,1fr); overflow: hidden; letter-spacing: -.15px; }
+.inboxShell { display: grid; height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 540px; grid-template-columns: 196px minmax(0,1fr); grid-template-rows: minmax(0,1fr); overflow: hidden; letter-spacing: -.15px; }
 .inboxSidebar { display: flex; flex-direction: column; min-width: 0; background: #172f2b; color: #b8c9c3; }
 .inboxBrand { display: flex; gap: 10px; align-items: center; height: 78px; flex-shrink: 0; padding: 0 23px; color: #ecf5f0 !important; }
 .inboxBrand>svg { color: #a5c8b9; }
