@@ -43,8 +43,23 @@ export function PilotFrame({ section, children, onSection }: {
   children: ReactNode;
   onSection?: (section: Exclude<PilotSection, 'inbox'>) => void;
 }) {
+  if (section === 'inbox') return <div className={`${s.frame} ${s.inboxShell}`}>
+    <aside className={s.inboxSidebar}>
+      <Link className={s.inboxBrand} href="/channels" aria-label="Helm channels"><PilotIcon name="helm" size={27}/><span>helm<span>.</span></span></Link>
+      <div className={s.inboxProperty}><span>PROPERTY WORKSPACE</span><strong><PilotIcon name="home" size={15}/>65 Calderwood</strong></div>
+      <nav aria-label="Calderwood workspace">
+        {(['inbox','calendar','reservations','baseline'] as const).map(key => <Link key={key} aria-label={labels[key]} title={labels[key]} href={key === 'inbox' ? '/channels/pilot/inbox' : `/channels/pilot?view=${key}`} aria-current={key === 'inbox' ? 'page' : undefined}><PilotIcon name={key} size={18}/><span>{labels[key]}</span>{key === 'inbox' && <i/>}</Link>)}
+      </nav>
+      <div className={s.inboxSidebarFoot}>
+        <span className={s.pilotTag}><PilotIcon name="lock" size={12}/>Read-only pilot</span>
+        <Link href="/messaging"><PilotIcon name="message" size={17}/>Guest messaging<PilotIcon name="external" size={12}/></Link>
+        <Link href="/"><PilotIcon name="back" size={16}/>Back to Helm</Link>
+      </div>
+    </aside>
+    <div className={s.inboxContent}>{children}</div>
+  </div>;
   return (
-    <div className={`${s.frame} ${section === 'inbox' ? s.inboxFrame : ''}`}>
+    <div className={s.frame}>
       <aside className={s.sidebar}>
         <Link href="/channels" className={s.brand} aria-label="Helm channels"><PilotIcon name="helm" size={25}/><span>Helm</span></Link>
         <nav aria-label="Calderwood workspace">
