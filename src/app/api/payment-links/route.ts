@@ -127,6 +127,8 @@ export async function GET(req: Request) {
       request_key: statusKey,
       property_id: row.property_id,
       stripe_link_id: String(row.stripe_link_id),
+      paid_at: row.paid_at,
+      paid_session_id: row.paid_session_id,
     });
     if (!r.ok) {
       if (r.error === 'no_key') return NextResponse.json({ ok: false, error: 'no_key' }, { status: 200 });

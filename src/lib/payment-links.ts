@@ -1,4 +1,5 @@
 import 'server-only';
+import { scanPaidSessions, paidReceipt } from '@/lib/payment-link-paid-core';
 
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
 import { getStripeKeysMap } from '@/lib/stripe-sync';
@@ -556,49 +557,41 @@ export async function checkPaymentLinkPaid(row: {
   property_id: string;
   stripe_link_id: string;
   paid_at?: string | null;
+  paid_session_id?: string | null;
 }): Promise<PaidCheck> {
+  // A confirmed receipt must not disappear because a later Stripe read
+  // fails, returns a partial page, or no longer lists that session.
+  const remembered: PaidCheck | null = row.paid_at ? {
+    ok: true, paid: true, paid_at: row.paid_at,
+    session_id: row.paid_session_id || '', customer_id: '', payment_method_id: '', sessions_seen: 0,
+  } : null;
   const stripeKey = getStripeKeysMap()[row.property_id];
   if (!stripeKey) {
+    if (remembered) return remembered;
     await stampPaidCheck(row.request_key, { error: 'no Stripe key for this property' });
     return { ok: false, error: 'no_key', detail: 'no Stripe key for this property' };
   }
-  let sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
-    payment_link: String(row.stripe_link_id),
-    limit: '10',
-    'expand[]': 'data.payment_intent',
+  const scan = await scanPaidSessions(async (after) => {
+    const params: Record<string, string> = {
+      payment_link: String(row.stripe_link_id), limit: '100',
+      ...(after ? { starting_after: after } : {}),
+    };
+    return await stripeGetJson(stripeKey, 'checkout/sessions', { ...params, 'expand[]': 'data.payment_intent' })
+      // Restricted keys may allow session reads but reject the expansion.
+      || await stripeGetJson(stripeKey, 'checkout/sessions', params);
   });
-  if (!sessions) {
-    // A restricted key without PaymentIntents READ refuses the expand
-    // outright. Paid detection must never depend on the expand: retry
-    // plain, and the card ids simply come back ''.
-    const errOut: { status?: number; message?: string } = {};
-    sessions = await stripeGetJson(
-      stripeKey,
-      'checkout/sessions',
-      { payment_link: String(row.stripe_link_id), limit: '10' },
-      errOut,
-    );
-    if (!sessions) {
-      const detail = `${errOut.status ?? ''} ${errOut.message ?? ''}`.trim();
-      await stampPaidCheck(row.request_key, { error: detail || 'stripe error' });
-      return { ok: false, error: 'stripe_error', detail };
-    }
+  if (!scan.ok) {
+    if (remembered) return remembered;
+    const detail = 'Could not completely verify payment status';
+    await stampPaidCheck(row.request_key, { error: detail });
+    return { ok: false, error: 'stripe_error', detail };
   }
-  const list =
-    (sessions.data as
-      | {
-          id?: string;
-          payment_status?: string;
-          created?: number;
-          customer?: string | null;
-          payment_intent?: { payment_method?: string | null } | string | null;
-        }[]
-      | undefined) ?? [];
-  const paidSession = list.find((s) => s.payment_status === 'paid');
+  const paidSession = scan.session;
+  if (!paidSession && remembered) return remembered;
   const pi = paidSession?.payment_intent;
   const paymentMethodId =
     pi && typeof pi === 'object' && typeof pi.payment_method === 'string' ? pi.payment_method : '';
-  const paidAt = paidSession?.created ? new Date(paidSession.created * 1000).toISOString() : '';
+  const paidAt = paidReceipt(row.paid_at, paidSession);
   await stampPaidCheck(row.request_key, {
     paid: !!paidSession,
     paidAt: paidAt || (paidSession ? new Date().toISOString() : ''),
@@ -612,7 +605,7 @@ export async function checkPaymentLinkPaid(row: {
     session_id: paidSession?.id || '',
     customer_id: typeof paidSession?.customer === 'string' ? paidSession.customer : '',
     payment_method_id: paymentMethodId,
-    sessions_seen: list.length,
+    sessions_seen: scan.seen,
   };
 }
 
@@ -718,13 +711,15 @@ type PaymentLinkLite = {
   amount_cents: number;
   deactivated_at: string | null;
   nudge_count: number | null;
+  paid_at: string | null;
+  paid_session_id: string | null;
 };
 
 export async function loadPaymentLinkLite(requestKey: string): Promise<PaymentLinkLite | null> {
   if (!isServiceConfigured || !requestKey) return null;
   const { data } = await supabase
     .from('payment_link_requests')
-    .select('property_id, stripe_link_id, amount_cents, deactivated_at, nudge_count')
+    .select('property_id, stripe_link_id, amount_cents, deactivated_at, nudge_count, paid_at, paid_session_id')
     .eq('request_key', requestKey)
     .maybeSingle();
   return (data as PaymentLinkLite | null) ?? null;
@@ -916,6 +911,9 @@ export async function nudgePaymentLink(requestKey: string): Promise<NudgeResult>
   const row = await loadPaymentLink(requestKey);
   if (!row) return { ok: false, error: 'unknown_request_key' };
   if (row.paid_at || row.deactivated_at) return { ok: false, error: 'closed' };
+  const payment = await checkPaymentLinkPaid(row);
+  if (!payment.ok) return { ok: false, error: 'send_failed', detail: 'Payment status could not be verified. Try again before sending a reminder.' };
+  if (payment.paid) return { ok: false, error: 'closed' };
   let phone = toE164(row.guest_phone);
   let guestName = row.guest_name;
   if (!phone) {
