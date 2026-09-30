@@ -238,7 +238,7 @@ export default async function PacketsBoard({
             shows inline on the calendar's bundle bar. */}
         <SentFlash sent={sp.sent} who={sp.who} skipped={sp.skipped} />
 
-        <section id="needs-review" aria-labelledby="review-heading" style={{ marginTop: 24, scrollMarginTop: 24 }}>
+        <section id="needs-review" aria-labelledby="review-heading" style={{ marginTop: 24, scrollMarginTop: 88 }}>
           <h2 id="review-heading" style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
             Needs review{reviewPackets ? ` · ${reviewPackets.length}` : ''}
           </h2>
