@@ -157,10 +157,11 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
       ? 'Inbox zero'
       : pendingCount === 0
         ? `Queued (${queuedCount})`
-        : `Pending (${pendingCount})${queuedCount ? ` · ${queuedCount} queued` : ''}`;
+        : `Needs review (${pendingCount})${queuedCount ? ` · ${queuedCount} queued` : ''}`;
 
   return (
     <Section
+      id="needs-review"
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}

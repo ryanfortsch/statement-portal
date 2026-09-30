@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { RetryDashboard } from '@/components/RetryDashboard';
+import { MessagingCountsRefresh } from '@/components/MessagingCountsRefresh';
 import { Section } from '@/components/Section';
 import { SubmitButton } from '@/components/SubmitButton';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -328,7 +330,9 @@ export async function ScheduleDigestCard({
       getScheduleSettings(supabase),
     ]);
   } catch {
-    return null; // pre-migration or DB hiccup: never block the messaging page
+    return <Section id="schedule-digest" title="Cleaner schedule">
+      <p role="status">Couldn’t load the schedule approval. <RetryDashboard /></p>
+    </Section>;
   }
   // Optional. A missing notes table (pre-migration) must never take the
   // approval card down with it.
@@ -396,6 +400,7 @@ export async function ScheduleDigestCard({
       title={`Cleaner schedule · ${fmtDay(digest.service_date)}`}
       eyebrow={pending ? 'Waiting on your approval' : digest.status === 'sent' ? 'Sent' : 'Skipped'}
     >
+      <MessagingCountsRefresh revision={`${digest.id}:${digest.status}`} />
       <div style={{ borderTop: '1px solid var(--ink)', padding: '14px 0 6px' }}>
         {notice?.err && (
           <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>

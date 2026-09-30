@@ -1,3 +1,4 @@
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { NextResponse } from 'next/server';
 import { listApprovals, listOwnerApprovals, listCleanerApprovals, listContractorApprovals, isStayConciergeConfigured } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
@@ -11,13 +12,8 @@ import { todayET } from '@/lib/checkout-schedule';
  * hit stay-concierge directly because the dashboard key is a server-only
  * secret.
  *
- * Returns the COMBINED guest + owner pending count: Messaging is one section
- * with two tabs (see MessagingTabs), so the masthead badge should signal
- * either queue. The individual breakdown is returned alongside for any
- * future caller that wants per-tab counts.
- *
- * Returns 0 when the service is unconfigured. A failure on either sub-call
- * falls back to 0 for that side rather than zeroing out the whole badge.
+ * The masthead intentionally shows guests only; audience tabs show their own
+ * totals. Failed sources return null so a temporary outage cannot clear a badge.
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,16 +22,18 @@ export const dynamic = 'force-dynamic';
 // one pending digest for today-or-later counts as one pending card,
 // exactly matching what /cleaner-messaging renders (a sent/skipped
 // digest renders as history, not an ask). Independent of the concierge.
-async function pendingDigestCount(): Promise<number> {
+async function pendingDigestCount(): Promise<number | null> {
   try {
-    const { count } = await supabase
+    const { data, error } = await supabase
       .from('cleaner_schedule_digests')
-      .select('id', { count: 'exact', head: true })
+      .select('id')
+      .eq('region', CAPE_ANN_REGION)
       .eq('status', 'pending')
-      .gte('service_date', todayET());
-    return count ?? 0;
+      .gte('service_date', todayET())
+      .order('service_date', { ascending: true }).limit(1);
+    return error ? null : (data ?? []).length;
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -71,12 +69,12 @@ export async function GET() {
   // pending cards. If those numbers ever diverge again, the fix is to mirror
   // whatever filter the page added -- not to invent a new definition here.
   const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
-  const guests = guestRes.ok ? guestRes.data.approvals.filter(notScheduled).length : 0;
-  const owners = ownerRes.ok ? ownerRes.data.approvals.filter(notScheduled).length : 0;
-  const cleaners = (cleanerRes.ok ? cleanerRes.data.approvals.filter(notScheduled).length : 0) + digests;
-  const contractors = contractorRes.ok ? contractorRes.data.approvals.filter(notScheduled).length : 0;
+  const guests = guestRes.ok ? guestRes.data.approvals.filter(notScheduled).length : null;
+  const owners = ownerRes.ok ? ownerRes.data.approvals.filter(notScheduled).length : null;
+  const cleaners = cleanerRes.ok && digests !== null ? cleanerRes.data.approvals.filter(notScheduled).length + digests : null;
+  const contractors = contractorRes.ok ? contractorRes.data.approvals.filter(notScheduled).length : null;
   return NextResponse.json({
-    count: guests + owners + cleaners + contractors,
+    count: guests !== null && owners !== null && cleaners !== null && contractors !== null ? guests + owners + cleaners + contractors : null,
     guests,
     owners,
     cleaners,

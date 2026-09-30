@@ -68,10 +68,11 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
       ? 'Inbox zero'
       : pending.length === 0
         ? `Queued (${queued.length})`
-        : `Pending (${pending.length})${queued.length ? ` · ${queued.length} queued` : ''}`;
+        : `Needs review (${pending.length})${queued.length ? ` · ${queued.length} queued` : ''}`;
 
   return (
     <Section
+      id="needs-review"
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}
