@@ -63,8 +63,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * between reviews.property_id and properties.id, so we filter in app code
  * with an in() list rather than a PostgREST embed.
  */
-async function getActivePropertyIds(): Promise<string[]> {
-  if (!isConfigured) return [];
+async function getActivePropertyIds(strict = false): Promise<string[]> {
+  if (!isConfigured) {
+    if (strict) throw new Error("Reviews unavailable");
+    return [];
+  }
   try {
     const { data, error } = await supabase
       .from('properties')
@@ -72,7 +75,8 @@ async function getActivePropertyIds(): Promise<string[]> {
       .eq('is_active', true);
     if (error) throw error;
     return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
@@ -88,11 +92,14 @@ async function getActivePropertyIds(): Promise<string[]> {
  * those are not reviews and would wrongly drag the five-star rate down if
  * they sat in the denominator, so total excludes them.
  */
-export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats> {
+export async function getReviewWindowStats(days = 7, { strict = false }: { strict?: boolean } = {}): Promise<ReviewWindowStats> {
   const empty: ReviewWindowStats = { total: 0, fiveStar: 0, belowFive: 0, avg: null };
-  if (!isConfigured) return empty;
+  if (!isConfigured) {
+    if (strict) throw new Error("Reviews unavailable");
+    return empty;
+  }
   try {
-    const propertyIds = await getActivePropertyIds();
+    const propertyIds = await getActivePropertyIds(strict);
     if (propertyIds.length === 0) return empty;
     const sinceISO = new Date(Date.now() - days * DAY_MS).toISOString();
     const { data, error } = await supabase
@@ -125,7 +132,8 @@ export async function getReviewWindowStats(days = 7): Promise<ReviewWindowStats>
       belowFive,
       avg: total > 0 ? sum / total : null,
     };
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return empty;
   }
 }

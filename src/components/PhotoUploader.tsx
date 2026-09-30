@@ -77,6 +77,16 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
     };
   }, []);
 
+  useEffect(() => {
+    if (!failures.length && !uploading) return;
+    function beforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [failures.length, uploading]);
+
   async function uploadFiles(items: Array<{ id: number; file: File }>) {
     if (disabled || uploadRef.current || items.length === 0) return;
     const controller = new AbortController();
@@ -100,7 +110,7 @@ export function PhotoUploader({ value, onChange, folder, disabled, endpoint = '/
           fd.append('file', file);
           if (folder) fd.append('folder', folder);
 
-          const res = await fetch(endpoint, { method: 'POST', body: fd, signal: controller.signal });
+          const res = await fetch(endpoint, { method: 'POST', body: fd, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60_000)]) });
           const body = await res.json().catch(() => null) as { url?: string; error?: string } | null;
           if (!res.ok || typeof body?.url !== 'string' || !body.url) {
             throw new Error(body?.error || `Upload failed (HTTP ${res.status}). Please retry.`);

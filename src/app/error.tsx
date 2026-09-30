@@ -1,67 +1,26 @@
 'use client';
 
-/**
- * Root error boundary.
- *
- * App Router renders this whenever a server component, server action, or route
- * handler throws past its segment. Without it Next falls back to a default
- * crash screen with raw stack text, which is the worst version of an
- * already-bad moment -- a logged-in operator should see Helm's editorial
- * surface, an honest one-line explanation, and a reset button that re-runs the
- * failing render without a full page reload.
- *
- * Must be a client component (the reset prop is a function the boundary calls
- * after re-rendering the segment). HelmMasthead is safe to mount from here --
- * it composes a few client components of its own and uses no module-specific
- * data, so we don't pass a `current` highlight.
- */
+/** Root recovery UI; controls remain available even when automatic reload is blocked. */
 
-import Link from 'next/link';
 import { useEffect } from 'react';
+import { claimDeployReload, isStaleDeployError } from '@/lib/recovery';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 
 type Props = {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 };
 
-// A chunk / dynamic-import failure means this tab was loaded before a deploy
-// and is now requesting JS the new build replaced (we ship many times a day, so
-// any tab left open hits this on its next click). reset() can't fix it (same
-// stale chunks); only a full reload pulls the current build. We match by name
-// AND message because the name is often minified in production.
-function isStaleDeployError(error: Error): boolean {
-  const name = error?.name || '';
-  const msg = error?.message || '';
-  return (
-    name === 'ChunkLoadError' ||
-    /loading chunk [\d]+ failed|chunkloaderror|failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed/i.test(
-      msg,
-    )
-  );
-}
-
-export default function GlobalError({ error, reset }: Props) {
+export default function GlobalError({ error, unstable_retry }: Props) {
   const staleDeploy = isStaleDeployError(error);
-
   useEffect(() => {
     console.error('Helm error boundary caught:', error);
-    // Auto-recover from a stale-deploy chunk error by reloading into the
-    // current build, instead of stranding the operator on this screen. Guard
-    // against a reload loop: only auto-reload once per short window, so if the
-    // reload still fails (a genuinely broken build), the error screen shows.
-    if (staleDeploy && typeof window !== 'undefined') {
+    if (staleDeploy) {
+      // Reading sessionStorage itself can throw in restricted browsers.
       try {
-        const key = 'helm-stale-deploy-reload-at';
-        const last = Number(window.sessionStorage.getItem(key) || 0);
-        if (Date.now() - last > 10_000) {
-          window.sessionStorage.setItem(key, String(Date.now()));
-          window.location.reload();
-        }
-      } catch {
-        window.location.reload();
-      }
+        if (claimDeployReload(window.sessionStorage)) window.location.reload();
+      } catch { /* Keep the recovery controls visible. */ }
     }
   }, [error, staleDeploy]);
 
@@ -82,7 +41,8 @@ export default function GlobalError({ error, reset }: Props) {
         if (Date.now() - (parsed.at || 0) < 5 * 60_000) attempt = parsed.n || 0;
       }
     } catch {
-      // sessionStorage unavailable: still retry, just without the cap.
+      // Without a persisted cap, leave recovery to the manual controls.
+      return;
     }
     if (attempt >= 4) return;
     const delay = Math.min(8_000 * 2 ** attempt, 60_000) * (0.8 + Math.random() * 0.4);
@@ -90,22 +50,10 @@ export default function GlobalError({ error, reset }: Props) {
       try {
         window.sessionStorage.setItem(KEY, JSON.stringify({ n: attempt + 1, at: Date.now() }));
       } catch {}
-      reset();
+      unstable_retry();
     }, delay);
     return () => clearTimeout(t);
-  }, [staleDeploy, reset]);
-
-  // While the reload is in flight, don't flash the scary error screen.
-  if (staleDeploy) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ background: 'var(--paper)', color: 'var(--ink-3)', fontSize: 13 }}
-      >
-        Updating to the latest version…
-      </div>
-    );
-  }
+  }, [staleDeploy, unstable_retry]);
 
   return (
     <div
@@ -127,27 +75,25 @@ export default function GlobalError({ error, reset }: Props) {
           className="font-serif"
           style={{ fontSize: 36, fontWeight: 400, lineHeight: 1.15, letterSpacing: '-0.01em', margin: 0 }}
         >
-          The page hit an error.
+          {staleDeploy ? 'This page needs a fresh start.' : 'The page hit an error.'}
         </h1>
         <p style={{ fontSize: 15, color: 'var(--ink-3)', marginTop: 18, lineHeight: 1.6 }}>
-          The failure was logged, and Helm will retry on its own in a few seconds.
-          You can also try the same page again now, or go back to the home screen
-          and pick a different route.
+          {staleDeploy
+            ? 'A newer version of Helm may be available. Reload this page, or return to the home screen. If this continues, share the reference below with your administrator.'
+            : 'Try this page again, or return to the home screen. If this continues, share the reference below with your administrator.'}
         </p>
 
-        {error?.digest && (
-          <p
+        <p
             className="font-mono"
             style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 16 }}
           >
-            Ref: {error.digest}
-          </p>
-        )}
+            Ref: {error.digest || (staleDeploy ? 'HELM-PAGE-UPDATE' : 'HELM-PAGE-ERROR')}
+        </p>
 
         <div style={{ display: 'flex', gap: 12, marginTop: 28, flexWrap: 'wrap' }}>
           <button
             type="button"
-            onClick={() => reset()}
+            onClick={() => staleDeploy ? window.location.reload() : unstable_retry()}
             style={{
               padding: '10px 18px',
               fontSize: 12,
@@ -161,9 +107,11 @@ export default function GlobalError({ error, reset }: Props) {
               cursor: 'pointer',
             }}
           >
-            Try again
+            {staleDeploy ? 'Reload page' : 'Try again'}
           </button>
-          <Link
+          {/* Full navigation deliberately discards stale client chunks. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a
             href="/"
             style={{
               padding: '10px 18px',
@@ -180,7 +128,7 @@ export default function GlobalError({ error, reset }: Props) {
             }}
           >
             Back to Helm
-          </Link>
+          </a>
         </div>
       </section>
       <div style={{ flex: 1 }} />

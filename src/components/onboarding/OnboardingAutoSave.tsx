@@ -32,6 +32,8 @@ export function OnboardingAutoSave({
   children: React.ReactNode;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const retryRef = useRef<() => void>(() => {});
+  const dirtyRef = useRef(false);
   const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>(
     initialSavedAt ? 'saved' : 'idle',
   );
@@ -46,6 +48,7 @@ export function OnboardingAutoSave({
     let mounted = true;
     let waitingToSubmit = false;
     let replayingSubmit = false;
+    let finalSubmitting = false;
     const autosave = createDraftAutosave({
       capture: () => new FormData(form),
       save: (fd) => new Promise((resolve, reject) => {
@@ -55,11 +58,20 @@ export function OnboardingAutoSave({
         });
       }),
       onState: (state) => {
+        dirtyRef.current = state.status !== 'saved';
         setStatus(state.status);
         if (state.savedAt) setSavedAt(state.savedAt);
       },
     });
-    function scheduleSave() { autosave.changed(); }
+    function retry() { void autosave.flush(); }
+    retryRef.current = retry;
+    function beforeUnload(event: BeforeUnloadEvent) {
+      if (dirtyRef.current && !finalSubmitting) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    }
+    function scheduleSave() { finalSubmitting = false; autosave.resume(); autosave.changed(); }
     function onVisibilityChange() {
       if (document.visibilityState === 'hidden') void autosave.flush();
     }
@@ -67,7 +79,7 @@ export function OnboardingAutoSave({
     function onSubmit(event: SubmitEvent) {
       if (event.defaultPrevented) return;
       const olderWrite = autosave.pause();
-      if (replayingSubmit || !olderWrite) return;
+      if (replayingSubmit || !olderWrite) { finalSubmitting = true; return; }
       event.preventDefault();
       event.stopImmediatePropagation();
       if (waitingToSubmit) return;
@@ -89,8 +101,13 @@ export function OnboardingAutoSave({
     root.addEventListener('change', scheduleSave);
     form.addEventListener('submit', onSubmit, true);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('online', retry);
+    window.addEventListener('beforeunload', beforeUnload);
     return () => {
       mounted = false;
+      retryRef.current = () => {};
+      window.removeEventListener('online', retry);
+      window.removeEventListener('beforeunload', beforeUnload);
       autosave.dispose();
       root.removeEventListener('input', scheduleSave);
       root.removeEventListener('change', scheduleSave);
@@ -102,6 +119,7 @@ export function OnboardingAutoSave({
   return (
     <div ref={containerRef}>
       <DraftStatus status={status} savedAt={savedAt} />
+      {status === 'error' && <button type="button" onClick={() => retryRef.current()} style={{ background: 'transparent', border: '1px solid var(--rule)', color: 'var(--ink)', padding: '10px 14px', marginBottom: 12, minHeight: 44, font: 'inherit', cursor: 'pointer' }}>Retry save</button>}
       {children}
     </div>
   );
