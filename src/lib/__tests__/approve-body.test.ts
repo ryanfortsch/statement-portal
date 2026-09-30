@@ -49,3 +49,16 @@ describe('buildApproveBody', () => {
     assert.equal(buildApproveBody({ actor: 'dotti@risingtidestr.com' } as never), undefined);
   });
 });
+
+describe('follow-up consent', () => {
+  test('draft is explicit without any send token', () => {
+    assert.deepEqual(buildApproveBody({ cleanerAction: 'draft', workAction: 'create' }), { cleaner_action: 'draft', work_action: 'create' });
+  });
+  test('both follow-ups can be skipped independently', () => {
+    assert.deepEqual(buildApproveBody({ cleanerAction: 'skip', workAction: 'skip' }), { cleaner_action: 'skip', work_action: 'skip' });
+  });
+  test('send carries only the reviewed preview token', () => {
+    assert.deepEqual(buildApproveBody({ cleanerAction: 'send', previewToken: 'reviewed' }), { cleaner_action: 'send', preview_token: 'reviewed' });
+    assert.deepEqual(buildApproveBody({ cleanerAction: 'draft', previewToken: 'old' }), { cleaner_action: 'draft' });
+  });
+});

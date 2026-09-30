@@ -115,6 +115,8 @@ export type TeamHandoff = {
    * renders read-only rather than disappearing, so the operator can see from
    * the guest queue that the crew was told. */
   filed: boolean;
+  note_status?: string;
+  preview_token?: string;
   audience: 'cleaner' | 'contractor' | 'owner';
   /** Rosa, the handyman, the owner. '' when the roster had no name. */
   target_name: string;
@@ -444,18 +446,29 @@ export async function listRecentApprovals(hours = 24) {
  * keeps its empty-body shape. Pass the RAW object: request() stringifies, and
  * pre-stringifying double-encoded it into a JSON string, which FastAPI
  * rejected with a 422 on every addon-carrying approve (2026-08-20). */
-export function buildApproveBody(opts?: { sendAddonSms?: boolean; createHandoff?: boolean }) {
-  const body: Record<string, boolean> = {};
+export type FollowupOptions = {
+  sendAddonSms?: boolean;
+  createHandoff?: boolean;
+  cleanerAction?: 'skip' | 'draft' | 'send';
+  workAction?: 'skip' | 'create';
+  previewToken?: string;
+};
+
+export function buildApproveBody(opts?: FollowupOptions) {
+  const body: Record<string, boolean | string> = {};
   if (opts?.sendAddonSms !== undefined) body.send_addon_sms = opts.sendAddonSms;
   if (opts?.createHandoff !== undefined) body.create_handoff = opts.createHandoff;
+  if (opts?.cleanerAction !== undefined) body.cleaner_action = opts.cleanerAction;
+  if (opts?.workAction !== undefined) body.work_action = opts.workAction;
+  if (opts?.cleanerAction === 'send' && opts.previewToken) body.preview_token = opts.previewToken;
   return Object.keys(body).length > 0 ? body : undefined;
 }
 
 export async function approveApproval(
   id: string,
-  opts?: { sendAddonSms?: boolean; createHandoff?: boolean; actor?: string },
+  opts?: FollowupOptions & { actor?: string },
 ) {
-  return request<{ status: string; id: string }>(`/api/approvals/${id}/approve`, {
+  return request<{ status: string; id: string; followup_warning?: string }>(`/api/approvals/${id}/approve`, {
     method: 'POST',
     actor: opts?.actor,
     // Only travels when the card carries an addon; ordinary approvals keep
@@ -536,10 +549,10 @@ export function explainUndoRefusal(detail: string): string {
 }
 
 /** Queue an approved draft to send later. sendAtUtc is a UTC ISO string. */
-export async function scheduleApproval(id: string, sendAtUtc: string) {
+export async function scheduleApproval(id: string, sendAtUtc: string, opts?: FollowupOptions) {
   return request<{ status: string; id: string; send_at: string }>(
     `/api/approvals/${id}/schedule`,
-    { method: 'POST', body: { send_at: sendAtUtc } },
+    { method: 'POST', body: { send_at: sendAtUtc, ...buildApproveBody(opts) } },
   );
 }
 
@@ -1521,4 +1534,8 @@ export async function listWorkFollowups() {
     owner_items: { id: string; property_id: string; owner_name: string; state: string; error: string }[];
     delivery_items: { id: string; property_id: string; title: string; error: string; attempts: number }[];
   }>('/api/work-followups');
+}
+
+export async function markMaintenanceDismissed(id: string) {
+  return request<{ ok: boolean }>(`/api/approvals/${id}/maintenance_dismissed`, { method: 'POST' });
 }
