@@ -64,22 +64,23 @@
 }
 @media (prefers-reduced-motion: reduce) { .frame *, .frame *::before, .frame *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 
-/* A quiet application bar leaves the inbox width available to conversations. */
-.inboxShell { display: flex; flex-direction: column; height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 480px; overflow: hidden; letter-spacing: -.15px; background: #f7f8fa; }
-.inboxBar { display: flex; align-items: center; gap: 18px; height: 54px; padding: 0 22px; flex-shrink: 0; background: #f7f8fa; border-bottom: 1px solid #e5e8ed; }
-.inboxBrand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; color: #254d43 !important; }
-.inboxBrand>span { color: #242d32; font-size: 23px; font-weight: 600; letter-spacing: -1.1px; }
-.inboxBrand>span>span { color: #367465; }
-.inboxProperty { display: flex; align-items: center; gap: 17px; color: #9da3ac; white-space: nowrap; }
-.inboxProperty>strong { color: #616873; font-size: 12px; font-weight: 500; }
-.inboxBar nav { display: flex; align-items: center; gap: 5px; margin-left: 14px; }
-.inboxBar nav a { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; color: #636b76; font-size: 12px; font-weight: 500; border-radius: 7px; transition: background .12s, color .12s; }
-.inboxBar nav a:hover { background: #eaeef1; color: #252e37; }
-.inboxBar nav a[aria-current] { background: #e4eae8; color: #285547; }
-.pilotTag { display: flex; align-items: center; gap: 6px; margin-left: auto; color: #717783; font-size: 11px; white-space: nowrap; }
-.inboxExit { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; color: #707782 !important; }
-.inboxExit:hover { background: #eaeef1; }
+/* Inbox chrome uses a single brand bar above the focused work surface. */
+.inboxShell { display: flex; flex-direction: column; height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 480px; overflow: hidden; letter-spacing: -.15px; background: #edf1f4; }
+.inboxBar { display: flex; align-items: center; gap: 19px; height: 56px; padding: 0 24px; flex-shrink: 0; background: #17303d; border-bottom: 1px solid #102935; color: #c9d7dd; }
+.inboxBrand { display: flex; align-items: center; gap: 9px; flex-shrink: 0; color: #a8d8ca !important; }
+.inboxBrand>span { color: #fff; font-size: 25px; font-weight: 600; letter-spacing: -1.2px; }
+.inboxBrand>span>span { color: #85c3ad; }
+.inboxProperty { display: flex; align-items: center; gap: 18px; color: #597786; white-space: nowrap; }
+.inboxProperty>strong { color: #cbdadf; font-size: 12px; font-weight: 500; }
+.inboxBar nav { display: flex; align-items: center; gap: 5px; margin-left: 18px; }
+.inboxBar nav a { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; color: #b4cbd4; font-size: 12px; font-weight: 500; border-radius: 7px; transition: background .12s, color .12s; }
+.inboxBar nav a:hover { background: #ffffff0d; color: #fff; }
+.inboxBar nav a[aria-current] { background: #ffffff12; color: #fff; box-shadow: inset 0 0 0 1px #ffffff12; }
+.inboxBar a:focus-visible { outline-color: #ade5d2; }
+.pilotTag { display: flex; align-items: center; gap: 6px; margin-left: auto; color: #bed0d8; font-size: 11px; white-space: nowrap; }
+.inboxExit { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; color: #bdd0d8 !important; }
+.inboxExit:hover { background: #ffffff0d; color: #fff !important; }
 .inboxContent { flex: 1; min-width: 0; min-height: 0; }
-@media (max-width:1100px) { .inboxBar { gap: 14px; padding-inline: 18px; } .inboxBar nav { margin-left: auto; } .inboxBar nav a:not([aria-current])>span { display: none; } .pilotTag { margin-left: 6px; } }
-@media (max-width:800px) { .inboxBar { height: 50px; padding-inline: 16px; gap: 12px; } .inboxProperty { gap: 12px; } .pilotTag { display: none; } .inboxBar nav { gap: 3px; } .inboxBar nav a { padding-inline: 9px; } }
+@media (max-width:1100px) { .inboxBar { gap: 14px; padding-inline: 20px; } .inboxBar nav { margin-left: auto; } .inboxBar nav a:not([aria-current])>span { display: none; } .pilotTag { margin-left: 6px; } }
+@media (max-width:800px) { .inboxBar { height: 53px; padding-inline: 18px; gap: 12px; } .inboxProperty { gap: 12px; } .pilotTag { display: none; } .inboxBar nav { gap: 3px; } .inboxBar nav a { padding-inline: 9px; } }
 @media (max-width:650px) { .inboxBar { padding-inline: 14px; gap: 10px; height: 48px; } .inboxBrand>span { display: none; } .inboxProperty { gap: 10px; } .inboxProperty>strong { font-size: 11px; } .inboxBar nav { gap: 1px; } .inboxBar nav a { width: 31px; padding: 0; justify-content: center; } .inboxBar nav a>span { display: none; } .inboxExit { display: none; } }

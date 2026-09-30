@@ -124,6 +124,28 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
     transition(() => router.push(href, { scroll: false }));
   }
 
+  const reservationDetails = <>
+    <div className={s.detailsBody}>
+      <div className={s.propertyCard}><span className={s.propertyIcon}><PilotIcon name="home" size={22}/></span><div><h3>65 Calderwood</h3><p>Calderwood Court</p></div></div>
+      {c ? <>
+        <div className={s.stayState}><span className={s.statusPill} data-status={c.booking?.status || 'unknown'}>{c.booking?.status || 'Unverified'}</span>{nights !== null && <span><PilotIcon name="moon" size={13}/>{nights} {nights === 1 ? 'night' : 'nights'}</span>}</div>
+        <div className={s.stayDates}><div><span>Check-in</span><strong>{date(arrival)}</strong><small>{dateDetail(arrival)}</small></div><PilotIcon name="arrow" size={16}/><div><span>Check-out</span><strong>{date(departure)}</strong><small>{dateDetail(departure)}</small></div></div>
+        <div className={s.reservationSection}><h3>Guest & booking</h3><dl className={s.facts}>
+          <div><dt><PilotIcon name="people" size={14}/>Guest</dt><dd>{c.guest_full || 'Not recorded'}</dd></div>
+          <div><dt><PilotIcon name="people" size={14}/>Party size</dt><dd>{c.booking?.num_guests != null ? <>{c.booking.num_guests} {c.booking.num_guests === 1 ? 'guest' : 'guests'}</> : 'Not recorded'}</dd></div>
+          <div><dt><PilotIcon name="channel" size={14}/>Channel</dt><dd><ChannelBadge channel={c.booking?.channel || c.channel}/></dd></div>
+          <div><dt><PilotIcon name="reservations" size={14}/>Reference</dt><dd className={s.confirmation}>{c.booking?.external_confirmation_code || 'Not recorded'}</dd></div>
+        </dl></div>
+        {c.booking ? <>
+          <Link className={s.reservationLink} href={`/channels/pilot?booking=${encodeURIComponent(c.booking.id)}`}><PilotIcon name="reservations" size={15}/>View reservation<PilotIcon name="arrow" size={14}/></Link>
+          {((c.check_in && c.check_in !== c.booking.check_in) || (c.check_out && c.check_out !== c.booking.check_out)) && <div className={s.contextNote}><PilotIcon name="info" size={16}/><p>Dates need review. The conversation shows {date(c.check_in, true)} to {date(c.check_out, true)}.</p></div>}
+        </> : <div className={s.contextNote}><PilotIcon name="info" size={16}/><p>No unique reservation match. Dates are from conversation metadata.</p></div>}
+      </> : <p className={s.note}>Select a guest to see their stay details.</p>}
+      <details className={s.sourceDetails}><summary>Source & history</summary><p>{c?.source === 'guesty' ? 'Messages are read through Guesty via Stay Concierge.' : 'Messages are read from Helm’s existing records.'} Up to 200 messages are shown. Attachments and complete history are not yet verified.</p><p>Updated {time(data.asOf, true)} ET. Opening or refreshing this view does not mark messages read.</p></details>
+    </div>
+    <div className={s.contextFoot}><PilotIcon name="baseline" size={14}/><span>Reservation changes are disabled.</span></div>
+  </>;
+
   return <PilotFrame section="inbox">
     <div className={s.workspace}>
       {data.errors.map(e => <div key={e} role="alert" className={s.warning}><PilotIcon name="info" size={16}/><span>{e}</span></div>)}
@@ -159,14 +181,14 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
 
         <main className={s.thread} aria-label="Conversation history" aria-busy={pending}>
           <div className={s.threadHeader}>
-          <header className={s.threadHead}>
-            <button className={s.backButton} aria-label="Back to conversations" onClick={() => setMobileThread(false)}><PilotIcon name="back"/></button>
-            <span className={s.headerAvatar} aria-hidden="true">{c ? initials(c.guest_full) : <PilotIcon name="message"/>}</span>
-            <div className={s.threadIdentity}><h2 title={c?.guest_full}>{c?.guest_full || 'Your guest conversations'}</h2><p>{c ? <><ChannelBadge channel={c.channel}/><span>·</span><span>Guest conversation</span></> : 'Choose a conversation to get started'}</p></div>
-            <button ref={searchButton} className={`${s.iconButton} ${searchOpen ? s.pressed : ''}`} aria-label="Search this conversation" aria-expanded={searchOpen} disabled={!c || !!data.threadError || !data.messages.length} title="Search this conversation" onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}><PilotIcon name="search" size={17}/></button>
-            <button ref={detailsButton} className={s.detailsButton} aria-label="View reservation details" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}><PilotIcon name="panel" size={16}/><span>Stay details</span></button>
-          </header>
-          {c && <div className={s.stayStrip}><div><PilotIcon name="calendar" size={16}/><strong>{date(c.check_in)} <span>→</span> {date(c.check_out)}</strong>{conversationNights !== null && <span>{conversationNights} {conversationNights === 1 ? 'night' : 'nights'}</span>}{c.booking?.num_guests != null && <span className={s.stayGuests}><PilotIcon name="people" size={14}/>{c.booking.num_guests} {c.booking.num_guests === 1 ? 'guest' : 'guests'}</span>}</div>{stayLabels[c.stay_status] && <span className={s.stayChip} data-status={c.stay_status}>{stayLabels[c.stay_status]}</span>}</div>}
+            <header className={s.threadHead}>
+              <button className={s.backButton} aria-label="Back to conversations" onClick={() => setMobileThread(false)}><PilotIcon name="back"/></button>
+              <span className={s.headerAvatar} aria-hidden="true">{c ? initials(c.guest_full) : <PilotIcon name="message"/>}</span>
+              <div className={s.threadIdentity}><h2 title={c?.guest_full}>{c?.guest_full || 'Your guest conversations'}</h2><p>{c ? <><ChannelBadge channel={c.channel}/>{c.booking?.external_confirmation_code && <><span>·</span><span className={s.headerReference} title={c.booking.external_confirmation_code}>{c.booking.external_confirmation_code}</span></>}</> : 'Choose a conversation to get started'}</p></div>
+              <button ref={searchButton} className={`${s.iconButton} ${searchOpen ? s.pressed : ''}`} aria-label="Search this conversation" aria-expanded={searchOpen} disabled={!c || !!data.threadError || !data.messages.length} title="Search this conversation" onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}><PilotIcon name="search" size={17}/></button>
+              <button ref={detailsButton} className={s.detailsButton} aria-label="View reservation details" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}><PilotIcon name="panel" size={16}/><span>Stay details</span></button>
+            </header>
+            {c && <div className={s.stayStrip}><div><PilotIcon name="calendar" size={16}/><strong>{date(c.check_in)} <span>→</span> {date(c.check_out)}</strong>{conversationNights !== null && <span>{conversationNights} {conversationNights === 1 ? 'night' : 'nights'}</span>}{c.booking?.num_guests != null && <span className={s.stayGuests}><PilotIcon name="people" size={14}/>{c.booking.num_guests} {c.booking.num_guests === 1 ? 'guest' : 'guests'}</span>}</div>{stayLabels[c.stay_status] && <span className={s.stayChip} data-status={c.stay_status}>{stayLabels[c.stay_status]}</span>}</div>}
           </div>
           {searchOpen && <div className={s.threadSearch} onKeyDown={e => { if (e.key === 'Escape') closeSearch(); if (e.key === 'Enter' && e.target === searchInput.current && matches.length) setMatchIndex((currentMatch + (e.shiftKey ? matches.length - 1 : 1)) % matches.length); }}>
             <PilotIcon name="search" size={15}/><input ref={searchInput} aria-label="Find in conversation" placeholder="Find in this conversation…" value={messageQuery} onChange={e => { setMessageQuery(e.target.value); setMatchIndex(0); }}/><span role="status">{messageQuery.trim() ? matches.length ? `${currentMatch + 1} of ${matches.length} ${matches.length === 1 ? 'message' : 'messages'}` : 'No matches' : ''}</span>
@@ -192,27 +214,14 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
           <footer className={s.readOnly}><span><PilotIcon name="lock" size={13}/>Read-only conversation</span><Link href="/messaging">Open guest messaging <PilotIcon name="external" size={13}/></Link></footer>
         </main>
 
+        <aside className={s.context} aria-label="Stay overview">
+          <div className={s.contextHeading}><h2>Stay overview</h2><PilotIcon name="reservations" size={16}/></div>
+          {reservationDetails}
+        </aside>
+
         <dialog ref={detailsPanel} onCancel={e => { e.preventDefault(); closeDetails(); }} className={s.details} aria-label="Reservation context">
           <div className={s.detailsHeading}><h2>Reservation</h2><span className={s.detailsLabel}>65 Calderwood</span><button className={s.closeDetails} aria-label="Close reservation details" autoFocus onClick={closeDetails}><PilotIcon name="close" size={17}/></button></div>
-          <div className={s.detailsBody}>
-            <div className={s.propertyCard}><span className={s.propertyIcon}><PilotIcon name="home" size={22}/></span><div><h3>65 Calderwood</h3><p>Calderwood Court</p></div></div>
-            {c ? <>
-              <div className={s.stayState}><span className={s.statusPill} data-status={c.booking?.status || 'unknown'}>{c.booking?.status || 'Unverified'}</span>{nights !== null && <span><PilotIcon name="moon" size={13}/>{nights} {nights === 1 ? 'night' : 'nights'}</span>}</div>
-              <div className={s.stayDates}><div><span>Check-in</span><strong>{date(arrival)}</strong><small>{dateDetail(arrival)}</small></div><PilotIcon name="arrow" size={16}/><div><span>Check-out</span><strong>{date(departure)}</strong><small>{dateDetail(departure)}</small></div></div>
-              <div className={s.reservationSection}><h3>Guest & booking</h3><dl className={s.facts}>
-                <div><dt><PilotIcon name="people" size={14}/>Guest</dt><dd>{c.guest_full || 'Not recorded'}</dd></div>
-                <div><dt><PilotIcon name="people" size={14}/>Party size</dt><dd>{c.booking?.num_guests != null ? <>{c.booking.num_guests} {c.booking.num_guests === 1 ? 'guest' : 'guests'}</> : 'Not recorded'}</dd></div>
-                <div><dt><PilotIcon name="channel" size={14}/>Channel</dt><dd><ChannelBadge channel={c.booking?.channel || c.channel}/></dd></div>
-                <div><dt><PilotIcon name="reservations" size={14}/>Reference</dt><dd className={s.confirmation}>{c.booking?.external_confirmation_code || 'Not recorded'}</dd></div>
-              </dl></div>
-              {c.booking ? <>
-                <Link className={s.reservationLink} href={`/channels/pilot?booking=${encodeURIComponent(c.booking.id)}`}><PilotIcon name="reservations" size={15}/>View reservation<PilotIcon name="arrow" size={14}/></Link>
-                {((c.check_in && c.check_in !== c.booking.check_in) || (c.check_out && c.check_out !== c.booking.check_out)) && <div className={s.contextNote}><PilotIcon name="info" size={16}/><p>Dates need review. The conversation shows {date(c.check_in, true)} to {date(c.check_out, true)}.</p></div>}
-              </> : <div className={s.contextNote}><PilotIcon name="info" size={16}/><p>No unique reservation match. Dates are from conversation metadata.</p></div>}
-            </> : <p className={s.note}>Select a guest to see their stay details.</p>}
-            <details className={s.sourceDetails}><summary>Source & history</summary><p>{c?.source === 'guesty' ? 'Messages are read through Guesty via Stay Concierge.' : 'Messages are read from Helm’s existing records.'} Up to 200 messages are shown. Attachments and complete history are not yet verified.</p><p>Updated {time(data.asOf, true)} ET. Opening or refreshing this view does not mark messages read.</p></details>
-          </div>
-          <div className={s.contextFoot}><PilotIcon name="baseline" size={14}/><span>Reservation changes are disabled.</span></div>
+          {reservationDetails}
         </dialog>
       </div>
     </div>
