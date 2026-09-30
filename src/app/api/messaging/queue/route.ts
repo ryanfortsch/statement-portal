@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
   const audience: Audience = isAudience(param) ? param : 'guests';
 
   if (!isStayConciergeConfigured()) {
-    return NextResponse.json({ approvals: [] });
+    return NextResponse.json({ error: 'Messaging service is not configured' }, { status: 503 });
   }
 
   if (audience === 'owners') {

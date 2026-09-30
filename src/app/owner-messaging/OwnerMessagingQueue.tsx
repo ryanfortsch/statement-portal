@@ -40,7 +40,7 @@ const PAGE_REFRESH_MS = 60_000;
 
 export function OwnerMessagingQueue({ initialPending }: Props) {
   // The cards come from the queue's own feed. Seeded by the server render.
-  const { approvals, updatedTick, refresh, watchRegen, stalledId } =
+  const { approvals, updatedTick, refreshStatus, refresh, watchRegen, stalledId } =
     useApprovalQueue(initialPending, 'owners');
   // Shared refresh brain (QueueRefreshControl): transition-wrapped
   // router.refresh on a jittered, visibility-gated interval (the #1236
@@ -73,7 +73,7 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
     <Section
       id="needs-review"
       title={title}
-      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
+      right={<QueueRefreshControl onRefresh={refresh} refreshTick={updatedTick} status={refreshStatus} />}
       empty={approvals.length === 0}
       emptyMessage="No owner drafts waiting. New owner messages will show up here automatically when the AI drafts a reply."
     >

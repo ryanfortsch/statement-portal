@@ -1,5 +1,6 @@
 'use client';
 
+import { createQueueLoader, readQueue, type QueueLoadStatus } from '@/lib/queue-loader';
 import { invalidatePendingCounts } from '@/lib/pending-count-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -32,6 +33,7 @@ type QueueState<T, C> = {
   /** Bumps on every successful load, so "Updated Xs ago" counts from data
    * that actually arrived rather than from a refresh we merely dispatched. */
   updatedTick: number;
+  refreshStatus: QueueLoadStatus;
   /** Fetch now (a card action just changed the queue). */
   refresh: () => void;
   /** Watch for `id` to be replaced by its coached rewrite. */
@@ -65,6 +67,8 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
   useEffect(() => { invalidatePendingCounts(); }, [audience, countRevision]);
   const [context, setContext] = useState<C | undefined>(initialContext);
   const [updatedTick, setUpdatedTick] = useState(0);
+  const [refreshStatus, setRefreshStatus] = useState<QueueLoadStatus>('ready');
+  const loaderRef = useRef<ReturnType<typeof createQueueLoader<{ approvals: T[]; context?: C }>> | null>(null);
   const [stalledId, setStalledId] = useState<string | null>(null);
   // Bumping this restarts the polling loop, which is how a fresh watch gets
   // its first close-cadence tick without waiting out the pending timer.
@@ -81,28 +85,37 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
     setContext(initialContext);
   }, [initial, initialContext]);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/messaging/queue?audience=${audience}`, { cache: 'no-store' });
-      if (!res.ok) return;
-      const data = (await res.json()) as { approvals?: T[]; context?: C };
-      if (!Array.isArray(data.approvals)) return;
-      ownsDataRef.current = true;
-      setApprovals(data.approvals);
-      if (data.context !== undefined) setContext(data.context);
-      setUpdatedTick((t) => t + 1);
-      const watch = watchRef.current;
-      // The coached card is gone: its rewrite is live under a new id, and the
-      // card unmounts on this same state update.
-      if (watch && !data.approvals.some((a) => a.id === watch.id)) {
-        watchRef.current = null;
-      }
-    } catch {
-      // Keep the last good queue on the screen. The header chip keeps
-      // counting, so a feed that has gone quiet reads as stale rather than
-      // blanking the operator's work.
-    }
+  useEffect(() => {
+    const loader = createQueueLoader({
+      read: (signal) => readQueue<T, C>(`/api/messaging/queue?audience=${audience}`, signal),
+      status: setRefreshStatus,
+      accept: (data) => {
+        ownsDataRef.current = true;
+        setApprovals(data.approvals);
+        if (data.context !== undefined) setContext(data.context);
+        setUpdatedTick((t) => t + 1);
+        const watch = watchRef.current;
+        if (watch && !data.approvals.some((a) => a.id === watch.id)) watchRef.current = null;
+      },
+    });
+    loaderRef.current = loader;
+    const offline = () => { loader.cancel(); setRefreshStatus('offline'); };
+    const online = () => { void loader.load(true); };
+    if (!navigator.onLine) offline();
+    window.addEventListener('offline', offline);
+    window.addEventListener('online', online);
+    return () => {
+      loader.cancel();
+      loaderRef.current = null;
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('online', online);
+    };
   }, [audience]);
+
+  const load = useCallback(async (replace = false) => {
+    if (!navigator.onLine) { setRefreshStatus('offline'); return; }
+    await loaderRef.current?.load(replace);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,7 +150,7 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
   }, [load, watchSeq]);
 
   const refresh = useCallback(() => {
-    void load();
+    void load(true);
   }, [load]);
 
   const watchRegen = useCallback((id: string) => {
@@ -146,5 +159,5 @@ export function useApprovalQueue<T extends { id: string; status?: string }, C = 
     setWatchSeq((n) => n + 1);
   }, []);
 
-  return { approvals, context, updatedTick, refresh, watchRegen, stalledId };
+  return { approvals, context, updatedTick, refreshStatus, refresh, watchRegen, stalledId };
 }
