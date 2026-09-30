@@ -1,5 +1,6 @@
 'use client';
 
+import { invalidatePendingCounts } from '@/lib/pending-count-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /** Which queue this hook is feeding. Mirrors the four messaging surfaces. */
@@ -54,12 +55,14 @@ type QueueState<T, C> = {
  * Hidden tabs skip ticks and the period is jittered, same as the page-level
  * refresh it replaces (#1236): several open tabs must not poll in lockstep.
  */
-export function useApprovalQueue<T extends { id: string }, C = undefined>(
+export function useApprovalQueue<T extends { id: string; status?: string }, C = undefined>(
   initial: T[],
   audience: QueueAudience,
   initialContext?: C,
 ): QueueState<T, C> {
   const [approvals, setApprovals] = useState<T[]>(initial);
+  const countRevision = JSON.stringify(approvals.map(a => [a.id, a.status]).sort());
+  useEffect(() => { invalidatePendingCounts(); }, [audience, countRevision]);
   const [context, setContext] = useState<C | undefined>(initialContext);
   const [updatedTick, setUpdatedTick] = useState(0);
   const [stalledId, setStalledId] = useState<string | null>(null);

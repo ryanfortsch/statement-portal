@@ -36,9 +36,13 @@ export function HelmModuleNav() {
 }
 
 function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean }) {
-  const badge = m.id === 'messaging' ? <MessagingPendingBadge /> : null;
-
   const label = m.navLabel ?? m.title;
+  if (m.id === 'messaging') {
+    return <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+      <Link href={m.href} style={{ color: active ? 'var(--ink)' : 'var(--ink-3)', textDecoration: 'none' }}>{label}</Link>
+      <MessagingPendingBadge href="/messaging#needs-review" />
+    </span>;
+  }
   if (m.id === 'field') {
     return <span style={{ display: 'inline-flex', alignItems: 'center' }}>
       <Link href={m.href} style={{ color: active ? 'var(--ink)' : 'var(--ink-3)', textDecoration: 'none' }}>{label}</Link>
@@ -59,7 +63,6 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
         style={{ color: 'var(--ink)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
       >
         {label}
-        {badge}
       </Link>
     );
   }
@@ -74,7 +77,6 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
         style={{ color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
       >
         {label} <span style={{ fontSize: 8, opacity: 0.7 }}>↗</span>
-        {badge}
       </a>
     );
   }
@@ -94,7 +96,6 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
         style={{ color: 'var(--ink-4)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
       >
         {label}
-        {badge}
       </Link>
     );
   }
@@ -102,7 +103,6 @@ function ModuleLink({ module: m, active }: { module: HelmModule; active: boolean
   return (
     <Link href={m.href} style={{ color: 'var(--ink-3)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
       {label}
-      {badge}
     </Link>
   );
 }

@@ -1,8 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { fetchPendingCounts, jitteredInterval } from '@/lib/pending-count-client';
+import { fetchPendingCounts, jitteredInterval, subscribePendingCounts } from '@/lib/pending-count-client';
 
 /**
  * Small pill rendered next to the Messaging tab in the masthead nav when
@@ -24,7 +25,7 @@ import { fetchPendingCounts, jitteredInterval } from '@/lib/pending-count-client
  * regains focus, which is what keeps it from sitting at a wrong number after
  * the queue has actually cleared.
  */
-export function MessagingPendingBadge() {
+export function MessagingPendingBadge({ href }: { href?: string }) {
   const [count, setCount] = useState<number | null>(null);
   const pathname = usePathname();
 
@@ -34,7 +35,7 @@ export function MessagingPendingBadge() {
       // Deduped + TTL'd with the sub-tab pills via pending-count-client.
       const data = await fetchPendingCounts();
       if (!data) return;
-      if (!cancelled) setCount(typeof data.guests === 'number' ? data.guests : 0);
+      if (!cancelled && typeof data.guests === 'number') setCount(data.guests);
     };
     load();
     // Hidden tabs skip ticks; jitter desynchronizes multiple open tabs.
@@ -46,8 +47,10 @@ export function MessagingPendingBadge() {
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', load);
+    const unsubscribe = subscribePendingCounts(load);
     return () => {
       cancelled = true;
+      unsubscribe();
       clearInterval(t);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', load);
@@ -56,9 +59,10 @@ export function MessagingPendingBadge() {
 
   if (!count || count <= 0) return null;
 
-  return (
+  const pill = (
     <span
-      aria-label={`${count} draft${count === 1 ? '' : 's'} waiting`}
+      title={`${count} guest draft${count === 1 ? '' : 's'} awaiting review`}
+      aria-label={`${count} guest draft${count === 1 ? '' : 's'} awaiting review`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -79,4 +83,5 @@ export function MessagingPendingBadge() {
       {count > 99 ? '99+' : count}
     </span>
   );
+  return href ? <Link href={href} style={{ textDecoration: 'none' }} aria-label={`${count} guest drafts awaiting review`}>{pill}</Link> : pill;
 }
