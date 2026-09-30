@@ -139,7 +139,7 @@ export async function dismissMaintenanceSlip(approvalId: string): Promise<Action
   const { supabaseAdmin } = await import('@/lib/supabase-admin');
   const { data, error } = await supabaseAdmin.from('work_slips')
     .update({ status: 'dismissed', closed_at: new Date().toISOString(), closed_by_email: sess.email })
-    .eq('id', id).in('status', ['open', 'dismissed']).is('assigned_to_email', null).select('id').maybeSingle();
+    .eq('id', id).in('status', ['open', 'dismissed']).eq('assigned_to_type', 'unassigned').is('assigned_to_email', null).select('id').maybeSingle();
   if (error || !data) return { ok: false, error: 'This slip may already be assigned or in progress. Open it to review before dismissing.' };
   const marked = await markMaintenanceDismissed(approvalId);
   revalidatePath('/work'); revalidatePath(`/work/${id}`); revalidatePath('/properties');

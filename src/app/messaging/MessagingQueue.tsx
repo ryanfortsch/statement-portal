@@ -25,6 +25,7 @@ import {
   scheduleDraft,
   cancelSchedule,
   editDraft,
+  dismissMaintenanceSlip,
 } from './actions';
 import { ThreadPanel } from './Thread';
 import { UndoToast, type Decision } from './UndoToast';
@@ -120,7 +121,9 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
 
   // A card action changes both: the queue feed answers in ~60ms and drops the
   // card, the page catches up with the strips underneath in its own time.
-  const onResolved = useCallback(() => {
+  const [followupNotice, setFollowupNotice] = useState<string | null>(null);
+  const onResolved = useCallback((notice?: string) => {
+    if (notice) setFollowupNotice(notice);
     refresh();
     softRefresh();
   }, [refresh, softRefresh]);
@@ -160,6 +163,8 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
         : `Needs review (${pendingCount})${queuedCount ? ` · ${queuedCount} queued` : ''}`;
 
   return (
+    <>
+    {followupNotice && <p role="status" style={{ padding: 14, border: '1px solid var(--rule)', color: 'var(--signal)' }}>{followupNotice} <button type="button" onClick={() => setFollowupNotice(null)}>Dismiss</button></p>}
     <Section
       id="needs-review"
       title={title}
@@ -182,6 +187,7 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
       </div>
       <UndoToast decision={lastDecision} onClose={closeToast} onUndone={onResolved} />
     </Section>
+    </>
   );
 }
 
@@ -215,7 +221,7 @@ function ApprovalCard({
    *  count beside them. Undefined when the card has no email to join on, or
    *  when the lookup degraded. */
   quotes?: CardQuoteBlock;
-  onResolved: () => void;
+  onResolved: (notice?: string) => void;
   /** A reversible decision landed (reject / mark handled): offer undo. */
   onDecided: (d: Decision) => void;
   /** Coaching accepted upstream: watch closely for the rewritten card. */
@@ -403,12 +409,18 @@ function ApprovalCard({
   // whole point is that she does not have to remember Rosa exists.
   const handoff = approval.handoff ?? null;
   const [createHandoff, setCreateHandoff] = useState(true);
+  const [cleanerChoice, setCleanerChoice] = useState<{ action: 'skip' | 'draft' | 'send'; token: string }>({ action: 'draft', token: '' });
+  const cleanerAction = cleanerChoice.action === 'send' && cleanerChoice.token !== handoff?.preview_token ? 'draft' : cleanerChoice.action;
+  const [createWorkSlip, setCreateWorkSlip] = useState(true);
+  const [dismissingSlip, setDismissingSlip] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const approveOpts =
-    addon || handoff
+    addon || handoff || approval.maintenance_work
       ? {
           ...(addon ? { sendAddonSms: addonSmsPossible && sendAddonSms } : {}),
-          ...(handoff && !handoff.filed ? { createHandoff } : {}),
+          ...(handoff && handoff.audience !== 'cleaner' && !handoff.filed ? { createHandoff } : {}),
+          ...(handoff?.audience === 'cleaner' ? { cleanerAction, previewToken: cleanerChoice.token } : {}),
+          ...(approval.maintenance_work ? { workAction: createWorkSlip ? 'create' as const : 'skip' as const } : {}),
         }
       : undefined;
   const copyAddonLink = async () => {
@@ -454,7 +466,7 @@ function ApprovalCard({
         setPendingAction(null);
         return;
       }
-      onResolved();
+      onResolved(res.warning);
     });
   };
 
@@ -578,7 +590,7 @@ function ApprovalCard({
   // contract as the handlers above.
   const run = (
     action: PendingAction,
-    fn: () => Promise<{ ok: true } | { ok: false; error: string; stale?: boolean }>,
+    fn: () => Promise<{ ok: true; warning?: string } | { ok: false; error: string; stale?: boolean }>,
     onErr?: () => void,
     onStale?: () => void,
   ) => {
@@ -599,14 +611,14 @@ function ApprovalCard({
         if (onErr) onErr();
         return;
       }
-      onResolved();
+      onResolved(res.warning);
     });
   };
 
   const handleSchedule = (sendAtIso: string) => {
     setShowSchedule(false);
     setScheduleCustom(false);
-    run('schedule', () => scheduleDraft(approval.id, sendAtIso));
+    run('schedule', () => scheduleDraft(approval.id, sendAtIso, approveOpts));
   };
   const handleSendNow = () => run('send-now', () => approveDraft(approval.id, approveOpts));
   const handleCancelSchedule = () => run('cancel-schedule', () => cancelSchedule(approval.id));
@@ -1188,17 +1200,24 @@ function ApprovalCard({
 
       {approval.maintenance_work && (
         <div style={{ marginTop: 16, border: '1px solid var(--rule)', borderLeft: `3px solid ${HANDOFF_TONE}`, background: 'var(--paper)', padding: '12px 14px' }}>
-          <div className="eyebrow" style={{ color: HANDOFF_TONE, marginBottom: 6 }}>
-            Property work slip
-          </div>
+          <div className="eyebrow" style={{ color: HANDOFF_TONE, marginBottom: 6 }}>Property work slip</div>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-1)' }}>{approval.maintenance_work.title}</p>
-          <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-2)' }}>
-            {approval.maintenance_work.status === 'filed' && approval.maintenance_work.slip_id ? (
-              <><a href={`/work/${encodeURIComponent(approval.maintenance_work.slip_id)}`} style={{ color: 'var(--ink-2)' }}>Work slip created</a> · Requires a qualified professional.</>
-            ) : approval.maintenance_work.error ? (
-              <span style={{ color: 'var(--signal)' }}>Work slip not confirmed. Retrying automatically; the office still needs to follow up.</span>
-            ) : 'Checking and filing the reported issue…'}
-          </p>
+          {approval.maintenance_work.status === 'dismissed' ? <p style={{ fontSize: 12 }}>Work slip dismissed.</p> : approval.maintenance_work.slip_id ? (
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 8, fontSize: 12 }}>
+              <a href={`/work/${encodeURIComponent(approval.maintenance_work.slip_id)}`} style={{ color: 'var(--ink-2)' }}>Work slip created</a>
+              <button type="button" className="eyebrow" disabled={busy || dismissingSlip} onClick={async () => {
+                setDismissingSlip(true); const result = await dismissMaintenanceSlip(approval.id);
+                if (!result.ok) setError(result.error); else onResolved(); setDismissingSlip(false);
+              }} style={{ background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer', textDecoration: 'underline' }}>{dismissingSlip ? 'Dismissing…' : 'Dismiss slip'}</button>
+            </div>
+          ) : (
+            <fieldset style={{ border: 0, padding: 0, margin: '10px 0 0', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 12 }} disabled={busy}>
+              <legend className="sr-only">Property work slip</legend>
+              <label><input type="radio" name={`work-${approval.id}`} checked={createWorkSlip} onChange={() => setCreateWorkSlip(true)} /> Create when I approve</label>
+              <label><input type="radio" name={`work-${approval.id}`} checked={!createWorkSlip} onChange={() => setCreateWorkSlip(false)} /> Skip</label>
+            </fieldset>
+          )}
+          {approval.maintenance_work.error && <p style={{ fontSize: 12, color: 'var(--signal)' }}>Work needs review. {approval.maintenance_work.error}</p>}
         </div>
       )}
 
@@ -1255,6 +1274,28 @@ function ApprovalCard({
             </p>
           )}
 
+          {handoff.audience === 'cleaner' ? (
+            handoff.note_status === 'approved' ? <p style={{ fontSize: 12 }}>Sent to {handoff.target_name || 'the cleaner'}.</p> :
+            ['sending', 'scheduled', 'rejected', 'superseded'].includes(handoff.note_status || '') ? <p style={{ fontSize: 12 }}>This note is {handoff.note_status}. Review it in <a href="/cleaner-messaging">Cleaner messaging</a>.</p> :
+            <>
+              <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: '10px 0 0', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 12 }}>
+                <legend className="sr-only">Note to {handoff.target_name || 'the cleaner'}</legend>
+                {(['skip', 'draft', 'send'] as const).map((action) => (
+                  <label key={action} style={{ cursor: 'pointer' }}>
+                    <input type="radio" name={`cleaner-${approval.id}`} checked={cleanerAction === action}
+                      disabled={action === 'send' && (!handoff.preview_token || !!handoff.create_error)}
+                      onChange={() => setCleanerChoice({ action, token: action === 'send' ? handoff.preview_token || '' : '' })}
+                      style={{ accentColor: HANDOFF_TONE }} />{' '}
+                    {action === 'skip' ? 'Skip note' : action === 'draft' ? 'Draft for approval' : `Send to ${handoff.target_name || 'cleaner'}`}
+                  </label>
+                ))}
+              </fieldset>
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>
+                {cleanerAction === 'send' ? 'Sends the note shown above after your guest reply sends.' : cleanerAction === 'skip' ? 'No cleaner note will be sent or kept as a draft when you approve.' : 'Keeps this as a draft in Cleaner messaging when you approve. Nothing sends to the cleaner.'}
+              </p>
+            </>
+          ) : (
+            <>
           {/* Same row either way, so the eye learns one shape: a tick means a
               note exists for the crew. Live, it is a decision; filed, it is a
               receipt for one another module already made. */}
@@ -1302,6 +1343,9 @@ function ApprovalCard({
               )}
             </span>
           </label>
+
+            </>
+          )}
 
           {handoff.create_error && (
             <p style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>
