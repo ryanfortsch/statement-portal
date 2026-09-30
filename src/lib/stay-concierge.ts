@@ -1556,3 +1556,14 @@ async function withMessageOutcomes<T extends { approvals: import('./message-outc
     return { ...result, data: { ...result.data, approvals: result.data.approvals.map(a => ({ ...a, outcomes: { work: [], notes: a.followup_refs?.notes ?? [], error: 'Linked work status could not be checked.' } })) } };
   }
 }
+
+export type InboxHealthResponse = {
+  channels: { id: string; label: string; status: string; coverage: string; detail: string; checked_at: number | null; success_at: number | null }[];
+  unresolved: { channel: string; source_id: string; status: string; detail: string; updated_at: number }[];
+  unresolved_count: number;
+  unmatched_count: number;
+};
+
+export function getInboxHealth() {
+  return request<InboxHealthResponse>('/api/inbox-health');
+}
