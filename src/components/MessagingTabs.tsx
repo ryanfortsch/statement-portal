@@ -23,7 +23,7 @@ import { MessagingTabCount } from './MessagingTabCount';
  */
 
 type MessagingAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
-type MessagingLens = 'inbox' | 'send' | 'blurbs';
+type MessagingLens = 'inbox' | 'send' | 'blurbs' | 'preview';
 
 const AUDIENCE_HOME: Record<MessagingAudience, string> = {
   guests: '/messaging',
@@ -45,6 +45,7 @@ export function MessagingTabs({
           { id: 'inbox', label: 'Inbox', href: '/messaging' },
           { id: 'send', label: 'Send', href: '/messaging/send' },
           { id: 'blurbs', label: 'Saved replies', href: '/messaging/blurbs' },
+          { id: 'preview', label: 'Inbox preview', href: '/messaging/inbox' },
         ]
       : [{ id: 'inbox', label: 'Inbox', href: AUDIENCE_HOME[current] }];
 
@@ -66,6 +67,7 @@ export function MessagingTabs({
                 {i > 0 && <span style={{ color: 'var(--rule)', fontSize: 12 }}>·</span>}
                 <Link
                   href={l.href}
+                  prefetch={l.id === 'preview' ? false : undefined}
                   aria-current={isActive ? 'page' : undefined}
                   style={{
                     fontSize: 12,

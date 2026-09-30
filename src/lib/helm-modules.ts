@@ -372,6 +372,19 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'relationships',
   },
+  // A separate read-only inbox preview, discoverable through Messaging and search.
+  {
+    id: 'messaging-inbox-preview',
+    href: '/messaging/inbox',
+    number: '08f',
+    title: 'Guest Inbox Preview',
+    description: 'Read-only guest message history across all properties, with property filters and stay details. Runs alongside the current messaging inbox.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'messaging',
+  },
   // The Send lens of the Guests tab: pick a stay and write to them. Hidden
   // from the nav lists (Messaging already carries the section) but registered
   // so the command palette can jump straight here, which is the whole point

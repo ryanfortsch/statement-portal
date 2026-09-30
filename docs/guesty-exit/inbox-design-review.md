@@ -1,0 +1,128 @@
+# Calderwood inbox: reference review and next design pass
+
+Research date: September 29, 2026, America/New_York. Reviewed implementation: `b5de6d49` on `codex/calderwood-design`. This is a design brief, not evidence of production readiness or approved channel migration.
+
+## Decision
+
+Keep a familiar guest conversation workspace. Use Front for the organization of the inbox, Linear for consistent hierarchy and alignment, Attio for structured guest and reservation context, and Superhuman for focused scanning. Guesty's supplied screenshots remain the domain reference for stay dates, property identity, channel and message provenance.
+
+The next improvement should remove competing information and inconsistent styling. Further blanket reductions in padding or font size are unlikely to resolve the user's objection. The implementation below is a hypothesis to verify in the rendered interface, not a claim that a particular product's styling will solve Helm's problem.
+
+## What was actually reviewed
+
+Public first-party documentation was read for Front, Linear, Intercom, Attio, Superhuman and Mews. Published Front and Linear product screenshots were visually inspected in the browser. Intercom, Attio, Superhuman and Mews findings below are documentation-based; their full working interfaces were not tested. Direct image endpoints for Attio and Intercom were blocked, and were not bypassed. The Linear redesign article is from March 2024; it is a design-process reference, not evidence of Linear's exact September 2026 interface.
+
+Helm evidence is the user's supplied screenshots and source inspection of the current branch. Browser policy still prevents viewing the local Helm preview. Passing code tests, contrast calculations or a synthetic build cannot substitute for looking at the rendered UI.
+
+## Reference findings
+
+| Reference | Observed or documented pattern | Application to Helm | Boundary |
+| --- | --- | --- | --- |
+| [Front's inbox refresh](https://help.front.com/en/articles/3889728) | Compact conversation header; expandable metadata; collapsible navigation; visible filters and explicit work states. Published screenshots distinguish the selected conversation while ordinary rows remain quieter. | One clear conversation identity, one concise stay summary, and secondary metadata behind details. Search and filter state belong beside the list they affect. | Do not copy its full support sidebar or crowded expanded tag strip. Open/Later/Done would require reliable workflow state Helm does not yet have. |
+| [Linear's redesign](https://linear.app/now/how-we-redesigned-the-linear-ui) | Navigation, content and properties have different visual weight. The team discusses alignment, neutral surfaces and testing complete views and states. The inspected full interface uses subdued panel divisions and a compact selected row. | Align list and thread headers, use a small set of neutral surfaces, and judge long/sparse/error views together. Put color where it communicates selection, sender or a real exception. | Do not imitate its tiny issue metadata or assume an issue-tracking row is a good guest-message row. Preserve readable hospitality messages. |
+| [Intercom Inbox](https://www.intercom.com/helpdesk/inbox) and [Inbox guide](https://www.intercom.com/help/en/articles/6258745-the-inbox-explained) | Conversation history, customer context and actions share a workspace. The documentation describes an expandable context sidebar, keyboard access and a table overview for managers. | Keep the message thread primary. Make reservation context easy to reveal without navigating away. Preserve clear sender and automated-message distinctions. | Its AI panels, assignment tools, composer and integrations are capabilities, not visual decorations to copy into a read-only pilot. |
+| [Attio record pages](https://attio.com/help/reference/managing-your-data/records/configure-record-pages) | Attributes, relationship tabs and record sections can be organized around the object being viewed. | Use one stable reservation facts section with labels and values. Keep guest, stay and source evidence conceptually distinct. A date discrepancy belongs beside dates. | Do not repeat full booking details in the list, header and inspector. Do not introduce a configurable CRM or arbitrary extra tabs. |
+| [Superhuman Split Inbox](https://help.superhuman.com/hc/en-us/articles/46005619081101-Default-Split-Inbox) | A small set of intentional sections supports focused processing, with counts and keyboard navigation. | Keep the pilot's supported stay filters predictable and easy to scan. Preserve selection and search while inspecting a conversation. | A stay-state filter is not a response-priority queue. Do not label conversations unread, urgent or awaiting reply without trustworthy data. |
+| [Mews reservation management](https://www.mews.com/en-gb/products/reservation-management) | Reservation work is organized around a timeline and operational context. | Keep arrival, departure, nights and property easy to reach from the inbox; retain exact reservation links. | Mews's live availability and rate operations do not establish that Helm's imported calendar is authoritative. No connector or provider recommendation is made here. |
+
+Additional rationale: [progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/) supports moving less frequent details out of the primary view. [W3C target-size guidance](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum) sets a 24 CSS pixel minimum with specified exceptions. For this pilot, prefer larger touch hit areas rather than shrinking controls to achieve density.
+
+### Visual references inspected
+
+- [Front navigation and conversation selection](https://usw1.frontkb-cdn.com/attachments/11/1/5d6d107c-3768-448a-9aee-b90590ec381d.png). Reference the relative hierarchy and ordinary-row treatment. The red annotation boxes are documentation marks, not product UI.
+- [Front expanded conversation header](https://usw1.frontkb-cdn.com/attachments/11/1/088e88a5-d428-4a0c-af71-642fef5705f7.png). Reference the ability to disclose details, not the number of tags displayed in this example.
+- [Linear full interface after its redesign](https://webassets.linear.app/images/ornj730p/production/9b91020243984487b4e0cbe72278dd1acd7f9c57-2352x1380.png?auto=format&dpr=2&q=95). Reference panel hierarchy, alignment and selective emphasis. This is a historical published example.
+
+## Current Helm diagnosis
+
+These are source-supported findings and design judgments, not a fresh browser review of `b5de6d49`.
+
+1. **Styling has accumulated without a firm scale.** `inbox.module.css` contains 14 distinct pixel font sizes, from 8 to 25, and 119 distinct hexadecimal color literals, including alpha variants. These counts do not prove bad design, but they make coherent refinement harder. Tiny text and near-identical neutral colors deserve consolidation.
+2. **Too many visual boundaries compete.** The inset work surface, active row shadow, bordered bubbles, status pills and button shadows each make sense separately. Together they can make a small panel feel assembled from boxes. Remove a boundary when alignment and space already identify the group.
+3. **Reservation context is repeated.** The selected guest, channel, dates, status and reference appear in combinations across the row, conversation header and reservation pane. The header should answer who/where/when; the inspector should hold the fuller record and evidence.
+4. **The details pane appears abruptly at 1380px.** Below that breakpoint it becomes a dialog; above it the pane is compulsory and its toggle disappears. Give the operator control and preserve a minimum useful message width. Crossing a breakpoint should not unexpectedly close an active inspector or lose focus.
+5. **Density is partly achieved through tiny metadata.** Some timestamps, avatars and footer text remain 8-10px. Raise supporting text to a consistent 11-12px where practical; recover space through simpler content and fewer stacked bars.
+6. **The single-property scope is repeated in the interface.** The global property identity should be sufficient for list rows while the pilot contains only Calderwood. Future multi-property rows will need property identity again; do not lose that requirement when generalizing later.
+7. **The synthetic scene can mislead.** A six-message conversation looks richer than a one-message thread even with identical CSS. Sparse conversations must still look intentional. Never pad a live conversation with invented content.
+8. **Perceived speed needs its own review.** Selection uses a router transition. The current code preserves content and exposes a pending indicator, but actual delay, focus and scroll behavior have not been measured in the browser. Do not claim the interface feels fast because a build succeeds.
+
+## Chosen direction
+
+One restrained operations workspace, with a useful conversation list and a generous reading area. Preserve Helm's identity; concentrate it in the application navigation and active state. Use neutral text and surfaces throughout the working area.
+
+The recurring visual hierarchy should be: guest and last message first; stay context second; source and synchronization evidence third. Data problems remain visible when they affect interpretation. The pilot remains explicitly read-only, but the same warning does not need to be repeated in every region.
+
+### Screen composition
+
+- **Application bar:** keep the compact 48px height established in v9. Use one property identity and supported navigation. Avoid another shell rewrite as the first step.
+- **Conversation list:** target 280-320px at ordinary desktop widths. Use predictable text alignment, a quiet selected surface and minimal row chrome. Keep guest name, preview, channel and dates; avoid decorative avatars competing with names. Use genuine counts only.
+- **Conversation header:** target roughly 72-88px including stay context. Guest identity and controls share the first line. One secondary line holds channel and compact stay dates. Full confirmation code belongs in details unless needed to distinguish otherwise identical threads.
+- **Message thread:** 14px body text with a comfortable line-height; a bounded reading width. Keep sender labels and timestamps legible. Use sender grouping where accurate, without hiding attribution or breaking chronological order. Automated content stays expandable and searchable. Avoid a shadow on every message.
+- **Reservation context:** show a concise stay summary and a structured label/value list. Reveal the full inspector on demand; an open inspector may dock when enough width exists and become a dialog at smaller sizes. Maintain one content implementation. Date mismatch evidence must remain visible.
+- **Read-only action:** a single clear route to existing guest messaging, with an honest read-only explanation. Do not draw a disabled fake composer or suggest this view can send.
+
+### Proposed design rules to validate
+
+These are Helm targets, not dimensions measured from another product.
+
+| System | Rule |
+| --- | --- |
+| Typography | 20px view title, 16-18px selected identity, 14px message body, 13px list name, 12px previews/controls, 11px secondary metadata. Prefer weights 400, 500 and 600. Make exceptions deliberate. |
+| Spacing | Base steps 4, 8, 12, 16, 24. Let line-height and grouping do the work. Keep optical exceptions documented rather than forcing every value into a grid. |
+| Surfaces | Workspace, list and conversation surfaces; use additional elevation for a floating dialog only. Avoid nested decorative cards. |
+| Color | Named scoped tokens for text, secondary text, divider, surface, selected state, guest/team content and warnings. Preserve channel identity with text as well as color. Check contrast on actual backgrounds. |
+| Corners | Small controls around 6px, message and selected surfaces around 8px, dialog around 12px. Circular identity marks remain circular. These are initial targets, not a universal border-radius rule. |
+| Icons | One stroke style; 16px common controls and 14px inline metadata. Do not use a custom symbol when a familiar label is clearer. |
+| Interaction | Visible hover/focus/pressed/disabled states. Respect reduced motion. Add no animation unless it explains a transition. Preserve native links, modifier-click and browser history. |
+| Responsive layout | Design explicitly for the user's approximately 760px side panel as well as a full window. At 390px, use list/detail navigation with a clear back action. Avoid crushing both into two narrow columns. |
+
+## Implementation order
+
+1. **Consolidate and simplify:** introduce pilot-scoped tokens and a deliberate type scale; flatten unnecessary borders/shadows; align headings and row baselines. Preserve the existing data model and navigation behavior.
+2. **Clarify information hierarchy:** remove redundant reservation facts from the header when the same facts are visible in context. Keep one concise stay summary and a reliable details control. Make the context pane user-controlled with correct responsive focus behavior.
+3. **Audit real-use states:** sparse and long threads, automation expansion, search results, source error, unmatched booking, cancellation/date warning, loading and narrow layouts. Make targeted fixes supported by an identifiable defect.
+4. **Prepare morning handoff:** exact commit/files, preview route, passed checks, unresolved issues and visual evidence status. Stop when the bounded pass is complete. Do not keep generating cosmetic variants without evidence.
+
+## Acceptance criteria
+
+| Check | Acceptance |
+| --- | --- |
+| Narrow panel | At 760x900, guest names, timestamps, dates and the primary action fit. Message reading remains comfortable; no horizontal page scroll. |
+| Full desktop | At 1440x900, reservation details can open and close without losing the selected conversation or search. Headers align and the thread retains useful width. |
+| Phone | At 390x844, list and thread are separate useful views. Back navigation and details dismiss correctly, with appropriate focus restoration. |
+| Sparse thread | One short message looks intentional without a fabricated summary, fake composer or decorative filler. |
+| Long thread | Long names, confirmation codes, unbroken text, multiple days and long automated messages remain readable. Sender attribution stays clear. |
+| Search and filters | Existing guest/message search and channel/stay filters continue to work. Empty results differ from source failure. Filter state is visible. |
+| Data integrity | Mismatched dates, no unique booking match, incomplete source history and read-only status remain truthful. No inferred unread, priority or response status. |
+| Keyboard | All supported controls are reachable; Escape and focus return work for dialogs; modifier-click links retain normal behavior. No trap outside an active dialog. |
+| Accessibility | Verify contrast, zoom/reflow and hit areas; do not rely on color alone. A numerical CSS audit does not establish compliance. |
+| Scope | No loader/auth changes, external sends, mark-read writes, channel changes, customer-data access, production deploy or unrelated Helm edits. |
+
+Visual rows in this table remain unverified until rendered evidence is available through an authorized surface. The existing browser-policy block must not be bypassed using another browser, proxy, raw browser protocol, screenshot mechanism or alternate local host. Continue source/documentation work, but label visual acceptance as pending.
+
+## Overnight execution and handoff
+
+Use this brief as the fixed direction for a bounded overnight pass ending the morning of September 30, 2026. Work only in `/Users/maguire/.codex/worktrees/calderwood-readonly/statement-portal`, branch `codex/calderwood-design`. Do not touch the shared checkout or another agent's worktree. No sub-agents are authorized. Preserve PR #1695 for review; no merge or production deployment.
+
+Before code changes, read the relevant installed Next.js guide and current repository instructions. Use synthetic preview fixtures only. If code changes, run required tests and TypeScript, plus focused checks for changed behavior. Do not rerun unrelated suites repeatedly or claim historical checks as current validation. A CSS-only change does not need a new behavior test. For documentation-only passes, full diff and link/path inspection plus `git diff --check` are sufficient.
+
+Reviewed base: `5586f569`. Current `origin/main` verified during research at `9902f7b0`; the design worktree has not been rebased or merged with it. Previous UI commit: `b5de6d49`; the implementation described below follows research commit `acfc7f34`. PR: https://github.com/ryanfortsch/statement-portal/pull/1695. Local synthetic preview: http://127.0.0.1:3114/channels/pilot/inbox?conversation=c2.
+
+### Run ledger
+
+- Research pass: completed first-party reference review, inspected Front/Linear screenshots, audited current CSS and composition, and established the direction and acceptance criteria above.
+- Implementation pass: completed. The inbox now opens with two panes. Stay details use one native dialog, docked on demand at 1380px and wider, modal below that width. The focused control survives a presentation change; closing returns focus to the initiating button. A header warning keeps mismatched dates, unmatched stays and cancellations visible while the inspector is closed. Removed repeated header/message avatars, duplicate context rendering, row shadows and bubble borders. Added a scoped seven-size type scale and named color tokens; message text remains 14px, metadata is at least 11px, and loading follows the same two-pane geometry. This is one coherent implementation of the researched direction, not a request for another cosmetic variant.
+- Source and build audit: completed for this implementation. All 1,568 tests across 240 suites passed, including four focused inspector transition/focus tests. TypeScript, targeted ESLint, PostCSS parsing/class-reference checks and `git diff --check` passed. The isolated synthetic Next.js 16.2.4 webpack production build passed with type checking. The seven changed UI sources exactly match both the local synthetic preview and the isolated build input.
+- Contrast audit: ten intended text/background token pairs measured at least 4.5:1; the lowest measured pair was secondary text on selected rows at 4.81:1. This arithmetic check does not establish accessibility compliance or rendered contrast across every state.
+- Verification limitation: browser visual review and native interaction checks remain pending under the existing policy block. The helper tests use a simulated dialog API; they do not prove native focus, inertness, resizing, clipping, zoom/reflow or touch behavior. Do not claim the 760px, 1440px or 390px visual acceptance rows have passed, and do not bypass the blocked surface.
+- Final audit and morning handoff: completed September 30, 2026. Reviewed implementation `5b773446`, the inspector lifecycle and warning states, responsive CSS, preserved search/navigation controls, and the recorded local validation. The seven UI sources still exactly match the synthetic preview. No additional source defect was identified within this focused audit; no UI code changed during the handoff. Visual and native browser acceptance remain pending. The bounded overnight implementation and audit are finished; stop further scheduled iteration unless new user feedback or authorized rendered evidence supplies a specific actionable defect.
+- Hosted checks: verified success for `verify`, `layout-database`, Vercel and Vercel Preview Comments on UI commit `5b773446`. This is preview/build evidence, not production deployment or visual acceptance. The final handoff changes only this document; application tests were not rerun for that documentation-only update. Its full diff, referenced paths and whitespace were checked.
+
+### Morning handoff
+
+- **Result:** a two-pane inbox with on-demand stay details, one shared reservation inspector, a consistent type/color scale, simpler guest/team message surfaces, fewer repeated identity elements and matching loading geometry. Reservation discrepancies remain visible while details are closed.
+- **Review:** UI commit `5b773446` on `codex/calderwood-design`, base `5586f569`, in [PR #1695](https://github.com/ryanfortsch/statement-portal/pull/1695). Prior UI `b5de6d49` and research `acfc7f34` remain recoverable. Remote main was separately verified at `fd2dfb2e` during this audit; no merge, rebase or checkout update was performed.
+- **Files:** `src/app/channels/pilot/inbox/PilotInbox.tsx`, `inbox.module.css`, `theme.module.css` and `reservation-inspector.ts`; pilot `PilotLoading.tsx`, `loading.module.css` and `frame.module.css`; `src/lib/__tests__/reservation-inspector.test.ts`; this design review.
+- **Actual checks:** UI commit passed 1,568 tests, TypeScript, targeted ESLint, CSS parsing/reference checks, ten intended contrast pairs and an isolated synthetic Next.js build. Hosted checks for that UI commit subsequently passed. This final audit inspected source and existing logs, compared preview source files and reviewed hosted check results; it did not repeat the test suite or access the application in a browser.
+- **Remaining acceptance:** rendered review at 760px, 1440px and 390px; native dialog focus/inertness while resizing; sparse, long, error and empty views; zoom/reflow and touch behavior. Existing browser policy prevents this review, and no workaround was attempted. Do not merge on the basis of code checks alone.
+- **Preview:** [local synthetic inbox](http://127.0.0.1:3114/channels/pilot/inbox?conversation=c2). No customer data, sending, mark-read writes, channel changes, production deployment or changes to another Helm module were performed by this pass.

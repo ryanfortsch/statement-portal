@@ -1,0 +1,35 @@
+.theme {
+  --ink: #27343d;
+  --muted: #5a6973;
+  --line: #e2e7e9;
+  --surface: #ffffff;
+  --canvas: #eef1f2;
+  --list-surface: #f7f9f9;
+  --hover: #edf1f1;
+  --selected: #e6eeeb;
+  --avatar: #e6ebed;
+  --accent: #286759;
+  --accent-hover: #205346;
+  --accent-soft: #eaf3ef;
+  --guest-surface: #f2f5f6;
+  --team-surface: #eaf3ef;
+  --warning-ink: #806023;
+  --warning-surface: #fff6e5;
+  --danger: #9d4d48;
+  --channel-airbnb: #b65465;
+  --channel-vrbo: #4c70ac;
+  --scrollbar: #c5cfd2;
+  --focus: #43796c;
+  --backdrop: #192c3c33;
+  --dialog-shadow: 0 16px 64px #192c3c29;
+  --type-caption: 11px;
+  --type-small: 12px;
+  --type-label: 13px;
+  --type-body: 14px;
+  --type-subtitle: 16px;
+  --type-identity: 18px;
+  --type-title: 20px;
+  --radius-control: 6px;
+  --radius-surface: 8px;
+  --radius-dialog: 12px;
+}
