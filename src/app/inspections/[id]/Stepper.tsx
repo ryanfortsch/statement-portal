@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -17,6 +17,8 @@ import type {
 } from '@/lib/inspections-types';
 import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
 import { compressImage } from '@/lib/image-compress';
+import { SaveQueue } from '@/lib/save-queue';
+import { readInspectionDrafts } from '@/lib/inspection-drafts';
 import { INSPECTION_SUPPLIES } from '@/lib/inspection-supplies';
 import { PULLOUT_BED_ITEM_ID, withSheetsLine } from '@/lib/pullout-beds';
 
@@ -152,9 +154,8 @@ export function Stepper({
   onCompleteTask,
 }: Props) {
   const router = useRouter();
-  const [results, setResults] = useState<Map<string, StepperResult>>(
-    () => new Map(initialResults.map((r) => [cardKeyOf(r.item_id, r.zone_id), r]))
-  );
+  const resultsRef = useRef(new Map(initialResults.map((r) => [cardKeyOf(r.item_id, r.zone_id), r])));
+  const [results, setResults] = useState<Map<string, StepperResult>>(resultsRef.current);
   const [notes, setNotesList] = useState<StepperNote[]>(initialNotes);
   const [linensLocation, setLinensLocation] = useState<string | null>(pulloutLinensLocation);
   const [showLinensModal, setShowLinensModal] = useState(false);
@@ -165,7 +166,6 @@ export function Stepper({
     );
     return firstUnmarked === -1 ? cards.length : firstUnmarked;
   });
-  const [, startTransition] = useTransition();
   const [isCompleting, setIsCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -174,14 +174,53 @@ export function Stepper({
   // behind it — then Complete failed with "mark every card" and no clue which.
   // cardKey -> 'saving' | 'failed'; absent = persisted (or never marked).
   const [saveState, setSaveState] = useState<Map<string, 'saving' | 'failed'>>(new Map());
-  function setCardSave(key: string, v: 'saving' | 'failed' | null) {
-    setSaveState((prev) => {
-      const m = new Map(prev);
-      if (v) m.set(key, v);
-      else m.delete(key);
-      return m;
+  const queueRef = useRef<SaveQueue<StepperResult> | null>(null);
+  const [draftStorageAvailable, setDraftStorageAvailable] = useState(true);
+  // This component stays mounted for one inspection; capture its initial deck
+  // so a server refresh cannot reset an in-progress queue.
+  const initialDeck = useRef(cards);
+  useEffect(() => {
+    const storageKey = `helm-inspection-draft:${inspectionId}:${encodeURIComponent(inspectorName)}`;
+    let restoring = true;
+    const recoveredMessage = 'Recovered unsynced marks from this device. Review them, then retry to sync.';
+    const queue = new SaveQueue<StepperResult>(async (value) => {
+      const res = await saveResult({ inspectionId, itemId: value.item_id, zoneId: value.zone_id, status: value.status, notes: value.notes, photoUrls: value.photo_urls });
+      if (!res.ok) throw new Error(res.error);
+    }, (entries) => {
+      setSaveState(new Map([...entries].map(([key, entry]) => [key, entry.status === 'saving' ? 'saving' : 'failed'])));
+      if (restoring) return;
+      if (entries.size === 0) setError((current) => current === recoveredMessage ? null : current);
+      try {
+        if (entries.size) {
+          localStorage.setItem(storageKey, JSON.stringify({ version: 1, entries: [...entries].map(([key, entry]) => [key, entry.value]) }));
+        } else localStorage.removeItem(storageKey);
+        setDraftStorageAvailable(true);
+      } catch { setDraftStorageAvailable(false); }
     });
-  }
+    queueRef.current = queue;
+    try {
+      const restored = readInspectionDrafts(localStorage.getItem(storageKey), initialDeck.current);
+      for (const [key, value] of restored) queue.restore(key, value);
+      if (restored.size) {
+        resultsRef.current = new Map([...resultsRef.current, ...restored]);
+        setResults(resultsRef.current);
+        setError(recoveredMessage);
+      }
+    } catch { setDraftStorageAvailable(false); }
+    restoring = false;
+    function retryOnline() { void queue.retry(); }
+    function beforeUnload(event: BeforeUnloadEvent) {
+      if (queue.snapshot().size) { event.preventDefault(); event.returnValue = ''; }
+    }
+    window.addEventListener('online', retryOnline);
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => {
+      queue.dispose();
+      queueRef.current = null;
+      window.removeEventListener('online', retryOnline);
+      window.removeEventListener('beforeunload', beforeUnload);
+    };
+  }, [inspectionId, inspectorName]);
   const failedKeys = [...saveState.entries()].filter(([, v]) => v === 'failed').map(([k]) => k);
   const savingCount = [...saveState.values()].filter((v) => v === 'saving').length;
 
@@ -260,53 +299,27 @@ export function Stepper({
   }
 
   function applyOptimistic(card: StepperCard, next: StepperResult) {
-    setResults((prev) => {
-      const m = new Map(prev);
-      m.set(card.cardKey, next);
-      return m;
-    });
+    resultsRef.current = new Map(resultsRef.current).set(card.cardKey, next);
+    setResults(resultsRef.current);
   }
 
   function persist(card: StepperCard, next: StepperResult) {
-    setCardSave(card.cardKey, 'saving');
-    startTransition(async () => {
-      const res = await saveResult({
-        inspectionId,
-        itemId: card.itemId,
-        zoneId: card.zoneId,
-        status: next.status,
-        notes: next.notes,
-      });
-      if (!res.ok) {
-        setCardSave(card.cardKey, 'failed');
-        // Bind the error to the card that failed — the stepper may have
-        // auto-advanced by the time this resolves.
-        setError(`"${card.title}" didn't save — ${res.error}`);
-      } else {
-        setCardSave(card.cardKey, null);
-      }
-    });
+    queueRef.current?.enqueue(card.cardKey, next);
   }
 
-  /** Re-persist every card whose save failed, from the marks already held in
-   *  local state. Safe to spam — saveResult upserts. */
   function retryFailedSaves() {
     setError(null);
-    for (const key of failedKeys) {
-      const card = cards.find((c) => c.cardKey === key);
-      const r = results.get(key);
-      if (card && r) persist(card, r);
-    }
+    void queueRef.current?.retry();
   }
 
   /** ← Exit, guarded: confirm before leaving with saves in flight or failed
-   *  (they only live in local state — leaving loses them). The button also
+   *  (device backup protects them when browser storage is available). The button also
    *  sits one fat-finger from the progress counter on a phone. */
   function exitStepper() {
     if (savingCount > 0 || failedKeys.length > 0) {
       const ok = window.confirm(
         failedKeys.length > 0
-          ? 'Some marks failed to save and will be lost if you leave. Leave anyway?'
+          ? (draftStorageAvailable ? 'Some marks are saved on this device but have not synced. Leave and return later?' : 'Some marks have not synced and could not be saved on this device. Leaving may lose them. Leave anyway?')
           : 'A mark is still saving. Leave anyway?',
       );
       if (!ok) return;
@@ -317,12 +330,13 @@ export function Stepper({
   function mark(status: InspectionStatus) {
     if (!activeCard) return;
     setError(null);
+    const latest = resultsRef.current.get(activeCard.cardKey);
     const next: StepperResult = {
       item_id: activeCard.itemId,
       zone_id: activeCard.zoneId,
       status,
-      notes: activeResult?.notes ?? null,
-      photo_urls: activeResult?.photo_urls ?? [],
+      notes: latest?.notes ?? null,
+      photo_urls: latest?.photo_urls ?? [],
     };
     applyOptimistic(activeCard, next);
     persist(activeCard, next);
@@ -337,23 +351,14 @@ export function Stepper({
   // note so an early photo isn't lost.
   async function attachCardPhoto(url: string): Promise<string | null> {
     if (!activeCard) return 'No active card';
-    const current = results.get(activeCard.cardKey);
+    const current = resultsRef.current.get(activeCard.cardKey);
     if (!current) return submitNote('', false, [url]);
     const nextPhotos = [...current.photo_urls, url];
     const next: StepperResult = { ...current, photo_urls: nextPhotos };
     applyOptimistic(activeCard, next);
-    const res = await saveResult({
-      inspectionId,
-      itemId: activeCard.itemId,
-      zoneId: activeCard.zoneId,
-      status: current.status,
-      notes: current.notes,
-      photoUrls: nextPhotos,
-    });
-    if (!res.ok) {
-      applyOptimistic(activeCard, current); // rollback
-      return res.error;
-    }
+    // Use the same durable, serialized queue as status marks. The uploaded
+    // URL survives a failed database write and never needs a second upload.
+    persist(activeCard, next);
     return null;
   }
 
@@ -462,6 +467,7 @@ export function Stepper({
   const undoneTasks = trailingTasks.filter((t) => !taskState.get(t.attachmentId)?.done);
 
   async function complete() {
+    if (queueRef.current?.snapshot().size) { setError('Sync the pending marks before completing this inspection.'); return; }
     setError(null);
     setIsCompleting(true);
     try {
@@ -662,7 +668,7 @@ export function Stepper({
           {failedKeys.length > 0 && (
             <div style={{ marginTop: 20, padding: '12px 14px', borderLeft: '3px solid var(--negative)', background: 'rgba(138,58,46,0.06)', display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13.5, color: 'var(--negative)' }}>
-                {failedKeys.length} {failedKeys.length === 1 ? 'mark' : 'marks'} didn&apos;t save (bad signal?).
+                {failedKeys.length} {failedKeys.length === 1 ? 'mark has' : 'marks have'} not synced. {draftStorageAvailable ? 'Saved on this device.' : 'Device backup unavailable. Keep this page open.'}
               </span>
               <button type="button" onClick={retryFailedSaves} style={{ background: 'var(--negative)', color: 'var(--paper)', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase', padding: '10px 16px' }}>
                 Retry now
@@ -701,6 +707,7 @@ export function Stepper({
             </div>
           )}
 
+          {!draftStorageAvailable && <ErrorBlock error="Device backup is unavailable. Keep this page open until all marks have synced." />}
           {error && <ErrorBlock error={error} />}
 
           {/* Wrap-up actions sit inline at the end of the page — deliberately
@@ -895,14 +902,15 @@ export function Stepper({
         {activeResult && (
           <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <StatusBadge status={activeResult.status} />
+            {!saveState.has(activeCard.cardKey) && <span role="status" style={{ fontSize: 12, color: 'var(--positive)' }}>Synced</span>}
             {saveState.get(activeCard.cardKey) === 'saving' && (
-              <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>saving…</span>
+              <span role="status" style={{ fontSize: 12, color: 'var(--ink-3)' }}>Syncing…</span>
             )}
           </div>
         )}
         {activeCard && saveState.get(activeCard.cardKey) === 'failed' && (
           <div style={{ marginTop: 12, padding: '10px 14px', borderLeft: '3px solid var(--negative)', background: 'rgba(138,58,46,0.06)', display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: 'var(--negative)' }}>This mark didn&apos;t save (bad signal?).</span>
+            <span style={{ fontSize: 13, color: 'var(--negative)' }}>{draftStorageAvailable ? 'Saved on this device · Not synced yet.' : 'Not synced · Device backup unavailable. Keep this page open.'}</span>
             <button
               type="button"
               onClick={() => {
@@ -1048,7 +1056,9 @@ export function Stepper({
           </button>
         </div>
 
+        {!draftStorageAvailable && <ErrorBlock error="Device backup is unavailable. Keep this page open until all marks have synced." />}
         {error && <ErrorBlock error={error} />}
+        {failedKeys.length > 0 && <button type="button" onClick={retryFailedSaves} style={{ marginTop: 12, minHeight: 44 }}>Retry all unsynced marks ({failedKeys.length})</button>}
       </section>
 
       {/* MODALS */}

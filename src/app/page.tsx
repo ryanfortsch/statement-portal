@@ -1,4 +1,7 @@
 import Link from 'next/link';
+import { availableCount } from '@/lib/recovery';
+import { RetryDashboard } from '@/components/RetryDashboard';
+import { HelmHero } from '@/components/HelmHero';
 import { Suspense } from 'react';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -27,6 +30,8 @@ type DashboardStats = {
   latestMonth: string | null;
   latestStatus: string | null;
   totalPayout: number;
+  statementsAvailable: boolean;
+  reviewsAvailable: boolean;
   /** Sum of owner_payout for the period BEFORE latestMonth. Used for the
    *  delta on the Today's Signals strip. null when there's no prior period. */
   priorPayout: number | null;
@@ -97,16 +102,17 @@ async function getDashboardStats(ops: HomeOps): Promise<DashboardStats> {
     getHelmStats(),
     getOperationalStats(ops),
     getCurrentMonthActualPayout(),
-    getReviewWindowStats(30),
+    getReviewWindowStats(30, { strict: true }).catch(() => null),
   ]);
   return {
     ...propertyStats,
     ...helmStats,
     ...opsStats,
     currentMonthActualPayout: actualPayout,
-    reviews30dTotal: reviews.total,
-    reviews30dFiveStar: reviews.fiveStar,
-    reviews30dBelowFive: reviews.belowFive,
+    reviewsAvailable: reviews !== null,
+    reviews30dTotal: reviews?.total ?? 0,
+    reviews30dFiveStar: reviews?.fiveStar ?? 0,
+    reviews30dBelowFive: reviews?.belowFive ?? 0,
   };
 }
 
@@ -152,10 +158,10 @@ async function getOperationalStats(ops: HomeOps) {
     const today = new Date().toISOString().slice(0, 10);
 
     const [
-      { count: activeSlips },
-      { count: highSlips },
-      { count: ownerSlips },
-      { count: activeTasks },
+      slipResult,
+      highResult,
+      ownerResult,
+      taskResult,
     ] = await Promise.all([
       supabase
         .from('work_slips')
@@ -192,10 +198,10 @@ async function getOperationalStats(ops: HomeOps) {
     const upcoming = ops ? Math.max(0, opsTotal - opsDone) : null;
 
     return {
-      activeSlips: activeSlips ?? 0,
-      highPrioritySlips: highSlips ?? 0,
-      ownerActionSlips: ownerSlips ?? 0,
-      activeTasks: activeTasks ?? 0,
+      activeSlips: availableCount(slipResult),
+      highPrioritySlips: availableCount(highResult),
+      ownerActionSlips: availableCount(ownerResult),
+      activeTasks: availableCount(taskResult),
       inspectionsThisWeek: upcoming,
       inspectionsPlanned: upcoming,
       inspectionsCompleted: ops ? opsDone : null,
@@ -231,6 +237,7 @@ async function getHelmStats() {
     latestMonth: null as string | null,
     latestStatus: null as string | null,
     totalPayout: 0,
+    statementsAvailable: false,
     priorPayout: null as number | null,
     statementsCount: 0,
   };
@@ -248,21 +255,22 @@ async function getHelmStats() {
 
     // Pull the two most recent non-current periods in one round trip so
     // the prior-period delta is free.
-    const { data: periods } = await supabase
+    const { data: periods, error: periodsError } = await supabase
       .from('statement_periods')
       .select('id, month, status')
       .neq('month', currentYearMonth)
       .order('month', { ascending: false })
       .limit(2);
 
+    if (periodsError) throw periodsError;
     const period = periods?.[0];
-    if (!period) return empty;
+    if (!period) return { ...empty, statementsAvailable: true };
     const priorPeriod = periods?.[1] ?? null;
 
     const sumPayout = (rows: { owner_payout: number | null }[] | null): number =>
       (rows ?? []).reduce((s, x) => s + (Number(x.owner_payout) || 0), 0);
 
-    const [{ data: stmts }, priorRes] = await Promise.all([
+    const [statementResult, priorRes] = await Promise.all([
       supabase
         .from('property_statements')
         .select('owner_payout')
@@ -272,14 +280,17 @@ async function getHelmStats() {
             .from('property_statements')
             .select('owner_payout')
             .eq('period_id', priorPeriod.id as string)
-        : Promise.resolve({ data: null }),
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
+    if (statementResult.error) throw statementResult.error;
+    const stmts = statementResult.data;
     return {
+      statementsAvailable: true,
       latestMonth: period.month as string,
       latestStatus: period.status as string,
       totalPayout: sumPayout(stmts),
-      priorPayout: priorPeriod ? sumPayout(priorRes.data) : null,
+      priorPayout: priorPeriod && !priorRes.error ? sumPayout(priorRes.data) : null,
       statementsCount: stmts?.length ?? 0,
     };
   } catch {
@@ -305,16 +316,23 @@ export default async function HelmHome() {
         <ConciergeAlerts />
       </Suspense>
 
-      {/* ASK HELM — inline, full content width, no example prompts */}
-      <section
-        className="max-w-[1100px] mx-auto px-10"
-        style={{ width: '100%', paddingTop: 44, paddingBottom: 44 }}
-      >
-        <AskHelm hero showSuggestions={false} />
-      </section>
+      <HelmHero eyebrow="HELM" title="Today" paddingTop={32} paddingBottom={28} />
+
+      {/* The personalized work feed leads; activity remains one tab away. */}
+      <div>
+        <HomeFeedTabs
+          forMe={<ForMeFeed />}
+          recentActivity={<TeamActivity limit={20} hideHeading />}
+        />
+      </div>
 
       {/* SIGNALS STRIP — what needs attention today, with the headline payout pinned right */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
+        {(stats.activeSlips === null || stats.highPrioritySlips === null || stats.inspectionsPlanned === null || !stats.reviewsAvailable || stats.currentMonthActualPayout.status === 'failed') && (
+          <p role="status" style={{ fontSize: 14, color: 'var(--negative)', marginBottom: 16 }}>
+            Some information couldn’t be loaded. Unavailable data does not mean there’s nothing to do. <RetryDashboard />
+          </p>
+        )}
         <div className="eyebrow" style={{ marginBottom: 14 }}>Today&rsquo;s signals</div>
         <div
           className="rt-helm-stat-strip"
@@ -327,9 +345,9 @@ export default async function HelmHome() {
         >
           <Stat
             label="Open Work Slips"
-            value={stats.activeSlips != null ? String(stats.activeSlips) : '—'}
+            value={stats.activeSlips != null ? String(stats.activeSlips) : 'Unavailable'}
             sub={
-              stats.highPrioritySlips != null && stats.highPrioritySlips > 0
+              stats.highPrioritySlips == null ? 'priority data unavailable' : stats.highPrioritySlips > 0
                 ? `${stats.highPrioritySlips} high priority`
                 : 'no high-priority slips'
             }
@@ -343,7 +361,7 @@ export default async function HelmHome() {
           />
           <Stat
             label="Upcoming Inspections"
-            value={stats.inspectionsPlanned != null ? String(stats.inspectionsPlanned) : '—'}
+            value={stats.inspectionsPlanned != null ? String(stats.inspectionsPlanned) : 'Unavailable'}
             sub="next 7 days"
             href="/turnovers"
             size="hero"
@@ -354,11 +372,12 @@ export default async function HelmHome() {
               // Numerator and denominator are both Helm-managed, rated
               // reviews (see getReviewWindowStats), so this matches the
               // FIVE-STAR cell on the Reviews tab exactly.
-              stats.reviews30dTotal > 0
+              !stats.reviewsAvailable ? 'Unavailable' : stats.reviews30dTotal > 0
                 ? `${stats.reviews30dFiveStar}/${stats.reviews30dTotal}`
                 : '—'
             }
             sub={(() => {
+              if (!stats.reviewsAvailable) return 'review data unavailable';
               if (stats.reviews30dTotal === 0) return 'no reviews in last 30 days';
               const rate = Math.round(
                 (stats.reviews30dFiveStar / stats.reviews30dTotal) * 100,
@@ -385,8 +404,8 @@ export default async function HelmHome() {
             })()}
             value={(() => {
               const p = stats.currentMonthActualPayout;
-              if (p.status === 'ok') return p.payout > 0 ? formatCurrency(p.payout) : '—';
-              if (p.status === 'failed') return '—';
+              if (p.status === 'ok') return formatCurrency(p.payout);
+              if (p.status === 'failed' || !stats.statementsAvailable) return 'Unavailable';
               return stats.totalPayout > 0 ? formatCurrency(stats.totalPayout) : '—';
             })()}
             sub={(() => {
@@ -397,7 +416,8 @@ export default async function HelmHome() {
                   ? `booked so far · ${formatMonth(stats.latestMonth)} closed ${formatCurrency(stats.totalPayout)}`
                   : 'booked so far';
               }
-              return stats.latestMonth ? 'latest period total' : 'no statements yet';
+              if (!stats.statementsAvailable) return 'payout data unavailable';
+              return stats.latestMonth ? 'current payout unavailable · showing closed period' : 'current payout unavailable';
             })()}
             href={
               stats.currentMonthActualPayout.status === 'unconfigured'
@@ -416,16 +436,6 @@ export default async function HelmHome() {
           at 9 AM: is a cleaner coming, and when. Full page at
           /turnovers/cleanings. Renders nothing when the read fails. */}
       <CleaningsStrip />
-
-      {/* FEED — "For Me" (triaged signal) default, Recent Activity behind a
-          tab. Promoted above the calendar so the personal triage sits right
-          under Today's Signals. */}
-      <div>
-        <HomeFeedTabs
-          forMe={<ForMeFeed />}
-          recentActivity={<TeamActivity limit={20} hideHeading />}
-        />
-      </div>
 
       {/* OCCUPANCY CALENDAR — next 7 days, shared with the Turnovers page */}
       {ops?.calendar && ops.calendar.rows.length > 0 && (
@@ -452,6 +462,14 @@ export default async function HelmHome() {
           <OccupancyCalendar calendar={ops.calendar} />
         </section>
       )}
+
+      {/* ASK HELM — inline, full content width, no example prompts */}
+      <section
+        className="max-w-[1100px] mx-auto px-10"
+        style={{ width: '100%', paddingTop: 12, paddingBottom: 40 }}
+      >
+        <AskHelm showSuggestions={false} />
+      </section>
 
       {/* Spacer keeps the footer pinned to the bottom whichever block is last. */}
       <div style={{ flex: 1 }} />
