@@ -281,7 +281,7 @@ function PhotoUploaderInner({ value, onChange, folder, disabled, endpoint = '/ap
   }
 
   async function discard(ids: string[]) {
-    if (scope) {
+    if (scope && ids.length > 0) {
       try { await removePhotoDrafts(ids); }
       catch { setStorageWarning('Couldn’t remove the device copy. Try removing it again.'); return false; }
     }
