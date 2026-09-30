@@ -26,6 +26,7 @@ import {
   cancelSchedule,
   editDraft,
 } from './actions';
+import { RentalInquiryPanel } from './RentalInquiryPanel';
 import { ThreadPanel } from './Thread';
 import { UndoToast, type Decision } from './UndoToast';
 import {
@@ -338,7 +339,10 @@ function ApprovalCard({
     setFeedback('');
   }, [approval.draft, isPending, editing]);
 
+  const inquiry = approval.rental_inquiry;
+  const inquiryNeedsQuote = !!inquiry?.needs.length;
   const propertyLabel =
+    (inquiry ? `Rental inquiry${inquiry.homes.length ? ` · ${inquiry.homes.length} ${inquiry.homes.length === 1 ? 'home' : 'homes'} to compare` : ''}` : '') ||
     approval.listing_name ||
     prettifySlug(approval.listing_id) ||
     'unknown property';
@@ -836,6 +840,8 @@ function ApprovalCard({
         )}
       </header>
 
+      {inquiry && <RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} />}
+
       <div
         className="rt-msg-grid"
         style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}
@@ -848,7 +854,7 @@ function ApprovalCard({
           <BodyText>{approval.guest_text || '(empty)'}</BodyText>
         </FieldBlock>
         <FieldBlock
-          label={editing ? 'Editing reply' : 'Proposed reply'}
+          label={editing ? 'Editing reply' : inquiryNeedsQuote ? 'Optional guest update' : 'Proposed reply'}
           labelTone={editing ? 'var(--ink)' : undefined}
           action={
             !isScheduled && !editing ? (
@@ -1411,6 +1417,11 @@ function ApprovalCard({
               Dismiss
             </SecondaryButton>
           </>
+        ) : inquiryNeedsQuote && !showMore ? (
+          <>
+            <span style={{ fontSize: 13, color: 'var(--ink-2)' }}>Prepare the quotes above before making an offer.</span>
+            <SecondaryButton onClick={() => setShowMore(true)} disabled={busy}>Reply options</SecondaryButton>
+          </>
         ) : isPrereleaseRequest && !showMore ? (
           <>
             <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>
@@ -1464,6 +1475,7 @@ function ApprovalCard({
               <>
                 <SplitSendButton
                   onApprove={handleApprove}
+                  label={inquiryNeedsQuote ? "Send guest update" : undefined}
                   onToggle={toggleSchedule}
                   disabled={busy}
                   loading={pendingAction === 'approve'}

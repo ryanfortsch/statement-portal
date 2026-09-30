@@ -14,6 +14,8 @@
  * should render a setup hint instead of crashing the page.
  */
 
+import type { RentalInquiry } from '@/lib/rental-inquiry';
+
 import type { ConciergeAttention } from '@/lib/concierge-alerts';
 
 export type Approval = {
@@ -57,6 +59,7 @@ export type Approval = {
   /** Note to a teammate this reply commits us to. Null/absent for ordinary
    * cards. See TeamHandoff. */
   handoff?: TeamHandoff | null;
+  rental_inquiry?: RentalInquiry | null;
   maintenance_work?: { status: string; slip_id: string; title: string; error: string } | null;
   /** The guest's email, when the card's channel knows it: a 2027 request
    * carries it in its own sidecar, an email card IS an address. Empty on OTA
