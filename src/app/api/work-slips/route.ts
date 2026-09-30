@@ -62,6 +62,7 @@ type Payload = {
   scheduled_date?: string;
   guesty_reservation_id?: string;
   location?: string;
+  inspection_task?: boolean;
 };
 
 export async function POST(req: Request) {
@@ -78,6 +79,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
+  if (!body || typeof body !== 'object' || Array.isArray(body) ||
+      Object.entries(body).some(([key, value]) => key !== 'inspection_task' && value != null && typeof value !== 'string') ||
+      (body.inspection_task != null && typeof body.inspection_task !== 'boolean')) {
+    return NextResponse.json({ error: 'Invalid work slip fields' }, { status: 400 });
+  }
   const propertyId = (body.property_id ?? '').trim();
   const title = (body.title ?? '').trim();
   const requestKey = (body.request_key ?? '').trim();
@@ -115,11 +121,12 @@ export async function POST(req: Request) {
   // caller a clean "skipped" instead of a raw constraint error. Personal
   // properties (65 Calderwood, 3246 NE 27th) are filtered concierge-side but
   // this also catches slug drift between the two systems.
-  const { data: prop } = await supabase
+  const { data: prop, error: propertyError } = await supabase
     .from('properties')
     .select('id, name')
     .eq('id', propertyId)
     .maybeSingle();
+  if (propertyError) return NextResponse.json({ error: 'Property lookup failed' }, { status: 503 });
   if (!prop) {
     return NextResponse.json(
       { ok: false, skipped: true, error: `unknown property_id ${propertyId}` },
@@ -128,19 +135,42 @@ export async function POST(req: Request) {
   }
   const propertyName = (prop.name as string | null) ?? propertyId;
 
+  async function confirmed(id: string, details: Record<string, unknown>) {
+    let fieldDelivery: unknown = { status: 'office_queue' };
+    if (body.inspection_task === true || category === 'inventory') {
+      const { data, error } = await supabase.rpc('helm_route_message_work', { p_slip_id: id });
+      if (error || !data) {
+        // The slip exists. Return a retryable error until routing is confirmed;
+        // the same request_key will recover it without making another slip.
+        return NextResponse.json({ error: 'Work slip saved; field routing needs retry', id }, { status: 503 });
+      }
+      fieldDelivery = data;
+    }
+    revalidatePath('/work');
+    revalidatePath('/turnovers');
+    revalidatePath('/field', 'layout');
+    revalidatePath('/fieldwork/packets');
+    return NextResponse.json({ ok: true, id, ...details, field_delivery: fieldDelivery });
+  }
+
+
   // Merge path: one slip per request_key, ever. A second ask on the same
   // stay lands as an update note; a closed slip reopens only for a changed ask.
   const fullTitle = `${propertyName}: ${title}`;
-  const { data: existingRows } = await supabase
+  const { data: existingRows, error: existingError } = await supabase
     .from('work_slips')
-    .select('id, status, description, title, action_summary')
+    .select('id, property_id, status, description, title, action_summary')
     .eq('from_guest_request_key', requestKey)
     .limit(1);
+  if (existingError) return NextResponse.json({ error: 'Work slip lookup failed' }, { status: 503 });
   const existing = existingRows?.[0] as
-    | { id: string; status: string; description: string | null; title: string; action_summary: string | null }
+    | { id: string; property_id: string; status: string; description: string | null; title: string; action_summary: string | null }
     | undefined;
 
   if (existing) {
+    if (existing.property_id !== propertyId) {
+      return NextResponse.json({ error: 'Request key belongs to another property' }, { status: 409 });
+    }
     const norm = (v: string | null | undefined) => (v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
     // The ask is the title plus the action summary, not the description:
     // the description carries the guest's latest message and our reply,
@@ -150,8 +180,8 @@ export async function POST(req: Request) {
       (!actionSummary || norm(existing.action_summary) === norm(actionSummary));
     const alreadyNoted =
       !!description && !!existing.description && existing.description.includes(description);
-    if (alreadyNoted) {
-      return NextResponse.json({ ok: true, id: existing.id, deduped: true });
+    if (alreadyNoted && sameAsk) {
+      return confirmed(existing.id, { deduped: true });
     }
     // A closed slip (done, dismissed, or parked as blocked) only stirs for a
     // changed ask. The same promise arriving again because we answered the
@@ -162,7 +192,7 @@ export async function POST(req: Request) {
     // something and must not be silently flipped.
     const closed = existing.status === 'done' || existing.status === 'dismissed' || existing.status === 'blocked';
     if (closed && sameAsk) {
-      return NextResponse.json({ ok: true, id: existing.id, deduped: true, reopened: false });
+      return confirmed(existing.id, { deduped: true, reopened: false });
     }
     // Reopen ONLY a completed slip, and only for a genuinely new ask — the
     // gear needs doing again.
@@ -172,6 +202,10 @@ export async function POST(req: Request) {
         .filter(Boolean)
         .join('\n\n') || null;
     const update: Record<string, unknown> = { description: mergedDescription };
+    if (!sameAsk) {
+      update.title = fullTitle;
+      update.action_summary = actionSummary;
+    }
     if (reopen) {
       update.status = 'open';
       update.completed_at = null;
@@ -192,7 +226,7 @@ export async function POST(req: Request) {
     }
     revalidatePath('/work');
     revalidatePath('/turnovers');
-    return NextResponse.json({ ok: true, id: existing.id, deduped: true, reopened: reopen });
+    return confirmed(existing.id, { deduped: true, reopened: reopen });
   }
 
   const insert = await supabase
@@ -221,18 +255,20 @@ export async function POST(req: Request) {
     // Partial unique index race: a concurrent replay inserted first. Treat
     // as success and hand back the winner, mirroring seam.ts.
     if (insert.error.code === '23505') {
-      const { data: winner } = await supabase
+      const { data: winner, error: winnerError } = await supabase
         .from('work_slips')
         .select('id')
         .eq('from_guest_request_key', requestKey)
+        .eq('property_id', propertyId)
         .limit(1);
       const id = (winner?.[0] as { id: string } | undefined)?.id ?? null;
-      return NextResponse.json({ ok: true, id, deduped: true });
+      if (winnerError || !id) return NextResponse.json({ error: 'Work slip confirmation failed' }, { status: 503 });
+      return confirmed(id, { deduped: true });
     }
     return NextResponse.json({ error: insert.error.message }, { status: 500 });
   }
 
   revalidatePath('/work');
   revalidatePath('/turnovers');
-  return NextResponse.json({ ok: true, id: (insert.data as { id: string }).id, deduped: false });
+  return confirmed((insert.data as { id: string }).id, { deduped: false });
 }

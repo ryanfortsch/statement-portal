@@ -693,6 +693,7 @@ export type OwnerApproval = {
    *  heads-up cards for the cleaning crew, mined from the owner's message
    *  (2026-09-23). Empty or absent when the message asked for nothing. */
   proposed_actions?: OwnerProposedAction[];
+  followup_status?: { state: string; enabled: number; error: string };
   /** Exactly who an approved reply reaches, and the identity it leaves as.
    *  The service computes this with the same code that sends, so the card
    *  cannot advertise a recipient the send would not use. Absent when the
@@ -823,19 +824,19 @@ export async function rejectOwnerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/reject`, { method: 'POST' });
 }
 
-export async function markHandledOwnerApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST' });
+export async function markHandledOwnerApproval(id: string, fileActions = true) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST', body: { file_actions: fileActions } });
 }
 
 /** Queue an owner draft to send at a future UTC ISO time. `finalText` is the
  * operator's hand-edited reply (same contract as approve): it persists before
  * scheduling so the queued send fires the edited text. */
-export async function scheduleOwnerApproval(id: string, sendAtUtc: string, finalText?: string) {
+export async function scheduleOwnerApproval(id: string, sendAtUtc: string, finalText?: string, fileActions = true) {
   return request<{ status: string; id: string; send_at: string }>(
     `/api/owner-approvals/${id}/schedule`,
     {
       method: 'POST',
-      body: { send_at: sendAtUtc, ...(finalText !== undefined ? { final_text: finalText } : {}) },
+      body: { send_at: sendAtUtc, file_actions: fileActions, ...(finalText !== undefined ? { final_text: finalText } : {}) },
     },
   );
 }
@@ -1511,4 +1512,12 @@ export type FleetCoverage = {
 export async function getFleetCoverage() {
   // A property page must not wait on the Mac Mini: 3s, then the item stays manual.
   return request<FleetCoverage>('/api/fleet/coverage', { method: 'GET', timeoutMs: 3000 });
+}
+
+
+export async function listWorkFollowups() {
+  return request<{
+    owner_items: { id: string; property_id: string; owner_name: string; state: string; error: string }[];
+    delivery_items: { id: string; property_id: string; title: string; error: string; attempts: number }[];
+  }>('/api/work-followups');
 }

@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+import { WorkFollowups } from './WorkFollowups';
 import Link from 'next/link';
 import { SectionTabs } from './SectionTabs';
 import { MessagingTabCount } from './MessagingTabCount';
@@ -49,6 +51,7 @@ export function MessagingTabs({
       : [{ id: 'inbox', label: 'Inbox', href: AUDIENCE_HOME[current] }];
 
   return (
+    <>
     <SectionTabs
       current={current}
       tabs={[
@@ -84,5 +87,7 @@ export function MessagingTabs({
         </div>
       }
     />
+    <Suspense fallback={null}><WorkFollowups /></Suspense>
+    </>
   );
 }

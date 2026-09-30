@@ -1,7 +1,6 @@
 'use client';
 
 import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
@@ -225,7 +224,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   const firstName = (approval.owner_name || '').trim().split(/\s+/)[0] || 'They';
 
   const proposedActions = approval.proposed_actions ?? [];
-  const [fileActions, setFileActions] = useState(true);
+  const [fileActions, setFileActions] = useState(approval.followup_status?.enabled !== 0);
 
   const canApprove = draftText.trim().length > 0 && !busy;
 
@@ -240,14 +239,14 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
     // An in-place edit rides along, mirroring approve, so the queued send
     // fires the operator's text.
     run('schedule', () =>
-      scheduleOwnerDraft(approval.id, sendAtIso, edited ? draftText : undefined),
+      scheduleOwnerDraft(approval.id, sendAtIso, edited ? draftText : undefined, fileActions),
     );
   };
   // Edits were persisted at schedule time, so Send now fires the stored draft.
   const doSendNow = () => run('send-now', () => approveOwnerDraft(approval.id, undefined, { fileActions }));
   const doCancelSchedule = () => run('cancel-schedule', () => cancelOwnerSchedule(approval.id));
   const doReject = () => run('reject', () => rejectOwnerDraft(approval.id));
-  const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id));
+  const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id, fileActions));
   const doCoach = () => {
     // Collapse the drawer immediately so the in-flight status line below
     // reads cleanly for the whole regeneration (guests-queue pattern —
@@ -526,6 +525,11 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             />
           )}
 
+          {approval.followup_status?.enabled !== 0 && approval.followup_status && ['checking', 'retrying', 'unchecked'].includes(approval.followup_status.state) && (
+            <p role="status" style={{ fontSize: 13, color: 'var(--signal)' }}>
+              {approval.followup_status.error || 'Checking this message for follow-up work.'}
+            </p>
+          )}
           {proposedActions.length > 0 && !isScheduled && (
             <ProposedActions actions={proposedActions} enabled={fileActions} onToggle={setFileActions} />
           )}

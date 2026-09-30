@@ -46,10 +46,10 @@ export async function rejectOwnerDraft(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function markOwnerHandled(id: string): Promise<ActionResult> {
+export async function markOwnerHandled(id: string, fileActions = true): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const res = await markHandledOwnerApproval(id);
+  const res = await markHandledOwnerApproval(id, fileActions);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/owner-messaging');
   return { ok: true };
@@ -62,11 +62,12 @@ export async function scheduleOwnerDraft(
   id: string,
   sendAt: string,
   finalText?: string,
+  fileActions = true,
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
   if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
-  const res = await scheduleOwnerApproval(id, sendAt, finalText);
+  const res = await scheduleOwnerApproval(id, sendAt, finalText, fileActions);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/owner-messaging');
   return { ok: true };
