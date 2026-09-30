@@ -1,8 +1,8 @@
 import { PilotFrame } from './PilotFrame';
 import s from './loading.module.css';
 
-export function PilotLoading({ inbox = false }: { inbox?: boolean }) {
-  return <PilotFrame section={inbox ? 'inbox' : 'calendar'}>
+export function PilotLoading({ inbox = false, portfolio = false }: { inbox?: boolean; portfolio?: boolean }) {
+  return <PilotFrame section={inbox ? 'inbox' : 'calendar'} portfolio={portfolio}>
     <div className={`${s.loading} ${inbox ? s.inboxLoading : ''}`} role="status" aria-live="polite" aria-busy="true">
       {inbox ? <div className={s.inbox}>
         <div className={s.list}>

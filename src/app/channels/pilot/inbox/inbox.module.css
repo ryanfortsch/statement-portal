@@ -19,6 +19,18 @@
 .channelFilter select { appearance: none; color: var(--muted); background: transparent; border: 0; min-height: 32px; padding: 4px 16px 4px 0; font-size: var(--type-caption); width: 92px; text-overflow: ellipsis; cursor: pointer; }
 .channelFilter>svg { pointer-events: none; position: absolute; right: 0; }
 .listTools { padding: 0 16px; }
+.propertyTools { display: flex; gap: 8px; margin-bottom: 8px; }
+.propertyTools label { display: flex; gap: 4px; align-items: center; min-width: 0; color: var(--muted); }
+.propertyTools label:first-child { flex: 1; }
+.propertyTools select { min-width: 0; width: 100%; min-height: 32px; padding: 4px 0; font-size: var(--type-small); color: var(--ink); border: 0; background: transparent; text-overflow: ellipsis; }
+.propertyTools label:last-child { width: 76px; flex-shrink: 0; }
+.rowProperty { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--type-caption); line-height: 16px; margin-top: 2px; }
+.rowProperty>span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.threadProperty { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.coverage { flex-shrink: 0; padding: 8px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--type-caption); line-height: 1.6; max-height: 28%; overflow-y: auto; }
+.coverage summary { cursor: pointer; min-height: 24px; display: list-item; }
+.coverage p { margin-top: 6px; }
+.historyNotice { padding: 8px 24px; font-size: var(--type-caption); color: var(--muted); background: var(--list-surface); }
 .search { display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-control); color: var(--muted); }
 .search:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; }
 .search input { width: 100%; min-width: 0; height: 32px; font-size: var(--type-small); background: transparent; border: 0; outline: 0; color: var(--ink); }
@@ -203,6 +215,7 @@
   .details { inset: 8px; width: calc(100% - 16px); max-width: calc(100% - 16px); height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
 }
 @media (pointer:coarse) {
+  .propertyTools select,.coverage summary { min-height: 44px; }
   .iconButton,.backButton,.closeDetails,.detailsButton,.threadSearch button { min-width: 44px; min-height: 44px; }
   .filters button,.stayIssue,.channelFilter select,.sourceDetails summary,.readOnly>a { min-height: 44px; }
   .search input,.threadSearch input { font-size: var(--type-subtitle); min-height: 44px; }

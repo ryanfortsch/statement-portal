@@ -38,19 +38,20 @@ export function PilotIcon({ name, size = 18 }: { name: string; size?: number }) 
 
 const labels = { calendar: 'Calendar', reservations: 'Reservations', inbox: 'Inbox', baseline: 'Migration review' };
 
-export function PilotFrame({ section, children, onSection }: {
+export function PilotFrame({ section, children, onSection, portfolio = false }: {
   section: PilotSection;
+  portfolio?: boolean;
   children: ReactNode;
   onSection?: (section: Exclude<PilotSection, 'inbox'>) => void;
 }) {
   if (section === 'inbox') return <div className={`${s.frame} ${s.inboxShell}`}>
     <header className={s.inboxBar}>
       <Link className={s.inboxBrand} href="/channels" aria-label="Helm channels"><PilotIcon name="helm" size={23}/><span>helm<span>.</span></span></Link>
-      <div className={s.inboxProperty}><span aria-hidden="true">/</span><strong>65 Calderwood</strong></div>
-      <nav aria-label="Calderwood workspace">
-        {(['inbox','calendar','reservations','baseline'] as const).map(key => <Link key={key} aria-label={labels[key]} title={labels[key]} href={key === 'inbox' ? '/channels/pilot/inbox' : `/channels/pilot?view=${key}`} aria-current={key === 'inbox' ? 'page' : undefined}><PilotIcon name={key} size={16}/><span>{labels[key]}</span></Link>)}
+      <div className={s.inboxProperty}><span aria-hidden="true">/</span><strong>{portfolio ? 'Guest messaging' : '65 Calderwood'}</strong></div>
+      <nav aria-label={portfolio ? 'Guest messaging workspace' : 'Calderwood workspace'}>
+        {portfolio ? [{ key: 'inbox', label: 'Inbox preview', href: '/messaging/inbox' }, { key: 'message', label: 'Current inbox', href: '/messaging' }, { key: 'calendar', label: 'Calderwood pilot', href: '/channels/pilot' }].map(item => <Link key={item.key} href={item.href} prefetch={false} aria-label={item.label} title={item.label} aria-current={item.key === 'inbox' ? 'page' : undefined}><PilotIcon name={item.key} size={16}/><span>{item.label}</span></Link>) : (['inbox','calendar','reservations','baseline'] as const).map(key => <Link key={key} aria-label={labels[key]} title={labels[key]} href={key === 'inbox' ? '/channels/pilot/inbox' : `/channels/pilot?view=${key}`} aria-current={key === 'inbox' ? 'page' : undefined}><PilotIcon name={key} size={16}/><span>{labels[key]}</span></Link>)}
       </nav>
-      <span className={s.pilotTag}><PilotIcon name="lock" size={12}/>Read-only pilot</span>
+      <span className={s.pilotTag}><PilotIcon name="lock" size={12}/>{portfolio ? 'Read-only preview' : 'Read-only pilot'}</span>
       <Link className={s.inboxExit} href="/" aria-label="Back to Helm" title="Back to Helm"><PilotIcon name="external" size={15}/></Link>
     </header>
     <div className={s.inboxContent}>{children}</div>
