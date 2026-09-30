@@ -64,29 +64,22 @@
 }
 @media (prefers-reduced-motion: reduce) { .frame *, .frame *::before, .frame *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 
-/* The inbox owns a full-height workspace rather than a page-level masthead. */
-.inboxShell { display: grid; height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 540px; grid-template-columns: 196px minmax(0,1fr); grid-template-rows: minmax(0,1fr); overflow: hidden; letter-spacing: -.15px; }
-.inboxSidebar { display: flex; flex-direction: column; min-width: 0; background: #172f2b; color: #b8c9c3; }
-.inboxBrand { display: flex; gap: 10px; align-items: center; height: 78px; flex-shrink: 0; padding: 0 23px; color: #ecf5f0 !important; }
-.inboxBrand>svg { color: #a5c8b9; }
-.inboxBrand>span { font-size: 28px; font-weight: 600; letter-spacing: -1.5px; }
-.inboxBrand>span>span { color: #a5c8b9; }
-.inboxProperty { padding: 14px 21px 21px; margin: 0 0 13px; border-bottom: 1px solid #ffffff12; }
-.inboxProperty>span { display: block; font-size: 9px; letter-spacing: 1.2px; font-weight: 500; color: #8fa99e; margin-bottom: 10px; }
-.inboxProperty>strong { display: flex; align-items: center; gap: 8px; color: #dce8e1; font-size: 12px; font-weight: 500; }
-.inboxProperty svg { color: #8ead9f; }
-.inboxSidebar nav { display: grid; gap: 4px; padding: 0 12px; }
-.inboxSidebar nav a { display: flex; align-items: center; gap: 11px; height: 40px; padding: 0 11px; color: #afc3b9; font-size: 12px; font-weight: 500; border-radius: 6px; transition: background .12s; }
-.inboxSidebar nav a:hover { color: #f3faf5; background: #ffffff08; }
-.inboxSidebar nav a[aria-current] { background: #ffffff12; color: #f1f8f3; box-shadow: inset 0 0 0 1px #ffffff06; }
-.inboxSidebar nav a[aria-current] svg { color: #c1dfce; }
-.inboxSidebar nav a i { margin-left: auto; width: 5px; height: 5px; border-radius: 50%; background: #b1d6c1; }
-.inboxSidebarFoot { margin-top: auto; padding: 18px 19px; display: grid; gap: 17px; }
-.inboxSidebarFoot>a { display: flex; gap: 9px; align-items: center; font-size: 11px; color: #b1c5ba; }
-.inboxSidebarFoot>a:hover { color: #fff; }
-.inboxSidebarFoot>a>svg:last-child:not(:first-child) { margin-left: auto; opacity: .6; }
-.pilotTag { display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a5bdb0; padding-bottom: 16px; border-bottom: 1px solid #ffffff16; }
-.inboxContent { min-width: 0; min-height: 0; }
-@media (max-width:1050px) { .inboxShell { grid-template-columns: 168px minmax(0,1fr); } .inboxBrand { padding-inline: 18px; } .inboxProperty { padding-inline: 17px; } .inboxProperty>span { font-size: 8px; letter-spacing: 1px; } .inboxSidebar nav { padding-inline: 8px; } .inboxSidebar nav a { font-size: 11px; gap: 8px; } .inboxSidebarFoot { padding-inline: 17px; } }
-@media (max-width:800px) { .inboxShell { grid-template-columns: 64px minmax(0,1fr); } .inboxBrand { padding: 0; justify-content: center; height: 70px; } .inboxBrand>span,.inboxProperty,.inboxSidebar nav a>span,.inboxSidebar nav a>i,.inboxSidebarFoot { display: none; } .inboxSidebar nav { padding: 5px 10px; gap: 9px; } .inboxSidebar nav a { justify-content: center; padding: 0; width: 44px; height: 42px; } }
-@media (max-width:650px) { .inboxShell { display: flex; min-height: 480px; } .inboxSidebar { flex-direction: row; align-items: center; height: 52px; flex-shrink: 0; } .inboxBrand { height: 52px; width: 54px; flex-shrink: 0; } .inboxBrand>svg { width: 23px; } .inboxSidebar nav { display: flex; padding: 0 8px 0 0; gap: 4px; flex: 1; justify-content: space-between; } .inboxSidebar nav a { width: auto; padding: 0 8px; gap: 5px; height: 34px; } .inboxSidebar nav a>span { display: inline; font-size: 10px; } .inboxSidebar nav a>svg { width: 14px; } .inboxSidebar nav a:last-child { display: flex; } .inboxSidebar nav a:not([aria-current])>span { display: none; } .inboxContent { flex: 1; } }
+/* A quiet application bar leaves the inbox width available to conversations. */
+.inboxShell { display: flex; flex-direction: column; height: calc(100dvh - var(--pilot-preview-height,0px)); min-height: 480px; overflow: hidden; letter-spacing: -.15px; background: #f7f8fa; }
+.inboxBar { display: flex; align-items: center; gap: 18px; height: 54px; padding: 0 22px; flex-shrink: 0; background: #f7f8fa; border-bottom: 1px solid #e5e8ed; }
+.inboxBrand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; color: #254d43 !important; }
+.inboxBrand>span { color: #242d32; font-size: 23px; font-weight: 600; letter-spacing: -1.1px; }
+.inboxBrand>span>span { color: #367465; }
+.inboxProperty { display: flex; align-items: center; gap: 17px; color: #9da3ac; white-space: nowrap; }
+.inboxProperty>strong { color: #616873; font-size: 12px; font-weight: 500; }
+.inboxBar nav { display: flex; align-items: center; gap: 5px; margin-left: 14px; }
+.inboxBar nav a { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px; color: #636b76; font-size: 12px; font-weight: 500; border-radius: 7px; transition: background .12s, color .12s; }
+.inboxBar nav a:hover { background: #eaeef1; color: #252e37; }
+.inboxBar nav a[aria-current] { background: #e4eae8; color: #285547; }
+.pilotTag { display: flex; align-items: center; gap: 6px; margin-left: auto; color: #717783; font-size: 11px; white-space: nowrap; }
+.inboxExit { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 6px; color: #707782 !important; }
+.inboxExit:hover { background: #eaeef1; }
+.inboxContent { flex: 1; min-width: 0; min-height: 0; }
+@media (max-width:1100px) { .inboxBar { gap: 14px; padding-inline: 18px; } .inboxBar nav { margin-left: auto; } .inboxBar nav a:not([aria-current])>span { display: none; } .pilotTag { margin-left: 6px; } }
+@media (max-width:800px) { .inboxBar { height: 50px; padding-inline: 16px; gap: 12px; } .inboxProperty { gap: 12px; } .pilotTag { display: none; } .inboxBar nav { gap: 3px; } .inboxBar nav a { padding-inline: 9px; } }
+@media (max-width:650px) { .inboxBar { padding-inline: 14px; gap: 10px; height: 48px; } .inboxBrand>span { display: none; } .inboxProperty { gap: 10px; } .inboxProperty>strong { font-size: 11px; } .inboxBar nav { gap: 1px; } .inboxBar nav a { width: 31px; padding: 0; justify-content: center; } .inboxBar nav a>span { display: none; } .inboxExit { display: none; } }

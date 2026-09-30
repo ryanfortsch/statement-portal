@@ -131,6 +131,7 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
         <aside className={s.list} aria-label="Conversations">
           <div className={s.listHeading}>
             <div><h1>Inbox</h1><span className={s.total} aria-label={`${rows.length} matching conversations`}>{rows.length}</span></div>
+            <label className={s.channelFilter}><span className={s.srOnly}>Filter by channel</span><select value={channel} onChange={e => setChannel(e.target.value)}><option value="all">All channels</option>{channels.map(value => <option key={value} value={value}>{channelName(value || 'Unknown')}</option>)}</select><PilotIcon name="down" size={11}/></label>
             <button className={s.iconButton} disabled={pending} aria-label={pending ? 'Refreshing conversations' : 'Refresh conversations'} title={`Updated ${time(data.asOf)} ET. Refresh conversations`} onClick={() => transition(() => router.refresh())}><PilotIcon name="refresh" size={16}/></button>
           </div>
           <div className={s.listTools}>
@@ -140,7 +141,7 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
             </div>
             {bookingId && <div className={s.filterNotice}>One reservation <Link href="/channels/pilot/inbox">Show all</Link></div>}
           </div>
-          <div className={s.listOrder}><span>CONVERSATIONS</span><label><span className={s.srOnly}>Filter by channel</span><select value={channel} onChange={e => setChannel(e.target.value)}><option value="all">All channels</option>{channels.map(value => <option key={value} value={value}>{channelName(value || 'Unknown')}</option>)}</select><PilotIcon name="down" size={12}/></label></div>
+
           <div className={s.conversationRows}>
             {rows.map(r => {
               const href = `/channels/pilot/inbox?conversation=${encodeURIComponent(r.conversation_id)}${bookingId ? `&booking=${encodeURIComponent(bookingId)}` : ''}`;
@@ -157,18 +158,20 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
         </aside>
 
         <main className={s.thread} aria-label="Conversation history" aria-busy={pending}>
+          <div className={s.threadHeader}>
           <header className={s.threadHead}>
             <button className={s.backButton} aria-label="Back to conversations" onClick={() => setMobileThread(false)}><PilotIcon name="back"/></button>
             <span className={s.headerAvatar} aria-hidden="true">{c ? initials(c.guest_full) : <PilotIcon name="message"/>}</span>
-            <div className={s.threadIdentity}><h2 title={c?.guest_full}>{c?.guest_full || 'Your guest conversations'}</h2><p>{c ? <><ChannelBadge channel={c.channel}/><span>·</span><span>65 Calderwood</span></> : 'Choose a conversation to get started'}</p></div>
+            <div className={s.threadIdentity}><h2 title={c?.guest_full}>{c?.guest_full || 'Your guest conversations'}</h2><p>{c ? <><ChannelBadge channel={c.channel}/><span>·</span><span>Guest conversation</span></> : 'Choose a conversation to get started'}</p></div>
             <button ref={searchButton} className={`${s.iconButton} ${searchOpen ? s.pressed : ''}`} aria-label="Search this conversation" aria-expanded={searchOpen} disabled={!c || !!data.threadError || !data.messages.length} title="Search this conversation" onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}><PilotIcon name="search" size={17}/></button>
             <button ref={detailsButton} className={s.detailsButton} aria-label="View reservation details" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}><PilotIcon name="panel" size={16}/><span>Stay details</span></button>
           </header>
+          {c && <div className={s.stayStrip}><div><PilotIcon name="calendar" size={16}/><strong>{date(c.check_in)} <span>→</span> {date(c.check_out)}</strong>{conversationNights !== null && <span>{conversationNights} {conversationNights === 1 ? 'night' : 'nights'}</span>}{c.booking?.num_guests != null && <span className={s.stayGuests}><PilotIcon name="people" size={14}/>{c.booking.num_guests} {c.booking.num_guests === 1 ? 'guest' : 'guests'}</span>}</div>{stayLabels[c.stay_status] && <span className={s.stayChip} data-status={c.stay_status}>{stayLabels[c.stay_status]}</span>}</div>}
+          </div>
           {searchOpen && <div className={s.threadSearch} onKeyDown={e => { if (e.key === 'Escape') closeSearch(); if (e.key === 'Enter' && e.target === searchInput.current && matches.length) setMatchIndex((currentMatch + (e.shiftKey ? matches.length - 1 : 1)) % matches.length); }}>
             <PilotIcon name="search" size={15}/><input ref={searchInput} aria-label="Find in conversation" placeholder="Find in this conversation…" value={messageQuery} onChange={e => { setMessageQuery(e.target.value); setMatchIndex(0); }}/><span role="status">{messageQuery.trim() ? matches.length ? `${currentMatch + 1} of ${matches.length} ${matches.length === 1 ? 'message' : 'messages'}` : 'No matches' : ''}</span>
             <button aria-label="Previous matching message" disabled={!matches.length} onClick={() => setMatchIndex((currentMatch + matches.length - 1) % matches.length)}><PilotIcon name="up" size={15}/></button><button aria-label="Next matching message" disabled={!matches.length} onClick={() => setMatchIndex((currentMatch + 1) % matches.length)}><PilotIcon name="down" size={15}/></button><button aria-label="Close conversation search" onClick={closeSearch}><PilotIcon name="close" size={15}/></button>
           </div>}
-          {c && <div className={s.stayStrip}><div><PilotIcon name="calendar" size={16}/><strong>{date(c.check_in)} <span>→</span> {date(c.check_out)}</strong>{conversationNights !== null && <span>{conversationNights} {conversationNights === 1 ? 'night' : 'nights'}</span>}{c.booking?.num_guests != null && <span className={s.stayGuests}><PilotIcon name="people" size={14}/>{c.booking.num_guests} {c.booking.num_guests === 1 ? 'guest' : 'guests'}</span>}</div>{stayLabels[c.stay_status] && <span className={s.stayChip} data-status={c.stay_status}>{stayLabels[c.stay_status]}</span>}</div>}
           {pending && <div className={s.progress} role="status">Loading conversation…</div>}
           {data.threadError ? <div className={s.empty}><span><PilotIcon name="info" size={24}/></span><h3>Messages couldn’t load</h3><p>{data.threadError}</p><button disabled={pending} onClick={() => transition(() => router.refresh())}>Try again</button></div> : <div ref={timeline} className={s.messages}>
             {data.messages.map((m, i) => <div key={`${m.id}:${i}`} className={`${s.messageGroup} ${matchedMessage === i ? s.matched : ''}`} data-message-index={i}>
@@ -186,7 +189,7 @@ export function PilotInbox({ data, bookingId }: { data: InboxData; bookingId?: s
             </div>)}
             {!data.messages.length && <div className={s.empty}><span><PilotIcon name="message" size={25}/></span><h3>{c ? 'No messages returned' : 'Select a conversation'}</h3><p>{c ? 'The source hasn’t returned any messages. Complete history is not yet verified.' : 'Guest messages and stay details will appear here.'}</p></div>}
           </div>}
-          <footer className={s.readOnly}><span><PilotIcon name="lock" size={15}/><span><strong>You’re viewing a read-only conversation</strong><small>Continue in guest messaging to manage replies.</small></span></span><Link href="/messaging">Guest messaging <PilotIcon name="external" size={13}/></Link></footer>
+          <footer className={s.readOnly}><span><PilotIcon name="lock" size={13}/>Read-only conversation</span><Link href="/messaging">Open guest messaging <PilotIcon name="external" size={13}/></Link></footer>
         </main>
 
         <dialog ref={detailsPanel} onCancel={e => { e.preventDefault(); closeDetails(); }} className={s.details} aria-label="Reservation context">

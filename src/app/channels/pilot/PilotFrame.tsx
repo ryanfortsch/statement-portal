@@ -44,18 +44,15 @@ export function PilotFrame({ section, children, onSection }: {
   onSection?: (section: Exclude<PilotSection, 'inbox'>) => void;
 }) {
   if (section === 'inbox') return <div className={`${s.frame} ${s.inboxShell}`}>
-    <aside className={s.inboxSidebar}>
-      <Link className={s.inboxBrand} href="/channels" aria-label="Helm channels"><PilotIcon name="helm" size={27}/><span>helm<span>.</span></span></Link>
-      <div className={s.inboxProperty}><span>PROPERTY WORKSPACE</span><strong><PilotIcon name="home" size={15}/>65 Calderwood</strong></div>
+    <header className={s.inboxBar}>
+      <Link className={s.inboxBrand} href="/channels" aria-label="Helm channels"><PilotIcon name="helm" size={23}/><span>helm<span>.</span></span></Link>
+      <div className={s.inboxProperty}><span aria-hidden="true">/</span><strong>65 Calderwood</strong></div>
       <nav aria-label="Calderwood workspace">
-        {(['inbox','calendar','reservations','baseline'] as const).map(key => <Link key={key} aria-label={labels[key]} title={labels[key]} href={key === 'inbox' ? '/channels/pilot/inbox' : `/channels/pilot?view=${key}`} aria-current={key === 'inbox' ? 'page' : undefined}><PilotIcon name={key} size={18}/><span>{labels[key]}</span>{key === 'inbox' && <i/>}</Link>)}
+        {(['inbox','calendar','reservations','baseline'] as const).map(key => <Link key={key} aria-label={labels[key]} title={labels[key]} href={key === 'inbox' ? '/channels/pilot/inbox' : `/channels/pilot?view=${key}`} aria-current={key === 'inbox' ? 'page' : undefined}><PilotIcon name={key} size={16}/><span>{labels[key]}</span></Link>)}
       </nav>
-      <div className={s.inboxSidebarFoot}>
-        <span className={s.pilotTag}><PilotIcon name="lock" size={12}/>Read-only pilot</span>
-        <Link href="/messaging"><PilotIcon name="message" size={17}/>Guest messaging<PilotIcon name="external" size={12}/></Link>
-        <Link href="/"><PilotIcon name="back" size={16}/>Back to Helm</Link>
-      </div>
-    </aside>
+      <span className={s.pilotTag}><PilotIcon name="lock" size={12}/>Read-only pilot</span>
+      <Link className={s.inboxExit} href="/" aria-label="Back to Helm" title="Back to Helm"><PilotIcon name="external" size={15}/></Link>
+    </header>
     <div className={s.inboxContent}>{children}</div>
   </div>;
   return (
