@@ -71,8 +71,8 @@ export function MaintenanceComplete({
       )}
       <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
 
-      {showDetail && (
-        <div style={{ marginBottom: 10 }}>
+      {(
+        <div hidden={!showDetail} style={{ marginBottom: 10 }}>
           {photoNudge && (
             <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--tide-deep)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
               📷 Snap a photo of the finished work
@@ -81,7 +81,7 @@ export function MaintenanceComplete({
           {/* /api/upload accepts the contractor cookie too (dual-plane) and
               honors the folder hint — /api/field/upload is avatar-specific
               and filed these under field-avatars/. Photo first when nudging. */}
-          <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
+          <PhotoUploader draftKey={`maintenance:${packetId}:${attachmentId ?? stopId}`} onRecovered={() => setShowDetail(true)} value={photos} onChange={setPhotos} folder="field-maintenance" />
           <textarea
             name="resolution"
             value={note}

@@ -27,7 +27,14 @@ await writeFile(join(scratch, 'compress.js'), compile(await readFile(join(root, 
 await writeFile(join(scratch, 'entry.js'), compile(`
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PhotoUploader } from './uploader.js';
+import { PhotoUploader, PhotoDraftScope, readPhotoDrafts, writePhotoDrafts, clearPhotoDrafts } from './uploader.js';
+const params = new URLSearchParams(location.search);
+const actor = params.get('actor');
+const job = params.get('job') || 'job-a';
+const scope = JSON.stringify([actor, job]);
+window.readDrafts = () => readPhotoDrafts(scope);
+window.clearSavedDrafts = urls => clearPhotoDrafts(scope, urls);
+window.addConcurrentDraft = () => writePhotoDrafts([{ id: crypto.randomUUID(), scope, createdAt: Date.now(), file: new File(['synthetic'], 'other-tab.png', {type: 'image/png'}) }]);
 window.changes = []; window.submits = 0; window.busyEvents = [];
 function Fixture() {
   const [urls, setUrls] = useState(['/synthetic/existing.png']);
@@ -38,9 +45,9 @@ function Fixture() {
   const [endpoint, setEndpoint] = useState('/api/upload');
   window.fixture = { setDisabled, setMounted, setEndpoint,
     addExternal: () => setUrls(v => [...v, '/synthetic/external.png']) };
-  return <main style={{maxWidth: 440, margin: '24px auto', fontFamily: 'sans-serif'}}>
+  return <PhotoDraftScope actor={actor}><main style={{maxWidth: 440, margin: '24px auto', fontFamily: 'sans-serif'}}>
     <form onSubmit={e => { e.preventDefault(); window.submits++; }}>
-      {mounted && <PhotoUploader value={urls} onChange={next => {
+      {mounted && <PhotoUploader draftKey={actor ? job : undefined} value={urls} onChange={next => {
         window.changes.push(next); setUrls(next);
       }} folder="synthetic-work-slip" endpoint={endpoint} disabled={disabled}
         onFailedUploadsChange={setFailed} onUploadingChange={value => { setBusy(value); window.busyEvents.push(value); }} />}
@@ -48,7 +55,7 @@ function Fixture() {
       <button id="direct-save" type="button" disabled={busy || failed > 0}>Save dialog</button>
     </form>
     <output id="urls">{JSON.stringify(urls)}</output>
-  </main>;
+  </main></PhotoDraftScope>;
 }
 createRoot(document.getElementById('root')).render(<Fixture />);
 `));
@@ -72,13 +79,13 @@ let peak = 0;
 const server = createServer(async (req, res) => {
   if (req.method === 'GET') {
     if (req.url === '/bundle.js') {
-      res.setHeader('Content-Type', 'text/javascript');
+      res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       res.end(await readFile(join(scratch, 'bundle.js')));
     } else if (req.url?.startsWith('/synthetic/')) {
       res.setHeader('Content-Type', 'image/png'); res.end(png);
     } else {
-      res.setHeader('Content-Type', 'text/html');
-      res.end('<!doctype html><meta name="viewport" content="width=device-width"><style>:root{--paper:#fff;--paper-2:#f6f3ed;--ink:#20303a;--ink-3:#52606a;--rule:#d6d0c6;--negative:#a32d2d}button{margin-top:6px}#urls{display:block;overflow-wrap:anywhere;font-size:11px;margin-top:20px}</style><div id="root"></div><script src="/bundle.js"></script>');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>:root{--paper:#fff;--paper-2:#f6f3ed;--ink:#20303a;--ink-3:#52606a;--rule:#d6d0c6;--negative:#a32d2d}button{margin-top:6px}#urls{display:block;overflow-wrap:anywhere;font-size:11px;margin-top:20px}</style><div id="root"></div><script src="/bundle.js"></script>');
     }
     return;
   }
@@ -106,14 +113,16 @@ let browser;
 const passed = [];
 const check = (name, fn) => { fn(); passed.push(name); console.log(`PASS ${name}`); };
 try {
-  browser = await puppeteer.launch({
+  const launchOptions = {
+    userDataDir: join(scratch, 'browser-profile'),
     executablePath: process.env.CHROME_EXECUTABLE_PATH || (process.platform === 'darwin'
       ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : await chromium.executablePath()),
     headless: true, args: process.platform === 'darwin' ? ['--no-sandbox'] : chromium.args,
-  });
-  const page = await browser.newPage();
+  };
+  browser = await puppeteer.launch(launchOptions);
+  let page = await browser.newPage();
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
-  const pageErrors = []; page.on('pageerror', e => pageErrors.push(e.message));
+  const pageErrors = []; page.on('dialog', dialog => dialog.accept()); page.on('pageerror', e => pageErrors.push(e.message));
   await page.setRequestInterception(true);
   page.on('request', request => {
     if (request.url().startsWith(origin + '/') || request.url().startsWith('data:')) request.continue();
@@ -204,6 +213,66 @@ try {
   await new Promise(resolve => setTimeout(resolve, 100));
   check('unmount stops queued work without a stale parent update', () => assert.equal(uploads.some(u => u.name === 'never-upload.png'), false));
   assert.equal(await page.evaluate(() => window.changes.length), changes);
+  // Persist the entire selection before the first slow upload, then restart
+  // Chromium against the same profile: this is a real IndexedDB round trip.
+  const openDraft = async (actor = 'contractor-a', job = 'job-a') => {
+    await page.goto(`${origin}/?actor=${actor}&job=${job}`);
+    await page.waitForSelector('input[type=file]'); await idle();
+  };
+  await openDraft();
+  await select('hold-restart.png', 'queued-restart.png');
+  await page.waitForFunction(async () => (await window.readDrafts()).length === 2);
+  while (!holds.has('hold-restart.png')) await new Promise(resolve => setTimeout(resolve, 20));
+  await browser.close();
+  holds.get('hold-restart.png')(); holds.delete('hold-restart.png');
+  browser = await puppeteer.launch(launchOptions);
+  page = await browser.newPage();
+  page.setDefaultTimeout(10000);
+  await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  page.on('dialog', dialog => dialog.accept());
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setRequestInterception(true);
+  page.on('request', request => request.url().startsWith(origin + '/') || request.url().startsWith('data:') ? request.continue() : request.abort());
+  await openDraft();
+  assert.equal(await page.$$eval('[aria-label^="Retry "]', els => els.length), 2);
+  assert.equal(uploads.some(item => item.name === 'queued-restart.png'), false);
+  passed.push('browser restart recovers every selected file, including files not yet uploaded');
+
+  await openDraft('contractor-b');
+  assert.equal(await page.$$eval('[aria-label^="Retry "]', els => els.length), 0);
+  await openDraft('contractor-a', 'job-b');
+  assert.equal(await page.$$eval('[aria-label^="Retry "]', els => els.length), 0);
+  await openDraft();
+  assert.equal(await page.$$eval('[aria-label^="Retry "]', els => els.length), 2);
+  passed.push('photo drafts are isolated by signed-in contractor and exact job');
+
+  await page.click('[aria-label="Retry hold-restart.png"]');
+  while (!holds.has('hold-restart.png')) await new Promise(resolve => setTimeout(resolve, 20));
+  holds.get('hold-restart.png')(); holds.delete('hold-restart.png'); await idle();
+  await page.click('[aria-label="Retry queued-restart.png"]'); await idle();
+  const recoveredUrls = await urls();
+  const uploadCount = uploads.length;
+  await openDraft();
+  assert.deepEqual(await urls(), recoveredUrls);
+  assert.equal(uploads.length, uploadCount);
+  passed.push('uploaded but not yet saved photo URLs recover without uploading duplicates');
+  await page.screenshot({ path: join(output, 'recovered-photos-mobile.png'), fullPage: true });
+
+  await page.evaluate(async urls => { await window.addConcurrentDraft(); await window.clearSavedDrafts(urls); }, recoveredUrls);
+  await openDraft();
+  assert.deepEqual(await urls(), ['/synthetic/existing.png']);
+  assert.equal(await page.$$eval('[aria-label^="Retry "]', els => els.length), 1);
+  await page.click('[aria-label="Remove failed photo other-tab.png"]');
+  await page.waitForFunction(async () => (await window.readDrafts()).length === 0);
+  await openDraft();
+  assert.equal(await page.$$eval('[aria-label^="Retry "]', els => els.length), 0);
+  passed.push('confirmed save clears only its uploaded photos; concurrent raw files survive until explicitly discarded');
+
+  await page.evaluate(() => { IDBObjectStore.prototype.put = () => { throw new DOMException('Synthetic storage full', 'QuotaExceededError'); }; });
+  await select('quota.png'); await idle();
+  assert.match(await page.$eval('body', el => el.textContent), /Couldn’t (save photos on this device|update the device copy)/);
+  assert.ok((await urls()).some(url => url.includes('quota.png')));
+  passed.push('storage failure is explicit and in-memory upload still works');
   assert.deepEqual(pageErrors, []);
   await writeFile(join(output, 'results.json'), JSON.stringify({ passed, checks: passed.length, peakConcurrentUploads: peak, syntheticOnly: true }, null, 2));
   console.log(`All ${passed.length} photo upload checks passed.`);

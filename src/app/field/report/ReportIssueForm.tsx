@@ -1,8 +1,8 @@
 'use client';
 
-import { useActionState, useRef, useState } from 'react';
+import { useActionState, useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
-import { PhotoUploader } from '@/components/PhotoUploader';
+import { PhotoUploader, useClearPhotoDraft } from '@/components/PhotoUploader';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { reportFieldWorkSlip, type ReportState } from '../actions';
 
@@ -62,8 +62,11 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
   }, { ok: false });
   const [initialSelected] = useState(visits.length === 1 ? visits[0].propertyId : '');
   const [selected, setSelected] = useState(initialSelected);
+  const draftKey = selected ? `report:${selected}` : '';
+  const clearDraft = useClearPhotoDraft(draftKey);
   const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal');
   const [photos, setPhotos] = useState<string[]>([]);
+  useEffect(() => { if (state.ok) void clearDraft(photos); }, [state.ok, photos, clearDraft]);
   // Controlled values survive React's form reset after a returned action error.
   const [details, setDetails] = useState({ title: '', location: '', description: '', expenseDollars: '' });
   const [uploading, setUploading] = useState(false);
@@ -117,7 +120,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
             name="property_id"
             required
             value={selected}
-            onChange={(e) => setSelected(e.target.value)}
+            onChange={(e) => (setPhotos([]), setSelected(e.target.value))}
             style={{ ...field, appearance: 'none', paddingRight: 38, color: selected ? 'var(--ink)' : 'var(--ink-4)', cursor: 'pointer' }}
           >
             <option value="" disabled>Choose a home you visited</option>
@@ -189,7 +192,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       {/* Photo */}
       <div>
         <span style={label}>Add a photo <span style={optional}>(optional, but it helps)</span></span>
-        <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" disabled={isPending} onUploadingChange={setUploading} />
+        <PhotoUploader draftKey={draftKey || undefined} value={photos} onChange={setPhotos} folder="field-maintenance" disabled={isPending} onUploadingChange={setUploading} />
       </div>
 
       {/* Receipt — bought something for the house out of pocket? The amount
