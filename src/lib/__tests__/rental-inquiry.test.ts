@@ -16,3 +16,9 @@ test('each quote action preserves its home, requested dates, party and source', 
   assert.equal(url.searchParams.get('first'), 'Alex & Sam');
   assert.equal(url.searchParams.get('source_ref'), 'sca_email:source');
 });
+
+test('email hard wraps join without flattening paragraphs and lists', async () => {
+  const { inquiryMessageText } = await import('../rental-inquiry.ts');
+  assert.equal(inquiryMessageText('Our plans are taking\r\nshape and we would like\r\nto book.\r\n\r\nWarmly,\r\nAlex'), 'Our plans are taking shape and we would like to book.\n\nWarmly, Alex');
+  assert.equal(inquiryMessageText('Options:\n- one\n- two'), 'Options:\n- one\n- two');
+});
