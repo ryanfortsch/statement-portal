@@ -1,6 +1,8 @@
 'use client';
 
 import { MessageOutcomes } from '@/components/MessageOutcomes';
+import { MaintenanceWorkPanel } from '@/components/MaintenanceWorkPanel';
+import { splitMaintenanceOutcomes } from '@/lib/message-outcomes';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -419,6 +421,7 @@ function ApprovalCard({
   const [cleanerChoice, setCleanerChoice] = useState<{ action: 'skip' | 'draft' | 'send'; token: string }>({ action: 'draft', token: '' });
   const cleanerAction = cleanerChoice.action === 'send' && cleanerChoice.token !== handoff?.preview_token ? 'draft' : cleanerChoice.action;
   const [createWorkSlip, setCreateWorkSlip] = useState(true);
+  const workOutcomes = splitMaintenanceOutcomes(approval);
   const [dismissingSlip, setDismissingSlip] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const approveOpts =
@@ -1213,28 +1216,14 @@ function ApprovalCard({
         </div>
       )}
 
-      {approval.maintenance_work && (
-        <div style={{ marginTop: 16, border: '1px solid var(--rule)', borderLeft: `3px solid ${HANDOFF_TONE}`, background: 'var(--paper)', padding: '12px 14px' }}>
-          <div className="eyebrow" style={{ color: HANDOFF_TONE, marginBottom: 6 }}>Property work slip</div>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-1)' }}>{approval.maintenance_work.title}</p>
-          {approval.maintenance_work.status === 'dismissed' ? <p style={{ fontSize: 12 }}>Work slip dismissed.</p> : approval.maintenance_work.slip_id ? (
-            <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginTop: 8, fontSize: 12 }}>
-              <a href={`/work/${encodeURIComponent(approval.maintenance_work.slip_id)}`} style={{ color: 'var(--ink-2)' }}>Work slip created</a>
-              <button type="button" className="eyebrow" disabled={busy || dismissingSlip} onClick={async () => {
-                setDismissingSlip(true); const result = await dismissMaintenanceSlip(approval.id);
-                if (!result.ok) setError(result.error); else onResolved(); setDismissingSlip(false);
-              }} style={{ background: 'none', border: 0, color: 'var(--ink-3)', cursor: 'pointer', textDecoration: 'underline' }}>{dismissingSlip ? 'Dismissing…' : 'Dismiss slip'}</button>
-            </div>
-          ) : (
-            <fieldset style={{ border: 0, padding: 0, margin: '10px 0 0', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 12 }} disabled={busy}>
-              <legend className="sr-only">Property work slip</legend>
-              <label><input type="radio" name={`work-${approval.id}`} checked={createWorkSlip} onChange={() => setCreateWorkSlip(true)} /> Create when I approve</label>
-              <label><input type="radio" name={`work-${approval.id}`} checked={!createWorkSlip} onChange={() => setCreateWorkSlip(false)} /> Skip</label>
-            </fieldset>
-          )}
-          {approval.maintenance_work.error && <p style={{ fontSize: 12, color: 'var(--signal)' }}>Work needs review. {approval.maintenance_work.error}</p>}
-        </div>
-      )}
+      {approval.maintenance_work && <MaintenanceWorkPanel
+        id={approval.id} work={approval.maintenance_work} outcome={workOutcomes.maintenance}
+        create={createWorkSlip} busy={busy} dismissing={dismissingSlip}
+        onCreateChange={setCreateWorkSlip} onDismiss={async () => {
+          setDismissingSlip(true); const result = await dismissMaintenanceSlip(approval.id);
+          if (!result.ok) setError(result.error); else onResolved(); setDismissingSlip(false);
+        }}
+      />}
 
       {handoff && (
         <div
@@ -1759,7 +1748,7 @@ function ApprovalCard({
           </div>
         </div>
       )}
-      <MessageOutcomes value={approval.outcomes} />
+      <MessageOutcomes value={workOutcomes.remaining} />
     </article>
   );
 }

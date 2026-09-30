@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assembleOutcomes, workKeys, noteStatus, workStatus, liveVisit, type OutcomeSource, type WorkRow } from '../message-outcomes.ts';
+import { assembleOutcomes, workKeys, noteStatus, workStatus, liveVisit, splitMaintenanceOutcomes, workError, type OutcomeSource, type WorkRow } from '../message-outcomes.ts';
 import { recentFollowups } from '../recent-followups.ts';
 const row:WorkRow={id:'slip',title:'Repair thermostat',status:'open',assigned_to_type:'unassigned',assigned_to_email:null,assigned_to_label:null,scheduled_date:null,completed_at:null,from_guest_request_key:'source-key',from_quo_message_id:null,from_gmail_message_id:null};
 const source:OutcomeSource={id:'card',followup_refs:{work:[{request_key:'source-key',id:'slip',title:'Old title',state:'filed',error:''}],notes:[],error:''}};
@@ -35,4 +35,46 @@ test('a live visit provides assignment without claiming the task is completed',(
  assert.equal(liveVisit({...stop,completed_at:'2026-10-01'},null,new Map()),null);
  assert.equal(liveVisit(stop,'2026-10-01',new Map()),null);
  assert.equal(liveVisit({...stop,inspection_packets:{...stop.inspection_packets,status:'cancelled'}},null,new Map()),null);
+});
+
+
+test('primary work is consolidated by source key before a slip exists', () => {
+  const card: OutcomeSource = { id: 'card', guesty_message_id: 'msg', listing_id: 'home',
+    maintenance_work: { status: 'detect', slip_id: '', title: 'Checking work', error: 'Maintenance evidence needs review; retrying' },
+    followup_refs: { work: [{ request_key: 'guest-maintenance:msg:home', id: '', title: 'Checking work', state: 'detect', error: 'retrying' }], notes: [], error: '' } };
+  const split = splitMaintenanceOutcomes({ ...card, outcomes: assembleOutcomes(card, []) });
+  assert.equal(split.maintenance?.status, 'detect');
+  assert.equal(split.remaining?.work.length, 0);
+  assert.match(workError(split.maintenance!), /isn’t ready yet/);
+});
+
+test('consolidating primary work preserves other slips, notes and lookup errors', () => {
+  const outcomes = assembleOutcomes(source, [row]);
+  const other = { ...outcomes.work[0], id: 'unrelated', requestKey: 'other' };
+  const note = { id: 'note', audience: 'cleaner' as const, recipient: 'Test', status: 'pending', body: 'Test', error: '' };
+  outcomes.work.push(other); outcomes.notes.push(note); outcomes.error = 'Unable to refresh notes';
+  const split = splitMaintenanceOutcomes({ id: 'card', outcomes,
+    maintenance_work: { status: 'filed', slip_id: 'slip', title: 'Old title', error: '' } });
+  assert.equal(split.maintenance?.id, 'slip');
+  assert.deepEqual(split.remaining, { work: [other], notes: [note], error: outcomes.error });
+});
+
+test('matching titles and empty IDs do not hide unproven work links', () => {
+  const outcomes = assembleOutcomes(source, [row]);
+  const split = splitMaintenanceOutcomes({ id: 'card', outcomes,
+    maintenance_work: { status: 'detect', slip_id: '', title: row.title, error: '' } });
+  assert.equal(split.maintenance, undefined);
+  assert.deepEqual(split.remaining, outcomes);
+});
+
+test('legacy maintenance references consolidate using the message and property IDs', () => {
+  const card: OutcomeSource = { id: 'card', guesty_message_id: 'msg', listing_id: 'home',
+    maintenance_work: { status: 'proposed', slip_id: '', title: 'Repair', error: '' } };
+  assert.equal(splitMaintenanceOutcomes({ ...card, outcomes: assembleOutcomes(card, []) }).remaining?.work.length, 0);
+});
+
+test('work errors distinguish extraction retries from unconfirmed creation', () => {
+  assert.match(workError({ status: 'pending', error: 'Timeout' }), /creation hasn’t been confirmed/);
+  assert.equal(workError({ status: 'unavailable', error: 'The current work slip could not be loaded.' }), 'The current work slip could not be loaded.');
+  assert.equal(workError({ status: 'proposed', error: '' }), '');
 });
