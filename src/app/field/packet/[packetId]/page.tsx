@@ -11,6 +11,7 @@ import { WORK_SLIP_CATEGORY_LABELS, type WorkSlipCategory } from '@/lib/work-typ
 import { isWorkingStatus } from '@/lib/field-packet-status';
 import { claimPacket, submitPacket, undoStartStop, reopenStop } from '../../actions';
 import { PendingButton } from './PendingButton';
+import { ClearCompletedFormDraft } from '@/components/FieldFormDraft';
 import { ClearPhotoDraft } from '@/components/PhotoUploader';
 import { MaintenanceComplete } from './MaintenanceComplete';
 import { StopWorkList, type StopWorkItem } from './StopWorkList';
@@ -1156,6 +1157,7 @@ export default async function PacketPage({
                         {noteBlock}
                         {slipBlock}
                         {chipsRow}
+                    {isMine && s.status === 'complete' && <ClearCompletedFormDraft draftKey={`maintenance:${packet.id}:${s.id}`} />}
                     {isMine && s.status === 'complete' && <ClearPhotoDraft confirmedUrls={s.workSlip?.photo_urls ?? []} draftKey={`maintenance:${packet.id}:${s.id}`} />}
                         {workList}
                         {reopenForm}
@@ -1254,6 +1256,7 @@ export default async function PacketPage({
                       </div>
                     )}
                     {chipsRow}
+                    {isMine && s.status === 'complete' && <ClearCompletedFormDraft draftKey={`maintenance:${packet.id}:${s.id}`} />}
                     {isMine && s.status === 'complete' && <ClearPhotoDraft confirmedUrls={s.workSlip?.photo_urls ?? []} draftKey={`maintenance:${packet.id}:${s.id}`} />}
                     {isMine && s.workSlip && !terminal && (
                       <MaintenanceComplete packetId={packet.id} stopId={s.id} photoNudge />

@@ -18,6 +18,8 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX,
 } }).outputText;
 for (const [name, path] of [
+  ['form-draft', 'src/components/FieldFormDraft.tsx'],
+  ['form-store', 'src/lib/field-form-drafts.ts'],
   ['component', 'src/app/field/report/ReportIssueForm.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
@@ -32,6 +34,7 @@ await writeFile(join(scratch, 'link.js'), compile(`
 `));
 await writeFile(join(scratch, 'upload.js'), compile(`
   export const useClearPhotoDraft=()=>async()=>{};
+  export const useDraftScope=local=>local ? JSON.stringify([new URLSearchParams(location.search).get('actor') || 'contractor-a',local]) : undefined;
   import React from 'react';
   export function PhotoUploader({value,onChange,onUploadingChange,disabled}) {
     return <div>
@@ -80,6 +83,8 @@ await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,
     entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},
     resolve:{modules:[join(root,'node_modules')],alias:{
+      '@/components/FieldFormDraft':join(scratch,'form-draft.js'),
+      '@/lib/field-form-drafts':join(scratch,'form-store.js'),
       '../actions':join(scratch,'actions.js'),
       'next/link':join(scratch,'link.js'),
       '@/components/PhotoUploader':join(scratch,'upload.js'),
@@ -89,6 +94,7 @@ await new Promise((done,reject)=>{
   compiler.run((error,stats)=>compiler.close(()=>error||stats?.hasErrors()
     ?reject(error||Error(stats.toString({all:false,errors:true}))):done()));
 });
+if(process.argv.includes('--compile-only')) { console.log('Field report fixture compiled.'); await rm(scratch,{recursive:true,force:true}); process.exit(0); }
 const server=createServer(async(req,res)=>{
   if(req.method!=='GET'){res.writeHead(405).end();return;}
   res.setHeader('Cache-Control','no-store');
@@ -124,7 +130,7 @@ try{
       assert.ok(button.asElement(),`Missing button: ${text}`);
       await button.asElement().click();await button.dispose();
     };
-    const reset=async(query='')=>{await page.goto(origin+'/'+query);await page.waitForSelector('form');};
+    const reset=async(query='')=>{await page.goto(origin+'/'+query);await page.evaluate(()=>localStorage.clear());await page.reload();await page.waitForSelector('form');await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);};
     const edit=(name,value)=>page.$eval(`[name="${name}"]`,(input,value)=>{
       const proto=input.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
       Object.getOwnPropertyDescriptor(proto,'value').set.call(input,value);
@@ -204,6 +210,57 @@ try{
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     assert.equal(await guard(),false);assert.deepEqual(errors,[]);
     pass('a response after unmount cannot leave a guard behind or produce browser errors');
+    await reset();await fill();await click('Remove photos');
+    const persisted=await data();
+    await waitText('Draft saved on this device. Not submitted yet.');
+    await page.reload();await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    assert.deepEqual(await data(),persisted);
+    assert.equal(await page.evaluate(()=>window.calls.length),0);
+    pass('reload restores selected home, all text, receipt and priority without submitting');
+
+    await page.select('[name=property_id]','South');
+    await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    assert.equal((await data()).title,'');
+    await edit('title','South home draft');
+    await page.select('[name=property_id]','North');
+    await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    assert.deepEqual(await data(),persisted);
+    pass('switching homes restores separate drafts without carrying details across properties');
+
+    await page.goto(origin+'/?actor=contractor-b');await page.waitForFunction(()=>document.querySelector('fieldset')&&!document.querySelector('fieldset').disabled);
+    assert.equal(await page.$eval('[name=title]',el=>el.value),'');assert.equal(await page.$eval('[name=property_id]',el=>el.value),'');
+    await page.goto(origin+'/');await page.waitForFunction(()=>document.querySelector('fieldset')&&!document.querySelector('fieldset').disabled);
+    assert.deepEqual(await data(),persisted);
+    pass('a different contractor cannot recover the original contractor draft');
+
+    await click('Send to the office');await waitCalls(1);
+    await finish({ok:false,error:'Synthetic failed save'});await waitText('Synthetic failed save');
+    await page.reload();await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    assert.deepEqual(await data(),persisted);
+    await click('Send to the office');await waitCalls(1);await finish({ok:true,home:'Synthetic North'});await waitText('Flagged. The office has it.');
+    await page.reload();await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    await page.select('[name=property_id]','North');await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    assert.equal((await data()).title,'');
+    await page.select('[name=property_id]','South');await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    assert.equal((await data()).title,'South home draft');
+    pass('failure keeps the draft across reload; success clears only the submitted property');
+
+    await reset('?single=1');await edit('title','Submitted version');await click('Send to the office');await waitCalls(1);
+    await page.evaluate(()=>{
+      const key='helm:field-form:v1:'+JSON.stringify(['contractor-a','report:North']);
+      const value=JSON.parse(localStorage.getItem(key));value.title='Newer tab draft';localStorage.setItem(key,JSON.stringify(value));
+    });
+    await finish({ok:true,home:'Synthetic North'});await waitText('Flagged. The office has it.');
+    await page.reload();await page.waitForFunction(()=>!document.querySelector('fieldset').disabled);
+    assert.equal((await data()).title,'Newer tab draft');
+    pass('a late successful response preserves a newer draft written by another tab');
+
+    await reset('?single=1');await page.evaluate(()=>{Storage.prototype.setItem=function(){throw new DOMException('Full','QuotaExceededError');};});
+    await edit('title','Still in memory');await waitText('Device storage is unavailable.');
+    assert.equal((await data()).title,'Still in memory');
+    await click('Send to the office');await waitCalls(1);await finish({ok:false,error:'Still editable'});await waitText('Still editable');
+    assert.equal((await data()).title,'Still in memory');assert.deepEqual(errors,[]);
+    pass('storage failure is visible and does not block in-memory editing or submission');
     console.log(`All ${checks} field report browser checks passed.`);
   }
 }catch(error){
