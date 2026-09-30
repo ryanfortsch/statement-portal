@@ -79,13 +79,13 @@ let peak = 0;
 const server = createServer(async (req, res) => {
   if (req.method === 'GET') {
     if (req.url === '/bundle.js') {
-      res.setHeader('Content-Type', 'text/javascript');
+      res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
       res.end(await readFile(join(scratch, 'bundle.js')));
     } else if (req.url?.startsWith('/synthetic/')) {
       res.setHeader('Content-Type', 'image/png'); res.end(png);
     } else {
-      res.setHeader('Content-Type', 'text/html');
-      res.end('<!doctype html><meta name="viewport" content="width=device-width"><style>:root{--paper:#fff;--paper-2:#f6f3ed;--ink:#20303a;--ink-3:#52606a;--rule:#d6d0c6;--negative:#a32d2d}button{margin-top:6px}#urls{display:block;overflow-wrap:anywhere;font-size:11px;margin-top:20px}</style><div id="root"></div><script src="/bundle.js"></script>');
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><style>:root{--paper:#fff;--paper-2:#f6f3ed;--ink:#20303a;--ink-3:#52606a;--rule:#d6d0c6;--negative:#a32d2d}button{margin-top:6px}#urls{display:block;overflow-wrap:anywhere;font-size:11px;margin-top:20px}</style><div id="root"></div><script src="/bundle.js"></script>');
     }
     return;
   }
