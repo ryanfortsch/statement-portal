@@ -1,13 +1,13 @@
 # 17 Beach Channex staging connector
 
-Status: authenticated and verified against Channex staging on September 30, 2026. Actual inventory read/write and a five-revision synthetic booking lifecycle passed. This is a CLI integration harness in the Helm repository, not a deployed Helm screen or a running sync service.
+Status: authenticated and verified against Channex staging on September 30, 2026. Actual inventory read/write and a five-revision synthetic booking lifecycle passed. The connector now includes an authenticated, read-only Helm staging workspace at `/channels/staging`, in addition to the operator-run CLI. It is not a running sync service.
 
 ## Scope and isolation
 
 Base: `a148b0e6` from current `origin/main`. Branch: `codex/channex-staging-pilot`.
 
 The existing Calderwood/all-property inbox work and PR #1695 remain separate.
-No production DB, Guesty client, calendar writer, cron, public webhook route, channel mapping, guest message send, or production environment change is included. The only host in the adapter is `https://staging.channex.io/api/v1`. Redirects are rejected and the key travels in the `user-api-key` header, never a URL. Errors omit response bodies and secrets.
+The staging workspace can read the existing 17 Beach whole-house calendar copy from Helm. It selects only property identity, Guesty mapping and per-night status/timestamps. There are no DB writes, Guesty API calls, calendar writers, crons, public webhooks, channel changes, guest message sends or production environment changes. The only host in the adapter is `https://staging.channex.io/api/v1`. Redirects are rejected and the key travels in the `user-api-key` header, never a URL. Errors omit response bodies and secrets.
 
 | Unit | Staging property | Staging room | Capacity |
 | --- | --- | --- | --- |
@@ -30,7 +30,29 @@ Each has one rate plan named `TEST ONLY - 20-night pilot - $100 placeholder`. Th
 - The current minimum remains 20 nights. Shorter front-unit stays during a long back-unit booking are a future operator-approved policy, not implemented automatically.
 - Same-unit and whole/unit overlaps are reported as conflicts. They do not silently delete a booking.
 
-These are pure rules and synthetic tests. The live Guesty whole-house feed has not been connected to this adapter, and live bidirectional shared-inventory protection has not been proven.
+The comparison screen can combine real whole-house calendar copies with synthetic Channex stays. Its whole-house reader is implemented and fixture-tested; actual parent-calendar access is pending verification in the authenticated preview. Live bidirectional shared-inventory protection has not been proven.
+
+## Read-only Helm staging workspace
+
+- `/channels/staging` is the staff-authenticated UI; `/api/channels/staging` accepts GET only, checks the Rising Tide session again and sends `Cache-Control: private, no-store`.
+- Enable only with `CHANNEX_STAGING_ENABLED=true` in development or a Vercel preview. Production is rejected even if the flag is present. The Channels hub link appears only when enabled.
+- `CHANNEX_STAGING_API_KEY` stays server-side. The user-created key can be scoped to the existing `codex/channex-staging-pilot` Vercel preview branch; no production configuration changes are needed.
+- The page uses Channex's full current booking collection, not the revision feed. Refresh is GET-only and never acknowledges revisions, writes the CLI journal, changes inventory, or creates/cancels bookings.
+- The whole-house reader uses the environment's existing Helm database configuration. It requires `properties.id = 17_beach_rd`, Guesty calendar authority and exactly one Guesty mapping, `695d5c8afb0a0500153d5d1c`. This matters because Helm's day mirror can combine multiple listings; an ambiguous mapping fails closed.
+- The calendar query is bounded to 120 nights, January 1 through April 30, 2027. No guest names, notes, contact details, revenue or payment fields are selected. No parent data is written to the local journal or sent to Channex.
+- Missing nights, unknown statuses, future sync timestamps and copies older than two hours are unverified. They never appear as conflict-free. This freshness threshold is for review only, not approval to sell.
+- The three-row calendar has month/fortnight navigation and a selected-night inspector. It explains inherited closures and unit stays, shows source timestamps, stop-sell and arrival minimums, and flags potential parent/test overlaps. `No conflict found` is expressly not published availability.
+- Bookings are synthetic current records with unit/date/status only. Cancellation history remains in the separate durable CLI journal.
+- The UI has no automatic polling or writes. Existing authentication, calendar sync, Guesty token caching, the inbox pilot and other Helm modules are unchanged.
+
+### September 30 workspace validation
+
+- Actual read-only staging snapshot: two mapped properties, two cancelled test bookings, 240 unit-nights verified stop-sell, all with arrival minimum 20.
+- 34 focused tests passed, including source freshness, mapping ambiguity, privacy, GET-only reads, production lockout, inherited closures and independent cancellations.
+- The source-boundary test was mutation-checked: removing the environment gate caused a failure, and the route was restored.
+- Full `npm test`: 1,673 passed. TypeScript and targeted lint passed.
+- Current `origin/main` was checked at `1f548aa6`; this ongoing owned branch retains its original `a148b0e6` base. No other checkout was changed.
+- Rendered visual acceptance and authenticated whole-house read remain pending. The previously blocked local preview has not been retried or bypassed.
 
 ## Operator commands
 
@@ -85,7 +107,7 @@ Completed locally:
 Pending:
 
 1. Exercise an injected process interruption after save and before ACK against actual staging. Unit-level restart/retry checks already pass.
-2. Connect the test report to an authenticated Helm staging screen, with durable non-production storage and signed webhooks/fallback polling. Current code is operator-driven only.
+2. Verify the new workspace in an authenticated preview with actual parent calendar rows. Durable non-production sync storage, signed webhooks and fallback polling remain future work; this workspace deliberately performs GET-only snapshots.
 3. Prove whole-house Guesty coordination, existing stays/holds, recovery/outages, seasonal boundaries and the dynamic minimum-stay policy before any OTA authorization.
 4. Certify the integration with Channex. Test actual Airbnb booking/message delivery separately. No certification or live readiness is claimed.
 

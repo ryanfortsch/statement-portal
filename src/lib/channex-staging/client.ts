@@ -1,9 +1,11 @@
-/** Node-only staging adapter. Imported by the explicit CLI, never by production jobs. */
+/** Server/CLI-only staging adapter. Never used by production jobs. */
 import { PILOTS, TEST_RATE_TITLE, TEST_START, TEST_END, nights, record, textField, normalizeRevision, applyRevision, type Unit, type Ledger, type Revision, type AvailabilityDay } from './core.ts';
 
 const BASE = 'https://staging.channex.io/api/v1';
 type Json = Record<string, unknown>;
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+export type StagingNight = { unit: Unit; date: string; inventory: 0 | 1 | null; stopSell: boolean | null; minStay: number | null };
+export type StagingSnapshot = { mappings: PilotMapping[]; bookings: Revision[]; inventory: StagingNight[] };
 export type PilotMapping = { unit: Unit; propertyId: string; roomTypeId: string; ratePlanId: string; capacity: number };
 export class StagingApiError extends Error {
   readonly status: number;
@@ -77,6 +79,30 @@ export class ChannexStagingClient {
       mappings.push({ unit, propertyId: expected.propertyId, roomTypeId: expected.roomTypeId, ratePlanId: uuid(textField(rate.id)), capacity: expected.capacity });
     }
     return mappings;
+  }
+  /** Read current bookings without consuming or acknowledging the revision feed. */
+  async readSnapshot(): Promise<StagingSnapshot> {
+    const mappings = await this.inspect();
+    const bookings: Revision[] = [], inventory: StagingNight[] = [];
+    const dates = nights(TEST_START, TEST_END);
+    for (const mapping of mappings) {
+      const rows = await this.#list('/bookings', mapping.unit);
+      for (const row of rows) {
+        const attrs = record(row.attributes);
+        const booking = normalizeRevision({ id: textField(attrs.revision_id), attributes: { ...attrs, booking_id: textField(row.id) } });
+        if (booking.member !== mapping.unit) throw new Error('Booking is outside the requested pilot');
+        bookings.push(booking);
+      }
+      const params = new URLSearchParams({ 'filter[property_id]': mapping.propertyId, 'filter[date][gte]': dates[0], 'filter[date][lte]': dates[dates.length - 1] });
+      const actual = record(record((await this.#request(`/availability?${params}`)).data)[mapping.roomTypeId] ?? {});
+      params.set('filter[restrictions]', 'min_stay_arrival,stop_sell');
+      const restrictions = record(record((await this.#request(`/restrictions?${params}`)).data)[mapping.ratePlanId] ?? {});
+      for (const date of dates) {
+        const rate = record(restrictions[date] ?? {}), count = actual[date];
+        inventory.push({ unit: mapping.unit, date, inventory: count === 0 || count === 1 ? count : null, stopSell: typeof rate.stop_sell === 'boolean' ? rate.stop_sell : null, minStay: typeof rate.min_stay_arrival === 'number' && Number.isInteger(rate.min_stay_arrival) && rate.min_stay_arrival > 0 ? rate.min_stay_arrival : null });
+      }
+    }
+    return { mappings, bookings, inventory };
   }
   async readRevisions(): Promise<Revision[]> {
     const rows: Revision[] = [];

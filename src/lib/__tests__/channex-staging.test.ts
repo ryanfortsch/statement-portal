@@ -120,7 +120,7 @@ test('journal survives reload, is private, and rejects concurrent writers', asyn
 });
 
 const rateId = '00000000-0000-4000-8000-000000000001';
-function fakeApi(options: { channel?: boolean; warn?: boolean; readBackMismatch?: boolean; pages?: boolean } = {}) {
+function fakeApi(options: { channel?: boolean; warn?: boolean; readBackMismatch?: boolean; pages?: boolean; realBooking?: boolean; wrongBookingProperty?: boolean } = {}) {
   const calls: Array<{ url: URL; init?: RequestInit }> = [];
   const fake = async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input)); calls.push({ url, init });
@@ -134,6 +134,11 @@ function fakeApi(options: { channel?: boolean; warn?: boolean; readBackMismatch?
     else if (url.pathname.endsWith('/availability')) body = { data: { [p.roomTypeId]: { '2027-02-01': options.readBackMismatch ? 9 : 0 } } };
     else if (url.pathname.endsWith('/restrictions')) body = { data: { [rateId]: { '2027-02-01': { rate: '100.00', stop_sell: true, min_stay_arrival: 20, min_stay_through: 1 } } } };
     else if (url.pathname.endsWith('/rate_plans')) body = { data: [{ id: rateId, attributes: { title: TEST_RATE_TITLE, currency: 'USD', stop_sell: Array(7).fill(true) }, relationships: rel }], meta: { page: 1, total: 1, limit: 100 } };
+    else if (url.pathname.endsWith('/bookings')) {
+      const r = raw();
+      const attributes = { ...r.attributes, property_id: options.wrongBookingProperty ? PILOTS.back.propertyId : p.propertyId, rooms: [{ ...r.attributes.rooms[0], room_type_id: options.wrongBookingProperty ? PILOTS.back.roomTypeId : p.roomTypeId }], ota_name: options.realBooking ? 'Airbnb' : 'Offline', revision_id: `revision-${unit}` };
+      body = { data: [{ id: `booking-${unit}`, attributes }], meta: { page: 1, total: 1, limit: 100 } };
+    }
     else if (url.pathname.endsWith('/booking_revisions/feed')) {
       const page = Number(url.searchParams.get('pagination[page]'));
       const r = raw(); r.id = `r${page}`;
@@ -202,4 +207,21 @@ test('accepted tasks are not reported as verified when inventory read-back diffe
   await assert.rejects(() => client.publishStoppedInventory(availability(emptyLedger(), [], '2027-02-01', '2027-02-02', full)), /read-back did not match/);
   assert.equal(calls.filter((r) => r.init?.method === 'POST').length, 4, 'no repeated writes while polling');
   assert.equal(calls.filter((r) => r.url.pathname.endsWith('/availability') && r.init?.method === 'GET').length, 8);
+});
+
+test('workspace snapshot reads complete booking lists without consuming or acknowledging the feed', async () => {
+  const { client, calls } = fakeApi();
+  const result = await client.readSnapshot();
+  assert.equal(result.bookings.length, 2);
+  assert.equal(result.inventory.length, 240);
+  assert.deepEqual(result.bookings.map((b) => b.member), ['front', 'back']);
+  assert.equal(result.inventory.find((d) => d.unit === 'back' && d.date === '2027-02-01')?.stopSell, true);
+  assert.equal(result.inventory.find((d) => d.date === '2027-02-02')?.stopSell, null, 'missing values are unknown');
+  assert.doesNotMatch(JSON.stringify(result), /Not retained|customer|guarantee|unit-test-secret/);
+  assert.ok(calls.every((call) => call.init?.method === 'GET'));
+  assert.ok(calls.every((call) => !call.url.pathname.includes('booking_revisions')));
+});
+test('workspace rejects non-test bookings and an ignored property filter', async () => {
+  await assert.rejects(() => fakeApi({ realBooking: true }).client.readSnapshot(), /Non-synthetic/);
+  await assert.rejects(() => fakeApi({ wrongBookingProperty: true }).client.readSnapshot(), /outside the requested/);
 });
