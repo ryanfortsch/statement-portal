@@ -1,3 +1,4 @@
+import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -174,6 +175,7 @@ export default function OwnerMessagingPage() {
       <Suspense fallback={<QueueSkeleton />}>
         <OwnerQueueSection />
       </Suspense>
+      <Suspense fallback={null}><RecentMessageOutcomesSection audience="owners" /></Suspense>
       <Suspense fallback={null}>
         <ProposedUpdatesSection />
       </Suspense>

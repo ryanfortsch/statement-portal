@@ -14,11 +14,12 @@
  * should render a setup hint instead of crashing the page.
  */
 
+import type { MessageOutcomeCarrier } from '@/lib/message-outcomes';
 import type { RentalInquiry } from '@/lib/rental-inquiry';
 
 import type { ConciergeAttention } from '@/lib/concierge-alerts';
 
-export type Approval = {
+export type Approval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   /** Undo rail (2026-09-20), on /approvals/recent rows only: a rejected or
@@ -438,11 +439,11 @@ export async function endRecurring(id: string) {
 }
 
 export async function listApprovals() {
-  return request<ApprovalsResponse>('/api/approvals');
+  return withMessageOutcomes(request<ApprovalsResponse>('/api/approvals'));
 }
 
 export async function listRecentApprovals(hours = 24) {
-  return request<ApprovalsResponse>(`/api/approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<ApprovalsResponse>(`/api/approvals/recent?hours=${hours}`));
 }
 
 /** Only the overrides the card actually carries travel; an ordinary approval
@@ -685,7 +686,7 @@ export async function sendConversationMessage(
 
 // ── Owner-messaging surface (mirrors the guest one) ──────────────────────
 
-export type OwnerApproval = {
+export type OwnerApproval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   channel: string;            // 'sms_quo' | 'email_gmail'
@@ -814,11 +815,11 @@ export type OwnerApprovalsResponse = {
 };
 
 export async function listOwnerApprovals() {
-  return request<OwnerApprovalsResponse>('/api/owner-approvals');
+  return withMessageOutcomes(request<OwnerApprovalsResponse>('/api/owner-approvals'));
 }
 
 export async function listRecentOwnerApprovals(hours = 24) {
-  return request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`));
 }
 
 export async function approveOwnerApproval(
@@ -1012,7 +1013,7 @@ export type ProposedWorkSlip = {
   note: string;
 };
 
-export type CleanerApproval = {
+export type CleanerApproval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   channel: string;                  // 'sms_quo'
@@ -1047,11 +1048,11 @@ export type CleanerApprovalsResponse = {
 };
 
 export async function listCleanerApprovals() {
-  return request<CleanerApprovalsResponse>('/api/cleaner-approvals');
+  return withMessageOutcomes(request<CleanerApprovalsResponse>('/api/cleaner-approvals'));
 }
 
 export async function listRecentCleanerApprovals(hours = 24) {
-  return request<CleanerApprovalsResponse>(`/api/cleaner-approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<CleanerApprovalsResponse>(`/api/cleaner-approvals/recent?hours=${hours}`));
 }
 
 /** Approve a cleaner draft. `opts` carries the operator's decision on the
@@ -1129,7 +1130,7 @@ export async function saveCleanerCuratedFacts(content: string) {
 // are no PT/EN translation fields, so ContractorApproval drops
 // cleaner_text_english / inbound_language / draft_english.
 
-export type ContractorApproval = {
+export type ContractorApproval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   channel: string;                  // 'sms_quo'
@@ -1161,11 +1162,11 @@ export type ContractorApprovalsResponse = {
 };
 
 export async function listContractorApprovals() {
-  return request<ContractorApprovalsResponse>('/api/contractor-approvals');
+  return withMessageOutcomes(request<ContractorApprovalsResponse>('/api/contractor-approvals'));
 }
 
 export async function listRecentContractorApprovals(hours = 24) {
-  return request<ContractorApprovalsResponse>(`/api/contractor-approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<ContractorApprovalsResponse>(`/api/contractor-approvals/recent?hours=${hours}`));
 }
 
 /** Approve a contractor draft. `opts` carries the operator's decision on the
@@ -1541,4 +1542,17 @@ export async function listWorkFollowups() {
 
 export async function markMaintenanceDismissed(id: string) {
   return request<{ ok: boolean }>(`/api/approvals/${id}/maintenance_dismissed`, { method: 'POST' });
+}
+
+type StayConciergeResult<T> = { ok: true; data: T } | { ok: false; error: StayConciergeError };
+
+async function withMessageOutcomes<T extends { approvals: import('./message-outcomes').OutcomeSource[] }>(pending: Promise<StayConciergeResult<T>>): Promise<StayConciergeResult<T>> {
+  const result = await pending;
+  if (!result.ok) return result;
+  try {
+    const { enrichMessageOutcomes } = await import('./message-outcomes-server');
+    return { ...result, data: { ...result.data, approvals: await enrichMessageOutcomes(result.data.approvals) } };
+  } catch {
+    return { ...result, data: { ...result.data, approvals: result.data.approvals.map(a => ({ ...a, outcomes: { work: [], notes: a.followup_refs?.notes ?? [], error: 'Linked work status could not be checked.' } })) } };
+  }
 }
