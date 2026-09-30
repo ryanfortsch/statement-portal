@@ -1,3 +1,4 @@
+import { InboxHealth } from '@/components/InboxHealth';
 import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
@@ -48,6 +49,9 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Streams in: the shell must still paint with no backend call. */}
       <Suspense fallback={null}>
         <AiStatusBanner />
+      </Suspense>
+      <Suspense fallback={null}>
+        <InboxHealth />
       </Suspense>
 
       {children}
