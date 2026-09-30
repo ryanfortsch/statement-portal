@@ -1,5 +1,6 @@
 'use client';
 
+import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
@@ -314,6 +315,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   if (isScheduled && !expanded) {
     return (
       <article
+        id={`approval-${approval.id}`}
         ref={cardRef}
         style={{
           border: '1px solid var(--rule)',
@@ -368,12 +370,14 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             {error}
           </p>
         )}
-      </article>
+          <MessageOutcomes value={approval.outcomes} />
+    </article>
     );
   }
 
   return (
     <article
+      id={`approval-${approval.id}`}
       ref={cardRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
@@ -671,6 +675,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
           )}
         </>
       )}
+      <MessageOutcomes value={approval.outcomes} />
     </article>
   );
 });

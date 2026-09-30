@@ -1,3 +1,4 @@
+import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -221,6 +222,7 @@ export default function MessagingPage() {
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
       </Suspense>
+      <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
       <Suspense fallback={null}>
         <RecentDecisionsSection />
       </Suspense>

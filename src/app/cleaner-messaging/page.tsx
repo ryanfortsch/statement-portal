@@ -1,3 +1,4 @@
+import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
@@ -181,6 +182,7 @@ export default function CleanerMessagingPage({
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
       </Suspense>
+      <Suspense fallback={null}><RecentMessageOutcomesSection audience="cleaners" /></Suspense>
       <Suspense fallback={null}>
         <ProposedUpdatesSection />
       </Suspense>

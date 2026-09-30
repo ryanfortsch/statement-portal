@@ -1,5 +1,6 @@
 'use client';
 
+import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
@@ -239,6 +240,7 @@ function CleanerApprovalCard({
   if (isScheduled && !expanded) {
     return (
       <article
+        id={`approval-${approval.id}`}
         ref={cardRef}
         style={{
           border: '1px solid var(--rule)',
@@ -293,12 +295,14 @@ function CleanerApprovalCard({
             {error}
           </p>
         )}
-      </article>
+          <MessageOutcomes value={approval.outcomes} />
+    </article>
     );
   }
 
   return (
     <article
+      id={`approval-${approval.id}`}
       ref={cardRef}
       style={{
         border: '1px solid var(--rule)',
@@ -607,6 +611,7 @@ function CleanerApprovalCard({
           </div>
         </div>
       )}
+      <MessageOutcomes value={approval.outcomes} />
     </article>
   );
 }
