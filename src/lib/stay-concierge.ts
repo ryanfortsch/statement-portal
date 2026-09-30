@@ -57,6 +57,7 @@ export type Approval = {
   /** Note to a teammate this reply commits us to. Null/absent for ordinary
    * cards. See TeamHandoff. */
   handoff?: TeamHandoff | null;
+  maintenance_work?: { status: string; slip_id: string; title: string; error: string } | null;
   /** The guest's email, when the card's channel knows it: a 2027 request
    * carries it in its own sidecar, an email card IS an address. Empty on OTA
    * chat. Helm uses it to open the quote composer complete and to find this
