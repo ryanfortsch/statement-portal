@@ -67,6 +67,8 @@ jobs:
         run: node scripts/intake-jobs-smoke.mjs
       - name: Verify property capture, walkthrough, inline edits, and address recovery
         run: node scripts/property-capture-smoke.mjs
+      - name: Verify marketing memory and quick-add recovery
+        run: node scripts/marketing-quick-add-smoke.mjs
       - name: Verify campaign creation and delete recovery
         run: node scripts/campaign-delete-recovery-smoke.mjs
       - name: Verify PDF downloads and onboarding navigation

@@ -4,8 +4,9 @@ import { MarketingTabs } from '@/components/MarketingTabs';
 import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/guests';
 import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from '@/lib/guests-types';
 import { getLastGuestySyncStatus } from '@/lib/guests-guesty-sync';
-import { manuallyAddContact, syncFromGuesty } from '../actions';
+import { syncFromGuesty } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
+import { AddGuestContactForm } from './AddGuestContactForm';
 import { GuestsTabBar } from '../GuestsTabBar';
 
 export const dynamic = 'force-dynamic';
@@ -155,34 +156,7 @@ export default async function GuestContactsPage({
             Marketing Memory
           </Link>
           <span style={{ flex: 1 }} />
-          <details style={{ position: 'relative' }}>
-            <summary style={{ ...secondaryButtonStyle, cursor: 'pointer', listStyle: 'none' }}>
-              + Add Contact
-            </summary>
-            <form
-              action={manuallyAddContact}
-              style={{
-                position: 'absolute',
-                right: 0,
-                top: 'calc(100% + 8px)',
-                background: 'var(--paper)',
-                border: '1px solid var(--ink)',
-                padding: 16,
-                width: 320,
-                zIndex: 10,
-                display: 'grid',
-                gap: 8,
-              }}
-            >
-              <input name="email" type="email" placeholder="email@example.com" required style={inputStyle} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <input name="first_name" placeholder="First" style={inputStyle} />
-                <input name="last_name" placeholder="Last" style={inputStyle} />
-              </div>
-              <input name="tags" placeholder="tags, comma, separated" style={inputStyle} />
-              <SubmitButton label="Add" busyLabel="Adding…" style={primaryButtonStyle} />
-            </form>
-          </details>
+          <AddGuestContactForm />
         </div>
       </section>
 
