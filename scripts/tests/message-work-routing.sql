@@ -7,7 +7,7 @@ create table inspection_packets(id uuid primary key,status text,trade text,visit
 create table packet_stops(id uuid primary key,packet_id uuid references inspection_packets,property_id text,status text,completed_at timestamptz);
 create table packet_stop_work_slips(id uuid default gen_random_uuid() primary key,stop_id uuid references packet_stops,work_slip_id uuid references work_slips,office_note text,created_by_email text,completed_at timestamptz,unique(stop_id,work_slip_id));
 \ir ../../supabase/migrations/20260930100000_message_work_field_routing.sql
-create function pg_temp.check_true(value boolean, message text) returns void language plpgsql as $$ begin if value is distinct from true then raise exception 'FAIL: %', message; end if; raise notice 'PASS: %',message; end $$;
+create or replace function pg_temp.check_true(value boolean, message text) returns void language plpgsql as $$ begin if value is distinct from true then raise exception 'FAIL: %', message; end if; raise notice 'PASS: %',message; end $$;
 insert into contractors values ('00000000-0000-0000-0000-000000000030','Synthetic Inspector','+15555550100','active');
 insert into inspection_packets values ('00000000-0000-0000-0000-000000000040','claimed','inspection',(now() at time zone 'America/New_York')::date,'00000000-0000-0000-0000-000000000030');
 insert into packet_stops values ('00000000-0000-0000-0000-000000000050','00000000-0000-0000-0000-000000000040','home-b','pending',null);
