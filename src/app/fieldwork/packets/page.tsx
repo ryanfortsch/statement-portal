@@ -1,4 +1,8 @@
+import { RefreshNavCounts } from '@/components/NavTabCount';
 import Link from 'next/link';
+import { loadFieldReview } from '@/lib/field-review';
+import { RetryDashboard } from '@/components/RetryDashboard';
+import { TRADE_META } from '@/lib/field-types';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -136,10 +140,11 @@ export default async function PacketsBoard({
   const to = sp.to || plusDays(14);
   const trade = parseTrade(sp.trade);
 
-  const [calendar, allPackets, { data: cData }] = await Promise.all([
+  const [calendar, allPackets, { data: cData }, reviewPackets] = await Promise.all([
     loadInspectionCalendar(from, to),
     loadPackets(),
     fieldDb().from('contractors').select('*'),
+    loadFieldReview().catch(() => null),
   ]);
   // Scope the board to the active job type. Packets carry a trade; legacy rows
   // with none are inspection. Creative has no packets and never links here.
@@ -162,7 +167,7 @@ export default async function PacketsBoard({
     return c ? { name: c.full_name, photoUrl: c.photo_url } : null;
   };
 
-  const live = packets.filter((p) => isLiveStatus(p.status));
+  const live = packets.filter((p) => isLiveStatus(p.status) && p.status !== 'submitted');
   // Split the old lump "Closed" so finished work reads clean and cancellations
   // (the noise) collapse away. Both most-recent first.
   const completed = packets
@@ -211,6 +216,7 @@ export default async function PacketsBoard({
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
       <FieldTabs current="packets" trade={trade} />
+      {reviewPackets && <RefreshNavCounts revision={reviewPackets.map(p => p.id).join(',')} />}
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         {/* One calm header: title left, the two CREATE actions right.
             "Manage contractors" was a duplicate of the CONTRACTORS tab above;
@@ -231,6 +237,26 @@ export default async function PacketsBoard({
             params. A bundle that FAILS never redirects any more; the reason
             shows inline on the calendar's bundle bar. */}
         <SentFlash sent={sp.sent} who={sp.who} skipped={sp.skipped} />
+
+        <section id="needs-review" aria-labelledby="review-heading" style={{ marginTop: 24, scrollMarginTop: 88 }}>
+          <h2 id="review-heading" style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
+            Needs review{reviewPackets ? ` · ${reviewPackets.length}` : ''}
+          </h2>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted packets awaiting your approval · all trades</p>
+          {reviewPackets === null ? <div role="status">Couldn’t load packets awaiting review. <RetryDashboard /></div>
+            : reviewPackets.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No packets awaiting approval.</p>
+            : <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden' }}>
+              {reviewPackets.map(p => <div key={p.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <Link href={`/fieldwork/packets/${p.id}`} className="font-serif" style={{ fontSize: 17, color: 'var(--ink)' }}>{p.title}</Link>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
+                    {TRADE_META[parseTrade(p.trade)].label} · {whoOf(p.awarded_contractor_id)?.name ?? 'Contractor unavailable'} · Visited {fmtDate(p.visit_date)}
+                  </div>
+                </div>
+                <Link href={`/fieldwork/packets/${p.id}`} aria-label={`Review ${p.title}`} style={{ ...btnDark, textDecoration: 'none' }}>Review</Link>
+              </div>)}
+            </div>}
+        </section>
 
         {hasBrief && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>

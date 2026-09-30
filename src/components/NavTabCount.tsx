@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import type { ContractorTrade } from '@/lib/field-types';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { jitteredInterval } from '@/lib/pending-count-client';
@@ -16,7 +18,8 @@ import { jitteredInterval } from '@/lib/pending-count-client';
  */
 
 type NavCounts = {
-  fieldPackets?: number;
+  fieldPackets?: number | null;
+  fieldPacketsByTrade?: Partial<Record<ContractorTrade, number>> | null;
   statementsReview?: number;
 };
 
@@ -44,7 +47,7 @@ function fetchNavCounts(): Promise<NavCounts | null> {
   return inFlight;
 }
 
-export function NavTabCount({ kind }: { kind: 'fieldPackets' | 'statementsReview' }) {
+export function NavTabCount({ kind, trade, href }: { kind: 'fieldPackets' | 'statementsReview'; trade?: ContractorTrade; href?: string }) {
   const [count, setCount] = useState<number | null>(null);
   const pathname = usePathname();
 
@@ -53,9 +56,10 @@ export function NavTabCount({ kind }: { kind: 'fieldPackets' | 'statementsReview
     const load = async () => {
       const data = await fetchNavCounts();
       if (!data) return;
-      const n = kind === 'fieldPackets' ? data.fieldPackets : data.statementsReview;
-      if (!cancelled) setCount(typeof n === 'number' ? n : 0);
+      const n = kind === 'fieldPackets' ? (trade ? data.fieldPacketsByTrade?.[trade] : data.fieldPackets) : data.statementsReview;
+      if (!cancelled && typeof n === 'number') setCount(n);
     };
+    cachedAt = 0;
     load();
     // Hidden tabs skip their ticks (visibilitychange catches them up when
     // fronted); jitter keeps several open tabs from polling in lockstep.
@@ -67,13 +71,15 @@ export function NavTabCount({ kind }: { kind: 'fieldPackets' | 'statementsReview
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', load);
+    window.addEventListener('helm:nav-counts-refresh', load);
     return () => {
       cancelled = true;
       clearInterval(t);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', load);
+      window.removeEventListener('helm:nav-counts-refresh', load);
     };
-  }, [pathname, kind]);
+  }, [pathname, kind, trade]);
 
   if (!count || count <= 0) return null;
 
@@ -82,9 +88,11 @@ export function NavTabCount({ kind }: { kind: 'fieldPackets' | 'statementsReview
   // matching the messaging pills' shape.
   const background = kind === 'fieldPackets' ? 'var(--ink)' : 'var(--signal)';
 
-  return (
+  const label = `${count} ${kind === 'fieldPackets' ? 'packet' : 'item'}${count === 1 ? '' : 's'} awaiting review`;
+  const pill = (
     <span
-      aria-label={`${count} item${count === 1 ? '' : 's'} awaiting review`}
+      title={label}
+      aria-label={label}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -106,4 +114,20 @@ export function NavTabCount({ kind }: { kind: 'fieldPackets' | 'statementsReview
       {count > 99 ? '99+' : count}
     </span>
   );
+  return href ? <Link href={href} aria-label={label} style={{ textDecoration: 'none' }}>{pill}</Link> : pill;
+}
+
+/** Reconcile only after a server-rendered packet state changes, never optimistically. */
+export function RefreshNavCounts({ revision }: { revision: string }) {
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await inFlight;
+      if (cancelled) return;
+      cachedAt = 0;
+      window.dispatchEvent(new Event('helm:nav-counts-refresh'));
+    })();
+    return () => { cancelled = true; };
+  }, [revision]);
+  return null;
 }

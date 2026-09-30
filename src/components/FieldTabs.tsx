@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { NavTabCount } from './NavTabCount';
 import { SectionTabs } from './SectionTabs';
 import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types';
 
@@ -65,7 +66,7 @@ export function FieldTabs({
   return (
     <SectionTabs
       current={trade}
-      tabs={NAV_TRADES.map((t) => ({ id: t, label: TRADE_META[t].label, href: jobHref(t) }))}
+      tabs={NAV_TRADES.map((t) => ({ id: t, label: TRADE_META[t].label, href: jobHref(t), badge: <NavTabCount kind="fieldPackets" trade={t} /> }))}
       secondRow={
         <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>
           {lenses.map((l, i) => {
