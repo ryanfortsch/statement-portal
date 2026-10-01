@@ -1567,3 +1567,9 @@ export type InboxHealthResponse = {
 export function getInboxHealth() {
   return request<InboxHealthResponse>('/api/inbox-health');
 }
+
+/** Search uses approval records only; avoid expensive work/visit enrichment for every result. */
+export async function listInboxSearchApprovals(audience: import('./inbox-search').InboxAudience, recent = false) {
+  const paths = { guests: 'approvals', owners: 'owner-approvals', cleaners: 'cleaner-approvals', contractors: 'contractor-approvals' };
+  return request<{ approvals: import('./inbox-search').SearchableApproval[]; count: number }>(`/api/${paths[audience]}${recent ? '/recent?hours=168' : ''}`);
+}

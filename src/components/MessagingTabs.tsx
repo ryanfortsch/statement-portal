@@ -1,3 +1,4 @@
+import { InboxSearch } from './InboxSearch';
 import { Suspense } from 'react';
 import { InboxHealth } from './InboxHealth';
 import Link from 'next/link';
@@ -85,6 +86,7 @@ export function MessagingTabs({
         </div> : undefined
       }
     />
+    {lens === 'inbox' && <InboxSearch />}
     {lens === 'inbox' && <Suspense fallback={null}><InboxHealth /></Suspense>}
     </div>
   );

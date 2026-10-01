@@ -1,3 +1,4 @@
+import { reviewCountsByConversation } from '@/lib/inbox-search';
 import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
@@ -11,6 +12,7 @@ import { QueueSkeleton } from '@/components/QueueSkeleton';
 import {
   isStayConciergeConfigured,
   listApprovals,
+  listInboxSearchApprovals,
   listRecentApprovals,
   listConversations,
   getStats,
@@ -123,12 +125,17 @@ async function QueueSection() {
 // Each half fails soft: the concierge being down still shows Helm threads,
 // and a Helm read error still shows the concierge list.
 async function ConversationsSection() {
-  const [conversations, helm] = await Promise.all([
+  const [conversations, helm, approvals] = await Promise.all([
     listConversations(60),
     listHelmConversations(60).catch(() => []),
+    listInboxSearchApprovals('guests').catch(() => null),
   ]);
   const concierge = conversations.ok ? conversations.data.conversations : [];
-  const merged = mergeConversationLists(concierge, helm);
+  const counts = approvals?.ok ? reviewCountsByConversation(approvals.data.approvals) : null;
+  const merged = mergeConversationLists(concierge, helm).map(c => ({
+    // Helm counts already use awaiting_approval; concierge counts include scheduled sends.
+    ...c, review_count: c.conversation_id.startsWith('helm:') ? c.pending_count : counts ? counts.get(c.conversation_id) || 0 : undefined,
+  }));
   return (
     <ConversationsBrowser
       initialConversations={merged}
