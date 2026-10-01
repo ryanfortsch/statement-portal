@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react';
+import { matchesInboxText } from '@/lib/inbox-search';
 import { Section } from '@/components/Section';
 import type { ConversationSummary } from '@/lib/stay-concierge';
 import { ThreadPanel } from './Thread';
@@ -24,6 +25,7 @@ import { relativeTimeShort, formatStayDates, channelTone, prettifySlug } from '.
 export type InboxConversation = ConversationSummary & {
   external_thread_url?: string | null;
   thread_status?: string;
+  review_count?: number;
 };
 
 const HELM_PREFIX = 'helm:';
@@ -53,19 +55,17 @@ const STAY_CHIP: Record<string, { label: string; tone: string }> = {
 
 export function ConversationsBrowser({ initialConversations, initialError }: Props) {
   const [query, setQuery] = useState('');
+  const [reviewOnly, setReviewOnly] = useState(false);
   const [filter, setFilter] = useState<StayFilter>('all');
   const [openId, setOpenId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return initialConversations.filter((c) => {
-      if (filter !== 'all' && c.stay_status !== filter) return false;
-      if (!q) return true;
-      const hay = `${c.guest_full} ${c.property_name} ${prettifySlug(c.listing_id)} ${c.channel}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [initialConversations, query, filter]);
+  const matching = useMemo(() => initialConversations.filter(c =>
+    (filter === 'all' || c.stay_status === filter) && matchesInboxText(query, [c.guest_full, c.property_name, prettifySlug(c.listing_id), c.channel, c.last_preview])
+  ), [initialConversations, query, filter]);
+  const reviewCountsAvailable = initialConversations.every(c => c.review_count !== undefined);
+  const readyCount = matching.filter(c => (c.review_count || 0) > 0).length;
+  const filtered = reviewOnly && reviewCountsAvailable ? matching.filter(c => (c.review_count || 0) > 0) : matching;
 
   // The open thread must stay visible no matter what happens to the list
   // around it: slice truncation, a search that excludes it, a filter chip,
@@ -145,7 +145,7 @@ export function ConversationsBrowser({ initialConversations, initialError }: Pro
             setQuery(e.target.value);
             setShowAll(false);
           }}
-          placeholder="Search guest or property…"
+          placeholder="Guest, property, or latest message…"
           aria-label="Search conversations"
           style={{
             flex: '1 1 200px',
@@ -158,6 +158,13 @@ export function ConversationsBrowser({ initialConversations, initialError }: Pro
             color: 'var(--ink)',
           }}
         />
+      </div>
+
+      <div className="rt-conversation-status-filter">
+        <button type="button" disabled={!reviewCountsAvailable} aria-pressed={reviewOnly} onClick={() => { setReviewOnly(v => !v); setShowAll(false); }}>{reviewCountsAvailable ? `Needs review (${readyCount})` : 'Review counts unavailable'}</button>
+        <span role="status">{filtered.length} matching {filtered.length === 1 ? 'conversation' : 'conversations'}{!showAll && filtered.length > DEFAULT_VISIBLE ? ` · showing ${DEFAULT_VISIBLE}` : ''}
+          {openRow && !visible.some(c => c.conversation_id === openRow.conversation_id) ? ' · open conversation kept below' : ''}
+        </span>
       </div>
 
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, borderTop: '1px solid var(--rule)' }}>
@@ -328,13 +335,13 @@ export function ConversationRow({
             {stay.label}
           </span>
         )}
-        {c.pending_count > 0 && (
+        {(c.review_count ?? c.pending_count) > 0 && (
           <span
             className="eyebrow"
             style={{ color: 'var(--signal)', fontWeight: 700 }}
-            title="Drafts waiting in the queue above"
+            title={c.review_count !== undefined ? 'Messages awaiting review' : 'Pending drafts and scheduled sends'}
           >
-            {c.pending_count} waiting
+            {c.review_count ?? c.pending_count} {c.review_count !== undefined ? 'for review' : 'active'}
           </span>
         )}
         <span
