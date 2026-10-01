@@ -1,5 +1,8 @@
 'use client';
 
+import { Fragment } from 'react';
+import { InboxFollowup } from '@/components/InboxFollowup';
+
 import { MobileInboxReview } from '@/components/MobileInboxReview';
 
 import { MessageOutcomes } from '@/components/MessageOutcomes';
@@ -141,34 +144,20 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
   const [lastDecision, setLastDecision] = useState<Decision | null>(null);
   const closeToast = useCallback(() => setLastDecision(null), []);
 
-  // Queued cards firing within the next 24h float to the top, ordered by
-  // when they actually fire, so the last chance to cancel stays in view.
-  // Sends parked further out sink BELOW the pending drafts instead -- a
-  // note scheduled two weeks ahead shouldn't occupy the top slot of the
-  // dashboard for two weeks. Pending drafts stay newest-first in between.
+  // Decisions first; scheduled sends stay visible in their own group.
   const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
   const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const soonCutoff = Date.now() + 24 * 60 * 60 * 1000;
-  const firesSoon = (a: Approval) => {
-    if (!a.send_at) return true; // no timestamp: keep it visible up top
-    const t = new Date(a.send_at).getTime();
-    return Number.isNaN(t) || t <= soonCutoff;
-  };
-  const ordered = [
-    ...queued.filter(firesSoon),
-    ...pending,
-    ...queued.filter((a) => !firesSoon(a)),
-  ];
+  const ordered = [...pending, ...queued];
   const queuedCount = queued.length;
   const pendingCount = pending.length;
   const title =
     approvals.length === 0
       ? 'Inbox zero'
       : pendingCount === 0
-        ? `Queued (${queuedCount})`
-        : `Needs review (${pendingCount})${queuedCount ? ` · ${queuedCount} queued` : ''}`;
+        ? `Scheduled (${queuedCount})`
+        : `Needs review (${pendingCount})`;
 
   return (
     <>
@@ -181,7 +170,9 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
       emptyMessage="No drafts waiting. New guest messages will show up here automatically when the AI drafts a reply."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval) => (
+        {ordered.map((approval, index) => (
+          <Fragment key={approval.id}>
+          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
           <ApprovalCard
             key={approval.id}
             approval={approval}
@@ -191,6 +182,7 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
             onRegenerating={watchRegen}
             regenStalled={stalledId === approval.id}
           />
+          </Fragment>
         ))}
       </div>
       <UndoToast decision={lastDecision} onClose={closeToast} onUndone={onResolved} />
@@ -422,6 +414,12 @@ function ApprovalCard({
   const [createHandoff, setCreateHandoff] = useState(true);
   const [cleanerChoice, setCleanerChoice] = useState<{ action: 'skip' | 'draft' | 'send'; token: string }>({ action: 'draft', token: '' });
   const cleanerAction = cleanerChoice.action === 'send' && cleanerChoice.token !== handoff?.preview_token ? 'draft' : cleanerChoice.action;
+  const recordedHandoffStatus: Record<string, string> = { approved: 'Sent', sending: 'Sending', scheduled: 'Scheduled', rejected: 'Skipped', superseded: 'Replaced' };
+  const handoffStatus = handoff?.create_error ? 'Needs review'
+    : recordedHandoffStatus[handoff?.note_status || ''] || (handoff?.audience === 'cleaner'
+      ? { send: 'Send after reply', draft: 'Draft for approval', skip: 'Skip note' }[cleanerAction]
+      : handoff?.filed ? 'Draft awaiting approval' : createHandoff ? 'Draft when approved' : 'Skip note');
+
   const [createWorkSlip, setCreateWorkSlip] = useState(true);
   const workOutcomes = splitMaintenanceOutcomes(approval);
   const [dismissingSlip, setDismissingSlip] = useState(false);
@@ -1230,24 +1228,11 @@ function ApprovalCard({
       />}
 
       {handoff && (
-        <div
-          style={{
-            marginTop: 16,
-            border: '1px solid var(--rule)',
-            borderLeft: `3px solid ${HANDOFF_TONE}`,
-            background: 'var(--paper)',
-            padding: '12px 14px',
-          }}
+        <InboxFollowup
+          title={`Note to ${handoff.target_name || HANDOFF_LABEL[handoff.audience] || 'teammate'}${handoff.urgency === 'today' ? ' · today' : ''}`}
+          attention={!!handoff.create_error || (handoff.audience === 'cleaner' && cleanerAction === 'send')}
+          status={handoffStatus}
         >
-          <div
-            className="eyebrow"
-            style={{ color: HANDOFF_TONE, marginBottom: 6 }}
-          >
-            {HANDOFF_LABEL[handoff.audience] ?? 'Teammate'}
-            {handoff.target_name ? ` · ${handoff.target_name}` : ''}
-            {handoff.urgency === 'today' ? ' · today' : ''}
-          </div>
-
           {handoff.reason && (
             <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--ink-2)' }}>
               {handoff.filed
@@ -1360,7 +1345,7 @@ function ApprovalCard({
               {handoff.audience === 'cleaner' ? <>Note needs review: {handoff.create_error} <Link href="/cleaner-messaging">Open Cleaner messaging</Link>.</> : <>Filing this last time failed ({handoff.create_error}). Approving tries again.</>}
             </p>
           )}
-        </div>
+        </InboxFollowup>
       )}
 
       {error && (

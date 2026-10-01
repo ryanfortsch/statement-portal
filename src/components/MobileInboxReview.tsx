@@ -37,6 +37,12 @@ export function MobileInboxReview({ id, name, property, preview, channel, enable
         <span className="rt-inbox-review-link">{draftInProgress ? "Continue reply" : "Review reply"} <span aria-hidden="true">→</span></span>
       </>}
     </button>
-    <div id={bodyId} className="rt-inbox-review-body">{children}</div>
+    <div id={bodyId} className="rt-inbox-review-body">{children}
+      <button type="button" className="rt-inbox-back" disabled={keepOpen} onClick={() => {
+        setExpanded(false);
+        root.current?.scrollIntoView({ block: 'start', behavior: 'instant' });
+        root.current?.querySelector<HTMLButtonElement>('.rt-inbox-review-toggle')?.focus({ preventScroll: true });
+      }}>Back to inbox</button>
+    </div>
   </div>;
 }

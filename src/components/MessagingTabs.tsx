@@ -49,7 +49,7 @@ export function MessagingTabs({
       : [{ id: 'inbox', label: 'Inbox', href: AUDIENCE_HOME[current] }];
 
   return (
-    <>
+    <div className="rt-messaging-tabs">
     <SectionTabs
       current={current}
       tabs={[
@@ -86,6 +86,6 @@ export function MessagingTabs({
       }
     />
     {lens === 'inbox' && <Suspense fallback={null}><InboxHealth /></Suspense>}
-    </>
+    </div>
   );
 }
