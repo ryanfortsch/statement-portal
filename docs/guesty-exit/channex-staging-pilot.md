@@ -30,7 +30,7 @@ Each has one rate plan named `TEST ONLY - 20-night pilot - $100 placeholder`. Th
 - The current minimum remains 20 nights. Shorter front-unit stays during a long back-unit booking are a future operator-approved policy, not implemented automatically.
 - Same-unit and whole/unit overlaps are reported as conflicts. They do not silently delete a booking.
 
-The comparison screen can combine real whole-house calendar copies with synthetic Channex stays. Its whole-house reader is implemented and fixture-tested; actual parent-calendar access is pending verification in the authenticated preview. Live bidirectional shared-inventory protection has not been proven.
+The comparison screen can combine real whole-house calendar copies with synthetic Channex stays. Its whole-house reader is implemented, fixture-tested and verified in the authenticated preview (see the September 30 evening verification below). Live bidirectional shared-inventory protection has not been proven.
 
 ## Read-only Helm staging workspace
 
@@ -52,7 +52,7 @@ The comparison screen can combine real whole-house calendar copies with syntheti
 - The source-boundary test was mutation-checked: removing the environment gate caused a failure, and the route was restored.
 - Full `npm test`: 1,673 passed. TypeScript and targeted lint passed.
 - Current `origin/main` was checked at `1f548aa6`; this ongoing owned branch retains its original `a148b0e6` base. No other checkout was changed.
-- Rendered visual acceptance and authenticated whole-house read remain pending. The previously blocked local preview has not been retried or bypassed.
+- At that source checkpoint, rendered acceptance and the authenticated whole-house read were pending. Both were completed later that evening in the deployed preview. The previously blocked local preview has not been retried or bypassed.
 
 ## Operator commands
 
@@ -106,8 +106,8 @@ Completed locally:
 
 Pending:
 
-1. Exercise an injected process interruption after save and before ACK against actual staging. Unit-level restart/retry checks already pass.
-2. Verify the new workspace in an authenticated preview with actual parent calendar rows. Durable non-production sync storage, signed webhooks and fallback polling remain future work; this workspace deliberately performs GET-only snapshots.
+1. Exercise an injected process interruption after save and before ACK against actual staging. A real local child-process exit with a synthetic feed now verifies durable reload, retained writer lock and idempotent replay; the actual Channex transport has not been interrupted deliberately.
+2. Durable non-production sync storage, signed webhooks and fallback polling remain future work. The authenticated preview and actual parent calendar rows were verified; this workspace deliberately performs GET-only snapshots.
 3. Prove whole-house Guesty coordination, existing stays/holds, recovery/outages, seasonal boundaries and the dynamic minimum-stay policy before any OTA authorization.
 4. Certify the integration with Channex. Test actual Airbnb booking/message delivery separately. No certification or live readiness is claimed.
 
@@ -120,3 +120,59 @@ Pending:
 - [Booking CRS](https://docs.channex.io/api-v.1-documentation/booking-crs-api): separate app required; experimental API; creates real Channex revisions and associated hooks/availability changes.
 
 Read-only documentation informed the connector. Website content did not authorize credentials, channel changes or production access.
+
+
+## September 30 evening: authenticated workspace and booking rehearsal
+
+The preview sign-in now returns to the pilot branch alias. The single preview Google callback was added to the existing Helm Sign-In client; old callbacks, origins and IAM roles were preserved. Branch-scoped `AUTH_URL`, the staging key and staging flag are configured only for this preview. The source at `62e7d736` deployed successfully and normal SSO returned to `/channels/staging`.
+
+The authenticated workspace read 120/120 fresh whole-house calendar nights and 240/240 stopped unit-nights. Front/back night inspectors, January/February navigation, fortnight controls and manual refresh were exercised at 10:23 PM ET. Two existing synthetic bookings remained cancelled. This verified the read-only mirror, not outbound Guesty coordination.
+
+The new **Booking-rule rehearsal** section runs only fixed synthetic fixtures in the browser. It is separate from the source calendar and labels its calculation-only scope. It uses the same unit revision normalizer, whole-house calendar normalizer and board calculation as the pilot. It provides 15 scenarios, nine expected listing/night outcomes per scenario, and explanations of closures, cancellations, holds, stale sources and overlaps.
+
+### Commands and bounds
+
+```sh
+# No credentials or network. Also covered by npm test.
+node scripts/channex-linked-rehearsal.mts
+
+# Manual CLI only. Two known staging properties, stopped inventory only.
+CHANNEX_STAGING_ALLOW_TEST_WRITES=yes node --env-file=.channex-staging/credential.env scripts/channex-linked-rehearsal.mts --verify-staging
+```
+
+The API command requires all 240 unit-nights stopped at the 20-night minimum, no active test stays and no channel mappings. It reuses the existing property/rate allowlists, channel guards and stopped-inventory writer. It does not create bookings or consume revision feeds. The fixed write window is **February 1-3, 2027**; each scenario verifies all six unit-night values plus stop-sell, 20-night arrival minimum, through minimum 1 and the $100 test rate through GET read-back. The whole-house result is calculated only, with no Guesty destination.
+
+The CLI records a private, uniquely named receipt before writing and after each verified step. It shares the existing journal lock. It attempts zero-inventory cleanup after success, API failure or mid-run receipt failure, then reads back the full pilot window. Failure cannot be recorded as a pass. A process kill can prevent cleanup; stop-sell remains enabled, the last receipt and lock remain for inspection, and an operator must inspect them before rerunning. A fresh run is idempotent at the inventory endpoint and never clears stop-sell. No test receipts or credentials are committed.
+
+### Actual stopped-inventory API result
+
+Run: **September 30, 2026, 10:41:31-10:42:19 PM ET** (`2026-10-01T02:41:31Z` to `02:42:19Z`). All 15 scenarios passed actual Channex GET read-back, for **90 unit-night comparisons**. This is 15 transitions across the same six unit-nights, not 90 distinct dates.
+
+| Scenario | Verified behavior |
+| --- | --- |
+| Empty calendars | Unoccupied inventory remains behind stop-sell |
+| Whole-house stay | Closes both units |
+| Whole-house date change | Releases only the previous nights |
+| Whole-house cancellation plus maintenance | Independent maintenance closure survives |
+| Two-month back stay | Front remains independent; minimum remains 20 |
+| Concurrent front and back stays | Both units can be occupied independently |
+| Front date change | Back keeps the whole house closed |
+| Back cancellation | Front keeps the whole house closed on its dates |
+| Both stays cancelled | Releases only after all blockers are removed |
+| Duplicate and delayed old revisions | Cannot resurrect a cancelled stay |
+| Stale parent calendar | Calculated inventory closes everywhere |
+| Missing parent night | That night closes across all three listings |
+| Channex outage | Missing source never means empty calendar |
+| Fresh source recovery | Recomputes from the current records |
+| Whole-house/unit overlap | Flags conflict and retains both records |
+
+Final cleanup verified zero inventory on all six test unit-nights, all **240/240 pilot unit-nights stop-sell**, minimum 20 and no active test bookings. No Guesty writes, channel attachments, guest messages, production settings or other Helm modules changed.
+
+### Local verification and remaining limits
+
+- 12 additional tests cover the integrated scenarios, cleanup, incomplete preflight, receipt failures and a real child-process interruption after durable save and before a synthetic ACK. The retained lock is explicitly inspected/removed only inside the test-owned temporary directory; production locks are never stolen.
+- Full suite: **1,685 passed**. TypeScript and relevant lint passed after correcting a helper parameter annotation. Existing staging source tests remain included.
+- Continuing owned branch `codex/channex-staging-pilot`, original base `a148b0e6`; refreshed `origin/main` reference `fce3fbdc`. Recoverable pre-rehearsal source: `62e7d736`. Existing draft PR #1714 remains the review vehicle.
+- The new rehearsal panel still requires rendered verification after the preview build; source tests cannot prove visual quality.
+
+**Live integration remains gated.** This rehearsal uses simulated whole-house events, then verifies stopped Channex inventory. It does not prove writes to Guesty, transport latency, simultaneous live bookings, cross-provider recovery, message delivery or Channex certification. Whole-house calendar closures may themselves be inherited from a unit; a live coordinator must distinguish its own linked holds from independent bookings/owner/maintenance holds to avoid a closure feedback loop. Unknown provenance must not trigger reopening. The two-hour review-copy freshness rule is not a production selling guarantee. Agree and prove provider authority, hold ownership and booking-race handling before connecting a live OTA. The dynamic front-unit minimum is still a future policy; all staging minimums remain 20.

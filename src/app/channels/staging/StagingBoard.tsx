@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import type { BoardReport } from '@/lib/channex-staging/board';
 import { nights, TEST_START, TEST_END, type Member } from '@/lib/channex-staging/core';
 import styles from './staging.module.css';
+import { BookingRehearsal } from './BookingRehearsal';
 
 const dates = nights(TEST_START, TEST_END);
 const members: { id: Member; title: string; subtitle: string }[] = [
@@ -106,6 +107,7 @@ export function StagingBoard({ enabled }: { enabled: boolean }) {
           <p>Current booking records, including cancelled stays. No guest details are imported.</p>
           {report?.bookings.length ? <div className={styles.bookingRows}>{report.bookings.map((booking) => <div key={`${booking.member}-${booking.bookingId}`} className={styles.bookingRow}><div><strong>{booking.member === 'front' ? 'Front unit' : 'Back unit'}</strong><small>Test stay · {booking.bookingId.slice(0, 8)}</small></div><span>{dateLabel(booking.checkIn, true)} → {dateLabel(booking.checkOut, true)}</span><span className={booking.status === 'cancelled' ? styles.cancelled : styles.activeBooking}>{booking.status === 'cancelled' ? 'Cancelled' : booking.status === 'modified' ? 'Updated' : 'Confirmed'}</span></div>)}</div> : <p className={styles.emptyBookings}>{report?.channex.state === 'ready' ? 'No test bookings found.' : busy ? 'Reading test bookings…' : 'Connect Channex staging to see test bookings.'}</p>}
         </section>
+        <BookingRehearsal />
         <footer className={styles.footer}><span>January–April pilot · America/New_York</span><span>Read-only · Manual refresh · No calendar publishing</span></footer>
       </>}
     </main>
