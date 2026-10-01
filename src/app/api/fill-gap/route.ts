@@ -7,6 +7,7 @@ import { netVendorCredits, vendorCreditFields, unappliedRefundGap, type VendorCh
 import { applyCreditOverrides, creditOverrideGaps, creditOverridesUnavailableGap, CREDIT_OVERRIDE_UNAPPLIED, CREDIT_OVERRIDE_COLLISION, CREDIT_OVERRIDES_UNAVAILABLE, type CreditOverrideGap } from '@/lib/cleaning-credit-overrides';
 import { loadCreditOverrides } from '@/lib/cleaning-credit-overrides-db';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { bookingTransferCorroborates } from '@/lib/booking-bank-corroboration';
 import { upsertCsvReservations } from '@/lib/guesty-csv-rows';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
@@ -837,6 +838,27 @@ export async function POST(request: NextRequest) {
     const resUpdates: ResUpdate[] = [];
     const availableDeposits = [...deposits]; // consumed as we match
 
+    // Booking.com corroboration evidence: *5623 transfers forwarded to this
+    // property in the statement window (month start to 60 days past month
+    // end), same window as /api/ingest. See lib/booking-bank-corroboration.
+    let centralBookingTransfers: number[] = [];
+    {
+      const endD = new Date(`${month}-01T00:00:00Z`);
+      endD.setUTCMonth(endD.getUTCMonth() + 1);
+      endD.setUTCDate(endD.getUTCDate() + 60);
+      const { data: centralRows } = await supabase
+        .from('booking_account_activity')
+        .select('amount')
+        .eq('property_id', propertyId)
+        .eq('kind', 'property_transfer')
+        .gte('posting_date', `${month}-01`)
+        .lte('posting_date', endD.toISOString().slice(0, 10));
+      centralBookingTransfers = (centralRows || []).map(r => Number(r.amount) || 0);
+    }
+    const monthBookingIncome = (reservations || [])
+      .filter(r => (r.platform || '').toUpperCase().includes('BOOKING'))
+      .reduce((t, r) => t + (r.guesty_rental_income || 0), 0);
+
     for (const res of reservations || []) {
       // Operator-set markers survive the re-match. paid_off_stripe is a
       // decision (paid by check or wire, Stripe fee zeroed) and
@@ -888,11 +910,10 @@ export async function POST(request: NextRequest) {
             matched = { amount: availableDeposits[exactIdx].amount, status: 'matched' };
             availableDeposits.splice(exactIdx, 1);
           } else {
-            const hasBookingActivity = bankRows.some(r => {
-              const d = r['Description'] || '';
-              return d.toUpperCase().includes('BOOKING.COM') || d.toUpperCase().includes('BOOKING COM');
-            });
-            if (hasBookingActivity) matched = { amount: res.guesty_rental_income || 0, status: 'matched' };
+            // Mere Booking.com activity is not evidence this stay was paid;
+            // only a forwarded *5623 transfer of the right amount is.
+            const hit = bookingTransferCorroborates(res.guesty_rental_income || 0, monthBookingIncome, centralBookingTransfers);
+            if (hit != null) matched = { amount: hit, status: 'matched' };
           }
         }
       }
