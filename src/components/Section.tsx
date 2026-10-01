@@ -62,7 +62,7 @@ export function Section({
           {title}
         </h2>
         {(right || eyebrow) && (
-          <div className="flex items-center" style={{ gap: 16 }}>
+          <div className="flex items-center rt-section-actions" style={{ gap: 16 }}>
             {eyebrow && <span className="eyebrow">{eyebrow}</span>}
             {right}
           </div>

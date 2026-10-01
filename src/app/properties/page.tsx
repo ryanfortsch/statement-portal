@@ -219,6 +219,7 @@ function PropertyRow({
       style={{ display: 'block', textDecoration: 'none', color: 'inherit', opacity: dimmed ? 0.5 : 1 }}
     >
       <div
+        className="rt-property-list-row"
         style={{
           display: 'grid',
           gridTemplateColumns: '64px 1fr auto auto auto',

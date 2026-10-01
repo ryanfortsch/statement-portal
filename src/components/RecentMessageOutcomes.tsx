@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CompactDisclosure } from './CompactDisclosure';
 import { MessageOutcomes } from './MessageOutcomes';
 import type { RecentFollowup } from '@/lib/recent-followups';
 
@@ -31,12 +32,11 @@ export function RecentMessageOutcomes({ initial, audience, initialError = false 
   }, [refresh, initial]);
   const items = snapshot.items;
   if (!items.length && !snapshot.error) return null;
-  return <section className="max-w-[1100px] mx-auto px-5 sm:px-10" aria-label="Recent follow-ups" style={{width:'100%',paddingTop:24,paddingBottom:28}}>
-    <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',gap:12,borderBottom:'1px solid var(--rule)',paddingBottom:8}}>
-      <h2 className="font-serif" style={{fontSize:22,margin:0}}>Recent follow-ups</h2>
-      <button type="button" className="eyebrow" onClick={() => void refresh()} style={{background:'none',border:0,color:'var(--ink-3)',cursor:'pointer'}}>Refresh</button>
+  return <CompactDisclosure title="Recent follow-ups" status={snapshot.error ? 'Refresh needed' : `${items.length} recent`} attention={snapshot.error}>
+    <div className="rt-disclosure-toolbar">
+      <span>Work and notes from resolved messages · past 7 days</span>
+      <button type="button" className="rt-inline-action" onClick={() => void refresh()}>Refresh</button>
     </div>
-    <p style={{fontSize:11,color:'var(--ink-4)',margin:'8px 0'}}>Linked work and notes from the last 50 resolved messages within 7 days.</p>
     {snapshot.error && <p role="status" style={{color:'var(--signal)',fontSize:12}}>Couldn’t refresh follow-ups. The last loaded details are shown. <button type="button" onClick={() => void refresh()} style={{textDecoration:'underline'}}>Retry</button></p>}
     {(expanded ? items : items.slice(0,3)).map(row => <article key={row.id} id={`followup-${row.id}`} style={{padding:'14px 0',borderBottom:'1px solid var(--rule-soft)'}}>
       <div style={{display:'flex',flexWrap:'wrap',justifyContent:'space-between',gap:8}}><span className="font-serif" style={{fontSize:17}}>{row.who}{row.property ? ` · ${row.property}` : ''}</span><span style={{fontSize:11,color:'var(--ink-3)'}}>{row.replyStatus === 'approved' ? 'Reply sent' : row.replyStatus === 'manual_sent' ? 'Reply marked handled' : row.replyStatus === 'rejected' ? 'Reply rejected' : 'Reply resolved'}</span></div>
@@ -44,5 +44,5 @@ export function RecentMessageOutcomes({ initial, audience, initialError = false 
       <MessageOutcomes value={row.outcomes} />
     </article>)}
     {items.length > 3 && <button type="button" className="eyebrow" onClick={() => setExpanded(v => !v)} aria-expanded={expanded} style={{background:'none',border:'1px solid var(--rule)',padding:'8px 12px',marginTop:12,color:'var(--ink-3)',cursor:'pointer'}}>{expanded ? 'Show fewer' : `Show all ${items.length}`}</button>}
-  </section>;
+  </CompactDisclosure>;
 }

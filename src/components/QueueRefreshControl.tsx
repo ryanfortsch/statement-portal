@@ -69,6 +69,8 @@ export function QueueRefreshControl({
     <button
       type="button"
       onClick={onRefresh}
+      className="rt-queue-refresh"
+      aria-label={`Refresh inbox. Updated ${label}`}
       title="The queue also refreshes itself every few seconds while this tab is visible."
       style={{
         fontSize: 10,
@@ -82,7 +84,7 @@ export function QueueRefreshControl({
         cursor: 'pointer',
       }}
     >
-      Updated {label} · Refresh
+      <span className="rt-refresh-age">Updated {label} · </span>Refresh
     </button>
   );
 }

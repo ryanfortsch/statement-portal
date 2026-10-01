@@ -30,12 +30,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PRIMARY_MODULES, activeModuleIdForPathname, getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
 import { MessagingPendingBadge } from './MessagingPendingBadge';
 
 export function HelmMobileMenu() {
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const active = activeModuleIdForPathname(pathname ?? '');
 
@@ -50,14 +52,23 @@ export function HelmMobileMenu() {
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
+    const previousTrigger = trigger.current;
     document.body.style.overflow = 'hidden';
+    const focusable = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex="0"]') ?? []);
+    focusable()[0]?.focus();
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Tab') return;
+      const elements = focusable();
+      const first = elements[0], last = elements.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     }
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = previousOverflow;
+      previousTrigger?.focus();
     };
   }, [open]);
 
@@ -65,6 +76,7 @@ export function HelmMobileMenu() {
     <>
       <button
         type="button"
+        ref={trigger}
         className="rt-mobile-menu-trigger"
         onClick={() => setOpen(true)}
         aria-label="Open menu"
@@ -80,6 +92,7 @@ export function HelmMobileMenu() {
 
       {open && (
         <div
+          ref={dialog}
           className="rt-mobile-menu-overlay"
           role="dialog"
           aria-modal="true"
