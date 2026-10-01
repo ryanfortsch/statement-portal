@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { bookingTransferCorroborates } from '@/lib/booking-bank-corroboration';
 import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
@@ -1036,7 +1037,7 @@ export async function POST(request: NextRequest) {
     // in the statement window corroborates the channel paid us. Window runs
     // 60 days past month end because Booking.com payouts lag checkout.
     // Tolerates the booking_account_activity migration not having run yet.
-    let centralBookingTransfers = 0;
+    let centralBookingTransfers: number[] = [];
     {
       const windowStart = `${month}-01`;
       const windowEndD = new Date(`${month}-01T00:00:00Z`);
@@ -1045,7 +1046,7 @@ export async function POST(request: NextRequest) {
       const windowEnd = windowEndD.toISOString().slice(0, 10);
       const { data: centralRows, error: centralErr } = await supabase
         .from('booking_account_activity')
-        .select('id')
+        .select('amount')
         .eq('property_id', propertyId)
         .eq('kind', 'property_transfer')
         .gte('posting_date', windowStart)
@@ -1053,7 +1054,7 @@ export async function POST(request: NextRequest) {
       if (centralErr && centralErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(centralErr.message || '')) {
         console.warn('booking_account_activity read skipped:', centralErr.message);
       }
-      centralBookingTransfers = (centralRows || []).length;
+      centralBookingTransfers = (centralRows || []).map(r => Number(r.amount) || 0);
     }
 
     // Cancellation payouts (src/lib/cancellation-payout-match.ts). An
@@ -1235,6 +1236,20 @@ export async function POST(request: NextRequest) {
     // Rows the PDF listed that do not check out in the statement month.
     // Collected, never recognized; reported below.
     const outOfMonthRows: { code: string; guest: string; checkOut: string; amount: number }[] = [];
+
+    // All of the month's Booking.com stays together, for a batched *5623
+    // payout (see lib/booking-bank-corroboration). Same platform waterfall
+    // and checkout-month test as the loop below.
+    const monthBookingIncome = reservations
+      .filter(r => (r.check_out || '').slice(0, 7) === month)
+      .filter(r => {
+        const p =
+          normalizePlatform(platformMap[r.confirmation_code]?.platform) ||
+          normalizePlatform(guestyLookupMap.get(r.confirmation_code)?.guesty_channel_id) ||
+          normalizePlatform(guestyLookupMap.get(r.confirmation_code)?.channel) || '';
+        return p.toUpperCase().includes('BOOKING');
+      })
+      .reduce((t, r) => t + (r.rental_income || 0), 0);
 
     for (const res of reservations) {
       // ── Statement-month gate ──────────────────────────────────────────
@@ -1469,21 +1484,11 @@ export async function POST(request: NextRequest) {
             bankMatch = { amount: deposits[exactIdx].amount, status: 'matched' };
             deposits.splice(exactIdx, 1);
           } else {
-            // Booking.com often handles payouts internally; mark as covered if we see
-            // any Booking.com activity (debits for commissions mean they're managing the property)
-            const hasBookingActivity = bankRows.some(r => {
-              const d = r['Description'] || '';
-              return d.toUpperCase().includes('BOOKING.COM') || d.toUpperCase().includes('BOOKING COM');
-            });
-            if (hasBookingActivity) {
-              bankMatch = { amount: res.rental_income, status: 'matched' };
-            } else if (centralBookingTransfers > 0) {
-              // The payout landed in the central Bookingcom Deposits account
-              // (...5623) and was transferred to this property's checking in
-              // the statement window -- corroborated even though nothing
-              // Booking.com-labeled appears in the property's own bank CSV.
-              bankMatch = { amount: res.rental_income, status: 'matched' };
-            }
+            // Corroborated only by a forwarded *5623 transfer whose amount
+            // accounts for this stay (or the month's batched payout). Mere
+            // Booking.com activity is not evidence this stay was paid.
+            const hit = bookingTransferCorroborates(res.rental_income, monthBookingIncome, centralBookingTransfers);
+            if (hit != null) bankMatch = { amount: hit, status: 'matched' };
           }
         }
       }
