@@ -1,5 +1,7 @@
 'use client';
 
+import { MobileInboxReview } from '@/components/MobileInboxReview';
+
 import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { MaintenanceWorkPanel } from '@/components/MaintenanceWorkPanel';
 import { splitMaintenanceOutcomes } from '@/lib/message-outcomes';
@@ -772,6 +774,7 @@ function ApprovalCard({
   }
 
   return (
+    <MobileInboxReview id={approval.id} name={guestLabel} property={propertyLabel} preview={approval.guest_text} channel={approval.channel || ''} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={editing || showCoach || showSchedule || showHandled}>
     <article
       id={`approval-${approval.id}`}
       ref={cardRef}
@@ -1747,6 +1750,7 @@ function ApprovalCard({
       )}
       <MessageOutcomes value={workOutcomes.remaining} />
     </article>
+    </MobileInboxReview>
   );
 }
 
@@ -1830,7 +1834,7 @@ function SplitSendButton({
     ...extra,
   });
   return (
-    <div style={{ display: 'inline-flex' }}>
+    <div className="rt-split-send" style={{ display: 'inline-flex' }}>
       <button
         type="button"
         onClick={onApprove}
