@@ -2,7 +2,7 @@ import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomes
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingFooter } from '@/components/MessagingFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -54,7 +54,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       <div style={{ flex: 1 }} />
 
-      <HelmFooter left="Stay Concierge · drafts via Opus 4.7" />
+      <MessagingFooter />
     </div>
   );
 }
@@ -222,13 +222,13 @@ export default function MessagingPage() {
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
       </Suspense>
-      <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
       <Suspense fallback={null}>
         <RecentDecisionsSection />
       </Suspense>
       <Suspense fallback={null}>
         <ConversationsSection />
       </Suspense>
+      <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
       <Suspense fallback={null}>
         <ProposedUpdatesSection />
       </Suspense>

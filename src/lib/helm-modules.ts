@@ -372,6 +372,19 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'relationships',
   },
+  // Diagnostics stay searchable without adding another primary nav item.
+  {
+    id: 'messaging-status',
+    href: '/messaging/status',
+    number: '08f',
+    title: 'Message Delivery & Sync',
+    description: 'Message import checks, source coverage, and pending work sync.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'messaging',
+  },
   // The Send lens of the Guests tab: pick a stay and write to them. Hidden
   // from the nav lists (Messaging already carries the section) but registered
   // so the command palette can jump straight here, which is the whole point

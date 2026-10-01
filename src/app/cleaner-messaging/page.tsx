@@ -2,7 +2,7 @@ import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomes
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingFooter } from '@/components/MessagingFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -52,7 +52,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       <div style={{ flex: 1 }} />
 
-      <HelmFooter left="Stay Concierge · cleaner drafts via Opus 4.7" />
+      <MessagingFooter />
     </div>
   );
 }

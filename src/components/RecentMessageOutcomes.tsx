@@ -32,7 +32,7 @@ export function RecentMessageOutcomes({ initial, audience, initialError = false 
   }, [refresh, initial]);
   const items = snapshot.items;
   if (!items.length && !snapshot.error) return null;
-  return <CompactDisclosure title="Recent follow-ups" status={snapshot.error ? 'Refresh needed' : `${items.length} recent`} attention={snapshot.error}>
+  return <CompactDisclosure title="Follow-up history" status={snapshot.error ? 'History unavailable' : undefined} attention={snapshot.error}>
     <div className="rt-disclosure-toolbar">
       <span>Work and notes from resolved messages · past 7 days</span>
       <button type="button" className="rt-inline-action" onClick={() => void refresh()}>Refresh</button>
