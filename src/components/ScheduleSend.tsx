@@ -71,7 +71,7 @@ export function SplitSendButton({
     ...extra,
   });
   return (
-    <div style={{ display: 'inline-flex' }}>
+    <div className="rt-split-send" style={{ display: 'inline-flex' }}>
       <button
         type="button"
         onClick={onApprove}

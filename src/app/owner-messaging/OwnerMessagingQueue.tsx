@@ -1,5 +1,7 @@
 'use client';
 
+import { MobileInboxReview } from '@/components/MobileInboxReview';
+
 import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { Section } from '@/components/Section';
@@ -314,7 +316,8 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   // dashboard. "Show" expands to the full card below.
   if (isScheduled && !expanded) {
     return (
-      <article
+      <MobileInboxReview id={approval.id} name={ownerLabel} property={propertyLabel} preview={approval.owner_text} channel={channelLabel} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={edited || showCoach || showSchedule}>
+    <article
         id={`approval-${approval.id}`}
         ref={cardRef}
         className="rt-message-card"
@@ -373,10 +376,12 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
         )}
           <MessageOutcomes value={approval.outcomes} />
     </article>
+    </MobileInboxReview>
     );
   }
 
   return (
+    <MobileInboxReview id={approval.id} name={ownerLabel} property={propertyLabel} preview={approval.owner_text} channel={channelLabel} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={edited || showCoach || showSchedule}>
     <article
       id={`approval-${approval.id}`}
       ref={cardRef}
@@ -682,6 +687,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
       )}
       <MessageOutcomes value={approval.outcomes} />
     </article>
+    </MobileInboxReview>
   );
 });
 

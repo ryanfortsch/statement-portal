@@ -1,5 +1,7 @@
 'use client';
 
+import { MobileInboxReview } from '@/components/MobileInboxReview';
+
 import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -251,7 +253,8 @@ function ContractorApprovalCard({
   // Collapsed queued card: a single dense row so waiting sends stay quiet.
   if (isScheduled && !expanded) {
     return (
-      <article
+      <MobileInboxReview id={approval.id} name={nameLabel} property={''} preview={approval.contractor_text} channel={'SMS'} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={showCoach || showSchedule}>
+    <article
         id={`approval-${approval.id}`}
         ref={cardRef}
         className="rt-message-card"
@@ -310,10 +313,12 @@ function ContractorApprovalCard({
         )}
           <MessageOutcomes value={approval.outcomes} />
     </article>
+    </MobileInboxReview>
     );
   }
 
   return (
+    <MobileInboxReview id={approval.id} name={nameLabel} property={''} preview={approval.contractor_text} channel={'SMS'} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={showCoach || showSchedule}>
     <article
       id={`approval-${approval.id}`}
       ref={cardRef}
@@ -637,6 +642,7 @@ function ContractorApprovalCard({
       )}
       <MessageOutcomes value={approval.outcomes} />
     </article>
+    </MobileInboxReview>
   );
 }
 
