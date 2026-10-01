@@ -1096,11 +1096,11 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
 /* Secondary inbox context: one quiet row, with details on demand. */
 .rt-disclosure-section { width: 100%; padding-top: 4px; padding-bottom: 4px; }
 .rt-disclosure { border-bottom: 1px solid var(--rule); }
-.rt-disclosure-summary { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 13px; cursor: pointer; list-style: none; }
+.rt-disclosure-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 44px; font-size: 13px; cursor: pointer; list-style: none; }
 .rt-disclosure-summary::-webkit-details-marker { display: none; }
 .rt-disclosure-summary::after { content: '+'; color: var(--ink-3); margin-left: auto; font-size: 18px; }
 .rt-disclosure[open] > .rt-disclosure-summary::after { content: '−'; }
-.rt-disclosure-status { color: var(--ink-3); font-size: 11px; }
+.rt-disclosure-status { flex-basis: auto; min-width: 0; overflow-wrap: anywhere; color: var(--ink-3); font-size: 11px; }
 .rt-disclosure-status[data-attention] { color: var(--signal); font-weight: 600; }
 .rt-disclosure-body { padding: 4px 0 16px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .rt-disclosure-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink-3); }
