@@ -25,6 +25,7 @@ export type SectionTab = {
   label: string;
   href: string;
   badge?: ReactNode;
+  badgeOutside?: boolean;
 };
 
 export function SectionTabs({
@@ -68,7 +69,7 @@ export function SectionTabs({
       <nav ref={strip} aria-label="Section navigation" className="flex items-baseline rt-tab-strip" style={{ gap: 28, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
         {tabs.map((t) => {
           const isActive = t.id === activeId;
-          return (
+          const label = (
             <Link
               key={t.id}
               href={t.href}
@@ -87,9 +88,12 @@ export function SectionTabs({
               }}
             >
               {t.label}
-              {t.badge}
+              {!t.badgeOutside && t.badge}
             </Link>
           );
+          return t.badgeOutside ? <span key={t.id} className="rt-tab-with-badge" style={{ display: 'inline-flex', alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+            {label}{t.badge}
+          </span> : label;
         })}
       </nav>
       {secondRow}

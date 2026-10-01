@@ -1,3 +1,4 @@
+import { operatingDate } from './operating-date';
 /**
  * Turnover-pipeline data loader. Reads upcoming check-ins from the Helm-native
  * `bookings` table (Channels module: iCal imports from Airbnb/VRBO/Booking plus
@@ -86,7 +87,7 @@ const PRESENCE_LOOKBACK_DAYS = 30;
 const TURNOVER_STATUSES = ['confirmed', 'completed'];
 
 export function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return operatingDate();
 }
 
 function addDaysStr(base: string, days: number): string {

@@ -1154,3 +1154,20 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   .rt-refresh-age { display: none; }
 }
 #needs-review.rt-helm-section { padding-bottom: 20px !important; }
+
+/* Work: roomy tap targets, readable titles, and one primary action per row. */
+.rt-work-filters > button { min-height: 44px; letter-spacing: .04em !important; }
+.rt-work-row > a { overflow-wrap: anywhere; }
+.rt-work-row > button { min-height: 44px; }
+@media (max-width: 640px) {
+  .rt-work-tab { font-size: 20px !important; }
+  .rt-work-row { gap: 8px !important; padding-left: 0 !important; align-items: flex-start !important; }
+  .rt-work-row > a { gap: 6px !important; }
+}
+
+.rt-field-filters > a { display: inline-flex; align-items: center; min-height: 44px; border: 1px solid var(--rule); padding: 8px 12px; font-size: 12px; color: var(--ink-3); text-decoration: none; }
+.rt-field-filters > a[aria-current=page] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.rt-field-filters > a:focus-visible, .rt-tab-with-badge > a:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+.rt-tab-with-badge > a { min-height: 44px; display: inline-flex; align-items: center; }
+
+.rt-tab-with-badge > a:last-child:not(:first-child) { min-width: 44px; justify-content: center; }
