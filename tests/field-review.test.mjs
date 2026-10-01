@@ -32,22 +32,23 @@ test('review loader pages all submitted trades and throws on partial failure', a
   fail = true; await assert.rejects(loadFieldReview(), /Could not load/);
 });
 
-async function board(review, trade = 'inspection') {
+async function board(review, trade = 'inspection', focus, packets) {
   const submitted = [packet('inspection'), packet('maintenance', 'maintenance')];
   const chain = { select() { return this; }, in() { return this; }, then(done) { return Promise.resolve({ data: [{ id: 'worker', full_name: 'Sample Contractor', trade: 'inspection', status: 'active' }] }).then(done); } };
   const { default: Board } = load('../src/app/fieldwork/packets/page.tsx', {
+    '@/lib/operating-date': { operatingDate: () => '2026-09-30' },
     'next/link': ({ children, ...props }) => React.createElement('a', props, children),
     '@/components/NavTabCount': { RefreshNavCounts: blank },
     '@/components/HelmMasthead': { HelmMasthead: blank }, '@/components/FieldTabs': { FieldTabs: blank }, '@/components/HelmFooter': { HelmFooter: blank },
     '@/components/RetryDashboard': { RetryDashboard: () => React.createElement('button', null, 'Retry unavailable data') },
     '@/lib/field-review': { loadFieldReview: async () => { if (review === null) throw Error('offline'); return review; } },
     '@/lib/field-db': { isFieldConfigured: true, fieldDb: () => ({ from: () => chain }) },
-    '@/lib/field-packets': { loadPackets: async () => [...submitted, packet('working', 'inspection', 'published')], loadInspectionCalendar: async () => ({ days: [], rows: [], missingProps: [] }), loadOfficeAssignedPacketIds: async () => new Set() },
+    '@/lib/field-packets': { loadPackets: async () => packets ?? [...submitted, packet('working', 'inspection', 'published')], loadInspectionCalendar: async () => ({ days: [], rows: [], missingProps: [] }), loadOfficeAssignedPacketIds: async () => new Set() },
     '@/lib/field-types': types, '@/lib/field-packet-status': statuses,
     '@/components/FieldAvatar': { FieldAvatar: blank }, '@/components/SubmitButton': { SubmitButton: blank },
     './InspectionCalendar': { InspectionCalendar: () => React.createElement('div', null, 'CALENDAR') }, './SentFlash': { SentFlash: blank }, './actions': {},
   });
-  return renderToStaticMarkup(await Board({ searchParams: Promise.resolve({ trade }) }));
+  return renderToStaticMarkup(await Board({ searchParams: Promise.resolve({ trade, focus }) }));
 }
 
 test('inspector landing exposes both trades above calendar, with named review links and no duplicate submitted rows', async () => {
@@ -66,7 +67,35 @@ test('handyman landing preserves the all-trade queue', async () => {
   assert.match(html, /Review Packet inspection/); assert.match(html, /Review Packet maintenance/);
 });
 
-test('failed queue has a retry and never reports zero; successful empty queue is explicit', async () => {
+test('failed queue stays visible; an empty default queue is quiet and a filtered queue explains its empty state', async () => {
   const failed = await board(null); assert.match(failed, /Couldn’t load/); assert.match(failed, /Retry unavailable data/); assert.doesNotMatch(failed, /No packets awaiting|Needs review · 0/);
-  const empty = await board([]); assert.match(empty, /Needs review · 0/); assert.match(empty, /No packets awaiting approval/);
+  const empty = await board([]); assert.doesNotMatch(empty, /Needs review|No packets awaiting approval/);
+  const focused = await board([], 'inspection', 'review'); assert.match(focused, /Needs review · 0/); assert.match(focused, /No packets awaiting approval/);
+});
+
+
+test('trade badge destinations show only the matching submitted packets, including legacy inspectors', async () => {
+  const rows = [packet('inspector'), packet('legacy', null), packet('handyman', 'maintenance')];
+  const inspectors = await board(rows, 'inspection', 'review');
+  assert.match(inspectors, /Needs review · 2/);
+  assert.match(inspectors, /Review Packet inspector/);
+  assert.match(inspectors, /Review Packet legacy/);
+  assert.doesNotMatch(inspectors, /Review Packet handyman|CALENDAR|Out to contractors/);
+  const handymen = await board(rows, 'maintenance', 'review');
+  assert.match(handymen, /Needs review · 1/);
+  assert.match(handymen, /Review Packet handyman/);
+  assert.doesNotMatch(handymen, /Review Packet inspector/);
+});
+
+test('field summary links filter to the exact packets counted and hide unrelated history', async () => {
+  const active = (id, status, date) => ({ ...packet(id, 'inspection', status), submitted_at: null, visit_date: date });
+  const packets = [active('late', 'claimed', '2026-09-29'), active('today', 'in_progress', '2026-09-30'), active('soon', 'published', '2026-10-01'), active('later', 'published', '2026-10-10'), active('old-draft', 'draft', '2026-09-29'), active('new-draft', 'draft', '2026-10-01'), active('history', 'approved', '2026-09-29')];
+  for (const [focus, id, heading] of [['late','late','Late visits'], ['today','today','Visits today'], ['unclaimed','soon','Unassigned soon'], ['drafts','old-draft','Visits to reschedule']]) {
+    const html = await board([], 'inspection', focus, packets);
+    assert.match(html, new RegExp(heading + ' · 1'));
+    assert.match(html, new RegExp('Packet ' + id));
+    for (const p of packets.filter(p => p.id !== id)) assert.doesNotMatch(html, new RegExp('Packet ' + p.id));
+    assert.doesNotMatch(html, /CALENDAR|Completed ·/);
+    assert.match(html, new RegExp('focus=' + focus + '#field-results" aria-current="page"'));
+  }
 });

@@ -1,4 +1,5 @@
 import { HelmFooter } from '@/components/HelmFooter';
+import { operatingDate } from '@/lib/operating-date';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb } from '@/lib/field-db';
@@ -25,7 +26,7 @@ async function getData(): Promise<{
   taskCommentCounts: Record<string, number>;
   reporterNames: Record<string, string>;
 }> {
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = operatingDate();
   const [{ data: ws }, { data: snz }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }] = await Promise.all([
     supabase
       .from('work_slips')

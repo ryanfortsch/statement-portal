@@ -204,11 +204,9 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
   // and the rails never disagree.
   const { counts, firsts } = computeStageCounts(pendingTurnovers);
   const { cleaningNow, awaitingCleaner, needsInspection, inspectingNow } = counts;
-  const doneCount = data.totalCount - inspectionsLeft;
-  const firstDone = data.turnovers.find(isTurnoverDone) ?? null;
   const hasLiveStages = cleaningNow + awaitingCleaner + needsInspection + inspectingNow > 0;
 
-  // Where "N still need attention" should jump to when tapped:
+  // Where the pending count should jump to when tapped:
   //   - exactly 1 pending AND it has an inspection row already (the operator
   //     started but didn't finish): resume URL straight into the runner.
   //   - otherwise: anchor link to the first pending turnover's card, so the
@@ -297,7 +295,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
           }}
         >
           {/* Attention-first summary: the ACTIONABLE count is the headline
-              ("3 still need attention" in 30px serif) and the total becomes
+              ("3 turnovers pending" in 30px serif) and the total becomes
               the small qualifier — the old layout set the decoration big
               ("7 check-ins") and the work small. */}
           <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, color: 'var(--ink)', letterSpacing: '-0.01em' }}>
@@ -308,10 +306,10 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
                 {(() => {
                   const phrase = (
                     <>
-                      <strong style={{ fontSize: 30, fontWeight: 500, color: 'var(--signal)' }}>
+                      <strong style={{ fontSize: 30, fontWeight: 500, color: 'var(--ink)' }}>
                         {inspectionsLeft}
                       </strong>{' '}
-                      still need{inspectionsLeft === 1 ? 's' : ''} attention
+                      turnover{inspectionsLeft === 1 ? '' : 's'} pending
                     </>
                   );
                   const linkStyle = {
@@ -350,7 +348,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
               </>
             ) : (
               <>
-                <span style={{ fontSize: 30, fontWeight: 500, color: 'var(--positive)' }}>All prepped</span>
+                <span style={{ fontSize: 30, fontWeight: 500, color: 'var(--positive)' }}>All marked ready</span>
                 <span style={{ fontSize: 14, color: 'var(--ink-3)', marginLeft: 12 }}>
                   {data.totalCount} check-in{data.totalCount === 1 ? '' : 's'}
                   {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
@@ -430,9 +428,6 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
             )}
             {needsInspection > 0 && (
               <StageCount hue={STAGE_HUES[4]} label="clean · needs inspection" n={needsInspection} target={firsts.needsInspection} />
-            )}
-            {doneCount > 0 && (
-              <StageCount hue="var(--positive)" done label="done" n={doneCount} target={firstDone} />
             )}
           </div>
         )}
@@ -632,7 +627,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
  *
  * Two tiers, one row component: turnovers that still need attention (not
  * inspected and not hand-marked done) render up top, in-flight first; finished
- * ones sink to the bottom, dimmed (CompactTurnoverRow fades them by opacity).
+ * ones sit inside a collapsed Ready homes section, with Undo still available.
  * The partition is stable, so it preserves the server-side chronological sort
  * within each tier. Result: the operator's eye lands on outstanding work, with
  * the finished turnovers tucked away but still reachable and expandable.
@@ -768,7 +763,7 @@ function TurnoverList({
 }) {
   // In-flight first among pending (a cleaner physically in the house floats
   // up), then the server's chronological order; done turnovers sink to the
-  // bottom, dimmed. Every line is the same dense CompactTurnoverRow — tap any
+  // bottom, inside Ready homes. Every line is the same CompactTurnoverRow: tap any
   // one to expand its full lifecycle rail + secondary affordances in place.
   // Rank is computed ONCE per row (flightRank reads the clock internally, so
   // re-calling it during the sort and again during the partition could flip a
@@ -786,9 +781,7 @@ function TurnoverList({
         {pending.map((t) => (
           <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
         ))}
-        {done.map((t) => (
-          <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
-        ))}
+        <ReadyTurnovers turnovers={done} myEmail={myEmail} />
       </div>
     );
   }
@@ -834,11 +827,17 @@ function TurnoverList({
           ))}
         </div>
       ))}
-      {done.map((t) => (
-        <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />
-      ))}
+      <ReadyTurnovers turnovers={done} myEmail={myEmail} />
     </div>
   );
+}
+
+function ReadyTurnovers({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
+  if (!turnovers.length) return null;
+  return <details style={{ marginTop: 18 }}>
+    <summary style={{ cursor: 'pointer', minHeight: 44, padding: '12px 0', fontSize: 13, color: 'var(--ink-3)' }}>Ready homes · {turnovers.length}</summary>
+    {turnovers.map(t => <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />)}
+  </details>;
 }
 
 /** Editorial day divider for the datebook list: a small letterspaced eyebrow
