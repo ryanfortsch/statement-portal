@@ -329,7 +329,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))',
             gap: 0,
             borderTop: '1px solid var(--ink)',
             borderLeft: '1px solid var(--rule)',

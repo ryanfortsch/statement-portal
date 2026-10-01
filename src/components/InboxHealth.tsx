@@ -1,4 +1,6 @@
-import { getInboxHealth } from '@/lib/stay-concierge';
+import { CompactDisclosure } from './CompactDisclosure';
+import { WorkFollowupsContent } from './WorkFollowups';
+import { getInboxHealth, listWorkFollowups } from '@/lib/stay-concierge';
 
 const labels: Record<string, string> = {
   ok: 'Checked', checking: 'Checking', partial: 'Incomplete check',
@@ -13,20 +15,17 @@ function when(timestamp: number | null) {
 }
 
 export async function InboxHealth() {
-  const result = await getInboxHealth();
-  if (!result.ok) {
-    return <section className="max-w-[1100px] mx-auto px-6 sm:px-10" style={{ width: '100%', paddingTop: 16 }}>
-      <p style={{ fontSize: 12, color: 'var(--signal)' }}>Inbox checks unavailable. Message coverage could not be verified.</p>
-    </section>;
-  }
-  const { channels, unresolved, unresolved_count, unmatched_count } = result.data;
-  const needsAttention = unresolved_count > 0 || channels.some(c => ['failed', 'partial', 'stale'].includes(c.status));
+  const [result, followups] = await Promise.all([getInboxHealth(), listWorkFollowups()]);
+  const { channels, unresolved, unresolved_count, unmatched_count } = result.ok ? result.data : {
+    channels: [], unresolved: [], unresolved_count: 0, unmatched_count: 0,
+  };
+  const workCount = followups.ok ? followups.data.owner_items.length + followups.data.delivery_items.length : 0;
+  const attentionCount = unresolved_count + workCount;
+  const needsAttention = attentionCount > 0 || !result.ok || !followups.ok || channels.some(c => ['failed', 'stale'].includes(c.status));
   return (
-    <section aria-label="Inbox checks" className="max-w-[1100px] mx-auto px-6 sm:px-10" style={{ width: '100%', paddingTop: 16 }}>
-      <details open={needsAttention} style={{ border: '1px solid var(--rule)', background: 'var(--paper-2)', padding: '12px 16px' }}>
-        <summary style={{ cursor: 'pointer', fontSize: 12, color: needsAttention ? 'var(--signal)' : 'var(--ink-2)' }}>
-          Inbox checks{unresolved_count > 0 ? ` · ${unresolved_count} message${unresolved_count === 1 ? '' : 's'} need attention` : needsAttention ? ' · coverage incomplete' : ' · view coverage'}
-        </summary>
+    <CompactDisclosure title="Inbox status" attention={needsAttention}
+      status={attentionCount > 0 ? `${attentionCount} need attention` : needsAttention ? 'Check needed' : channels.some(c => ['partial', 'unverified', 'disabled'].includes(c.status)) ? 'Limited coverage' : channels.some(c => c.status === 'checking') ? 'Checking' : 'Up to date'}>
+        {!result.ok && <p style={{ color: 'var(--signal)' }}>Message coverage could not be checked.</p>}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" style={{ marginTop: 14 }}>
           {channels.map(channel => <div key={channel.id} style={{ fontSize: 12, lineHeight: 1.6 }}>
             <strong>{channel.label}</strong>
@@ -47,7 +46,7 @@ export async function InboxHealth() {
         {unmatched_count > 0 && <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>
           {unmatched_count} recent direct email{unmatched_count === 1 ? '' : 's'} had no booking or established guest correspondence. These remain in the operator’s Gmail for review; their contents are not imported into Helm.
         </p>}
-      </details>
-    </section>
+        <WorkFollowupsContent result={followups} />
+    </CompactDisclosure>
   );
 }

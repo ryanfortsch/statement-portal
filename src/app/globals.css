@@ -1092,3 +1092,65 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
     max-width: none !important;
   }
 }
+
+/* Secondary inbox context: one quiet row, with details on demand. */
+.rt-disclosure-section { width: 100%; padding-top: 4px; padding-bottom: 4px; }
+.rt-disclosure { border-bottom: 1px solid var(--rule); }
+.rt-disclosure-summary { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 13px; cursor: pointer; list-style: none; }
+.rt-disclosure-summary::-webkit-details-marker { display: none; }
+.rt-disclosure-summary::after { content: '+'; color: var(--ink-3); margin-left: auto; font-size: 18px; }
+.rt-disclosure[open] > .rt-disclosure-summary::after { content: '−'; }
+.rt-disclosure-status { color: var(--ink-3); font-size: 11px; }
+.rt-disclosure-status[data-attention] { color: var(--signal); font-weight: 600; }
+.rt-disclosure-body { padding: 4px 0 16px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.rt-disclosure-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--ink-3); }
+.rt-inline-action { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.rt-section-actions { flex-wrap: wrap; min-width: 0; }
+.rt-tab-strip { position: relative; scrollbar-width: thin; scroll-padding-inline: 12px; }
+.rt-tab-strip > a { display: inline-flex; align-items: center; min-height: 44px; flex-shrink: 0; }
+.rt-message-options { margin-left: auto; }
+.rt-message-options > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: 12px; color: var(--ink-3); gap: 8px; list-style: none; }
+.rt-message-options > summary::after { content: '+'; }
+.rt-message-options[open] > summary::after { content: '−'; }
+.rt-message-options > summary::-webkit-details-marker { display: none; }
+.rt-message-options-body { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 4px 0; }
+.rt-message-card { min-width: 0; overflow-wrap: anywhere; }
+.rt-disclosure-summary:focus-visible, .rt-tab-strip > a:focus-visible,
+.rt-message-options > summary:focus-visible, .rt-inline-action:focus-visible {
+  outline: 2px solid var(--ink); outline-offset: 3px;
+}
+/* Use the menu before the full desktop masthead runs out of room. */
+@media (min-width: 641px) and (max-width: 1023px) {
+  .rt-helm-modulenav { display: none !important; }
+  .rt-mobile-menu-trigger { display: inline-flex !important; }
+}
+@media (max-width: 640px) {
+  .rt-tab-strip { gap: 20px !important; }
+  .rt-section-tabs { padding-top: 10px !important; }
+  .rt-section-tabs a { min-height: 44px; }
+  .rt-message-card { padding: 14px !important; }
+  .rt-message-actions { gap: 8px !important; }
+  .rt-message-options { flex-basis: 100%; margin-left: 0; border-top: 1px solid var(--rule); }
+  .rt-message-options-body .rt-quiet-btn { min-height: 44px; }
+  .rt-section-actions { gap: 8px !important; }
+  .rt-mobile-menu-trigger { min-height: 44px; }
+  .rt-mobile-menu-header button { min-width: 44px; min-height: 44px; }
+  .rt-helm-section input:not([type=checkbox]):not([type=radio]),
+  .rt-helm-section textarea, .rt-helm-section select { font-size: 16px !important; }
+}
+@media (max-width: 640px) {
+  /* A message and its draft must not become two narrow newspaper columns. */
+  .rt-msg-grid { grid-template-columns: minmax(0, 1fr) !important; gap: 16px !important; }
+  .rt-msg-grid > * { min-width: 0; }
+  .rt-property-list-row { grid-template-columns: 24px minmax(0, 1fr) auto !important; gap: 8px 12px !important; padding: 18px 0 !important; }
+  .rt-property-list-row > :nth-child(2), .rt-property-list-row > :nth-child(3) { grid-column: 2 / -1; min-width: 0; }
+  .rt-property-list-row > :nth-child(2) h2 { font-size: 20px !important; }
+  .rt-property-list-row > :nth-child(3) { flex-wrap: wrap; white-space: normal !important; }
+  .rt-property-list-row > :nth-child(4) { grid-column: 2; white-space: normal !important; }
+  .rt-property-list-row > :nth-child(5) { grid-column: 3; }
+}
+@media (max-width: 640px) {
+  .rt-queue-refresh { min-height: 44px; }
+  .rt-refresh-age { display: none; }
+}
+#needs-review.rt-helm-section { padding-bottom: 20px !important; }

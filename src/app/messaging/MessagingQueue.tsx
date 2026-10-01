@@ -775,6 +775,7 @@ function ApprovalCard({
     <article
       id={`approval-${approval.id}`}
       ref={cardRef}
+      className="rt-message-card"
       style={{
         border: '1px solid var(--rule)',
         // A queued card wears a bronze left rule; otherwise the proactive
@@ -1390,6 +1391,7 @@ function ApprovalCard({
       )}
 
       <footer
+        className="rt-message-actions"
         style={{
           marginTop: 18,
           display: 'flex',
@@ -1545,15 +1547,9 @@ function ApprovalCard({
                 boxes, and sit apart from the send controls: one dark button,
                 one outlined, then the quiet exits. Four equal boxes read as
                 four equal choices, which they are not. */}
-            <span
-              style={{
-                marginLeft: 'auto',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 20,
-                flexWrap: 'wrap',
-              }}
-            >
+            <details className="rt-message-options">
+              <summary>More actions</summary>
+              <div className="rt-message-options-body">
               <QuietButton
                 onClick={handleRedraft}
                 disabled={busy}
@@ -1591,7 +1587,8 @@ function ApprovalCard({
                   Fewer options
                 </button>
               )}
-            </span>
+              </div>
+            </details>
           </>
         )}
       </footer>

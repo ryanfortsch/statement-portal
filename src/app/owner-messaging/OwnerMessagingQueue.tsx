@@ -317,6 +317,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
       <article
         id={`approval-${approval.id}`}
         ref={cardRef}
+        className="rt-message-card"
         style={{
           border: '1px solid var(--rule)',
           borderLeft: `3px solid ${QUEUED_TONE}`,
@@ -379,6 +380,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
     <article
       id={`approval-${approval.id}`}
       ref={cardRef}
+      className="rt-message-card"
       tabIndex={0}
       onKeyDown={onKeyDown}
       style={{
@@ -433,7 +435,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             Hide ▴
           </button>
         ) : (
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={approval.created_at}>
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`${approval.created_at} · ${approval.short_id}`}>
             {'drafted '}
             <span
               style={{
@@ -443,8 +445,6 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             >
               {ageLabel}
             </span>
-            {' · id '}
-            {approval.short_id}
           </span>
         )}
       </header>
@@ -460,7 +460,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
               {error}
             </p>
           )}
-          <footer style={{ display: 'flex', gap: 10 }}>
+          <footer className="rt-message-actions" style={{ display: 'flex', gap: 10 }}>
             <SecondaryButton
               onClick={doReject}
               disabled={busy}
@@ -482,7 +482,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
               {relativeTimeShort(approval.created_at) && (
                 <span
                   style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.10em', color: 'var(--ink-3)', textTransform: 'none' }}
-                  title={approval.created_at}
+                  title={`${approval.created_at} · ${approval.short_id}`}
                 >
                   sent {relativeTimeShort(approval.created_at)}
                 </span>
@@ -544,7 +544,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             </p>
           )}
 
-          <footer style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <footer className="rt-message-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             {isScheduled ? (
               <>
                 <SecondaryButton
@@ -582,6 +582,9 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                       ? 'Cancel coaching'
                       : 'Coach the AI'}
                 </SecondaryButton>
+                <details className="rt-message-options">
+              <summary>More actions</summary>
+              <div className="rt-message-options-body">
                 <SecondaryButton
                   onClick={doHandled}
                   disabled={busy}
@@ -596,6 +599,8 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                 >
                   {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
                 </SecondaryButton>
+              </div>
+            </details>
               </>
             )}
           </footer>

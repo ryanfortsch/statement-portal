@@ -254,6 +254,7 @@ function ContractorApprovalCard({
       <article
         id={`approval-${approval.id}`}
         ref={cardRef}
+        className="rt-message-card"
         style={{
           border: '1px solid var(--rule)',
           borderLeft: `3px solid ${QUEUED_TONE}`,
@@ -316,6 +317,7 @@ function ContractorApprovalCard({
     <article
       id={`approval-${approval.id}`}
       ref={cardRef}
+      className="rt-message-card"
       style={{
         border: '1px solid var(--rule)',
         borderLeft: isScheduled ? `3px solid ${QUEUED_TONE}` : '1px solid var(--rule)',
@@ -359,7 +361,7 @@ function ContractorApprovalCard({
             Hide ▴
           </button>
         ) : (
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={approval.created_at}>
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`${approval.created_at} · ${approval.short_id}`}>
             {'drafted '}
             <span
               style={{
@@ -369,8 +371,6 @@ function ContractorApprovalCard({
             >
               {ageLabel}
             </span>
-            {' · id '}
-            {approval.short_id}
           </span>
         )}
       </header>
@@ -473,6 +473,7 @@ function ContractorApprovalCard({
       )}
 
       <footer
+        className="rt-message-actions"
         style={{
           marginTop: 18,
           display: 'flex',
@@ -539,7 +540,10 @@ function ContractorApprovalCard({
                     : 'Coach the AI'}
               </SecondaryButton>
             )}
-            <SecondaryButton
+            <details className="rt-message-options">
+              <summary>More actions</summary>
+              <div className="rt-message-options-body">
+                <SecondaryButton
               onClick={() => run('mark-handled', () => markContractorHandled(approval.id))}
               disabled={busy}
               title="Already replied directly. Clears the queue without sending."
@@ -553,6 +557,8 @@ function ContractorApprovalCard({
             >
               {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
             </SecondaryButton>
+              </div>
+            </details>
           </>
         )}
       </footer>
