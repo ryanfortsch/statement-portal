@@ -1,5 +1,8 @@
 'use client';
 
+import { Fragment } from 'react';
+import { InboxFollowup } from '@/components/InboxFollowup';
+
 import { MobileInboxReview } from '@/components/MobileInboxReview';
 
 import { MessageOutcomes } from '@/components/MessageOutcomes';
@@ -60,19 +63,18 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
     softRefresh();
   }, [refresh, softRefresh]);
 
-  // Queued (scheduled) cards float to the top, ordered by when they fire;
-  // pending drafts stay in newest-first order below (guest-queue pattern).
+  // Decisions first; scheduled sends stay visible in their own group.
   const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
   const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const ordered = [...queued, ...pending];
+  const ordered = [...pending, ...queued];
   const title =
     approvals.length === 0
       ? 'Inbox zero'
       : pending.length === 0
-        ? `Queued (${queued.length})`
-        : `Needs review (${pending.length})${queued.length ? ` · ${queued.length} queued` : ''}`;
+        ? `Scheduled (${queued.length})`
+        : `Needs review (${pending.length})`;
 
   return (
     <Section
@@ -83,7 +85,9 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
       emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval) => (
+        {ordered.map((approval, index) => (
+          <Fragment key={approval.id}>
+          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
           <CleanerApprovalCard
             key={approval.id}
             approval={approval}
@@ -92,6 +96,7 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
             onRegenerating={watchRegen}
             regenStalled={stalledId === approval.id}
           />
+          </Fragment>
         ))}
       </div>
     </Section>
@@ -388,18 +393,8 @@ function CleanerApprovalCard({
       </div>
 
       {slip && (
-        <div
-          style={{
-            marginTop: 16,
-            border: '1px solid var(--rule)',
-            borderLeft: `3px solid ${SLIP_TONE}`,
-            background: 'var(--paper)',
-            padding: '12px 14px',
-          }}
-        >
-          <div className="eyebrow" style={{ color: SLIP_TONE, marginBottom: 8 }}>
-            Work slip on approval
-          </div>
+        <InboxFollowup title={`Work slip · ${slip.title}`} attention={slipBlocked}
+          status={slipBlocked ? 'Select property' : fileSlip ? 'Create when approved' : 'Skip'}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>
               {slip.title}
@@ -450,7 +445,7 @@ function CleanerApprovalCard({
               Pick a property for the slip (or untick it).
             </p>
           )}
-        </div>
+        </InboxFollowup>
       )}
 
       {error && (

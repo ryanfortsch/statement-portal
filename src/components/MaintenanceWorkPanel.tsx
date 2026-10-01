@@ -1,5 +1,6 @@
+import { InboxFollowup } from './InboxFollowup';
 import { WorkOutcomeDetails } from './MessageOutcomes';
-import { workError, type OutcomeSource, type WorkOutcome } from '@/lib/message-outcomes';
+import { workStatus, workError, type OutcomeSource, type WorkOutcome } from '@/lib/message-outcomes';
 
 type Props = {
   id: string;
@@ -17,8 +18,8 @@ export function MaintenanceWorkPanel({ id, work, outcome, create, busy, dismissi
   const dismissed = work.status === 'dismissed' || outcome?.status === 'dismissed';
   const completed = outcome?.status === 'done';
   const error = workError(work);
-  return <section aria-label="Property work slip" style={{ marginTop: 16, border: '1px solid var(--rule)', borderLeft: '3px solid var(--success, #426d66)', background: 'var(--paper)', padding: '12px 14px' }}>
-    <div className="eyebrow" style={{ color: 'var(--success, #426d66)', marginBottom: 6 }}>Property work slip</div>
+  return <InboxFollowup ariaLabel="Property work slip" title={`Work slip · ${outcome?.title || work.title}`} attention={!!error || !!outcome?.error || outcome?.status === 'blocked' || outcome?.status === 'unavailable'}
+    status={error || outcome?.error ? 'Needs review' : dismissed ? 'Dismissed' : completed ? 'Completed' : hasSlip ? outcome ? workStatus(outcome.status, outcome.assignee) : 'Created' : create ? 'Create when approved' : 'Skip'}>
     {outcome && (hasSlip || outcome.id)
       ? <WorkOutcomeDetails work={outcome} />
       : <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-1)' }}>{work.title}</p>}
@@ -36,5 +37,5 @@ export function MaintenanceWorkPanel({ id, work, outcome, create, busy, dismissi
       </fieldset>
     )}
     {error && !(outcome && (hasSlip || outcome.id)) && <p role="status" style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)' }}>{error}</p>}
-  </section>;
+  </InboxFollowup>;
 }

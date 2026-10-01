@@ -1,5 +1,7 @@
 'use client';
 
+import { InboxFollowup } from '@/components/InboxFollowup';
+
 import type { OwnerProposedAction } from '@/lib/stay-concierge';
 
 /** One row's presentation, keyed by kind. A table rather than a ternary
@@ -82,13 +84,8 @@ export function ProposedActions({
   const turnoverNotes = tally.get('turnover_note') ?? 0;
 
   return (
-    <section
-      style={{ border: '1px solid var(--rule)', padding: '14px 18px', background: 'var(--paper-2)' }}
-      aria-label="Follow-up work"
-    >
-      <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 10 }}>
-        Follow-up work: {summary}
-      </div>
+    <InboxFollowup title={`Follow-up work · ${summary}`} status={enabled ? 'Create when approved or handled' : 'Skip'}
+      attention={actions.some(a => (a.kind === 'work_slip' && a.priority === 'high') || (a.kind === 'guest_notice' && a.enters_guest_space))}>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
         {actions.map((action, i) => {
           const { label, color } = styleFor(action.kind);
@@ -150,6 +147,6 @@ export function ProposedActions({
           actually in the house. Nothing is created if the house is empty.
         </p>
       )}
-    </section>
+    </InboxFollowup>
   );
 }

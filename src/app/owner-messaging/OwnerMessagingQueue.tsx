@@ -1,5 +1,7 @@
 'use client';
 
+import { Fragment } from 'react';
+
 import { MobileInboxReview } from '@/components/MobileInboxReview';
 
 import { MessageOutcomes } from '@/components/MessageOutcomes';
@@ -58,19 +60,18 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
     softRefresh();
   }, [refresh, softRefresh]);
 
-  // Queued (scheduled) cards float to the top, ordered by when they fire;
-  // pending drafts stay in newest-first order below (guest-queue pattern).
+  // Decisions first; scheduled sends stay visible in their own group.
   const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
   const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const ordered = [...queued, ...pending];
+  const ordered = [...pending, ...queued];
   const title =
     approvals.length === 0
       ? 'Inbox zero'
       : pending.length === 0
-        ? `Queued (${queued.length})`
-        : `Needs review (${pending.length})${queued.length ? ` · ${queued.length} queued` : ''}`;
+        ? `Scheduled (${queued.length})`
+        : `Needs review (${pending.length})`;
 
   return (
     <Section
@@ -81,7 +82,9 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
       emptyMessage="No owner drafts waiting. New owner messages will show up here automatically when the AI drafts a reply."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval) => (
+        {ordered.map((approval, index) => (
+          <Fragment key={approval.id}>
+          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
           <OwnerApprovalCard
             key={approval.id}
             approval={approval}
@@ -89,6 +92,7 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
             onRegenerating={watchRegen}
             regenStalled={stalledId === approval.id}
           />
+          </Fragment>
         ))}
       </div>
     </Section>
