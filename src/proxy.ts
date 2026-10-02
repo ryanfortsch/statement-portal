@@ -119,6 +119,10 @@ const PUBLIC_API_PREFIXES = [
   // their way out becomes a line in the cleaners' schedule message for the
   // day they are next at the house. Self-guards via STAY_CONCIERGE_KEY.
   "/api/turnover-notes",
+  // Stay-concierge bridge: an owner asking that someone be added to (or
+  // dropped from) their statement emails, approved on the owner card.
+  // Self-guards via STAY_CONCIERGE_KEY.
+  "/api/owner-recipients",
   // Stay-concierge bridge: creates a Stripe Payment Link in the property's
   // own Stripe account for an approved guest add-on charge (Tesla charger,
   // pet fee, early check-in). Self-guards via STAY_CONCIERGE_KEY.
