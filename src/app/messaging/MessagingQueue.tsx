@@ -43,6 +43,7 @@ import { UndoToast, type Decision } from './UndoToast';
 import {
   prettifySlug,
   prettifyTopic,
+  sendsTo,
   guestFirstFromDraft,
   ageToneColor,
   relativeTimeShort,
@@ -360,6 +361,11 @@ function ApprovalCard({
     guestFirstFromDraft(approval.draft) ||
     'Guest';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
+  // Where an approve actually sends, when it leaves the platform thread: a
+  // text to a number the guest gave us, or an email to a third party the
+  // booker named. Empty on an ordinary OTA card. Shown because both of those
+  // were approved blind until now.
+  const destination = sendsTo(approval);
   const isPrereleaseRequest = approval.topic === 'prerelease_request';
   // Describes what the button DOES, not what the draft says: the drafted
   // reply varies (a holding note, or a decline when the home is not ours to
@@ -839,6 +845,15 @@ function ApprovalCard({
           ) : (
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
               {topicLabel}
+            </span>
+          )}
+          {destination && (
+            <span
+              className="eyebrow"
+              style={{ color: 'var(--signal)', fontWeight: 600 }}
+              title="This card does not reply up the platform thread. Approving it sends here."
+            >
+              {destination}
             </span>
           )}
         </div>

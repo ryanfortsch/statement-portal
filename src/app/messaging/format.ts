@@ -6,6 +6,7 @@
  * change" instead of "DATE_CHANGE", and surface a guest first name even
  * when the older approval rows didn't store one.
  */
+import { formatUsPhone } from '../../lib/phone.ts';
 
 export function prettifySlug(slug: string): string {
   if (!slug) return '';
@@ -82,6 +83,36 @@ export function proactiveBadge(
  */
 export function isManualSend(guestyMessageId: string | null | undefined): boolean {
   return (guestyMessageId || '').toLowerCase().startsWith('trash-manual:');
+}
+
+/**
+ * Where an approved card actually sends, when that is NOT the platform thread.
+ *
+ * Two card kinds leave the thread, and both used to be approved blind:
+ *   - a guest-SMS card texts a number the guest gave us (`sms_to`)
+ *   - a relay card emails a third party the BOOKER named (`guest_email` on a
+ *     `guest_relay_request`), which carries an access code to somebody who is
+ *     not on the reservation
+ *
+ * The concierge has sent `sms_to` since 2026-09-25 precisely so this could be
+ * shown, and Helm ignored it. Returns '' for an ordinary OTA card, whose reply
+ * goes back up the thread it came from and needs no label.
+ *
+ * Deliberately narrow: an SCA or 2027 card also carries `guest_email`, but its
+ * send path is not Helm's to describe, and a confident wrong "sends to" is
+ * worse than none.
+ */
+export function sendsTo(approval: {
+  topic?: string | null;
+  sms_to?: string | null;
+  guest_email?: string | null;
+}): string {
+  const phone = (approval.sms_to || '').trim();
+  if (phone) return `texts ${formatUsPhone(phone)}`;
+  const topic = (approval.topic || '').trim().toLowerCase();
+  const email = (approval.guest_email || '').trim();
+  if (topic === 'guest_relay_request' && email) return `emails ${email}`;
+  return '';
 }
 
 export function prettifyTopic(topic: string): string {
