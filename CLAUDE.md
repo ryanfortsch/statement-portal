@@ -485,37 +485,43 @@ Gloucester cart sentence off a Rockport home that has no curbside collection at 
 
 | City | Rule |
 |---|---|
-| **Gloucester** | Automated Casella carts since **2026-10-01**, one 65-gal trash and one 65-gal recycling per unit, $300/yr billed $75/quarter on the utility account. STRs are not exempt. Everything inside with the lid closed; nothing beside a cart is collected; personal barrels are done. Purple pay-as-you-throw bags died 2026-09-30. |
+| **Gloucester** | Automated Casella carts since **2026-10-01**, one 65-gal trash and one 65-gal recycling per unit, $300/yr billed $75/quarter on the utility account. STRs are not exempt. Everything inside with the lid closed; nothing beside a cart is collected. |
 | **Rockport** | No curbside collection at all. Transfer Station, Town PAYT bags. |
 | **Beverly** | Casella carts since 2026-07-01 on its own specs (95-gal recycling). Not Gloucester's rule. |
 
 Three things to know before editing any of it:
 
-1. **The Gloucester rule is date-resolved**, off `GLOUCESTER_CART_CUTOVER`, because stays straddled
-   the switch. Every surface that prints it is `force-dynamic`, so it flips itself with nothing for
-   anyone to remember. `GLOUCESTER_BAG_RULE` is still LIVE until the cutover and a guest with a
-   pickup on or before 2026-09-30 needs it, so do not delete that branch before 10-01. After
-   that date it is dead and should go, along with `durableReceptacleRule` in the Guesty push.
-2. **Never write "the night before" or "out by 7am".** The wording is
-   *"out after 4 PM the day before, back in that evening"*, which satisfies both the current rule
-   and the pending Chapter 9 Sec. 9-4 deadline. The return half is the compliance clause, not
-   politeness: Gloucester STR ordinance **Sec. 5-66(q) fines $400 per occurrence** for a cart left
-   at the curb, each day a separate offence, chained to the Board of Health rental permit.
+1. **Purple bags are gone.** The program ended 2026-09-30 and its code, KB text and facts were
+   deleted on 2026-10-02. No surface may mention them; stay-concierge's `content_guard` swaps any
+   sentence that does for the cart rule.
+2. **The wording is short (Dotti, 2026-10-02):** *"Carts go out the night before pickup and come
+   back in once they're emptied."* Pickup is in the morning. The "back in" half is the compliance
+   clause, not politeness: Gloucester STR ordinance **Sec. 5-66(q) fines $400 per occurrence** for
+   a cart left at the curb, each day a separate offence, chained to the Board of Health rental
+   permit. Never drop it.
 3. **`properties.trash_notes` is LOCATION ONLY.** Where the bins and carts live, nothing else. The
    day and the city rule compose on top of it at render time. This keeps the column regime-neutral
    and matches what stay-concierge's `_house_lines` filter expects: it drops note sentences
    carrying a weekday or a clock time and keeps location sentences.
 
 Collection days come from the DPW street list in `civic.ts`, overridable per property via
-`properties.trash_day`. Checked against the city on 2026-09-25: the 11-16-23 revision is still
+`properties.trash_day`. The city's PDF is checked in at
+`docs/civic/gloucester-trash-street-list-2023-11-16.pdf`; the table was diffed against it row for
+row on 2026-10-02 (690 streets, no differences). Checked against the city on 2026-09-25: the 11-16-23 revision is still
 the current published list and the cart rollout does not move days. **Twelve streets carry two
 published days** (the route splits them, and ten give no segment note), so `civic.ts` refuses to
 answer for those rather than guessing; only an operator who has phoned DPW should fill the column.
 `84_thatcher` is the live case, unresolved, and `225_washington` claims Wednesday off a four-way
 split that predates the check. `/api/kb-facts` bridges the **resolved** day plus `city` and
 `receptacle_rule`, so the guest AI can gate its own wording. Writing `trash_day` for a
-**non-Gloucester** property is currently unsafe: stay-concierge's `_receptacle_rule` has no city
+**non-Gloucester** property is currently unsafe: stay-concierge's `RECEPTACLE_RULE` has no city
 gate and emits the Gloucester cart clause for any property with a parseable day.
+
+**Guest messages** (stay-concierge `src/trash_reminders.py`, approval-gated): any stay of **3+
+nights** that spans a pickup, so the city hauls the trash instead of the cleaner. A pickup the
+morning after check-in is skipped (the turnover just emptied the house) and a checkout-day pickup
+is the cleaner's. Day-2 evening check-in naming the next pickup (or "tomorrow morning, carts out
+tonight"), then a reminder two days before each later pickup.
 
 # Properties
 
