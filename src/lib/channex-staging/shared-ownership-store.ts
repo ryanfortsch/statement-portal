@@ -7,7 +7,7 @@ export function createSharedOwnershipStore(url: string, key: string) {
  return {
   async initialize() {
    const {error}=await db.from('helm_pilot_ownership_state').insert({id:1,journal:emptyOwnershipJournal()});
-   if(error) throw new Error('Ownership initialization refused; existing history must be preserved');
+   if(error && error.code !== '23505') throw new Error('Ownership initialization refused; existing history must be preserved');
   },
   async read() {
    const {data,error}=await db.from('helm_pilot_ownership_state').select('version,journal').eq('id',1).single();
