@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import {
   civicForProperty,
   receptacleRuleFor,
+  isCollectionDay,
   GLOUCESTER_CART_RULE,
 } from '../civic.ts';
 import type { HelmPropertyRow } from '../properties.ts';
@@ -131,4 +132,13 @@ test('civicForProperty carries the receptacle rule for its own city', () => {
 
   const r = civicForProperty(prop({ address: '3 South Street', city: 'Rockport, MA' }));
   assert.doesNotMatch(r.receptacleRule!, /cart/i);
+});
+
+test('isCollectionDay matches the weekday of a date, and nothing without a day', () => {
+  assert.equal(isCollectionDay('Friday', '2026-10-09'), true);
+  assert.equal(isCollectionDay('Friday', '2026-10-08'), false);
+  assert.equal(isCollectionDay(null, '2026-10-09'), false);
+  // 84 Thatcher: DPW-confirmed Friday set on the row wins over the split street.
+  const c = civicForProperty(prop({ address: '84 Thatcher Road', trash_day: 'Friday' }));
+  assert.equal(isCollectionDay(c.trashDay, '2026-10-09'), true);
 });
