@@ -37,7 +37,7 @@ export function RecentDecisions({ items }: { items: Approval[] }) {
     <section
       aria-label="Decided recently"
       className="max-w-[1100px] mx-auto px-10"
-      style={{ width: '100%', marginTop: -24, paddingBottom: 40 }}
+      style={{ width: '100%', marginTop: 8, paddingBottom: 16 }}
     >
       <div
         className="eyebrow"
@@ -66,7 +66,7 @@ export function RecentDecisions({ items }: { items: Approval[] }) {
               className="rt-msg-decided-row"
               style={{
                 display: 'grid',
-                gridTemplateColumns: '112px minmax(0, 1fr) auto auto',
+                gridTemplateColumns: '132px minmax(0, 1fr) auto auto',
                 alignItems: 'center',
                 columnGap: 16,
                 padding: '10px 0',
@@ -74,7 +74,7 @@ export function RecentDecisions({ items }: { items: Approval[] }) {
                 fontSize: 13,
               }}
             >
-              <span className="eyebrow" style={{ color: statusToneColor(row.status), fontWeight: 600 }}>
+              <span className="eyebrow" style={{ color: statusToneColor(row.status), fontWeight: 600, whiteSpace: 'nowrap' }}>
                 {LABELS[row.status] || row.status}
               </span>
               <span
