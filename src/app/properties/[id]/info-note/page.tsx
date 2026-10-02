@@ -98,11 +98,9 @@ export default async function InfoNotePage({ params }: { params: Promise<{ id: s
                 <span className="rt-k">Recycling</span>
                 <span className="rt-v">{civic.recyclingDay || 'Confirm with DPW'}</span>
               </p>
-              {/* The city rule, resolved per render off the cart cutover date.
-                  This is the line the STR permit inspector reads, so it states
-                  the same-day curb return that Sec. 5-66(q) fines $400 for. It
-                  used to read "place bins curbside the night before", which was
-                  the wrong set-out window and silent on bringing them back. */}
+              {/* The city rule from civic.ts. This is the line the STR permit
+                  inspector reads, so it states the curb return that
+                  Sec. 5-66(q) fines $400 for. Never drop that half. */}
               {civic.receptacleRule && <p className="rt-aside">{civic.receptacleRule}</p>}
               {/* Narrowed from "pet waste, yard waste, and household hazardous
                   items go in the trash". Pet waste is safe to assert; yard

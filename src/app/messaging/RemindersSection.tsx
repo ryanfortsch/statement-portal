@@ -505,7 +505,7 @@ function CreateForm({
             setPolished(false);
           }}
           rows={3}
-          placeholder="Type quick and dirty, e.g. 'trash day is tuesday, carts are on the side of the house, out after 4pm monday and back in that evening'. Then hit Polish."
+          placeholder="Type quick and dirty, e.g. 'trash day is tuesday, carts are on the side of the house, out monday night and back in tuesday'. Then hit Polish."
           style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }}
         />
       </div>

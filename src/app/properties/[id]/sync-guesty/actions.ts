@@ -4,7 +4,7 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import { resolveGuestyListingId } from '@/lib/guesty-listing-id';
-import { civicForProperty, receptacleRuleFor, GLOUCESTER_CART_CUTOVER } from '@/lib/civic';
+import { civicForProperty } from '@/lib/civic';
 import type { HelmPropertyRow } from '@/lib/properties';
 import {
   getListingGuestFields,
@@ -72,16 +72,6 @@ function compose(parts: Array<string | null | undefined>, sep: string): string {
   return parts.map((p) => (p ?? '').trim()).filter(Boolean).join(sep);
 }
 
-/**
- * The receptacle rule as it will be true from 2026-10-01 onward, rather than
- * as it is on the day of the push. See the note in loadHelmFields: a Guesty
- * listing field never re-syncs, so it wants the durable answer.
- */
-function durableReceptacleRule(city: string | null | undefined): string | null {
-  const cityShort = (city || '').split(',')[0].trim();
-  return receptacleRuleFor(cityShort, new Date(`${GLOUCESTER_CART_CUTOVER}T12:00:00Z`));
-}
-
 /** Loose equality so trivial whitespace/case differences don't read as a diff. */
 function norm(s: string): string {
   return s.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -147,19 +137,11 @@ async function loadHelmFields(propertyId: string): Promise<GuestyGuestFields> {
     // VRBO listing where nothing downstream filters it, so it has to stand
     // alone. trash_notes carries only where the bins and carts live; the day
     // and the city rule come from civic.ts.
-    //
-    // Deliberately NOT the date-resolved rule. A Guesty listing field is
-    // write-once from Helm's side: we push it and nothing ever re-syncs, so
-    // whatever is pushed sits on the listing indefinitely. Pushing the
-    // pre-cutover bag wording during the last week of September would freeze
-    // a retired program onto the listing for good. For a durable field the
-    // correct content is the durable rule, so Gloucester always gets the cart
-    // text here even while civic.ts is still serving bags to the live pages.
     trashCollectedOn: compose(
       [
         civic.trashDay ? `Collection is ${civic.trashDay}, recycling the same day.` : null,
         p.trash_notes,
-        durableReceptacleRule(p.city),
+        civic.receptacleRule,
       ],
       ' ',
     ),

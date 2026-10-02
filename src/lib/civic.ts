@@ -19,7 +19,7 @@
  * carts live; it does not get to contradict the city about the set-out rule.
  * Every surface reads `receptacleRule` from here rather than carrying its own
  * copy, which is what keeps a Gloucester cart sentence off a Rockport home
- * that has no curbside collection at all. See GLOUCESTER_CART_CUTOVER.
+ * that has no curbside collection at all. See GLOUCESTER_CART_RULE.
  *
  * ON THE DAY TABLE: checked against the DPW list on 2026-09-25. The city still
  * publishes the 11-16-23 revision as current and says the Casella cart rollout
@@ -54,51 +54,20 @@ export type CivicInfo = {
 };
 
 /**
- * Gloucester retired its purple pay-as-you-throw bags on 2026-09-30 and
- * collects with automated Casella carts from 2026-10-01: one 65-gallon
- * trash cart and one 65-gallon recycling cart per unit, $300/yr billed
- * $75/quarter on the property's utility account. Short-term rentals are
- * named explicitly and are not exempt. Collection DAYS did not change and
- * the holiday one-day-later rule survives.
+ * Gloucester collects with automated Casella carts (since 2026-10-01): one
+ * 65-gallon trash cart and one 65-gallon recycling cart per unit, $300/yr
+ * billed $75/quarter on the property's utility account. Short-term rentals
+ * are not exempt. Pickup is in the morning, so the carts go out the night
+ * before. Bringing them back in is the part that costs money: Gloucester STR
+ * ordinance Sec. 5-66(q) fines $400 per occurrence for a cart left at the
+ * curb. Do not drop the "back in" clause in a rewrite.
  *
- * The date matters because stays straddle it. A guest whose pickup is
- * 2026-09-28 still needs bags; the same guest's 2026-10-02 pickup needs the
- * cart. So the rule is resolved per render, not frozen into a constant.
- * Every surface that prints it is `force-dynamic`, so this evaluates on each
- * request and flips itself at midnight with nothing for anyone to remember.
- * This mirrors stay-concierge's `CART_CUTOVER` / `_uses_carts`
- * (src/trash_reminders.py), which keys on the PICKUP date for the same
- * reason. The two constants must stay equal.
- *
- * After 2026-10-01 the bag branch below is dead and should be deleted.
- */
-export const GLOUCESTER_CART_CUTOVER = '2026-10-01';
-
-/**
- * The canonical Gloucester cart paragraph. Wording is load-bearing, not
- * decorative:
- *
- *  - "lid fully closed" / "nothing beside the cart" replaces the bag-era
- *    habit of leaving overflow next to the barrel. Overflow is not collected.
- *  - "loose bags or personal barrels are no longer picked up" is here because
- *    the homes still physically have barrels a guest will reach for.
- *  - "back in that evening" is the compliance clause, not politeness.
- *    Gloucester STR ordinance Sec. 5-66(q) fines $400 PER OCCURRENCE for a
- *    cart left at the curb, each day a separate offence, and chains to the
- *    Board of Health rental permit via s.3.8. Do not drop it in a rewrite.
- *  - "after 4 PM the day before" satisfies both the current rule and the
- *    pending Chapter 9 Sec. 9-4 7 a.m. deadline. Never write "the night
- *    before" or "out by 7am" on their own.
- *
- * Identical in substance to stay-concierge's cart sentence so a guest who
- * reads the posted note and then texts us hears the same answer twice.
+ * Kept short on purpose (Dotti, 2026-10-02): a guest needs where it goes,
+ * when it goes out, and to bring it back. Identical in substance to
+ * stay-concierge's cart sentence, so the posted note and a text agree.
  */
 export const GLOUCESTER_CART_RULE =
-  'Everything goes in the two City carts with the lids fully closed, since anything left beside a cart is not collected, and loose bags or personal barrels are no longer picked up. Carts go out after 4 PM the day before collection and come back in that evening, which the city requires. A holiday earlier in the week pushes collection one day later, and Friday runs Saturday.';
-
-/** The pre-cutover rule. Dead on 2026-10-01, delete it with the branch. */
-const GLOUCESTER_BAG_RULE =
-  'Trash goes out in the official purple City bags, which are the only ones collected. Bags go out after 4 PM the day before collection and the barrels come back in that evening, which the city requires. A holiday earlier in the week pushes collection one day later, and Friday runs Saturday. Gloucester switches to automated City carts on October 1, and after that everything goes in the carts instead.';
+  'Everything goes in the two City carts with the lids closed, since nothing left beside a cart is collected. Carts go out the night before pickup and come back in once they are emptied. A holiday earlier in the week pushes pickup one day later, and Friday runs Saturday.';
 
 /**
  * Rockport has no curbside collection at all: the town runs a Transfer Station
@@ -122,17 +91,11 @@ const ROCKPORT_RULE =
 const BEVERLY_RULE =
   'Beverly collects with City carts. Everything goes inside with the lid fully closed, since anything left beside a cart is not collected. Check the city schedule for the set-out window.';
 
-/**
- * Resolve the receptacle rule for a city on a given date. `on` is injectable
- * so the test suite can pin both sides of the cutover without touching the
- * clock.
- */
-export function receptacleRuleFor(city: string, on: Date = new Date()): string | null {
+/** The receptacle rule for a city, or null for a city we have not confirmed. */
+export function receptacleRuleFor(city: string): string | null {
   switch (city) {
     case 'Gloucester':
-      return gloucesterDateKey(on) >= GLOUCESTER_CART_CUTOVER
-        ? GLOUCESTER_CART_RULE
-        : GLOUCESTER_BAG_RULE;
+      return GLOUCESTER_CART_RULE;
     case 'Rockport':
       return ROCKPORT_RULE;
     case 'Beverly':
@@ -147,7 +110,7 @@ export function receptacleRuleFor(city: string, on: Date = new Date()): string |
  * (`trash_day`, `recycling_day`, `parking_regulations`) when present;
  * otherwise derives from the city table.
  */
-export function civicForProperty(p: HelmPropertyRow, on: Date = new Date()): CivicInfo {
+export function civicForProperty(p: HelmPropertyRow): CivicInfo {
   const cityShort = (p.city || '').split(',')[0].trim();
   const cityDefaults = civicForCity(cityShort);
 
@@ -172,7 +135,7 @@ export function civicForProperty(p: HelmPropertyRow, on: Date = new Date()): Civ
     noise: cityDefaults.noise,
     animals: cityDefaults.animals,
     trashLink: cityDefaults.trashLink,
-    receptacleRule: receptacleRuleFor(cityShort, on),
+    receptacleRule: receptacleRuleFor(cityShort),
   };
 }
 
@@ -231,24 +194,6 @@ const SUFFIX_ALIASES: Record<string, string> = {
   ext: 'extension',
   pk: 'park',
 };
-
-/**
- * Today's date in Gloucester, as YYYY-MM-DD.
- *
- * The cutover is a calendar date in Massachusetts, not an instant. Vercel runs
- * functions in UTC, so reading the date off the server's own clock would flip
- * the wording at 8 PM Eastern on 2026-09-30, four hours early, and tell a
- * guest to use a cart the city will not empty until Thursday. Pin the zone.
- */
-function gloucesterDateKey(on: Date): string {
-  // en-CA formats as YYYY-MM-DD, which is what we want to string-compare.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(on);
-}
 
 /**
  * Look up a Gloucester street's collection day. Tries the exact key
@@ -401,7 +346,11 @@ const AMBIGUOUS_STREETS = new Set([
 /**
  * Gloucester trash collection schedule. Source: City of Gloucester DPW,
  * "Street List for Trash Collection" (11-16-23 revision), still the current
- * published list as of 2026-09-25. Keys are lowercased canonical street
+ * published list as of 2026-09-25. The PDF itself is checked in at
+ * docs/civic/gloucester-trash-street-list-2023-11-16.pdf, and this table was
+ * diffed against it row for row on 2026-10-02: 690 streets, no differences,
+ * the same twelve split streets. If the city reissues the list, replace the
+ * PDF and re-diff; do not hand-edit a day here without a source. Keys are lowercased canonical street
  * names; values are the 3-letter day code as published. Recycling collection
  * runs the same day on Gloucester's single-stream curbside route.
  *
