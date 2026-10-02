@@ -807,6 +807,18 @@ export type OwnerProposedAction =
       note_en: string;
       /** The same line in Portuguese, which is what the crew receives. */
       note_pt: string;
+    }
+  | {
+      /** The owner asked for someone to be added to, or dropped from, their
+       *  statement emails. Approving writes properties.owner_emails and an
+       *  owner contact card via /api/owner-recipients. */
+      kind: 'statement_recipient';
+      op: 'add' | 'remove';
+      email: string;
+      /** The person's name when the owner gave one. */
+      name?: string;
+      /** One line for the operator. */
+      why: string;
     };
 
 export type OwnerApprovalsResponse = {
