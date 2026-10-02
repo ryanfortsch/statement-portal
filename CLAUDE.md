@@ -361,7 +361,7 @@ rate changes, and the two lookups are keyed differently.
 `/guests/quotes` composes a custom quote or booking request for a named guest: property, dates,
 guests, a negotiated nightly rate or total, cleaning, extra fees, a discount, tax (owed rate, auto,
 exempt over 31 nights), pay-in-full or a deposit now with the balance by a date, a note, an expiry,
-and the cancellation wording. Helm sends it by email (Resend, as Allie) and/or SMS (Quo GUESTS
+and the cancellation wording. Helm sends it by email (Resend, from and CC hello@staycapeann.com) and/or SMS (Quo GUESTS
 line) with a link to `https://staycapeann.com/quote/<token>`. Table `sca_quotes` (service-role
 only); pure math and the wire types in `src/lib/sca-quotes-types.ts`, with a byte-compatible copy
 in stay-cape-ann `lib/helmQuotes.ts`. Change one, change both.

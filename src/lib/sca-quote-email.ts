@@ -7,8 +7,11 @@
  *   sendQuoteAcceptFailedStaffAlert  the guest tried to pay and something broke
  *   sendBalanceReminderEmail / sendBalanceReminderSms  split plan, balance due
  *
- * Sender is "Stay Cape Ann <allie@risingtidestr.com>", brand name on the
- * front and the Rising Tide address behind it, same as agreement-email.ts.
+ * Guest mail is from, CC'd to and reply-to "Stay Cape Ann
+ * <hello@staycapeann.com>" (Dotti, 2026-10-02): the guest sees one brand
+ * address, the team's copy lands in the hello@ inbox they already work
+ * (Allie included, so she is no longer CC'd separately), and a reply joins
+ * the same thread. Staff alerts still go out from RESEND_FROM_EMAIL.
  * SMS goes out ONLY on the GUESTS line (quoFromNumber('guests')): a quote
  * is a guest conversation, and the reply lands where Allie reads guest
  * texts. All sends are best-effort and return { ok, reason } rather than
@@ -25,20 +28,33 @@ import { displayTitle, fmtCents, fmtLongDate, fmtShortDate, todayInEastern, type
 
 const FROM_NAME = 'Stay Cape Ann';
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'allie@risingtidestr.com';
-const ALLIE_CC = 'allie@risingtidestr.com';
 // Guest replies must land at hello@staycapeann.com: that is the address the
 // stay-concierge email intake watches, so a reply joins the guest's existing
-// thread and becomes a Guests card. The From stays RESEND_FROM_EMAIL (shared
-// with Field and onboarding mail, a staff Google Group in production), which
-// is exactly where a reply must NOT go. Found 2026-09-16 on the first quote
-// sent to a guest mid-negotiation.
-const GUEST_REPLY_TO = 'hello@staycapeann.com';
+// thread and becomes a Guests card. RESEND_FROM_EMAIL (shared with Field and
+// onboarding mail, a staff Google Group in production) is exactly where a
+// reply must NOT go. Found 2026-09-16 on the first quote sent to a guest
+// mid-negotiation. The intake skips @staycapeann.com senders, so the CC copy
+// never turns into a Guests card of its own.
+const GUEST_EMAIL = 'hello@staycapeann.com';
 const GUEST_PHONE = '(978) 865-2575';
 
 const STAFF_NOTIFY = (process.env.STAFF_NOTIFY_EMAILS || 'allie@risingtidestr.com,dotti@risingtidestr.com')
   .split(',')
   .map((e) => e.trim())
   .filter(Boolean);
+
+/**
+ * Send a guest email from hello@. If Resend refuses that sender (the domain
+ * not verified on this account), fall back to RESEND_FROM_EMAIL with hello@
+ * still on CC and reply-to, so a quote is never lost to a sender problem.
+ */
+async function sendGuestEmail(args: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+  const base = { ...args, cc: GUEST_EMAIL, replyTo: GUEST_EMAIL, fromName: FROM_NAME };
+  if (await sendTransactionalViaResend({ ...base, fromEmail: GUEST_EMAIL })) return true;
+  if (FROM_EMAIL === GUEST_EMAIL) return false;
+  console.warn('[sca-quote-email] send from hello@ failed; retrying from', FROM_EMAIL);
+  return sendTransactionalViaResend({ ...base, fromEmail: FROM_EMAIL });
+}
 
 function firstName(name: string | null | undefined): string {
   if (!name) return 'there';
@@ -167,12 +183,8 @@ export async function sendQuoteLinkEmail(args: { quote: ScaQuoteRow }): Promise<
     `${SIGN_OFF_TEXT}\n\n` +
     `${AFFILIATION_FOOT_TEXT}\n`;
 
-  const ok = await sendTransactionalViaResend({
+  const ok = await sendGuestEmail({
     to: q.guest_email,
-    cc: ALLIE_CC,
-    replyTo: GUEST_REPLY_TO,
-    fromName: FROM_NAME,
-    fromEmail: FROM_EMAIL,
     subject: `Your quote for ${title}, ${datesLine(q)}`,
     html,
     text,
@@ -234,12 +246,8 @@ export async function sendBalanceReminderEmail(args: { quote: ScaQuoteRow }): Pr
     `${SIGN_OFF_TEXT}\n\n` +
     `${AFFILIATION_FOOT_TEXT}\n`;
 
-  const ok = await sendTransactionalViaResend({
+  const ok = await sendGuestEmail({
     to: q.guest_email,
-    cc: ALLIE_CC,
-    replyTo: GUEST_REPLY_TO,
-    fromName: FROM_NAME,
-    fromEmail: FROM_EMAIL,
     subject: `Balance due ${due}: ${title}, ${datesLine(q)}`,
     html,
     text,
