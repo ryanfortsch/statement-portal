@@ -1,3 +1,4 @@
+import { runRecoveryDrill } from '@/lib/channex-staging/recovery-drill';
 import { auth } from '@/auth';
 import { stagingBoardEnabled } from '@/lib/channex-staging/board';
 import { createClosureStore } from '@/lib/channex-staging/closure-store';
@@ -25,8 +26,12 @@ export async function POST(request: Request) {
   if (!process.env.AUTH_URL || request.headers.get('origin') !== new URL(process.env.AUTH_URL).origin) return Response.json({ error: 'origin' }, { status: 403, headers });
   try {
     const body = await request.json();
-    if (body.action !== 'run' && body.action !== 'reconcile') return Response.json({ error: 'Invalid action' }, { status: 400, headers });
+    if (body.action !== 'run' && body.action !== 'reconcile' && body.action !== 'drill') return Response.json({ error: 'Invalid action' }, { status: 400, headers });
     const db = store();
+    if (body.action === 'drill') {
+      const drill = await runRecoveryDrill(db, new ChannexStagingClient(process.env.CHANNEX_STAGING_API_KEY ?? ''));
+      return Response.json({ ...drill, history: await db.history() }, { headers });
+    }
     if (body.action === 'run') await db.initialize();
     const result = await runClosure(db, new ChannexStagingClient(process.env.CHANNEX_STAGING_API_KEY ?? ''), body.action === 'reconcile');
     return Response.json({ result, history: await db.history() }, { headers });

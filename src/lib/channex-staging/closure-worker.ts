@@ -14,7 +14,7 @@ function validate(op: ClosureOperation) {
   const allowed = new Set(nights(TEST_START, TEST_END));
   if (op.dates.some(d => !allowed.has(d))) throw new Error('Date outside pilot');
 }
-function inspect(snapshot: StagingSnapshot, dates: string[]): boolean {
+export function inspectClosureSnapshot(snapshot: StagingSnapshot, dates: string[]): boolean {
   if (snapshot.bookings.some(b => b.status !== 'cancelled')) throw new Error('Active stays require review');
   const expected = new Set(['front','back'].flatMap(u => nights(TEST_START, TEST_END).map(d => `${u}:${d}`)));
   for (const n of snapshot.inventory) {
@@ -32,7 +32,7 @@ export async function runClosure(store: ClosureStore, client: Client, recover = 
   if (recover) {
     if (op.status !== 'in-flight' && op.status !== 'needs-review') throw new Error('No interrupted operation to reconcile');
     // Read-only recovery: matching inventory is observation, not ownership or delivery proof.
-    const closed = inspect(await client.readSnapshot(), op.dates);
+    const closed = inspectClosureSnapshot(await client.readSnapshot(), op.dates);
     const result: ClosureOperation = { ...op, status: closed ? 'observed-closed' : 'needs-review' };
     if (!await store.replace(state.version, result)) throw new Error('Concurrent reconciliation; reread state');
     return result;
@@ -42,12 +42,12 @@ export async function runClosure(store: ClosureStore, client: Client, recover = 
   if (!await store.replace(state.version, intent)) throw new Error('Another worker acquired the operation');
   const version = state.version + 1;
   try {
-    const alreadyClosed = inspect(await client.readSnapshot(), op.dates);
+    const alreadyClosed = inspectClosureSnapshot(await client.readSnapshot(), op.dates);
     if (!alreadyClosed) {
       const days: AvailabilityDay[] = ['front','back'].flatMap(member => op.dates.map(date => ({ member: member as 'front'|'back', date, availability: 0, blockers: ['staging-closure-only'] })));
       await client.publishStoppedInventory(days);
     }
-    if (!inspect(await client.readSnapshot(), op.dates)) throw new Error('Read-back mismatch');
+    if (!inspectClosureSnapshot(await client.readSnapshot(), op.dates)) throw new Error('Read-back mismatch');
     const result: ClosureOperation = { ...op, status: 'observed-closed' };
     if (!await store.replace(version, result)) throw new Error('Completion could not be recorded');
     return result;
