@@ -511,16 +511,18 @@ row on 2026-10-02 (690 streets, no differences). Checked against the city on 202
 the current published list and the cart rollout does not move days. **Twelve streets carry two
 published days** (the route splits them, and ten give no segment note), so `civic.ts` refuses to
 answer for those rather than guessing; only an operator who has phoned DPW should fill the column.
-`84_thatcher` is the live case, unresolved, and `225_washington` claims Wednesday off a four-way
-split that predates the check. `/api/kb-facts` bridges the **resolved** day plus `city` and
+`84_thatcher` is **Friday**, confirmed with DPW by Dotti on 2026-10-02 and set on the row
+(migration `20261002_thatcher_trash_friday.sql`). `225_washington` still claims Wednesday off a
+four-way split that predates the check. `/api/kb-facts` bridges the **resolved** day plus `city` and
 `receptacle_rule`, so the guest AI can gate its own wording. Writing `trash_day` for a
 **non-Gloucester** property is currently unsafe: stay-concierge's `RECEPTACLE_RULE` has no city
 gate and emits the Gloucester cart clause for any property with a parseable day.
 
 **Guest messages** (stay-concierge `src/trash_reminders.py`, approval-gated): any stay of **3+
 nights** that spans a pickup, so the city hauls the trash instead of the cleaner. A pickup the
-morning after check-in is skipped (the turnover just emptied the house) and a checkout-day pickup
-is the cleaner's. Day-2 evening check-in naming the next pickup (or "tomorrow morning, carts out
+morning after check-in is skipped (the turnover just emptied the house). A pickup on checkout
+morning counts: the guest rolls the carts out on their last night and the turnover cleaner brings
+them back in, which Rosa's schedule (`/c/<token>`) flags with a "bring the carts in" tag. Day-2 evening check-in naming the next pickup (or "tomorrow morning, carts out
 tonight"), then a reminder two days before each later pickup.
 
 # Properties

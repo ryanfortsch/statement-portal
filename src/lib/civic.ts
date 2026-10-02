@@ -140,6 +140,21 @@ export function civicForProperty(p: HelmPropertyRow): CivicInfo {
 }
 
 /**
+ * True when `isoDate` (YYYY-MM-DD) falls on the property's resolved collection
+ * weekday. Used by the cleaner schedule: a guest whose pickup is checkout
+ * morning rolls the carts out on their last night, and the turnover cleaner
+ * brings them back in (Sec. 5-66(q), $400 per day for a cart left out). The
+ * nominal weekday only; a holiday-shifted week is not modelled here.
+ */
+export function isCollectionDay(trashDay: string | null, isoDate: string): boolean {
+  if (!trashDay) return false;
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(
+    new Date(`${isoDate}T12:00:00Z`),
+  );
+  return weekday === trashDay;
+}
+
+/**
  * Screen the sentinels that mean "no collection" so they never escape as a
  * printable weekday. The DPW list itself carries a literal "None" on one
  * street, and operators have typed "NA" and "DUMP" into the column for homes

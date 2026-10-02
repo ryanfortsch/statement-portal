@@ -10,6 +10,8 @@ import {
 } from '@/lib/checkout-schedule';
 import { loadVendorTimes, recipientScope, shapeRecipient, RECIPIENT_COLS } from '@/lib/cleaner-digest';
 import { CAPE_ANN_REGION, regionLabel } from '@/lib/property-scope';
+import { civicForProperty, isCollectionDay } from '@/lib/civic';
+import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
  * The cleaner's live schedule page. Reached from the daily digest SMS
@@ -154,6 +156,26 @@ export default async function CleanerSchedulePage({
     return ta.localeCompare(tb) || a.propertyName.localeCompare(b.propertyName);
   });
 
+  // Homes whose city pickup is this morning. Guests put the carts out on
+  // their last night (Dotti, 2026-10-02), so the turnover has to bring them
+  // back in: a cart left at the curb is $400 a day under Sec. 5-66(q). A
+  // failed lookup just omits the tag; it never blocks the schedule.
+  const pickupToday = new Set<string>();
+  try {
+    const ids = [...new Set(rows.map((r) => r.propertyId))];
+    if (ids.length) {
+      const { data } = await supabase
+        .from('properties')
+        .select('id, address, city, trash_day, recycling_day, parking_regulations')
+        .in('id', ids);
+      for (const p of (data ?? []) as unknown as HelmPropertyRow[]) {
+        if (isCollectionDay(civicForProperty(p).trashDay, selected.date)) pickupToday.add(p.id);
+      }
+    }
+  } catch {
+    // Tag is a convenience; the schedule renders without it.
+  }
+
   return (
     <>
       <style>{css}</style>
@@ -223,6 +245,9 @@ export default async function CleanerSchedulePage({
                     )}
                     {clean && clean < r.time && (
                       <span className="rt-cl-tag is-sameday">atenção: saída só às {r.time}</span>
+                    )}
+                    {pickupToday.has(r.propertyId) && (
+                      <span className="rt-cl-tag is-drift">coleta de lixo hoje: recolher as lixeiras · bring the carts in</span>
                     )}
                     {!r.sameDayTurnover && <span className="rt-cl-tag is-quiet">sem entrada no mesmo dia</span>}
                   </div>
