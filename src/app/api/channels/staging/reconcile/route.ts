@@ -14,8 +14,8 @@ export async function POST(request:Request){
  try{
   const db=store();await db.read();
   const client=new ChannexStagingClient(process.env.CHANNEX_STAGING_API_KEY??'');
-  const first=await client.readSnapshot();
-  const second=await client.readSnapshot();
+  const first=await client.readReconciliationSnapshot();
+  const second=await client.readReconciliationSnapshot();
   const ordered=(rows:typeof first.bookings)=>JSON.stringify([...rows].sort((a,b)=>a.id.localeCompare(b.id)));
   if(ordered(first.bookings)!==ordered(second.bookings))throw new Error('Bookings changed during reconciliation');
   if(second.inventory.length!==240||second.inventory.some(n=>n.stopSell!==true||n.minStay!==20))throw new Error('Pilot restrictions changed');

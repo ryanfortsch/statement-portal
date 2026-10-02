@@ -104,6 +104,19 @@ export class ChannexStagingClient {
     }
     return { mappings, bookings, inventory };
   }
+  /** Booking inserted_at is not revision time. Resolve authoritative revisions for reconciliation. */
+  async readReconciliationSnapshot(): Promise<StagingSnapshot> {
+    const snapshot = await this.readSnapshot();
+    const bookings: Revision[] = [];
+    for (const booking of snapshot.bookings) {
+      const revision = normalizeRevision(record((await this.#request(`/booking_revisions/${uuid(booking.id)}`)).data));
+      for (const key of ['id', 'bookingId', 'member', 'status', 'checkIn', 'checkOut'] as const) {
+        if (revision[key] !== booking[key]) throw new Error('Booking changed while resolving revision');
+      }
+      bookings.push(revision);
+    }
+    return { ...snapshot, bookings };
+  }
   async readRevisions(): Promise<Revision[]> {
     const rows: Revision[] = [];
     for (const unit of ['front', 'back'] as Unit[]) {
