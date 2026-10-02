@@ -108,6 +108,12 @@ export function QuoteComposer({
   const [discountStr, setDiscountStr] = useState(initial && initial.discount_cents > 0 ? dollarsStr(initial.discount_cents) : '');
   const [taxExempt, setTaxExempt] = useState(initial?.tax_exempt ?? false);
   const [taxExemptTouched, setTaxExemptTouched] = useState(!!initial);
+  // What the last check wrote into the rate and cleaning fields. A field that
+  // still holds exactly that is Guesty's number, not the operator's, so the
+  // next check (a new guest count, new dates) replaces it. Anything typed
+  // over it is the operator's and is never touched.
+  const [autoNightlyStr, setAutoNightlyStr] = useState<string | null>(null);
+  const [autoCleaningStr, setAutoCleaningStr] = useState<string | null>(null);
 
   // ── Plan ──
   const [plan, setPlan] = useState<'full' | 'split'>(initial?.payment_plan ?? 'full');
@@ -239,13 +245,24 @@ export function QuoteComposer({
       setPreview(r);
       setPreviewKey(currentKey);
       setReference(r.reference);
-      // Fill the rate fields only when they are still empty: an operator's
-      // typed price never gets overwritten by a refresh of the calendar.
-      if (!nightlyStr && !accommodationStr && r.suggested_nightly_cents) {
+      // Fill the rate fields when they are empty or still hold the last
+      // check's own number: Guesty prices extra guests per night, so a new
+      // party size must move the rate. An operator's typed price is never
+      // overwritten; the reference box offers Guesty's rate instead.
+      const nightlyIsAuto =
+        (!nightlyStr && !accommodationStr) || (anchor === 'nightly' && autoNightlyStr !== null && nightlyStr === autoNightlyStr);
+      if (nightlyIsAuto && r.suggested_nightly_cents) {
+        const next = dollarsStr(r.suggested_nightly_cents);
         setAnchor('nightly');
-        setNightlyStr(dollarsStr(r.suggested_nightly_cents));
+        setNightlyStr(next);
+        setAutoNightlyStr(next);
       }
-      if (!cleaningStr && r.suggested_cleaning_cents) setCleaningStr(dollarsStr(r.suggested_cleaning_cents));
+      const cleaningIsAuto = !cleaningStr || (autoCleaningStr !== null && cleaningStr === autoCleaningStr);
+      if (cleaningIsAuto && r.suggested_cleaning_cents) {
+        const next = dollarsStr(r.suggested_cleaning_cents);
+        setCleaningStr(next);
+        setAutoCleaningStr(next);
+      }
       if (!taxExemptTouched) setTaxExempt(r.tax_exempt_default);
       // Nothing to override any more? Drop a stale override so it cannot
       // ride along silently after the calendar opened up.
@@ -347,7 +364,11 @@ export function QuoteComposer({
             <button type="button" onClick={runPreview} disabled={!canPreview} style={{ ...ghostBtn, opacity: canPreview ? 1 : 0.5 }}>
               {isPending ? 'Checking…' : preview && !previewStale ? 'Check again' : "Check dates and pull Guesty's price"}
             </button>
-            {previewStale && <span style={{ fontSize: 12, color: 'var(--signal)' }}>Dates changed since the last check.</span>}
+            {previewStale && (
+              <span style={{ fontSize: 12, color: 'var(--signal)' }}>
+                The home, dates or guests changed since the last check. Check again to update the price.
+              </span>
+            )}
           </div>
           {previewError && <p style={{ ...hintStyle, color: 'var(--signal)', marginTop: 10 }}>{previewError}</p>}
 
@@ -364,7 +385,18 @@ export function QuoteComposer({
               {showTermsOverride && (
                 <Check checked={overrideTerms} onChange={setOverrideTerms} label="Ignore the minimum-night rule" />
               )}
-              <ReferenceBox preview={preview} nights={nights} />
+              <ReferenceBox
+                preview={preview}
+                nights={nights}
+                guests={guests}
+                nightlyCents={nightlyCents}
+                onUseGuestyRate={(c) => {
+                  const next = dollarsStr(c);
+                  setAnchor('nightly');
+                  setNightlyStr(next);
+                  setAutoNightlyStr(next);
+                }}
+              />
             </div>
           )}
         </FormBlock>
@@ -680,8 +712,23 @@ function AvailabilityStrip({ preview, nights }: { preview: Preview; nights: numb
   );
 }
 
-function ReferenceBox({ preview, nights }: { preview: Preview; nights: number }) {
+function ReferenceBox({
+  preview,
+  nights,
+  guests,
+  nightlyCents,
+  onUseGuestyRate,
+}: {
+  preview: Preview;
+  nights: number;
+  guests: number;
+  nightlyCents: number;
+  onUseGuestyRate: (cents: number) => void;
+}) {
   const r = preview.reference;
+  // Guesty's own nightly for this party size, when it actually quoted.
+  const guestyNightlyCents = r && !r.estimated && r.subtotal > 0 && nights > 0 ? Math.round((r.subtotal / nights) * 100) : 0;
+  const differs = guestyNightlyCents > 0 && nightlyCents > 0 && guestyNightlyCents !== nightlyCents;
   const achieved = preview.achieved;
   if (!r && !achieved && !preview.terms_violation && !preview.reference_error) return null;
   return (
@@ -694,10 +741,19 @@ function ReferenceBox({ preview, nights }: { preview: Preview; nights: number })
       )}
       {r && (
         <div>
-          Guesty would charge <strong style={{ color: 'var(--ink)' }}>{fmtDollars(r.total)}</strong> for these dates:{' '}
+          Guesty would charge <strong style={{ color: 'var(--ink)' }}>{fmtDollars(r.total)}</strong> for these dates
+          {guests > 0 ? ` at ${guests} guest${guests === 1 ? '' : 's'}` : ''}:{' '}
           {fmtDollars(nights > 0 ? r.subtotal / nights : r.subtotal)}/night, cleaning {fmtDollars(r.cleaning_fee)}, tax {fmtDollars(r.taxes)}
           {r.extra_guest_fee > 0 ? `, extra guests ${fmtDollars(r.extra_guest_fee)}` : ''}
           {r.estimated ? ' (an estimate, Guesty did not answer)' : ''}.
+          {differs && (
+            <div style={{ marginTop: 6 }}>
+              Your rate is {fmtCents(nightlyCents)}/night.{' '}
+              <button type="button" onClick={() => onUseGuestyRate(guestyNightlyCents)} style={textBtn}>
+                Use Guesty&apos;s {fmtCents(guestyNightlyCents)}/night
+              </button>
+            </div>
+          )}
         </div>
       )}
       {preview.terms_violation && <div>Guesty declined to quote: {preview.terms_violation}</div>}
