@@ -269,11 +269,15 @@ function ApprovalCard({
   // Inline conversation history (read-only ThreadPanel), so the operator can
   // judge a draft against what was actually said without opening Guesty.
   const [showThread, setShowThread] = useState(false);
-  // A 2027 pre-release request has exactly one useful next step: price it and
-  // send it. Everything else (the holding reply, coaching, dismissing) is an
-  // exception, so the card leads with one action and tucks the rest behind
-  // "Other options". Dotti, 2026-09-18: "I just don't understand what either
-  // of those mean, I want a simple system."
+  // A 2027 pre-release request usually has one useful next step, price it and
+  // send it, so the card leads with that and tucks coaching and the quiet
+  // exits behind "Other options". Dotti, 2026-09-18: "I just don't understand
+  // what either of those mean, I want a simple system."
+  //
+  // Sending the written reply is NOT one of those exceptions and no longer
+  // hides here. When the home is not ours to sell there is no price to send,
+  // and the only correct action was the one behind the link (2026-10-01, Beth
+  // Dowling on 4 Brier Neck, offboarded 8/31 and still on the request form).
   const [showMore, setShowMore] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
   // The draft text the editor was seeded from, so we can detect the AI/another
@@ -357,6 +361,12 @@ function ApprovalCard({
     'Guest';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
   const isPrereleaseRequest = approval.topic === 'prerelease_request';
+  // Describes what the button DOES, not what the draft says: the drafted
+  // reply varies (a holding note, or a decline when the home is not ours to
+  // sell), and copy that claims its wording goes stale silently.
+  const PRERELEASE_SEND_HINT =
+    'Emails the draft above as written, from hello@staycapeann.com. No price, no payment link.';
+
   // The composer, prefilled from the request, so nothing is retyped. Party
   // size, email and phone ride the card in `prerelease`; without them the
   // form opened half-empty and the operator retyped them by hand.
@@ -1457,8 +1467,24 @@ function ApprovalCard({
         ) : isPrereleaseRequest && !showMore ? (
           <>
             <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>
+            {/* Sending the written reply used to live behind "Other options",
+                so a card whose draft was the right answer looked unsendable.
+                Dotti, 2026-10-01, on Beth Dowling's 4 Brier Neck request (a
+                home we no longer manage, so there was no price to send): "why
+                cant i send this message?" ... "i want to be able to send this
+                message to her through helm". Pricing is still the primary
+                action; replying is no longer hidden. */}
+            <SecondaryButton
+              onClick={handleApprove}
+              disabled={busy}
+              loading={pendingAction === 'approve'}
+              loadingLabel="Sending"
+              title={PRERELEASE_SEND_HINT}
+            >
+              Send reply
+            </SecondaryButton>
             <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-              Opens the quote form with their home and dates filled in
+              Send a price opens the quote form, filled in. Send reply emails the draft above as written.
             </span>
             <button
               type="button"
@@ -1494,13 +1520,13 @@ function ApprovalCard({
                   disabled={busy}
                   loading={pendingAction === 'approve'}
                   loadingLabel="Sending"
-                  title="Sends the drafted note saying 2027 is not on sale yet and a quote will follow."
+                  title={PRERELEASE_SEND_HINT}
                 >
-                  Send holding reply
+                  Send reply
                 </SecondaryButton>
                 <span className="eyebrow" style={{ color: 'var(--ink-3)', flexBasis: '100%' }}>
-                  Send a price opens the quote form. The holding reply only says 2027 is not on
-                  sale yet, and sends no price.
+                  Send a price opens the quote form. Send reply emails the draft above as written,
+                  with no price and no payment link.
                 </span>
               </>
             ) : (
@@ -1802,7 +1828,7 @@ function SplitSendButton({
   loading?: boolean;
   open?: boolean;
   /** Overrides "Approve & send" where that name would mislead. On a 2027
-   *  request this send is only the holding reply, never a price. */
+   *  request this send is the drafted reply as written, never a price. */
   label?: string;
   title?: string;
 }) {
