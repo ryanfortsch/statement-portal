@@ -334,4 +334,7 @@ recovery of the sync logic, not hosted database recovery or Airbnb delivery.
 
 Validation: 1,742 tests passed; TypeScript without incremental output, targeted ESLint,
 and a production build using synthetic configuration passed. Render is unchanged.
-Rendered preview acceptance is pending until browser verification below.
+Rendered preview verified at the default width, 760px and 390px. The synthetic
+conversation renders, search filters it, the details panel toggles, and returning
+to saved history shows an empty archive with healthy sync. This is a bounded visual
+and interaction check, not full accessibility certification or live delivery proof.
