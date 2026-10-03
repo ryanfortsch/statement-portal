@@ -152,3 +152,31 @@ network, sanitized errors, duplicate pages and non-Airbnb refusal. Full suite:
 1,747 tests passed, TypeScript and targeted ESLint passed. The initial type check
 caught an overly narrow fixture literal; corrected before rerunning checks.
 This is connector implementation evidence, not activation or live delivery proof.
+
+## Separate message archive wiring
+
+Created `helm_airbnb_message_state` and its service-only save/failure RPCs in the
+existing isolated project jgkblfozftcvymvwhhii. The synthetic archive is untouched.
+`airbnb-messages.sql` and `verify-airbnb-messages.sql` record schema and verification.
+Hosted rollback checks passed for denied client access, RLS, stale-writer rejection,
+history retention and failure health. Two empty unit rows remain; no test messages
+were retained.
+
+The authenticated preview inbox/API now select either staging test history or
+Airbnb pilot history, without fallback between them. Reads query storage only.
+The synthetic design fixture stays explicitly labeled and separate from both.
+
+`scripts/channex-airbnb-reader.mts` wires the GET-only reader to the Airbnb message
+store. It requires CHANNEX_WORKER_MODE=airbnb-read-only and
+CHANNEX_AIRBNB_MAPPING_VERIFIED=17-beach-front-back. Do not set these until mappings
+are verified. The dedicated Dockerfile.airbnb-reader omits activation defaults.
+No existing Render worker was changed/redeployed, and the process is not running.
+Before connecting channels, disable synthetic activity on the affected properties.
+
+This step wires **message history**, not live reservation persistence or calendar
+coordination. Booking snapshots remain a separate reader capability and are not
+fed into the synthetic ownership journal. Those boundaries prevent test records
+from becoming live inventory authority.
+
+Validation: 1,750 tests, TypeScript and targeted ESLint passed; source selection,
+activation rejection and failed-ingestion atomicity have new synthetic coverage.

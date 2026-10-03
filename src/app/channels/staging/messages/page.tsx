@@ -8,6 +8,7 @@ type Snapshot={threads:PilotThread[];messages:PilotMessage[];selectedThread:stri
 const statuses:Record<string,string>={healthy:'Message sync healthy',failing:'Message sync failed — saved history retained',stale:'Message sync stale',waiting:'Waiting for first message sync',unknown:'Message sync status unknown'};
 export default function StagingMessages(){
  const [unit,setUnit]=useState('front'),[selected,setSelected]=useState<string|null>(null),[savedSnapshot,setSnapshot]=useState<Snapshot|null>(null),[error,setError]=useState('');
+ const [source,setSource]=useState('synthetic');
  const [rehearsal,setRehearsal]=useState(false);
  const snapshot=rehearsal?sampleSnapshot(unit):savedSnapshot;
  const [query,setQuery]=useState(''),[inspector,setInspector]=useState(false);
@@ -18,7 +19,7 @@ export default function StagingMessages(){
   const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;
   async function refresh(){
    try{
-    const params=new URLSearchParams({unit,...(selected?{thread:selected}:{})});
+    const params=new URLSearchParams({unit,source,...(selected?{thread:selected}:{})});
     const response=await fetch(`/api/channels/staging/messages?${params}`,{cache:'no-store',signal:AbortSignal.any([controller.signal,AbortSignal.timeout(15000)])});
     const data=await response.json();if(!response.ok)throw new Error(data.error??'Saved history unavailable');
     if(!controller.signal.aborted){setSnapshot(data);setError('');}
@@ -26,7 +27,7 @@ export default function StagingMessages(){
    finally{if(!controller.signal.aborted)timer=setTimeout(refresh,30000);}
   }
   void refresh();return()=>{controller.abort();clearTimeout(timer);};
- },[unit,selected,rehearsal]);
+ },[unit,selected,rehearsal,source]);
  return <main className={styles.workspace}>
   <header className={styles.topbar}><Link href="/channels/staging/ownership">← Staging workspace</Link><span>17 Beach <span className={styles.badge}>Read only</span></span></header>
   {rehearsal&&<div className={styles.sampleNotice}>Synthetic design rehearsal · Sample messages only · Not provider history or proof of delivery</div>}
@@ -34,6 +35,7 @@ export default function StagingMessages(){
    <aside className={styles.sidebar}>
     <div className={styles.heading}><h1>Inbox</h1><span className={styles.count}>{snapshot?.threads.length??'—'}</span></div>
     <label className={styles.unit}>Property<select value={unit} onChange={e=>{setUnit(e.target.value);setSelected(null);setSnapshot(null);setError('');setQuery('');}}><option value="front">17 Beach · Front unit</option><option value="back">17 Beach · Back unit</option></select></label>
+    <label className={styles.unit}>History source<select value={source} onChange={e=>{setSource(e.target.value);setSelected(null);setSnapshot(null);setError('');setRehearsal(false);setQuery('');}}><option value="synthetic">Staging test archive</option><option value="airbnb">Airbnb pilot archive</option></select></label>
     <input className={styles.search} type="search" aria-label="Search conversations" placeholder="Search conversations" value={query} onChange={e=>setQuery(e.target.value)}/>
     <button className={styles.sampleToggle} onClick={()=>{setRehearsal(!rehearsal);setSelected(null);setSnapshot(null);setError('');setQuery('');}}>{rehearsal?'Return to saved history':'Preview sample conversation'}</button>
     <div className={styles.listLabel}>{rehearsal?'Synthetic conversation':'Saved conversations'}</div>
@@ -44,7 +46,7 @@ export default function StagingMessages(){
     <div className={styles.sync} aria-label="Messaging sync status"><strong role="status">{rehearsal?'Synthetic rehearsal — sync not measured':error?'History check unavailable':snapshot?statuses[snapshot.status]??'Unknown status':'Loading saved history…'}</strong><span>{snapshot?.health?.last_success?`Last sync ${new Date(snapshot.health.last_success).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`:'No successful sync recorded'}</span></div>
    </aside>
    <section className={styles.conversation} aria-label="Message history" aria-busy={!!selected&&snapshot?.selectedThread!==selected}>
-    <header className={styles.conversationHeader}><div><h2>{active?.title??'Guest conversations'}</h2><p>{active?`${active.provider} · ${active.bookingId?'Reservation':'Inquiry'}`:'Saved history from Channex staging'}</p></div><button className={styles.detailsButton} aria-expanded={inspector} aria-controls="message-details" onClick={()=>setInspector(!inspector)}>Details</button></header>
+    <header className={styles.conversationHeader}><div><h2>{active?.title??'Guest conversations'}</h2><p>{active?`${active.provider} · ${active.bookingId?'Reservation':'Inquiry'}`:source==='airbnb'?'Airbnb pilot · Saved read-only history':'Staging test archive'}</p></div><button className={styles.detailsButton} aria-expanded={inspector} aria-controls="message-details" onClick={()=>setInspector(!inspector)}>Details</button></header>
     {error&&<p className={styles.error} role="alert">{error}. Previously displayed history may be out of date.</p>}
     {inspector&&<aside id="message-details" className={styles.inspector}><strong>History details</strong><p>{active?.bookingId?`Reservation ID: ${active.bookingId}`:'No reservation selected'}</p><p>Successful sync: {snapshot?.health?.last_success?new Date(snapshot.health.last_success).toLocaleString():'Not recorded'} · Failures: {snapshot?.health?.consecutive_failures??'—'}</p><p>This view refreshes every 30 seconds. Reports older than five minutes are stale. Previously observed messages are retained if omitted from a later scan.</p></aside>}
     <div className={styles.messages}>
