@@ -10,4 +10,4 @@ Structured logs expose the last success, received/saved/duplicate/ACK counts and
 
 No schema initialization, feed webhook, inventory publishing, automatic reconciliation or production endpoint is called. Provider ACKs are sent only after exact revisions are reread from shared storage. Lost ACK responses are retried through provider redelivery.
 
-Hosting destination and secret provisioning are required before activation. No hosted service has been created by adding these files.
+Activated October 2, 2026 on Render as helm-channex-staging-worker (srv-db05t2id0e5s73a7r8gg), using the staging branch and $7/month compute. Automatic synthetic create/modify/cancel ingestion was verified. See docs/guesty-exit/channex-staging-pilot.md for evidence and outstanding dependency hardening, restart tests and monitoring.
