@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY deployment/channex-staging-worker/package.json deployment/channex-staging-worker/package-lock.json ./
 RUN npm ci --ignore-scripts --omit=dev
 COPY src/lib/channex-staging ./src/lib/channex-staging
 COPY scripts/channex-shared-worker.mts ./scripts/channex-shared-worker.mts
