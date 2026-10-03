@@ -121,3 +121,34 @@ question before building a live adapter or scheduling a cutover. If coexistence
 is unsupported, do not use these linked units as an isolated live migration test;
 choose a provider-approved independent test arrangement or plan the complete
 linked group under one authority with separately approved scope.
+
+## October 3 clarification and separate reader
+
+The user confirms **neither front nor back is linked to Guesty**. Do not treat them
+as listings requiring a Guesty disconnection. The possible host-account coexistence
+question is separate and remains unverified; no account access is changed here.
+
+`src/lib/channex-staging/pilot-reader.ts` now provides an independent server-only
+GET reader for the existing two Channex staging property/room IDs. It verifies USD,
+New York timezone, single-room inventory identity and approved capacities. It can
+read Airbnb booking snapshots and property-owned message threads/content without
+the synthetic client's no-channel guard. It does not inherit or weaken that client.
+There are no send, receipt, ACK, booking mutation, rate or calendar methods.
+Responses omit booking contact/payment fields; thread/message normalization retains
+only the reader's existing fields. Collection pagination is bounded and rejects
+duplicate IDs, total changes and incomplete results. Errors omit provider bodies.
+
+The reader is **not wired into the worker, routes or storage** and no real requests
+were made. Its booking snapshot explicitly declares no inventory authority; booking
+creation time must not drive revision ordering. It refuses non-Airbnb rows, including
+old Offline test bookings. Before activation, plan separate clean provider storage,
+reconcile the existing synthetic records without deleting history, verify channel
+and listing mappings, and keep the synthetic writer disabled for any connected
+property. Production Channex IDs/host are not guessed or substituted.
+
+Five new synthetic tests cover minimal booking output, foreign property/room
+rejection, GET-only endpoints, inquiry ownership, unknown-unit rejection before
+network, sanitized errors, duplicate pages and non-Airbnb refusal. Full suite:
+1,747 tests passed, TypeScript and targeted ESLint passed. The initial type check
+caught an overly narrow fixture literal; corrected before rerunning checks.
+This is connector implementation evidence, not activation or live delivery proof.
