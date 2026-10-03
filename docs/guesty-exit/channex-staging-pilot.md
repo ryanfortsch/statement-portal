@@ -316,3 +316,22 @@ Local verification: 1,741 tests, TypeScript, targeted lint, diff checks and buil
 Hosted rollback-only SQL verification passed: client table/RPC access denied, RLS enabled, stale version rejected, message removal refused, failure preserves saved content and prior success. All synthetic test writes rolled back; only the two empty initial state rows remain before worker activation.
 
 Hosted activation verified: Render deployment dep-db06sevavr4c73ed9cp0 runs 477944fe, live October 2 at 10:54 PM ET. Logs show successful front/back message scans and an independent booking sync with published=0. Authenticated preview displays saved healthy status for both units with zero consecutive failures; front status advanced automatically from 10:55:07 to 10:56:10 PM ET, back 10:56:12 PM ET. Screenshot /tmp/channex-persistent-message-history.png. Vercel preview and CI passed at 477944fe. These are empty real provider scans plus synthetic content tests, not populated OTA delivery verification. No live connection, outbound message or production change.
+
+### Saved inbox refinement and synthetic restart rehearsal
+
+The saved-message reader now uses a compact two-column inbox with local conversation
+search, distinct guest/team messages, and a user-controlled details panel. The API,
+authentication, provider synchronization and production messaging remain unchanged.
+A separate, explicitly labeled synthetic design rehearsal can be opened from the
+sidebar. It is an in-memory visual fixture, not a provider record or delivery test;
+it never writes to Supabase and pauses provider-history polling while selected.
+
+`channex-message-recovery.test.ts` runs separate Node processes against a synthetic
+temporary disk archive: interrupt immediately after durable save, restart with a
+duplicate scan, apply an edit, then replay the stale original. Assertions verify two
+messages remain exactly once and the newer text survives. This proves local process
+recovery of the sync logic, not hosted database recovery or Airbnb delivery.
+
+Validation: 1,742 tests passed; TypeScript without incremental output, targeted ESLint,
+and a production build using synthetic configuration passed. Render is unchanged.
+Rendered preview acceptance is pending until browser verification below.
