@@ -4,6 +4,8 @@ import {ChannexStagingClient} from '../src/lib/channex-staging/client.ts';
 import {createSharedOwnershipStore} from '../src/lib/channex-staging/shared-ownership-store.ts';
 import {createWorkerHealthStore} from '../src/lib/channex-staging/worker-health-store.ts';
 import {reportWorkerHealth} from '../src/lib/channex-staging/worker-health.ts';
+import {createMessageStore} from '../src/lib/channex-staging/message-store.ts';
+import {syncPilotMessages} from '../src/lib/channex-staging/message-sync.ts';
 import {syncSharedRevisions} from '../src/lib/channex-staging/shared-sync.ts';
 if(process.env.CHANNEX_WORKER_MODE!=='isolated-staging')throw new Error('Explicit staging worker mode required');
 const store=createSharedOwnershipStore(process.env.CHANNEX_STAGING_DB_URL??'',process.env.CHANNEX_STAGING_DB_SERVICE_KEY??'');
@@ -12,6 +14,7 @@ const health=createWorkerHealthStore(process.env.CHANNEX_STAGING_DB_URL??'',proc
 let stopping=false,failures=0,lastSuccess:string|null=null;
 const shutdown=new AbortController();
 for(const signal of ['SIGINT','SIGTERM'] as const)process.on(signal,()=>{stopping=true;shutdown.abort();});
+async function bookingLoop(){
 while(!stopping){
  try{
   await store.read(); // Never initialize or replace missing history automatically.
@@ -29,3 +32,17 @@ while(!stopping){
  try{await sleep(delay,undefined,{signal:shutdown.signal});}catch{if(!stopping)throw new Error('Worker timer failed');}
 }
 if(failures)process.exitCode=1;
+}
+async function messageLoop(){
+ const messages=createMessageStore(process.env.CHANNEX_STAGING_DB_URL??'',process.env.CHANNEX_STAGING_DB_SERVICE_KEY??'');
+ while(!stopping){
+  for(const unit of ['front','back'] as const){
+   if(stopping)break;
+   try{const result=await syncPilotMessages(messages,client,unit);console.log(JSON.stringify({event:'message-sync-success',unit,...result}));}
+   catch{console.error(JSON.stringify({event:'message-sync-failed',unit}));try{await messages.failure(unit);}catch{console.error(JSON.stringify({event:'message-health-save-failed',unit}));}if(process.env.CHANNEX_WORKER_ONCE==='yes')process.exitCode=1;}
+  }
+  if(process.env.CHANNEX_WORKER_ONCE==='yes')break;
+  try{await sleep(60000,undefined,{signal:shutdown.signal});}catch{if(!stopping)throw new Error('Message timer failed');}
+ }
+}
+await Promise.all([bookingLoop(),messageLoop()]);
