@@ -13,3 +13,9 @@ No schema initialization, feed webhook, inventory publishing, automatic reconcil
 Activated October 2, 2026 on Render as helm-channex-staging-worker (srv-db05t2id0e5s73a7r8gg), using the staging branch and $7/month compute. Automatic synthetic create/modify/cancel ingestion was verified. See docs/guesty-exit/channex-staging-pilot.md for evidence and outstanding dependency hardening, restart tests and monitoring.
 
 The image installs its own locked dependency set (Supabase JS 2.117.2), not Helm's root dependencies. Audit this directory independently. This does not remediate the main application dependency audit.
+
+## Message polling
+
+Source 477944fe adds an independent message loop alongside booking polling. Apply `docs/guesty-exit/staging-storage/messages.sql` only on the fixed staging project before deploying it; verify with the rollback-only `verify-messages.sql`. No new credential is needed. Each unit's saved message state has its own success/failure timestamps. `message-sync-success`, `message-sync-failed` and `message-health-save-failed` logs contain counts/unit only, never message text. The preview message reader accesses saved state, not Channex.
+
+One replica only. Messaging has no webhook or outbound operation. Empty successful scans establish polling/storage connectivity, not actual OTA delivery. Archives preserve omitted messages and are bounded (20 fetched threads/cycle, 100 retained threads and about 1 MB/unit). Limits fail visibly and preserve prior data. Previous worker 08159552 can be redeployed to return to booking-only polling; retain the message tables for recovery.
