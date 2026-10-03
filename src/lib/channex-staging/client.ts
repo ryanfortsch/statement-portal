@@ -1,6 +1,8 @@
 /** Server/CLI-only staging adapter. Never used by production jobs. */
 import { PILOTS, TEST_RATE_TITLE, TEST_START, TEST_END, nights, record, textField, normalizeRevision, applyRevision, type Unit, type Ledger, type Revision, type AvailabilityDay } from './core.ts';
 
+import {normalizePilotThread,normalizePilotMessage} from './messages.ts';
+
 const BASE = 'https://staging.channex.io/api/v1';
 type Json = Record<string, unknown>;
 type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -60,6 +62,17 @@ export class ChannexStagingClient {
       if (!result.data.length || rows.length > (meta.total as number)) throw new Error('Incomplete Channex collection');
     }
     throw new Error('Channex collection exceeds pilot safety limit');
+  }
+  /** Staging only. Proves selected thread ownership before requesting its contents. */
+  async readMessages(unit: Unit, threadId?: string) {
+    if (unit !== 'front' && unit !== 'back') throw new Error('Unknown pilot unit');
+    await this.inspect();
+    const threads = (await this.#list('/message_threads', unit)).map(row => normalizePilotThread(row, unit));
+    if (!threadId) return {threads, messages: [], selectedThread: null};
+    const selected = threads.find(thread => thread.id === uuid(threadId));
+    if (!selected) throw new Error('Selected thread not found in pilot property');
+    const messages = (await this.#list(`/message_threads/${selected.id}/messages`, unit)).map(row => normalizePilotMessage(row, selected.id));
+    return {threads, selectedThread: selected.id, messages};
   }
   async inspect(): Promise<PilotMapping[]> {
     const mappings: PilotMapping[] = [];
