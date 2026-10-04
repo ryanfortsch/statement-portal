@@ -7,6 +7,9 @@ export type RentalInquiry = {
   checked_at: string;
   needs: string[];
   decision?: string;
+  decision_kind?: 'pricing' | '';
+  operator_checks?: string[];
+  draft_issue?: { code: string; message: string; retryable: boolean };
   budget_mentions?: number[];
   homes: Array<{
     title: string;
@@ -37,4 +40,17 @@ export function inquiryMessageText(text: string): string {
     if (/^\s*(?:[-*•>] |\d+[.)] )/m.test(paragraph)) return paragraph;
     return paragraph.split('\n').map(line => line.trim()).join(' ');
   }).join('\n\n');
+}
+
+/** Legacy no-draft messages are failures, not evidence of a pricing decision. */
+export function inquiryDraftState(inquiry: RentalInquiry) {
+  const legacyFailure = /^(The checked information does not support|Review the inquiry or write the reply directly;)/.test(inquiry.decision || '');
+  const pricing = !!inquiry.decision && !legacyFailure;
+  return {
+    pricing,
+    label: pricing ? 'Needs your decision' : 'Draft unavailable',
+    message: inquiry.draft_issue?.message || (legacyFailure
+      ? 'The previous draft could not be completed. Retry drafting with the latest details.'
+      : inquiry.decision || 'No reply was drafted. Retry drafting or write the reply directly.'),
+  };
 }
