@@ -223,25 +223,28 @@ export async function upsertDigestDraft(
   const body = await composeDigestBodyLive(supabase, day);
   const stats = day.counts;
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('cleaner_schedule_digests')
     .select('*')
     .eq('service_date', serviceDate)
     .eq('region', region)
     .maybeSingle();
 
+  if (existingError) throw new Error(`digest read failed: ${existingError.message}`);
+
   // A skipped day is revived by an explicit draft request: "Skip this day"
   // has to be undoable, and this function is only ever called for tomorrow
   // or for a date the operator named, never speculatively.
   if (existing && (existing as DigestRow).status === 'skipped') {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('cleaner_schedule_digests')
       .update({ status: 'pending', body, stats, built_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', (existing as DigestRow).id)
       .eq('status', 'skipped')
       .select('*')
       .single();
-    return { digest: (data ?? existing) as DigestRow, day };
+    if (error || !data) throw new Error(`digest update not confirmed: ${error?.message || "row changed"}`);
+    return { digest: data as DigestRow, day };
   }
 
   if (existing && (existing as DigestRow).status !== 'pending') {
@@ -249,14 +252,15 @@ export async function upsertDigestDraft(
   }
 
   if (existing) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('cleaner_schedule_digests')
       .update({ body, stats, built_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq('id', (existing as DigestRow).id)
       .eq('status', 'pending')
       .select('*')
       .single();
-    return { digest: (data ?? existing) as DigestRow, day };
+    if (error || !data) throw new Error(`digest update not confirmed: ${error?.message || "row changed"}`);
+    return { digest: data as DigestRow, day };
   }
 
   const { data, error } = await supabase

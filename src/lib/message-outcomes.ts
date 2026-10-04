@@ -1,3 +1,4 @@
+import type { ScheduleUpdate } from './checkout-commitment';
 /** Stable IDs only: matching a home or a recipient never proves a link. */
 export type FollowupNote = {
   id: string; audience: 'guest' | 'owner' | 'cleaner' | 'contractor'; recipient: string;
@@ -6,10 +7,11 @@ export type FollowupNote = {
 export type WorkReference = { request_key: string; id: string; title: string; state: string; error: string };
 export type FollowupReferences = { work: WorkReference[]; notes: FollowupNote[]; error: string };
 export type WorkOutcome = { requestKey?: string; id: string; title: string; status: string; assignee: string; scheduledDate: string; completedAt: string; error: string; visits?: FieldVisit[] };
-export type MessageOutcomes = { work: WorkOutcome[]; notes: FollowupNote[]; error: string };
+export type MessageOutcomes = { schedule?: ScheduleUpdate | null; work: WorkOutcome[]; notes: FollowupNote[]; error: string };
 export type MessageOutcomeCarrier = { followup_refs?: FollowupReferences; outcomes?: MessageOutcomes };
 export type OutcomeSource = MessageOutcomeCarrier & {
   id: string; channel?: string; external_message_id?: string; guesty_message_id?: string; listing_id?: string;
+  schedule_update?: ScheduleUpdate | null;
   maintenance_work?: { status: string; slip_id: string; title: string; error: string } | null;
 };
 export type WorkRow = {
@@ -46,7 +48,7 @@ export function assembleOutcomes(source: OutcomeSource, rows: WorkRow[], failed 
     work.push({ id: ref.id, requestKey: ref.request_key || undefined, title: ref.title || 'Property work', status: ref.id || failed ? 'unavailable' : ref.state,
       assignee: '', scheduledDate: '', completedAt: '', error: ref.error || (ref.id ? 'The current work slip could not be loaded.' : '') });
   }
-  return { work, notes: source.followup_refs?.notes ?? [], error: failed ? 'Work status could not be refreshed.' : source.followup_refs?.error || '' };
+  return { ...(source.schedule_update ? { schedule: source.schedule_update } : {}), work, notes: source.followup_refs?.notes ?? [], error: failed ? 'Work status could not be refreshed.' : source.followup_refs?.error || '' };
 }
 /** Keep the primary maintenance task beside its controls; retain all other work. */
 export function splitMaintenanceOutcomes(source: OutcomeSource): { maintenance?: WorkOutcome; remaining?: MessageOutcomes } {

@@ -1,11 +1,16 @@
+import { scheduleUpdateLabel } from '@/lib/checkout-commitment';
 import Link from 'next/link';
 import { NOTE_ROUTES, noteStatus, workStatus, workError, type WorkOutcome, type MessageOutcomes as Outcomes } from '@/lib/message-outcomes';
 
 /** Shared by open cards and resolved follow-ups. No actions or inferred delivery. */
 export function MessageOutcomes({ value }: { value?: Outcomes }) {
-  if (!value || (!value.work.length && !value.notes.length && !value.error)) return null;
+  if (!value || (!value.schedule && !value.work.length && !value.notes.length && !value.error)) return null;
   return <section aria-label="Work and notes" style={{ marginTop: 16, padding: '12px 14px', border: '1px solid var(--rule)', borderLeft: '3px solid var(--success, #426d66)', background: 'var(--paper)', fontSize: 13, width: '100%', minWidth: 0 }}>
     <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 8 }}>Work &amp; notes</div>
+    {value.schedule && <div role="status" style={{ padding: '6px 0', color: value.schedule.error ? 'var(--signal)' : 'var(--ink-2)' }}>
+      {scheduleUpdateLabel(value.schedule)}{' '}
+      <Link href="/turnovers/schedule" style={{ textDecoration: 'underline' }}>View schedule ↗</Link>
+    </div>}
     {value.work.map((work, i) => <WorkOutcomeDetails key={work.id || `work-${i}`} work={work} />)}
     {value.notes.map((note, i) => <div key={`${note.audience}:${note.id || i}`} style={{ padding: '6px 0', borderTop: value.work.length || i ? '1px solid var(--rule-soft)' : undefined }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '4px 16px' }}><span>Note to {note.recipient || note.audience}</span><span style={{ fontWeight: 600, color: note.error || note.status === 'failed' ? 'var(--signal)' : 'var(--ink-2)' }}>{noteStatus(note)}</span></div>

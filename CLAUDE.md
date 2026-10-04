@@ -135,6 +135,18 @@ are load-bearing and were both learned the hard way:
   (`messages-to-slips`, `mine-checkout-changes`, `turnover-notes`) all read the past on a cron and
   all three miss this by design or by timing. Do not "fix" one of them to cover it.
 
+**Confirmed checkout changes update the cleaner schedule.** Stay-concierge records a
+`checkout_commitments` outbox event in the successful-delivery transaction for approved
+and scheduled replies, and in the manual-send audit transaction. Its worker retries
+extraction and `/api/checkout-commitments` delivery separately, with a stable event key.
+Helm resolves the property through the registry, reuses `checkout_adjustments`, and
+refreshes pending digests. Sent digests are left intact; the resolved-message follow-up
+links to the schedule's existing Send update review. No correction texts automatically.
+Date changes, uncertain extraction, and conflicts with stronger schedule decisions are
+proposals. The bridge uses the existing header-only stay-concierge authorization.
+This covers concierge-delivered guest messages; Helm-native thread delivery is a separate
+rail and is not handled by this outbox.
+
 ## Auth and routing
 
 `src/proxy.ts` gates everything by default. A route is public only if it appears in
