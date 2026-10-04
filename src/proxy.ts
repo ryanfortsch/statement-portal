@@ -115,6 +115,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/kb-facts",
   "/api/backfill-owner-phones",
   "/api/work-slips",
+  "/api/checkout-commitments",
   // Stay-concierge bridge: an owner asking that the crew do something on
   // their way out becomes a line in the cleaners' schedule message for the
   // day they are next at the house. Self-guards via STAY_CONCIERGE_KEY.

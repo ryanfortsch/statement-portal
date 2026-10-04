@@ -61,6 +61,7 @@ export type Approval = MessageOutcomeCarrier & {
    * cards. See TeamHandoff. */
   handoff?: TeamHandoff | null;
   rental_inquiry?: RentalInquiry | null;
+  schedule_update?: import('./checkout-commitment').ScheduleUpdate | null;
   maintenance_work?: { status: string; slip_id: string; title: string; error: string } | null;
   /** The guest's email, when the card's channel knows it: a 2027 request
    * carries it in its own sidecar, an email card IS an address. Empty on OTA
@@ -651,7 +652,7 @@ export async function sendConversationMessage(
    * concierge queues a scheduled card on the shared dispatcher rail
    * (Send now / Cancel in the Inbox queue, guest-reply revert). */
   schedule?: {
-    sendAtUtc: string;
+    sendAtUtc?: string;
     guestFirst?: string;
     reservationId?: string;
     checkIn?: string;

@@ -44,7 +44,7 @@ export async function sendThreadMessage(
   module: string,
   listingId?: string,
   schedule?: {
-    sendAtUtc: string;
+    sendAtUtc?: string;
     guestFirst?: string;
     reservationId?: string;
     checkIn?: string;
@@ -59,7 +59,7 @@ export async function sendThreadMessage(
     // Helm thread: SMS on the GUESTS line, recorded on the thread. Never the
     // concierge's approve fallthrough (which would hit Guesty with a bogus
     // conversation id). Send-later is a concierge rail and is not offered here.
-    if (schedule) return { ok: false, error: 'Send later is not available on Helm threads yet. Send now instead.' };
+    if (schedule?.sendAtUtc) return { ok: false, error: 'Send later is not available on Helm threads yet. Send now instead.' };
     const res = await sendHelmThreadMessage(conversationId, trimmed, session.user.email);
     if (res.ok) return { ok: true };
     switch (res.error) {

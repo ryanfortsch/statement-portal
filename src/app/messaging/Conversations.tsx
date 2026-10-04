@@ -378,6 +378,7 @@ export function ConversationRow({
             channel={c.channel}
             module={c.module}
             listingId={c.listing_id}
+            stayContext={{ reservationId: c.reservation_id, checkIn: c.check_in, checkOut: c.check_out }}
             contextName={c.guest_full || c.guest_first || 'Guest'}
             contextMeta={[propertyLabel, stayLabel, c.channel]
               .filter(Boolean)
