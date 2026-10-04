@@ -37,7 +37,7 @@ import {
   dismissMaintenanceSlip,
 } from './actions';
 import { RentalInquiryPanel } from './RentalInquiryPanel';
-import { inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
+import { inquiryDraftState, inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
 import { ThreadPanel } from './Thread';
 import { UndoToast, type Decision } from './UndoToast';
 import {
@@ -246,7 +246,8 @@ function ApprovalCard({
   // this card is already doomed. Keep the card locked until its replacement
   // lands (or the watch gives up) so nobody approves a draft that is about to
   // be superseded out from under them.
-  const busy = isPending || pendingAction === 'coach';
+  const busy = isPending || pendingAction === 'coach' || pendingAction === 'redraft';
+  const retrySnapshot = useRef('');
   // Copy-to-send cards: transient "Copied" confirmation on the Copy button.
   const [copied, setCopied] = useState(false);
   // Inline edit + schedule UI. Mutually exclusive (opening one closes the
@@ -349,7 +350,8 @@ function ApprovalCard({
   }, [approval.draft, isPending, editing]);
 
   const inquiry = approval.rental_inquiry;
-  const inquiryNeedsDecision = !!inquiry?.decision && !(savedDraft ?? approval.draft).trim();
+  const inquiryWithoutDraft = !!inquiry && !(savedDraft ?? approval.draft).trim();
+  const inquiryState = inquiry ? inquiryDraftState(inquiry) : null;
   const propertyLabel =
     (inquiry ? 'Rental inquiry' : '') ||
     approval.listing_name ||
@@ -513,10 +515,13 @@ function ApprovalCard({
   const handleRedraft = () => {
     setError(null);
     closeDrawers();
+    retrySnapshot.current = JSON.stringify(approval.rental_inquiry);
     setPendingAction('redraft');
     onRegenerating(approval.id);
     startTransition(async () => {
-      const res = await redraftDraft(approval.id);
+      let res;
+      try { res = await redraftDraft(approval.id); }
+      catch { setError('Drafting could not start. Try again.'); setPendingAction(null); return; }
       if (!res.ok) {
         if (res.stale) { onResolved(); return; }
         setError(res.error);
@@ -600,11 +605,19 @@ function ApprovalCard({
   // The watch gave up: the regen failed upstream (the service logs a traceback
   // and returns, leaving this card pending). Stop claiming to be working on it.
   useEffect(() => {
-    if (!regenStalled || pendingAction !== 'coach') return;
+    if (!regenStalled || (pendingAction !== 'coach' && pendingAction !== 'redraft')) return;
     setPendingAction(null);
-    setShowCoach(true);
-    setError("The rewrite hasn't come back. Send the note again.");
+    if (pendingAction === 'coach') setShowCoach(true);
+    setError(pendingAction === 'redraft' ? 'The draft has not come back. Retry drafting or write the reply directly.' : "The rewrite hasn't come back. Send the note again.");
   }, [regenStalled, pendingAction]);
+
+  // An unsuccessful retry updates this case in place instead of replacing the card.
+  useEffect(() => {
+    if (pendingAction !== 'redraft' || !inquiry || (!inquiry.draft_issue && !inquiry.decision)) return;
+    if (JSON.stringify(inquiry) === retrySnapshot.current) return;
+    setPendingAction(null);
+    setError(inquiryWithoutDraft ? null : inquiry.draft_issue?.message || null);
+  }, [inquiry, inquiryWithoutDraft, pendingAction]);
 
   // Shared transition runner for the new actions: same stale/error/refresh
   // contract as the handlers above.
@@ -885,7 +898,7 @@ function ApprovalCard({
           <BodyText>{(inquiry ? inquiryMessageText(approval.guest_text || '') : approval.guest_text) || '(empty)'}</BodyText>
         </FieldBlock>
         <FieldBlock
-          label={editing ? 'Editing reply' : inquiryNeedsDecision ? 'Needs your decision' : 'Proposed reply'}
+          label={editing ? 'Editing reply' : inquiryWithoutDraft ? inquiryState!.label : 'Proposed reply'}
           labelTone={editing ? 'var(--ink)' : undefined}
           action={
             !isScheduled && !editing ? (
@@ -971,12 +984,12 @@ function ApprovalCard({
                 </SecondaryButton>
               </div>
             </div>
-          ) : inquiryNeedsDecision && inquiry ? (
+          ) : inquiryWithoutDraft && inquiry ? (
             <RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} />
           ) : (
             <>
               <BodyText emphasis>{(savedDraft ?? approval.draft) || '(no draft)'}</BodyText>
-              {inquiry && <details style={{ marginTop: 14 }}><summary className="eyebrow" style={{ cursor: 'pointer', color: 'var(--ink-3)' }}>Pricing context</summary><div style={{ marginTop: 10 }}><RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} /></div></details>}
+              {inquiry && <details style={{ marginTop: 14 }}><summary className="eyebrow" style={{ cursor: 'pointer', color: 'var(--ink-3)' }}>Inquiry details</summary><div style={{ marginTop: 10 }}><RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} /></div></details>}
             </>
           )}
         </FieldBlock>
@@ -1458,9 +1471,12 @@ function ApprovalCard({
               Dismiss
             </SecondaryButton>
           </>
-        ) : inquiryNeedsDecision ? (
+        ) : inquiryWithoutDraft ? (
           <>
-            <PrimaryLink href={quoteHref} disabled={busy}>Set a price</PrimaryLink>
+            {inquiryState?.pricing ? <PrimaryLink href={quoteHref} disabled={busy}>Set a price</PrimaryLink> : (
+              <PrimaryButton onClick={handleRedraft} disabled={busy} loading={pendingAction === 'redraft'} loadingLabel="Drafting">Retry draft</PrimaryButton>
+            )}
+            {inquiryState?.pricing && <SecondaryButton onClick={handleRedraft} disabled={busy} loading={pendingAction === 'redraft'} loadingLabel="Drafting">Recheck & draft</SecondaryButton>}
             <SecondaryButton onClick={startEdit} disabled={busy}>Write reply</SecondaryButton>
             <SecondaryButton onClick={() => setShowHandled(v => !v)} disabled={busy}>Mark handled</SecondaryButton>
           </>
