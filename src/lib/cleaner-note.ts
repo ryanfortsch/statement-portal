@@ -36,7 +36,8 @@ export type RenderedNote = {
   raw: string;
   /** Brazilian Portuguese. What the cleaners actually read. */
   pt: string;
-  /** Tidied English, printed under the Portuguese as a check. */
+  /** Tidied English. Shown on the card so the operator can check the
+   *  translation. NEVER sent: see formatOperatorNote. */
   en: string;
   /** False when the model could not be reached and `pt` is just `raw`. */
   translated: boolean;
@@ -50,7 +51,9 @@ const NoteSchema = z.object({
     ),
   en: z
     .string()
-    .describe('The same instruction in plain English, sentence case. Not a transcript of the input.'),
+    .describe(
+      'The same instruction in plain English, sentence case. Read back to the operator as a check on the Portuguese; it is not sent to anyone.',
+    ),
 });
 
 /** An untranslated note: the operator's words standing in for both halves. */
@@ -73,7 +76,7 @@ export async function renderOperatorNote(note: string): Promise<RenderedNote> {
       schema: NoteSchema,
       system: `You prepare one short instruction from a vacation-rental operator for the housekeeping crew that cleans her properties in Gloucester, Massachusetts. The crew's first language is Brazilian Portuguese. Your output rides at the end of an SMS that is otherwise already in Portuguese.
 
-Return the SAME instruction twice: once in Brazilian Portuguese (pt), once in plain English (en).
+Return the SAME instruction twice: once in Brazilian Portuguese (pt), once in plain English (en). The Portuguese is what the crew receives. The English is read only by the operator, as a check that the Portuguese says what she meant.
 
 HARD RULES
 1. Never change the meaning. Do not add a task, a house, a day, a time or a condition that is not in the input, and never drop one that is.
@@ -107,18 +110,19 @@ Return it as pt and en.`,
  * The block that rides at the end of the digest, after the schedule and
  * before each cleaner's own live-schedule link.
  *
- * Portuguese on its own line, English parenthesised underneath -- the same
- * `pt / en` posture as the digest's own day label, stacked because an
- * instruction is longer than a date. When the two are the same string
- * (nothing was translated), it prints once rather than twice.
+ * PORTUGUESE ONLY. The English rendering is stored beside it and shown on
+ * the card, but it does not go out: the crew speaks Portuguese, so we
+ * speak Portuguese to them (Dotti, 2026-09-26, reading a sent digest that
+ * carried both). The English exists for the operator to check the
+ * translation before approving, which is an internal need, and a parallel
+ * English line in the message is noise on the phone of someone who was
+ * never going to read it.
+ *
+ * The heading is `AVISO:` for the same reason, not `AVISO / NOTE:`.
  */
-export function formatOperatorNote(pt: string | null | undefined, en?: string | null): string {
+export function formatOperatorNote(pt: string | null | undefined): string {
   const p = (pt ?? '').trim();
-  if (!p) return '';
-  const e = (en ?? '').trim();
-  const head = 'AVISO / NOTE:';
-  if (!e || e.toLowerCase() === p.toLowerCase()) return `${head}\n${p}`;
-  return `${head}\n${p}\n(${e})`;
+  return p ? `AVISO:\n${p}` : '';
 }
 
 /**
@@ -239,8 +243,8 @@ export async function resolveNoteBlock(
     row &&
     (row.operator_note_src ?? '').trim() === note &&
     (row.operator_note_pt ?? '').trim();
-  if (fresh) return formatOperatorNote(row!.operator_note_pt, row!.operator_note_en);
+  if (fresh) return formatOperatorNote(row!.operator_note_pt);
 
   const rendered = await saveOperatorNote(supabase, digestId, note, row);
-  return formatOperatorNote(rendered.pt, rendered.en);
+  return formatOperatorNote(rendered.pt);
 }
