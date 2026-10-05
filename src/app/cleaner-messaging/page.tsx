@@ -153,7 +153,13 @@ async function ScheduleDigestSection({
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   return (
     <ScheduleDigestCard
-      notice={{ sent: first(sp.sent), failed: first(sp.failed), err: first(sp.err) }}
+      notice={{
+        sent: first(sp.sent),
+        failed: first(sp.failed),
+        err: first(sp.err),
+        noclean: first(sp.noclean),
+        nocleanSent: first(sp.noclean_sent),
+      }}
     />
   );
 }

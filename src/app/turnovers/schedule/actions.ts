@@ -367,8 +367,11 @@ export async function setNoCleanAction(formData: FormData): Promise<void> {
   const on = String(formData.get('on') || '') === '1';
   const reason = String(formData.get('reason') || '').trim().slice(0, 300);
   const anchor = `#stay-${propertyId}-${stayCheckIn}`;
+  // The digest card (back=card) and the schedule page both carry this.
+  const land = (query: string) =>
+    String(formData.get('back') || '') === 'card' ? `${CARD}${query}#schedule-digest` : `${PAGE}${query}${anchor}`;
   if (!propertyId || !/^\d{4}-\d{2}-\d{2}$/.test(stayCheckIn) || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
-    redirect(`${PAGE}?err=bad_stay`);
+    redirect(land('?err=bad_stay'));
   }
 
   if (on) {
@@ -378,14 +381,14 @@ export async function setNoCleanAction(formData: FormData): Promise<void> {
     if (error) {
       // Already marked (the one-live-per-stay index): keep the mark, take
       // the newer reason.
-      if (error.code !== '23505') redirect(`${PAGE}?err=save_failed${anchor}`);
+      if (error.code !== '23505') redirect(land('?err=save_failed'));
       const { error: upErr } = await supabase
         .from('checkout_cleaning_skips')
         .update({ reason })
         .eq('property_id', propertyId)
         .eq('stay_check_in', stayCheckIn)
         .is('cleared_at', null);
-      if (upErr) redirect(`${PAGE}?err=save_failed${anchor}`);
+      if (upErr) redirect(land('?err=save_failed'));
     }
   } else {
     const { error } = await supabase
@@ -394,7 +397,7 @@ export async function setNoCleanAction(formData: FormData): Promise<void> {
       .eq('property_id', propertyId)
       .eq('stay_check_in', stayCheckIn)
       .is('cleared_at', null);
-    if (error) redirect(`${PAGE}?err=save_failed${anchor}`);
+    if (error) redirect(land('?err=save_failed'));
   }
 
   // Bring a pending draft up to date; flag a sent one for Send update.
@@ -418,7 +421,7 @@ export async function setNoCleanAction(formData: FormData): Promise<void> {
   revalidatePath(PAGE);
   revalidatePath(CARD);
   const sentHint = digestState === 'sent' ? '&noclean_sent=1' : '';
-  redirect(`${PAGE}?noclean=${on ? 'on' : 'off'}${sentHint}${anchor}`);
+  redirect(land(`?noclean=${on ? 'on' : 'off'}${sentHint}`));
 }
 
 export async function applyProposalAction(formData: FormData): Promise<void> {
