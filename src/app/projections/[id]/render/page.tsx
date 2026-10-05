@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ProjectionRow } from '@/lib/projections-types';
@@ -39,6 +40,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
+        <SlideEarnMore projection={projection} footer={footerLabel} />
         <SlideRatings footer={footerLabel} />
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
@@ -162,6 +164,133 @@ function Pillar({ n, title, body }: { n: string; title: string; body: string }) 
   );
 }
 
+/**
+ * Earn more, spend less. The evidence behind the Pillars slide: starting
+ * from an owner listing on Airbnb alone, each step we add and what the
+ * research says it is worth, then the costs we take off the owner.
+ *
+ * Every figure carries an endnote, and every source was read at the
+ * source on 2026-10-05. The steps are deliberately NOT summed: they come
+ * from different studies, so the only combined figure is the one study
+ * that measured the whole package (Li, Moreno & Zhang).
+ *
+ * The "+3% per direct stay" is Rising Tide's own math, not a study: on a
+ * 4-night 3 South stay, Airbnb (calendar +18.34%, 15.5% host-only fee)
+ * nets the owner $1,772; staycapeann.com (calendar +6%, card fees at the
+ * statement estimate of 3.9% + $0.40) nets $1,825. The 1/3 to 1/2 direct
+ * share is the operator's stated baseline.
+ */
+function SlideEarnMore({ projection, footer }: { projection: ProjectionRow; footer: string }) {
+  const steps: { step: string; title: string; body: string; stat: string; unit?: string; cap: ReactNode }[] = [
+    {
+      step: 'Step 1',
+      title: 'Every platform',
+      body: 'Airbnb, Vrbo, Booking.com, Google Vacation Rentals and Furnished Finder, on one synced calendar.',
+      stat: '+$605',
+      unit: '/ mo.',
+      cap: <>when an Airbnb-only home adds Vrbo<sup>(2)</sup></>,
+    },
+    {
+      step: 'Step 2',
+      title: 'Market-based pricing',
+      body: 'Nightly rates reset every day from local demand: season, weekends, events and lead time.',
+      stat: '+8.6%',
+      cap: <>daily revenue for hosts who price from market data<sup>(3)</sup></>,
+    },
+    {
+      step: 'Step 3',
+      title: 'Direct bookings',
+      body: 'Repeat and referral guests book on staycapeann.com, outside Airbnb’s 15.5% fee.',
+      stat: '+3%',
+      cap: <>to you on every direct stay. 1/3 to 1/2 of our stays book direct<sup>(4)</sup></>,
+    },
+  ];
+
+  // The compliance line is local: Gloucester has its own STR ordinance
+  // with per-day fines; Rockport and Beverly get the statewide room tax.
+  const compliance =
+    projection.market === 'Gloucester'
+      ? {
+          title: 'No ordinance fines',
+          body: 'Gloucester fines $400 per violation, per day. Three in six months suspends the rental for six months. We keep the permit, trash days and filings in order.',
+        }
+      : {
+          title: 'Room tax filed on time',
+          body: 'Massachusetts charges 1% a month on late room-occupancy tax, up to 25%. We keep registration and filings on schedule.',
+        };
+  const savings: { title: string; body: string }[] = [
+    {
+      title: 'Supplies at bulk prices',
+      body: 'Toilet paper, paper towels, coffee pods and toiletries bought by the case for every home we manage. Bulk packs cost 25–46% less per roll than a retail 4-pack.',
+    },
+    {
+      title: 'Cleaning at cost',
+      body: 'Every turnover is billed through with no markup.',
+    },
+    {
+      title: 'Damage claims filed in time',
+      body: 'We are in the home after every checkout, so guest damage is documented inside Airbnb’s 14-day claim window.',
+    },
+    compliance,
+  ];
+
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <h2 className="rt-section-title">Earn more. Spend less.</h2>
+        <div className="rt-em-grid">
+          <div className="rt-em-ladder">
+            <div className="rt-em-eyebrow">Earn more</div>
+            <div className="rt-em-base">
+              <span className="rt-em-base-tag">Starting point</span>
+              <span className="rt-em-base-title">Airbnb only</span>
+              <span className="rt-em-base-body">One platform, one audience, a nightly rate set by hand.</span>
+            </div>
+            {steps.map((s) => (
+              <div key={s.step} className="rt-em-step">
+                <div className="rt-em-step-text">
+                  <div className="rt-em-step-tag">{s.step}</div>
+                  <div className="rt-em-step-title">{s.title}</div>
+                  <div className="rt-em-step-body">{s.body}</div>
+                </div>
+                <div className="rt-em-step-stat">
+                  <div className="rt-em-stat">
+                    {s.stat}
+                    {s.unit && <span className="rt-em-stat-unit"> {s.unit}</span>}
+                  </div>
+                  <div className="rt-em-stat-cap">{s.cap}</div>
+                </div>
+              </div>
+            ))}
+            <div className="rt-em-cap">
+              <span className="rt-em-cap-num">+16.9%</span>
+              <span className="rt-em-cap-body">
+                daily revenue for professionally run rentals over owner-run ones, comparing like homes in
+                like markets.<sup>(5)</sup>
+              </span>
+            </div>
+          </div>
+
+          <div className="rt-em-save">
+            <div className="rt-em-eyebrow">Spend less</div>
+            <ul className="rt-em-save-list">
+              {savings.map((it) => (
+                <li key={it.title}>
+                  <div className="rt-em-save-title">{it.title}</div>
+                  <div className="rt-em-save-body">{it.body}</div>
+                </li>
+              ))}
+            </ul>
+            <div className="rt-em-save-note">Sources<sup>(6)(7)</sup></div>
+          </div>
+        </div>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
 function SlideRatings({ footer }: { footer: string }) {
   // Rising Tide: 2-decimal precision (4.99). Competitors: 1-decimal (industry-standard reporting).
   const competitors: { label: string; display: string }[] = [
@@ -182,7 +311,7 @@ function SlideRatings({ footer }: { footer: string }) {
               <span className="rt-rating-hero-word">Revenue</span>
             </div>
             <p className="rt-rating-hero-body">
-              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(3)</sup>
+              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(8)</sup>
             </p>
             <div className="rt-rating-hero-rule" />
             <p className="rt-rating-hero-tag">
@@ -192,7 +321,7 @@ function SlideRatings({ footer }: { footer: string }) {
 
           {/* Right-hand comparison card */}
           <div className="rt-rating-card">
-            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(2)</sup></div>
+            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(9)</sup></div>
             <div className="rt-rating-rt-block">
               <div className="rt-rating-rt-label">RISING TIDE</div>
               <div className="rt-rating-rt-value">4.99</div>
@@ -865,11 +994,35 @@ function SlideEndnotes({ footer }: { footer: string }) {
           </li>
           <li>
             <span className="rt-en-num">(2)</span>
-            Source: AirDNA, Airbnb. Average star rating sourced from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
+            Source: AirDNA, &ldquo;Why You Should List Vacation Rentals on Multiple Sites&rdquo; (January 2025, updated September 2026). U.S. listings, 2021&ndash;2024: Airbnb-only homes in Gatlinburg, TN that cross-listed gained about 2 booked nights and $605 a month; cross-listed homes in Las Vegas gained $738 a month. Results vary by market.
           </li>
           <li>
             <span className="rt-en-num">(3)</span>
+            Source: Zhang, Mehta, Singh &amp; Srinivasan, <em>Marketing Science</em> 40(5), 2021. Airbnb hosts who adopted algorithmic pricing earned 8.6% more daily revenue while their average nightly rate fell 5.7%: more nights booked, priced to demand.
+          </li>
+          <li>
+            <span className="rt-en-num">(4)</span>
+            Rising Tide analysis. Hosts on property management software pay Airbnb a 15.5% service fee (Airbnb Help Center); a direct booking pays card processing of under 4%, and the guest pays less than on Airbnb. Share of direct stays is Rising Tide&rsquo;s own. Industry-wide, direct bookings were 35% of managed-rental revenue in Key Data&rsquo;s Q2 2026 report.
+          </li>
+          <li>
+            <span className="rt-en-num">(5)</span>
+            Source: Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing Economy,&rdquo; Ross School of Business Working Paper 1298. Properties run by professional hosts earned 16.9% more daily revenue and 15.5% higher occupancy than owner-run properties, controlling for property and market.
+          </li>
+          <li>
+            <span className="rt-en-num">(6)</span>
+            Source: Orhun &amp; Palazzolo, &ldquo;Frugality Is Hard to Afford,&rdquo; <em>Journal of Marketing Research</em> 56(1), 2019. 30- and 36-roll packs cost 25&ndash;46% less per roll than the same brand&rsquo;s 4-roll pack.
+          </li>
+          <li>
+            <span className="rt-en-num">(7)</span>
+            Sources: Airbnb Help Center, AirCover for Hosts (damage requests within 14 days of checkout); Gloucester Code of Ordinances &sect;5-66 and &sect;5-67; Massachusetts Department of Revenue, room occupancy excise penalties.
+          </li>
+          <li>
+            <span className="rt-en-num">(8)</span>
             Source: CoStar. Airbnb listings with a 4.9+ star rating earn 18% more revenue on average than lower-rated comparable listings.
+          </li>
+          <li>
+            <span className="rt-en-num">(9)</span>
+            Source: AirDNA, Airbnb. Average star rating sourced from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
           </li>
         </ol>
       </div>
@@ -1958,13 +2111,135 @@ const deckCss = `
     display: block;
     background: var(--paper-2);
   }
-  /* ── Endnotes (slide 10) ── */
-  .rt-endnotes { margin-top: 24px; padding: 0; list-style: none; max-width: 960px; }
-  .rt-endnotes li { padding: 14px 0; border-top: 1px solid var(--rule); font-size: 13px; line-height: 1.65; color: var(--ink-3); }
-  .rt-endnotes li:last-child { border-bottom: 1px solid var(--rule); }
+  /* ── Earn more, spend less: ladder on the left, savings card on the right ── */
+  .rt-em-grid {
+    margin-top: 12px;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.85fr 1fr;
+    gap: 48px;
+    align-items: stretch;
+    min-height: 0;
+  }
+  .rt-em-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .rt-em-ladder { display: flex; flex-direction: column; padding-top: 20px; }
+  .rt-em-base {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--ink);
+  }
+  .rt-em-base-tag {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .rt-em-base-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 18px;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .rt-em-base-body { font-size: 12.5px; color: var(--ink-4); font-style: italic; }
+  .rt-em-step {
+    display: grid;
+    grid-template-columns: 1fr 250px;
+    gap: 28px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rt-em-step-tag {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+  }
+  .rt-em-step-title {
+    margin-top: 2px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 21px;
+    line-height: 1.2;
+    color: var(--ink);
+    font-weight: 400;
+  }
+  .rt-em-step-body { margin-top: 3px; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+  .rt-em-step-stat { border-left: 1px solid var(--rule); padding-left: 22px; }
+  .rt-em-stat {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 40px;
+    line-height: 1;
+    font-weight: 300;
+    color: var(--signal);
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+  .rt-em-stat-unit { font-size: 18px; font-style: italic; color: var(--ink-3); letter-spacing: 0; }
+  .rt-em-stat-cap { margin-top: 5px; font-size: 11px; line-height: 1.4; color: var(--ink-3); }
+  .rt-em-cap {
+    margin-top: 14px;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .rt-em-cap-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 34px;
+    line-height: 1;
+    font-weight: 300;
+    letter-spacing: -0.03em;
+    color: var(--paper);
+    white-space: nowrap;
+  }
+  .rt-em-cap-body { font-size: 13px; line-height: 1.45; color: var(--paper-3); }
+  .rt-em-save {
+    background: var(--paper-2);
+    border-left: 3px solid var(--signal);
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  .rt-em-save-list { margin: 0; padding: 0; list-style: none; }
+  .rt-em-save-list li { padding: 10px 0; border-bottom: 1px solid var(--rule); }
+  .rt-em-save-list li:first-child { padding-top: 2px; }
+  .rt-em-save-list li:last-child { border-bottom: 0; }
+  .rt-em-save-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 16px;
+    color: var(--ink);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .rt-em-save-body { margin-top: 3px; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }
+  .rt-em-save-note { margin-top: auto; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-4); }
+
+  /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
+  .rt-endnotes {
+    margin-top: 18px;
+    padding: 0;
+    list-style: none;
+    columns: 2;
+    column-gap: 40px;
+  }
+  .rt-endnotes li { break-inside: avoid; padding: 9px 0; border-top: 1px solid var(--rule); font-size: 11px; line-height: 1.5; color: var(--ink-3); }
   .rt-en-num {
     display: inline-block;
-    width: 36px;
+    width: 28px;
     color: var(--signal);
     font-weight: 600;
     font-family: var(--font-fraunces), "Times New Roman", serif;
