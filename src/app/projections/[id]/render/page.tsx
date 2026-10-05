@@ -260,8 +260,8 @@ function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
       pct: 0.01,
       note: (
         <>
-          Rising Tide analysis. Hosts on property management software pay Airbnb a 15.5% service fee (Airbnb Help
-          Center); a direct booking pays card processing of under 4%, so the owner nets about 3% more per direct stay.
+          Rising Tide analysis. Airbnb charges hosts a 15.5% fee; a direct booking pays under 3% in card fees, so the
+          owner nets about 3% more per direct stay.
           A third to a half of Rising Tide stays book direct; shown at the low end, 3% on one stay in three. Industry-wide,
           direct bookings were 35% of managed-rental revenue in Key Data&rsquo;s Q2 2026 report.
         </>
@@ -338,7 +338,7 @@ function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
 }
 
 function SlideRatings({ noteStart, footer }: { noteStart: number; footer: string }) {
-  // Rising Tide: 2-decimal precision (4.99). Competitors: 1-decimal (industry-standard reporting).
+  // Rising Tide: 2-decimal precision (4.98). Competitors: 1-decimal (industry-standard reporting).
   const competitors: { label: string; display: string }[] = [
     { label: 'National Average', display: '4.8' },
     { label: 'Atlantic Vacation Homes', display: '4.7' },
@@ -370,7 +370,7 @@ function SlideRatings({ noteStart, footer }: { noteStart: number; footer: string
             <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>({noteStart + 1})</sup></div>
             <div className="rt-rating-rt-block">
               <div className="rt-rating-rt-label">RISING TIDE</div>
-              <div className="rt-rating-rt-value">4.99</div>
+              <div className="rt-rating-rt-value">4.98</div>
               <div className="rt-rating-rt-stars" aria-hidden="true">★★★★★</div>
             </div>
             <div className="rt-rating-comp-list">
