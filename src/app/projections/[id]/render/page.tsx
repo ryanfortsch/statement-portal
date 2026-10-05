@@ -30,6 +30,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
   const propertyTag = `${projection.property_address}${projection.property_city ? `, ${projection.property_city.split(',')[0].toUpperCase()}` : ''}`.toUpperCase();
   const footerLabel = `${monthYear} | ${propertyTag}`;
   const greetingName = (projection.prospect_first_name || projection.prospect_name.split(/[, ]/)[0]).toUpperCase();
+  const earnRows = earnMoreRows(c);
 
   return (
     <>
@@ -40,7 +41,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
-        <SlideEarnMore projection={projection} footer={footerLabel} />
+        <SlideEarnMore rows={earnRows} computed={c} footer={footerLabel} />
         <SlideRatings footer={footerLabel} />
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
@@ -55,7 +56,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideServices footer={footerLabel} />
         <SlideOwnerControl projection={projection} computed={c} footer={footerLabel} />
         <SlideClose footer={footerLabel} />
-        <SlideEndnotes footer={footerLabel} />
+        <SlideEndnotes earnRows={earnRows} footer={footerLabel} />
       </div>
     </>
   );
@@ -179,76 +180,119 @@ function Pillar({ n, title, body }: { n: string; title: string; body: string }) 
 const SUPPLIES_PER_HOME_YEAR = 3800;
 
 /**
- * Earn more, spend less. The evidence behind the Pillars slide: starting
- * from an owner listing on Airbnb alone, what each thing we do is worth,
- * then the costs we take off the owner.
+ * Earn more, spend less. The evidence behind the Pillars slide: compared
+ * with an owner listing on Airbnb alone, what each thing we do is worth as
+ * a share of rental revenue, stacked against the management fee charged on
+ * that same revenue.
  *
- * Every figure carries an endnote, and every outside source was read at
- * the source on 2026-10-05. The rows are deliberately NOT summed: they
- * come from different studies, so the only combined figure is the one
- * study that measured the whole package (Li, Moreno & Zhang).
+ * The stack ADDS figures from separate sources (two studies, an AirDNA
+ * average and Rising Tide's own records). Endnote 6 says so on the page and
+ * cites the one study that measured the whole package (Li, Moreno & Zhang,
+ * +16.9%), which is the honest backstop for summing them.
  *
- * The "+3% per direct stay" is Rising Tide's own math, not a study: on a
- * 4-night 3 South stay, Airbnb (calendar +18.34%, 15.5% host-only fee)
- * nets the owner $1,772; staycapeann.com (calendar +6%, card fees at the
- * statement estimate of 3.9% + $0.40) nets $1,825. The 1/3 to 1/2 direct
- * share is the operator's stated baseline. Supplies are Rising Tide's own
- * card records (SUPPLIES_PER_HOME_YEAR).
+ * "Direct bookings" is Rising Tide's own math: on a 4-night 3 South stay,
+ * Airbnb (calendar +18.34%, 15.5% host-only fee) nets the owner $1,772 and
+ * staycapeann.com (calendar +6%, card fees at 3.9% + $0.40) nets $1,825,
+ * about +3% per direct stay. At the low end of the operator's 1/3 to 1/2
+ * direct share that is +1% of revenue. "Supplies" is SUPPLIES_PER_HOME_YEAR
+ * over this home's projected Year 1 rental revenue, so it varies by deck,
+ * and so does the row order (largest first). Footnote numbers follow the
+ * row order; endnotes read them from the same array.
  */
-function SlideEarnMore({ projection, footer }: { projection: ProjectionRow; footer: string }) {
-  const rows: { title: string; body: string; stat: string; unit?: string; cap: ReactNode }[] = [
+type EarnRow = {
+  key: string;
+  title: string;
+  line: string;
+  pct: number; // fraction of rental revenue
+  color: string;
+  note: ReactNode;
+};
+
+const EARN_COLORS = ['#946d2e', '#b48f52', '#cdb07c', '#e2cfa6'];
+
+function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
+  const gross = computed.year1.mid.grossRevenue;
+  const supplyPct = gross > 0 ? SUPPLIES_PER_HOME_YEAR / gross : 0;
+  const rows: Omit<EarnRow, 'color'>[] = [
     {
-      title: 'Every platform',
-      body: 'Airbnb, Vrbo, Booking.com, Google and Furnished Finder.',
-      stat: '+$605',
-      unit: '/ mo.',
-      cap: <>when an Airbnb-only home adds Vrbo<sup>(2)</sup></>,
-    },
-    {
+      key: 'pricing',
       title: 'Market-based pricing',
-      body: 'Rates reset daily from local demand, events and season.',
-      stat: '+8.6%',
-      cap: <>daily revenue, priced to demand<sup>(3)</sup></>,
+      line: 'Rates set daily from local demand.',
+      pct: 0.086,
+      note: (
+        <>
+          Source: Zhang, Mehta, Singh &amp; Srinivasan, <em>Marketing Science</em> 40(5), 2021. Airbnb hosts who
+          adopted algorithmic pricing earned 8.6% more daily revenue while their average nightly rate fell 5.7%: more
+          nights booked, priced to demand.
+        </>
+      ),
     },
     {
-      title: 'Direct bookings',
-      body: 'Repeat guests book on staycapeann.com: no 15.5% fee.',
-      stat: '+3%',
-      cap: <>per direct stay, 1/3 to 1/2 of stays<sup>(4)</sup></>,
+      key: 'platforms',
+      title: 'Every platform',
+      line: 'Airbnb, Vrbo, Booking.com, Google and Furnished Finder.',
+      pct: 0.074,
+      note: (
+        <>
+          Source: AirDNA, &ldquo;Airbnb vs Vrbo for Owners&rdquo; (August 2025). In 2025, homes listed on both Airbnb
+          and Vrbo were booked 58% of nights, against 54% for Airbnb-only homes: 7.4% more nights. U.S. averages.
+        </>
+      ),
     },
     {
+      key: 'supplies',
       title: 'Supplies on us',
-      body: 'Toilet paper, paper towels, coffee pods and toiletries.',
-      stat: `+${fmtMoney(SUPPLIES_PER_HOME_YEAR)}`,
-      unit: '/ yr.',
-      cap: <>we pay, so you don&rsquo;t<sup>(5)</sup></>,
-    },
-  ];
-
-  // The compliance line is local: Gloucester has its own STR ordinance
-  // with per-day fines; Rockport and Beverly get the statewide room tax.
-  const compliance =
-    projection.market === 'Gloucester'
-      ? {
-          title: 'No ordinance fines',
-          body: <>Gloucester fines $400 a day per violation, and three in six months suspends the rental. We keep the permit, trash days and filings in order.<sup>(7)</sup></>,
-        }
-      : {
-          title: 'Room tax filed on time',
-          body: <>Massachusetts charges 1% a month on late room tax, up to 25%. We keep registration and filings on schedule.<sup>(7)</sup></>,
-        };
-  const savings: { title: string; body: ReactNode }[] = [
-    {
-      title: 'Cleaning at cost',
-      body: 'Every turnover is billed through with no markup.',
+      line: `About ${fmtMoney(SUPPLIES_PER_HOME_YEAR)} a year we pay, not you.`,
+      pct: supplyPct,
+      note: (
+        <>
+          Rising Tide card records, April to August 2026, spread across the year by season: guest consumables (toilet
+          paper, paper towels, coffee pods, toiletries) per operating home, about {fmtMoney(SUPPLIES_PER_HOME_YEAR)} a
+          year. Linens and furnishings excluded. Shown as a share of this home&rsquo;s projected Year 1 rental revenue.
+        </>
+      ),
     },
     {
-      title: 'Damage claims filed in time',
-      body: <>We&rsquo;re in after every checkout, so damage is caught inside Airbnb&rsquo;s 14-day claim window.<sup>(7)</sup></>,
+      key: 'direct',
+      title: 'Direct bookings',
+      line: '3% more on each, a third of stays or more.',
+      pct: 0.01,
+      note: (
+        <>
+          Rising Tide analysis. Hosts on property management software pay Airbnb a 15.5% service fee (Airbnb Help
+          Center); a direct booking pays card processing of under 4%, so the owner nets about 3% more per direct stay.
+          A third to a half of Rising Tide stays book direct; shown at the low end, 3% on one stay in three. Industry-wide,
+          direct bookings were 35% of managed-rental revenue in Key Data&rsquo;s Q2 2026 report.
+        </>
+      ),
     },
-    compliance,
   ];
+  return rows
+    .sort((a, b) => b.pct - a.pct)
+    .map((r, i) => ({ ...r, color: EARN_COLORS[i] ?? EARN_COLORS[EARN_COLORS.length - 1] }));
+}
 
+/** First footnote number on the Earn more slide (the hero uses 1). */
+const EARN_NOTE_BASE = 2;
+
+const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
+
+function SlideEarnMore({
+  rows,
+  computed,
+  footer,
+}: {
+  rows: EarnRow[];
+  computed: ProjectionComputed;
+  footer: string;
+}) {
+  const total = rows.reduce((a, r) => a + r.pct, 0);
+  const fee = computed.inputs.mgmt_fee_pct;
+  const stackNote = EARN_NOTE_BASE + rows.length;
+  // Chart scale: the taller of the two bars fills the plot.
+  const PLOT = 250;
+  const scale = PLOT / Math.max(total, fee, 0.0001);
+  const feeY = fee * scale;
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -257,47 +301,49 @@ function SlideEarnMore({ projection, footer }: { projection: ProjectionRow; foot
         <div className="rt-em-grid">
           <div className="rt-em-ladder">
             <div className="rt-em-base">
-              <span className="rt-em-eyebrow">Earn more</span>
+              <span className="rt-em-eyebrow">Share of your rental revenue</span>
               <span className="rt-em-base-body">compared with a home listed on Airbnb alone</span>
             </div>
-            <div className="rt-em-steps">
-              {rows.map((s) => (
-                <div key={s.title} className="rt-em-step">
-                  <div className="rt-em-step-text">
-                    <div className="rt-em-step-title">{s.title}</div>
-                    <div className="rt-em-step-body">{s.body}</div>
-                  </div>
-                  <div className="rt-em-step-stat">
-                    <div className="rt-em-stat">
-                      {s.stat}
-                      {s.unit && <span className="rt-em-stat-unit"> {s.unit}</span>}
+            <div className="rt-em-rows" style={{ gridTemplateRows: `repeat(${rows.length}, minmax(0, 1fr))` }}>
+              {rows.map((r, i) => (
+                <div key={r.key} className="rt-em-row">
+                  <span className="rt-em-swatch" style={{ background: r.color }} />
+                  <span className="rt-em-pct">+{pct1(r.pct)}</span>
+                  <div>
+                    <div className="rt-em-row-title">{r.title}</div>
+                    <div className="rt-em-row-line">
+                      {r.line}
+                      <sup>({EARN_NOTE_BASE + i})</sup>
                     </div>
-                    <div className="rt-em-stat-cap">{s.cap}</div>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="rt-em-cap">
-              <span className="rt-em-cap-num">+16.9%</span>
-              <span className="rt-em-cap-body">
-                daily revenue for professionally run rentals over owner-run ones, comparing like homes in
-                like markets.<sup>(6)</sup>
-              </span>
-            </div>
           </div>
 
-          <div className="rt-em-save">
+          <div className="rt-em-chart">
             <div className="rt-em-base">
-              <span className="rt-em-eyebrow">Spend less</span>
+              <span className="rt-em-eyebrow">Against our fee</span>
             </div>
-            <ul className="rt-em-save-list">
-              {savings.map((it) => (
-                <li key={it.title}>
-                  <div className="rt-em-save-title">{it.title}</div>
-                  <div className="rt-em-save-body">{it.body}</div>
-                </li>
-              ))}
-            </ul>
+            <div className="rt-em-plot" style={{ height: PLOT + 40 }}>
+              <div className="rt-em-feeline" style={{ bottom: feeY }} />
+              <div className="rt-em-bar-col">
+                <div className="rt-em-bar-top">+{pct1(total)}</div>
+                <div className="rt-em-bar">
+                  {[...rows].reverse().map((r) => (
+                    <div key={r.key} className="rt-em-seg" style={{ height: r.pct * scale, background: r.color }} />
+                  ))}
+                </div>
+              </div>
+              <div className="rt-em-bar-col">
+                <div className="rt-em-bar-top rt-em-bar-top-fee">{fmtPercent(fee)}</div>
+                <div className="rt-em-bar rt-em-bar-fee" style={{ height: feeY }} />
+              </div>
+            </div>
+            <div className="rt-em-bar-labels">
+              <span>Earned &amp; saved<sup>({stackNote})</sup></span>
+              <span>Management fee</span>
+            </div>
           </div>
         </div>
       </div>
@@ -326,7 +372,7 @@ function SlideRatings({ footer }: { footer: string }) {
               <span className="rt-rating-hero-word">Revenue</span>
             </div>
             <p className="rt-rating-hero-body">
-              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(8)</sup>
+              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(7)</sup>
             </p>
             <div className="rt-rating-hero-rule" />
             <p className="rt-rating-hero-tag">
@@ -336,7 +382,7 @@ function SlideRatings({ footer }: { footer: string }) {
 
           {/* Right-hand comparison card */}
           <div className="rt-rating-card">
-            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(9)</sup></div>
+            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(8)</sup></div>
             <div className="rt-rating-rt-block">
               <div className="rt-rating-rt-label">RISING TIDE</div>
               <div className="rt-rating-rt-value">4.99</div>
@@ -996,7 +1042,7 @@ function SlideClose({ footer }: { footer: string }) {
   );
 }
 
-function SlideEndnotes({ footer }: { footer: string }) {
+function SlideEndnotes({ earnRows, footer }: { earnRows: EarnRow[]; footer: string }) {
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -1007,36 +1053,25 @@ function SlideEndnotes({ footer }: { footer: string }) {
             <span className="rt-en-num">(1)</span>
             Estimated revenue figures are based on data from AirDNA as well as Rising Tide&rsquo;s professional judgment drawn from managing other vacation rental homes on Cape Ann. These projections account for seasonal trends and platform performance across Airbnb, VRBO, and direct booking channels. Actual results may vary due to property-specific factors, market fluctuations, economic conditions, and unforeseen events.
           </li>
+          {earnRows.map((r, i) => (
+            <li key={r.key}>
+              <span className="rt-en-num">({EARN_NOTE_BASE + i})</span>
+              {r.note}
+            </li>
+          ))}
           <li>
-            <span className="rt-en-num">(2)</span>
-            Source: AirDNA, &ldquo;Why You Should List Vacation Rentals on Multiple Sites&rdquo; (January 2025, updated September 2026). U.S. listings, 2021&ndash;2024: Airbnb-only homes in Gatlinburg, TN that cross-listed gained about 2 booked nights and $605 a month; cross-listed homes in Las Vegas gained $738 a month. Results vary by market.
-          </li>
-          <li>
-            <span className="rt-en-num">(3)</span>
-            Source: Zhang, Mehta, Singh &amp; Srinivasan, <em>Marketing Science</em> 40(5), 2021. Airbnb hosts who adopted algorithmic pricing earned 8.6% more daily revenue while their average nightly rate fell 5.7%: more nights booked, priced to demand.
-          </li>
-          <li>
-            <span className="rt-en-num">(4)</span>
-            Rising Tide analysis. Hosts on property management software pay Airbnb a 15.5% service fee (Airbnb Help Center); a direct booking pays card processing of under 4%, and the guest pays less than on Airbnb. Share of direct stays is Rising Tide&rsquo;s own. Industry-wide, direct bookings were 35% of managed-rental revenue in Key Data&rsquo;s Q2 2026 report.
-          </li>
-          <li>
-            <span className="rt-en-num">(5)</span>
-            Rising Tide card records, April to August 2026, spread across the year by season: guest consumables (toilet paper, paper towels, coffee pods, toiletries) per operating home. Linens and furnishings excluded. Rising Tide pays these from its own account.
-          </li>
-          <li>
-            <span className="rt-en-num">(6)</span>
-            Source: Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing Economy,&rdquo; Ross School of Business Working Paper 1298. Properties run by professional hosts earned 16.9% more daily revenue and 15.5% higher occupancy than owner-run properties, controlling for property and market.
+            <span className="rt-en-num">({EARN_NOTE_BASE + earnRows.length})</span>
+            The stack adds figures from separate sources for illustration; no single study measured them together. The
+            closest is Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing Economy,&rdquo;
+            Ross School of Business Working Paper 1298: properties run by professional hosts earned 16.9% more daily
+            revenue and 15.5% higher occupancy than owner-run properties, controlling for property and market.
           </li>
           <li>
             <span className="rt-en-num">(7)</span>
-            Sources: Airbnb Help Center, AirCover for Hosts (damage requests within 14 days of checkout); Gloucester Code of Ordinances &sect;5-66 and &sect;5-67; Massachusetts Department of Revenue, room occupancy excise penalties.
-          </li>
-          <li>
-            <span className="rt-en-num">(8)</span>
             Source: CoStar. Airbnb listings with a 4.9+ star rating earn 18% more revenue on average than lower-rated comparable listings.
           </li>
           <li>
-            <span className="rt-en-num">(9)</span>
+            <span className="rt-en-num">(8)</span>
             Source: AirDNA, Airbnb. Average star rating sourced from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
           </li>
         </ol>
@@ -2126,15 +2161,14 @@ const deckCss = `
     display: block;
     background: var(--paper-2);
   }
-  /* ── Earn more, spend less: ladder on the left, savings card on the right.
-     Both columns fill the slide body to the footer line; the three steps
-     share the ladder's height equally so the rhythm stays even. ── */
+  /* ── Earn more, spend less: percentage rows on the left (largest first),
+     the same rows stacked into one bar on the right against the fee. ── */
   .rt-em-grid {
     margin-top: 28px;
     flex: 1;
     display: grid;
-    grid-template-columns: 1.6fr 1fr;
-    gap: 56px;
+    grid-template-columns: 1.45fr 1fr;
+    gap: 64px;
     min-height: 0;
   }
   .rt-em-eyebrow {
@@ -2143,9 +2177,7 @@ const deckCss = `
     text-transform: uppercase;
     color: var(--signal);
     font-weight: 600;
-    margin-bottom: 12px;
   }
-  .rt-em-ladder { display: flex; flex-direction: column; min-height: 0; padding-top: 24px; }
   .rt-em-base {
     display: flex;
     align-items: baseline;
@@ -2153,90 +2185,84 @@ const deckCss = `
     padding-bottom: 12px;
     border-bottom: 1px solid var(--ink);
   }
-  .rt-em-base .rt-em-eyebrow { margin-bottom: 0; }
   .rt-em-base-body { font-size: 12.5px; color: var(--ink-4); font-style: italic; }
-  .rt-em-steps { flex: 1; display: grid; grid-template-rows: repeat(4, minmax(0, 1fr)); min-height: 0; }
-  .rt-em-step {
-    padding: 4px 0;
+  .rt-em-ladder { display: flex; flex-direction: column; min-height: 0; }
+  .rt-em-rows { flex: 1; display: grid; min-height: 0; }
+  .rt-em-row {
     display: grid;
-    grid-template-columns: 1fr 250px;
-    gap: 32px;
+    grid-template-columns: 10px 128px 1fr;
+    gap: 18px;
     align-items: center;
     border-bottom: 1px solid var(--rule);
   }
-  .rt-em-step-title {
+  .rt-em-row:last-child { border-bottom: 0; }
+  .rt-em-swatch { width: 10px; height: 44px; }
+  .rt-em-pct {
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 21px;
-    line-height: 1.2;
-    color: var(--ink);
-    font-weight: 400;
-  }
-  .rt-em-step-body { margin-top: 5px; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); max-width: 360px; }
-  .rt-em-step-stat { border-left: 1px solid var(--rule); padding-left: 24px; }
-  .rt-em-stat {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 36px;
+    font-size: 46px;
     line-height: 1;
     font-weight: 300;
     color: var(--signal);
     letter-spacing: -0.03em;
     white-space: nowrap;
   }
-  .rt-em-stat-unit { font-size: 18px; font-style: italic; color: var(--ink-3); letter-spacing: 0; }
-  .rt-em-stat-cap { margin-top: 6px; font-size: 11.5px; line-height: 1.45; color: var(--ink-3); }
-  .rt-em-cap {
-    margin-top: 18px;
-    background: var(--ink);
-    color: var(--paper);
-    padding: 14px 22px;
-    display: flex;
-    align-items: center;
-    gap: 20px;
-  }
-  .rt-em-cap-num {
+  .rt-em-row-title {
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 34px;
+    font-size: 21px;
+    line-height: 1.2;
+    color: var(--ink);
+  }
+  .rt-em-row-line { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+
+  /* Chart: stacked bar (earned + saved) beside the fee bar, with a dashed
+     rule at the fee's height across both so the comparison reads straight. */
+  .rt-em-chart { display: flex; flex-direction: column; min-height: 0; }
+  .rt-em-plot {
+    position: relative;
+    margin-top: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 36px;
+    align-items: end;
+    padding: 0 12px;
+    border-bottom: 1.5px solid var(--ink);
+  }
+  .rt-em-bar-col { display: flex; flex-direction: column; align-items: stretch; }
+  .rt-em-bar-top {
+    text-align: center;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 30px;
     line-height: 1;
     font-weight: 300;
-    letter-spacing: -0.03em;
-    color: var(--paper);
-    white-space: nowrap;
+    color: var(--signal);
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
   }
-  .rt-em-cap-body { font-size: 13px; line-height: 1.45; color: var(--paper-3); }
-
-  /* Spend less card: same eyebrow rule as the ladder, three items sharing
-     the card's height. */
-  .rt-em-save {
-    background: var(--paper-2);
-    border-left: 3px solid var(--signal);
-    padding: 24px 28px;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+  .rt-em-bar-top-fee { color: var(--ink); }
+  .rt-em-bar { display: flex; flex-direction: column; }
+  .rt-em-seg { width: 100%; border-top: 1.5px solid var(--paper); }
+  .rt-em-seg:first-child { border-top: 0; }
+  .rt-em-bar-fee { background: var(--ink); }
+  .rt-em-feeline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 1.5px dashed var(--ink);
+    z-index: 1;
+    pointer-events: none;
   }
-  .rt-em-save-list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    flex: 1;
+  .rt-em-bar-labels {
     display: grid;
-    grid-template-rows: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 1fr 1fr;
+    gap: 36px;
+    padding: 10px 12px 0;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    text-align: center;
   }
-  .rt-em-save-list li {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    border-bottom: 1px solid var(--rule);
-  }
-  .rt-em-save-list li:last-child { border-bottom: 0; }
-  .rt-em-save-title {
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 19px;
-    color: var(--ink);
-    font-weight: 500;
-    letter-spacing: -0.01em;
-  }
-  .rt-em-save-body { margin-top: 5px; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
 
   /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
   .rt-endnotes {
