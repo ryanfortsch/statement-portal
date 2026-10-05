@@ -339,6 +339,12 @@ descriptors still name them.
   scoped by `region` (FK to `regions`). A recipient's `property_ids = '{}'`
   means every property in their region; `language` is `pt` or `en`. One
   digest row per `(service_date, region)`.
+- **`checkout_cleaning_skips`**: "no cleaning needed" on one checkout,
+  keyed on the stay `(property_id, stay_check_in)`, one live row per stay
+  (`cleared_at is null`). Set from `/turnovers/schedule`. A skipped stay
+  moves to `ScheduleDay.skipped` and out of `rows`, so the crew's text and
+  `/c/<token>` show it struck through. Separate from `checkout_adjustments`
+  on purpose. Service role only.
 
 ---
 

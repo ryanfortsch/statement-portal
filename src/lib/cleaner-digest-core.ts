@@ -84,10 +84,11 @@ export function propertyInScope(p: { id: string; region?: string | null }, scope
 export type PropertyRegionLookup = ReadonlyMap<string, { id: string; region?: string | null }>;
 
 /** Recount a day after its rows changed; mirrors buildCheckoutSchedule. */
-export function recountDay(date: string, rows: ScheduleRow[]): ScheduleDay {
+export function recountDay(date: string, rows: ScheduleRow[], skipped: ScheduleRow[] = []): ScheduleDay {
   return {
     date,
     rows,
+    skipped,
     counts: {
       checkouts: rows.length,
       sameDay: rows.filter((r) => r.sameDayTurnover).length,
@@ -111,13 +112,28 @@ export function filterScheduleForRecipient(
   propertiesById: PropertyRegionLookup,
 ): ScheduleDay {
   const scope = recipientScope(recipient);
-  const rows = day.rows.filter((r) =>
-    propertyInScope(propertiesById.get(r.propertyId) ?? { id: r.propertyId, region: null }, scope),
-  );
-  return recountDay(day.date, rows);
+  const inScope = (r: ScheduleRow) =>
+    propertyInScope(propertiesById.get(r.propertyId) ?? { id: r.propertyId, region: null }, scope);
+  return recountDay(day.date, day.rows.filter(inScope), (day.skipped ?? []).filter(inScope));
 }
 
 // ─── composition ──────────────────────────────────────────────────────
+
+/**
+ * The "no cleaning needed" block: homes that check out but the operator
+ * took off the route (an owner working on the house). Named rather than
+ * silently dropped, so the crew sees the plan changed instead of wondering
+ * whether a house went missing. Only the house name goes out: the reason
+ * is internal and typed in English. A day with no skips adds nothing, so
+ * every existing text is byte-identical.
+ */
+function pushSkipped(lines: string[], day: ScheduleDay, language: DigestLanguage): void {
+  const skipped = day.skipped ?? [];
+  if (skipped.length === 0) return;
+  lines.push('');
+  lines.push(language === 'en' ? 'No cleaning needed:' : 'Sem limpeza (nao precisa limpar):');
+  for (const r of skipped) lines.push(`- ${r.propertyName}`);
+}
 
 function dayLabel(date: string, language: DigestLanguage): string {
   const d = new Date(`${date}T12:00:00Z`);
@@ -159,7 +175,12 @@ export function composeDigestBody(
   lines.push(dayLabel(day.date, 'pt'));
   lines.push('');
   if (day.rows.length === 0) {
-    lines.push('Nenhum check-out neste dia.');
+    if (!day.skipped?.length) {
+      lines.push('Nenhum check-out neste dia.');
+      return lines.join('\n');
+    }
+    lines.push('Nenhuma limpeza neste dia.');
+    pushSkipped(lines, day, 'pt');
     return lines.join('\n');
   }
   const cleanTime = (propertyId: string) => vendorTimes?.get(propertyId);
@@ -193,6 +214,7 @@ export function composeDigestBody(
       lines.push(`   - ${note}`);
     }
   });
+  pushSkipped(lines, day, 'pt');
   if (anyVendor) {
     lines.push('');
     lines.push('Horario = limpeza agendada. "saida" = hora que o hospede sai.');
@@ -211,7 +233,12 @@ function composeDigestBodyEn(
   lines.push(dayLabel(day.date, 'en'));
   lines.push('');
   if (day.rows.length === 0) {
-    lines.push('No checkouts this day.');
+    if (!day.skipped?.length) {
+      lines.push('No checkouts this day.');
+      return lines.join('\n');
+    }
+    lines.push('No cleanings this day.');
+    pushSkipped(lines, day, 'en');
     return lines.join('\n');
   }
   const cleanTime = (propertyId: string) => vendorTimes?.get(propertyId);
@@ -239,6 +266,7 @@ function composeDigestBodyEn(
       lines.push(`   - ${note}`);
     }
   });
+  pushSkipped(lines, day, 'en');
   if (anyVendor) {
     lines.push('');
     lines.push('Time = scheduled cleaning. "checkout" = when the guest leaves.');

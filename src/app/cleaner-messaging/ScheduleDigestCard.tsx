@@ -95,12 +95,17 @@ function RowLine({ row }: { row: ScheduleRow }) {
         flexWrap: 'wrap',
       }}
     >
-      <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 15, fontWeight: 600, minWidth: 52 }}>
+      <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 15, fontWeight: 600, minWidth: 52, ...(row.noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>
         {row.time}
       </span>
-      <span style={{ fontSize: 14, fontWeight: 600 }}>{row.propertyName}</span>
+      <span style={{ fontSize: 14, fontWeight: 600, ...(row.noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>{row.propertyName}</span>
       {row.guestName && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{row.guestName}</span>}
       <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {row.noClean && (
+          <span title={row.noClean.reason}>
+            <Chip tone="muted">no cleaning needed{row.noClean.reason ? ` · ${row.noClean.reason}` : ''}</Chip>
+          </span>
+        )}
         {row.sameDayTurnover && (
           <Chip tone="signal">same-day · in {row.nextCheckinTime && formatTime12(row.nextCheckinTime)}</Chip>
         )}
@@ -444,12 +449,15 @@ export async function ScheduleDigestCard({
         {day && (
           <>
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 4 }}>
-              {day.counts.checkouts === 0
+              {day.counts.checkouts === 0 && !day.skipped?.length
                 ? 'No checkouts that day.'
-                : `${day.counts.checkouts} checkout${day.counts.checkouts === 1 ? '' : 's'}${day.counts.sameDay ? `, ${day.counts.sameDay} same-day turn${day.counts.sameDay === 1 ? '' : 's'}` : ''}${day.counts.adjusted ? `, ${day.counts.adjusted} adjusted` : ''}. Live as of now.`}
+                : `${day.counts.checkouts} checkout${day.counts.checkouts === 1 ? '' : 's'}${day.counts.sameDay ? `, ${day.counts.sameDay} same-day turn${day.counts.sameDay === 1 ? '' : 's'}` : ''}${day.counts.adjusted ? `, ${day.counts.adjusted} adjusted` : ''}${day.skipped?.length ? `, ${day.skipped.length} marked no cleaning needed` : ''}. Live as of now.`}
             </div>
             {day.rows.map((r) => (
               <RowLine key={`${r.propertyId}|${r.checkIn}`} row={r} />
+            ))}
+            {(day.skipped ?? []).map((r) => (
+              <RowLine key={`skip-${r.propertyId}|${r.checkIn}`} row={r} />
             ))}
             <Proposals day={day} />
             <TurnoverNotes notes={turnoverNotes} />
