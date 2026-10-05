@@ -42,7 +42,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
         <SlideEarnMore rows={earnRows} footer={footerLabel} />
-        <SlideRatings footer={footerLabel} />
+        <SlideRatings noteStart={EARN_NOTE_BASE + earnRows.length + 1} footer={footerLabel} />
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
@@ -337,7 +337,7 @@ function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
   );
 }
 
-function SlideRatings({ footer }: { footer: string }) {
+function SlideRatings({ noteStart, footer }: { noteStart: number; footer: string }) {
   // Rising Tide: 2-decimal precision (4.99). Competitors: 1-decimal (industry-standard reporting).
   const competitors: { label: string; display: string }[] = [
     { label: 'National Average', display: '4.8' },
@@ -350,14 +350,14 @@ function SlideRatings({ footer }: { footer: string }) {
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Why we obsess over guest service</h2>
         <div className="rt-rating-grid">
-          {/* HERO: +18% Revenue lift, the through-line for the slide */}
+          {/* HERO: +15% revenue lift (AirDNA, 2025 data), the through-line for the slide */}
           <div className="rt-rating-hero">
             <div className="rt-rating-hero-line">
-              <span className="rt-rating-hero-pct">+18%</span>
+              <span className="rt-rating-hero-pct">+15%</span>
               <span className="rt-rating-hero-word">Revenue</span>
             </div>
             <p className="rt-rating-hero-body">
-              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(7)</sup>
+              Airbnb listings rated 4.9 stars or higher earn <strong>15% more revenue</strong> per available night.<sup>({noteStart})</sup>
             </p>
             <div className="rt-rating-hero-rule" />
             <p className="rt-rating-hero-tag">
@@ -367,7 +367,7 @@ function SlideRatings({ footer }: { footer: string }) {
 
           {/* Right-hand comparison card */}
           <div className="rt-rating-card">
-            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(8)</sup></div>
+            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>({noteStart + 1})</sup></div>
             <div className="rt-rating-rt-block">
               <div className="rt-rating-rt-label">RISING TIDE</div>
               <div className="rt-rating-rt-value">4.99</div>
@@ -1052,12 +1052,12 @@ function SlideEndnotes({ earnRows, footer }: { earnRows: EarnRow[]; footer: stri
             revenue and 15.5% higher occupancy than owner-run properties, controlling for property and market.
           </li>
           <li>
-            <span className="rt-en-num">(7)</span>
-            Source: CoStar. Airbnb listings with a 4.9+ star rating earn 18% more revenue on average than lower-rated comparable listings.
+            <span className="rt-en-num">({EARN_NOTE_BASE + earnRows.length + 1})</span>
+            Source: AirDNA, &ldquo;Airbnb Ratings Explained and Why 4 Stars Doesn&rsquo;t Cut It&rdquo; (updated September 2025). In AirDNA&rsquo;s 2025 data, listings rated 4.9 stars or higher earned 15% more revenue per available night than lower-rated listings, with 11% higher nightly rates and 4% higher occupancy.
           </li>
           <li>
-            <span className="rt-en-num">(8)</span>
-            Source: AirDNA, Airbnb. Average star rating sourced from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
+            <span className="rt-en-num">({EARN_NOTE_BASE + earnRows.length + 2})</span>
+            National average: AirDNA (updated September 2025), 4.8 stars for available U.S. Airbnb listings. Rising Tide and company ratings from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
           </li>
         </ol>
       </div>
@@ -1289,7 +1289,7 @@ const deckCss = `
   }
   .rt-pillar-body { font-size: 14px; line-height: 1.55; color: var(--ink-3); }
 
-  /* ── Ratings (slide 5): +18% revenue hero on the left, comparison card on the right ── */
+  /* ── Ratings (slide 5): +15% revenue hero on the left, comparison card on the right ── */
   .rt-rating-grid {
     margin-top: 32px;
     flex: 1;
