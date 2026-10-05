@@ -37,17 +37,29 @@ const skip = { id: 's1', reason: 'owner doing work on the house', by: 'dotti@ris
 const horton = row('21_horton', '21 Horton');
 const south = row('3_south_st', '3 South', { noClean: skip });
 
-test('a skipped home is named in its own block, never numbered, never with the reason', () => {
+test('a skipped home LEADS the text as a do-not-clean callout, never numbered, never with the reason', () => {
   const day = recountDay('2026-10-06', [horton], [south]);
   const pt = composeDigestBody(day);
-  assert.match(pt, /1 check-out:/);
+  assert.match(pt, /\/ Tue, Oct 6\n\nATENCAO - NAO LIMPAR \(cancelado\):\n- 3 South\n\n1 check-out:/);
   assert.match(pt, /1\) 10:00 - 21 Horton/);
-  assert.match(pt, /Sem limpeza \(nao precisa limpar\):\n- 3 South/);
   assert.doesNotMatch(pt, /\d\) .*3 South/);
   assert.doesNotMatch(pt, /owner doing work/);
   const en = composeDigestBody(day, undefined, undefined, 'en');
-  assert.match(en, /No cleaning needed:\n- 3 South/);
+  assert.match(en, /ATTENTION - DO NOT CLEAN \(cancelled\):\n- 3 South\n/);
   assert.doesNotMatch(en, /owner doing work/);
+});
+
+test('the callout names the time the vendor had the house booked', () => {
+  const day = recountDay('2026-10-06', [horton], [south]);
+  const vendor = new Map([['3_south_st', '14:30'], ['21_horton', '12:00']]);
+  assert.match(composeDigestBody(day, vendor), /- 3 South \(era 14:30\)/);
+  assert.match(composeDigestBody(day, vendor, undefined, 'en'), /- 3 South \(was 14:30\)/);
+});
+
+test('the digest card textarea remounts when the composed text changes (source guard)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../../app/cleaner-messaging/ScheduleDigestCard.tsx', import.meta.url), 'utf8');
+  assert.match(src, /<textarea\s+key=\{shownBody\}\s+name="body"/);
 });
 
 test('a day whose only checkout is skipped says no cleanings, not no checkouts', () => {

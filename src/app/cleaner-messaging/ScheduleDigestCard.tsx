@@ -555,7 +555,13 @@ export async function ScheduleDigestCard({
             <label style={{ display: 'block', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)', marginBottom: 6 }}>
               The text that goes out
             </label>
+            {/* Keyed on the text: a defaultValue only seeds the box on
+                mount, and an action that lands back here (No cleaning
+                needed, Apply) re-renders in place, so without the key the
+                box kept showing the old text while the send would have
+                composed the new one. */}
             <textarea
+              key={shownBody}
               name="body"
               defaultValue={shownBody}
               rows={Math.min(14, shownBody.split('\n').length + 2)}

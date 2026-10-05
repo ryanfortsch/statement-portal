@@ -249,6 +249,27 @@ export default async function CleanerSchedulePage({
           <div className="rt-cl-dateen">{enDay(selected.date)} · sempre ao vivo / always live</div>
         </div>
 
+        {/* Cancelled stops lead, as in the text: the crew had them planned. */}
+        {selected.skipped && selected.skipped.length > 0 && (
+          <ul className="rt-cl-list rt-cl-skips">
+            {selected.skipped.map((r) => (
+              <li key={`skip-${r.propertyId}|${r.checkIn}`} className="rt-cl-row is-skipped">
+                <div className="rt-cl-time">{vendorTimes.get(r.propertyId) ?? r.time}</div>
+                <div className="rt-cl-body">
+                  <div className="rt-cl-name">{r.propertyName}</div>
+                  <div className="rt-cl-addr">
+                    {r.address}
+                    {r.city ? `, ${r.city}` : ''}
+                  </div>
+                  <div className="rt-cl-tags">
+                    <span className="rt-cl-tag is-skip">não limpar · cancelado / do not clean</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
         {selected.rows.length === 0 && !selected.skipped?.length ? (
           <div className="rt-cl-empty">
             <div className="rt-cl-emptymark">☀</div>
@@ -298,25 +319,6 @@ export default async function CleanerSchedulePage({
           </ol>
         )}
 
-        {selected.skipped && selected.skipped.length > 0 && (
-          <ul className="rt-cl-list rt-cl-skips">
-            {selected.skipped.map((r) => (
-              <li key={`skip-${r.propertyId}|${r.checkIn}`} className="rt-cl-row is-skipped">
-                <div className="rt-cl-time">{r.time}</div>
-                <div className="rt-cl-body">
-                  <div className="rt-cl-name">{r.propertyName}</div>
-                  <div className="rt-cl-addr">
-                    {r.address}
-                    {r.city ? `, ${r.city}` : ''}
-                  </div>
-                  <div className="rt-cl-tags">
-                    <span className="rt-cl-tag is-skip">sem limpeza · no cleaning needed</span>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
 
         <footer className="rt-cl-foot">
           Rising Tide STR · {recipient.region === CAPE_ANN_REGION ? 'Gloucester MA' : regionLabel(recipient.region)}
@@ -407,12 +409,11 @@ const css = `
   .rt-cl-tag.is-quiet { border-style: dashed; color: var(--ink-4); font-weight: 500; }
   .rt-cl-tag.is-drift { border-color: #8a6d1a; color: #8a6d1a; background: rgba(214,165,30,.12); }
 
-  .rt-cl-skips { margin-top: 0; }
-  .rt-cl-skips .rt-cl-row:first-child { border-top: 1px dashed var(--ink-4); }
+  .rt-cl-skips + .rt-cl-list { margin-top: 0; }
   .rt-cl-row.is-skipped .rt-cl-time,
   .rt-cl-row.is-skipped .rt-cl-name,
   .rt-cl-row.is-skipped .rt-cl-addr { color: var(--ink-4); text-decoration: line-through; text-decoration-thickness: 1px; }
-  .rt-cl-tag.is-skip { border-style: dashed; border-color: var(--ink-4); color: var(--ink-3); text-decoration: none; }
+  .rt-cl-tag.is-skip { border-color: var(--signal); color: #fff; background: var(--signal); text-decoration: none; }
 
   .rt-cl-empty {
     margin-top: 34px; padding: 40px 20px; text-align: center;
