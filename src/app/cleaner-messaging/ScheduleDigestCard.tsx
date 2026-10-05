@@ -37,6 +37,7 @@ import {
   addTurnoverNoteAction,
   dismissTurnoverNoteAction,
   dismissProposalAction,
+  setNoCleanAction,
   ensureTomorrowDraft,
   saveDigestNote,
 } from '../turnovers/schedule/actions';
@@ -126,6 +127,22 @@ function RowLine({ row }: { row: ScheduleRow }) {
           <Chip tone="warn">Feeds disagree · other says {row.conflictingCheckOut}</Chip>
         )}
       </span>
+      {/* One tap takes the house off the route (an owner working on it);
+          the pending draft re-composes. A reason can be added on
+          /turnovers/schedule; it never goes to the crew either way. */}
+      <form action={setNoCleanAction} style={{ marginLeft: 'auto' }}>
+        <input type="hidden" name="propertyId" value={row.propertyId} />
+        <input type="hidden" name="stayCheckIn" value={row.checkIn} />
+        <input type="hidden" name="serviceDate" value={row.effectiveCheckOut} />
+        <input type="hidden" name="on" value={row.noClean ? '0' : '1'} />
+        <input type="hidden" name="back" value="card" />
+        <SubmitButton
+          label={row.noClean ? 'Needs cleaning after all' : 'No cleaning needed'}
+          busyLabel="Saving..."
+          spinnerTone="ink"
+          style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
+        />
+      </form>
     </div>
   );
 }
@@ -318,7 +335,7 @@ function Recipients({ recipients, serviceDate }: { recipients: ScheduleRecipient
 export async function ScheduleDigestCard({
   notice,
 }: {
-  notice?: { sent?: string; failed?: string; err?: string };
+  notice?: { sent?: string; failed?: string; err?: string; noclean?: string; nocleanSent?: string };
 }) {
   let digest: DigestRow | null = null;
   let recipients: ScheduleRecipient[] = [];
@@ -414,8 +431,17 @@ export async function ScheduleDigestCard({
             {notice.err === 'all_failed' && 'Quo rejected every send - see the log below and try again.'}
             {notice.err === 'raced' && 'Already handled in another tab - this is the fresh state.'}
             {notice.err === 'schedule_unavailable' && 'Nothing sent: the live schedule could not be read at that moment. Try again in a minute.'}
+            {notice.err === 'save_failed' && 'That did not save. Try again.'}
             {notice.err === 'note_untranslated' && 'Your note is saved but could not be put into Portuguese just now. It will go out exactly as you typed it. Try Save & translate again in a minute.'}
-            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced', 'schedule_unavailable', 'note_untranslated'].includes(notice.err) && `Error: ${notice.err}`}
+            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced', 'schedule_unavailable', 'note_untranslated', 'save_failed'].includes(notice.err) && `Error: ${notice.err}`}
+          </div>
+        )}
+        {notice?.noclean && (
+          <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--positive, #2e7d4f)', fontWeight: 600 }}>
+            {notice.noclean === 'on'
+              ? 'Marked no cleaning needed. It is off the route in the text and on the cleaner page.'
+              : 'Back on the route.'}
+            {notice.nocleanSent ? ' That day already went out: use Send update below to tell the crew.' : ''}
           </div>
         )}
         {notice?.sent && (
