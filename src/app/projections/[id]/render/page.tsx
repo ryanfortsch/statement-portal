@@ -165,25 +165,39 @@ function Pillar({ n, title, body }: { n: string; title: string; body: string }) 
 }
 
 /**
+ * Rising Tide's own spend on guest consumables per operating home per year:
+ * toilet paper, paper towels, coffee pods, toiletries. Measured 2026-10-05
+ * from the operating card (overhead_expenses, category 'Guest supplies',
+ * Amazon and the big-box consumable vendors only; Fix Linens and
+ * furnishings excluded). April to August 2026 is the window where both the
+ * spend and the home count are known: $31,667 over 72 home-months,
+ * annualized with CC_SUPPLY_SEASON from forecast-model, gives $3,860. The
+ * statement home count gives $4,291, and last winter's $244 per home-month
+ * on the same curve gives about $4,100. The slide takes the low figure,
+ * rounded down. Rerun the measurement before raising it.
+ */
+const SUPPLIES_PER_HOME_YEAR = 3800;
+
+/**
  * Earn more, spend less. The evidence behind the Pillars slide: starting
- * from an owner listing on Airbnb alone, each step we add and what the
- * research says it is worth, then the costs we take off the owner.
+ * from an owner listing on Airbnb alone, what each thing we do is worth,
+ * then the costs we take off the owner.
  *
- * Every figure carries an endnote, and every source was read at the
- * source on 2026-10-05. The steps are deliberately NOT summed: they come
- * from different studies, so the only combined figure is the one study
- * that measured the whole package (Li, Moreno & Zhang).
+ * Every figure carries an endnote, and every outside source was read at
+ * the source on 2026-10-05. The rows are deliberately NOT summed: they
+ * come from different studies, so the only combined figure is the one
+ * study that measured the whole package (Li, Moreno & Zhang).
  *
  * The "+3% per direct stay" is Rising Tide's own math, not a study: on a
  * 4-night 3 South stay, Airbnb (calendar +18.34%, 15.5% host-only fee)
  * nets the owner $1,772; staycapeann.com (calendar +6%, card fees at the
  * statement estimate of 3.9% + $0.40) nets $1,825. The 1/3 to 1/2 direct
- * share is the operator's stated baseline.
+ * share is the operator's stated baseline. Supplies are Rising Tide's own
+ * card records (SUPPLIES_PER_HOME_YEAR).
  */
 function SlideEarnMore({ projection, footer }: { projection: ProjectionRow; footer: string }) {
-  const steps: { step: string; title: string; body: string; stat: string; unit?: string; cap: ReactNode }[] = [
+  const rows: { title: string; body: string; stat: string; unit?: string; cap: ReactNode }[] = [
     {
-      step: 'Step 1',
       title: 'Every platform',
       body: 'Airbnb, Vrbo, Booking.com, Google and Furnished Finder.',
       stat: '+$605',
@@ -191,43 +205,46 @@ function SlideEarnMore({ projection, footer }: { projection: ProjectionRow; foot
       cap: <>when an Airbnb-only home adds Vrbo<sup>(2)</sup></>,
     },
     {
-      step: 'Step 2',
       title: 'Market-based pricing',
       body: 'Rates reset daily from local demand, events and season.',
       stat: '+8.6%',
-      cap: <>daily revenue for hosts who price from market data<sup>(3)</sup></>,
+      cap: <>daily revenue, priced to demand<sup>(3)</sup></>,
     },
     {
-      step: 'Step 3',
       title: 'Direct bookings',
       body: 'Repeat guests book on staycapeann.com: no 15.5% fee.',
       stat: '+3%',
-      cap: <>to you on every direct stay. 1/3 to 1/2 of our stays book direct<sup>(4)</sup></>,
+      cap: <>per direct stay, 1/3 to 1/2 of stays<sup>(4)</sup></>,
+    },
+    {
+      title: 'Supplies on us',
+      body: 'Toilet paper, paper towels, coffee pods and toiletries.',
+      stat: `+${fmtMoney(SUPPLIES_PER_HOME_YEAR)}`,
+      unit: '/ yr.',
+      cap: <>we pay, so you don&rsquo;t<sup>(5)</sup></>,
     },
   ];
 
-  // Supplies lead the card: Rising Tide pays for every consumable, so the
-  // owner's cost is zero, not merely discounted. The rest are smaller.
   // The compliance line is local: Gloucester has its own STR ordinance
   // with per-day fines; Rockport and Beverly get the statewide room tax.
   const compliance =
     projection.market === 'Gloucester'
       ? {
           title: 'No ordinance fines',
-          body: <>Gloucester fines $400 a day per violation; three in six months suspends the rental.<sup>(6)</sup></>,
+          body: <>Gloucester fines $400 a day per violation, and three in six months suspends the rental. We keep the permit, trash days and filings in order.<sup>(7)</sup></>,
         }
       : {
           title: 'Room tax filed on time',
-          body: <>Late room tax costs 1% a month, up to 25%.<sup>(6)</sup></>,
+          body: <>Massachusetts charges 1% a month on late room tax, up to 25%. We keep registration and filings on schedule.<sup>(7)</sup></>,
         };
   const savings: { title: string; body: ReactNode }[] = [
     {
       title: 'Cleaning at cost',
-      body: 'Every turnover billed through with no markup.',
+      body: 'Every turnover is billed through with no markup.',
     },
     {
       title: 'Damage claims filed in time',
-      body: <>We&rsquo;re in the home after every checkout, so damage is caught inside Airbnb&rsquo;s 14-day claim window.<sup>(6)</sup></>,
+      body: <>We&rsquo;re in after every checkout, so damage is caught inside Airbnb&rsquo;s 14-day claim window.<sup>(7)</sup></>,
     },
     compliance,
   ];
@@ -244,10 +261,9 @@ function SlideEarnMore({ projection, footer }: { projection: ProjectionRow; foot
               <span className="rt-em-base-body">compared with a home listed on Airbnb alone</span>
             </div>
             <div className="rt-em-steps">
-              {steps.map((s) => (
-                <div key={s.step} className="rt-em-step">
+              {rows.map((s) => (
+                <div key={s.title} className="rt-em-step">
                   <div className="rt-em-step-text">
-                    <div className="rt-em-step-tag">{s.step}</div>
                     <div className="rt-em-step-title">{s.title}</div>
                     <div className="rt-em-step-body">{s.body}</div>
                   </div>
@@ -265,19 +281,14 @@ function SlideEarnMore({ projection, footer }: { projection: ProjectionRow; foot
               <span className="rt-em-cap-num">+16.9%</span>
               <span className="rt-em-cap-body">
                 daily revenue for professionally run rentals over owner-run ones, comparing like homes in
-                like markets.<sup>(5)</sup>
+                like markets.<sup>(6)</sup>
               </span>
             </div>
           </div>
 
           <div className="rt-em-save">
-            <div className="rt-em-eyebrow">Spend less</div>
-            <div className="rt-em-supplies">
-              <div className="rt-em-supplies-num">$0</div>
-              <div className="rt-em-supplies-cap">for supplies</div>
-              <p className="rt-em-supplies-body">
-                Toilet paper, paper towels, coffee pods and toiletries for every stay. Rising Tide pays for all of it.
-              </p>
+            <div className="rt-em-base">
+              <span className="rt-em-eyebrow">Spend less</span>
             </div>
             <ul className="rt-em-save-list">
               {savings.map((it) => (
@@ -315,7 +326,7 @@ function SlideRatings({ footer }: { footer: string }) {
               <span className="rt-rating-hero-word">Revenue</span>
             </div>
             <p className="rt-rating-hero-body">
-              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(7)</sup>
+              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(8)</sup>
             </p>
             <div className="rt-rating-hero-rule" />
             <p className="rt-rating-hero-tag">
@@ -325,7 +336,7 @@ function SlideRatings({ footer }: { footer: string }) {
 
           {/* Right-hand comparison card */}
           <div className="rt-rating-card">
-            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(8)</sup></div>
+            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(9)</sup></div>
             <div className="rt-rating-rt-block">
               <div className="rt-rating-rt-label">RISING TIDE</div>
               <div className="rt-rating-rt-value">4.99</div>
@@ -1010,18 +1021,22 @@ function SlideEndnotes({ footer }: { footer: string }) {
           </li>
           <li>
             <span className="rt-en-num">(5)</span>
-            Source: Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing Economy,&rdquo; Ross School of Business Working Paper 1298. Properties run by professional hosts earned 16.9% more daily revenue and 15.5% higher occupancy than owner-run properties, controlling for property and market.
+            Rising Tide card records, April to August 2026, spread across the year by season: guest consumables (toilet paper, paper towels, coffee pods, toiletries) per operating home. Linens and furnishings excluded. Rising Tide pays these from its own account.
           </li>
           <li>
             <span className="rt-en-num">(6)</span>
-            Sources: Airbnb Help Center, AirCover for Hosts (damage requests within 14 days of checkout); Gloucester Code of Ordinances &sect;5-66 and &sect;5-67; Massachusetts Department of Revenue, room occupancy excise penalties.
+            Source: Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing Economy,&rdquo; Ross School of Business Working Paper 1298. Properties run by professional hosts earned 16.9% more daily revenue and 15.5% higher occupancy than owner-run properties, controlling for property and market.
           </li>
           <li>
             <span className="rt-en-num">(7)</span>
-            Source: CoStar. Airbnb listings with a 4.9+ star rating earn 18% more revenue on average than lower-rated comparable listings.
+            Sources: Airbnb Help Center, AirCover for Hosts (damage requests within 14 days of checkout); Gloucester Code of Ordinances &sect;5-66 and &sect;5-67; Massachusetts Department of Revenue, room occupancy excise penalties.
           </li>
           <li>
             <span className="rt-en-num">(8)</span>
+            Source: CoStar. Airbnb listings with a 4.9+ star rating earn 18% more revenue on average than lower-rated comparable listings.
+          </li>
+          <li>
+            <span className="rt-en-num">(9)</span>
             Source: AirDNA, Airbnb. Average star rating sourced from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
           </li>
         </ol>
@@ -2140,7 +2155,7 @@ const deckCss = `
   }
   .rt-em-base .rt-em-eyebrow { margin-bottom: 0; }
   .rt-em-base-body { font-size: 12.5px; color: var(--ink-4); font-style: italic; }
-  .rt-em-steps { flex: 1; display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); min-height: 0; }
+  .rt-em-steps { flex: 1; display: grid; grid-template-rows: repeat(4, minmax(0, 1fr)); min-height: 0; }
   .rt-em-step {
     padding: 4px 0;
     display: grid;
@@ -2149,15 +2164,7 @@ const deckCss = `
     align-items: center;
     border-bottom: 1px solid var(--rule);
   }
-  .rt-em-step-tag {
-    font-size: 10px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--signal);
-    font-weight: 600;
-  }
   .rt-em-step-title {
-    margin-top: 3px;
     font-family: var(--font-fraunces), "Times New Roman", serif;
     font-size: 21px;
     line-height: 1.2;
@@ -2168,7 +2175,7 @@ const deckCss = `
   .rt-em-step-stat { border-left: 1px solid var(--rule); padding-left: 24px; }
   .rt-em-stat {
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 40px;
+    font-size: 36px;
     line-height: 1;
     font-weight: 300;
     color: var(--signal);
@@ -2197,8 +2204,8 @@ const deckCss = `
   }
   .rt-em-cap-body { font-size: 13px; line-height: 1.45; color: var(--paper-3); }
 
-  /* Spend less card. Supplies lead with a $0 figure: the owner's cost is
-     zero, not discounted, so it gets the same weight as a ladder stat. */
+  /* Spend less card: same eyebrow rule as the ladder, three items sharing
+     the card's height. */
   .rt-em-save {
     background: var(--paper-2);
     border-left: 3px solid var(--signal);
@@ -2207,26 +2214,6 @@ const deckCss = `
     flex-direction: column;
     min-height: 0;
   }
-  .rt-em-supplies { padding-bottom: 16px; border-bottom: 1px solid var(--ink); }
-  .rt-em-supplies-num {
-    display: inline-block;
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 64px;
-    line-height: 1;
-    font-weight: 300;
-    color: var(--signal);
-    letter-spacing: -0.04em;
-  }
-  .rt-em-supplies-cap {
-    display: inline-block;
-    margin-left: 12px;
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-style: italic;
-    font-size: 22px;
-    color: var(--ink);
-    font-weight: 300;
-  }
-  .rt-em-supplies-body { margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
   .rt-em-save-list {
     margin: 0;
     padding: 0;
@@ -2244,12 +2231,12 @@ const deckCss = `
   .rt-em-save-list li:last-child { border-bottom: 0; }
   .rt-em-save-title {
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 16px;
+    font-size: 19px;
     color: var(--ink);
     font-weight: 500;
     letter-spacing: -0.01em;
   }
-  .rt-em-save-body { margin-top: 3px; font-size: 11.5px; line-height: 1.5; color: var(--ink-3); }
+  .rt-em-save-body { margin-top: 5px; font-size: 12.5px; line-height: 1.55; color: var(--ink-3); }
 
   /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
   .rt-endnotes {
