@@ -41,7 +41,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
-        <SlideEarnMore rows={earnRows} computed={c} footer={footerLabel} />
+        <SlideEarnMore rows={earnRows} footer={footerLabel} />
         <SlideRatings footer={footerLabel} />
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
@@ -182,8 +182,9 @@ const SUPPLIES_PER_HOME_YEAR = 3800;
 /**
  * Earn more, spend less. The evidence behind the Pillars slide: compared
  * with an owner listing on Airbnb alone, what each thing we do is worth as
- * a share of rental revenue, stacked against the management fee charged on
- * that same revenue.
+ * a share of rental revenue, then all of it stacked into one bar with the
+ * total. (The management fee was on the chart in #1741 and came off at the
+ * operator's request: the slide shows what the owner gains, not a netting.)
  *
  * The stack ADDS figures from separate sources (two studies, an AirDNA
  * average and Rising Tide's own records). Endnote 6 says so on the page and
@@ -277,22 +278,12 @@ const EARN_NOTE_BASE = 2;
 
 const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
 
-function SlideEarnMore({
-  rows,
-  computed,
-  footer,
-}: {
-  rows: EarnRow[];
-  computed: ProjectionComputed;
-  footer: string;
-}) {
+function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
   const total = rows.reduce((a, r) => a + r.pct, 0);
-  const fee = computed.inputs.mgmt_fee_pct;
   const stackNote = EARN_NOTE_BASE + rows.length;
-  // Chart scale: the taller of the two bars fills the plot.
-  const PLOT = 250;
-  const scale = PLOT / Math.max(total, fee, 0.0001);
-  const feeY = fee * scale;
+  // The bar always fills the plot; segment heights are proportional.
+  const PLOT = 300;
+  const scale = PLOT / Math.max(total, 0.0001);
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -323,26 +314,20 @@ function SlideEarnMore({
 
           <div className="rt-em-chart">
             <div className="rt-em-base">
-              <span className="rt-em-eyebrow">Against our fee</span>
+              <span className="rt-em-eyebrow">All together</span>
             </div>
-            <div className="rt-em-plot" style={{ height: PLOT + 40 }}>
-              <div className="rt-em-feeline" style={{ bottom: feeY }} />
-              <div className="rt-em-bar-col">
-                <div className="rt-em-bar-top">+{pct1(total)}</div>
-                <div className="rt-em-bar">
-                  {[...rows].reverse().map((r) => (
-                    <div key={r.key} className="rt-em-seg" style={{ height: r.pct * scale, background: r.color }} />
-                  ))}
+            <div className="rt-em-plot">
+              <div className="rt-em-bar" style={{ height: PLOT }}>
+                {[...rows].reverse().map((r) => (
+                  <div key={r.key} className="rt-em-seg" style={{ height: r.pct * scale, background: r.color }} />
+                ))}
+              </div>
+              <div className="rt-em-total" style={{ height: PLOT }}>
+                <div className="rt-em-total-num">+{pct1(total)}</div>
+                <div className="rt-em-total-cap">
+                  more for you, earned and saved, as a share of rental revenue<sup>({stackNote})</sup>
                 </div>
               </div>
-              <div className="rt-em-bar-col">
-                <div className="rt-em-bar-top rt-em-bar-top-fee">{fmtPercent(fee)}</div>
-                <div className="rt-em-bar rt-em-bar-fee" style={{ height: feeY }} />
-              </div>
-            </div>
-            <div className="rt-em-bar-labels">
-              <span>Earned &amp; saved<sup>({stackNote})</sup></span>
-              <span>Management fee</span>
             </div>
           </div>
         </div>
@@ -2162,7 +2147,7 @@ const deckCss = `
     background: var(--paper-2);
   }
   /* ── Earn more, spend less: percentage rows on the left (largest first),
-     the same rows stacked into one bar on the right against the fee. ── */
+     the same rows stacked into one bar on the right with the total. ── */
   .rt-em-grid {
     margin-top: 28px;
     flex: 1;
@@ -2214,54 +2199,36 @@ const deckCss = `
   }
   .rt-em-row-line { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
 
-  /* Chart: stacked bar (earned + saved) beside the fee bar, with a dashed
-     rule at the fee's height across both so the comparison reads straight. */
+  /* Chart: the rows stacked into one bar, colours matching the swatches
+     on the left (the legend), with the total beside the top of the bar. */
   .rt-em-chart { display: flex; flex-direction: column; min-height: 0; }
   .rt-em-plot {
-    position: relative;
     margin-top: auto;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 36px;
-    align-items: end;
-    padding: 0 12px;
+    display: flex;
+    align-items: flex-end;
+    gap: 28px;
     border-bottom: 1.5px solid var(--ink);
   }
-  .rt-em-bar-col { display: flex; flex-direction: column; align-items: stretch; }
-  .rt-em-bar-top {
-    text-align: center;
-    font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 30px;
-    line-height: 1;
-    font-weight: 300;
-    color: var(--signal);
-    letter-spacing: -0.02em;
-    margin-bottom: 8px;
-  }
-  .rt-em-bar-top-fee { color: var(--ink); }
-  .rt-em-bar { display: flex; flex-direction: column; }
+  .rt-em-bar { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; }
   .rt-em-seg { width: 100%; border-top: 1.5px solid var(--paper); }
   .rt-em-seg:first-child { border-top: 0; }
-  .rt-em-bar-fee { background: var(--ink); }
-  .rt-em-feeline {
-    position: absolute;
-    left: 0;
-    right: 0;
-    border-top: 1.5px dashed var(--ink);
-    z-index: 1;
-    pointer-events: none;
+  .rt-em-total { display: flex; flex-direction: column; justify-content: flex-start; }
+  .rt-em-total-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 72px;
+    line-height: 0.9;
+    font-weight: 300;
+    color: var(--signal);
+    letter-spacing: -0.04em;
   }
-  .rt-em-bar-labels {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 36px;
-    padding: 10px 12px 0;
-    font-size: 10.5px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
+  .rt-em-total-cap {
+    margin-top: 12px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    font-size: 17px;
+    line-height: 1.4;
     color: var(--ink-3);
-    font-weight: 600;
-    text-align: center;
+    max-width: 220px;
   }
 
   /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
