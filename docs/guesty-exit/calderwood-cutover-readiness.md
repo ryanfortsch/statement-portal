@@ -345,3 +345,12 @@ pending. No local preview was attempted. Previous recoverable commit: fef89bf6.
 Follow-up validation: the initial page commit had environment-type and Next Link
 lint errors. Fixed both immediately; TypeScript, targeted lint and all 1,771 tests
 then passed. The unverified initial commit is not the accepted source checkpoint.
+
+Hosted verification at source commit 54c44f2f: GitHub verify/layout checks and
+Vercel deployment passed. The authenticated pilot page rendered, and its manual
+Guesty read returned 11 reservation records for 2026-10-06 through 2027-01-04
+(exclusive), completed at 2026-10-06T18:07:13.919Z. Only the count and window are
+recorded here; customer records were not copied to documentation. This proves a
+live fixed-property read through the existing server connection, not complete
+availability, cross-provider comparison, shared persistence or cutover readiness.
+No calendar/channel changes or guest messages were made.
