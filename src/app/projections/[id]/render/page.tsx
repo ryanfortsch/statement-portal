@@ -498,9 +498,11 @@ const DEFAULT_ORDER: SlideKey[] = [
  */
 const DECK_ORDER_BY_PROJECTION: Record<string, SlideKey[]> = {
   // John Erickson, 47 Atlantic Road: Dotti's order for the 2026-10-06
-  // meeting. The Ratings slide is not in it.
+  // meeting. Ratings sits in its usual place after Pillars (it was briefly
+  // left out and Dotti asked for it back), so it still introduces the 15%
+  // ahead of Earn more and the footnotes run 1..8.
   '5373a935-9c5f-40ec-aa93-d3f0db639669': [
-    'cover', 'hero', 'pillars', 'local',
+    'cover', 'hero', 'pillars', 'ratings', 'local',
     'improvement-1', 'improvement-2', 'improvement-3',
     'year1', 'ramp', 'monthly', 'year2', 'earnMore',
     'services', 'owner', 'close', 'endnotes',
