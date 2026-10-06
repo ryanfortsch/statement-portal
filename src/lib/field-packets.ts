@@ -24,6 +24,7 @@ import { isCapeAnnOps } from '@/lib/property-scope';
 import { slipIdsOnLivePackets } from '@/lib/field-work-board';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { holdOccupiesDay, type HoldDay } from '@/lib/field-stale-hold';
+import { stayNoteIsPast } from '@/lib/stay-note-slips';
 import { getContractorShootStats } from '@/lib/creative-shoots';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
 import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder, osrmOptimalOrder } from '@/lib/proximity';
@@ -2112,8 +2113,9 @@ export type StopOpenSlips = {
  * that property that are not already riding this stop (attached, or the
  * stop's own job), not synthetic packet-backing slips (setup / one-off are
  * packets in their own right), not snoozed by the office, not scheduled for
- * a later visit (the guest-gear rule autoAttachInventorySlips applies), and
- * not spoken for by another live packet.
+ * a later visit (the guest-gear rule autoAttachInventorySlips applies), not
+ * a stay note whose day has passed (stay-note-slips.ts), and not spoken for
+ * by another live packet.
  *
  * Read-only: nothing here attaches. A slip joins the packet only when the
  * inspector acts on it (resolveSlipFromStop), so the office's packet review
@@ -2129,7 +2131,7 @@ export async function loadOpenSlipsForStops(
   const [{ data }, taken] = await Promise.all([
     fieldDb()
       .from('work_slips')
-      .select(`property_id, snoozed_until, ${SLIP_DETAIL_COLS}`)
+      .select(`property_id, snoozed_until, from_guest_request_key, ${SLIP_DETAIL_COLS}`)
       .in('property_id', propIds)
       .in('status', ['open', 'in_progress', 'scheduled'])
       .not('category', 'in', '(rising_tide,ad_hoc)')
@@ -2139,9 +2141,12 @@ export async function loadOpenSlipsForStops(
   ]);
   const dayAfterVisit = addDays(visitDate, 1);
   const nowIso = new Date().toISOString();
-  type Row = WorkSlipLite & { property_id: string; snoozed_until: string | null };
+  type Row = WorkSlipLite & { property_id: string; snoozed_until: string | null; from_guest_request_key: string | null };
   const rows = ((data ?? []) as Row[]).filter(
-    (w) => (!w.scheduled_date || w.scheduled_date <= dayAfterVisit) && (!w.snoozed_until || w.snoozed_until <= nowIso),
+    (w) =>
+      (!w.scheduled_date || w.scheduled_date <= dayAfterVisit) &&
+      (!w.snoozed_until || w.snoozed_until <= nowIso) &&
+      !stayNoteIsPast(w, visitDate),
   );
   for (const s of stops) {
     const riding = new Set<string>(s.attachedSlips.map((a) => a.id));
