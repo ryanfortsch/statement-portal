@@ -180,3 +180,11 @@ from becoming live inventory authority.
 
 Validation: 1,750 tests, TypeScript and targeted ESLint passed; source selection,
 activation rejection and failed-ingestion atomicity have new synthetic coverage.
+
+## October 5 pilot change
+
+The user selects Ryan-owned 65 Calderwood for a complete account cutover instead
+of attempting two-listing coexistence on Allie's account. See
+[Calderwood cutover readiness](calderwood-cutover-readiness.md) for the current
+preparation backlog and evidence gaps. Historical Beach tests remain isolated;
+this decision does not activate or repurpose their worker.
