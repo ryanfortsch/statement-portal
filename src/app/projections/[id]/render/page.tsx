@@ -481,7 +481,7 @@ const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
         'The water in frame wherever the room has it',
       ],
       before: { src: '/projections/47-atlantic/primary-bedroom-today.jpg', label: 'Today' },
-      after: { src: '/projections/47-atlantic/primary-bedroom-rising-tide.jpg', label: 'With Rising Tide' },
+      after: { src: '/projections/47-atlantic/primary-bedroom-rising-tide.jpg', label: 'With Rising Tide (preview)' },
     },
   ],
 };
