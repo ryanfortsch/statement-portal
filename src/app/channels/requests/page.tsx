@@ -12,6 +12,8 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
   const session = await auth();
   if (!session?.user?.email?.endsWith('@risingtidestr.com')) redirect('/auth/signin?callbackUrl=%2Fchannels%2Frequests');
   const params = await searchParams;
+  const alertEnabled = process.env.AIRBNB_REQUEST_ALERTS_ENABLED === 'true';
+  const alertFeedback: Record<string, string> = { accepted: 'Quo accepted the alert for the Guest line. Delivery is not yet confirmed.', unknown: 'Review saved; text delivery is uncertain. Check Quo before any resend.', unavailable: 'Review saved, but the alert could not be started. Check alert storage and routing.', already_attempted: 'An alert was already attempted. Check Quo before any resend.', skipped: 'No alert sent: only fresh, verified Front/Back requests qualify.', disabled: 'Text alerts are disabled.' };
   const enabled = process.env.AIRBNB_REQUEST_QUEUE_ENABLED === 'true';
   let queue: Awaited<ReturnType<typeof loadRequestQueue>> | null = null;
   let error = '';
@@ -27,13 +29,14 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
   }
   const pending = queue?.items.filter(i => !reviews.has(i.messageId)).length ?? 0;
   return <main className={styles.workspace}>
-    <header className={styles.topbar}><Link href="/channels">helm. <span>/ Channels</span></Link><span className={styles.badge}>Review only</span></header>
+    <header className={styles.topbar}><Link href="/channels">helm. <span>/ Channels</span></Link><span className={styles.badge}>{alertEnabled ? 'Review + internal alert' : 'Review only'}</span></header>
     <section className={styles.heading}><div><p className={styles.eyebrow}>17 BEACH · REQUEST DESK</p><h1>Airbnb requests</h1><p>From notification to a verified property. Acceptance and replies stay in Airbnb.</p></div><Link className={styles.button} href="/channels/requests">Refresh</Link></section>
     <section className={styles.summary}><div><strong>{queue ? pending : '—'}</strong><span>Needs verification</span></div><div><strong>{queue ? reviews.size : '—'}</strong><span>Property reviewed</span></div><p>Quo notifications are leads, not confirmed stays. Calendar checks show recorded overlaps only.</p></section>
     {!enabled || !isServiceConfigured ? <div className={styles.notice}><h2>Ready for activation</h2><p>This queue is disabled. Apply its review-table migration and enable AIRBNB_REQUEST_QUEUE_ENABLED in the intended environment before using live notifications.</p></div> : null}
     {error ? <p role="alert" className={styles.notice}>{error}</p> : null}
     {typeof params.error === 'string' ? <p role="alert" className={styles.notice}>{params.error}</p> : null}
     {params.saved ? <p role="status" className={styles.notice}>Property review saved. No reservation was accepted and no calendar was changed.</p> : null}
+    {typeof params.alert === 'string' && alertFeedback[params.alert] ? <p role="status" className={styles.notice}>{alertFeedback[params.alert]}</p> : null}
     {queue && !queue.reviewsReady ? <p role="alert" className={styles.notice}>Review storage is unavailable. Notifications can be read, but assignments cannot be saved.</p> : null}
     {queue ? <p className={styles.scope}>Last 30 days · newest {queue.truncated ? '1,000 incoming Quo events only. Older events may be omitted.' : 'incoming Quo events'} · Recognized “requests to stay” notifications</p> : null}
     {queue && queue.items.length === 0 ? <div className={styles.empty}><h2>No matching requests in this window</h2><p>New signed Quo request notifications will appear here on refresh. This does not mean there are no pending requests in Airbnb.</p></div> : null}
@@ -50,10 +53,10 @@ export default async function RequestsPage({ searchParams }: { searchParams: Pro
             <div className={styles.dates}><label>Arrival<input type="date" name="start" required /></label><label>Departure<input type="date" name="end" required /></label></div>
             <label>Opened reservation or listing URL<input name="evidence" type="url" placeholder="https://www.airbnb.com/hosting/stay/…" required /></label>
             <label className={styles.check}><input type="checkbox" name="verified" value="yes" required />I checked this property and these dates in Airbnb.</label>
-            <button className={styles.primary} disabled={!queue.reviewsReady}>Save property review</button>
+            <button className={styles.primary} disabled={!queue.reviewsReady}>{alertEnabled ? 'Save review & notify Guest line' : 'Save property review'}</button>
           </form>}</section></div>
       </article>;
     })}</div>
-    <footer className={styles.footer}>Next: verify unit + whole-house calendars, protect the dates, then accept in Airbnb. This queue does not send messages, create bookings, place holds, or authorize acceptance.</footer>
+    <footer className={styles.footer}>Next: verify unit + whole-house calendars, protect the dates, then accept in Airbnb. {alertEnabled ? 'Saving a fresh Front/Back review sends one internal alert from the 24/7 line to the Guest line. Unknown properties and older notifications do not send.' : 'Internal text alerts are disabled.'} No guest replies, bookings, holds, or acceptance are automated.</footer>
   </main>;
 }

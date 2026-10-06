@@ -7,7 +7,7 @@ Route: `/channels/requests`. Feature flag: `AIRBNB_REQUEST_QUEUE_ENABLED=true`.
 ## Behavior
 
 The server reads existing signed `message.received` rows in `quo_events`. It does
-not change Quo subscriptions, webhook dispatch, contacts, sending, or calendars.
+not change Quo subscriptions, webhook dispatch, contacts, or calendars. Optional internal alert sending is described below.
 The first version recognizes the English `Airbnb: … requests to stay … for $…`
 notification format with a supported Airbnb link. It deduplicates by message ID.
 The queue explicitly displays its 30-day / newest 1,000-event boundary; unsupported
@@ -70,3 +70,38 @@ connection, or guest message is performed by this implementation turn.
   sandbox attempt failed to download Google Fonts; the network-enabled retry passed.
 - SQL execution, live Quo coverage, authenticated save round-trip and rendered
   visual acceptance remain pending. No production credentials or data were used.
+
+## Internal inquiry alerts (October 6 extension)
+
+The user selected the Guest line, (978) 865-2575, as the destination. New staff
+reviews for Front/Back can send one internal notification from
+`quoFromNumber('ops')` (the 24/7 operations line). This is an after-verification
+alert, not automatic identification when an unassigned Airbnb SMS arrives.
+Unidentified requests and other properties do not send. The parser currently
+recognizes request-to-book notifications only, not every inquiry format.
+
+`AIRBNB_REQUEST_ALERTS_ENABLED` defaults false, separately from the queue flag.
+After applying `20261006010000_airbnb_request_alerts.sql` to an explicitly approved
+environment, enabling it changes the review button to “Save review & notify Guest
+line.” No historical review backfill runs. Source notifications older than 24
+hours, future timestamps, invalid evidence and self-routing do not send. The SMS
+contains the verified unit/dates, amount as quoted in the source notification,
+an Airbnb link, and an explicit statement that it does not confirm a booking.
+
+An insert-only first review and a unique alert claim prevent duplicate sends.
+The claim is persisted before calling Quo. Crashes, provider timeouts and receipt
+write failures may mean an alert was not delivered; they never trigger automatic
+retries. `accepted` means provider acceptance only. `attempting` or `unknown`
+requires checking Quo before any manual resend. The UI reports the immediate
+result; the alert table preserves the attempt. No generic webhook path is changed,
+and the alert prefix cannot be parsed as an incoming Airbnb request.
+
+Before production activation, test Ops-to-Guest delivery in this Quo workspace,
+including any Quo auto-replies or external concierge behavior. Local tests cannot
+prove delivery or rule out external auto-reply loops. Never enable guest booking
+messages or change calendars as part of this notification rollout.
+
+Checks: 1,735 npm tests passed (five added alert tests: replay/concurrency,
+self-routing, stale/other inputs, storage failure and ambiguous sends), TypeScript
+and targeted lint checked for this extension. Migration execution, rendered UI,
+and live delivery remain pending; no live SMS or deployment was performed.
