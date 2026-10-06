@@ -31,6 +31,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
   const footerLabel = `${monthYear} | ${propertyTag}`;
   const greetingName = (projection.prospect_first_name || projection.prospect_name.split(/[, ]/)[0]).toUpperCase();
   const earnRows = earnMoreRows(c);
+  const improvements = IMPROVEMENTS_BY_PROJECTION[projection.id] ?? [];
 
   return (
     <>
@@ -43,6 +44,23 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlidePillars footer={footerLabel} />
         <SlideRatings revenueNote={RATINGS_NOTE} ratingNote={RATING_CARD_NOTE} footer={footerLabel} />
         <SlideEarnMore rows={earnRows} footer={footerLabel} />
+        {improvements.length > 0 && (
+          <>
+            {/* The opener only earns its slide once there is a list to show. */}
+            {improvements.length > 1 && (
+              <SlideImprovementsIntro projection={projection} items={improvements} footer={footerLabel} />
+            )}
+            {improvements.map((it, i) => (
+              <SlideImprovement
+                key={it.title}
+                n={i + 1}
+                address={projection.property_address}
+                item={it}
+                footer={footerLabel}
+              />
+            ))}
+          </>
+        )}
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
@@ -362,6 +380,113 @@ function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+/**
+ * Per-deck "specific improvements" section. Keyed by projection id, so a
+ * deck with no entry renders exactly as before; nothing here touches any
+ * other prospect's deck. Images live in public/projections/<home>/.
+ *
+ * To add an improvement to a deck, append to its list. To give another
+ * prospect a section, add their projection id.
+ */
+type Improvement = {
+  title: string;
+  lead: string;
+  points: string[];
+  before: { src: string; label: string };
+  after: { src: string; label: string };
+};
+
+const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
+  // John Erickson, 47 Atlantic Road, Gloucester (meeting 2026-10-06).
+  '5373a935-9c5f-40ec-aa93-d3f0db639669': [
+    {
+      title: 'New photography',
+      lead: 'Listing photos are the first thing every guest sees. We reshoot the home in full daylight, styled, so the ocean view does the selling.',
+      points: [
+        'Professional shoot of every room, in daylight',
+        'Styled: fresh linens, throws, rugs and flowers',
+        'The water in frame wherever the room has it',
+      ],
+      before: { src: '/projections/47-atlantic/primary-bedroom-today.jpg', label: 'Today' },
+      after: { src: '/projections/47-atlantic/primary-bedroom-rising-tide.jpg', label: 'With Rising Tide' },
+    },
+  ],
+};
+
+function SlideImprovementsIntro({
+  projection,
+  items,
+  footer,
+}: {
+  projection: ProjectionRow;
+  items: Improvement[];
+  footer: string;
+}) {
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <div className="rt-imp-eyebrow">Specific to {projection.property_address}</div>
+        <h2 className="rt-section-title">What we&rsquo;d improve</h2>
+        <ol className="rt-imp-list">
+          {items.map((it, i) => (
+            <li key={it.title}>
+              <span className="rt-imp-num">{String(i + 1).padStart(2, '0')}</span>
+              <span className="rt-imp-list-title">{it.title}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+function SlideImprovement({
+  n,
+  address,
+  item,
+  footer,
+}: {
+  n: number;
+  address: string;
+  item: Improvement;
+  footer: string;
+}) {
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <div className="rt-imp-eyebrow">
+          Specific to {address} &middot; {String(n).padStart(2, '0')}
+        </div>
+        <h2 className="rt-section-title">{item.title}</h2>
+        <div className="rt-imp-grid">
+          {[item.before, item.after].map((img, i) => (
+            <figure key={img.src} className={`rt-imp-fig${i === 1 ? ' rt-imp-fig-after' : ''}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.src} alt={`${item.title}: ${img.label}`} />
+              <figcaption>{img.label}</figcaption>
+            </figure>
+          ))}
+          <div className="rt-imp-text">
+            <p className="rt-imp-lead">{item.lead}</p>
+            <ul className="rt-imp-points">
+              {item.points.map((p) => (
+                <li key={p}>
+                  <span className="rt-imp-mark" aria-hidden="true">✓</span>
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>
@@ -2275,6 +2400,87 @@ const deckCss = `
     color: var(--ink-3);
     max-width: 220px;
   }
+
+  /* ── Per-deck improvements section (IMPROVEMENTS_BY_PROJECTION) ── */
+  .rt-imp-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .rt-imp-list { margin: 40px 0 0; padding: 0; list-style: none; max-width: 760px; }
+  .rt-imp-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 28px;
+    padding: 18px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .rt-imp-list li:last-child { border-bottom: 1px solid var(--rule); }
+  .rt-imp-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 40px;
+    font-weight: 300;
+    color: var(--signal);
+    line-height: 1;
+    min-width: 56px;
+  }
+  .rt-imp-list-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 30px;
+    color: var(--ink);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+  .rt-imp-grid {
+    margin-top: 28px;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr 240px;
+    gap: 24px;
+    align-items: center;
+    align-content: center;
+    min-height: 0;
+  }
+  .rt-imp-fig { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  .rt-imp-fig img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    display: block;
+    border: 1px solid var(--rule);
+  }
+  /* outline, not border: a thicker border would push this caption down a line from the other */
+  .rt-imp-fig-after img { border-color: var(--signal); outline: 1px solid var(--signal); }
+  .rt-imp-fig figcaption {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  .rt-imp-fig-after figcaption { color: var(--signal); }
+  .rt-imp-text { display: flex; flex-direction: column; }
+  .rt-imp-lead {
+    margin: 0;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink);
+  }
+  .rt-imp-points { margin: 18px 0 0; padding: 0; list-style: none; }
+  .rt-imp-points li {
+    display: flex;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--rule);
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--ink-3);
+  }
+  .rt-imp-mark { color: var(--signal); font-size: 12px; padding-top: 2px; }
 
   /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
   .rt-endnotes {
