@@ -193,7 +193,13 @@ export type MessagingStats = {
 
 export type StayConciergeError =
   | { kind: 'unconfigured' }
-  | { kind: 'http'; status: number; detail: string }
+  // fromService: the body was the concierge's own JSON error ({"detail": ...}).
+  // A 502 can come from two very different places and only this tells them
+  // apart: the concierge raises 502 WITH a JSON detail when a send fails, while
+  // the Cloudflare Tunnel answers a bare 502 when the concierge is down. The
+  // tunnel's body is not JSON, so `detail` then falls back to the HTTP status
+  // text ("Bad Gateway"), which is non-empty, so "has a detail" cannot be the test.
+  | { kind: 'http'; status: number; detail: string; fromService?: boolean }
   | { kind: 'network'; message: string };
 
 // A hung Cloudflare tunnel (sleepy Mac Mini) used to stall a render for the
@@ -242,13 +248,18 @@ async function request<T>(
     });
     if (!res.ok) {
       let detail = '';
+      let fromService = false;
       try {
         const j = (await res.json()) as { detail?: string };
         detail = j?.detail || '';
+        fromService = j !== null && typeof j === 'object' && 'detail' in j;
       } catch {
         detail = await res.text().catch(() => '');
       }
-      return { ok: false, error: { kind: 'http', status: res.status, detail: detail || res.statusText } };
+      return {
+        ok: false,
+        error: { kind: 'http', status: res.status, detail: detail || res.statusText, fromService },
+      };
     }
     const data = (await res.json()) as T;
     return { ok: true, data };
@@ -1454,10 +1465,28 @@ export function explainError(error: StayConciergeError): string {
   if (error.status === 400 && error.detail === 'send_at_in_past') {
     return 'That time has already passed. Pick a time a little further out.';
   }
-  if (error.status === 503) return 'Guesty is in OAuth cooldown. Try again in a minute.';
-  // 502/504 from the Cloudflare Tunnel mean the stay-concierge origin is down or
-  // mid-restart, NOT a send failure. This surfaces on plain list calls too, so
-  // keep the message generic to the service rather than implying a draft action.
+  // Dotti, 2026-10-05, approving April's courtesy ack: Helm said "unreachable
+  // (it may be restarting)" while the concierge had been up for an hour. Guesty
+  // had refused the send with a 429. Both 503s below mean Guesty REFUSED the
+  // request, so nothing reached the guest and the card is back to pending.
+  if (error.status === 503 && error.detail === 'guesty_rate_limited')
+    return 'Guesty is rate-limiting us and refused the send, so nothing went out. Try again in a minute.';
+  if (error.status === 503)
+    return 'Guesty is in OAuth cooldown, so nothing went out. Try again in a minute.';
+  // A 502 the CONCIERGE raised (JSON detail) is a send that failed after it
+  // left us, which is a very different thing from the service being down.
+  // guesty_send_failed now only covers a timeout or 5xx from Guesty (a 429 is
+  // the 503 above), and either may have been processed, so this does not
+  // promise nothing went out: it says to look first, which avoids a double send.
+  if (error.status === 502 && error.fromService) {
+    if (error.detail === 'guesty_send_failed')
+      return "Guesty didn't confirm the send. Check the conversation before trying again, in case it went through.";
+    const what = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+    return `The send failed (${what}). Check the conversation before trying again.`;
+  }
+  // A 502/504 that is NOT the concierge's JSON is the Cloudflare Tunnel saying
+  // the origin is down or mid-restart. This surfaces on plain list calls too,
+  // so keep it generic to the service rather than implying a draft action.
   if (error.status === 502 || error.status === 504)
     return 'Messaging service is unreachable (it may be restarting). Try again in a moment.';
   // detail can be a FastAPI validation payload (an array of error objects);

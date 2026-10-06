@@ -84,10 +84,11 @@ export function propertyInScope(p: { id: string; region?: string | null }, scope
 export type PropertyRegionLookup = ReadonlyMap<string, { id: string; region?: string | null }>;
 
 /** Recount a day after its rows changed; mirrors buildCheckoutSchedule. */
-export function recountDay(date: string, rows: ScheduleRow[]): ScheduleDay {
+export function recountDay(date: string, rows: ScheduleRow[], skipped: ScheduleRow[] = []): ScheduleDay {
   return {
     date,
     rows,
+    skipped,
     counts: {
       checkouts: rows.length,
       sameDay: rows.filter((r) => r.sameDayTurnover).length,
@@ -111,13 +112,38 @@ export function filterScheduleForRecipient(
   propertiesById: PropertyRegionLookup,
 ): ScheduleDay {
   const scope = recipientScope(recipient);
-  const rows = day.rows.filter((r) =>
-    propertyInScope(propertiesById.get(r.propertyId) ?? { id: r.propertyId, region: null }, scope),
-  );
-  return recountDay(day.date, rows);
+  const inScope = (r: ScheduleRow) =>
+    propertyInScope(propertiesById.get(r.propertyId) ?? { id: r.propertyId, region: null }, scope);
+  return recountDay(day.date, day.rows.filter(inScope), (day.skipped ?? []).filter(inScope));
 }
 
 // ─── composition ──────────────────────────────────────────────────────
+
+/**
+ * The "do not clean" callout: homes that check out but the operator took
+ * off the route (an owner working on the house). It leads the text, in
+ * capitals, with the time the vendor had it booked, because the crew
+ * already planned that stop (Dotti, 2026-10-05: "they thought it was
+ * scheduled but isn't"). A quiet line at the bottom reads as one more
+ * stop. Only the house name and time go out: the reason is internal and
+ * typed in English. A day with no skips adds nothing, so every existing
+ * text is byte-identical.
+ */
+function pushSkipped(
+  lines: string[],
+  day: ScheduleDay,
+  language: DigestLanguage,
+  vendorTimes?: Map<string, string>,
+): void {
+  const skipped = day.skipped ?? [];
+  if (skipped.length === 0) return;
+  lines.push(language === 'en' ? 'ATTENTION - DO NOT CLEAN (cancelled):' : 'ATENCAO - NAO LIMPAR (cancelado):');
+  for (const r of skipped) {
+    const was = vendorTimes?.get(r.propertyId);
+    lines.push(`- ${r.propertyName}${was ? (language === 'en' ? ` (was ${was})` : ` (era ${was})`) : ''}`);
+  }
+  lines.push('');
+}
 
 function dayLabel(date: string, language: DigestLanguage): string {
   const d = new Date(`${date}T12:00:00Z`);
@@ -158,8 +184,9 @@ export function composeDigestBody(
   lines.push(`Rising Tide - limpezas`);
   lines.push(dayLabel(day.date, 'pt'));
   lines.push('');
+  pushSkipped(lines, day, 'pt', vendorTimes);
   if (day.rows.length === 0) {
-    lines.push('Nenhum check-out neste dia.');
+    lines.push(day.skipped?.length ? 'Nenhuma limpeza neste dia.' : 'Nenhum check-out neste dia.');
     return lines.join('\n');
   }
   const cleanTime = (propertyId: string) => vendorTimes?.get(propertyId);
@@ -210,8 +237,9 @@ function composeDigestBodyEn(
   lines.push(`Rising Tide - cleanings`);
   lines.push(dayLabel(day.date, 'en'));
   lines.push('');
+  pushSkipped(lines, day, 'en', vendorTimes);
   if (day.rows.length === 0) {
-    lines.push('No checkouts this day.');
+    lines.push(day.skipped?.length ? 'No cleanings this day.' : 'No checkouts this day.');
     return lines.join('\n');
   }
   const cleanTime = (propertyId: string) => vendorTimes?.get(propertyId);

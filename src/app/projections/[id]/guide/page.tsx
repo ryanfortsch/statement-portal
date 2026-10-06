@@ -109,7 +109,7 @@ function PageWhoWeAre() {
           />
           <Pillar
             heading="Guest Excellence"
-            body="We manage every guest interaction with professionalism and warmth, maintaining a 4.99-star average rating across our properties."
+            body="We manage every guest interaction with professionalism and warmth, maintaining a 4.98-star average rating across our properties."
           />
           <Pillar
             heading="Owner Transparency"

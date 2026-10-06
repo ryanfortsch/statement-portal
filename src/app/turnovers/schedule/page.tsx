@@ -40,6 +40,7 @@ import {
 import {
   saveAdjustmentAction,
   removeAdjustmentAction,
+  setNoCleanAction,
   applyProposalAction,
   dismissProposalAction,
   toggleRecipientAction,
@@ -127,8 +128,17 @@ function digestNotice(p: { err?: string; sent?: string; failed?: string; skipped
 }
 
 /** The page-head outcome for everything that is not a digest or a recipient. */
-function headNotice(p: { err?: string; saved?: string; applied?: string; removed?: string; dismissed?: string }): Notice | null {
+function headNotice(p: { err?: string; saved?: string; applied?: string; removed?: string; dismissed?: string; noclean?: string; nocleanSent?: string }): Notice | null {
   if (p.err) return { tone: 'bad', text: ERR_COPY[p.err] ?? `Error: ${p.err}` };
+  if (p.noclean) {
+    const what = p.noclean === 'on'
+      ? 'Marked no cleaning needed. It is off the route on the cleaner page and in the text.'
+      : 'Back on the route. The cleaner page and the text list it again.';
+    return {
+      tone: 'ok',
+      text: p.nocleanSent ? `${what} That day's text already went out: use Send update on its digest to tell the crew.` : what,
+    };
+  }
   if (p.applied) return { tone: 'ok', text: 'Applied. The adjustment is live on the schedule and in the next digest.' };
   if (p.removed) return { tone: 'ok', text: 'Adjustment removed. The stay is back to the booking times.' };
   if (p.dismissed) return { tone: 'ok', text: 'Proposal dismissed.' };
@@ -166,6 +176,7 @@ const VERDICT_TONE = {
 
 function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; verdict?: ReturnType<typeof verdictLabel> }) {
   const adj = row.adjustment;
+  const noClean = row.noClean ?? null;
   return (
     <details
       id={`stay-${row.propertyId}-${row.checkIn}`}
@@ -182,11 +193,17 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
           flexWrap: 'wrap',
         }}
       >
-        <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 16, fontWeight: 600, minWidth: 56 }}>
+        <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 16, fontWeight: 600, minWidth: 56, ...(noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>
           {row.time}
         </span>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>{row.propertyName}</span>
+        <span style={{ fontSize: 14, fontWeight: 600, ...(noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>{row.propertyName}</span>
         {row.guestName && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{row.guestName}</span>}
+        {noClean && (
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--ink-3)', border: '1px dashed var(--ink-4)', borderRadius: 3, padding: '2px 7px' }}>
+            no cleaning needed
+          </span>
+        )}
+        {noClean?.reason && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{noClean.reason}</span>}
         {row.sameDayTurnover && (
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--signal)', border: '1px solid var(--signal)', borderRadius: 3, padding: '2px 7px' }}>
             same-day · in {row.nextCheckinTime && formatTime12(row.nextCheckinTime)}
@@ -267,6 +284,28 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
             />
           </form>
         )}
+        <form action={setNoCleanAction} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', borderTop: '1px dashed var(--rule)', paddingTop: 10 }}>
+          <input type="hidden" name="propertyId" value={row.propertyId} />
+          <input type="hidden" name="stayCheckIn" value={row.checkIn} />
+          <input type="hidden" name="serviceDate" value={row.effectiveCheckOut} />
+          <input type="hidden" name="on" value={noClean ? '0' : '1'} />
+          {noClean ? (
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', flex: 1, minWidth: 180 }}>
+              Off the route{noClean.by ? ` · marked by ${noClean.by.split('@')[0]}` : ''}. The crew sees it struck through as &ldquo;sem limpeza&rdquo;.
+            </div>
+          ) : (
+            <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 180 }}>
+              Why no cleaning (internal, not sent)
+              <input name="reason" placeholder="owner doing work on the house" style={{ ...inputStyle, fontFamily: 'inherit', width: '100%' }} />
+            </label>
+          )}
+          <SubmitButton
+            label={noClean ? 'Needs cleaning after all' : 'No cleaning needed'}
+            busyLabel="Saving..."
+            spinnerTone="ink"
+            style={{ fontSize: 12, fontWeight: 600, padding: '8px 14px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
+          />
+        </form>
         {row.checkIn <= today && (
           <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>Guest is in-house (checked in {row.checkIn}).</div>
         )}
@@ -463,6 +502,8 @@ export default async function CheckoutSchedulePage({
           applied: first(sp.applied),
           removed: first(sp.removed),
           dismissed: first(sp.dismissed),
+          noclean: first(sp.noclean),
+          nocleanSent: first(sp.noclean_sent),
         }) ??
         digestNotice({ sent: first(sp.sent), failed: first(sp.failed), skipped: first(sp.skipped) });
 
@@ -563,7 +604,7 @@ export default async function CheckoutSchedulePage({
             }
             paddingTop={8}
             paddingBottom={12}
-            empty={day.rows.length === 0}
+            empty={day.rows.length === 0 && !day.skipped?.length}
             emptyMessage="No checkouts."
           >
             <div style={{ borderTop: '1px solid var(--ink)' }}>
@@ -575,6 +616,9 @@ export default async function CheckoutSchedulePage({
                   verdict={verdictLabel(vendorByDate.get(day.date)?.byRow.get(`${row.propertyId}|${row.checkIn}`))}
                 />
               ))}
+              {(day.skipped ?? []).map((row) => (
+                <StayRow key={`skip-${row.propertyId}|${row.checkIn}`} row={row} today={today} />
+              ))}
               {(vendorByDate.get(day.date)?.orphans ?? []).map((o) => (
                 <div
                   key={`orphan-${o.propertyId}`}
@@ -585,7 +629,9 @@ export default async function CheckoutSchedulePage({
                   </span>
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{o.propertyName}</span>
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--signal)' }}>
-                    {VENDOR_LABEL} is booked to clean, but nobody checks out. They will arrive at an occupied house.
+                    {day.skipped?.some((r) => r.propertyId === o.propertyId)
+                      ? `${VENDOR_LABEL} is still booked to clean, but this checkout is marked no cleaning needed. Cancel the visit with them.`
+                      : `${VENDOR_LABEL} is booked to clean, but nobody checks out. They will arrive at an occupied house.`}
                   </span>
                 </div>
               ))}

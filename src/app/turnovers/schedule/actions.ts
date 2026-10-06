@@ -349,6 +349,81 @@ export async function removeAdjustmentAction(formData: FormData): Promise<void> 
   redirect(backTarget(formData, '?removed=1'));
 }
 
+/**
+ * "No cleaning needed" on one checkout (an owner working on the house).
+ * `on=1` marks it, `on=0` clears it. Its own table, so no time/date
+ * adjustment, miner or concierge write can undo it (see the migration).
+ *
+ * A PENDING digest for that day is re-drafted so the approval card already
+ * shows the house struck through. A digest that is not pending is left
+ * alone: a skipped day is never revived and a sent text is never rewritten.
+ * For a sent day the notice points at the existing Send update.
+ */
+export async function setNoCleanAction(formData: FormData): Promise<void> {
+  const email = await requireEmail();
+  const propertyId = String(formData.get('propertyId') || '');
+  const stayCheckIn = String(formData.get('stayCheckIn') || '');
+  const serviceDate = String(formData.get('serviceDate') || '');
+  const on = String(formData.get('on') || '') === '1';
+  const reason = String(formData.get('reason') || '').trim().slice(0, 300);
+  const anchor = `#stay-${propertyId}-${stayCheckIn}`;
+  // The digest card (back=card) and the schedule page both carry this.
+  const land = (query: string) =>
+    String(formData.get('back') || '') === 'card' ? `${CARD}${query}#schedule-digest` : `${PAGE}${query}${anchor}`;
+  if (!propertyId || !/^\d{4}-\d{2}-\d{2}$/.test(stayCheckIn) || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) {
+    redirect(land('?err=bad_stay'));
+  }
+
+  if (on) {
+    const { error } = await supabase
+      .from('checkout_cleaning_skips')
+      .insert({ property_id: propertyId, stay_check_in: stayCheckIn, reason, created_by: email });
+    if (error) {
+      // Already marked (the one-live-per-stay index): keep the mark, take
+      // the newer reason.
+      if (error.code !== '23505') redirect(land('?err=save_failed'));
+      const { error: upErr } = await supabase
+        .from('checkout_cleaning_skips')
+        .update({ reason })
+        .eq('property_id', propertyId)
+        .eq('stay_check_in', stayCheckIn)
+        .is('cleared_at', null);
+      if (upErr) redirect(land('?err=save_failed'));
+    }
+  } else {
+    const { error } = await supabase
+      .from('checkout_cleaning_skips')
+      .update({ cleared_at: new Date().toISOString(), cleared_by: email })
+      .eq('property_id', propertyId)
+      .eq('stay_check_in', stayCheckIn)
+      .is('cleared_at', null);
+    if (error) redirect(land('?err=save_failed'));
+  }
+
+  // Bring a pending draft up to date; flag a sent one for Send update.
+  let digestState = '';
+  try {
+    const { data: prop } = await supabase.from('properties').select('region').eq('id', propertyId).maybeSingle();
+    const region = (prop as { region: string | null } | null)?.region || CAPE_ANN_REGION;
+    const { data: digest } = await supabase
+      .from('cleaner_schedule_digests')
+      .select('status')
+      .eq('service_date', serviceDate)
+      .eq('region', region)
+      .maybeSingle();
+    digestState = (digest as { status: string } | null)?.status ?? '';
+    if (digestState === 'pending') await upsertDigestDraft(supabase, serviceDate, region);
+  } catch {
+    // The mark is saved and the schedule page reads it live; the draft
+    // catches up on its next refresh or at send, which composes live.
+  }
+
+  revalidatePath(PAGE);
+  revalidatePath(CARD);
+  const sentHint = digestState === 'sent' ? '&noclean_sent=1' : '';
+  redirect(land(`?noclean=${on ? 'on' : 'off'}${sentHint}`));
+}
+
 export async function applyProposalAction(formData: FormData): Promise<void> {
   await requireEmail();
   const id = String(formData.get('id') || '');

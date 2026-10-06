@@ -12,6 +12,7 @@ import { loadVendorTimes, recipientScope, shapeRecipient, RECIPIENT_COLS } from 
 import { CAPE_ANN_REGION, regionLabel } from '@/lib/property-scope';
 import { civicForProperty, isCollectionDay } from '@/lib/civic';
 import type { HelmPropertyRow } from '@/lib/properties';
+import { CLEANER_WINDOW_DAYS, cleanerWindow } from '@/lib/cleaner-schedule-window';
 
 /**
  * The cleaner's live schedule page. Reached from the daily digest SMS
@@ -37,8 +38,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
 };
 
-const DAYS_SHOWN = 7;
-
 function etHourNow(): number {
   return Number(
     new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(new Date()),
@@ -55,6 +54,17 @@ function ptDayLong(date: string): string {
   return new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(
     new Date(`${date}T12:00:00Z`),
   );
+}
+
+/** "5 a 11 de out", or "26 de out a 1 de nov" across a month. */
+function ptRange(start: string, end: string): string {
+  const f = (x: string) =>
+    new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+      .format(new Date(`${x}T12:00:00Z`))
+      .replace(/\./g, '');
+  return start.slice(0, 7) === end.slice(0, 7)
+    ? `${Number(start.slice(8))} a ${f(end)}`
+    : `${f(start)} a ${f(end)}`;
 }
 
 function enDay(date: string): string {
@@ -84,9 +94,13 @@ export default async function CleanerSchedulePage({
   const scope = recipientScope(recipient);
 
   const today = todayET();
+  const { d } = await searchParams;
+  // One week at a time, paged forward from today. A `?d=` past the first
+  // week opens the week that holds it instead of snapping back to today.
+  const win = cleanerWindow(today, d);
   let days: ScheduleDay[];
   try {
-    days = await buildCheckoutSchedule(supabase, { startDate: today, days: DAYS_SHOWN, scope });
+    days = await buildCheckoutSchedule(supabase, { startDate: win.start, days: CLEANER_WINDOW_DAYS, scope });
   } catch (err) {
     if (!(err instanceof ScheduleUnavailableError)) throw err;
     // A cleaner opening this on a bad read must see "unavailable", not an
@@ -115,8 +129,6 @@ export default async function CleanerSchedulePage({
     );
   }
 
-  const { d } = await searchParams;
-  const inRange = d && days.some((x) => x.date === d);
   // The SMS link carries no date any more (every character counts), so the
   // page has to work out which day the cleaner was texted about. The day of
   // the most recently SENT digest is exactly that, and it beats guessing by
@@ -125,23 +137,25 @@ export default async function CleanerSchedulePage({
   // recipient's own region: Luana's link must not land on the day Rosa's
   // Cape Ann digest went out.
   let sentDay: string | null = null;
-  try {
-    const { data } = await supabase
-      .from('cleaner_schedule_digests')
-      .select('service_date')
-      .eq('region', recipient.region)
-      .eq('status', 'sent')
-      .gte('service_date', today)
-      .order('service_date', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    const candidate = (data as { service_date: string } | null)?.service_date ?? null;
-    if (candidate && days.some((x) => x.date === candidate)) sentDay = candidate;
-  } catch {
-    // Never let the default-day lookup keep the schedule from rendering.
+  if (!win.requested) {
+    try {
+      const { data } = await supabase
+        .from('cleaner_schedule_digests')
+        .select('service_date')
+        .eq('region', recipient.region)
+        .eq('status', 'sent')
+        .gte('service_date', today)
+        .order('service_date', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const candidate = (data as { service_date: string } | null)?.service_date ?? null;
+      if (candidate && days.some((x) => x.date === candidate)) sentDay = candidate;
+    } catch {
+      // Never let the default-day lookup keep the schedule from rendering.
+    }
   }
-  const selectedDate = inRange
-    ? d!
+  const selectedDate = win.requested
+    ? win.requested
     : sentDay ?? (etHourNow() < 15 ? today : addDays(today, 1));
   const selected: ScheduleDay = days.find((x) => x.date === selectedDate) ?? days[0];
 
@@ -191,9 +205,35 @@ export default async function CleanerSchedulePage({
           </div>
         </header>
 
+        <div className="rt-cl-week">
+          {win.prevStart ? (
+            <a
+              href={win.prevStart === today ? `/c/${token}` : `?d=${win.prevStart}`}
+              className="rt-cl-weeknav"
+              aria-label="Semana anterior / previous week"
+            >
+              ‹
+            </a>
+          ) : (
+            <span className="rt-cl-weeknav is-off" aria-hidden="true">‹</span>
+          )}
+          <div className="rt-cl-weeklabel">
+            {win.start === today ? 'esta semana' : ptRange(win.start, days[days.length - 1].date)}
+            <span>{win.start === today ? 'this week' : `${enDay(win.start)} to ${enDay(days[days.length - 1].date)}`}</span>
+          </div>
+          {win.nextStart ? (
+            <a href={`?d=${win.nextStart}`} className="rt-cl-weeknav" aria-label="Próxima semana / next week">
+              ›
+            </a>
+          ) : (
+            <span className="rt-cl-weeknav is-off" aria-hidden="true">›</span>
+          )}
+        </div>
+
         <nav className="rt-cl-days" aria-label="Dias">
-          {days.map((day, i) => {
-            const label = i === 0 ? 'hoje' : i === 1 ? 'amanhã' : ptDayShort(day.date);
+          {days.map((day) => {
+            const label =
+              day.date === today ? 'hoje' : day.date === addDays(today, 1) ? 'amanhã' : ptDayShort(day.date);
             const active = day.date === selected.date;
             return (
               <a key={day.date} href={`?d=${day.date}`} className={`rt-cl-day${active ? ' is-active' : ''}`}>
@@ -209,7 +249,28 @@ export default async function CleanerSchedulePage({
           <div className="rt-cl-dateen">{enDay(selected.date)} · sempre ao vivo / always live</div>
         </div>
 
-        {selected.rows.length === 0 ? (
+        {/* Cancelled stops lead, as in the text: the crew had them planned. */}
+        {selected.skipped && selected.skipped.length > 0 && (
+          <ul className="rt-cl-list rt-cl-skips">
+            {selected.skipped.map((r) => (
+              <li key={`skip-${r.propertyId}|${r.checkIn}`} className="rt-cl-row is-skipped">
+                <div className="rt-cl-time">{vendorTimes.get(r.propertyId) ?? r.time}</div>
+                <div className="rt-cl-body">
+                  <div className="rt-cl-name">{r.propertyName}</div>
+                  <div className="rt-cl-addr">
+                    {r.address}
+                    {r.city ? `, ${r.city}` : ''}
+                  </div>
+                  <div className="rt-cl-tags">
+                    <span className="rt-cl-tag is-skip">não limpar · cancelado / do not clean</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {selected.rows.length === 0 && !selected.skipped?.length ? (
           <div className="rt-cl-empty">
             <div className="rt-cl-emptymark">☀</div>
             Nenhum check-out neste dia.
@@ -258,6 +319,7 @@ export default async function CleanerSchedulePage({
           </ol>
         )}
 
+
         <footer className="rt-cl-foot">
           Rising Tide STR · {recipient.region === CAPE_ANN_REGION ? 'Gloucester MA' : regionLabel(recipient.region)}
           <span>Dúvidas? Fale com a equipe pelo número de sempre.</span>
@@ -285,8 +347,21 @@ const css = `
   }
   .rt-cl-brandsub { font-size: 11px; color: var(--ink-4); letter-spacing: 0.06em; margin-top: 1px; }
 
+  .rt-cl-week { display: flex; align-items: center; gap: 10px; padding-top: 14px; }
+  .rt-cl-weeklabel {
+    flex: 1; text-align: center; font-size: 13px; font-weight: 600; color: var(--ink);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .rt-cl-weeklabel span { font-size: 10px; font-weight: 500; color: var(--ink-4); letter-spacing: 0.08em; text-transform: uppercase; }
+  .rt-cl-weeknav {
+    flex: 0 0 auto; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--ink); border-radius: 10px; text-decoration: none; color: var(--ink);
+    font-size: 26px; line-height: 1; padding-bottom: 3px; box-sizing: border-box;
+  }
+  .rt-cl-weeknav.is-off { border-color: var(--rule); color: var(--rule); }
+
   .rt-cl-days {
-    display: flex; gap: 8px; overflow-x: auto; padding: 14px 0 4px;
+    display: flex; gap: 8px; overflow-x: auto; padding: 10px 0 4px;
     -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
   .rt-cl-days::-webkit-scrollbar { display: none; }
@@ -333,6 +408,12 @@ const css = `
   .rt-cl-tag.is-sameday { border-color: var(--signal); color: #fff; background: var(--signal); }
   .rt-cl-tag.is-quiet { border-style: dashed; color: var(--ink-4); font-weight: 500; }
   .rt-cl-tag.is-drift { border-color: #8a6d1a; color: #8a6d1a; background: rgba(214,165,30,.12); }
+
+  .rt-cl-skips + .rt-cl-list { margin-top: 0; }
+  .rt-cl-row.is-skipped .rt-cl-time,
+  .rt-cl-row.is-skipped .rt-cl-name,
+  .rt-cl-row.is-skipped .rt-cl-addr { color: var(--ink-4); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .rt-cl-tag.is-skip { border-color: var(--signal); color: #fff; background: var(--signal); text-decoration: none; }
 
   .rt-cl-empty {
     margin-top: 34px; padding: 40px 20px; text-align: center;

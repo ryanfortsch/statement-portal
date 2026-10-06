@@ -37,6 +37,7 @@ import {
   addTurnoverNoteAction,
   dismissTurnoverNoteAction,
   dismissProposalAction,
+  setNoCleanAction,
   ensureTomorrowDraft,
   saveDigestNote,
 } from '../turnovers/schedule/actions';
@@ -95,12 +96,17 @@ function RowLine({ row }: { row: ScheduleRow }) {
         flexWrap: 'wrap',
       }}
     >
-      <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 15, fontWeight: 600, minWidth: 52 }}>
+      <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 15, fontWeight: 600, minWidth: 52, ...(row.noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>
         {row.time}
       </span>
-      <span style={{ fontSize: 14, fontWeight: 600 }}>{row.propertyName}</span>
+      <span style={{ fontSize: 14, fontWeight: 600, ...(row.noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>{row.propertyName}</span>
       {row.guestName && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{row.guestName}</span>}
       <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {row.noClean && (
+          <span title={row.noClean.reason}>
+            <Chip tone="muted">no cleaning needed{row.noClean.reason ? ` · ${row.noClean.reason}` : ''}</Chip>
+          </span>
+        )}
         {row.sameDayTurnover && (
           <Chip tone="signal">same-day · in {row.nextCheckinTime && formatTime12(row.nextCheckinTime)}</Chip>
         )}
@@ -121,6 +127,22 @@ function RowLine({ row }: { row: ScheduleRow }) {
           <Chip tone="warn">Feeds disagree · other says {row.conflictingCheckOut}</Chip>
         )}
       </span>
+      {/* One tap takes the house off the route (an owner working on it);
+          the pending draft re-composes. A reason can be added on
+          /turnovers/schedule; it never goes to the crew either way. */}
+      <form action={setNoCleanAction} style={{ marginLeft: 'auto' }}>
+        <input type="hidden" name="propertyId" value={row.propertyId} />
+        <input type="hidden" name="stayCheckIn" value={row.checkIn} />
+        <input type="hidden" name="serviceDate" value={row.effectiveCheckOut} />
+        <input type="hidden" name="on" value={row.noClean ? '0' : '1'} />
+        <input type="hidden" name="back" value="card" />
+        <SubmitButton
+          label={row.noClean ? 'Needs cleaning after all' : 'No cleaning needed'}
+          busyLabel="Saving..."
+          spinnerTone="ink"
+          style={{ fontSize: 11, padding: '4px 10px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
+        />
+      </form>
     </div>
   );
 }
@@ -313,7 +335,7 @@ function Recipients({ recipients, serviceDate }: { recipients: ScheduleRecipient
 export async function ScheduleDigestCard({
   notice,
 }: {
-  notice?: { sent?: string; failed?: string; err?: string };
+  notice?: { sent?: string; failed?: string; err?: string; noclean?: string; nocleanSent?: string };
 }) {
   let digest: DigestRow | null = null;
   let recipients: ScheduleRecipient[] = [];
@@ -409,8 +431,17 @@ export async function ScheduleDigestCard({
             {notice.err === 'all_failed' && 'Quo rejected every send - see the log below and try again.'}
             {notice.err === 'raced' && 'Already handled in another tab - this is the fresh state.'}
             {notice.err === 'schedule_unavailable' && 'Nothing sent: the live schedule could not be read at that moment. Try again in a minute.'}
+            {notice.err === 'save_failed' && 'That did not save. Try again.'}
             {notice.err === 'note_untranslated' && 'Your note is saved but could not be put into Portuguese just now. It will go out exactly as you typed it. Try Save & translate again in a minute.'}
-            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced', 'schedule_unavailable', 'note_untranslated'].includes(notice.err) && `Error: ${notice.err}`}
+            {!['no_recipients', 'quo_unconfigured', 'all_failed', 'raced', 'schedule_unavailable', 'note_untranslated', 'save_failed'].includes(notice.err) && `Error: ${notice.err}`}
+          </div>
+        )}
+        {notice?.noclean && (
+          <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--positive, #2e7d4f)', fontWeight: 600 }}>
+            {notice.noclean === 'on'
+              ? 'Marked no cleaning needed. It is off the route in the text and on the cleaner page.'
+              : 'Back on the route.'}
+            {notice.nocleanSent ? ' That day already went out: use Send update below to tell the crew.' : ''}
           </div>
         )}
         {notice?.sent && (
@@ -444,12 +475,15 @@ export async function ScheduleDigestCard({
         {day && (
           <>
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 4 }}>
-              {day.counts.checkouts === 0
+              {day.counts.checkouts === 0 && !day.skipped?.length
                 ? 'No checkouts that day.'
-                : `${day.counts.checkouts} checkout${day.counts.checkouts === 1 ? '' : 's'}${day.counts.sameDay ? `, ${day.counts.sameDay} same-day turn${day.counts.sameDay === 1 ? '' : 's'}` : ''}${day.counts.adjusted ? `, ${day.counts.adjusted} adjusted` : ''}. Live as of now.`}
+                : `${day.counts.checkouts} checkout${day.counts.checkouts === 1 ? '' : 's'}${day.counts.sameDay ? `, ${day.counts.sameDay} same-day turn${day.counts.sameDay === 1 ? '' : 's'}` : ''}${day.counts.adjusted ? `, ${day.counts.adjusted} adjusted` : ''}${day.skipped?.length ? `, ${day.skipped.length} marked no cleaning needed` : ''}. Live as of now.`}
             </div>
             {day.rows.map((r) => (
               <RowLine key={`${r.propertyId}|${r.checkIn}`} row={r} />
+            ))}
+            {(day.skipped ?? []).map((r) => (
+              <RowLine key={`skip-${r.propertyId}|${r.checkIn}`} row={r} />
             ))}
             <Proposals day={day} />
             <TurnoverNotes notes={turnoverNotes} />
@@ -521,7 +555,13 @@ export async function ScheduleDigestCard({
             <label style={{ display: 'block', fontSize: 11, letterSpacing: '.12em', textTransform: 'uppercase', fontWeight: 700, color: 'var(--ink-4)', marginBottom: 6 }}>
               The text that goes out
             </label>
+            {/* Keyed on the text: a defaultValue only seeds the box on
+                mount, and an action that lands back here (No cleaning
+                needed, Apply) re-renders in place, so without the key the
+                box kept showing the old text while the send would have
+                composed the new one. */}
             <textarea
+              key={shownBody}
               name="body"
               defaultValue={shownBody}
               rows={Math.min(14, shownBody.split('\n').length + 2)}
