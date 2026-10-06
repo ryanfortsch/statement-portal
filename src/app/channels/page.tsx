@@ -185,6 +185,7 @@ function ActionsBar({ listingsCount }: { listingsCount: number }) {
         <Link href="/channels/calendar" style={primaryButtonStyle}>Multi-calendar →</Link>
         <Link href="/channels/listings" style={secondaryButtonStyle}>{listingsCount > 0 ? 'Channel wiring' : 'Wire the first feed'}</Link>
         <Link href="/channels/bookings" style={secondaryButtonStyle}>Bookings</Link>
+        {process.env.AIRBNB_REQUEST_QUEUE_ENABLED === 'true' && <Link href="/channels/requests" style={secondaryButtonStyle}>Airbnb requests</Link>}
         <Link href="/channels/bookings/new" style={secondaryButtonStyle}>+ Booking</Link>
         <Link href="/channels/bookings/new?type=block" style={secondaryButtonStyle}>+ Block</Link>
         <SyncNowButton style={secondaryButtonStyle} />

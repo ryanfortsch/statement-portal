@@ -437,3 +437,21 @@ But two things should make you reread it carefully:
 - A bug where two surfaces disagree about the same number. If the
   answer is "they read different tables that both think they're
   authoritative", that is the bolt-on feel in action.
+
+### Airbnb request notification reviews (additive, pending migration)
+
+`airbnb_request_reviews` stores staff verification of a Quo notification's property,
+explicit dates, Airbnb evidence URL, actor and timestamp. It is keyed by Quo
+message ID, RLS enabled and service-role select/insert only. It is **not** a
+reservation or calendar authority. The request queue reads signed `quo_events`
+without modifying webhook ingestion. See `docs/guesty-exit/quo-airbnb-request-queue.md`.
+
+### Airbnb request alert attempts
+
+`airbnb_request_alerts` records one internal text attempt per reviewed Quo message
+(FK to `airbnb_request_reviews`). RLS denies client access; service role can
+select/insert/update. Status is `attempting`, `accepted` (provider acceptance,
+not delivery), or `unknown`. The unique message ID is claimed before sending;
+ambiguous outcomes are not automatically retried. Migration:
+`20261006010000_airbnb_request_alerts.sql`. Destination is the user-selected
+Guest line; sender is the operations line. No reservation state is stored here.
