@@ -341,3 +341,7 @@ checks. TypeScript and targeted lint results are recorded in the handoff. Hosted
 credential availability and actual returned reservations still require verification;
 code wiring alone does not prove a live import. Shared snapshot persistence remains
 pending. No local preview was attempted. Previous recoverable commit: fef89bf6.
+
+Follow-up validation: the initial page commit had environment-type and Next Link
+lint errors. Fixed both immediately; TypeScript, targeted lint and all 1,771 tests
+then passed. The unverified initial commit is not the accepted source checkpoint.

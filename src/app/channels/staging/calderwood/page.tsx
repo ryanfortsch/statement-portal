@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { auth } from '@/auth';
 import { notFound, redirect } from 'next/navigation';
 import { getGuestyToken } from '@/lib/guesty-client';
@@ -6,9 +7,10 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 export const metadata = { title: 'Calderwood comparison | Helm', robots: { index: false, follow: false } };
 export default async function CalderwoodPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const env = { VERCEL_ENV: process.env.VERCEL_ENV, VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF, CHANNEX_STAGING_ENABLED: process.env.CHANNEX_STAGING_ENABLED };
   const session = await auth();
   if (!session?.user?.email) redirect('/auth/signin?callbackUrl=%2Fchannels%2Fstaging%2Fcalderwood');
-  if (!calderwoodReadAllowed(session.user.email, process.env)) notFound();
+  if (!calderwoodReadAllowed(session.user.email, env)) notFound();
   const params = await searchParams;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const defaultEnd = new Date(Date.parse(today + 'T00:00:00Z') + 90 * 86400000).toISOString().slice(0, 10);
@@ -17,11 +19,11 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   let result: Awaited<ReturnType<typeof loadCalderwoodRead>> | null = null;
   let error = '';
   if (params.load === '1') {
-    try { result = await loadCalderwoodRead({ email: session.user.email, env: process.env, from, to }, { token: getGuestyToken }); }
+    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to }, { token: getGuestyToken }); }
     catch (e) { error = e instanceof Error ? e.message : 'Snapshot unavailable'; }
   }
   return <main className="mx-auto max-w-6xl space-y-6 p-6">
-    <a href="/channels/staging" className="text-sm underline">Back to staging workspace</a>
+    <Link href="/channels/staging" className="text-sm underline">Back to staging workspace</Link>
     <header><p className="text-sm text-slate-500">Migration review · Read only</p><h1 className="text-2xl font-semibold">65 Calderwood</h1>
       <p className="mt-2 text-sm text-slate-600">Read current reservations through Helm’s existing Guesty connection. Guesty continues managing the live calendar.</p></header>
     <form method="get" className="flex flex-wrap items-end gap-4 rounded-lg border p-4">
