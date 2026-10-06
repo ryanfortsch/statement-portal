@@ -42,7 +42,11 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
         <SlideEarnMore rows={earnRows} footer={footerLabel} />
-        <SlideRatings noteStart={EARN_NOTE_BASE + earnRows.length + 1} footer={footerLabel} />
+        <SlideRatings
+          revenueNote={EARN_NOTE_BASE + earnRows.findIndex((r) => r.key === 'ratings')}
+          ratingNote={EARN_NOTE_BASE + earnRows.length + 1}
+          footer={footerLabel}
+        />
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
@@ -186,8 +190,10 @@ const SUPPLIES_PER_HOME_YEAR = 3800;
  * total. (The management fee was on the chart in #1741 and came off at the
  * operator's request: the slide shows what the owner gains, not a netting.)
  *
- * The stack ADDS figures from separate sources (two studies, an AirDNA
- * average and Rising Tide's own records). Endnote 6 says so on the page and
+ * The stack ADDS figures from separate sources (two AirDNA comparisons, a
+ * study and Rising Tide's own records). Five-star service (+15%, AirDNA
+ * 2025) joined the stack on 2026-10-06 to match the Instagram carousel; the
+ * Ratings slide's 15% cites the same row's endnote rather than repeating it. Endnote 6 says so on the page and
  * cites the one study that measured the whole package (Li, Moreno & Zhang,
  * +16.9%), which is the honest backstop for summing them.
  *
@@ -209,16 +215,29 @@ type EarnRow = {
   note: ReactNode;
 };
 
-const EARN_COLORS = ['#946d2e', '#b48f52', '#cdb07c', '#e2cfa6'];
+const EARN_COLORS = ['#7a5622', '#946d2e', '#b48f52', '#cdb07c', '#e2cfa6'];
 
 function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
   const gross = computed.year1.mid.grossRevenue;
   const supplyPct = gross > 0 ? SUPPLIES_PER_HOME_YEAR / gross : 0;
   const rows: Omit<EarnRow, 'color'>[] = [
     {
+      key: 'ratings',
+      title: 'Five-star service',
+      line: 'Our homes average 4.98 stars; the Airbnb average is 4.8.',
+      pct: 0.15,
+      note: (
+        <>
+          Source: AirDNA, &ldquo;Airbnb Ratings Explained and Why 4 Stars Doesn&rsquo;t Cut It&rdquo; (updated September
+          2025). In AirDNA&rsquo;s 2025 data, listings rated 4.9 stars or higher earned 15% more revenue per available
+          night than lower-rated listings, with 11% higher nightly rates and 4% higher occupancy.
+        </>
+      ),
+    },
+    {
       key: 'pricing',
       title: 'Market-based pricing',
-      line: 'Rates set daily from local demand.',
+      line: 'Rates set every day using market data.',
       pct: 0.086,
       note: (
         <>
@@ -243,7 +262,7 @@ function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
     {
       key: 'supplies',
       title: 'Supplies on us',
-      line: `About ${fmtMoney(SUPPLIES_PER_HOME_YEAR)} a year we pay, not you.`,
+      line: `About ${fmtMoney(SUPPLIES_PER_HOME_YEAR)} a year in guest supplies.`,
       pct: supplyPct,
       note: (
         <>
@@ -337,7 +356,7 @@ function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
   );
 }
 
-function SlideRatings({ noteStart, footer }: { noteStart: number; footer: string }) {
+function SlideRatings({ revenueNote, ratingNote, footer }: { revenueNote: number; ratingNote: number; footer: string }) {
   // Rising Tide: 2-decimal precision (4.98). Competitors: 1-decimal (industry-standard reporting).
   const competitors: { label: string; display: string }[] = [
     { label: 'National Average', display: '4.8' },
@@ -357,7 +376,7 @@ function SlideRatings({ noteStart, footer }: { noteStart: number; footer: string
               <span className="rt-rating-hero-word">Revenue</span>
             </div>
             <p className="rt-rating-hero-body">
-              Airbnb listings rated 4.9 stars or higher earn <strong>15% more revenue</strong> per available night.<sup>({noteStart})</sup>
+              Airbnb listings rated 4.9 stars or higher earn <strong>15% more revenue</strong> per available night.<sup>({revenueNote})</sup>
             </p>
             <div className="rt-rating-hero-rule" />
             <p className="rt-rating-hero-tag">
@@ -367,7 +386,7 @@ function SlideRatings({ noteStart, footer }: { noteStart: number; footer: string
 
           {/* Right-hand comparison card */}
           <div className="rt-rating-card">
-            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>({noteStart + 1})</sup></div>
+            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>({ratingNote})</sup></div>
             <div className="rt-rating-rt-block">
               <div className="rt-rating-rt-label">RISING TIDE</div>
               <div className="rt-rating-rt-value">4.98</div>
@@ -1053,10 +1072,6 @@ function SlideEndnotes({ earnRows, footer }: { earnRows: EarnRow[]; footer: stri
           </li>
           <li>
             <span className="rt-en-num">({EARN_NOTE_BASE + earnRows.length + 1})</span>
-            Source: AirDNA, &ldquo;Airbnb Ratings Explained and Why 4 Stars Doesn&rsquo;t Cut It&rdquo; (updated September 2025). In AirDNA&rsquo;s 2025 data, listings rated 4.9 stars or higher earned 15% more revenue per available night than lower-rated listings, with 11% higher nightly rates and 4% higher occupancy.
-          </li>
-          <li>
-            <span className="rt-en-num">({EARN_NOTE_BASE + earnRows.length + 2})</span>
             National average: AirDNA (updated September 2025), 4.8 stars for available U.S. Airbnb listings. Rising Tide and company ratings from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
           </li>
         </ol>
@@ -2175,16 +2190,16 @@ const deckCss = `
   .rt-em-rows { flex: 1; display: grid; min-height: 0; }
   .rt-em-row {
     display: grid;
-    grid-template-columns: 10px 128px 1fr;
+    grid-template-columns: 10px 118px 1fr;
     gap: 18px;
     align-items: center;
     border-bottom: 1px solid var(--rule);
   }
   .rt-em-row:last-child { border-bottom: 0; }
-  .rt-em-swatch { width: 10px; height: 44px; }
+  .rt-em-swatch { width: 10px; height: 38px; }
   .rt-em-pct {
     font-family: var(--font-fraunces), "Times New Roman", serif;
-    font-size: 46px;
+    font-size: 40px;
     line-height: 1;
     font-weight: 300;
     color: var(--signal);
@@ -2197,7 +2212,7 @@ const deckCss = `
     line-height: 1.2;
     color: var(--ink);
   }
-  .rt-em-row-line { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+  .rt-em-row-line { margin-top: 3px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
 
   /* Chart: the rows stacked into one bar, colours matching the swatches
      on the left (the legend), with the total beside the top of the bar. */
