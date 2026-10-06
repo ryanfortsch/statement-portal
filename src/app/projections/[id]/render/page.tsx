@@ -41,12 +41,8 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
+        <SlideRatings revenueNote={RATINGS_NOTE} ratingNote={RATING_CARD_NOTE} footer={footerLabel} />
         <SlideEarnMore rows={earnRows} footer={footerLabel} />
-        <SlideRatings
-          revenueNote={EARN_NOTE_BASE + earnRows.findIndex((r) => r.key === 'ratings')}
-          ratingNote={EARN_NOTE_BASE + earnRows.length + 1}
-          footer={footerLabel}
-        />
         <SlideLocal projection={projection} footer={footerLabel} />
         <SlideYear1 computed={c} footer={footerLabel} />
         {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
@@ -212,6 +208,7 @@ type EarnRow = {
   line: string;
   pct: number; // fraction of rental revenue
   color: string;
+  n: number; // footnote number
   note: ReactNode;
 };
 
@@ -220,7 +217,7 @@ const EARN_COLORS = ['#7a5622', '#946d2e', '#b48f52', '#cdb07c', '#e2cfa6'];
 function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
   const gross = computed.year1.mid.grossRevenue;
   const supplyPct = gross > 0 ? SUPPLIES_PER_HOME_YEAR / gross : 0;
-  const rows: Omit<EarnRow, 'color'>[] = [
+  const rows: Omit<EarnRow, 'color' | 'n'>[] = [
     {
       key: 'ratings',
       title: 'Five-star service',
@@ -289,17 +286,34 @@ function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
   ];
   return rows
     .sort((a, b) => b.pct - a.pct)
-    .map((r, i) => ({ ...r, color: EARN_COLORS[i] ?? EARN_COLORS[EARN_COLORS.length - 1] }));
+    .map((r, i) => ({ ...r, color: EARN_COLORS[i] ?? EARN_COLORS[EARN_COLORS.length - 1] }))
+    .map((r, _i, all) => ({
+      ...r,
+      // The Ratings slide comes first and introduces the 15%, so the ratings
+      // row reuses its note; the other rows number on from the rating card.
+      n:
+        r.key === 'ratings'
+          ? RATINGS_NOTE
+          : EARN_NOTE_BASE + all.filter((x) => x.key !== 'ratings').indexOf(r),
+    }));
 }
 
-/** First footnote number on the Earn more slide (the hero uses 1). */
-const EARN_NOTE_BASE = 2;
+/**
+ * Footnotes run in reading order: the hero is 1, the Ratings slide (which
+ * comes before Earn more) is 2 and 3, and the Earn more rows continue from
+ * 4. The ratings row on Earn more points back to 2. Endnotes are rendered
+ * sorted by these numbers, so nothing is hard-coded twice.
+ */
+const RATINGS_NOTE = 2;
+const RATING_CARD_NOTE = 3;
+const EARN_NOTE_BASE = 4;
+const stackNoteFor = (rows: EarnRow[]) => EARN_NOTE_BASE + rows.filter((r) => r.key !== 'ratings').length;
 
 const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
   const total = rows.reduce((a, r) => a + r.pct, 0);
-  const stackNote = EARN_NOTE_BASE + rows.length;
+  const stackNote = stackNoteFor(rows);
   // The bar always fills the plot; segment heights are proportional.
   const PLOT = 300;
   const scale = PLOT / Math.max(total, 0.0001);
@@ -315,7 +329,7 @@ function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
               <span className="rt-em-base-body">compared with a home listed on Airbnb alone</span>
             </div>
             <div className="rt-em-rows" style={{ gridTemplateRows: `repeat(${rows.length}, minmax(0, 1fr))` }}>
-              {rows.map((r, i) => (
+              {rows.map((r) => (
                 <div key={r.key} className="rt-em-row">
                   <span className="rt-em-swatch" style={{ background: r.color }} />
                   <span className="rt-em-pct">+{pct1(r.pct)}</span>
@@ -323,7 +337,7 @@ function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
                     <div className="rt-em-row-title">{r.title}</div>
                     <div className="rt-em-row-line">
                       {r.line}
-                      <sup>({EARN_NOTE_BASE + i})</sup>
+                      <sup>({r.n})</sup>
                     </div>
                   </div>
                 </div>
@@ -1057,23 +1071,39 @@ function SlideEndnotes({ earnRows, footer }: { earnRows: EarnRow[]; footer: stri
             <span className="rt-en-num">(1)</span>
             Estimated revenue figures are based on data from AirDNA as well as Rising Tide&rsquo;s professional judgment drawn from managing other vacation rental homes on Cape Ann. These projections account for seasonal trends and platform performance across Airbnb, VRBO, and direct booking channels. Actual results may vary due to property-specific factors, market fluctuations, economic conditions, and unforeseen events.
           </li>
-          {earnRows.map((r, i) => (
-            <li key={r.key}>
-              <span className="rt-en-num">({EARN_NOTE_BASE + i})</span>
-              {r.note}
-            </li>
-          ))}
-          <li>
-            <span className="rt-en-num">({EARN_NOTE_BASE + earnRows.length})</span>
-            The stack adds figures from separate sources for illustration; no single study measured them together. The
-            closest is Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing Economy,&rdquo;
-            Ross School of Business Working Paper 1298: properties run by professional hosts earned 16.9% more daily
-            revenue and 15.5% higher occupancy than owner-run properties, controlling for property and market.
-          </li>
-          <li>
-            <span className="rt-en-num">({EARN_NOTE_BASE + earnRows.length + 1})</span>
-            National average: AirDNA (updated September 2025), 4.8 stars for available U.S. Airbnb listings. Rising Tide and company ratings from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
-          </li>
+          {[
+            ...earnRows.map((r) => ({ n: r.n, key: r.key, body: r.note })),
+            {
+              n: RATING_CARD_NOTE,
+              key: 'rating-card',
+              body: (
+                <>
+                  National average: AirDNA (updated September 2025), 4.8 stars for available U.S. Airbnb listings. Rising
+                  Tide and company ratings from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
+                </>
+              ),
+            },
+            {
+              n: stackNoteFor(earnRows),
+              key: 'stack',
+              body: (
+                <>
+                  The stack adds figures from separate sources for illustration; no single study measured them together.
+                  The closest is Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing
+                  Economy,&rdquo; Ross School of Business Working Paper 1298: properties run by professional hosts earned
+                  16.9% more daily revenue and 15.5% higher occupancy than owner-run properties, controlling for property
+                  and market.
+                </>
+              ),
+            },
+          ]
+            .sort((x, y) => x.n - y.n)
+            .map((e) => (
+              <li key={e.key}>
+                <span className="rt-en-num">({e.n})</span>
+                {e.body}
+              </li>
+            ))}
         </ol>
       </div>
       <Footer label={footer} />
