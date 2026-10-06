@@ -383,3 +383,13 @@ identity mismatch, private-field removal, overlapping blocks, reference mismatch
 checkout boundaries and partial failure. Hosted verification remains pending.
 Recoverable prior version: 2023b13c. Current main reference checked:
 e9cb232b2da53ad65c8e33712a5c2a5b516e6e46. Existing draft PR #1714 retained.
+
+Hosted calendar verification at 5a68a8ce: Vercel deployment passed. The staff-only
+page returned 90 calendar nights, zero missing dates and zero nights flagged by
+the implemented diagnostic checks, alongside 11 reservation records, for the
+2026-10-06 through 2027-01-04 exclusive window. No manual/owner/iCal hold label
+was visible in this window, so preservation of those overlapping classifications
+is covered by synthetic tests rather than demonstrated by a live hold here.
+Posted prices and required restriction fields passed normalization. Customer
+records and rates are not copied into this log. This is a Guesty-side snapshot,
+not proof of PriceLabs delivery, independent channel agreement or safe cutover.
