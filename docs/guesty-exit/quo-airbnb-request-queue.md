@@ -105,3 +105,19 @@ Checks: 1,735 npm tests passed (five added alert tests: replay/concurrency,
 self-routing, stale/other inputs, storage failure and ambiguous sends), TypeScript
 and targeted lint checked for this extension. Migration execution, rendered UI,
 and live delivery remain pending; no live SMS or deployment was performed.
+
+## Delivery verification (October 6, 10:41 AM Eastern)
+
+A user-authorized, clearly labeled synthetic test was sent through Quo's UI from
+Operations (+19788652500) to the selected Guest line (+19788652575). The exact test
+appeared in the Guest inbox under RISING TIDE 24/7. No automatic reply appeared
+during the immediate observation. This proves the same-workspace line-to-line
+route, not the API path, database claim, deployed review action, mobile push
+notification, or absence of delayed external automation. No real request or
+booking was created. No calendar changed.
+
+PR #1735 at 466f4f40 has successful GitHub checks and a successful Vercel preview.
+Both migrations and feature-flag activation remain unapplied; production remains
+unchanged. Next: authorize the production rollout, apply the two additive tables,
+merge/deploy the reviewed PR, enable the flags, and verify an authenticated review
+and API-originated alert end to end before calling automatic alerts operational.
