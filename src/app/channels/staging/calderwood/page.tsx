@@ -19,7 +19,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   let result: Awaited<ReturnType<typeof loadCalderwoodRead>> | null = null;
   let error = '';
   if (params.load === '1') {
-    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to }, { token: getGuestyToken }); }
+    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: true }, { token: getGuestyToken }); }
     catch (e) { error = e instanceof Error ? e.message : 'Snapshot unavailable'; }
   }
   return <main className="mx-auto max-w-6xl space-y-6 p-6">
@@ -30,10 +30,18 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
       <input type="hidden" name="load" value="1" />
       <label className="grid gap-1 text-sm">From<input className="rounded border p-2" type="date" name="from" required defaultValue={from} /></label>
       <label className="grid gap-1 text-sm">Until (exclusive)<input className="rounded border p-2" type="date" name="to" required defaultValue={to} /></label>
-      <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit">Read Guesty reservations</button>
+      <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit">Read bookings and calendar</button>
     </form>
-    <aside className="rounded-lg bg-amber-50 p-4 text-sm text-amber-950">Comparison incomplete: Channex is not mapped to Calderwood. Independent blocks, nightly prices and authoritative booking revisions are not included. An empty result does not mean dates are available.</aside>
+    <aside className="rounded-lg bg-amber-50 p-4 text-sm text-amber-950">Comparison incomplete: Channex is not mapped to Calderwood. Calendar evidence is from Guesty only. Authoritative booking revisions and independent channel delivery checks are still missing. An empty result does not mean dates are available.</aside>
     {error && <p role="alert" className="rounded border border-red-300 p-4 text-sm">{error}</p>}
+    {result?.calendarError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Reservations loaded, but the calendar read failed. Pricing and block coverage remain unverified.</p>}
+    {result?.calendar && <section className="space-y-3">
+      <h2 className="font-semibold">{result.calendar.days.length} calendar nights returned · {result.calendar.missingDates.length} missing · {result.calendar.days.filter(d => d.issues.length).length} nights to review</h2>
+      <p className="text-sm text-slate-600">Guesty posted rates in the listed currency, not a guest quote or proof of PriceLabs delivery. Reads are sequential; a mismatch may reflect a change between requests. No dates are cleared for sale by this review.</p>
+      {result.calendar.missingDates.length > 0 && <p role="alert" className="text-sm text-amber-800">Missing dates: {result.calendar.missingDates.join(', ')}</p>}
+      <div className="max-h-[32rem] overflow-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-slate-50"><tr>{['Night', 'Guesty status', 'Rate', 'Minimum', 'Restrictions / blocks', 'Review'].map(label => <th key={label} className="p-3 font-medium">{label}</th>)}</tr></thead>
+      <tbody>{result.calendar.days.map(day => <tr key={day.date} className="border-t align-top"><td className="whitespace-nowrap p-3">{day.date}</td><td className="p-3">{day.status}</td><td className="whitespace-nowrap p-3">{day.price !== null && day.currency ? `${day.currency} ${day.price.toFixed(2)}` : 'Unknown'}</td><td className="p-3">{day.minNights ?? 'Unknown'}</td><td className="p-3">{[...day.reasons, ...(day.cta ? ['No arrivals'] : []), ...(day.ctd ? ['No departures'] : []), ...(day.requestToBook ? ['Request to book'] : []), ...(day.allotment !== null ? [`Allotment: ${day.allotment}`] : [])].join(' · ') || 'None reported'}</td><td className="p-3">{day.issues.join(' · ') || 'No discrepancy detected'}</td></tr>)}</tbody></table></div>
+    </section>}
     {result && <section className="space-y-3"><h2 className="font-semibold">{result.reservations.length} reservation records returned</h2>
       <p className="text-xs text-slate-500">Read completed {result.finishedAt}. Local stay dates shown; checkout excluded. All returned statuses are shown.</p>
       <div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="bg-slate-50"><tr>{['Reservation ID', 'Arrival', 'Departure', 'Status', 'Source'].map(label => <th key={label} className="p-3 font-medium">{label}</th>)}</tr></thead>

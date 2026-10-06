@@ -354,3 +354,32 @@ recorded here; customer records were not copied to documentation. This proves a
 live fixed-property read through the existing server connection, not complete
 availability, cross-provider comparison, shared persistence or cutover readiness.
 No calendar/channel changes or guest messages were made.
+
+## October 6 calendar and pricing review
+
+Extended the approved manual Guesty read with the fixed Calderwood calendar GET.
+The UI's exclusive end is converted to Guesty's inclusive last calendar date.
+Every day must match the fixed listing and requested window; duplicate dates fail.
+Missing dates remain visible gaps. Rates, currency, minimum nights, CTA/CTD,
+request-to-book, allotment, block classifications and reservation references are
+allowlisted. Nested guests, payout data, creator identities and free-text notes
+are discarded. Multiple block reasons survive, including manual holds beside
+reservations. Unknown classifications and missing restriction fields require review.
+
+The comparison checks exact reservation references and checkout-exclusive dates,
+flags overlapping confirmed records and unexplained unavailable nights, and never
+publishes availability. A failed calendar read leaves the reservation snapshot
+visible with an explicit calendar failure. Reads are sequential, not atomic;
+these are Guesty posted rates, not proof of PriceLabs or OTA delivery. No persistence,
+channel writes, messaging sends or production deployment is part of this increment.
+
+Contract references:
+- https://open-api-docs.guesty.com/reference/get_availability-pricing-api-calendar-listings-id
+- https://open-api-docs.guesty.com/docs/calendar-block-types
+
+Validation before commit: 1,777 tests passed; non-incremental TypeScript, targeted
+ESLint and diff checks passed. Synthetic tests cover date coverage, fixed GET,
+identity mismatch, private-field removal, overlapping blocks, reference mismatch,
+checkout boundaries and partial failure. Hosted verification remains pending.
+Recoverable prior version: 2023b13c. Current main reference checked:
+e9cb232b2da53ad65c8e33712a5c2a5b516e6e46. Existing draft PR #1714 retained.

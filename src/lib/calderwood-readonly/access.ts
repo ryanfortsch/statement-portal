@@ -1,3 +1,4 @@
+import { readCalderwoodCalendar, compareCalendar } from './calendar.ts';
 import { readCalderwoodGuesty } from './guesty-reader.ts';
 type Environment = { VERCEL_ENV?: string; VERCEL_GIT_COMMIT_REF?: string; CHANNEX_STAGING_ENABLED?: string };
 export function calderwoodReadAllowed(email: string | null | undefined, env: Environment): boolean {
@@ -5,8 +6,8 @@ export function calderwoodReadAllowed(email: string | null | undefined, env: Env
     && env.VERCEL_GIT_COMMIT_REF === 'codex/channex-staging-pilot' && env.CHANNEX_STAGING_ENABLED === 'true';
 }
 /** Guard before acquiring any token. Token remains server-side and never enters the result. */
-export async function loadCalderwoodRead(input: { email?: string | null; env: Environment; from: string; to: string }, dependencies: {
-  token: () => Promise<string>; read?: typeof readCalderwoodGuesty;
+export async function loadCalderwoodRead(input: { email?: string | null; env: Environment; from: string; to: string; includeCalendar?: boolean }, dependencies: {
+  token: () => Promise<string>; read?: typeof readCalderwoodGuesty; calendar?: typeof readCalderwoodCalendar;
 }) {
   if (!calderwoodReadAllowed(input.email, input.env)) throw Error('Calderwood preview unavailable');
   // Validate the requested window before touching the existing connection.
@@ -14,7 +15,14 @@ export async function loadCalderwoodRead(input: { email?: string | null; env: En
   if (!valid(input.from) || !valid(input.to) || input.from >= input.to || Date.parse(input.to) - Date.parse(input.from) > 366 * 86400000) throw Error('Choose a valid window of up to 366 days');
   try {
     const startedAt = new Date().toISOString();
-    const snapshot = await (dependencies.read ?? readCalderwoodGuesty)(await dependencies.token(), { from: input.from, to: input.to });
-    return { ...snapshot, startedAt, finishedAt: new Date().toISOString() };
+    const token = await dependencies.token();
+    const snapshot = await (dependencies.read ?? readCalderwoodGuesty)(token, { from: input.from, to: input.to });
+    let calendar = null;
+    let calendarError = false;
+    if (input.includeCalendar) {
+      try { const read = await (dependencies.calendar ?? readCalderwoodCalendar)(token, snapshot.window); calendar = { ...read, days: compareCalendar(read, snapshot.reservations) }; }
+      catch { calendarError = true; }
+    }
+    return { ...snapshot, calendar, calendarError, startedAt, finishedAt: new Date().toISOString() };
   } catch { throw Error('Calderwood could not be read from the existing Guesty connection. No calendar changes were made.'); }
 }
