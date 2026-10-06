@@ -38,7 +38,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
       {/* Inline CSS so this page is fully self-contained for print */}
       <style>{deckCss}</style>
 
-      <div className="rt-deck">
+      <div className={`rt-deck${NUMBERED_DECKS.has(projection.id) ? ' rt-deck-numbered' : ''}`}>
         <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
         <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
         <SlidePillars footer={footerLabel} />
@@ -428,6 +428,15 @@ type InstagramProfile = {
   mention?: string; // trailing @handle on the last bio line, shown in link blue
   link: string;
 };
+
+/**
+ * Decks that print a slide number at the bottom right, for walking through
+ * them in a meeting. Opt-in per projection so other decks are unchanged.
+ * The number is a CSS counter, so it follows whichever slides render.
+ */
+const NUMBERED_DECKS = new Set<string>([
+  '5373a935-9c5f-40ec-aa93-d3f0db639669', // John Erickson, 47 Atlantic Road
+]);
 
 const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
   // John Erickson, 47 Atlantic Road, Gloucester (meeting 2026-10-06).
@@ -1487,6 +1496,21 @@ const deckCss = `
     right: 64px;
   }
   .rt-footer-dark .rt-eyebrow { color: var(--paper-3); }
+
+  /* Slide numbers (NUMBERED_DECKS only), on the footer line, right-aligned. */
+  .rt-deck-numbered { counter-reset: rt-slide; }
+  .rt-deck-numbered .rt-slide { counter-increment: rt-slide; }
+  .rt-deck-numbered .rt-slide::after {
+    content: counter(rt-slide);
+    position: absolute;
+    right: 64px;
+    bottom: 36px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--ink-3);
+  }
+  .rt-deck-numbered .rt-slide-cover::after { color: var(--paper-3); }
 
   /* ── Cover slide ── */
   .rt-cover-grid {
