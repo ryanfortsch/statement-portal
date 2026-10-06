@@ -412,7 +412,22 @@ type Improvement =
       title: string;
       items: { title: string; body: string }[];
       image: { src: string; caption: string };
+      // When set, the image sits under an Instagram-style profile header so
+      // the account is recognizable at a glance.
+      profile?: InstagramProfile;
     };
+
+type InstagramProfile = {
+  handle: string;
+  name: string;
+  posts: string;
+  followers: string;
+  following: string;
+  category: string;
+  bio: string[];
+  mention?: string; // trailing @handle on the last bio line, shown in link blue
+  link: string;
+};
 
 const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
   // John Erickson, 47 Atlantic Road, Gloucester (meeting 2026-10-06).
@@ -443,6 +458,18 @@ const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
         },
       ],
       image: { src: '/projections/47-atlantic/stay-cape-ann-instagram.jpg', caption: '@staycapeann on Instagram' },
+      // As shown on instagram.com/staycapeann, 2026-10-06.
+      profile: {
+        handle: 'staycapeann',
+        name: 'Stay Cape Ann',
+        posts: '85',
+        followers: '2,688',
+        following: '38',
+        category: 'Hospitality Service',
+        bio: ['Vacation rentals in Gloucester + Rockport.', 'Book direct & save vs. Airbnb.', 'Professionally managed by'],
+        mention: '@risingtidestr',
+        link: 'www.staycapeann.com',
+      },
     },
     {
       kind: 'beforeAfter',
@@ -520,11 +547,15 @@ function SlideImprovement({
                 </li>
               ))}
             </ol>
-            <figure className="rt-imp-fig rt-imp-bundle-fig">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={item.image.src} alt={item.image.caption} />
-              <figcaption>{item.image.caption}</figcaption>
-            </figure>
+            {item.profile ? (
+              <InstagramCard profile={item.profile} feed={item.image} />
+            ) : (
+              <figure className="rt-imp-fig rt-imp-bundle-fig">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.image.src} alt={item.image.caption} />
+                <figcaption>{item.image.caption}</figcaption>
+              </figure>
+            )}
           </div>
         </div>
         <Footer label={footer} />
@@ -562,6 +593,78 @@ function SlideImprovement({
       </div>
       <Footer label={footer} />
     </section>
+  );
+}
+
+/**
+ * An Instagram profile, drawn rather than screenshotted (a live screenshot
+ * carries Instagram's "Note..." bubble over the avatar). The avatar is the
+ * Stay Cape Ann mark: navy ring, gabled house, sand beam, water below a
+ * chord, on cream, with Instagram's grey ring around it.
+ */
+function InstagramCard({ profile, feed }: { profile: InstagramProfile; feed: { src: string; caption: string } }) {
+  const chordHalf = Math.sqrt(95 * 95 - 45.3 * 45.3);
+  return (
+    <div className="rt-ig">
+      <div className="rt-ig-head">
+        <svg className="rt-ig-avatar" viewBox="0 0 240 240" aria-label={profile.name}>
+          <circle cx="120" cy="120" r="117" fill="#fff" stroke="#dbdbdb" strokeWidth="3" />
+          <circle cx="120" cy="120" r="108" fill="#f4ecd8" />
+          <g transform="translate(30 30) scale(0.9)">
+            <defs>
+              <clipPath id="rt-ig-disc">
+                <circle cx="100" cy="100" r="95" />
+              </clipPath>
+            </defs>
+            <path
+              clipPath="url(#rt-ig-disc)"
+              d={`M${100 - chordHalf} 145.3 L${100 + chordHalf} 145.3 L200 200 L0 200 Z`}
+              fill="#0b2545"
+            />
+            <circle cx="100" cy="100" r="95" fill="none" stroke="#0b2545" strokeWidth="5.6" />
+            <path d="M100 47.9 L136.8 79.6 L136.8 110.5 L63.6 110.5 L63.6 79.6 Z" fill="#0b2545" />
+            <rect x="39.1" y="114.6" width="121.4" height="4.4" rx="2.2" fill="#c8b89a" />
+          </g>
+        </svg>
+        <div className="rt-ig-meta">
+          <div className="rt-ig-handle">
+            {profile.handle}
+            <svg className="rt-ig-check" viewBox="0 0 40 40" aria-label="Verified">
+              <path
+                d="M20 1.6l4.6 3.4 5.7-.3 1.8 5.4 4.6 3.4-1.8 5.5 1.8 5.4-4.6 3.4-1.8 5.4-5.7-.3L20 38.4l-4.6-3.5-5.7.3-1.8-5.4-4.6-3.4 1.8-5.4-1.8-5.5 4.6-3.4 1.8-5.4 5.7.3z"
+                fill="#0095f6"
+              />
+              <path d="M13 20.5l4.6 4.6 9.4-9.6" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div className="rt-ig-name">{profile.name}</div>
+          <div className="rt-ig-stats">
+            <span><b>{profile.posts}</b> posts</span>
+            <span><b>{profile.followers}</b> followers</span>
+            <span><b>{profile.following}</b> following</span>
+          </div>
+          <div className="rt-ig-cat">{profile.category}</div>
+          <div className="rt-ig-bio">
+            {profile.bio.map((line, i) => (
+              <div key={line}>
+                {line}
+                {i === profile.bio.length - 1 && profile.mention ? (
+                  <> <span className="rt-ig-link">{profile.mention}</span></>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="rt-ig-url">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            {profile.link}
+          </div>
+        </div>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img className="rt-ig-feed" src={feed.src} alt={feed.caption} />
+    </div>
   );
 }
 
@@ -2586,6 +2689,32 @@ const deckCss = `
   }
   .rt-imp-bundle-body { margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
   .rt-imp-bundle-fig img { aspect-ratio: auto; height: auto; }
+
+  /* Instagram-style profile card (InstagramCard). Inter stands in for
+     Instagram's system font: it is loaded for the PDF render, a system
+     stack is not. */
+  .rt-ig {
+    background: #fff;
+    border: 1px solid #dbdbdb;
+    border-radius: 10px;
+    padding: 16px 18px 12px;
+    box-shadow: 0 6px 22px rgba(11, 37, 69, 0.08);
+    font-family: var(--font-inter), system-ui, sans-serif;
+    color: #000;
+  }
+  .rt-ig-head { display: grid; grid-template-columns: 88px 1fr; gap: 20px; align-items: start; }
+  .rt-ig-avatar { width: 88px; height: 88px; display: block; }
+  .rt-ig-handle { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; line-height: 1.1; }
+  .rt-ig-check { width: 16px; height: 16px; }
+  .rt-ig-name { margin-top: 4px; font-size: 12px; }
+  .rt-ig-stats { margin-top: 7px; display: flex; gap: 14px; font-size: 12px; }
+  .rt-ig-stats b { font-weight: 700; }
+  .rt-ig-cat { margin-top: 7px; font-size: 11px; color: #737373; }
+  .rt-ig-bio { margin-top: 3px; font-size: 11.5px; line-height: 1.38; }
+  .rt-ig-link { color: #4150f7; }
+  .rt-ig-url { margin-top: 3px; display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: #4150f7; }
+  .rt-ig-url svg { width: 12px; height: 12px; }
+  .rt-ig-feed { margin-top: 12px; width: 100%; display: block; border-radius: 2px; }
 
   /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
   .rt-endnotes {
