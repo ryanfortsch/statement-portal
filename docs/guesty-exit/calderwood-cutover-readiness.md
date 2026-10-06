@@ -393,3 +393,37 @@ is covered by synthetic tests rather than demonstrated by a live hold here.
 Posted prices and required restriction fields passed normalization. Customer
 records and rates are not copied into this log. This is a Guesty-side snapshot,
 not proof of PriceLabs delivery, independent channel agreement or safe cutover.
+
+## October 6 isolated Channex property mapping
+
+Created and read back in the existing Channex staging account through its UI:
+
+| Identity | Value |
+| --- | --- |
+| Property | `30584a9a-8784-4eb1-a387-e26bd43aec1c` |
+| Property title | 65 Calderwood - Isolated Staging |
+| Room type | `f795ae2c-f47d-4751-86ff-e883b6d30800` |
+| Room title | 65 Calderwood - Whole Home |
+| Rate plan | `7f95b731-ff05-4c41-99c9-f39b3e772fec` |
+| Rate title | TEST ONLY - Calderwood - CLOSED - $100 placeholder |
+
+Single rentable unit, six adult-compatible guest spaces, no separate child/cot
+spaces configured. Property currency USD, timezone America/New_York, Holiday Home,
+Gloucester, Massachusetts. No precise address, guests or live booking data uploaded.
+Automatic availability adjustment on modified/cancelled bookings was disabled at
+creation. New-booking reduction is mandatory in Channex. The rate is per-room,
+USD100 synthetic placeholder, arrival/through minimums 1; stop-sell checked on all
+seven weekdays and verified by reopening the saved rate. These are test settings,
+not migrated Calderwood production policy. No cancellation policy or tax set copied.
+The Calderwood-filtered Channels page explicitly showed no channels.
+
+The existing saved staging API key returned HTTP404 on a fixed GET for this new
+property. That result alone is not proof of absence; the authenticated UI confirms
+the property exists. The saved key was originally scoped to Beach only. API scope
+expansion to only this staging property was requested and remains pending approval.
+No key was printed, copied or changed. No API reader/configuration has been switched
+to these IDs yet, and no two-provider comparison or live Airbnb mapping is claimed.
+
+Only staging UI configuration and this documentation changed. Prior code checkpoint
+73bfe96b remains recoverable. Documentation diff check passed; application tests
+were not rerun for this documentation-only increment. Existing PR #1714 retained.
