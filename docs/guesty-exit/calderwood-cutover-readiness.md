@@ -283,3 +283,39 @@ API route, database schema or channel setting changed.
 
 Prior recoverable checkpoint: 3b262d71. Main reference checked before this increment:
 5a012a09680d41bf074acf029c17cb6f6077d974. Same isolated pilot branch and PR #1714.
+
+## October 6 Guesty read-only adapter, not activated
+
+Added `src/lib/calderwood-readonly/guesty-reader.ts` and five contract tests in
+`src/lib/__tests__/calderwood-guesty-reader.test.ts`. The adapter pins the verified
+Calderwood Guesty listing and Airbnb listing IDs. Channex mapping remains null;
+no property, room or host ID is invented.
+
+The official legacy search reference points to
+https://open-api-docs.guesty.com/reference/reservationsopenapicontroller_searchreservations
+at GET /v1/reservations-v3/search. Its documented response uses reservationId,
+localized dates on each stay, and pagination.hasMore. The new adapter uses that
+contract rather than silently reusing the legacy reservation shape. It requests a
+bounded date window and fixed listing ID, includes all statuses, validates every
+single-stay identity, rejects duplicate/incomplete pages and withholds raw errors.
+Only reservation ID, listing ID, local dates, status and source are returned.
+Multi-stay reservations require manual review; no date-slicing UTC fallback exists.
+
+Results explicitly distinguish completed pagination from an incomplete migration
+baseline. They have no revision authority, no block coverage, no Channex comparison
+and no publishing capability. List pagination is not an atomic snapshot; missing
+rows never imply cancellation. No live-to-synthetic event conversion is provided.
+The current Guesty token helper can update Helm's production auth cache, so it is
+not imported into this isolated adapter. The adapter requires an explicit server
+access token and neither reads environment files nor provisions credentials.
+
+Validation: 1,768 tests, TypeScript without incremental caching, targeted ESLint
+and diff checks passed. Tests use synthetic response fixtures derived from the
+published schema, not captured customer records. No actual Guesty API read, database
+write, route activation or live comparison occurred. The isolated worktree has no
+Guesty credential configured; only its existing Channex staging credential exists.
+The user was asked how to arrange secure Guesty access, without pasting secrets.
+Shared staging snapshot persistence remains unimplemented; no schema was applied.
+
+Recoverable prior checkpoint: 723a94d2. Main reference checked before this increment:
+b3c318cfabd853033a6004e6295461675aace6b1. Existing branch and draft PR #1714 retained.
