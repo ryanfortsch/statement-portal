@@ -46,8 +46,9 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
         <SlideEarnMore rows={earnRows} footer={footerLabel} />
         {improvements.length > 0 && (
           <>
-            {/* The opener only earns its slide once there is a list to show. */}
-            {improvements.length > 1 && (
+            {/* The opener only earns its slide once there is a real list to show;
+                at one or two items the first slide's eyebrow opens the section. */}
+            {improvements.length > 2 && (
               <SlideImprovementsIntro projection={projection} items={improvements} footer={footerLabel} />
             )}
             {improvements.map((it, i) => (
@@ -396,18 +397,55 @@ function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
  * To add an improvement to a deck, append to its list. To give another
  * prospect a section, add their projection id.
  */
-type Improvement = {
-  title: string;
-  lead: string;
-  points: string[];
-  before: { src: string; label: string };
-  after: { src: string; label: string };
-};
+type Improvement =
+  | {
+      kind: 'beforeAfter';
+      title: string;
+      lead: string;
+      points: string[];
+      before: { src: string; label: string };
+      after: { src: string; label: string };
+    }
+  | {
+      // Several smaller changes on one slide, with one supporting image.
+      kind: 'bundle';
+      title: string;
+      items: { title: string; body: string }[];
+      image: { src: string; caption: string };
+    };
 
 const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
   // John Erickson, 47 Atlantic Road, Gloucester (meeting 2026-10-06).
   '5373a935-9c5f-40ec-aa93-d3f0db639669': [
     {
+      kind: 'bundle',
+      title: 'A marketing refresh',
+      items: [
+        {
+          title: 'Drone photography',
+          body: 'Aerial shots that show how close the home sits to Good Harbor Beach. The listing has none today.',
+        },
+        {
+          title: 'A full listing description',
+          body: 'The home, the views and the neighborhood, written out in full. Today\u2019s copy is a few short lines.',
+        },
+        {
+          title: 'Sleeps 9, up from 8',
+          body: 'Listed for one more guest, so the home appears in searches from larger groups.',
+        },
+        {
+          title: 'Vrbo and Booking.com',
+          body: 'Listed beyond Airbnb, where families and groups also search: the \u201cevery platform\u201d lift from earlier.',
+        },
+        {
+          title: 'Stay Cape Ann social',
+          body: 'Featured on @staycapeann, our Instagram for guests, with 2,688 followers.',
+        },
+      ],
+      image: { src: '/projections/47-atlantic/stay-cape-ann-instagram.jpg', caption: '@staycapeann on Instagram' },
+    },
+    {
+      kind: 'beforeAfter',
       title: 'New photography',
       lead: 'Listing photos are the first thing every guest sees. We reshoot the home in full daylight, styled, so the ocean view does the selling.',
       points: [
@@ -461,6 +499,38 @@ function SlideImprovement({
   item: Improvement;
   footer: string;
 }) {
+  if (item.kind === 'bundle') {
+    return (
+      <section className="rt-slide">
+        <Header label={footer} />
+        <div className="rt-content-pad">
+          <div className="rt-imp-eyebrow">
+            Specific to {address} &middot; {String(n).padStart(2, '0')}
+          </div>
+          <h2 className="rt-section-title">{item.title}</h2>
+          <div className="rt-imp-bundle">
+            <ol className="rt-imp-bundle-list">
+              {item.items.map((it, i) => (
+                <li key={it.title}>
+                  <span className="rt-imp-bundle-num">{i + 1}</span>
+                  <div>
+                    <div className="rt-imp-bundle-title">{it.title}</div>
+                    <div className="rt-imp-bundle-body">{it.body}</div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <figure className="rt-imp-fig rt-imp-bundle-fig">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={item.image.src} alt={item.image.caption} />
+              <figcaption>{item.image.caption}</figcaption>
+            </figure>
+          </div>
+        </div>
+        <Footer label={footer} />
+      </section>
+    );
+  }
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -2481,6 +2551,41 @@ const deckCss = `
     color: var(--ink-3);
   }
   .rt-imp-mark { color: var(--signal); font-size: 12px; padding-top: 2px; }
+
+  .rt-imp-bundle {
+    margin-top: 22px;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 48px;
+    align-items: center;
+    min-height: 0;
+  }
+  .rt-imp-bundle-list { margin: 0; padding: 0; list-style: none; }
+  .rt-imp-bundle-list li {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 14px;
+    padding: 10px 0;
+    border-top: 1px solid var(--rule);
+    align-items: baseline;
+  }
+  .rt-imp-bundle-list li:last-child { border-bottom: 1px solid var(--rule); }
+  .rt-imp-bundle-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--signal);
+    line-height: 1;
+  }
+  .rt-imp-bundle-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 18px;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .rt-imp-bundle-body { margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+  .rt-imp-bundle-fig img { aspect-ratio: auto; height: auto; }
 
   /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
   .rt-endnotes {
