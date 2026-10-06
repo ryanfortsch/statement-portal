@@ -319,3 +319,25 @@ Shared staging snapshot persistence remains unimplemented; no schema was applied
 
 Recoverable prior checkpoint: 723a94d2. Main reference checked before this increment:
 b3c318cfabd853033a6004e6295461675aace6b1. Existing branch and draft PR #1714 retained.
+
+## October 6 approved existing-connection wiring
+
+The user approved reuse of Helm's existing Guesty connection. Added a staff-only
+page at /channels/staging/calderwood and a dependency-injected access boundary.
+It refuses production, other branches, disabled staging and non-staff sessions
+before acquiring a token. Date-window validation also precedes credential access.
+A manual GET form triggers a fixed-property snapshot; initial page load does not
+call Guesty. The view shows minimal reservation identity/dates/status/source and
+explicitly identifies the absent Channex mapping and incomplete baseline.
+
+The page reuses getGuestyToken server-side. That existing helper may refresh its
+normal credential cache in Helm's database; no new credential is copied into the
+pilot or exposed to the browser. No booking, calendar, channel or messaging writer
+is called. Raw provider/auth errors are withheld. The page is dynamically rendered
+with no provider fetch cache, and remains behind the existing proxy and staff auth.
+
+Validation: 1,771 tests passed, including denial-before-token and secret-redaction
+checks. TypeScript and targeted lint results are recorded in the handoff. Hosted
+credential availability and actual returned reservations still require verification;
+code wiring alone does not prove a live import. Shared snapshot persistence remains
+pending. No local preview was attempted. Previous recoverable commit: fef89bf6.

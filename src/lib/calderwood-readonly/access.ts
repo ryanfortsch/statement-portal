@@ -1,0 +1,20 @@
+import { readCalderwoodGuesty } from './guesty-reader.ts';
+type Environment = { VERCEL_ENV?: string; VERCEL_GIT_COMMIT_REF?: string; CHANNEX_STAGING_ENABLED?: string };
+export function calderwoodReadAllowed(email: string | null | undefined, env: Environment): boolean {
+  return !!email?.endsWith('@risingtidestr.com') && env.VERCEL_ENV === 'preview'
+    && env.VERCEL_GIT_COMMIT_REF === 'codex/channex-staging-pilot' && env.CHANNEX_STAGING_ENABLED === 'true';
+}
+/** Guard before acquiring any token. Token remains server-side and never enters the result. */
+export async function loadCalderwoodRead(input: { email?: string | null; env: Environment; from: string; to: string }, dependencies: {
+  token: () => Promise<string>; read?: typeof readCalderwoodGuesty;
+}) {
+  if (!calderwoodReadAllowed(input.email, input.env)) throw Error('Calderwood preview unavailable');
+  // Validate the requested window before touching the existing connection.
+  const valid = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+  if (!valid(input.from) || !valid(input.to) || input.from >= input.to || Date.parse(input.to) - Date.parse(input.from) > 366 * 86400000) throw Error('Choose a valid window of up to 366 days');
+  try {
+    const startedAt = new Date().toISOString();
+    const snapshot = await (dependencies.read ?? readCalderwoodGuesty)(await dependencies.token(), { from: input.from, to: input.to });
+    return { ...snapshot, startedAt, finishedAt: new Date().toISOString() };
+  } catch { throw Error('Calderwood could not be read from the existing Guesty connection. No calendar changes were made.'); }
+}
