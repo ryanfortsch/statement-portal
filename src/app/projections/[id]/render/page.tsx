@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ProjectionRow } from '@/lib/projections-types';
@@ -30,8 +30,67 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
   const propertyTag = `${projection.property_address}${projection.property_city ? `, ${projection.property_city.split(',')[0].toUpperCase()}` : ''}`.toUpperCase();
   const footerLabel = `${monthYear} | ${propertyTag}`;
   const greetingName = (projection.prospect_first_name || projection.prospect_name.split(/[, ]/)[0]).toUpperCase();
-  const earnRows = earnMoreRows(c);
+  const order = DECK_ORDER_BY_PROJECTION[projection.id] ?? DEFAULT_ORDER;
+  // The Ratings slide, when it comes before Earn more, introduces the 15%
+  // and carries notes 2 and 3; without it the Earn more rows number from 2.
+  const ratingsFirst =
+    order.includes('ratings') && order.indexOf('ratings') < order.indexOf('earnMore');
+  const earnRows = earnMoreRows(c, ratingsFirst);
   const improvements = IMPROVEMENTS_BY_PROJECTION[projection.id] ?? [];
+
+  const improvementSlide = (i: number) => {
+    const it = improvements[i];
+    return it ? (
+      <SlideImprovement key={`improvement-${i + 1}`} n={i + 1} address={projection.property_address} item={it} footer={footerLabel} />
+    ) : null;
+  };
+  const slide = (key: SlideKey): ReactNode => {
+    switch (key) {
+      case 'cover':
+        return <SlideCover key={key} projection={projection} monthYear={monthYear} footer={footerLabel} />;
+      case 'hero':
+        return <SlideHero key={key} projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />;
+      case 'pillars':
+        return <SlidePillars key={key} footer={footerLabel} />;
+      case 'ratings':
+        return <SlideRatings key={key} revenueNote={RATINGS_NOTE} ratingNote={RATING_CARD_NOTE} footer={footerLabel} />;
+      case 'earnMore':
+        return <SlideEarnMore key={key} rows={earnRows} footer={footerLabel} />;
+      case 'improvements':
+        // The default placement: every improvement, with an opener once
+        // there is a real list (at one or two items the first slide's
+        // eyebrow opens the section).
+        return improvements.length === 0 ? null : (
+          <Fragment key={key}>
+            {improvements.length > 2 && (
+              <SlideImprovementsIntro projection={projection} items={improvements} footer={footerLabel} />
+            )}
+            {improvements.map((_, i) => improvementSlide(i))}
+          </Fragment>
+        );
+      case 'local':
+        return <SlideLocal key={key} projection={projection} footer={footerLabel} />;
+      case 'year1':
+        return <SlideYear1 key={key} computed={c} footer={footerLabel} />;
+      case 'ramp':
+        return projection.apply_ramp ? <SlideRamp key={key} projection={projection} computed={c} footer={footerLabel} /> : null;
+      case 'monthly':
+        // Opt-in line-item detail, read as a zoom-in on Year 1.
+        return projection.include_monthly_breakdown ? <SlideMonthlyBreakdown key={key} computed={c} footer={footerLabel} /> : null;
+      case 'year2':
+        return <SlideYear2 key={key} computed={c} footer={footerLabel} />;
+      case 'services':
+        return <SlideServices key={key} footer={footerLabel} />;
+      case 'owner':
+        return <SlideOwnerControl key={key} projection={projection} computed={c} footer={footerLabel} />;
+      case 'close':
+        return <SlideClose key={key} footer={footerLabel} />;
+      case 'endnotes':
+        return <SlideEndnotes key={key} earnRows={earnRows} ratingCard={ratingsFirst} footer={footerLabel} />;
+      default:
+        return improvementSlide(Number(key.slice('improvement-'.length)) - 1);
+    }
+  };
 
   return (
     <>
@@ -39,43 +98,7 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
       <style>{deckCss}</style>
 
       <div className={`rt-deck${NUMBERED_DECKS.has(projection.id) ? ' rt-deck-numbered' : ''}`}>
-        <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
-        <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
-        <SlidePillars footer={footerLabel} />
-        <SlideRatings revenueNote={RATINGS_NOTE} ratingNote={RATING_CARD_NOTE} footer={footerLabel} />
-        <SlideEarnMore rows={earnRows} footer={footerLabel} />
-        {improvements.length > 0 && (
-          <>
-            {/* The opener only earns its slide once there is a real list to show;
-                at one or two items the first slide's eyebrow opens the section. */}
-            {improvements.length > 2 && (
-              <SlideImprovementsIntro projection={projection} items={improvements} footer={footerLabel} />
-            )}
-            {improvements.map((it, i) => (
-              <SlideImprovement
-                key={it.title}
-                n={i + 1}
-                address={projection.property_address}
-                item={it}
-                footer={footerLabel}
-              />
-            ))}
-          </>
-        )}
-        <SlideLocal projection={projection} footer={footerLabel} />
-        <SlideYear1 computed={c} footer={footerLabel} />
-        {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
-        {/* Opt-in line-item detail for owners who want it. Placed right
-            after Year 1 so the prospect reads it as a zoom-in on the
-            monthly average they just saw. */}
-        {projection.include_monthly_breakdown && (
-          <SlideMonthlyBreakdown computed={c} footer={footerLabel} />
-        )}
-        <SlideYear2 computed={c} footer={footerLabel} />
-        <SlideServices footer={footerLabel} />
-        <SlideOwnerControl projection={projection} computed={c} footer={footerLabel} />
-        <SlideClose footer={footerLabel} />
-        <SlideEndnotes earnRows={earnRows} footer={footerLabel} />
+        {order.map(slide)}
       </div>
     </>
   );
@@ -233,7 +256,7 @@ type EarnRow = {
 
 const EARN_COLORS = ['#7a5622', '#946d2e', '#b48f52', '#cdb07c', '#e2cfa6'];
 
-function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
+function earnMoreRows(computed: ProjectionComputed, ratingsFirst = true): EarnRow[] {
   const gross = computed.year1.mid.grossRevenue;
   const supplyPct = gross > 0 ? SUPPLIES_PER_HOME_YEAR / gross : 0;
   const rows: Omit<EarnRow, 'color' | 'n'>[] = [
@@ -306,27 +329,30 @@ function earnMoreRows(computed: ProjectionComputed): EarnRow[] {
   return rows
     .sort((a, b) => b.pct - a.pct)
     .map((r, i) => ({ ...r, color: EARN_COLORS[i] ?? EARN_COLORS[EARN_COLORS.length - 1] }))
-    .map((r, _i, all) => ({
+    .map((r, i, all) => ({
       ...r,
-      // The Ratings slide comes first and introduces the 15%, so the ratings
-      // row reuses its note; the other rows number on from the rating card.
-      n:
-        r.key === 'ratings'
+      // With the Ratings slide first, the ratings row reuses its note and the
+      // other rows number on from the rating card. Without it, the rows simply
+      // number 2, 3, 4... in display order.
+      n: !ratingsFirst
+        ? 2 + i
+        : r.key === 'ratings'
           ? RATINGS_NOTE
           : EARN_NOTE_BASE + all.filter((x) => x.key !== 'ratings').indexOf(r),
     }));
 }
 
 /**
- * Footnotes run in reading order: the hero is 1, the Ratings slide (which
+ * Footnotes run in reading order: the hero is 1, the Ratings slide (when it
  * comes before Earn more) is 2 and 3, and the Earn more rows continue from
- * 4. The ratings row on Earn more points back to 2. Endnotes are rendered
- * sorted by these numbers, so nothing is hard-coded twice.
+ * 4, the ratings row pointing back to 2. A deck without the Ratings slide
+ * numbers the rows from 2. The stack note follows the last row. Endnotes
+ * are rendered sorted by these numbers, so nothing is hard-coded twice.
  */
 const RATINGS_NOTE = 2;
 const RATING_CARD_NOTE = 3;
 const EARN_NOTE_BASE = 4;
-const stackNoteFor = (rows: EarnRow[]) => EARN_NOTE_BASE + rows.filter((r) => r.key !== 'ratings').length;
+const stackNoteFor = (rows: EarnRow[]) => Math.max(1, ...rows.map((r) => r.n)) + 1;
 
 const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
 
@@ -415,6 +441,19 @@ type Improvement =
       // When set, the image sits under an Instagram-style profile header so
       // the account is recognizable at a glance.
       profile?: InstagramProfile;
+    }
+  | {
+      // Today's nightly price against ours, with one week side by side.
+      kind: 'pricing';
+      title: string;
+      lead: string;
+      today: { figure: string; caption: string; sub: string };
+      ours: { figure: string; caption: string; sub: string };
+      week: {
+        days: string[];
+        rows: { label: string; prices: number[]; ours?: boolean }[];
+      };
+      source: string;
     };
 
 type InstagramProfile = {
@@ -427,6 +466,45 @@ type InstagramProfile = {
   bio: string[];
   mention?: string; // trailing @handle on the last bio line, shown in link blue
   link: string;
+};
+
+type SlideKey =
+  | 'cover'
+  | 'hero'
+  | 'pillars'
+  | 'ratings'
+  | 'earnMore'
+  | 'improvements'
+  | `improvement-${number}`
+  | 'local'
+  | 'year1'
+  | 'ramp'
+  | 'monthly'
+  | 'year2'
+  | 'services'
+  | 'owner'
+  | 'close'
+  | 'endnotes';
+
+/** Every deck's order unless it has its own below. Ramp and monthly render only when the projection opts in. */
+const DEFAULT_ORDER: SlideKey[] = [
+  'cover', 'hero', 'pillars', 'ratings', 'earnMore', 'improvements', 'local',
+  'year1', 'ramp', 'monthly', 'year2', 'services', 'owner', 'close', 'endnotes',
+];
+
+/**
+ * Per-deck running order, keyed by projection id. A slide left out does not
+ * render; footnotes renumber from whatever is shown.
+ */
+const DECK_ORDER_BY_PROJECTION: Record<string, SlideKey[]> = {
+  // John Erickson, 47 Atlantic Road: Dotti's order for the 2026-10-06
+  // meeting. The Ratings slide is not in it.
+  '5373a935-9c5f-40ec-aa93-d3f0db639669': [
+    'cover', 'hero', 'pillars', 'local',
+    'improvement-1', 'improvement-2', 'improvement-3',
+    'year1', 'ramp', 'monthly', 'year2', 'earnMore',
+    'services', 'owner', 'close', 'endnotes',
+  ],
 };
 
 /**
@@ -492,6 +570,25 @@ const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
       before: { src: '/projections/47-atlantic/primary-bedroom-today.jpg', label: 'Today' },
       after: { src: '/projections/47-atlantic/primary-bedroom-rising-tide.jpg', label: 'With Rising Tide (preview)' },
     },
+    {
+      // Today: AirDNA listing data for the home, read 2026-10-06 (every July
+      // 2027 night at $861; August 2026 average daily rate $803). Ours: 21
+      // Horton (3BR, Gloucester) in PriceLabs, July 4-10 2027, same day. The
+      // $1,200-$1,400 summer range is Dotti's estimate for this 2BR.
+      kind: 'pricing',
+      title: 'Priced to the market',
+      lead: 'Every July night at 47 Atlantic Road is priced the same today: weekends, the Fourth and midweek alike. We price each night to demand.',
+      today: { figure: '$861', caption: 'a night, every night of July 2027', sub: 'Today' },
+      ours: { figure: '$1,200\u2013$1,400', caption: 'a night in summer', sub: 'With Rising Tide (estimate)' },
+      week: {
+        days: ['Sun 4', 'Mon 5', 'Tue 6', 'Wed 7', 'Thu 8', 'Fri 9', 'Sat 10'],
+        rows: [
+          { label: '47 Atlantic Road today', prices: [861, 861, 861, 861, 861, 861, 861] },
+          { label: 'A 3-bedroom we manage in Gloucester', prices: [1563, 1574, 1575, 1577, 1587, 1594, 1596], ours: true },
+        ],
+      },
+      source: 'Sources: AirDNA listing data for 47 Atlantic Road, October 2026 (July 2027 calendar; August 2026 average daily rate $803). Rising Tide pricing in PriceLabs, July 2027. The summer range is Rising Tide\u2019s estimate for this home.',
+    },
   ],
 };
 
@@ -535,6 +632,59 @@ function SlideImprovement({
   item: Improvement;
   footer: string;
 }) {
+  if (item.kind === 'pricing') {
+    return (
+      <section className="rt-slide">
+        <Header label={footer} />
+        <div className="rt-content-pad">
+          <div className="rt-imp-eyebrow">
+            Specific to {address} &middot; {String(n).padStart(2, '0')}
+          </div>
+          <h2 className="rt-section-title">{item.title}</h2>
+          <p className="rt-imp-price-lead">{item.lead}</p>
+          <div className="rt-imp-price-compare">
+            <div className="rt-imp-price-side">
+              <div className="rt-y2-cap">{item.today.sub}</div>
+              <div className="rt-imp-price-amt">{item.today.figure}</div>
+              <div className="rt-y2-sub">{item.today.caption}</div>
+            </div>
+            <div className="rt-y2-arrow-wrap rt-imp-price-arrow" aria-hidden="true">
+              <div className="rt-y2-arrow-line" />
+              <div className="rt-y2-arrow-pill">Priced daily</div>
+              <div className="rt-y2-arrow-head" />
+            </div>
+            <div className="rt-imp-price-side">
+              <div className="rt-y2-cap rt-y2-cap-rt">{item.ours.sub}</div>
+              <div className="rt-imp-price-amt rt-imp-price-amt-rt">{item.ours.figure}</div>
+              <div className="rt-y2-sub">{item.ours.caption}</div>
+            </div>
+          </div>
+          <table className="rt-imp-week">
+            <thead>
+              <tr>
+                <th />
+                {item.week.days.map((d) => (
+                  <th key={d}>{d}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {item.week.rows.map((r) => (
+                <tr key={r.label} className={r.ours ? 'rt-imp-week-ours' : ''}>
+                  <td className="rt-imp-week-label">{r.label}</td>
+                  {r.prices.map((p, i) => (
+                    <td key={i}>${p.toLocaleString('en-US')}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="rt-imp-price-src">{item.source}</p>
+        </div>
+        <Footer label={footer} />
+      </section>
+    );
+  }
   if (item.kind === 'bundle') {
     return (
       <section className="rt-slide">
@@ -1367,7 +1517,7 @@ function SlideClose({ footer }: { footer: string }) {
   );
 }
 
-function SlideEndnotes({ earnRows, footer }: { earnRows: EarnRow[]; footer: string }) {
+function SlideEndnotes({ earnRows, ratingCard, footer }: { earnRows: EarnRow[]; ratingCard: boolean; footer: string }) {
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -1380,7 +1530,7 @@ function SlideEndnotes({ earnRows, footer }: { earnRows: EarnRow[]; footer: stri
           </li>
           {[
             ...earnRows.map((r) => ({ n: r.n, key: r.key, body: r.note })),
-            {
+            ...(ratingCard ? [{
               n: RATING_CARD_NOTE,
               key: 'rating-card',
               body: (
@@ -1389,7 +1539,7 @@ function SlideEndnotes({ earnRows, footer }: { earnRows: EarnRow[]; footer: stri
                   Tide and company ratings from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
                 </>
               ),
-            },
+            }] : []),
             {
               n: stackNoteFor(earnRows),
               key: 'stack',
@@ -2739,6 +2889,66 @@ const deckCss = `
   .rt-ig-url { margin-top: 3px; display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: #4150f7; }
   .rt-ig-url svg { width: 12px; height: 12px; }
   .rt-ig-feed { margin-top: 12px; width: 100%; display: block; border-radius: 2px; }
+
+  /* Pricing improvement: today vs ours, then one week side by side. */
+  .rt-imp-price-lead { margin: 6px 0 0; font-size: 15px; line-height: 1.5; color: var(--ink-3); max-width: 860px; }
+  .rt-imp-price-compare {
+    margin-top: 22px;
+    display: grid;
+    grid-template-columns: 1fr 200px 1fr;
+    gap: 24px;
+    align-items: center;
+  }
+  .rt-imp-price-side { text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .rt-imp-price-side .rt-y2-cap { margin-bottom: 10px; }
+  .rt-imp-price-side .rt-y2-sub { margin-top: 8px; font-size: 16px; }
+  .rt-imp-price-amt {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 64px;
+    line-height: 1;
+    font-weight: 300;
+    color: var(--ink-3);
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+  .rt-imp-price-amt-rt { color: var(--signal); }
+  .rt-imp-price-arrow { width: 200px; }
+  .rt-imp-price-arrow .rt-y2-arrow-pill { font-size: 15px; padding: 7px 16px; white-space: nowrap; }
+  .rt-imp-week {
+    margin-top: 26px;
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-variant-numeric: tabular-nums;
+  }
+  .rt-imp-week th {
+    padding: 8px 6px;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    text-align: center;
+    border-bottom: 1.5px solid var(--ink);
+  }
+  .rt-imp-week th:first-child { width: 260px; }
+  .rt-imp-week td {
+    padding: 10px 6px;
+    text-align: center;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 18px;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule);
+  }
+  .rt-imp-week td.rt-imp-week-label {
+    text-align: left;
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .rt-imp-week-ours td { color: var(--signal); background: rgba(148, 109, 46, 0.07); }
+  .rt-imp-week-ours td.rt-imp-week-label { color: var(--signal); font-weight: 600; }
+  .rt-imp-price-src { margin: 12px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--ink-4); max-width: 980px; }
 
   /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
   .rt-endnotes {
