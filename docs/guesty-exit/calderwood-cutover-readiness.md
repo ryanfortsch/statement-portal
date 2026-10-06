@@ -256,3 +256,30 @@ echo suppression, price comparison, transport retry or inventory writer yet. The
 next implementation is source mapping and durable reconciliation, with ambiguous
 block origins retained rather than reopened. This does not establish production
 coordination or eliminate simultaneous-booking races.
+
+## October 6 local durable rehearsal history
+
+Added `src/lib/calderwood-rehearsal/store.ts` and six tests in
+`src/lib/__tests__/calderwood-store.test.ts`. Explicit initialization refuses an
+existing file; missing/corrupt history cannot silently become an empty calendar.
+Writes use the existing exclusive local lock, expected-version checks, a private
+0600 temporary file, file sync, atomic rename and directory sync. Duplicate retries
+do not advance the version; a stale expected version requires a reload. Freshness
+is deliberately not persisted as an enduring permission to clear inventory.
+
+Validation: 1,763 tests passed; TypeScript without incremental caching, targeted
+ESLint and diff checks passed. Separate child processes exercise exit after a
+completed durable append and death while holding the lock. The former replays
+idempotently; the latter retains the lock for explicit recovery. Tests use only
+private temporary directories and synthetic events. No production files or
+credentials are loaded.
+
+This is local-filesystem rehearsal storage, not hosted/shared storage. It does not
+prove power-loss durability, a crash at every write boundary, provider delivery or
+cross-host concurrency. Mid-write failure can require operator review; no automatic
+lock stealing or live ACK occurs. Authoritative provider-event mapping, durable
+shared deployment and block receipt/echo handling remain next. No existing worker,
+API route, database schema or channel setting changed.
+
+Prior recoverable checkpoint: 3b262d71. Main reference checked before this increment:
+5a012a09680d41bf074acf029c17cb6f6077d974. Same isolated pilot branch and PR #1714.
