@@ -228,3 +228,31 @@ ddaed715bfef16cbf0ec5f1cf1516ef9ab4ebf53. Existing isolated branch retained.
 No application code or external settings changed. Full documentation review,
 referenced local path checks and git diff --check are the relevant validation;
 application tests are not required for this documentation-only change.
+
+## October 6 isolated coordination rehearsal
+
+Implemented `src/lib/calderwood-rehearsal/coordination.ts`, with seven synthetic
+scenario tests in `src/lib/__tests__/calderwood-coordination.test.ts`. No route,
+worker, database, provider credential or live publishing path imports this module.
+Recoverable prior checkpoint: 76046854. Main reference checked before this work:
+e4bb9782fc352cc03a1319f7359a8a0b497d544f. Branch remains codex/channex-staging-pilot.
+
+The rehearsal retains append-only source-identified events, rejects conflicting
+revision identities, ignores late older revisions for current state, and computes
+occupied nights from reservations, independent holds and unknown blocks. Checkout
+is exclusive. Missing/incomplete/stale/future coverage withholds clear results.
+Multiple reservation claims are flagged for identity/conflict review, never merged
+by matching dates. Every result is non-executable; an empty night is only clear for
+review, not an instruction to publish availability.
+
+Validation: 1,757 tests passed, including seven new scenarios; targeted ESLint
+passed. The initial TypeScript run could not write its incremental cache because
+of workspace permissions; npx tsc --noEmit --incremental false then passed. No provider calls or live settings changed.
+
+Limitations: synthetic numeric revision ordering is not a provider revision policy.
+The replay test serializes/reloads memory, not a hosted crash/restart. There is no
+persistent ledger, verified duplicate-import mapping, coordinator-block receipt or
+echo suppression, price comparison, transport retry or inventory writer yet. The
+next implementation is source mapping and durable reconciliation, with ambiguous
+block origins retained rather than reopened. This does not establish production
+coordination or eliminate simultaneous-booking races.
