@@ -480,3 +480,11 @@ without verified stop-sell, alongside 11 reservation records. Comparison window
 automatically corrected. No customer records/rates are retained in this log.
 Vercel preview build passed. No local browser preview, provider writes or
 production deployment occurred.
+
+### Stopped nightly proposal (2026-10-06)
+
+- Added a pure, display-only proposal above the provider comparison. Candidates use positive USD posted rates with cent precision and explicit arrival/departure restrictions; every candidate fixes inventory at zero and stop-sell on.
+- Guesty minimum is displayed as unmapped. Existing staging arrival/through minimums and maximum stay are preserved. Request-to-book translation remains unresolved. No writer, apply action, exported provider payload or persistence was added.
+- Exact staging mapping and full date coverage are required; missing evidence, unknown blocks, calendar discrepancies and non-stopped baseline nights withhold candidates. Status never claims executable or migration-ready.
+- Validation: 1,786 tests passed, nonincremental TypeScript passed, targeted ESLint passed, diff whitespace check passed. Synthetic tests cover preserved restrictions, stopped output, missing/duplicate/extra dates, bad rates, source discrepancies and mapping changes.
+- Recoverable prior commit: `0691ada9`. Hosted verification pending at this entry. Live channel settings and production remain unchanged.

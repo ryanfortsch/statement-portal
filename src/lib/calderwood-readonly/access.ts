@@ -1,3 +1,4 @@
+import { proposeStoppedCalendar } from './proposal.ts';
 import { readCalderwoodChannex, compareProviders } from './channex.ts';
 import { readCalderwoodCalendar, compareCalendar } from './calendar.ts';
 import { readCalderwoodGuesty } from './guesty-reader.ts';
@@ -24,12 +25,13 @@ export async function loadCalderwoodRead(input: { email?: string | null; env: En
       try { const read = await (dependencies.calendar ?? readCalderwoodCalendar)(token, snapshot.window); calendar = { ...read, days: compareCalendar(read, snapshot.reservations) }; }
       catch { calendarError = true; }
     }
-    let staging = null;
+    let staging: (Awaited<ReturnType<typeof readCalderwoodChannex>> & { comparison: ReturnType<typeof compareProviders> }) | null = null;
     let stagingError = false;
     if (calendar && dependencies.stagingKey) {
       try { const data = await (dependencies.stagingRead ?? readCalderwoodChannex)(dependencies.stagingKey(), snapshot.window); staging = { ...data, comparison: compareProviders(calendar, data) }; }
       catch { stagingError = true; }
     }
-    return { ...snapshot, calendar, calendarError, staging, stagingError, startedAt, finishedAt: new Date().toISOString() };
+    const proposal = calendar && staging ? proposeStoppedCalendar(snapshot.window, calendar, staging) : null;
+    return { ...snapshot, calendar, calendarError, staging, stagingError, proposal, startedAt, finishedAt: new Date().toISOString() };
   } catch { throw Error('Calderwood could not be read from the existing Guesty connection. No calendar changes were made.'); }
 }

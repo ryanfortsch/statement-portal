@@ -36,6 +36,20 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
     {error && <p role="alert" className="rounded border border-red-300 p-4 text-sm">{error}</p>}
     {result?.calendarError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Reservations loaded, but the calendar read failed. Pricing and block coverage remain unverified.</p>}
     {result?.stagingError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Channex staging could not be verified. Its mapping, channel isolation, key access or calendar response needs review. Guesty results remain visible.</p>}
+    {result?.proposal && <section className="space-y-3 rounded-lg border border-slate-300 bg-white p-4">
+      <h2 className="text-lg font-semibold">Proposed staging update</h2>
+      <p className="text-sm">{result.proposal.rows.length} nights reviewed · {result.proposal.rows.filter(r => r.candidate).length} complete candidate nights · {result.proposal.status === 'incomplete' ? 'Incomplete evidence' : 'Awaiting restriction review'}</p>
+      <p className="text-sm text-slate-600">Review only. Nothing is sent or saved. Every candidate keeps inventory at zero and stop-sell on. Minimums and maximum stay remain at their current staging values until their meaning is verified.</p>
+      {result.proposal.blockers.length > 0 && <p role="alert" className="text-sm text-amber-900">{result.proposal.blockers.join(' · ')}</p>}
+      <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">{result.proposal.unresolved.map(item => <li key={item}>{item}</li>)}</ul>
+      <details><summary className="cursor-pointer py-2 text-sm font-medium">Review nightly candidates</summary>
+        <div className="max-h-96 overflow-auto"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-slate-50"><tr>{['Night', 'Current staging rate', 'Candidate', 'Restrictions held for review'].map(label => <th className="p-3" key={label}>{label}</th>)}</tr></thead><tbody>{result.proposal.rows.map(row => <tr key={row.date} className="border-t align-top">
+          <td className="whitespace-nowrap p-3">{row.date}</td><td className="p-3">{row.current?.price == null ? 'Unknown' : `USD ${row.current.price.toFixed(2)}`}</td>
+          <td className="p-3">{row.candidate ? <>USD {row.candidate.price.toFixed(2)}<br />Inventory 0 · Stop-sell on<br />Arrivals {row.candidate.cta ? 'closed' : 'allowed'} · Departures {row.candidate.ctd ? 'closed' : 'allowed'}</> : row.issues.join(' · ')}</td>
+          <td className="p-3">{row.candidate ? <>Guesty minimum: {row.candidate.sourceMinimum} (unmapped)<br />Keep arrival {row.candidate.minArrival} / through {row.candidate.minThrough} / maximum {row.candidate.maxStay}</> : 'No candidate'}</td>
+        </tr>)}</tbody></table></div>
+      </details>
+    </section>}
     {result?.staging && <section className="space-y-3">
       <h2 className="text-lg font-semibold">Guesty live vs Channex staging</h2>
       <p className="text-sm">{result.staging.comparison.length} nights compared · {result.staging.comparison.filter(r => r.differences.length).length} with differences · {result.staging.comparison.filter(r => r.missing.length).length} with missing evidence · {result.staging.comparison.filter(r => r.test.stopSell !== true).length} without verified stop-sell</p>
