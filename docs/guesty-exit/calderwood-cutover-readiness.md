@@ -558,3 +558,45 @@ customizations checked separately. References:
 https://help.pricelabs.co/portal/en/kb/articles/transitioning-between-management-systems
 https://help.pricelabs.co/portal/en/kb/articles/mapping-listings
 Documentation-only validation: diff/whitespace review; no application changes.
+
+### Production access check and implementation gaps (2026-10-07)
+
+Production Google sign-in with Ryan's existing account returned to the sign-in
+screen without opening a workspace. No subscription, agreement, production
+property or credential was created. This outcome does not establish whether the
+account exists or why access failed.
+
+Current official sources:
+- https://channex.io/connect-first-property
+- https://docs.channex.io/api-v.1-documentation/pms-certification-tests
+- https://channex.io/pricing
+
+Channex documents certification and a live product demonstration before production
+access. Published pricing starts at USD130/month platform fee, plus USD0.50 per
+connected vacation-rental unit and optional USD0.50/unit messaging. A property
+without active channels avoids the unit fee, not necessarily the platform fee.
+No spending approved or incurred by this check.
+
+Source audit of the pilot branch (not a certification pass):
+
+| Requirement area | Existing implementation | Gap / next work |
+| --- | --- | --- |
+| Durable booking receipt before ACK | `src/lib/channex-staging/shared-sync.ts` verifies saved normalized revisions before ACK; `scripts/channex-shared-worker.mts` retries polling with increasing delay | Still scoped to Beach staging; no Calderwood production mapping or webhook receiver shown by this audit |
+| Outbound inventory updates | `src/lib/channex-staging/closure-worker.ts` persists intent and performs closure-only read-back recovery | Single-operation staging mechanism, not a general event-driven ARI outbox |
+| Provider writer | `src/lib/channex-staging/client.ts` writes stopped Beach inventory with fixed test rate/minimum | Must not be repurposed into a PriceLabs pricing writer; retain existing guarded rehearsal |
+| Rate-limit/retry behavior | Booking poll loop backs off; client request raises HTTP failures | No general outbound ARI batching/limiting/retry queue established here |
+| Calderwood pricing | Read-only comparison and non-executable proposal | PriceLabs owns dynamic pricing; connector delivery and restriction semantics not yet proven |
+| Production readiness | No production workspace reached | Certification evidence and production access unresolved |
+
+Next engineering slice: design and implement the durable inventory-change outbox
+behind isolated staging operations, with explicit property mappings, batching,
+retry scheduling and ambiguous-write reconciliation. Keep PriceLabs-owned rate
+fields out of this inventory publisher. Then demonstrate supported end-to-end
+booking/update/recovery behavior from real application operations and assemble
+certification evidence. Do not fabricate success by running standalone canned
+API calls. PriceLabs production delivery remains a later integration check.
+
+This corrects the preceding suggestion to immediately create an isolated
+production property: that route is contingent on actual production access.
+No Channex outreach or form submission. Documentation-only diff/whitespace check;
+no executable changes or application tests in this turn.
