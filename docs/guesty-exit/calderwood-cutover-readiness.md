@@ -496,3 +496,39 @@ production deployment occurred.
 - Vercel preview build passed; GitHub CI run 37553552848 completed successfully. Screenshot inspected locally at `/tmp/calderwood-stopped-proposal.jpg`; no live rate values committed to documentation.
 - Next: establish minimum-stay mapping semantics and test them before any proposed provider write. Production, live channel connections, messages, database and worker were unchanged.
 - This verification entry is documentation-only; complete diff and whitespace checked, application checks remain those run on source `be98ceae`.
+
+### PriceLabs pricing ownership and direct connector (2026-10-07 UTC)
+
+User clarified that PriceLabs owns dynamic minimum stays. The previous nightly
+proposal is a diagnostic snapshot, not the intended ongoing pricing writer.
+Target direction: PriceLabs sends rates and supported restrictions directly to
+Channex; Helm monitors delivery and coordinates inventory without overwriting
+PriceLabs-owned fields. Existing PriceLabs-to-Guesty sync remains enabled.
+
+Evidence: [PriceLabs Channex integration guide](https://help.pricelabs.co/portal/en/kb/articles/how-to-integrate-pricelabs-with-channex)
+confirms dynamic rates, minimum stays and check-in/out restrictions up to 540 days,
+per-room pricing only, parent rate plans, and a Price and Restrictions update
+option. It explicitly warns that PMS pricing pushes can override PriceLabs.
+It also notes direct bookings are not received via this API, requiring separate
+reservation input for that information. [Portfolio Analytics availability](https://help.pricelabs.co/portal/en/kb/articles/portfolio-analytics-integrations)
+lists Channex as unsupported. Reservation feedback and occupancy-dependent
+behavior therefore require an explicit test, not just outbound rate parity.
+
+Read-only browser check: Calderwood's existing Guesty-linked PriceLabs listing
+has price sync enabled and dynamic lead-time minimums. Inspected the actual
+Add/Re-import Listings > Channex form: API Key field and Connect button, with no
+visible environment selector. No key entered, connection created, sync triggered,
+settings saved or existing listings remapped. Sandbox compatibility remains
+unverified; do not infer it from the presence of the connector.
+
+Next experiment: establish the connector environment, then use a dedicated key
+scoped only to an isolated Calderwood property with no channels. Review imported
+rate plan selection and inherited/custom settings before enabling any sync.
+If production-only, prepare an isolated production Channex property separately;
+this entry does not authorize production creation or credential sharing. Verify
+rates, minimum-stay interpretation, date overrides, gap rules, subsequent updates,
+and reservation feedback before any Airbnb cutover. Keep Guesty routing active
+throughout. No support outreach requested or sent.
+
+Documentation-only update: diff/whitespace review; no application source changes
+or repeated application tests. Local setup screenshot: /tmp/pricelabs-channex-setup.jpg.
