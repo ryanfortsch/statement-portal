@@ -12,6 +12,8 @@
  * here. Keeping the canonical copy isolated is deliberate.
  */
 
+import { isVrboFlatCommissionBooking } from './vrbo-commission.ts';
+
 /**
  * Strip the legacy 4.4% commission kludge.
  *
@@ -25,7 +27,9 @@
  *   - Manual / Direct: real commission = 0. Anything > 2% of the pre-tax
  *     booking total is the kludge -- return 0.
  *   - VRBO / HomeAway: real commission = 5%. > 7% means the 4.4% kludge
- *     is stacked on top -- restore the underlying 5%.
+ *     is stacked on top -- restore the underlying 5%. EXCEPT a booking
+ *     made on or after Vrbo's flat-12% cutoff (`bookedAt`, see
+ *     lib/vrbo-commission.ts), whose commission is real and kept.
  *   - Airbnb / Booking.com: pass through unchanged; they handle commission
  *     themselves and were never kludged.
  *
@@ -42,6 +46,7 @@ export function effectiveCommission(
   taxes: number,
   commission: number,
   folioPreTax?: number | null,
+  bookedAt?: string | null,
 ): number {
   if (!commission || commission <= 0) return 0;
   const base = folioPreTax && folioPreTax > 0
@@ -54,6 +59,8 @@ export function effectiveCommission(
     return ratio > 0.02 ? 0 : commission;
   }
   if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    // Booked under Vrbo's flat 12% (lib/vrbo-commission.ts): real, keep it.
+    if (isVrboFlatCommissionBooking(bookedAt)) return commission;
     return ratio > 0.07 ? Math.round(base * 0.05 * 100) / 100 : commission;
   }
   return commission;
@@ -74,9 +81,10 @@ export function wasCommissionStripped(
   taxes: number,
   commission: number,
   folioPreTax?: number | null,
+  bookedAt?: string | null,
 ): boolean {
   if (!commission || commission <= 0) return false;
-  const eff = effectiveCommission(platform, totalPaid, taxes, commission, folioPreTax);
+  const eff = effectiveCommission(platform, totalPaid, taxes, commission, folioPreTax, bookedAt);
   // Use a 1-cent tolerance to avoid floating point noise.
   return Math.abs(eff - commission) > 0.01;
 }

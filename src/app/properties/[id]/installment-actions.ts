@@ -24,6 +24,7 @@ export type MultiMonthGuestyRow = {
   total_taxes: number | null;
   channel_commission: number | null;
   owner_net_revenue_guesty: number | null;
+  booked_at: string | null;
 };
 
 export type InstallmentRow = {
@@ -49,7 +50,7 @@ export async function loadMultiMonthData(propertyId: string): Promise<{
   const todayIso = new Date().toISOString().slice(0, 10);
   const { data: rows } = await supabaseAdmin
     .from('guesty_reservations')
-    .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
+    .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, booked_at')
     .eq('property_id', propertyId)
     .gte('check_out', todayIso)
     .order('check_in', { ascending: true });

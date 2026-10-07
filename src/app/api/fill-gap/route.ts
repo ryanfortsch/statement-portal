@@ -12,6 +12,7 @@ import { upsertCsvReservations } from '@/lib/guesty-csv-rows';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { splitFolio } from '@/lib/remittance';
+import { isVrboFlatCommissionBooking } from '@/lib/vrbo-commission';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -135,8 +136,9 @@ function stripLegacyCommissionKludge(args: {
   totalTaxes: number;
   commission: number;
   folioPreTax?: number | null;
+  bookedAt?: string | null;
 }): { effective: number; hadKludge: boolean } {
-  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax, bookedAt } = args;
   if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
   // Booking-level base. total_paid is payment-level and Guesty logs only one
   // leg of a 50/50 split, which doubles the ratio and reads a real 5% VRBO
@@ -152,6 +154,8 @@ function stripLegacyCommissionKludge(args: {
     return { effective: commission, hadKludge: false };
   }
   if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    // Booked under Vrbo's flat 12% (lib/vrbo-commission.ts): real, keep it.
+    if (isVrboFlatCommissionBooking(bookedAt)) return { effective: commission, hadKludge: false };
     if (ratio > 0.07) {
       return { effective: round2(base * 0.05), hadKludge: true };
     }
@@ -396,14 +400,18 @@ async function fillPlatformGap(args: {
   // alongside and let the recognition math below prefer it. Same rule as
   // /api/ingest -- keep in lockstep.
   const folioByCode = new Map<string, { preTax: number; gross: number }>();
+  // When each guest booked, from the same read: decides whether a Vrbo
+  // commission is the flat 12% (real) or may carry the legacy kludge.
+  const bookedAtByCode = new Map<string, string>();
   {
     const codes = reservations.map(r => r.confirmation_code).filter(Boolean);
     if (codes.length > 0) {
       const { data: folioRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, folio_items')
+        .select('confirmation_code, folio_items, booked_at')
         .in('confirmation_code', codes);
       for (const row of folioRows || []) {
+        if (row.confirmation_code && row.booked_at) bookedAtByCode.set(row.confirmation_code, row.booked_at);
         const f = splitFolio(row.folio_items);
         if (f.hasFolio && row.confirmation_code) {
           folioByCode.set(row.confirmation_code, {
@@ -460,6 +468,7 @@ async function fillPlatformGap(args: {
           platform: normalizedPlatform,
           totalPaid, totalTaxes, commission: rawCommission,
           folioPreTax: folio ? folio.preTax : null,
+          bookedAt: bookedAtByCode.get(res.confirmation_code) ?? null,
         });
         stripeFee = calcStripeFee(totalPaid);
         adjustedRevenue = round2(totalPaid - totalTaxes - effective - stripeFee);

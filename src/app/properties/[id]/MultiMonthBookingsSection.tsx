@@ -33,6 +33,7 @@ type GuestyRow = {
   total_taxes: number | null;
   channel_commission: number | null;
   owner_net_revenue_guesty: number | null;
+  booked_at?: string | null;
 };
 
 // 30-night minimum: short bookings that happen to straddle a month
@@ -67,7 +68,7 @@ function computeAdjustedRevenue(g: GuestyRow): number {
   if (isStripe && totalPaid > 0) {
     const taxes = Number(g.total_taxes || 0);
     const rawCommission = Number(g.channel_commission || 0);
-    const commission = effectiveCommission(platform, totalPaid, taxes, rawCommission);
+    const commission = effectiveCommission(platform, totalPaid, taxes, rawCommission, null, g.booked_at ?? null);
     const stripeFee = Math.round((totalPaid * 0.039 + 0.40) * 100) / 100;
     return Math.round((totalPaid - taxes - commission - stripeFee) * 100) / 100;
   }
@@ -332,6 +333,7 @@ export function MultiMonthBookingsSection({ propertyId }: { propertyId: string }
               total_paid: editingBooking.total_paid,
               total_taxes: editingBooking.total_taxes,
               channel_commission: editingBooking.channel_commission,
+              booked_at: editingBooking.booked_at ?? null,
               stripe_fee_estimate: stripeFeeEst,
             } satisfies CrossMonthBooking}
             open={!!editingCode}
