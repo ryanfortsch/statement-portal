@@ -190,3 +190,43 @@ This checkpoint adds only a verification SQL file and documentation. The verific
 was executed against staging; application source is unchanged, so the prior 1,817-test result
 is historical and was not rerun for this checkpoint. Diff/whitespace checks passed. Branch
 `codex/channex-staging-pilot`, implementation base `517ec281`; remote main observed `0a3cb8b6`.
+
+### Synthetic dispatch/recovery rehearsal: October 7, 2026
+
+Added `inventory-rehearsal.ts`, `scripts/channex-inventory-rehearsal.mts`, and
+`inventory-worker-rehearsal.test.ts`. The runner uses the real queue preparation and command
+journal, a synthetic provider only, fixed non-listing identities and stopped test inventory.
+The operator CLI uses the existing allowlisted Supabase adapter, never a Channex client.
+A synthetic receipt file models provider evidence; losing it blocks recovery instead of
+inventing a successful delivery. This file is not durable provider infrastructure and must
+not be used as a production receipt store.
+
+Three subprocess fault tests terminate after the persisted pre-send barrier, after the
+synthetic provider applies a command, and after receipt persistence. New processes recover
+from disk, reject partial evidence, repeat recovery and dispatch, and assert exactly one
+submission for applied commands, zero for the pre-send interruption. A pre-send interruption
+remains uncertain because no provider evidence proves a safe resend. All records are synthetic,
+child environments exclude credentials, and there are no network calls in these tests.
+
+Worker packaging now pins zod 4.4.1 and copies the opt-in CLI; the existing Docker CMD and
+normal booking/message loops are unchanged. Clean worker-only `npm ci` succeeded with ten
+installed packages and zero reported vulnerabilities; module imports and refusal to run
+without explicit mode passed without network IO. All 1,820 application tests, TypeScript,
+targeted lint and diff checks passed. No hosted deploy or rehearsal invocation this turn.
+
+Hosted operator sequence AFTER reviewed staging deployment (credentials already in worker
+configuration; never paste or print them):
+
+```sh
+CHANNEX_INVENTORY_REHEARSAL=synthetic-only node scripts/channex-inventory-rehearsal.mts dispatch rehearsal-UNIQUE /tmp/inventory-UNIQUE.json exit-after-submit
+# Use a lowercase unique identifier in place of UNIQUE. Exit 72 is the intentional interruption.
+# Retain that receipt file. After the 30-second lease has elapsed:
+CHANNEX_INVENTORY_REHEARSAL=synthetic-only node scripts/channex-inventory-rehearsal.mts recover rehearsal-UNIQUE /tmp/inventory-UNIQUE.json
+```
+
+Expected recovery result is verified with recordedSubmissions=1 and submissions=0. Repeat
+recovery and dispatch with the same run ID: recordedSubmissions must stay 1. The new CLI is
+ready locally but has not run against hosted storage, so this remains the next verification
+gate. Deployment/main integration review is pending. Branch codex/channex-staging-pilot;
+base for this change ee3b4e4a; remote main observed 0a3cb8b6. No paid activation or live channel
+change. Preserve existing Guesty operation and PriceLabs authority.
