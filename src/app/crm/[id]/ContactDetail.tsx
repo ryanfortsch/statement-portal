@@ -13,6 +13,8 @@ import {
   deleteContactTouch,
 } from '../actions';
 import { ContactDraftEmailButton } from './ContactDraftEmailButton';
+import { ContactMeetings } from './ContactMeetings';
+import type { ContactMeetingRow } from '@/lib/meetings-core';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
@@ -23,10 +25,11 @@ type Props = {
   touches: ContactTouchRow[];
   properties: PropertyMini[];
   linkedSlips: ContactSlip[];
+  meetings: { upcoming: ContactMeetingRow[]; past: ContactMeetingRow[] };
   myEmail: string;
 };
 
-export function ContactDetail({ contact, touches, properties, linkedSlips, myEmail }: Props) {
+export function ContactDetail({ contact, touches, properties, linkedSlips, meetings, myEmail }: Props) {
   const softRefresh = useSoftRefresh();
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -470,6 +473,19 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, myEma
           )}
         </div>
       </section>
+
+      {/* MEETINGS: dated sit-downs with this contact. Important ones get
+          the evening-before text; all of them show on the home feed. */}
+      <ContactMeetings
+        contactId={contact.id}
+        contactName={contact.name}
+        contactType={contact.type}
+        properties={properties}
+        linkedPropertyIds={contact.linked_property_ids ?? []}
+        upcoming={meetings.upcoming}
+        past={meetings.past}
+        disabled={deleting}
+      />
 
       {/* OPEN WORK ACROSS LINKED PROPERTIES */}
       {(contact.linked_property_ids ?? []).length > 0 && (
