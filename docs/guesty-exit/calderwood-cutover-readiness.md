@@ -427,3 +427,20 @@ to these IDs yet, and no two-provider comparison or live Airbnb mapping is claim
 Only staging UI configuration and this documentation changed. Prior code checkpoint
 73bfe96b remains recoverable. Documentation diff check passed; application tests
 were not rerun for this documentation-only increment. Existing PR #1714 retained.
+
+### Approved staging key scope, October 6
+
+The user approved adding Calderwood staging to the existing key. Updated only
+its explicitly selected property set: the original Front/Back test properties plus
+`30584a9a-8784-4eb1-a387-e26bd43aec1c`. Reopened the saved editor and confirmed
+Only Selected, 3 of 3. All-properties access remains off; existing IP settings,
+key value, name and credential storage are unchanged.
+
+Using the existing privately stored key, fixed-host GET requests for the exact
+property, room and rate IDs each returned HTTP200. Response allowlists confirmed
+USD, America/New_York, one room, adult capacity six, exact property/room
+relationships and all seven stop-sell values true. Only configuration identifiers
+were output; no raw response bodies, secrets or booking records were logged.
+This completes API access verification, not calendar parity or live OTA mapping.
+No rates, availability, bookings or messages were written through the API.
+Documentation-only diff check; no application source changes or new test run.
