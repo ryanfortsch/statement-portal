@@ -123,3 +123,37 @@ an externally computed desired snapshot; it does not calculate bookings or valid
 ownership. A dispatch adapter must refresh that snapshot and source completeness before IO,
 and a reconciliation adapter must prove the attempt settled before supplying complete
 read-back evidence. No live writer is ready for activation from these synthetic tests alone.
+
+### Persistence implementation checkpoint: October 7, 2026
+
+Added `inventory-journal.ts`, `inventory-journal-store.ts`, and `inventory-worker.ts`.
+Successful transitions append to a validated command journal; replay reconstructs the queue
+and fencing sequence. Storage CAS selects a single winner, and the worker helper returns a
+submitting job only after the barrier is committed. A lost commit response yields no dispatch
+authorization. A restored submitting attempt becomes uncertain on lease expiry. Context must
+be refreshed between claim and dispatch. These helpers are not installed in the running
+Render loop and contain no provider transport.
+
+The Supabase adapter accepts only the isolated staging URL, never production environment
+fallbacks, and never initializes missing history. The append RPC draft is in
+`staging-storage/inventory-store.sql`, outside production migrations. It serializes appends,
+rejects prior-command rewrites, retains the full event history, enables RLS, denies client
+roles, and grants only read plus the append RPC to the service role. It seeds an empty journal
+only when the SQL is deliberately applied. Nothing has been applied remotely.
+
+Nine additional tests cover concurrent CAS claims, lost save response, failure/slow refresh,
+replay validation, and recovery in a separate Node process from a temporary saved journal.
+All 1,817 tests pass; TypeScript (no emit/no incremental) and targeted ESLint pass. The database
+RPC has NOT been executed: no local Postgres executable is available, and no remote DB was
+accessed. The file-backed subprocess check validates replay, not Supabase persistence or
+network durability. Current remote main was observed at `0a3cb8b6`; this isolated work remains
+based on the owned pilot branch, with current-main integration review still required.
+
+Next verification step: review/apply the SQL solely to the isolated staging project, exercise
+real CAS contention, denied client access and history preservation there, then wire a
+synthetic-only worker exercise. Keep live publisher activation separate. Use the database
+clock for distributed leases in a future dispatch adapter; current helpers accept a clock for
+synthetic tests. The full-journal model is bounded at 10,000 commands and deliberately stops
+rather than trimming history. It is a small pilot adapter, not a fleet-scale storage design.
+No live transport should rely on this helper without the existing mapping, source completeness,
+authority and provider task reconciliation gates.
