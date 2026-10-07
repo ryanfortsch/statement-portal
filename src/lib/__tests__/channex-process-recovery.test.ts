@@ -27,7 +27,7 @@ const store = {
  }
 };
 const client = {
- inspect:async()=>[],readRevisions:async()=>[revision],
+ inspectReadSource:async()=>[],readRevisions:async()=>[revision],
  acknowledge:async()=>{
   const state=read();
   if(state.version!==1||state.journal.events.length!==1)throw Error('ACK without durable revision');

@@ -269,3 +269,18 @@ paths; `git diff --check` passed. The 1,820 tests, TypeScript and targeted lint 
 the deployed source in the preceding implementation checkpoint, not rerun for this doc
 update. Branch `codex/channex-staging-pilot`, implementation base `f286e93d`; existing
 draft PR #1714 updated.
+
+### Separate ingestion and publishing checks: October 7, 2026
+
+Added `inspectReadSource()` for message ingestion and the shared revision sync. It retains
+fixed staging host, property/room identity, capacity, currency/timezone, isolated rate-plan
+and stopped-default checks. Only the no-channel requirement differs. The original
+`inspect()` remains strict for snapshots/rehearsals and every inventory publication;
+read inspection produces no reusable write permission. Revision normalization and durable
+storage-before-ACK are unchanged; this is not live booking ingestion support.
+
+Regression coverage proves attached-channel reads use GET only, changed capacity still
+fails, and prior read success cannot enable a snapshot or any calendar POST. Updated
+existing sync/message/process-recovery fixtures for the explicit read interface. All
+1,822 tests, nonincremental TypeScript, targeted ESLint and diff checks passed. Base
+8bf5b49c; remote main observed 7b9a358a. Hosted polling verification pending deployment.

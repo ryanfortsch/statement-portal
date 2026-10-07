@@ -18,7 +18,7 @@ test('message text remains inert text; attachment content is excluded',()=>{
  assert.equal(JSON.stringify(normalized).includes('private'),false);
  assert.throws(()=>normalizePilotMessage(raw,messageId),/outside/);
 });
-class FixtureClient extends ChannexStagingClient{async inspect(){return [];}}
+class FixtureClient extends ChannexStagingClient{async inspectReadSource(){return [];}}
 function fixture(data:unknown[],total=data.length,page=1){return Response.json({data,meta:{total,page,limit:100}});}
 test('message reads use GET only and reject foreign IDs before content request',async()=>{
  const calls:string[]=[];

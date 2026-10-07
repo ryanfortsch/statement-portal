@@ -120,7 +120,7 @@ test('journal survives reload, is private, and rejects concurrent writers', asyn
 });
 
 const rateId = '00000000-0000-4000-8000-000000000001';
-function fakeApi(options: { channel?: boolean; warn?: boolean; readBackMismatch?: boolean; pages?: boolean; realBooking?: boolean; wrongBookingProperty?: boolean } = {}) {
+function fakeApi(options: { channel?: boolean; wrongCapacity?: boolean; warn?: boolean; readBackMismatch?: boolean; pages?: boolean; realBooking?: boolean; wrongBookingProperty?: boolean } = {}) {
   const calls: Array<{ url: URL; init?: RequestInit }> = [];
   const fake = async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input)); calls.push({ url, init });
@@ -130,10 +130,11 @@ function fakeApi(options: { channel?: boolean; warn?: boolean; readBackMismatch?
     const rel = { property: { data: { id: p.propertyId } }, room_type: { data: { id: p.roomTypeId } } };
     if (init?.method === 'POST') body = { data: [{ id: 'task' }], meta: { message: 'Success', warnings: options.warn ? [{ warning: 'invalid' }] : [] } };
     else if (url.pathname.includes('/properties/')) body = { data: { id: p.propertyId, attributes: { title: `17 Beach - ${unit} (Staging)`, currency: 'USD', timezone: 'America/New_York' } } };
-    else if (url.pathname.includes('/room_types/')) body = { data: { id: p.roomTypeId, attributes: { count_of_rooms: 1, occ_adults: p.capacity }, relationships: rel } };
+    else if (url.pathname.includes('/room_types/')) body = { data: { id: p.roomTypeId, attributes: { count_of_rooms: 1, occ_adults: options.wrongCapacity ? 999 : p.capacity }, relationships: rel } };
     else if (url.pathname.endsWith('/availability')) body = { data: { [p.roomTypeId]: { '2027-02-01': options.readBackMismatch ? 9 : 0 } } };
     else if (url.pathname.endsWith('/restrictions')) body = { data: { [rateId]: { '2027-02-01': { rate: '100.00', stop_sell: true, min_stay_arrival: 20, min_stay_through: 1 } } } };
     else if (url.pathname.endsWith('/rate_plans')) body = { data: [{ id: rateId, attributes: { title: TEST_RATE_TITLE, currency: 'USD', stop_sell: Array(7).fill(true) }, relationships: rel }], meta: { page: 1, total: 1, limit: 100 } };
+    else if (url.pathname.endsWith('/message_threads')) body = { data: [], meta: { page: 1, total: 0, limit: 100 } };
     else if (url.pathname.endsWith('/bookings')) {
       const r = raw();
       const attributes = { ...r.attributes, property_id: options.wrongBookingProperty ? PILOTS.back.propertyId : p.propertyId, rooms: [{ ...r.attributes.rooms[0], room_type_id: options.wrongBookingProperty ? PILOTS.back.roomTypeId : p.roomTypeId }], ota_name: options.realBooking ? 'Airbnb' : 'Offline', revision_id: `revision-${unit}` };
@@ -224,4 +225,20 @@ test('workspace snapshot reads complete booking lists without consuming or ackno
 test('workspace rejects non-test bookings and an ignored property filter', async () => {
   await assert.rejects(() => fakeApi({ realBooking: true }).client.readSnapshot(), /Non-synthetic/);
   await assert.rejects(() => fakeApi({ wrongBookingProperty: true }).client.readSnapshot(), /outside the requested/);
+});
+
+
+test('read-source inspection with attached channels never authorizes publishing', async () => {
+  const { client, calls } = fakeApi({ channel: true });
+  assert.equal((await client.inspectReadSource()).length, 2);
+  assert.deepEqual(await client.readMessages('front'), { threads: [], messages: [], selectedThread: null });
+  assert.ok(calls.every(call => call.init?.method === 'GET'));
+  await assert.rejects(() => client.inspect(), /channel is attached/);
+  await assert.rejects(() => client.readSnapshot(), /channel is attached/);
+  await assert.rejects(() => client.publishStoppedInventory(
+    availability(emptyLedger(), [], '2027-02-01', '2027-02-02', full)), /channel is attached/);
+  assert.equal(calls.filter(call => call.init?.method === 'POST').length, 0);
+});
+test('read-source inspection still rejects changed property capacity', async () => {
+  await assert.rejects(() => fakeApi({ channel: true, wrongCapacity: true }).client.inspectReadSource(), /capacity changed/);
 });

@@ -66,7 +66,7 @@ export class ChannexStagingClient {
   /** Staging only. Proves selected thread ownership before requesting its contents. */
   async readMessages(unit: Unit, threadId?: string) {
     if (unit !== 'front' && unit !== 'back') throw new Error('Unknown pilot unit');
-    await this.inspect();
+    await this.inspectReadSource();
     const threads = (await this.#list('/message_threads', unit)).map(row => normalizePilotThread(row, unit));
     if (!threadId) return {threads, messages: [], selectedThread: null};
     const selected = threads.find(thread => thread.id === uuid(threadId));
@@ -74,7 +74,15 @@ export class ChannexStagingClient {
     const messages = (await this.#list(`/message_threads/${selected.id}/messages`, unit)).map(row => normalizePilotMessage(row, selected.id));
     return {threads, selectedThread: selected.id, messages};
   }
+  /** Identity checks for ingestion only. This never grants publishing authority. */
+  async inspectReadSource(): Promise<PilotMapping[]> {
+    return this.#inspectMappings(false);
+  }
+  /** Publishing/rehearsal inspection must keep the no-channel gate. */
   async inspect(): Promise<PilotMapping[]> {
+    return this.#inspectMappings(true);
+  }
+  async #inspectMappings(requireNoChannels: boolean): Promise<PilotMapping[]> {
     const mappings: PilotMapping[] = [];
     for (const unit of ['front', 'back'] as Unit[]) {
       const expected = PILOTS[unit];
@@ -83,7 +91,7 @@ export class ChannexStagingClient {
       if (property.id !== expected.propertyId || !String(attrs.title).endsWith('(Staging)') || attrs.currency !== 'USD' || attrs.timezone !== 'America/New_York') throw new Error('Pilot property identity or configuration changed');
       const room = record((await this.#request(`/room_types/${expected.roomTypeId}`)).data), roomAttrs = record(room.attributes);
       if (room.id !== expected.roomTypeId || relation(room, 'property') !== expected.propertyId || roomAttrs.count_of_rooms !== 1 || roomAttrs.occ_adults !== expected.capacity) throw new Error('Pilot room mapping or capacity changed');
-      if ((await this.#list('/channels', unit)).length) throw new Error('A channel is attached to the pilot; sandbox writes are prohibited');
+      if (requireNoChannels && (await this.#list('/channels', unit)).length) throw new Error('A channel is attached to the pilot; sandbox writes are prohibited');
       const rates = await this.#list('/rate_plans', unit);
       if (rates.length !== 1) throw new Error('Expected exactly one isolated test rate plan');
       const rate = rates[0], rateAttrs = record(rate.attributes);

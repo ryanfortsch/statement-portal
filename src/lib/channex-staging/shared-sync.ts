@@ -4,8 +4,8 @@ import { replayOwnership } from './ownership-journal.ts';
 import { validateRevision } from './core.ts';
 import type { SharedOwnershipStore } from './shared-ownership.ts';
 import type { ChannexStagingClient } from './client.ts';
-export async function syncSharedRevisions(store:SharedOwnershipStore,client:Pick<ChannexStagingClient,'inspect'|'readRevisions'|'acknowledge'>){
- await client.inspect();
+export async function syncSharedRevisions(store:SharedOwnershipStore,client:Pick<ChannexStagingClient,'inspectReadSource'|'readRevisions'|'acknowledge'>){
+ await client.inspectReadSource();
  const revisions=await client.readRevisions();
  const result=await saveObservedRevisions(store,revisions);
  let acknowledged=0;
