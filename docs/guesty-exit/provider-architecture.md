@@ -296,3 +296,28 @@ f286e93d remains recoverable. Evidence: `/tmp/helm-staging-sync-restored.png`.
 Next: canonical inventory projection and provider task/read-back reconciliation remain
 unimplemented for live delivery. A complete booking baseline and real-message coverage
 must be separately verified before any migration. No new service or subscription.
+
+### Pure canonical snapshot projection: October 7, 2026
+
+Added `inventory-projection.ts` and six synthetic regression cases. The explicit snapshot
+contains unique physical resources, listing-to-resource mappings, canonical current booking
+states, holds, required source identities and dated completeness/freshness evidence. It
+supports one property or linked whole/front/back products without treating the whole home
+as a third physical resource. It does not reuse the Beach revision journal as production
+reservation truth, read any database, or resolve provider duplicate identities heuristically.
+
+For each target night, recompute all overlapping active bookings and holds with exclusive
+checkout. Cancelled bookings do not erase other blockers. Date changes recompute old and
+new nights from the current snapshot. Missing, incomplete, stale or partial source coverage
+closes the whole requested batch. Duplicate canonical IDs, ambiguous coverage, unknown
+listing/resource mappings and invalid date ranges are rejected. The result carries version,
+digest, completeness, freshness and explanatory blockers; its delivery payload contains
+only date, availability and stop-sell. No rates, minimum stays or publishing authority.
+
+All 1,828 tests, nonincremental TypeScript, targeted ESLint and diff checks passed. Base
+67209c87, remote main observed 7b9a358a, branch codex/channex-staging-pilot. This is a pure
+calculation and test increment, not a deployed live inventory source. No new paid service.
+The adapter must next obtain an atomic, complete canonical booking/hold snapshot, resolve
+source identities and version it with the outbox transaction. Required source configuration
+and completeness assertions are trusted inputs here, not proven by this function. Live
+provider task/read-back reconciliation and migration approval are still separate gates.
