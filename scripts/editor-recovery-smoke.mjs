@@ -18,6 +18,7 @@ const compile=source=>ts.transpileModule(source,{compilerOptions:{target:ts.Scri
 for(const [name,path] of [
   ['owner','src/app/work/[id]/SlipOwnerActionEditor.tsx'],
   ['crm','src/app/crm/[id]/ContactDetail.tsx'],
+  ['ContactMeetings','src/app/crm/[id]/ContactMeetings.tsx'],
   ['task','src/app/work/tasks/[id]/TaskDetail.tsx'],
   ['playbook','src/app/playbook/PlaybookEditor.tsx'],
   ['rooms','src/app/properties/[id]/RoomsEditor.tsx'],
@@ -32,6 +33,7 @@ await writeFile(join(scratch,'actions.js'),`
   export const updateContact=args=>save('contact',args);
   export const deleteContact=args=>save('deleteContact',args);
   export const addContactTouch=args=>save('touch',args);
+  export const addContactMeeting=args=>save('meeting',args),cancelContactMeeting=args=>save('cancelMeeting',args);
   export const deleteContactTouch=args=>save('deleteTouch',args);
   export const updateTask=args=>save('task',args);
   export const deleteTask=args=>save('deleteTask',args);
@@ -43,6 +45,7 @@ await writeFile(join(scratch,'actions.js'),`
   export const deleteRoomAction=args=>save('deleteRoom',args);
 `);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>{window.refreshes++;};');
+await writeFile(join(scratch,'meetings-core.js'),"export const todayET=()=>'2026-09-01',defaultImportant=t=>t==='owner',meetingWhen=(m,today)=>(m.date===today?'Today':m.date)+(m.time?' '+m.time:'');");
 await writeFile(join(scratch,'router.js'),'export const useRouter=()=>({push:url=>window.navigations.push(url),refresh:()=>window.refreshes++});');
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react'; export default function Link({href,onClick,children,...props}){return <a {...props} href={href} onClick={e=>{onClick?.(e);if(!e.defaultPrevented)window.navigations.push(href);e.preventDefault();}}>{children}</a>}`));
 await writeFile(join(scratch,'markdown.js'),compile(`import React from 'react';export const Markdown=({source})=><pre>{source}</pre>;`));
@@ -89,7 +92,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
     if(!mounted)return null;
     return <>
       {(mode==='owner'||mode==='all')&&<section id="owner"><SlipOwnerActionEditor slipId="synthetic-slip" propertyId="synthetic-home" initialType="approve" initialNotes="Original owner notes" ownerStatus={p.get('answer')||'not_sent'} ownerLastContactedAt={p.has('contacted')?now:null} collapsed={p.has('collapsed')}/></section>}
-      {(mode==='crm'||mode==='all')&&<section id="crm"><ContactDetail contact={contact} touches={touches} properties={properties} linkedSlips={[]} myEmail={me}/></section>}
+      {(mode==='crm'||mode==='all')&&<section id="crm"><ContactDetail contact={contact} touches={touches} properties={properties} linkedSlips={[]} meetings={{upcoming:[],past:[]}} myEmail={me}/></section>}
       {(mode==='task'||mode==='all')&&<section id="task"><TaskDetail task={task} comments={comments} properties={properties} myEmail={me}/></section>}
       {(mode==='playbook'||mode==='all')&&<section id="playbook"><PlaybookEditor mode={p.has('new')?'new':'edit'} initial={p.has('new')?undefined:entry} properties={properties}/></section>}
       {(mode==='rooms'||mode==='all')&&<section id="rooms"><RoomsEditor propertyId="synthetic-home" rooms={rooms}/></section>}
@@ -101,7 +104,7 @@ await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{
     '../actions':join(scratch,'actions.js'),'../../actions':join(scratch,'actions.js'),'./actions':join(scratch,'actions.js'),'./onboarding-actions':join(scratch,'actions.js'),
     '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
-    '@/lib/team':join(scratch,'team.js'),'@/components/TeamPicker':join(scratch,'picker.js'),
+    '@/lib/team':join(scratch,'team.js'),'@/lib/meetings-core':join(scratch,'meetings-core.js'),'@/components/TeamPicker':join(scratch,'picker.js'),
     '@/lib/crm':join(scratch,'crm-types.js'),'@/lib/playbook':join(scratch,'playbook-types.js'),
     '@/lib/property-rooms-shared':join(scratch,'room-types.js'),'@/components/Markdown':join(scratch,'markdown.js'),
     './ContactDraftEmailButton':join(scratch,'email-button.js'),'next/link':join(scratch,'link.js'),'next/navigation':join(scratch,'router.js'),
