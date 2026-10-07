@@ -254,7 +254,11 @@ Helm distinguishes four populations and they each have their own table:
 | `trade_vendors` | Outside trade companies we hire by the job (plumber, electrician, appliance, pest) | Hand-maintained on `/fieldwork/trades`; seeded from `bank-charges.ts` + `books-vendor-hints.ts` | RLS-locked (service role only) |
 
 `contact_touches` is the cross-channel communication log for `contacts`
-(Quo SMS + calls, Gmail). RLS-locked. `audience_events` is the
+(Quo SMS + calls, Gmail). RLS-locked. `contact_meetings` is the forward
+calendar for the same people: a dated sit-down logged on the contact page,
+`important` ones texted the evening before by `/api/cron/meeting-reminders`,
+with `reminder_attempts` / `reminder_sent_at` as the at-most-once ledger.
+Service-role only. `audience_events` is the
 engagement log for `audience_contacts` (Resend webhook events). `comms`
 is the broader unified outbound log.
 

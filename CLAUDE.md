@@ -59,7 +59,7 @@ you where the weight sits, nothing more.
 ```
 src/
   app/          35 route groups + api/. 136 pages, 65 *actions.ts server-action files
-    api/        120 route handlers, 28 cron routes (27 scheduled in vercel.json)
+    api/        120 route handlers, 29 cron routes (28 scheduled in vercel.json)
   lib/          262 top-level modules (290 including subfolders). The domain logic lives here.
   components/   96 shared components (62 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -68,7 +68,7 @@ supabase/migrations/   256 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**28 cron routes, 27 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**29 cron routes, 28 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -105,7 +105,7 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/cleaner-messaging` | Bilingual cleaner drafts, Portuguese with English side-by-side |
 | `/contractor-messaging` | Contractor reply drafts |
 | `/guests` | Subscriber list, segments, campaigns. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com) |
-| `/crm` | Contacts and touch timeline |
+| `/crm` | Contacts, touch timeline, and meetings. An important meeting (owner and prospect meetings by default) texts the operator the evening before from the 24/7 line, the AirDNA reminder's rail (`DOTTI_PHONE`); every meeting shows on the home feed today and tomorrow |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings |
 | `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps |
 | `/competitors` | Other Cape Ann managers, inventory tracking |
@@ -744,7 +744,7 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 28 cron routes fail closed without it (verified 2026-09-26: every
+- **Cron**: `CRON_SECRET`. All 29 cron routes fail closed without it (verified 2026-09-26: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
