@@ -56,6 +56,9 @@ export type CrossMonthBooking = {
   total_paid?: number | null;
   total_taxes?: number | null;
   channel_commission?: number | null;
+  /** When the guest booked (guesty_reservations.booked_at). Decides
+   *  whether a Vrbo commission is the flat 12% or may carry the kludge. */
+  booked_at?: string | null;
   stripe_fee_estimate?: number | null;
 };
 
@@ -336,12 +339,16 @@ export function InstallmentEditor({
             Number(booking.total_paid ?? 0),
             Number(booking.total_taxes ?? 0),
             rawCommission,
+            null,
+            booking.booked_at ?? null,
           );
           const commissionStripped = wasCommissionStripped(
             booking.channel || '',
             Number(booking.total_paid ?? 0),
             Number(booking.total_taxes ?? 0),
             rawCommission,
+            null,
+            booking.booked_at ?? null,
           );
           if (booking.total_paid == null && !verify) return null;
           return (

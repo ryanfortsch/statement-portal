@@ -240,6 +240,12 @@ Guesty's CHANNEL COMMISSION column so its PDF would approximate the post-Stripe 
 rows still carry it. `stripLegacyCommissionKludge` in `src/app/api/ingest/route.ts` removes it:
 Manual real commission is 0 (anything above a 2% ratio is the kludge); VRBO real commission is 5%
 (anything above 7% is the kludge stacked on top); Airbnb and Booking.com pass through untouched.
+**Except Vrbo bookings made on or after 2026-10-29**, when Vrbo moved to a flat 12% commission: the
+ratio rule would cut a real 12% to 5% and overpay the owner, so a Vrbo row whose
+`guesty_reservations.booked_at` is on or after the cutoff keeps its commission as given. The cutoff
+and predicate live in `src/lib/vrbo-commission.ts`, every strip copy consults it, and
+`vrbo-flat-commission.test.ts` guards all four sites. A null `booked_at` (every row before
+2026-09-02) keeps the old rule.
 `src/lib/revenue-math.ts` holds the UI-side mirror of this, and its docblock explains why the
 canonical copy in `/api/ingest` must not import from it.
 

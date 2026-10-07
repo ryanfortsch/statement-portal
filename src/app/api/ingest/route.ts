@@ -27,6 +27,7 @@ import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { detectMissingDirectStays, missingDirectGapRows } from '@/lib/missing-direct-stays';
 import { splitFolio } from '@/lib/remittance';
+import { isVrboFlatCommissionBooking } from '@/lib/vrbo-commission';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -315,6 +316,12 @@ function calcStripeFee(processedAmount: number): number {
  * remains the fallback for rows Guesty gave us no folio for, which is the
  * pre-folio historical shape and exactly the population the kludge lives in.
  *
+ * A Vrbo booking made on or after Vrbo's flat-12% cutoff carries its real
+ * commission as given: the ratio rule would read 12% as the kludge and cut
+ * it to 5%. `bookedAt` is guesty_reservations.booked_at; see
+ * lib/vrbo-commission.ts. Null (every row before 2026-09-02) keeps the old
+ * rule, which is right for those bookings.
+ *
  * Returns a safe effective_commission plus whether a legacy adjustment
  * was applied so we can flag it in the statement audit trail.
  */
@@ -324,8 +331,9 @@ function stripLegacyCommissionKludge(args: {
   totalTaxes: number;
   commission: number;
   folioPreTax?: number | null;
+  bookedAt?: string | null;
 }): { effective: number; hadKludge: boolean } {
-  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax, bookedAt } = args;
   if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
   const base = folioPreTax && folioPreTax > 0
     ? folioPreTax
@@ -339,6 +347,8 @@ function stripLegacyCommissionKludge(args: {
     return { effective: commission, hadKludge: false };
   }
   if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    // Booked under Vrbo's flat 12%: the commission is real, never the kludge.
+    if (isVrboFlatCommissionBooking(bookedAt)) return { effective: commission, hadKludge: false };
     // Real VRBO commission = 5% of the pre-tax booking total. Above 7% = kludge.
     if (ratio > 0.07) {
       const cleaned = Math.round(base * 0.05 * 100) / 100;
@@ -734,12 +744,13 @@ export async function POST(request: NextRequest) {
       channel_commission: number | null;
       owner_net_revenue_guesty: number | null;
       folio_items: unknown;
+      booked_at: string | null;
     };
     const guestyLookupMap = new Map<string, GuestyLookup>();
     if (codes.length > 0) {
       const { data: guestyRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, guest_name, channel, guesty_channel_id, status, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, folio_items')
+        .select('confirmation_code, guest_name, channel, guesty_channel_id, status, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, folio_items, booked_at')
         .in('confirmation_code', codes);
       (guestyRows || []).forEach(r => {
         if (r.confirmation_code) guestyLookupMap.set(r.confirmation_code, r);
@@ -805,6 +816,7 @@ export async function POST(request: NextRequest) {
       total_taxes: number | null;
       channel_commission: number | null;
       owner_net_revenue_guesty: number | null;
+      booked_at: string | null;
     };
     const syntheticInstallments: Installment[] = installmentsThisMonth.filter(i => !codes.includes(i.confirmation_code));
     const synthGuestyByCode = new Map<string, SynthGuesty>();
@@ -815,7 +827,7 @@ export async function POST(request: NextRequest) {
       const synthCodes = syntheticInstallments.map(i => i.confirmation_code);
       const { data: synthRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
+        .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, booked_at')
         .in('confirmation_code', synthCodes);
       (synthRows || []).forEach(r => {
         if (r.confirmation_code) synthGuestyByCode.set(r.confirmation_code, r as SynthGuesty);
@@ -1348,6 +1360,7 @@ export async function POST(request: NextRequest) {
             totalTaxes,
             commission: rawCommission,
             folioPreTax: folio.hasFolio ? folio.preTax : null,
+            bookedAt: guestyInfo?.booked_at ?? null,
           });
           stripeFee = calcStripeFee(totalPaid);
           adjustedRevenue = Math.round((totalPaid - totalTaxes - effCommission - stripeFee) * 100) / 100;
@@ -1601,6 +1614,7 @@ export async function POST(request: NextRequest) {
         const rawCommission = synth.channel_commission ?? 0;
         const { effective: effCommission } = stripLegacyCommissionKludge({
           platform, totalPaid, totalTaxes, commission: rawCommission,
+          bookedAt: synth.booked_at ?? null,
         });
         bookingStripeFee = calcStripeFee(totalPaid);
         // adjusted_revenue full = totalPaid - taxes - commission - fee
