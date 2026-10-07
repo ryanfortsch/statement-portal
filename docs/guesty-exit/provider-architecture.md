@@ -230,3 +230,42 @@ ready locally but has not run against hosted storage, so this remains the next v
 gate. Deployment/main integration review is pending. Branch codex/channex-staging-pilot;
 base for this change ee3b4e4a; remote main observed 0a3cb8b6. No paid activation or live channel
 change. Preserve existing Guesty operation and PriceLabs authority.
+
+### Hosted inventory recovery checkpoint: October 7, 2026
+
+Deployed exact commit `f286e93d880c1261284aa5717984671edd1f1d18` to the existing
+`helm-channex-staging-worker` service. Render deployment
+`dep-db38m5l9fdbs73abc0v0` is live. The Docker CMD, booking/message loops, service size
+and credentials were unchanged; previous worker `477944fe` remains available for rollback.
+No new paid service or production deployment.
+
+Ran `rehearsal-oct7-worker-a` through the Render web shell against the existing isolated
+Supabase journal. The dispatch process exited **72** after its synthetic provider receipt
+was saved to `/tmp/inventory-oct7-worker-a.json`. A fresh CLI process recovered after lease
+expiry with `result=verified`, `submissions=0`, `recordedSubmissions=1`. Repeated recovery
+returned the same result; repeated dispatch returned `not-dispatched`, zero submissions,
+and exactly one recorded submission. Screenshot: `/tmp/helm-inventory-hosted-rehearsal.png`.
+This verifies the real hosted adapter and process-level recovery using synthetic evidence.
+It does not prove actual Channex/OTA delivery or recovery after losing the instance-local
+receipt file. No live publisher was invoked.
+
+The accompanying health audit found a separate existing blocker: booking/message sync
+failed on the old instance before deployment and continues on the new instance. The old
+booking loop reported last success `2026-10-04T00:44:26.752Z`; new failures are not evidence
+of a new deployment regression. A read-only `ChannexStagingClient.inspect()` diagnosis
+returned the explicit guard reason: `A channel is attached to the pilot; sandbox writes
+are prohibited`. No credentials or response bodies were printed. This identifies a channel
+record on at least one Beach pilot; the redacted diagnostic does not identify which unit
+or establish an authorized/live Airbnb connection. Existing polling is therefore NOT verified healthy.
+
+Preserved the channel record and the fail-closed guard. Next bounded change: separate
+read-only source identity/ownership validation from no-channel publishing authorization,
+with tests proving that reads cannot bypass write gates. Do not simply remove the shared
+inspection guard. Canonical inventory projection and actual provider task/read-back
+reconciliation remain prerequisites to live publishing. Guesty and PriceLabs remain active.
+
+This checkpoint changes documentation only. Reviewed its complete diff and referenced
+paths; `git diff --check` passed. The 1,820 tests, TypeScript and targeted lint passed on
+the deployed source in the preceding implementation checkpoint, not rerun for this doc
+update. Branch `codex/channex-staging-pilot`, implementation base `f286e93d`; existing
+draft PR #1714 updated.
