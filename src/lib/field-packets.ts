@@ -25,6 +25,7 @@ import { slipIdsOnLivePackets } from '@/lib/field-work-board';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { holdOccupiesDay, type HoldDay } from '@/lib/field-stale-hold';
 import { stayNoteIsPast } from '@/lib/stay-note-slips';
+import { gearNeedsArrivals, slipInVisitWindow, type HomeArrival } from '@/lib/slip-visit-window';
 import { getContractorShootStats } from '@/lib/creative-shoots';
 import { getPropertyAccessMap, type PropertyAccess } from '@/lib/property-access';
 import { centroid, haversineMiles, maxPairwiseMiles, nearestNeighborOrder, osrmOptimalOrder } from '@/lib/proximity';
@@ -2106,6 +2107,26 @@ export type StopOpenSlips = {
   onOtherTrip: number;
 };
 
+/** Guest arrivals per home with check-in in [from, to], canonical rows only.
+ *  Throws on a failed read so the caller can tell "none" from "unknown". */
+async function guestArrivalsFrom(propertyIds: string[], from: string, to: string): Promise<Map<string, HomeArrival[]>> {
+  const { data, error } = await fieldDb()
+    .from('bookings')
+    .select('id, external_booking_id, property_id, check_in')
+    .in('status', TURNOVER_STATUSES)
+    .is('duplicate_of', null)
+    .in('property_id', propertyIds)
+    .gte('check_in', from)
+    .lte('check_in', to);
+  if (error) throw new Error(error.message);
+  const out = new Map<string, HomeArrival[]>();
+  for (const b of (data ?? []) as { id: string; external_booking_id: string | null; property_id: string; check_in: string }[]) {
+    const ids = b.external_booking_id ? [b.id, b.external_booking_id] : [b.id];
+    out.set(b.property_id, [...(out.get(b.property_id) ?? []), { check_in: b.check_in.slice(0, 10), ids }]);
+  }
+  return out;
+}
+
 /**
  * Everything ELSE open at each stop's home: the inspector's default view, so
  * a known issue never hides behind an attach the office forgot (Ryan,
@@ -2113,9 +2134,9 @@ export type StopOpenSlips = {
  * that property that are not already riding this stop (attached, or the
  * stop's own job), not synthetic packet-backing slips (setup / one-off are
  * packets in their own right), not snoozed by the office, not scheduled for
- * a later visit (the guest-gear rule autoAttachInventorySlips applies), not
- * a stay note whose day has passed (stay-note-slips.ts), and not spoken for
- * by another live packet.
+ * a later visit (slip-visit-window.ts: guest gear rides the last visit
+ * before its stay), not a stay note whose day has passed
+ * (stay-note-slips.ts), and not spoken for by another live packet.
  *
  * Read-only: nothing here attaches. A slip joins the packet only when the
  * inspector acts on it (resolveSlipFromStop), so the office's packet review
@@ -2131,7 +2152,7 @@ export async function loadOpenSlipsForStops(
   const [{ data }, taken] = await Promise.all([
     fieldDb()
       .from('work_slips')
-      .select(`property_id, snoozed_until, from_guest_request_key, ${SLIP_DETAIL_COLS}`)
+      .select(`property_id, snoozed_until, from_guest_request_key, guesty_reservation_id, ${SLIP_DETAIL_COLS}`)
       .in('property_id', propIds)
       .in('status', ['open', 'in_progress', 'scheduled'])
       .not('category', 'in', '(rising_tide,ad_hoc)')
@@ -2139,14 +2160,28 @@ export async function loadOpenSlipsForStops(
       .limit(200),
     slipIdsOnLivePackets().catch(() => new Set<string>()),
   ]);
-  const dayAfterVisit = addDays(visitDate, 1);
   const nowIso = new Date().toISOString();
-  type Row = WorkSlipLite & { property_id: string; snoozed_until: string | null; from_guest_request_key: string | null };
-  const rows = ((data ?? []) as Row[]).filter(
-    (w) =>
-      (!w.scheduled_date || w.scheduled_date <= dayAfterVisit) &&
-      (!w.snoozed_until || w.snoozed_until <= nowIso) &&
-      !stayNoteIsPast(w, visitDate),
+  type Row = WorkSlipLite & {
+    property_id: string;
+    snoozed_until: string | null;
+    from_guest_request_key: string | null;
+    guesty_reservation_id: string | null;
+  };
+  const awake = ((data ?? []) as Row[]).filter(
+    (w) => (!w.snoozed_until || w.snoozed_until <= nowIso) && !stayNoteIsPast(w, visitDate),
+  );
+  // Gear dated past the plain window rides only if no other guest arrives
+  // first (lib/slip-visit-window.ts), so read arrivals only when one exists.
+  const lateGear = awake.filter((w) => gearNeedsArrivals(w, visitDate));
+  const arrivals = lateGear.length
+    ? await guestArrivalsFrom(
+        [...new Set(lateGear.map((w) => w.property_id))],
+        visitDate,
+        lateGear.reduce((max, w) => (w.scheduled_date! > max ? w.scheduled_date! : max), visitDate),
+      ).catch(() => null)
+    : new Map<string, HomeArrival[]>();
+  const rows = awake.filter((w) =>
+    slipInVisitWindow(w, visitDate, arrivals === null ? null : (arrivals.get(w.property_id) ?? [])),
   );
   for (const s of stops) {
     const riding = new Set<string>(s.attachedSlips.map((a) => a.id));
