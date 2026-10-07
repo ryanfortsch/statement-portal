@@ -532,3 +532,29 @@ throughout. No support outreach requested or sent.
 
 Documentation-only update: diff/whitespace review; no application source changes
 or repeated application tests. Local setup screenshot: /tmp/pricelabs-channex-setup.jpg.
+
+### PriceLabs staging credential experiment (2026-10-07 UTC)
+
+User explicitly approved creating a dedicated Calderwood-only staging key and
+supplying it to PriceLabs to test compatibility, leaving sync off. Created
+`PriceLabs - Calderwood staging compatibility test` with Only Selected access
+to 65 Calderwood - Isolated Staging (one of three properties; Beach excluded).
+Submitted it through the existing PriceLabs Channex connector. The UI reported
+`Invalid API Key`; no successful import or sync activation occurred. This proves
+the attempted connector/key combination failed, not that all sandbox paths are
+unsupported. No production credential was substituted.
+
+Cleared the PriceLabs key input, withdrew the temporary Channex key, and verified
+its red withdrawn status in the key list while the existing Helm staging key
+remained green. Full credential is not retained in source or this ledger.
+Local cleanup evidence: `/tmp/pricelabs-test-key-withdrawn.jpg`.
+Guesty sync, provider calendars, live channels, worker and production unchanged.
+
+Next practical route is an isolated production Channex property with no attached
+channels if the standard connector requires production; account access, cost and
+property/key creation must be reviewed before proceeding. PriceLabs documents
+old-PMS parent/new-PMS child mapping for settings migration, with account-level
+customizations checked separately. References:
+https://help.pricelabs.co/portal/en/kb/articles/transitioning-between-management-systems
+https://help.pricelabs.co/portal/en/kb/articles/mapping-listings
+Documentation-only validation: diff/whitespace review; no application changes.
