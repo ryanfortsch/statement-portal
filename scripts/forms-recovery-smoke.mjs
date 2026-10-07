@@ -17,6 +17,7 @@ for(const [name,path,extra=''] of [
   ['queue','src/app/work/QueueClient.tsx','\nexport {WorkSlipModal,TaskModal};'],
   ['crm','src/app/crm/CrmListClient.tsx','\nexport {NewContactModal};'],
   ['contact','src/app/crm/[id]/ContactDetail.tsx'],
+  ['ContactMeetings','src/app/crm/[id]/ContactMeetings.tsx'],
   ['owners','src/app/properties/[id]/OwnersEditor.tsx'],
   ['facts','src/app/owner-messaging/OwnerFactsEditor.tsx'],
   ['vendor','src/app/fieldwork/trades/VendorForm.tsx'],
@@ -30,6 +31,7 @@ await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
 export const createWorkSlip=a=>save('slip',a),createTask=a=>save('task',a),createContact=a=>save('createContact',a),updateContact=a=>save('contact',a),deleteContact=a=>save('deleteContact',a);
 export const addContactTouch=a=>save('touch',a),deleteContactTouch=a=>save('deleteTouch',a);
+export const addContactMeeting=a=>save('meeting',a),cancelContactMeeting=a=>save('cancelMeeting',a);
 export const saveOwnerCards=(propertyId,owners)=>save('owners',{propertyId,owners}),saveOwnerFacts=a=>save('facts',a);
 export const saveTradeVendor=(prev,data)=>save('vendor',[...data.entries()]);
 export const uploadPropertyDocument=(id,prev,data)=>save('upload',{id,data:[...data.entries()].map(([k,v])=>[k,v instanceof File?{name:v.name,size:v.size,type:v.type}:v])});
@@ -42,6 +44,7 @@ export const usePathname=()=>'/work',useSearchParams=()=>new URLSearchParams();
 export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser';
 `);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>window.refreshes++;');
+await writeFile(join(scratch,'meetings-core.js'),"export const todayET=()=>'2026-09-01',defaultImportant=t=>t==='owner',meetingWhen=(m,today)=>(m.date===today?'Today':m.date)+(m.time?' '+m.time:'');");
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({href,children,...props}){return <a {...props} href={href} onClick={e=>{e.preventDefault();window.navigations.push(href);}}>{children}</a>}`));
 await writeFile(join(scratch,'empty.js'),'export const SyncGmailButton=()=>null,SyncQuoButton=()=>null,SyncQuoContactsButton=()=>null,ContactDraftEmailButton=()=>null;');
 await writeFile(join(scratch,'team.js'),`export const TEAM_MEMBERS=[];export const getTeamMember=()=>null,displayNameForEmail=e=>e,initialsForEmail=e=>e?.slice(0,2)||'+';`);
@@ -66,7 +69,7 @@ function Fixture(){const [mounted,setMounted]=useState(true);window.unmount=()=>
 {mode==='slip'&&<section id="slip"><WorkSlipModal properties={properties} prefillPropertyId={null} myEmail={me} onClose={close}/></section>}
 {mode==='task'&&<section id="task"><TaskModal properties={properties} myEmail={me} onClose={close}/></section>}
 {mode==='crm'&&<section id="crm"><NewContactModal properties={properties} initialPhone={p.has('promote')?'9785550123':undefined} initialType={p.has('promote')?'lead':undefined} onSubmit={p.has('promote')?a=>save('promote',a):undefined} onClose={close} onCreated={id=>{window.navigations.push('/crm/'+id);close();}}/></section>}
-{(mode==='contact'||mode==='all')&&<section id="contact"><ContactDetail contact={contact} touches={[]} properties={properties} linkedSlips={[]} myEmail={me}/></section>}
+{(mode==='contact'||mode==='all')&&<section id="contact"><ContactDetail contact={contact} touches={[]} properties={properties} linkedSlips={[]} meetings={{upcoming:[],past:[]}} myEmail={me}/></section>}
 {(mode==='owners'||mode==='all')&&<section id="owners"><OwnersEditor propertyId="synthetic-home" initialOwners={[owner]}/></section>}
 {(mode==='facts'||mode==='all')&&<section id="facts"><OwnerFactsEditor initialContent="Original owner facts" initialBytes={20} learnedContent="- Learned synthetic rule"/></section>}
 {mode==='vendor'&&<section id="vendor"><RedirectBoundary><VendorForm properties={properties} trade="handyman" vendor={p.has('edit')?vendor:undefined}/></RedirectBoundary></section>}
@@ -74,7 +77,7 @@ function Fixture(){const [mounted,setMounted]=useState(true);window.unmount=()=>
 </>;}
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','../actions':'actions','@/app/properties/actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/components/Section':'section','@/components/TeamPicker':'picker','@/components/PhotoUploader':'photo','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','@/lib/quo-lines':'quo-lines','@/lib/trades':'trades','@/lib/property-documents':'document-types','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','./ContactDraftEmailButton':'empty','next/navigation':'router','next/link':'link'};
+const alias={'@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','../actions':'actions','@/app/properties/actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/lib/meetings-core':'meetings-core','@/components/Section':'section','@/components/TeamPicker':'picker','@/components/PhotoUploader':'photo','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','@/lib/quo-lines':'quo-lines','@/lib/trades':'trades','@/lib/property-documents':'document-types','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','./ContactDraftEmailButton':'empty','next/navigation':'router','next/link':'link'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Forms recovery fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Synthetic forms</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}label{display:block}fieldset{min-width:0}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
