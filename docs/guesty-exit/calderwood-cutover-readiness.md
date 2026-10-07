@@ -471,3 +471,12 @@ reader returned 90 nights, all stopped, no missing prices, for October 6 through
 January 4 exclusive. Hosted combined comparison verification remains pending.
 Prior recoverable checkpoint e83bae63; base a148b0e6; current main reference checked
 at e9cb232b2da53ad65c8e33712a5c2a5b516e6e46. PR #1714 retained.
+
+Hosted combined verification at 42f1155e: the authenticated preview rendered
+90 compared nights, 90 with differences, zero with missing evidence and zero
+without verified stop-sell, alongside 11 reservation records. Comparison window
+2026-10-06 through 2027-01-04 exclusive. The staging read completed at
+2026-10-07T00:36:28.059Z. Placeholder differences are expected and were not
+automatically corrected. No customer records/rates are retained in this log.
+Vercel preview build passed. No local browser preview, provider writes or
+production deployment occurred.
