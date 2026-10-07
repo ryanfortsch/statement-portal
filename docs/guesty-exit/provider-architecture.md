@@ -157,3 +157,36 @@ synthetic tests. The full-journal model is bounded at 10,000 commands and delibe
 rather than trimming history. It is a small pilot adapter, not a fleet-scale storage design.
 No live transport should rely on this helper without the existing mapping, source completeness,
 authority and provider task reconciliation gates.
+
+### Hosted staging storage verification: October 7, 2026
+
+Applied the reviewed `staging-storage/inventory-store.sql` only through the authenticated
+Supabase SQL editor for **Helm Channex Staging**, project `jgkblfozftcvymvwhhii`.
+Preflight confirmed the table/function did not already exist; creation returned success.
+Supabase labels this project's default branch "Production", but this is the separate
+staging project, not Helm's production database. No credentials were extracted or moved.
+
+Hosted rollback-only checks passed for RLS, denied anon/authenticated table/RPC access,
+service-role read/RPC access without direct INSERT/UPDATE/DELETE, valid append, stale-version
+rejection, and preservation of earlier commands. Saved repeatable SQL:
+`staging-storage/inventory-verify.sql`. It explicitly checks the history-rewrite exception
+and rolls back its test appends. The generalized query passed against nonempty history too.
+
+Two independent SQL editor sessions tested the same expected version. The first quick race
+left version 1 with one expiration event (the second session won that race). A second run held
+the row lock for 20 seconds, with a competing request delayed by 5 seconds: the competitor
+waited **14.707074 seconds** and returned **false**. Final version is **2**, retaining exactly
+`expire(now=0)` and `expire(now=1)`. Both are harmless history entries; replay creates zero
+jobs. They were deliberately retained rather than resetting audited history. Final rollback
+verification left version 2 and two commands unchanged.
+
+Evidence screenshot: `/tmp/helm-inventory-staging-verified.png`. No worker/preview deployment,
+provider transport, customer data access, live calendar change or additional paid service.
+Next: verify the TypeScript adapter through an authenticated synthetic worker run. SQL-level
+contention is proven; hosted process-restart and actual adapter/worker integration are still
+pending. Existing local process recovery tests do not establish those hosted guarantees.
+
+This checkpoint adds only a verification SQL file and documentation. The verification SQL
+was executed against staging; application source is unchanged, so the prior 1,817-test result
+is historical and was not rerun for this checkpoint. Diff/whitespace checks passed. Branch
+`codex/channex-staging-pilot`, implementation base `517ec281`; remote main observed `0a3cb8b6`.
