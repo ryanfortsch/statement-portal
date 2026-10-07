@@ -14,3 +14,6 @@ supabase/.temp/
 .claude/worktrees/
 .vercel
 .claude/scheduled_tasks.lock
+
+# Guesty seed exports (scripts/pull_guesty_seed.mts): never committed
+*_guesty_seed.json

@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { backfillTouchesForPhone } from '@/lib/quo-ingest';
 import type { ContactType, TouchChannel } from '@/lib/crm';
+import { defaultMeetingTitle, type ContactMeetingRow } from '@/lib/meetings-core';
 
 const VALID_TYPES: ContactType[] = ['owner', 'vendor', 'lead', 'other'];
 const VALID_CHANNELS: TouchChannel[] = ['email', 'phone', 'sms', 'in_person', 'other'];
@@ -410,4 +411,83 @@ export async function attachUnknownToContact(args: {
   revalidatePath('/crm');
   revalidatePath(`/crm/${args.contactId}`);
   return { ok: true, filled, contactName: c.name };
+}
+
+// ── Meetings ───────────────────────────────────────────────────────
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+const HHMM = /^\d{2}:\d{2}$/;
+
+/**
+ * Log a meeting with this contact. The date is the Eastern calendar day;
+ * the time is optional. `important` is what gets the evening-before text
+ * from /api/cron/meeting-reminders; the home feed shows every meeting on
+ * its day and the day before regardless.
+ */
+export async function addContactMeeting(args: {
+  contact_id: string;
+  meeting_date: string;        // YYYY-MM-DD
+  meeting_time?: string | null; // HH:MM, 24h
+  property_id?: string | null;
+  title?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  important: boolean;
+}): Promise<{ ok: true; meeting: ContactMeetingRow } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!YMD.test(args.meeting_date)) return { ok: false, error: 'Pick a date' };
+  const time = trimNull(args.meeting_time);
+  if (time && !HHMM.test(time)) return { ok: false, error: 'Time must be HH:MM' };
+
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('id, name')
+    .eq('id', args.contact_id)
+    .maybeSingle();
+  if (!contact) return { ok: false, error: 'Contact not found' };
+  const contactName = (contact as { name: string }).name;
+
+  const { data, error } = await supabase
+    .from('contact_meetings')
+    .insert({
+      contact_id: args.contact_id,
+      property_id: trimNull(args.property_id),
+      title: trimNull(args.title) ?? defaultMeetingTitle(contactName),
+      meeting_date: args.meeting_date,
+      meeting_time: time,
+      location: trimNull(args.location),
+      notes: trimNull(args.notes),
+      important: !!args.important,
+      created_by_email: session.user.email,
+    })
+    .select('*')
+    .single();
+  if (error || !data) return { ok: false, error: error?.message || 'Failed to save the meeting' };
+
+  revalidatePath(`/crm/${args.contact_id}`);
+  revalidatePath('/');
+  return { ok: true, meeting: data as ContactMeetingRow };
+}
+
+/** Take a meeting off the calendar. Soft: the row keeps its history and
+ *  the reminder sweep ignores it. Any signed-in teammate may cancel. */
+export async function cancelContactMeeting(args: {
+  id: string;
+  contact_id: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+
+  const { error } = await supabase
+    .from('contact_meetings')
+    .update({ cancelled_at: new Date().toISOString() })
+    .eq('id', args.id)
+    .eq('contact_id', args.contact_id)
+    .is('cancelled_at', null);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/crm/${args.contact_id}`);
+  revalidatePath('/');
+  return { ok: true };
 }

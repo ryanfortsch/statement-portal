@@ -1,10 +1,11 @@
 'use client';
 
-import { useActionState, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import {
   uploadPropertyDocument,
   deletePropertyDocument,
-  type UploadDocumentState,
 } from '@/app/properties/actions';
 import {
   DOCUMENT_CATEGORIES,
@@ -16,9 +17,7 @@ import {
  * Documents tab body. Lists the property's filed documents (executed
  * contract auto-filed first, then operator uploads) and an upload form.
  *
- * Upload uses useActionState so a failed upload re-renders with an
- * inline error and the chosen category/label intact — same failure-soft
- * pattern as the property edit form.
+ * Keep the selected file and its details until an upload is confirmed.
  */
 export function DocumentsPanel({
   propertyId,
@@ -27,11 +26,52 @@ export function DocumentsPanel({
   propertyId: string;
   documents: PropertyDocument[];
 }) {
-  const action = uploadPropertyDocument.bind(null, propertyId);
-  const [state, formAction, pending] = useActionState<UploadDocumentState, FormData>(action, {
-    error: null,
-  });
   const formRef = useRef<HTMLFormElement>(null);
+  const uploading = useRef(false);
+  const [pending, start] = useTransition();
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uncertain, setUncertain] = useState(false);
+  const [uploaded, setUploaded] = useState(false);
+  const softRefresh = useSoftRefresh();
+  useUnsavedWorkGuard(dirty || pending || uncertain);
+
+  function changed() {
+    const form = formRef.current;
+    if (!form) return;
+    const data = new FormData(form);
+    const file = data.get('file');
+    setDirty(Boolean(data.get('label')) || data.get('category') !== 'insurance' || (file instanceof File && file.name !== ''));
+    setUploaded(false);
+  }
+
+  function reset() {
+    if (uploading.current) return;
+    formRef.current?.reset();
+    setDirty(false); setError(null); setUncertain(false); setUploaded(false);
+  }
+
+  function upload(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (uploading.current) return;
+    const data = new FormData(e.currentTarget);
+    uploading.current = true;
+    setError(null); setUncertain(false); setUploaded(false);
+    start(async () => {
+      try {
+        const result = await uploadPropertyDocument(propertyId, { error: null }, data);
+        if (result.error) { setError(result.error); return; }
+        formRef.current?.reset();
+        setDirty(false); setUploaded(true);
+        softRefresh();
+      } catch {
+        setUncertain(true);
+        setError('Could not confirm the upload. Your file and details are kept. Check the saved documents before retrying to avoid a duplicate.');
+      } finally {
+        uploading.current = false;
+      }
+    });
+  }
 
   const catLabel = (id: string) =>
     DOCUMENT_CATEGORIES.find((c) => c.id === id)?.label ?? 'Other';
@@ -44,16 +84,14 @@ export function DocumentsPanel({
       {/* Upload form */}
       <form
         ref={formRef}
-        action={formAction}
+        onSubmit={upload}
+        onChange={changed}
         style={{
           paddingTop: 4,
           marginBottom: 28,
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'flex-end',
-          gap: 14,
         }}
       >
+        <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 14 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 240px' }}>
           <span className="eyebrow" style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600 }}>Label</span>
           <input
@@ -99,10 +137,14 @@ export function DocumentsPanel({
         >
           {pending ? 'Uploading…' : 'Upload'}
         </button>
+        {(dirty || uncertain) && <button type="button" onClick={reset} disabled={pending}>Discard upload</button>}
+        </fieldset>
       </form>
 
-      {state.error && (
+      {uploaded && <p role="status">Document uploaded.</p>}
+      {error && (
         <div
+          role="alert"
           style={{
             marginTop: -14,
             marginBottom: 24,
@@ -114,7 +156,7 @@ export function DocumentsPanel({
             lineHeight: 1.5,
           }}
         >
-          {state.error}
+          {error}{uncertain && <> <a href={`/properties/${propertyId}?tab=documents`} target="_blank" rel="noopener noreferrer">View saved documents</a></>}
         </div>
       )}
 
@@ -184,18 +226,43 @@ export function DocumentsPanel({
 function DeleteDocButton({ propertyId, documentId, label }: { propertyId: string; documentId: string; label: string }) {
   const [pending, start] = useTransition();
   const [confirming, setConfirming] = useState(false);
+  const deleting = useRef(false);
+  const confirmation = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [removed, setRemoved] = useState(false);
+  const softRefresh = useSoftRefresh();
+  useUnsavedWorkGuard(pending);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  if (removed) return <span role="status">Removed</span>;
   return (
+    <div>
     <button
       type="button"
       disabled={pending}
       onClick={() => {
-        if (!confirming) {
+        if (deleting.current) return;
+        if (!confirmation.current) {
+          confirmation.current = true;
           setConfirming(true);
-          setTimeout(() => setConfirming(false), 3000);
+          timer.current = setTimeout(() => { confirmation.current = false; setConfirming(false); }, 3000);
           return;
         }
+        deleting.current = true;
+        if (timer.current) clearTimeout(timer.current);
+        setError(null);
         start(async () => {
-          await deletePropertyDocument(propertyId, documentId);
+          try {
+            await deletePropertyDocument(propertyId, documentId);
+            setRemoved(true);
+            softRefresh();
+          } catch {
+            setError('Could not confirm removal. Check the document list, then retry if needed.');
+          } finally {
+            deleting.current = false;
+            confirmation.current = false;
+            setConfirming(false);
+          }
         });
       }}
       title={`Delete "${label}"`}
@@ -212,6 +279,8 @@ function DeleteDocButton({ propertyId, documentId, label }: { propertyId: string
     >
       {pending ? 'Removing…' : confirming ? 'Confirm?' : 'Delete'}
     </button>
+    {error && <div role="alert" style={{ color: 'var(--negative)', fontSize: 12 }}>{error}</div>}
+    </div>
   );
 }
 

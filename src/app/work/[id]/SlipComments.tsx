@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState } from 'react';
 import type { WorkSlipCommentRow } from '@/lib/work-types';
 import { displayNameForEmail } from '@/lib/team';
 import { addWorkSlipComment, deleteWorkSlipComment } from '../actions';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type Props = {
   slipId: string;
@@ -12,65 +13,81 @@ type Props = {
 };
 
 /**
- * Threaded comment surface for a single work slip. Mirrors the comment
- * pattern shipped on tasks (#132). Optimistic insert keeps the input
- * snappy; author-scoped delete (the server action enforces it too).
+ * Keep drafts and existing comments until their writes are confirmed.
+ * Author-scoped delete is also enforced by the server action.
  */
 export function SlipComments({ slipId, initialComments, myEmail }: Props) {
   const [comments, setComments] = useState<WorkSlipCommentRow[]>(initialComments);
   const [body, setBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  const [postUncertain, setPostUncertain] = useState(false);
+  const [deleting, setDeleting] = useState<string[]>([]);
+  const [deleteErrors, setDeleteErrors] = useState<Record<string, string | null>>({});
+  const posting = useRef(false);
+  const deletingIds = useRef(new Set<string>());
   // Almost no slip has a thread, so the compose box stays behind a quiet
   // "+ Comment" line until asked for (or until a thread exists).
   const [composeOpen, setComposeOpen] = useState(false);
 
+  useUnsavedWorkGuard(body.length > 0 || submitting || deleting.length > 0);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null);
+    if (posting.current) return;
     const trimmed = body.trim();
     if (!trimmed) return;
+    posting.current = true;
+    setErr(null);
+    setPostUncertain(false);
     setSubmitting(true);
-
-    // Optimistic insert: render the comment immediately with a temp id.
-    const tempId = `temp-${Date.now()}`;
-    const optimistic: WorkSlipCommentRow = {
-      id: tempId,
-      work_slip_id: slipId,
-      author_email: myEmail,
-      body: trimmed,
-      created_at: new Date().toISOString(),
-    };
-    setComments((prev) => [...prev, optimistic]);
-    setBody('');
-
-    const res = await addWorkSlipComment({ work_slip_id: slipId, body: trimmed });
-    setSubmitting(false);
-    if (!res.ok) {
-      setErr(res.error);
-      // Roll back the optimistic insert.
-      setComments((prev) => prev.filter((c) => c.id !== tempId));
-      return;
-    }
-    // Replace the temp with the real id so future deletes target the right row.
-    setComments((prev) => prev.map((c) => (c.id === tempId ? { ...c, id: res.id } : c)));
-  }
-
-  function remove(id: string) {
-    const prevList = comments;
-    setComments((curr) => curr.filter((c) => c.id !== id));
-    startTransition(async () => {
-      const res = await deleteWorkSlipComment({ id, work_slip_id: slipId });
+    try {
+      const res = await addWorkSlipComment({ work_slip_id: slipId, body: trimmed });
       if (!res.ok) {
         setErr(res.error);
-        // Restore on failure.
-        setComments(prevList);
+        return;
       }
-    });
+      const comment: WorkSlipCommentRow = {
+        id: res.id,
+        work_slip_id: slipId,
+        author_email: myEmail,
+        body: trimmed,
+        created_at: new Date().toISOString(),
+      };
+      setComments((prev) => [...prev, comment]);
+      setBody('');
+    } catch {
+      setPostUncertain(true);
+      setErr('Could not confirm whether this comment posted. Your text is still here. Check saved comments before posting again to avoid a duplicate.');
+    } finally {
+      posting.current = false;
+      setSubmitting(false);
+    }
   }
 
-  if (comments.length === 0 && !composeOpen) {
+  async function remove(id: string) {
+    if (deletingIds.current.has(id)) return;
+    deletingIds.current.add(id);
+    setDeleting((prev) => [...prev, id]);
+    setDeleteErrors((prev) => ({ ...prev, [id]: null }));
+    try {
+      const res = await deleteWorkSlipComment({ id, work_slip_id: slipId });
+      if (!res.ok) {
+        setDeleteErrors((prev) => ({ ...prev, [id]: res.error }));
+        return;
+      }
+      // Remove only this confirmed row, preserving posts and other deletions
+      // that may have completed while this request was in flight.
+      setComments((prev) => prev.filter((comment) => comment.id !== id));
+    } catch {
+      setDeleteErrors((prev) => ({ ...prev, [id]: 'Could not confirm deletion. You can retry deleting this comment.' }));
+    } finally {
+      deletingIds.current.delete(id);
+      setDeleting((prev) => prev.filter((pendingId) => pendingId !== id));
+    }
+  }
+
+  if (comments.length === 0 && !composeOpen && !body && !submitting && !err) {
     return (
       <button
         type="button"
@@ -123,24 +140,28 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
                 <p style={{ fontSize: 14, color: 'var(--ink)', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
                   {c.body}
                 </p>
+                {deleteErrors[c.id] && (
+                  <p role="alert" style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--negative)' }}>{deleteErrors[c.id]}</p>
+                )}
               </div>
               {c.author_email === myEmail && (
                 <button
                   type="button"
                   onClick={() => remove(c.id)}
+                  disabled={deleting.includes(c.id)}
                   aria-label="Delete comment"
                   title="Delete (only you can delete your own comments)"
                   style={{
                     background: 'none',
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: deleting.includes(c.id) ? 'wait' : 'pointer',
                     color: 'var(--ink-4)',
                     fontSize: 14,
                     padding: 0,
                     lineHeight: 1,
                   }}
                 >
-                  ×
+                  {deleting.includes(c.id) ? 'Deleting…' : '×'}
                 </button>
               )}
             </li>
@@ -151,6 +172,8 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
       <form onSubmit={submit}>
         <textarea
           value={body}
+          disabled={submitting}
+          aria-label="Comment"
           onChange={(e) => setBody(e.target.value)}
           rows={3}
           placeholder="Add a comment…"
@@ -168,13 +191,20 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
           }}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-          <span style={{ fontSize: 11, color: err ? 'var(--negative)' : 'var(--ink-4)' }}>
+          <span role={err ? 'alert' : undefined} style={{ fontSize: 11, color: err ? 'var(--negative)' : 'var(--ink-4)' }}>
             {err ?? `Posting as ${displayNameForEmail(myEmail)}`}
+            {postUncertain && (
+              <> <a href={`/work/${encodeURIComponent(slipId)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline' }}>Check saved comments in a new tab</a></>
+            )}
           </span>
           {comments.length === 0 && (
             <button
               type="button"
-              onClick={() => { setComposeOpen(false); setBody(''); setErr(null); }}
+              disabled={submitting}
+              onClick={() => {
+                if (posting.current) return;
+                setComposeOpen(false); setBody(''); setErr(null); setPostUncertain(false);
+              }}
               style={{
                 background: 'none',
                 border: 'none',

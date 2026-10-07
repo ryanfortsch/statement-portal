@@ -200,7 +200,10 @@ async function ingestVendorAppointmentsInner(
   const { data: propRows, error: propErr } = await supabase
     .from('properties')
     .select('id, name, address')
-    .eq('is_active', true);
+    .eq('is_active', true)
+    // A-1 / Cape Ann Elite serve Cape Ann only; never match one of their
+    // texts to an out-of-region home (properties.region).
+    .eq('region', 'cape_ann');
   if (propErr) {
     result.errors.push(`properties: ${propErr.message}`);
     return result;

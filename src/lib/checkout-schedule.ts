@@ -42,13 +42,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { selectAllPaged } from '@/lib/paged-select';
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { NON_LIVE_STATUSES } from '@/lib/ghost-booking-reconcile';
 import { guestNameScore, displayGuestName, isContinuation } from '@/lib/stay-continuation';
 
-// Same exclusion set as lib/operations.ts NON_OPERATIONS_PROPERTY_IDS
-// (file-local there): out-of-region homes whose owners handle their own
-// turnovers. Rosa never cleans these.
-export const SCHEDULE_EXCLUDED_PROPERTY_IDS = new Set<string>(['65_calderwood', '3246_ne_27th']);
+// Which homes a schedule covers is a registry question (properties.region,
+// read through lib/property-scope.ts), never a literal id set: Rosa's Cape
+// Ann schedule is region cape_ann; an out-of-region home (65 Calderwood,
+// Bridgeport CT) gets its own recipient scoped by region or by explicit
+// property ids. See ScheduleScope below.
 
 // Mirrors operations.ts TURNOVER_STATUSES: stays that actually happen.
 const STAY_STATUSES = ['confirmed', 'completed'];
@@ -176,11 +178,23 @@ export type ScheduleRow = {
   } | null;
   /** Unapplied miner proposals targeting this stay (one-tap apply). */
   proposals: CheckoutAdjustment[];
+  /** The operator marked this checkout "no cleaning needed" (an owner
+   *  working on the house, say). Such a row lives in ScheduleDay.skipped,
+   *  never in `rows`. The reason is internal and never reaches the crew
+   *  raw: it is typed in English and the crew reads Portuguese. */
+  noClean?: { id: string; reason: string; by: string } | null;
 };
 
 export type ScheduleDay = {
   date: string;
+  /** Checkouts the crew cleans. */
   rows: ScheduleRow[];
+  /** Checkouts marked "no cleaning needed" (checkout_cleaning_skips). Kept
+   *  OUT of `rows` so every reader that only knows `rows` (vendor
+   *  cross-check, turnover notes, counts) treats the house as not on the
+   *  route; the surfaces that show it struck through read this. Optional so
+   *  a hand-built day (tests, fallbacks) need not carry it. */
+  skipped?: ScheduleRow[];
   counts: { checkouts: number; sameDay: number; adjusted: number; proposed: number };
 };
 
@@ -450,17 +464,37 @@ function nightsOf(checkIn: string, checkOut: string): string[] {
 
 // ─── the brain ────────────────────────────────────────────────────────
 
+/**
+ * Which homes a schedule covers. Default: every active Cape Ann home
+ * (region cape_ann). A recipient with an explicit property list (Luana,
+ * the Bridgeport house only) gets exactly those homes; a recipient with
+ * none gets every home in their region.
+ */
+export type ScheduleScope = { region?: string; propertyIds?: string[] };
+export const DEFAULT_SCHEDULE_SCOPE: ScheduleScope = { region: CAPE_ANN_REGION };
+
+/** Pure: does this property fall inside the scope? */
+export function inScheduleScope(
+  p: { id: string; region?: string | null },
+  scope: ScheduleScope = DEFAULT_SCHEDULE_SCOPE,
+): boolean {
+  if (scope.propertyIds && scope.propertyIds.length > 0) return scope.propertyIds.includes(p.id);
+  const region = scope.region ?? CAPE_ANN_REGION;
+  return (p.region ?? CAPE_ANN_REGION) === region;
+}
+
 export async function buildCheckoutSchedule(
   supabase: SupabaseClient,
-  opts: { startDate: string; days: number },
+  opts: { startDate: string; days: number; scope?: ScheduleScope },
 ): Promise<ScheduleDay[]> {
   const { startDate, days } = opts;
+  const scope = opts.scope ?? DEFAULT_SCHEDULE_SCOPE;
   const endDate = addDays(startDate, days - 1);
 
-  const [propsRes, checkoutsRes, checkinsRes, adjRes] = await Promise.all([
+  const [propsRes, checkoutsRes, checkinsRes, adjRes, skipsRes] = await Promise.all([
     supabase
       .from('properties')
-      .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind'),
+      .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind, region'),
     supabase
       .from('bookings')
       .select('id, property_id, check_in, check_out, guest_name, source, first_seen_at, last_seen_at, external_confirmation_code')
@@ -484,6 +518,13 @@ export async function buildCheckoutSchedule(
       .in('status', ['active', 'proposed'])
       .gte('stay_check_in', addDays(startDate, -60))
       .lte('stay_check_in', endDate),
+    // Live "no cleaning needed" marks, same stay window as adjustments.
+    supabase
+      .from('checkout_cleaning_skips')
+      .select('id, property_id, stay_check_in, reason, created_by')
+      .is('cleared_at', null)
+      .gte('stay_check_in', addDays(startDate, -60))
+      .lte('stay_check_in', endDate),
   ]);
 
   // Fail CLOSED. A missing result is an unknown schedule, never an empty
@@ -500,11 +541,21 @@ export async function buildCheckoutSchedule(
   }
 
   const properties = new Map<string, PropertyLite>();
-  for (const p of (propsRes.data ?? []) as Array<PropertyLite & { is_active: boolean | null; kind: string | null }>) {
-    if (SCHEDULE_EXCLUDED_PROPERTY_IDS.has(p.id)) continue;
+  for (const p of (propsRes.data ?? []) as Array<PropertyLite & { is_active: boolean | null; kind: string | null; region: string | null }>) {
+    if (!inScheduleScope(p, scope)) continue;
     if (p.is_active === false) continue;
     if (p.kind === 'hq') continue;
     properties.set(p.id, p);
+  }
+
+  // A failed skip read fails OPEN on purpose, unlike the reads above: the
+  // worst it can do is list a house the crew did not need to clean, which
+  // is the schedule as it stood before skips existed. Failing closed would
+  // take the whole schedule down over a convenience.
+  if (skipsRes.error) console.error('[checkout-schedule] checkout_cleaning_skips read failed:', skipsRes.error.message);
+  const skipByStay = new Map<string, { id: string; reason: string; by: string }>();
+  for (const k of (skipsRes.error ? [] : skipsRes.data ?? []) as Array<{ id: string; property_id: string; stay_check_in: string; reason: string | null; created_by: string | null }>) {
+    skipByStay.set(`${k.property_id}|${k.stay_check_in}`, { id: k.id, reason: k.reason ?? '', by: k.created_by ?? '' });
   }
 
   const adjustments = (adjRes.data ?? []) as CheckoutAdjustment[];
@@ -577,6 +628,7 @@ export async function buildCheckoutSchedule(
 
   // Resolve each stay to its effective checkout day, then bucket by day.
   const rowsByDay = new Map<string, ScheduleRow[]>();
+  const skippedByDay = new Map<string, ScheduleRow[]>();
   for (const stay of checkoutStays.values()) {
     const prop = properties.get(stay.property_id);
     if (!prop) continue;
@@ -640,10 +692,12 @@ export async function buildCheckoutSchedule(
           }
         : null,
       proposals: proposalsByStay.get(stayKey) ?? [],
+      noClean: skipByStay.get(stayKey) ?? null,
     };
-    const arr = rowsByDay.get(effectiveCheckOut) ?? [];
+    const bucket = row.noClean ? skippedByDay : rowsByDay;
+    const arr = bucket.get(effectiveCheckOut) ?? [];
     arr.push(row);
-    rowsByDay.set(effectiveCheckOut, arr);
+    bucket.set(effectiveCheckOut, arr);
   }
 
   const out: ScheduleDay[] = [];
@@ -652,9 +706,11 @@ export async function buildCheckoutSchedule(
     const rows = (rowsByDay.get(date) ?? []).sort(
       (a, b) => a.time.localeCompare(b.time) || a.propertyName.localeCompare(b.propertyName),
     );
+    const skipped = (skippedByDay.get(date) ?? []).sort((a, b) => a.propertyName.localeCompare(b.propertyName));
     out.push({
       date,
       rows,
+      skipped,
       counts: {
         checkouts: rows.length,
         sameDay: rows.filter((r) => r.sameDayTurnover).length,

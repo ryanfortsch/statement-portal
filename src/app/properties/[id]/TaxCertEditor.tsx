@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+
 import { updateTaxCertId } from './actions';
 
 /**
@@ -13,8 +16,14 @@ export function TaxCertEditor({ propertyId, initial }: { propertyId: string; ini
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(initial || '');
   const [current, setCurrent] = useState(initial);
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { pending, busy, error, setError, run } = useRecoverableAction();
+  const [seen, setSeen] = useState(initial);
+  if (initial !== seen) {
+    setSeen(initial);
+    setCurrent(initial);
+    if (!editing && !busy.current) setValue(initial || '');
+  }
+  useUnsavedWorkGuard(pending || (editing && value !== (current || '')));
 
   function start() {
     setValue(current || '');
@@ -22,13 +31,15 @@ export function TaxCertEditor({ propertyId, initial }: { propertyId: string; ini
     setEditing(true);
   }
   function cancel() {
+    if (busy.current || (value !== (current || '') && !confirm('Discard this certificate ID edit?'))) return;
     setEditing(false);
     setError(null);
   }
   function save() {
+    if (busy.current) return;
     setError(null);
     const next = value.trim() || null;
-    startTransition(async () => {
+    run(async () => {
       const res = await updateTaxCertId(propertyId, next);
       if (res.ok) {
         setCurrent(next);
@@ -36,7 +47,7 @@ export function TaxCertEditor({ propertyId, initial }: { propertyId: string; ini
       } else {
         setError(res.error);
       }
-    });
+    }, 'Could not confirm the certificate ID was saved. Your edit is kept; try again.');
   }
 
   if (!editing) {

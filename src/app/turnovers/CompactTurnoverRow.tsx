@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { operatingDate } from '@/lib/operating-date';
 import Link from 'next/link';
 import { channelAccent } from '@/lib/channel-style';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -51,7 +52,7 @@ export function CompactTurnoverRow({
   }, []);
 
   const isDone = t.inspectionStatus === 'complete' || t.manuallyCompleted;
-  const todayStr = new Date(now).toISOString().slice(0, 10);
+  const todayStr = operatingDate(new Date(now));
   const lc = lifecycleOf(t, now, todayStr);
 
   // Slow breathe on the active pip's halo. Re-arm ONLY when the active stage
@@ -255,6 +256,7 @@ export function CompactTurnoverRow({
                   planId={t.plan?.id ?? null}
                   plannedForDate={t.plan?.planned_for_date ?? null}
                   plannedBy={t.plan?.planned_by_email ?? null}
+                  plannedNotes={t.plan?.notes ?? null}
                   assignedToEmail={t.plan?.assigned_to_email ?? null}
                   myEmail={myEmail}
                 />
@@ -425,6 +427,7 @@ function PrimaryAction({
         planId={t.plan.id}
         plannedForDate={t.plan.planned_for_date}
         plannedBy={t.plan.planned_by_email}
+        plannedNotes={t.plan.notes}
         assignedToEmail={t.plan.assigned_to_email}
         myEmail={myEmail}
       />

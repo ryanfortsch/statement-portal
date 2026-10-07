@@ -14,42 +14,43 @@ const DISMISSIBLE_TYPES = new Set(['slip', 'task', 'email', 'inbound', 'plink-pa
  * excludes dismissals and backfills the next item from the pool.
  *
  * Writes via the service role (bypasses RLS); reads happen on the page with
- * the anon client. Fails quietly if the table isn't there yet or there's no
- * session, so a missing migration never crashes the home page.
+ * the anon client. Reports failures if the table is missing or there is no
+ * session. The caller displays failed dismissals and offers retry.
  */
-export async function dismissFeedItem(itemType: string, itemId: string): Promise<void> {
-  if (!DISMISSIBLE_TYPES.has(itemType) || !itemId) return;
+export async function dismissFeedItem(itemType: string, itemId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!DISMISSIBLE_TYPES.has(itemType) || !itemId) return { ok: false, error: 'This item cannot be cleared.' };
 
   const session = await auth();
   const email = session?.user?.email;
-  if (!email) return;
+  if (!email) return { ok: false, error: 'Sign in again to clear this item.' };
 
   // A concierge alert (ConciergeAlerts) clears for everyone, on the
   // concierge: an alert somebody handled is handled. The rest of the feed is
   // per-user and view-only.
   if (itemType === 'concierge') {
-    await dismissConciergeAttention(itemId, email);
+    const result = await dismissConciergeAttention(itemId, email);
+    if (!result.ok || !result.data.ok) return { ok: false, error: 'Could not clear this alert. Try again.' };
     revalidatePath('/');
-    return;
+    return { ok: true };
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-  if (!url || !serviceKey) return;
+  if (!url || !serviceKey) return { ok: false, error: 'Feed clearing is unavailable. Try again later.' };
 
   try {
     const sb = createClient(url, serviceKey);
-    await sb
+    const { error } = await sb
       .from('home_feed_dismissals')
       .upsert(
         { user_email: email, item_type: itemType, item_id: itemId },
         { onConflict: 'user_email,item_type,item_id' },
       );
+    if (error) return { ok: false, error: 'Could not clear this item. Try again.' };
   } catch {
-    // Table may not exist yet (migration not applied). No-op rather than
-    // surfacing an error to the click.
-    return;
+    return { ok: false, error: 'Could not clear this item. Try again.' };
   }
 
   revalidatePath('/');
+  return { ok: true };
 }

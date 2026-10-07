@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { ensurePropertyOnboardingToken } from '@/app/projections/actions';
 import { ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderOnboardingInviteEmail } from '@/lib/onboarding-invite-email';
@@ -58,9 +59,15 @@ export function PropertyOnboardingLink({
   const [draftUrl, setDraftUrl] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
 
+  const tokenBusy = useRef(false), draftBusy = useRef(false);
+  useDraftNavigationGuard(false, pending || preparing || drafting);
+  function closePreview() { if (!draftBusy.current && !tokenBusy.current) setPreviewOpen(false); }
+
   const hasOwnerEmail = ownerEmails.length > 0;
 
   const onGenerate = () => {
+    if (tokenBusy.current) return;
+    tokenBusy.current = true;
     setError(null);
     startTransition(async () => {
       try {
@@ -68,7 +75,7 @@ export function PropertyOnboardingLink({
         setToken(fresh);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
-      }
+      } finally { tokenBusy.current = false; }
     });
   };
 
@@ -88,12 +95,13 @@ export function PropertyOnboardingLink({
   // Open the email preview. Mints a token first if the property doesn't have
   // one yet, so the previewed URL is the real link the draft will carry.
   const onOpenPreview = () => {
+    if (tokenBusy.current || draftBusy.current) return;
     setDraftError(null);
-    setDraftUrl(null);
     if (token) {
       setPreviewOpen(true);
       return;
     }
+    tokenBusy.current = true;
     setPreparing(true);
     startTransition(async () => {
       try {
@@ -103,12 +111,15 @@ export function PropertyOnboardingLink({
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
+        tokenBusy.current = false;
         setPreparing(false);
       }
     });
   };
 
   const onCreateDraft = async () => {
+    if (draftBusy.current || draftUrl || !hasOwnerEmail) return;
+    draftBusy.current = true;
     setDraftError(null);
     setDrafting(true);
     try {
@@ -119,10 +130,12 @@ export function PropertyOnboardingLink({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Draft failed (${res.status})`);
+      if (typeof data.draft_url !== 'string' || !data.draft_url) throw new Error('Could not confirm the draft.');
       setDraftUrl(data.draft_url);
     } catch (err) {
-      setDraftError(err instanceof Error ? err.message : String(err));
+      setDraftError(`${err instanceof Error ? err.message : String(err)} Check Gmail before retrying if no draft confirmation arrived.`);
     } finally {
+      draftBusy.current = false;
       setDrafting(false);
     }
   };
@@ -213,7 +226,7 @@ export function PropertyOnboardingLink({
         <button
           type="button"
           onClick={onOpenPreview}
-          disabled={preparing || pending || !hasOwnerEmail}
+          disabled={preparing || pending || drafting || !hasOwnerEmail}
           title={hasOwnerEmail ? 'Preview the onboarding invite, then draft it in Gmail' : 'Add an owner email in the Owner section to enable'}
           style={{
             ...uppercaseBtn,
@@ -237,7 +250,7 @@ export function PropertyOnboardingLink({
       )}
 
       {previewOpen && (
-        <PreviewModal onClose={() => setPreviewOpen(false)}>
+        <PreviewModal onClose={closePreview}>
           <div className="eyebrow" style={{ marginBottom: 6 }}>Email preview · onboarding invite</div>
           <h3 className="font-serif" style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>{propertyName}</h3>
           <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 4 }}>
@@ -263,7 +276,7 @@ export function PropertyOnboardingLink({
               <a href={draftUrl} target="_blank" rel="noopener noreferrer" style={{ ...uppercaseBtn, color: 'var(--paper)', background: 'var(--ink)', textDecoration: 'none' }}>
                 Open in Gmail →
               </a>
-              <button type="button" onClick={() => setPreviewOpen(false)} style={{ ...uppercaseBtn, color: 'var(--ink-4)', background: 'transparent', border: '1px solid var(--rule)' }}>
+              <button type="button" onClick={closePreview} disabled={drafting} style={{ ...uppercaseBtn, color: 'var(--ink-4)', background: 'transparent', border: '1px solid var(--rule)' }}>
                 Close
               </button>
             </div>
@@ -288,7 +301,7 @@ export function PropertyOnboardingLink({
               >
                 Copy instead
               </button>
-              <button type="button" onClick={() => setPreviewOpen(false)} style={{ ...uppercaseBtn, color: 'var(--ink-4)', background: 'transparent', border: '1px solid var(--rule)' }}>
+              <button type="button" onClick={closePreview} disabled={drafting} style={{ ...uppercaseBtn, color: 'var(--ink-4)', background: 'transparent', border: '1px solid var(--rule)' }}>
                 Cancel
               </button>
             </div>
@@ -318,6 +331,7 @@ function PreviewModal({ onClose, children }: { onClose: () => void; children: Re
 
   return (
     <div
+      role="dialog" aria-modal="true" aria-label="Owner onboarding email preview"
       onClick={onClose}
       style={{ position: 'fixed', inset: 0, background: 'rgba(20,20,20,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px', zIndex: 1000, overflowY: 'auto' }}
     >

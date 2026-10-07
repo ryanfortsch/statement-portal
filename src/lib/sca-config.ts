@@ -52,6 +52,62 @@ export const SCA_STRIPE_WEBHOOK_EVENTS: ReadonlyArray<string> = [
 ];
 
 /**
+ * Permissions to tick when the property's secret is a RESTRICTED key
+ * (rk_live_). Stripe starts a restricted key at None on every row and offers no
+ * hint about which ones an integration needs, so this list is the answer,
+ * derived by reading stay-cape-ann's actual call sites rather than guessed.
+ * Stripe's own rule: GET needs Read, POST/DELETE need Write, and Write implies
+ * Read (docs.stripe.com/keys/restricted-api-keys).
+ *
+ * What the booking site actually calls, and nothing else:
+ *
+ *   paymentIntents.create / capture / cancel / retrieve / list / search
+ *       api/book, api/quote/accept, api/cron/retry-bookings,
+ *       api/webhooks/stripe/[accountKey], api/admin/*
+ *   charges.retrieve       the dispute handler, to find the intent behind a
+ *                          disputed charge
+ *   customers.create       card on file, for api/admin/charge-damage
+ *   paymentMethods.attach  saves that card to the customer after capture
+ *
+ * Disputes, Events and Balance stay None on purpose: webhook signatures are
+ * verified locally (constructEvent), the dispute object arrives embedded in the
+ * event, and no call expands balance_transaction.
+ *
+ * Both SCA admin diagnostics accept an rk_ key as of stay-cape-ann #69; they
+ * used to test for a literal `sk_live_` and report a working restricted key as
+ * "wrong prefix". The one thing scoping this tightly costs, surfaced in the UI
+ * beside this list: the key cannot read the account object, so
+ * /api/admin/stripe-live-validate confirms the key authenticates but cannot
+ * print the account name back for the operator to eyeball against the owner.
+ */
+export const SCA_STRIPE_KEY_PERMISSIONS: ReadonlyArray<{
+  resource: string;
+  access: 'Read' | 'Write';
+  why: string;
+}> = [
+  {
+    resource: 'Payment Intents',
+    access: 'Write',
+    why: 'authorize, capture, cancel and look up every booking charge',
+  },
+  {
+    resource: 'Charges',
+    access: 'Read',
+    why: 'the dispute webhook reads the disputed charge to find its payment',
+  },
+  {
+    resource: 'Customers',
+    access: 'Write',
+    why: 'card on file, so a damage charge can run after checkout',
+  },
+  {
+    resource: 'Payment Methods',
+    access: 'Write',
+    why: 'attaches that saved card to the customer once capture succeeds',
+  },
+];
+
+/**
  * The three Vercel env vars a property's standalone Stripe account needs on the
  * SCA project, keyed by the property's stripeAccountKey (e.g. 36_GRANITE).
  * stay-cape-ann's lib/stripeAccounts.ts resolves keys via exactly these names.

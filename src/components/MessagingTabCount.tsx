@@ -2,19 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { fetchPendingCounts, jitteredInterval } from '@/lib/pending-count-client';
+import { fetchPendingCounts, jitteredInterval, subscribePendingCounts } from '@/lib/pending-count-client';
 
 /**
- * Small count pill on a Messaging sub-tab (Guests / Owners) so the operator
- * can see WHICH queue has drafts waiting, not just that something does. The
- * masthead badge shows the combined total; this splits it onto the right tab
- * (e.g. an owner message waiting flags the Owners tab).
- *
- * Reads the same /api/messaging/pending-count endpoint the masthead badge uses
- * (it already returns guests + owners separately) and renders nothing when its
- * category is at zero. Reconciles on route change / tab focus for the same
- * reason the masthead badge does: this lives in a persistent strip and a plain
- * interval can otherwise sit stale.
+ * Audience-specific pending count. The masthead signals guest drafts only;
+ * these pills identify pending work in each audience, including the visible
+ * schedule digest for Cleaners. Scheduled sends do not need approval.
+ * Polling and confirmed queue changes reconcile through the shared fetcher.
  */
 export function MessagingTabCount({ category }: { category: 'guests' | 'owners' | 'cleaners' | 'contractors' }) {
   const [count, setCount] = useState<number | null>(null);
@@ -32,7 +26,7 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
         category === 'owners' ? data.owners :
         category === 'cleaners' ? data.cleaners :
         data.contractors;
-      if (!cancelled) setCount(typeof n === 'number' ? n : 0);
+      if (!cancelled && typeof n === 'number') setCount(n);
     };
     load();
     // Hidden tabs skip their ticks (the visibilitychange listener below
@@ -46,8 +40,10 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', load);
+    const unsubscribe = subscribePendingCounts(load);
     return () => {
       cancelled = true;
+      unsubscribe();
       clearInterval(t);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', load);
@@ -68,7 +64,8 @@ export function MessagingTabCount({ category }: { category: 'guests' | 'owners' 
 
   return (
     <span
-      aria-label={`${count} draft${count === 1 ? '' : 's'} waiting`}
+      title={`${count} ${category === 'cleaners' ? 'items' : 'drafts'} awaiting review`}
+      aria-label={`${count} ${category === 'cleaners' ? 'items' : 'drafts'} awaiting review`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

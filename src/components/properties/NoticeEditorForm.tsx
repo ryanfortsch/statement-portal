@@ -1,9 +1,8 @@
-import Link from 'next/link';
-import { SubmitButton } from '@/components/SubmitButton';
+import { RetainedPropertyForm } from './RetainedPropertyForm';
 
 /**
- * Shared form for creating + editing a bespoke property notice. Server
- * component — the action prop is wired to a server action by the caller
+ * Shared form for creating + editing a bespoke property notice. Server content
+ * with a recoverable client form wrapper. The action prop is wired to a server action by the caller
  * (createNotice for /notices/new, updateNotice.bind(null, id) for the
  * edit page). Mirrors the visual language of the property edit form so
  * authoring a notice feels like part of the same Helm shell.
@@ -23,7 +22,7 @@ export function NoticeEditorForm({
   submitLabel: string;
 }) {
   return (
-    <form action={action} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+    <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={`/properties/${propertyId}?tab=guest`} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <Field
         label="Eyebrow"
         hint="Optional. Short kicker that sits above the title — e.g. “Bathroom”, “Please note”, “Parking”."
@@ -68,13 +67,7 @@ export function NoticeEditorForm({
         />
       </Field>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
-        <SubmitButton label={submitLabel} busyLabel="Saving…" style={primaryButtonStyle} />
-        <Link href={`/properties/${propertyId}?tab=guest`} style={secondaryLinkStyle}>
-          Cancel
-        </Link>
-      </div>
-    </form>
+    </RetainedPropertyForm>
   );
 }
 
@@ -134,14 +127,4 @@ const primaryButtonStyle: React.CSSProperties = {
   padding: '13px 22px',
   border: '1px solid var(--ink)',
   cursor: 'pointer',
-};
-
-const secondaryLinkStyle: React.CSSProperties = {
-  color: 'var(--ink-3)',
-  fontSize: 11,
-  fontWeight: 500,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '13px 14px',
-  textDecoration: 'none',
 };

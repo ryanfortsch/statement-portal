@@ -1,15 +1,12 @@
 /**
- * The Gloucester cart cutover, pinned.
+ * The Gloucester cart rule, pinned.
  *
- * Gloucester retired purple pay-as-you-throw bags on 2026-09-30 and collects
- * with automated Casella carts from 2026-10-01. Three things have to hold and
- * none of them were covered by a test before:
+ * Gloucester collects with automated Casella carts. Two things have to hold:
  *
- *  1. The receptacle wording flips on the DATE, because stays straddle it.
- *  2. A Gloucester cart sentence never reaches Rockport (no curbside at all)
+ *  1. A Gloucester cart sentence never reaches Rockport (no curbside at all)
  *     or Beverly (its own program, its own specs).
- *  3. The same-day curb return survives every rewrite. Sec. 5-66(q) fines
- *     $400 per occurrence for a cart left out, chained to the rental permit.
+ *  2. The curb return survives every rewrite. Sec. 5-66(q) fines $400 per
+ *     occurrence for a cart left out, chained to the rental permit.
  *
  * Plus the street-matcher regressions the cutover audit surfaced: three live
  * Gloucester homes had no collection day on any surface.
@@ -19,8 +16,8 @@ import assert from 'node:assert/strict';
 import {
   civicForProperty,
   receptacleRuleFor,
+  isCollectionDay,
   GLOUCESTER_CART_RULE,
-  GLOUCESTER_CART_CUTOVER,
 } from '../civic.ts';
 import type { HelmPropertyRow } from '../properties.ts';
 
@@ -38,44 +35,30 @@ function prop(over: Partial<HelmPropertyRow>): HelmPropertyRow {
   } as HelmPropertyRow;
 }
 
-const BEFORE = new Date(2026, 8, 30); // 2026-09-30, last bag day
-const AFTER = new Date(2026, 9, 1); //  2026-10-01, first cart day
-
-test('Gloucester flips from bags to carts on the cutover date', () => {
-  const before = receptacleRuleFor('Gloucester', BEFORE);
-  const after = receptacleRuleFor('Gloucester', AFTER);
-
-  assert.match(before!, /purple/i, 'the last bag day still says purple');
-  assert.doesNotMatch(after!, /purple/i, 'no purple survives the cutover');
-  assert.equal(after, GLOUCESTER_CART_RULE);
-  assert.equal(GLOUCESTER_CART_CUTOVER, '2026-10-01');
-});
-
-test('the cart rule carries the clauses that cost money', () => {
-  // "back in that evening" is Sec. 5-66(q), $400 per occurrence. "Lid fully
-  // closed" and "beside a cart is not collected" are why a bag-era guest's
-  // overflow habit gets the house skipped.
-  assert.match(GLOUCESTER_CART_RULE, /back in that evening/);
-  assert.match(GLOUCESTER_CART_RULE, /after 4 PM the day before/);
-  assert.match(GLOUCESTER_CART_RULE, /lids fully closed/);
-  assert.match(GLOUCESTER_CART_RULE, /beside a cart is not collected/);
-  // Never the phrasings the ordinance work replaced.
-  assert.doesNotMatch(GLOUCESTER_CART_RULE, /night before/i);
-  assert.doesNotMatch(GLOUCESTER_CART_RULE, /7 ?a\.?m/i);
+test('the cart rule carries the clauses that cost money, and nothing retired', () => {
+  // "come back in" is Sec. 5-66(q), $400 per occurrence. "Lids closed" and
+  // "nothing left beside a cart" are why overflow gets the house skipped.
+  assert.equal(receptacleRuleFor('Gloucester'), GLOUCESTER_CART_RULE);
+  assert.match(GLOUCESTER_CART_RULE, /night before pickup/);
+  assert.match(GLOUCESTER_CART_RULE, /come back in/);
+  assert.match(GLOUCESTER_CART_RULE, /lids closed/);
+  assert.match(GLOUCESTER_CART_RULE, /beside a cart is collected/);
+  // The bag program is gone (2026-09-30); no surface may mention it.
+  assert.doesNotMatch(GLOUCESTER_CART_RULE, /purple|bags? only/i);
   // House style.
   assert.doesNotMatch(GLOUCESTER_CART_RULE, /—/);
 });
 
 test('Gloucester cart wording never leaks to Rockport or Beverly', () => {
-  const rockport = receptacleRuleFor('Rockport', AFTER)!;
+  const rockport = receptacleRuleFor('Rockport')!;
   assert.match(rockport, /no curbside collection/);
   assert.doesNotMatch(rockport, /cart/i, 'Rockport has no curbside collection');
 
-  const beverly = receptacleRuleFor('Beverly', AFTER)!;
+  const beverly = receptacleRuleFor('Beverly')!;
   assert.doesNotMatch(beverly, /65/, 'Beverly runs its own cart specs');
 
   // A city we have no confirmed rule for prints nothing rather than guessing.
-  assert.equal(receptacleRuleFor('Somerville', AFTER), null);
+  assert.equal(receptacleRuleFor('Somerville'), null);
 });
 
 test('two of the three dark Gloucester homes now resolve a collection day', () => {
@@ -144,9 +127,18 @@ test('an overridden trash day moves recycling with it', () => {
 });
 
 test('civicForProperty carries the receptacle rule for its own city', () => {
-  const g = civicForProperty(prop({ address: '21 Horton Street' }), AFTER);
+  const g = civicForProperty(prop({ address: '21 Horton Street' }));
   assert.equal(g.receptacleRule, GLOUCESTER_CART_RULE);
 
-  const r = civicForProperty(prop({ address: '3 South Street', city: 'Rockport, MA' }), AFTER);
+  const r = civicForProperty(prop({ address: '3 South Street', city: 'Rockport, MA' }));
   assert.doesNotMatch(r.receptacleRule!, /cart/i);
+});
+
+test('isCollectionDay matches the weekday of a date, and nothing without a day', () => {
+  assert.equal(isCollectionDay('Friday', '2026-10-09'), true);
+  assert.equal(isCollectionDay('Friday', '2026-10-08'), false);
+  assert.equal(isCollectionDay(null, '2026-10-09'), false);
+  // 84 Thatcher: DPW-confirmed Friday set on the row wins over the split street.
+  const c = civicForProperty(prop({ address: '84 Thatcher Road', trash_day: 'Friday' }));
+  assert.equal(isCollectionDay(c.trashDay, '2026-10-09'), true);
 });

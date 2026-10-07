@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import {
   type TaskRow,
@@ -12,6 +12,7 @@ import {
 import { updateTask, deleteTask, addTaskComment, deleteTaskComment } from '../../actions';
 import { TeamPicker } from '@/components/TeamPicker';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type PropertyForPicker = { id: string; name: string; title: string | null; city: string; is_active: boolean };
 
@@ -45,12 +46,28 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const [commentList, setCommentList] = useState<TaskCommentRow[]>(comments);
   const [commentBody, setCommentBody] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const saving = useRef(false);
+  const posting = useRef(false);
+  const deletingTask = useRef(false);
+  const deletingComments = useRef(new Set<string>());
+  const [commentDeletePending, setCommentDeletePending] = useState<string[]>([]);
+  const [commentDeleteErrors, setCommentDeleteErrors] = useState<Record<string, string>>({});
+  const snapshot = JSON.stringify([title, description, scope, priority, status, assignedToEmail, dueDate, propertyIds, tagsInput]);
+  const [savedSnapshot, setSavedSnapshot] = useState(snapshot);
+  const dirty = snapshot !== savedSnapshot;
+  useUnsavedWorkGuard(dirty || submitting || commentBody !== '' || commentSubmitting || commentDeletePending.length > 0 || deleting);
 
   async function save() {
+    if (saving.current || deletingTask.current) return;
+    saving.current = true;
     setError(null);
+    setSavedAt(null);
     setSubmitting(true);
+    const submittedSnapshot = snapshot;
     const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean);
-    const res = await updateTask({
+    try {
+      const res = await updateTask({
       id: task.id,
       title,
       description: description || null,
@@ -61,47 +78,66 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
       status,
       due_date: dueDate || null,
       tags: tags.length > 0 ? tags : null,
-    });
-    setSubmitting(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+      });
+      if (!res.ok) { setError(res.error); return; }
+      setSavedSnapshot(submittedSnapshot);
+      setSavedAt(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+      softRefresh();
+    } catch {
+      setError('Could not confirm the task save. Your edits are kept. Retry to apply them.');
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
     }
-    setSavedAt(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
-    softRefresh();
   }
 
   async function postComment() {
-    if (!commentBody.trim()) return;
+    if (posting.current || deletingTask.current || !commentBody.trim()) return;
+    posting.current = true;
+    const body = commentBody.trim();
+    setCommentError(null);
     setCommentSubmitting(true);
-    const res = await addTaskComment({ task_id: task.id, body: commentBody });
-    setCommentSubmitting(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    try {
+      const res = await addTaskComment({ task_id: task.id, body });
+      if (!res.ok) { setCommentError(res.error); return; }
+      setCommentList((prev) => [
+        ...prev,
+        { id: res.id, task_id: task.id, author_email: myEmail, body, created_at: new Date().toISOString() },
+      ]);
+      setCommentBody('');
+      softRefresh();
+    } catch {
+      setCommentError('Could not confirm whether the comment posted. Your draft is kept. Check the saved comments in another tab before retrying to avoid a duplicate.');
+    } finally {
+      posting.current = false;
+      setCommentSubmitting(false);
     }
-    setCommentList((prev) => [
-      ...prev,
-      { id: res.id, task_id: task.id, author_email: '', body: commentBody.trim(), created_at: new Date().toISOString() },
-    ]);
-    setCommentBody('');
-    softRefresh();
   }
 
   function removeComment(c: TaskCommentRow) {
+    if (deletingTask.current || deletingComments.current.has(c.id) || c.author_email !== myEmail) return;
     if (!confirm('Delete this comment?')) return;
+    deletingComments.current.add(c.id);
+    setCommentDeletePending([...deletingComments.current]);
+    setCommentDeleteErrors((prev) => ({ ...prev, [c.id]: '' }));
     startTransition(async () => {
-      const res = await deleteTaskComment({ id: c.id, task_id: task.id });
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = await deleteTaskComment({ id: c.id, task_id: task.id });
+        if (!res.ok) { setCommentDeleteErrors((prev) => ({ ...prev, [c.id]: res.error })); return; }
+        setCommentList((prev) => prev.filter((x) => x.id !== c.id));
+      } catch {
+        setCommentDeleteErrors((prev) => ({ ...prev, [c.id]: 'Could not confirm deletion. Retry to remove this comment.' }));
+      } finally {
+        deletingComments.current.delete(c.id);
+        setCommentDeletePending([...deletingComments.current]);
       }
-      setCommentList((prev) => prev.filter((x) => x.id !== c.id));
     });
   }
 
   function handleDelete() {
+    if (deletingTask.current || saving.current || posting.current || deletingComments.current.size) return;
     if (!confirm('Delete this task and its comments? This cannot be undone.')) return;
+    deletingTask.current = true;
     // Dedicated flag: the shared transition also covers comment removal,
     // and the Delete button shouldn't read "Deleting…" during those.
     setDeleting(true);
@@ -111,6 +147,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to delete');
         setDeleting(false);
+        deletingTask.current = false;
       }
     });
   }
@@ -130,6 +167,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         ← All Work
       </Link>
 
+      <fieldset disabled={submitting || deleting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       {/* HERO */}
       <section style={{ paddingTop: 24, paddingBottom: 24 }}>
         <div className="eyebrow" style={{ marginBottom: 12 }}>
@@ -251,6 +289,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         </Field>
       </Section>
 
+      </fieldset>
       {/* COMMENTS */}
       <Section title={`Comments · ${commentList.length}`}>
         {commentList.length === 0 ? (
@@ -270,9 +309,10 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
                   <span style={{ fontSize: 11, letterSpacing: '.08em', color: 'var(--ink-3)' }}>
                     {c.author_email || 'You'} &middot; {formatTimestamp(c.created_at)}
                   </span>
-                  <button
+                  {c.author_email === myEmail && <button
                     type="button"
                     onClick={() => removeComment(c)}
+                    disabled={deleting || commentDeletePending.includes(c.id)}
                     style={{
                       background: 'none',
                       border: 'none',
@@ -284,10 +324,11 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
                     }}
                     title="Delete"
                   >
-                    ✕
-                  </button>
+                    {commentDeletePending.includes(c.id) ? 'Deleting…' : '✕'}
+                  </button>}
                 </div>
                 <p style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap', margin: 0 }}>{c.body}</p>
+                {commentDeleteErrors[c.id] && <p role="alert" style={{ color: 'var(--negative)', fontSize: 12 }}>{commentDeleteErrors[c.id]}</p>}
               </div>
             ))}
           </div>
@@ -297,6 +338,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
           <Field label="Add a comment">
             <textarea
               value={commentBody}
+              disabled={commentSubmitting || deleting}
               onChange={(e) => setCommentBody(e.target.value)}
               rows={3}
               placeholder="What's the latest?"
@@ -307,12 +349,14 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
             <button
               type="button"
               onClick={postComment}
-              disabled={commentSubmitting || !commentBody.trim()}
+              disabled={deleting || commentSubmitting || !commentBody.trim()}
               style={{ ...primaryBtn(), opacity: commentBody.trim() ? 1 : 0.5 }}
             >
               {commentSubmitting ? 'Posting…' : 'Post comment'}
             </button>
           </div>
+          {commentError && <p role="alert" style={{ color: 'var(--negative)', fontSize: 12 }}>{commentError} <a href={`/work/tasks/${task.id}`} target="_blank" rel="noopener noreferrer">View saved comments</a></p>}
+          {commentBody && <button type="button" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }} style={{ fontSize: 12 }}>Discard comment draft</button>}
         </div>
       </Section>
 
@@ -349,13 +393,14 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
           borderTop: '1px solid var(--ink)',
         }}
       >
-        <button type="button" onClick={handleDelete} disabled={deleting || isPending} style={dangerBtn()}>
+        <button type="button" onClick={handleDelete} disabled={deleting || isPending || submitting || commentSubmitting || commentDeletePending.length > 0} style={dangerBtn()}>
           {deleting ? 'Deleting…' : 'Delete task'}
         </button>
         <div className="flex items-center gap-3">
-          {savedAt && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Saved {savedAt}</span>}
+          {savedAt && !dirty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Saved {savedAt}</span>}
+          {dirty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Unsaved changes</span>}
           <Link href="/work" style={ghostBtn()}>Cancel</Link>
-          <button type="button" onClick={save} disabled={submitting} style={primaryBtn()}>
+          <button type="button" onClick={save} disabled={submitting || deleting} style={primaryBtn()}>
             {submitting ? 'Saving…' : 'Save changes'}
           </button>
         </div>

@@ -1,3 +1,6 @@
+import { InboxSearch } from './InboxSearch';
+import { Suspense } from 'react';
+import { InboxHealth } from './InboxHealth';
 import Link from 'next/link';
 import { SectionTabs } from './SectionTabs';
 import { MessagingTabCount } from './MessagingTabCount';
@@ -16,10 +19,8 @@ import { MessagingTabCount } from './MessagingTabCount';
  * and write to them). It rides in SectionTabs' `secondRow` slot, the same
  * primitive FieldTabs uses for its lens row.
  *
- * The second row renders on ALL FOUR tabs, not just Guests. The other three
- * have a single Inbox lens today, but rendering the strip only for Guests
- * would make the header jump ~30px on every move between Guests and Owners,
- * which is a constant motion in real use.
+ * A lens row appears only when there is more than one destination. The
+ * single Inbox label on other audiences adds no navigation and wastes space.
  */
 
 type MessagingAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
@@ -49,6 +50,7 @@ export function MessagingTabs({
       : [{ id: 'inbox', label: 'Inbox', href: AUDIENCE_HOME[current] }];
 
   return (
+    <div className="rt-messaging-tabs">
     <SectionTabs
       current={current}
       tabs={[
@@ -57,7 +59,7 @@ export function MessagingTabs({
         { id: 'cleaners', label: 'Cleaners', href: '/cleaner-messaging', badge: <MessagingTabCount category="cleaners" /> },
         { id: 'contractors', label: 'Contractors', href: '/contractor-messaging', badge: <MessagingTabCount category="contractors" /> },
       ]}
-      secondRow={
+      secondRow={lenses.length > 1 ?
         <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>
           {lenses.map((l, i) => {
             const isActive = l.id === lens;
@@ -81,8 +83,11 @@ export function MessagingTabs({
               </span>
             );
           })}
-        </div>
+        </div> : undefined
       }
     />
+    {lens === 'inbox' && <InboxSearch />}
+    {lens === 'inbox' && <Suspense fallback={null}><InboxHealth /></Suspense>}
+    </div>
   );
 }

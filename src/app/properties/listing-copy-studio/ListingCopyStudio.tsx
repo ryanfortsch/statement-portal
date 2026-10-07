@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState, useTransition, type CSSProperties } from 'react';
+import { useMemo, useRef, useState, useTransition, type CSSProperties } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import {
   draftListingCopyFromGuesty,
   stageListingCopyEdit,
@@ -27,6 +28,7 @@ function assess(tagline: string, description: string, highlights: string[]): str
 }
 
 type RowStatus = 'idle' | 'drafting' | 'staging' | 'failed';
+type Operation = 'redraft' | 'stage' | 'publish';
 
 type Row = {
   id: string;
@@ -57,7 +59,7 @@ function toRow(c: ListingCopyRow): Row {
     description: c.description,
     highlights: c.highlights.length ? c.highlights : [''],
     baseline: sig(c.tagline, c.description, c.highlights),
-    staged: false,
+    staged: c.staged,
     status: 'idle',
     open: false,
   };
@@ -66,7 +68,9 @@ function toRow(c: ListingCopyRow): Row {
 export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow[] }) {
   const [rows, setRows] = useState<Row[]>(() => initialRows.map(toRow));
   const [onlyFlagged, setOnlyFlagged] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [operation, setOperation] = useState<{ kind: Operation; rowId?: string } | null>(null);
+  const busyRef = useRef(false);
+  const busy = operation !== null;
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [, startTransition] = useTransition();
 
@@ -86,16 +90,40 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
     return { total: rows.length, flagged, staged, unsaved };
   }, [rows]);
 
-  function runBusy(fn: () => Promise<void>) {
-    setBusy(true);
+  // Keep deployment reloads and accidental tab exits from interrupting edits or saves.
+  useUnsavedWorkGuard(counts.unsaved > 0 || busy);
+
+  function runBusy(kind: Operation, fn: () => Promise<void>, rowId?: string) {
+    // Lock immediately, including rapid clicks before React renders disabled buttons.
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setOperation({ kind, rowId });
     setNotice(null);
     startTransition(async () => {
       try {
         await fn();
+      } catch {
+        // Network/Server Action failures can throw before returning { ok: false }.
+        // Preserve the text and release the row so the operator can recover.
+        const text = kind === 'publish'
+          ? 'Could not confirm publication. Reload to check the saved batch before trying again.'
+          : kind === 'stage'
+            ? 'Could not confirm the save. Your text is still here. Try staging again.'
+            : 'Could not load Guesty copy. Your text is still here. Try again.';
+        if (rowId) patch(rowId, { status: 'failed', detail: text });
+        else setNotice({ kind: 'err', text });
       } finally {
-        setBusy(false);
+        busyRef.current = false;
+        setOperation(null);
       }
     });
+  }
+
+  function requestRedraft(r: Row) {
+    if (busyRef.current) return;
+    const dirty = sig(r.tagline, r.description, r.highlights) !== r.baseline;
+    if (dirty && !window.confirm(`Replace your unsaved edits to ${r.publicName} with Guesty copy?`)) return;
+    runBusy('redraft', () => redraft(r), r.id);
   }
 
   async function redraft(r: Row) {
@@ -134,8 +162,11 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
     });
   }
 
-  const publishAll = () =>
-    runBusy(async () => {
+  const publishAll = () => {
+    // The shared batch includes older staged versions of rows with newer edits.
+    // Require restaging first, so "Publish all" always matches the visible copy.
+    if (counts.unsaved > 0 || counts.staged === 0) return;
+    runBusy('publish', async () => {
       const res = await publishListingCopyBatch();
       if (!res.ok) {
         setNotice({ kind: 'err', text: res.error });
@@ -144,9 +175,14 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
       setRows((prev) => prev.map((r) => (r.staged ? { ...r, staged: false, status: 'idle', detail: undefined } : r)));
       setNotice({ kind: 'ok', text: 'Published. The site rebuilds in a couple minutes.' });
     });
+  };
 
   const visible = onlyFlagged
-    ? rows.filter((r) => assess(r.tagline, r.description, r.highlights).length > 0)
+    ? rows.filter((r) =>
+        // Keep Stage edit reachable after the operator fixes the last flag.
+        assess(r.tagline, r.description, r.highlights).length > 0 ||
+        sig(r.tagline, r.description, r.highlights) !== r.baseline,
+      )
     : rows;
 
   return (
@@ -162,8 +198,8 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
           borderBottom: '1px solid var(--rule)',
         }}
       >
-        <button type="button" style={btnPrimary} disabled={busy || counts.staged === 0} onClick={publishAll}>
-          {busy ? 'Publishing…' : `Publish all (${counts.staged})`}
+        <button type="button" style={btnPrimary} disabled={busy || counts.unsaved > 0 || counts.staged === 0} onClick={publishAll}>
+          {operation?.kind === 'publish' ? 'Publishing…' : `Publish all (${counts.staged})`}
         </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--ink-3)', cursor: 'pointer' }}>
           <input type="checkbox" checked={onlyFlagged} onChange={(e) => setOnlyFlagged(e.target.checked)} style={{ width: 15, height: 15 }} />
@@ -176,8 +212,15 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
         </span>
       </div>
 
+      {counts.unsaved > 0 && (
+        <p role="status" style={{ marginTop: 12, fontSize: 12.5, color: 'var(--ink-3)' }}>
+          Stage your unsaved edits before publishing.
+        </p>
+      )}
+
       {notice && (
         <div
+          role={notice.kind === 'err' ? 'alert' : 'status'}
           style={{
             marginTop: 14,
             padding: '10px 14px',
@@ -201,7 +244,11 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
         {visible.map((r) => {
           const liveFlags = assess(r.tagline, r.description, r.highlights);
           const dirty = sig(r.tagline, r.description, r.highlights) !== r.baseline;
-          const rowBusy = r.status === 'drafting' || r.status === 'staging';
+          // Transition updates may wait for the action; show pending state immediately.
+          const rowStatus = operation?.rowId === r.id
+            ? operation.kind === 'redraft' ? 'drafting' : 'staging'
+            : r.status;
+          const rowBusy = rowStatus === 'drafting' || rowStatus === 'staging';
           return (
             <div key={r.id} style={{ borderBottom: '1px solid var(--rule)' }}>
               {/* Header line */}
@@ -230,7 +277,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                  <StatusPill status={r.status} dirty={dirty} staged={r.staged} flagged={liveFlags.length > 0} />
+                  <StatusPill status={rowStatus} dirty={dirty} staged={r.staged} flagged={liveFlags.length > 0} />
                   <a href={r.liveUrl} target="_blank" rel="noreferrer" style={link}>
                     Live page ↗
                   </a>
@@ -240,7 +287,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
               {/* Editor */}
               {r.open && (
                 <div style={{ padding: '4px 4px 22px 28px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {r.detail && (
+                  {r.detail && !rowBusy && (
                     <div style={{ fontSize: 12, color: r.status === 'failed' ? 'var(--signal)' : 'var(--ink-3)', maxWidth: 720 }}>
                       {r.detail}
                     </div>
@@ -251,7 +298,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
                     <input
                       style={inputStyle}
                       value={r.tagline}
-                      disabled={rowBusy}
+                      disabled={rowBusy || busy}
                       onChange={(e) => patch(r.id, { tagline: e.target.value })}
                       placeholder="8–15 words, the italic subhead on the listing page."
                     />
@@ -262,7 +309,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
                     <textarea
                       style={{ ...inputStyle, minHeight: 120, resize: 'vertical', lineHeight: 1.55 }}
                       value={r.description}
-                      disabled={rowBusy}
+                      disabled={rowBusy || busy}
                       onChange={(e) => patch(r.id, { description: e.target.value })}
                       placeholder="One or two short paragraphs in editorial voice. Leave blank to use Guesty's description."
                     />
@@ -275,7 +322,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
                         <input
                           style={inputStyle}
                           value={h}
-                          disabled={rowBusy}
+                          disabled={rowBusy || busy}
                           onChange={(e) =>
                             patch(r.id, { highlights: r.highlights.map((x, j) => (j === i ? e.target.value : x)) })
                           }
@@ -285,7 +332,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
                           <button
                             type="button"
                             style={{ ...btnBase, padding: '0 12px' }}
-                            disabled={rowBusy}
+                            disabled={rowBusy || busy}
                             onClick={() => patch(r.id, { highlights: r.highlights.filter((_, j) => j !== i) })}
                           >
                             ×
@@ -296,7 +343,7 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
                     <button
                       type="button"
                       style={{ ...btnBase, padding: '6px 12px' }}
-                      disabled={rowBusy}
+                      disabled={rowBusy || busy}
                       onClick={() => patch(r.id, { highlights: [...r.highlights, ''] })}
                     >
                       + Highlight
@@ -304,13 +351,13 @@ export function ListingCopyStudio({ initialRows }: { initialRows: ListingCopyRow
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 2 }}>
-                    <button type="button" style={btnBase} disabled={rowBusy || busy} onClick={() => runBusy(() => redraft(r))}>
-                      {r.status === 'drafting' ? 'Redrafting…' : 'Redraft from Guesty'}
+                    <button type="button" style={btnBase} disabled={rowBusy || busy} onClick={() => requestRedraft(r)}>
+                      {rowStatus === 'drafting' ? 'Redrafting…' : 'Redraft from Guesty'}
                     </button>
-                    <button type="button" style={btnPrimary} disabled={rowBusy || busy || !dirty} onClick={() => runBusy(() => stage(r))}>
-                      {r.status === 'staging' ? 'Staging…' : r.staged && !dirty ? 'Staged ✓' : 'Stage edit'}
+                    <button type="button" style={btnPrimary} disabled={rowBusy || busy || !dirty} onClick={() => runBusy('stage', () => stage(r), r.id)}>
+                      {rowStatus === 'staging' ? 'Staging…' : r.staged && !dirty ? 'Staged ✓' : 'Stage edit'}
                     </button>
-                    {r.status === 'failed' && r.detail && (
+                    {rowStatus === 'failed' && r.detail && (
                       <span style={{ fontSize: 11.5, color: 'var(--signal)', maxWidth: 360 }}>{r.detail}</span>
                     )}
                   </div>

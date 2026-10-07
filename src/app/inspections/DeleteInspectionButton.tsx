@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { deleteInspection } from './actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
@@ -19,44 +21,15 @@ export function DeleteInspectionButton({
 }) {
   const softRefresh = useSoftRefresh();
   const [confirming, setConfirming] = useState(false);
-  const [pending, startTransition] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
+  const { pending, error, setError, run } = useRecoverableAction();
+  useUnsavedWorkGuard(pending);
 
   function runDelete() {
-    setErr(null);
-    startTransition(async () => {
+    run(async () => {
       const res = await deleteInspection(inspectionId);
-      if (!res.ok) {
-        setErr(res.error);
-        setConfirming(false);
-      } else {
-        softRefresh();
-      }
-    });
-  }
-
-  if (err) {
-    return (
-      <button
-        type="button"
-        onClick={() => setErr(null)}
-        title={`${err} — tap to dismiss`}
-        style={{
-          background: 'none',
-          border: 'none',
-          padding: '8px 0',
-          cursor: 'pointer',
-          fontSize: 11,
-          color: 'var(--negative)',
-          maxWidth: 160,
-          whiteSpace: 'normal',
-          textAlign: 'right',
-          lineHeight: 1.3,
-        }}
-      >
-        {err}
-      </button>
-    );
+      if (!res.ok) setError(res.error);
+      else softRefresh();
+    }, 'Could not confirm deletion. Check the inspection, then retry if it is still present.');
   }
 
   if (!confirming) {
@@ -82,7 +55,8 @@ export function DeleteInspectionButton({
   }
 
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+      {error && <span role="alert" style={{ color: 'var(--negative)', whiteSpace: 'normal', maxWidth: 240 }}>{error}</span>}
       <button
         type="button"
         onClick={runDelete}
@@ -99,11 +73,11 @@ export function DeleteInspectionButton({
           whiteSpace: 'nowrap',
         }}
       >
-        {pending ? 'Deleting…' : 'Confirm'}
+        {pending ? 'Deleting…' : error ? 'Retry delete' : 'Confirm'}
       </button>
       <button
         type="button"
-        onClick={() => setConfirming(false)}
+        onClick={() => { setConfirming(false); setError(null); }}
         disabled={pending}
         style={{
           background: 'none',

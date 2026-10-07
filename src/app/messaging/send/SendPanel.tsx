@@ -90,15 +90,13 @@ export function SendPanel({
         text,
         picked.module,
         picked.listing_id,
-        sendAtIso
-          ? {
-              sendAtUtc: sendAtIso,
-              guestFirst: picked.guest_first || '',
-              reservationId: picked.reservation_id || '',
-              checkIn: picked.check_in || '',
-              checkOut: picked.check_out || '',
-            }
-          : undefined,
+        {
+          sendAtUtc: sendAtIso || undefined,
+          guestFirst: picked.guest_first || '',
+          reservationId: picked.reservation_id || '',
+          checkIn: picked.check_in || '',
+          checkOut: picked.check_out || '',
+        },
       );
       if (!res.ok) {
         setError(res.error);

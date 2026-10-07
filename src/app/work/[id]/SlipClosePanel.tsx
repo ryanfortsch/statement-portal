@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { updateWorkSlipStatus, updateWorkSlipResolution } from '../actions';
 import type { WorkSlipStatus } from '@/lib/work-types';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { SnoozeButton } from './SnoozeButton';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type Props = {
   workSlipId: string;
@@ -15,6 +16,7 @@ type Props = {
 };
 
 const CLOSED: WorkSlipStatus[] = ['done', 'dismissed'];
+type SaveMode = 'done' | 'dismissed' | 'open' | 'notes';
 
 /**
  * The slip's close-out flow. Slips really only move open → done (or
@@ -34,63 +36,56 @@ export function SlipClosePanel({
   const [status, setStatus] = useState<WorkSlipStatus>(initialStatus);
   const [notes, setNotes] = useState<string>(initialResolutionNotes ?? '');
   const [savedNotes, setSavedNotes] = useState<string>(initialResolutionNotes ?? '');
-  const [saving, setSaving] = useState<'done' | 'dismissed' | 'open' | 'notes' | null>(null);
+  const [saving, setSaving] = useState<SaveMode | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [uncertain, setUncertain] = useState(false);
+  const inFlight = useRef(false);
 
   const isClosed = CLOSED.includes(status);
   const notesDirty = notes.trim() !== savedNotes.trim();
 
+  useUnsavedWorkGuard(notesDirty || saving !== null);
+
   // Close (done or dismissed) saves whatever is in the notes box in the
   // same round trip; the server stamps completed_at / closed_at.
-  async function close(next: 'done' | 'dismissed') {
+  async function save(mode: SaveMode) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const submittedNotes = notes;
     setErr(null);
-    setSaving(next);
-    const res = await updateWorkSlipResolution({
-      id: workSlipId,
-      resolution_notes: notes,
-      status: next,
-      propertyId,
-    });
-    setSaving(null);
-    if (!res.ok) {
-      setErr(res.error);
-      return;
+    setUncertain(false);
+    setSaving(mode);
+    try {
+      const res = mode === 'open'
+        ? await updateWorkSlipStatus({ id: workSlipId, status: 'open', propertyId })
+        : await updateWorkSlipResolution({
+            id: workSlipId,
+            resolution_notes: submittedNotes,
+            ...(mode === 'notes' ? {} : { status: mode, propertyId }),
+          });
+      if (!res.ok) {
+        setErr(res.error);
+        return;
+      }
+      if (mode !== 'notes') setStatus(mode);
+      // Reopening changes only the status. Any draft notes remain unsaved.
+      if (mode !== 'open') setSavedNotes(submittedNotes);
+      softRefresh();
+    } catch {
+      setUncertain(true);
+      setErr('Could not confirm the change. Your notes are still here. Check the work slip before trying again.');
+    } finally {
+      inFlight.current = false;
+      setSaving(null);
     }
-    setStatus(next);
-    setSavedNotes(notes);
-    softRefresh();
-  }
-
-  async function reopen() {
-    setErr(null);
-    setSaving('open');
-    const res = await updateWorkSlipStatus({ id: workSlipId, status: 'open', propertyId });
-    setSaving(null);
-    if (!res.ok) {
-      setErr(res.error);
-      return;
-    }
-    setStatus('open');
-    softRefresh();
-  }
-
-  async function saveNotesOnly() {
-    setErr(null);
-    setSaving('notes');
-    const res = await updateWorkSlipResolution({ id: workSlipId, resolution_notes: notes });
-    setSaving(null);
-    if (!res.ok) {
-      setErr(res.error);
-      return;
-    }
-    setSavedNotes(notes);
-    softRefresh();
   }
 
   return (
     <div>
       <textarea
         value={notes}
+        disabled={saving !== null}
+        aria-label="Completion notes"
         onChange={(e) => setNotes(e.target.value)}
         rows={2}
         placeholder="What did you do? Cost? Vendor? Anything worth knowing for next time… (optional)"
@@ -113,7 +108,7 @@ export function SlipClosePanel({
             {notesDirty && (
               <button
                 type="button"
-                onClick={saveNotesOnly}
+                onClick={() => save('notes')}
                 disabled={saving !== null}
                 style={solidButton(saving === 'notes')}
               >
@@ -122,7 +117,7 @@ export function SlipClosePanel({
             )}
             <button
               type="button"
-              onClick={reopen}
+              onClick={() => save('open')}
               disabled={saving !== null}
               style={ghostButton(saving === 'open')}
             >
@@ -138,7 +133,7 @@ export function SlipClosePanel({
           <>
             <button
               type="button"
-              onClick={() => close('done')}
+              onClick={() => save('done')}
               disabled={saving !== null}
               style={solidButton(saving === 'done')}
             >
@@ -146,22 +141,23 @@ export function SlipClosePanel({
             </button>
             <button
               type="button"
-              onClick={() => close('dismissed')}
+              onClick={() => save('dismissed')}
               disabled={saving !== null}
               title="Close without work: false alarm, duplicate, won't do"
               style={ghostButton(saving === 'dismissed')}
             >
               {saving === 'dismissed' ? 'Saving…' : 'Dismiss'}
             </button>
-            <div style={{ marginLeft: 'auto' }}>
+            <fieldset disabled={saving !== null} style={{ marginLeft: 'auto', padding: 0, border: 0, minWidth: 0 }}>
               <SnoozeButton slipId={workSlipId} initialSnoozedUntil={initialSnoozedUntil} />
-            </div>
+            </fieldset>
           </>
         )}
       </div>
 
       {err && (
         <div
+          role="alert"
           style={{
             marginTop: 14,
             padding: '10px 14px',
@@ -172,6 +168,9 @@ export function SlipClosePanel({
           }}
         >
           {err}
+          {uncertain && (
+            <> <a href={`/work/${encodeURIComponent(workSlipId)}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline' }}>Check saved work slip in a new tab</a></>
+          )}
         </div>
       )}
     </div>

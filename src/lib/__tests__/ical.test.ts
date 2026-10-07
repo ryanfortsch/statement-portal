@@ -14,8 +14,15 @@ import {
   airbnbConfirmationCode,
   parseIcal,
   isBookingEvent,
+  classifyIcalEvent,
+  isBlockSummary,
   guessGuestNameFromIcal,
   isPlaceholderGuestName,
+  parseIcalTimestamp,
+  bookedAtForImport,
+  FEED_STAMP_SLACK_MS,
+  FIRST_IMPORT_BOOKED_AT_OFFSET_MS,
+  type IcalEvent,
 } from '../ical.ts';
 
 const ASHLEY =
@@ -126,5 +133,199 @@ describe('through the feed parser', () => {
     assert.equal(isPlaceholderGuestName(reserved.summary), true);
     // And the code must never be mistaken for a name.
     assert.equal(isPlaceholderGuestName('Reservation HMEFDNMS4Z'), true);
+  });
+});
+
+describe('classifyIcalEvent: what each OTA feed means by its SUMMARY', () => {
+  // The event shapes each feed actually publishes. The old isBookingEvent
+  // dropped every summary containing "available" (so the Airbnb and
+  // Booking.com blocks below vanished) and the sync stored whatever was
+  // left as confirmed (so the VRBO "Blocked" became a guest).
+  const ev = (summary: string | null, description: string | null = null, cancelled = false): IcalEvent => ({
+    uid: 'u',
+    summary,
+    description,
+    url: null,
+    dtstart: '2026-09-01',
+    dtend: '2026-09-05',
+    cancelled,
+    raw: {},
+  });
+
+  test('Airbnb: Reserved with a reservation link is a stay', () => {
+    assert.equal(classifyIcalEvent(ev('Reserved', ASHLEY), 'airbnb'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reserved'), 'airbnb'), 'stay');
+    // Summary lost but the link survived: still a stay.
+    assert.equal(classifyIcalEvent(ev(null, ASHLEY), 'airbnb'), 'stay');
+  });
+
+  test('Airbnb: "Airbnb (Not available)" is a block, as is anything unnamed', () => {
+    assert.equal(classifyIcalEvent(ev('Airbnb (Not available)'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev('Not available'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev('Unavailable'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev('Blocked'), 'airbnb'), 'block');
+    assert.equal(classifyIcalEvent(ev(null), 'airbnb'), 'block');
+  });
+
+  test('VRBO: Blocked is a block; Reserved, a Guest: line or a bare name is a stay', () => {
+    assert.equal(classifyIcalEvent(ev('Blocked'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Unavailable'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Not available'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Closed'), 'vrbo'), 'block');
+    assert.equal(classifyIcalEvent(ev('Reserved'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reserved - Guest: John Doe'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reservation'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev(null, 'Reservation\nGuest: John Doe\nCheck-in: 2026-09-01'), 'vrbo'), 'stay');
+    assert.equal(classifyIcalEvent(ev('John Doe'), 'vrbo'), 'stay');
+  });
+
+  test('Booking.com: "CLOSED - Not available" is a block, a named event a stay', () => {
+    assert.equal(classifyIcalEvent(ev('CLOSED - Not available'), 'booking_com'), 'block');
+    assert.equal(classifyIcalEvent(ev('Unavailable'), 'booking_com'), 'block');
+    assert.equal(classifyIcalEvent(ev('Jane Roe'), 'booking_com'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reservation'), 'booking_com'), 'stay');
+  });
+
+  test('a bare Available / Open is a skip on every channel, as is a cancelled event', () => {
+    for (const channel of ['airbnb', 'vrbo', 'booking_com', 'guesty', 'direct', 'manual', 'other']) {
+      assert.equal(classifyIcalEvent(ev('Available'), channel), 'skip', `Available on ${channel}`);
+      assert.equal(classifyIcalEvent(ev('Open'), channel), 'skip', `Open on ${channel}`);
+      assert.equal(classifyIcalEvent(ev(' available '), channel), 'skip', `padded Available on ${channel}`);
+      assert.equal(classifyIcalEvent(ev('Reserved', null, true), channel), 'skip', `cancelled on ${channel}`);
+    }
+  });
+
+  test('the Guesty aggregate feed keeps its own path, byte-identical to before', () => {
+    assert.equal(classifyIcalEvent(ev('Reservation HMEFDNMS4Z'), 'guesty'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Reservation BC-Wz2rvkB8x'), 'guesty'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Blocked by Guesty'), 'guesty'), 'block');
+    assert.equal(classifyIcalEvent(ev('Owner stay'), 'guesty'), 'block');
+    // The old filter dropped any summary containing "available"; the
+    // aggregate feed keeps that so Guesty-managed homes see no new rows.
+    assert.equal(classifyIcalEvent(ev('Not available'), 'guesty'), 'skip');
+  });
+
+  test('direct / manual / other: a stay unless the summary carries a hold keyword', () => {
+    assert.equal(classifyIcalEvent(ev('Reserved'), 'direct'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Pat Lee'), 'other'), 'stay');
+    assert.equal(classifyIcalEvent(ev('Blocked'), 'direct'), 'block');
+    assert.equal(classifyIcalEvent(ev('Not available'), 'manual'), 'block');
+  });
+
+  test('isBookingEvent is now "anything worth storing": a block is kept, only a skip is dropped', () => {
+    assert.equal(isBookingEvent(ev('Reserved')), true);
+    assert.equal(isBookingEvent(ev('Airbnb (Not available)')), true);
+    assert.equal(isBookingEvent(ev('Available')), false);
+    assert.equal(isBookingEvent(ev('Reserved', null, true)), false);
+  });
+});
+
+describe('isBlockSummary: the same hold test over a stored raw_summary', () => {
+  test('every hold fixture reads as a block', () => {
+    for (const raw of ['Airbnb (Not available)', 'Not available', 'Unavailable', 'Blocked', 'Block', 'CLOSED - Not available', 'Closed', 'Blocked by Guesty']) {
+      assert.equal(isBlockSummary(raw), true, raw);
+    }
+  });
+
+  test('a stay never does', () => {
+    for (const raw of ['Reserved', 'Reservation HMEFDNMS4Z', 'Reserved - Guest: John Doe', 'John Doe', 'Jane Roe', '', null, undefined]) {
+      assert.equal(isBlockSummary(raw), false, String(raw));
+    }
+  });
+
+  test('and it agrees with the classifier on the direct feeds', () => {
+    const ev = (summary: string): IcalEvent => ({ uid: 'u', summary, description: null, url: null, dtstart: '2026-09-01', dtend: '2026-09-05', cancelled: false, raw: {} });
+    for (const [summary, channel] of [
+      ['Airbnb (Not available)', 'airbnb'],
+      ['Blocked', 'vrbo'],
+      ['CLOSED - Not available', 'booking_com'],
+    ] as const) {
+      assert.equal(classifyIcalEvent(ev(summary), channel), 'block');
+      assert.equal(isBlockSummary(summary), true);
+    }
+    for (const [summary, channel] of [
+      ['Reserved', 'airbnb'],
+      ['Reserved', 'vrbo'],
+      ['Jane Roe', 'booking_com'],
+    ] as const) {
+      assert.equal(classifyIcalEvent(ev(summary), channel), 'stay');
+      assert.equal(isBlockSummary(summary), false);
+    }
+  });
+});
+
+describe('CREATED and DTSTAMP: when a stay was booked, for bookings.booked_at', () => {
+  test('parseIcal exposes both as ISO timestamps, null when absent', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'UID:with-created@vrbo',
+      'DTSTAMP:20260926T140000Z',
+      'CREATED:20260702T183015Z',
+      'DTSTART;VALUE=DATE:20261010',
+      'DTEND;VALUE=DATE:20261014',
+      'SUMMARY:Reserved',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:bare@airbnb.com',
+      'DTSTART;VALUE=DATE:20261020',
+      'DTEND;VALUE=DATE:20261024',
+      'SUMMARY:Reserved',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const [a, b] = parseIcal(ics);
+    assert.equal(a.created, '2026-07-02T18:30:15.000Z');
+    assert.equal(a.dtstamp, '2026-09-26T14:00:00.000Z');
+    assert.equal(b.created, null);
+    assert.equal(b.dtstamp, null);
+  });
+
+  test('parseIcalTimestamp reads DATE-TIME with or without Z, and DATE', () => {
+    assert.equal(parseIcalTimestamp('20260921T120000Z'), '2026-09-21T12:00:00.000Z');
+    assert.equal(parseIcalTimestamp('20260921T120000'), '2026-09-21T12:00:00.000Z');
+    assert.equal(parseIcalTimestamp('20260921'), '2026-09-21T00:00:00.000Z');
+    assert.equal(parseIcalTimestamp(' 20260921T120000Z '), '2026-09-21T12:00:00.000Z');
+    assert.equal(parseIcalTimestamp('2026-09-21'), null);
+    assert.equal(parseIcalTimestamp('garbage'), null);
+    assert.equal(parseIcalTimestamp(''), null);
+    assert.equal(parseIcalTimestamp(null), null);
+  });
+
+  const FETCHED = new Date('2026-09-26T15:00:00Z');
+  const iso = (msAgo: number) => new Date(FETCHED.getTime() - msAgo).toISOString();
+
+  test('CREATED wins: that is the booking moment, first import or not', () => {
+    const created = '2026-07-02T18:30:15.000Z';
+    assert.equal(bookedAtForImport({ created, dtstamp: FETCHED.toISOString() }, { fetchedAt: FETCHED, firstImport: false }), created);
+    assert.equal(bookedAtForImport({ created, dtstamp: null }, { fetchedAt: FETCHED, firstImport: true }), created);
+  });
+
+  test('a CREATED after the fetch is clamped to the fetch', () => {
+    const future = new Date(FETCHED.getTime() + 3_600_000).toISOString();
+    assert.equal(bookedAtForImport({ created: future }, { fetchedAt: FETCHED, firstImport: false }), FETCHED.toISOString());
+  });
+
+  test('a DTSTAMP clearly older than the fetch is used', () => {
+    const old = iso(3 * 86_400_000);
+    assert.equal(bookedAtForImport({ created: null, dtstamp: old }, { fetchedAt: FETCHED, firstImport: false }), old);
+  });
+
+  test("a DTSTAMP at the fetch is the feed's generation time and says nothing", () => {
+    // Airbnb stamps every event with the moment it generated the calendar.
+    const genTime = iso(60_000);
+    assert.ok(FETCHED.getTime() - Date.parse(genTime) < FEED_STAMP_SLACK_MS);
+    assert.equal(bookedAtForImport({ dtstamp: genTime }, { fetchedAt: FETCHED, firstImport: false }), FETCHED.toISOString());
+  });
+
+  test("a listing's first import dates every stay 25 hours back, outside the 24-hour confirmation window", () => {
+    const bookedAt = bookedAtForImport({ dtstamp: iso(60_000) }, { fetchedAt: FETCHED, firstImport: true });
+    assert.equal(bookedAt, iso(FIRST_IMPORT_BOOKED_AT_OFFSET_MS));
+    assert.ok(FETCHED.getTime() - Date.parse(bookedAt) > 24 * 3_600_000);
+    assert.equal(bookedAtForImport({}, { fetchedAt: FETCHED, firstImport: true }), iso(25 * 3_600_000));
+  });
+
+  test('a new UID on a feed Helm already follows is booked now', () => {
+    assert.equal(bookedAtForImport({}, { fetchedAt: FETCHED, firstImport: false }), FETCHED.toISOString());
   });
 });

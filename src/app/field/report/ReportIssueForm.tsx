@@ -1,9 +1,12 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
-import { PhotoUploader } from '@/components/PhotoUploader';
-import { reportFieldWorkSlip, type ReportState } from '../actions';
+import { confirmedSave } from '@/lib/confirmed-save';
+import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
+import { PhotoUploader, useClearPhotoDraft } from '@/components/PhotoUploader';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { reportFieldWorkSlip, checkFieldReportSubmission, type ReportState } from '../actions';
 
 export type VisitOption = {
   propertyId: string;
@@ -47,10 +50,64 @@ const field: React.CSSProperties = {
 };
 
 export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]; windowHours: number }) {
-  const [state, formAction, isPending] = useActionState<ReportState, FormData>(reportFieldWorkSlip, { ok: false });
-  const [selected, setSelected] = useState(visits.length === 1 ? visits[0].propertyId : '');
-  const [priority, setPriority] = useState<'low' | 'normal' | 'high'>('normal');
+  const submitting = useRef(false);
+  const [initialSelected] = useState(visits.length === 1 ? visits[0].propertyId : '');
+  const selectionDraft = useFieldFormDraft('report-selection', { selected: initialSelected });
+  const { selected } = selectionDraft.value;
+  const setSelected = (v: string) => selectionDraft.set('selected', v);
+  const formDraft = useFieldFormDraft(selected ? `report:${selected}` : undefined, { priority: 'normal' as 'low' | 'normal' | 'high', title: '', location: '', description: '', expenseDollars: '' });
+  const { priority, ...details } = formDraft.value;
+  const setPriority = (v: 'low' | 'normal' | 'high') => formDraft.set('priority', v);
+  const attemptDraft = useFieldFormDraft(selected ? `report-attempt:${selected}` : undefined, { id: '', payload: '' });
+  const retrying = !!attemptDraft.value.payload;
+  const draftKey = selected ? `report:${selected}` : '';
+  const clearDraft = useClearPhotoDraft(draftKey);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [state, formAction, isPending] = useActionState<ReportState, FormData>(async (previous, data) => {
+    try {
+      let { id, payload } = attemptDraft.value;
+      if (!payload) {
+        id = crypto.randomUUID();
+        payload = JSON.stringify(Object.fromEntries(['property_id', 'title', 'location', 'description', 'priority', 'photo_urls', 'expense_dollars'].map(key => [key, String(data.get(key) || '')])));
+        attemptDraft.set('id', id);
+        attemptDraft.set('payload', payload);
+      }
+      const fields = JSON.parse(payload) as Record<string, string>;
+      const submission = new FormData();
+      for (const [key, value] of Object.entries(fields)) submission.set(key, value);
+      submission.set('submission_id', id);
+      const result = await confirmedSave(
+        () => reportFieldWorkSlip(previous, submission),
+        () => checkFieldReportSubmission(id, fields.property_id),
+      );
+      if (!result.ok && !result.uncertain) {
+        attemptDraft.set('payload', '');
+        attemptDraft.set('id', '');
+      }
+      return result;
+    } catch {
+      return { ok: false, uncertain: true, error: 'Could not confirm this report. Your original submission is kept for retry.' };
+    } finally {
+      submitting.current = false;
+    }
+  }, { ok: false });
+  const clearForm = formDraft.clear, clearSelection = selectionDraft.clear, clearAttempt = attemptDraft.clear;
+  const submittedPayload = attemptDraft.value.payload;
+  useEffect(() => {
+    if (!state.ok) return;
+    try {
+      const sent = JSON.parse(submittedPayload) as Record<string, string>;
+      clearForm({ priority: sent.priority as 'low' | 'normal' | 'high', title: sent.title, location: sent.location, description: sent.description, expenseDollars: sent.expense_dollars });
+      void clearDraft(JSON.parse(sent.photo_urls || '[]'));
+      clearSelection();
+      clearAttempt();
+    } catch { /* A confirmed report stays successful if device cleanup fails. */ }
+  }, [state.ok, submittedPayload, clearDraft, clearForm, clearSelection, clearAttempt]);
+  // Controlled values survive React's form reset after a returned action error.
+  const [uploading, setUploading] = useState(false);
+  const dirty = selected !== initialSelected || priority !== 'normal' || photos.length > 0
+    || Object.values(details).some(value => value.length > 0);
+  useUnsavedWorkGuard(!state.ok && (dirty || uploading || isPending));
 
   const chosen = visits.find((v) => v.propertyId === selected) ?? null;
 
@@ -78,10 +135,19 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
   }
 
   return (
-    <form action={formAction} style={{ ...card, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <form action={formAction} onSubmit={event => {
+      if (!formDraft.ready || !attemptDraft.ready || (!chosen && !retrying) || submitting.current || uploading) {
+        event.preventDefault();
+        return;
+      }
+      submitting.current = true;
+    }} style={card}>
+      <fieldset disabled={isPending || retrying || !attemptDraft.ready || !selectionDraft.ready || !formDraft.ready} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <input type="hidden" name="priority" value={priority} />
       <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
 
+      {!isPending && !retrying && <FieldDraftStatus status={formDraft.status} />}
+      {selected && !chosen && <p role="alert">This home is no longer in your reporting window. Your draft is kept; contact the office before reporting it elsewhere.</p>}
       {/* Which home */}
       <div>
         <label htmlFor="rf-prop" style={label}>Which home?</label>
@@ -91,7 +157,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
             name="property_id"
             required
             value={selected}
-            onChange={(e) => setSelected(e.target.value)}
+            onChange={(e) => (setPhotos([]), setSelected(e.target.value))}
             style={{ ...field, appearance: 'none', paddingRight: 38, color: selected ? 'var(--ink)' : 'var(--ink-4)', cursor: 'pointer' }}
           >
             <option value="" disabled>Choose a home you visited</option>
@@ -113,19 +179,19 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       {/* What */}
       <div>
         <label htmlFor="rf-title" style={label}>What needs attention?</label>
-        <input id="rf-title" name="title" required minLength={3} maxLength={200} autoComplete="off" placeholder="e.g. Master bath faucet is dripping" style={field} />
+        <input id="rf-title" name="title" disabled={!selected} value={details.title} onChange={e => formDraft.set('title', e.target.value)} required minLength={3} maxLength={200} autoComplete="off" placeholder="e.g. Master bath faucet is dripping" style={field} />
       </div>
 
       {/* Where */}
       <div>
         <label htmlFor="rf-loc" style={label}>Where in the home? <span style={optional}>(optional)</span></label>
-        <input id="rf-loc" name="location" maxLength={200} autoComplete="off" placeholder="e.g. Master bathroom" style={field} />
+        <input id="rf-loc" name="location" disabled={!selected} value={details.location} onChange={e => formDraft.set('location', e.target.value)} maxLength={200} autoComplete="off" placeholder="e.g. Master bathroom" style={field} />
       </div>
 
       {/* Details */}
       <div>
         <label htmlFor="rf-desc" style={label}>Anything else? <span style={optional}>(optional)</span></label>
-        <textarea id="rf-desc" name="description" rows={3} maxLength={4000} placeholder="A sentence of detail helps the team come prepared." style={{ ...field, resize: 'vertical', lineHeight: 1.5 }} />
+        <textarea id="rf-desc" name="description" disabled={!selected} value={details.description} onChange={e => formDraft.set('description', e.target.value)} rows={3} maxLength={4000} placeholder="A sentence of detail helps the team come prepared." style={{ ...field, resize: 'vertical', lineHeight: 1.5 }} />
       </div>
 
       {/* How soon */}
@@ -138,6 +204,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
               <button
                 key={p.value}
                 type="button"
+                disabled={!selected}
                 onClick={() => setPriority(p.value)}
                 aria-pressed={on}
                 style={{
@@ -163,7 +230,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
       {/* Photo */}
       <div>
         <span style={label}>Add a photo <span style={optional}>(optional, but it helps)</span></span>
-        <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
+        <PhotoUploader draftKey={draftKey || undefined} value={photos} onChange={setPhotos} folder="field-maintenance" disabled={isPending || !selected} onUploadingChange={setUploading} />
       </div>
 
       {/* Receipt — bought something for the house out of pocket? The amount
@@ -176,6 +243,8 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
         </span>
         <input
           name="expense_dollars"
+          disabled={!selected} value={details.expenseDollars}
+          onChange={e => formDraft.set('expenseDollars', e.target.value)}
           type="number"
           min={0}
           max={500}
@@ -185,28 +254,31 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
         />
       </div>
 
+      </fieldset>
+      {attemptDraft.status === 'unavailable' && <p role="alert" style={{ fontSize: 13, color: 'var(--signal)' }}>Retry details could not be saved on this device. Keep this page open until the report is confirmed.</p>}
+      {retrying && !isPending && !state.error && <p role="status" style={{ fontSize: 13, color: 'var(--ink-3)' }}>This report still needs confirmation. Retrying uses the same report and cannot create a duplicate.</p>}
       {state.error && (
-        <div style={{ fontSize: 13.5, color: 'var(--signal)', background: 'rgba(200,90,58,0.07)', border: '1px solid var(--signal)', borderRadius: 8, padding: '10px 13px', lineHeight: 1.5 }}>
+        <div role="alert" style={{ fontSize: 13.5, color: 'var(--signal)', background: 'rgba(200,90,58,0.07)', border: '1px solid var(--signal)', borderRadius: 8, padding: '10px 13px', lineHeight: 1.5 }}>
           {state.error}
         </div>
       )}
 
       <button
         type="submit"
-        disabled={isPending}
+        disabled={isPending || uploading || !formDraft.ready || !attemptDraft.ready}
         style={{
           background: 'var(--ink)',
           color: 'var(--paper)',
           border: 'none',
           borderRadius: 8,
-          cursor: isPending ? 'wait' : 'pointer',
+          cursor: isPending || uploading ? 'wait' : 'pointer',
           fontSize: 13,
           fontWeight: 600,
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
           padding: '16px 24px',
           minHeight: 52,
-          opacity: isPending ? 0.8 : 1,
+          opacity: isPending || uploading ? 0.8 : 1,
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -214,8 +286,13 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
         }}
       >
         {isPending && <span aria-hidden className="animate-spin" style={{ display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(245,239,226,0.4)', borderTopColor: 'var(--paper)', borderRadius: '50%' }} />}
-        {isPending ? 'Sending to the office…' : 'Send to the office'}
+        {isPending ? 'Saving and confirming…' : uploading ? 'Wait for photos…' : retrying ? 'Check / retry report' : 'Send to the office'}
       </button>
+      {(dirty || uploading) && !retrying && !isPending && !state.error && (
+        <p role="status" style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+          Your report has not been sent yet.
+        </p>
+      )}
     </form>
   );
 }

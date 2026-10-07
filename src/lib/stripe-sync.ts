@@ -37,12 +37,13 @@
  * through Rising Tide's Stripe accounts.
  */
 
+import { addonQueueMonth } from './addon-queue-month';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { occupancyTaxMultiplier } from '@/lib/occupancy-tax';
 import { splitFolio } from '@/lib/remittance';
 import { taxPortionOfNet } from '@/lib/addon-tax';
 import { chargeWindow } from './stripe-window';
-import { FUTURE_STAY_PRINCIPAL_MARK } from './extras-markers';
+import { FUTURE_STAY_PRINCIPAL_MARK, isStayPrincipalTitle } from './extras-markers';
 import { FREEZE_FROM_MONTH, getFreezeStatus, assertStatementWritable, StatementFrozenError } from '@/lib/statement-finality';
 import { loadInstallmentsForCodes } from '@/lib/installments';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
@@ -1185,17 +1186,34 @@ export async function syncPropertyStripe(opts: {
       // compute the excise, so the base has to be a real recorded number,
       // not the tax divided back out by a rate.
       const baseByRequestKey = new Map<string, number>();
+      const stayByRequestKey = new Map<string, { code: string; checkOut: string }>();
       if (helmKeys.length > 0) {
         const { data: linkRows } = await supabase
           .from('payment_link_requests')
-          .select('request_key, guest_name, tax_cents, base_cents')
+          .select('request_key, guest_name, tax_cents, base_cents, reservation_id')
           .in('request_key', helmKeys);
+        const resIdByRequestKey = new Map<string, string>();
         for (const lr of linkRows || []) {
           if ((lr.guest_name || '').trim()) guestByRequestKey.set(lr.request_key, String(lr.guest_name).trim());
+          if ((lr.reservation_id || '').trim()) resIdByRequestKey.set(lr.request_key, String(lr.reservation_id).trim());
           const tc = Number(lr.tax_cents) || 0;
           if (tc > 0) {
             taxByRequestKey.set(lr.request_key, tc);
             baseByRequestKey.set(lr.request_key, Number(lr.base_cents) || 0);
+          }
+        }
+        // The link names its stay, so a prepaid add-on can be filed under
+        // the stay's checkout month instead of the charge month.
+        const resIds = [...new Set(resIdByRequestKey.values())];
+        if (resIds.length > 0) {
+          const { data: stayRows } = await supabase
+            .from('guesty_reservations')
+            .select('guesty_reservation_id, confirmation_code, check_out')
+            .in('guesty_reservation_id', resIds);
+          const stayById = new Map((stayRows || []).map(r => [String(r.guesty_reservation_id), r]));
+          for (const [key, rid] of resIdByRequestKey) {
+            const st = stayById.get(rid);
+            if (st?.confirmation_code) stayByRequestKey.set(key, { code: String(st.confirmation_code), checkOut: String(st.check_out || '') });
           }
         }
       }
@@ -1207,14 +1225,14 @@ export async function syncPropertyStripe(opts: {
         const agg = byCodeAgg.get(o.code);
         if (!agg || agg.isGuestyCoded) continue;
         // SCA principal-payment links are auto-generated as "Stay at
-        // <name> - <dates>". When one misses its amount match (fee/tax
+        // <name> - <dates>" (or "Stay in ..." for 225 Washington). When one misses its amount match (fee/tax
         // drift, split charges) it's still a STAY payment, never an
         // add-on -- queueing it would invite double-counting revenue the
         // Guesty PDF already carries. The missing-charge gap on the
         // reservation flags it instead. A helm_request_key overrides the
         // text test: bridge-minted charges are add-ons by construction,
         // whatever their description says.
-        if (!agg.helmRequestKey && /^stay at\b/i.test(agg.fullDesc)) continue;
+        if (!agg.helmRequestKey && isStayPrincipalTitle(agg.fullDesc)) continue;
         const createdIso = new Date(agg.createdUnix * 1000).toISOString().slice(0, 10);
         if (createdIso.slice(0, 7) !== month) continue;
         if (agg.refundedCents >= agg.grossCents) {
@@ -1313,9 +1331,10 @@ export async function syncPropertyStripe(opts: {
         const description = futurePrincipal
           ? `${FUTURE_STAY_PRINCIPAL_MARK} - do not apply to this statement${targetPeriod ? `; belongs to ${targetPeriod}` : ''}. ${baseDesc}`
           : baseDesc;
+        const linkStay = !futurePrincipal && agg.helmRequestKey ? stayByRequestKey.get(agg.helmRequestKey) : undefined;
         queueRows.push({
           property_id: propertyId,
-          month,
+          month: linkStay ? addonQueueMonth(month, linkStay.checkOut) : month,
           deposit_date: createdIso,
           // `amount` stays what it has always been: the owner-facing add-on
           // revenue. The tax is carved out of it, not added on top, so the
@@ -1329,6 +1348,8 @@ export async function syncPropertyStripe(opts: {
           source: 'stripe_charge',
           suggested_reservation_code: futurePrincipal
             ? null
+            : linkStay
+            ? linkStay.code
             : suggestReservationForCharge(reservations, createdIso, preselectText(agg)),
           dedupe_key: `stripe:${o.code}`,
         });

@@ -6,6 +6,7 @@ import { assertStatementWritable, StatementFrozenError, frozenResponseBody } fro
 import { writeStatementTotals, type FreezeReceipt, type WriteResult } from '@/lib/statement-totals-write';
 import { detectMissingDirectStays, persistMissingDirectGaps, type MissingDirectStay } from '@/lib/missing-direct-stays';
 import { splitFolio } from '@/lib/remittance';
+import { isVrboFlatCommissionBooking } from '@/lib/vrbo-commission';
 
 /**
  * Refresh an existing property_statement by adding any guesty_reservations
@@ -66,12 +67,14 @@ function normalizePlatform(raw?: string | null): string {
  *  The base is the pre-tax FOLIO whenever we have one: channel_commission is
  *  booking-level while total_paid is payment-level and Guesty logs only one
  *  leg of a 50/50 split, which doubles the ratio and cuts a real 5% VRBO
- *  commission as if it were the legacy kludge. */
+ *  commission as if it were the legacy kludge. A Vrbo booking made on or
+ *  after Vrbo's flat-12% cutoff (lib/vrbo-commission.ts) keeps its real
+ *  commission as given. */
 function stripLegacyCommissionKludge(args: {
   platform: string; totalPaid: number; totalTaxes: number; commission: number;
-  folioPreTax?: number | null;
+  folioPreTax?: number | null; bookedAt?: string | null;
 }): number {
-  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax, bookedAt } = args;
   if (!commission || commission <= 0) return 0;
   const base = folioPreTax && folioPreTax > 0
     ? folioPreTax
@@ -80,6 +83,7 @@ function stripLegacyCommissionKludge(args: {
   const ratio = commission / base;
   const p = platform.toUpperCase();
   if (p === 'MANUAL' && ratio > 0.02) return 0;
+  if ((p.includes('HOMEAWAY') || p === 'VRBO') && isVrboFlatCommissionBooking(bookedAt)) return commission;
   if ((p.includes('HOMEAWAY') || p === 'VRBO') && ratio > 0.07) {
     return round2(base * 0.05);
   }
@@ -162,7 +166,7 @@ export async function POST(request: NextRequest) {
     const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
     const { data: candidates, error: candErr } = await supabase
       .from('guesty_reservations')
-      .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, status, total_taxes, channel_commission, folio_items, ${REVENUE_SIGNAL_COLUMNS}`)
+      .select(`confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, status, total_taxes, channel_commission, folio_items, booked_at, ${REVENUE_SIGNAL_COLUMNS}`)
       .eq('property_id', propertyId)
       // Confirmed only: an inquiry has a quoted host_payout but no booking
       // behind it, and a cancelled row must never be added to a statement.
@@ -312,6 +316,7 @@ export async function POST(request: NextRequest) {
         const effComm = stripLegacyCommissionKludge({
           platform, totalPaid, totalTaxes, commission: rawCommission,
           folioPreTax: folio.hasFolio ? folio.preTax : null,
+          bookedAt: (g as { booked_at?: string | null }).booked_at ?? null,
         });
         stripeFee = calcStripeFee(totalPaid);
         guestyRentalIncome = round2(totalPaid - totalTaxes - effComm);

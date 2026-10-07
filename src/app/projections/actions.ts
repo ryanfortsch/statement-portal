@@ -1,6 +1,7 @@
 'use server';
 
 import crypto from 'node:crypto';
+import { getOrCreatePropertyOnboardingToken } from '@/lib/property-onboarding-token';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
@@ -756,7 +757,8 @@ async function readReadinessState(projectionId: string): Promise<ReadinessState>
     .eq('id', projectionId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  const raw = (data?.readiness_state ?? null) as ReadinessState | null;
+  if (!data) throw new Error('Prospect not found');
+  const raw = (data.readiness_state ?? null) as ReadinessState | null;
   return {
     have: raw?.have && typeof raw.have === 'object' ? raw.have : {},
     checked: Array.isArray(raw?.checked) ? raw.checked : [],
@@ -767,11 +769,13 @@ async function readReadinessState(projectionId: string): Promise<ReadinessState>
 
 async function writeReadinessState(projectionId: string, next: ReadinessState): Promise<void> {
   const stamped: ReadinessState = { ...next, updated_at: new Date().toISOString() };
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('projections')
     .update({ readiness_state: stamped })
-    .eq('id', projectionId);
+    .eq('id', projectionId)
+    .select('id');
   if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Prospect not found. Changes were not saved.');
   // Intentionally NO revalidatePath — see header comment.
 }
 
@@ -1623,29 +1627,7 @@ export async function ensurePropertyOnboardingToken(propertyId: string): Promise
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  // `properties` is RLS-protected — an anon UPDATE silently no-ops, which
-  // would persist no token and hand back a dead onboarding link. Use the
-  // service-role client for the write.
-  const sb = supabase; // already service-role
-
-  const { data: existing, error: lookupErr } = await sb
-    .from('properties')
-    .select('onboarding_token')
-    .eq('id', propertyId)
-    .maybeSingle();
-  if (lookupErr) throw new Error(lookupErr.message);
-  if (!existing) throw new Error('Property not found');
-
-  if ((existing as { onboarding_token: string | null }).onboarding_token) {
-    return (existing as { onboarding_token: string }).onboarding_token;
-  }
-
-  const token = newOnboardingToken();
-  const { error: updateErr } = await sb
-    .from('properties')
-    .update({ onboarding_token: token })
-    .eq('id', propertyId);
-  if (updateErr) throw new Error(updateErr.message);
+  const token = await getOrCreatePropertyOnboardingToken(supabase, propertyId);
 
   revalidatePath(`/properties/${propertyId}`);
   return token;
@@ -1661,7 +1643,7 @@ function parseOnboardingFormData(formData: FormData): OnboardingData {
     'electricity_provider', 'heating', 'cooling', 'internet_provider',
     'cable_provider', 'wifi_name', 'wifi_password', 'wifi_name_2', 'wifi_password_2',
     'num_tvs', 'smart_tv',
-    'currently_listed', 'listing_urls', 'str_registration', 'str_insurance',
+    'currently_listed', 'listing_urls', 'room_occupancy_cert', 'str_registration', 'str_insurance',
     'guest_access_method', 'smart_lock_brand', 'smart_lock_code', 'security_cameras',
     'key_code_location', 'alarm_system', 'known_issues', 'upcoming_maintenance', 'notes',
     'emergency_name', 'emergency_relationship', 'emergency_phone', 'emergency_email',
@@ -1709,6 +1691,10 @@ function propertyColumnsFromOnboarding(ob: OnboardingData) {
     currently_listed: ob.currently_listed || null,
     existing_listing_urls: ob.listing_urls || null,
     str_registration_id: ob.str_registration || null,
+    // Only written when the owner typed one: tax_cert_id feeds the monthly
+    // remittance filing, so a blank re-submit must not erase a certificate
+    // ops already recorded from the launch checklist.
+    ...(ob.room_occupancy_cert ? { tax_cert_id: ob.room_occupancy_cert } : {}),
     str_insurance_carrier: ob.str_insurance || null,
     guest_access_method: ob.guest_access_method || null,
     smart_lock_brand: ob.smart_lock_brand || null,

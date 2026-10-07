@@ -29,7 +29,7 @@ export function CopyableUrl({ value }: { value: string }) {
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           } catch {
-            // ignore — readOnly input lets the user select manually
+            // ignore: the readOnly input lets the user select manually
           }
         }}
         style={{

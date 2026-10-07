@@ -76,7 +76,8 @@ describe('shared readiness facts', () => {
 
     for (const [file, src] of [['launch-checklist', launch], ['onboarding-catalog', catalog]] as const) {
       assert.ok(
-        src.includes("from '@/lib/property-facts'"),
+        // Either spelling: launch-checklist imports it relatively so node:test can load it.
+        src.includes("from '@/lib/property-facts'") || src.includes("from './property-facts.ts'"),
         `${file} no longer imports the shared facts, so its predicates are free to drift again`,
       );
     }

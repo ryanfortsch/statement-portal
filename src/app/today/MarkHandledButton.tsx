@@ -1,11 +1,17 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { markEmailHandled } from './actions';
 
 export function MarkHandledButton({ messageId }: { messageId: string }) {
   const [isPending, startTransition] = useTransition();
   const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
+  const lock = useRef(false);
+  const softRefresh = useSoftRefresh();
+  useUnsavedWorkGuard(isPending);
 
   if (done) {
     return (
@@ -16,13 +22,21 @@ export function MarkHandledButton({ messageId }: { messageId: string }) {
   }
 
   return (
+    <span>
     <button
       type="button"
       disabled={isPending}
       onClick={() => {
+        if (lock.current) return;
+        lock.current = true; setError('');
         startTransition(async () => {
-          const res = await markEmailHandled(messageId);
-          if (res.ok) setDone(true);
+          try {
+            const res = await markEmailHandled(messageId);
+            if (!res.ok) { setError(res.error || 'Could not mark this email handled. Please try again.'); return; }
+            setDone(true); softRefresh();
+          } catch {
+            setError('Could not confirm this email was handled. Check the inbox before retrying.');
+          } finally { lock.current = false; }
         });
       }}
       className="text-[10px] uppercase tracking-[0.14em] hover:underline disabled:opacity-50"
@@ -30,7 +44,9 @@ export function MarkHandledButton({ messageId }: { messageId: string }) {
       aria-label="Mark email handled"
       title="Drop from /today (does not change Gmail read state)"
     >
-      {isPending ? 'Handling…' : 'Handled ✓'}
+      {isPending ? 'Handling…' : error ? 'Retry' : 'Mark handled'}
     </button>
+    {error && <span role="alert" style={{ display: 'block', fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
+    </span>
   );
 }

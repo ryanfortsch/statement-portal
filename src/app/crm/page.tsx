@@ -5,6 +5,9 @@ import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } fr
 import type { ContactRow, ContactType, UnknownNumberRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { ContactReconcileSuggestionRow } from '@/lib/quo-reconcile';
+import { loadGuestStaysByPhone, guestStayLabel } from '@/lib/unknown-number-guests';
+import { normalizePhone } from '@/lib/quo-lines';
+import { todayET } from '@/lib/checkout-schedule';
 import { CrmListClient } from './CrmListClient';
 
 export const dynamic = 'force-dynamic';
@@ -19,9 +22,12 @@ async function getContacts(): Promise<{
   lastTouchByContact: Record<string, LastTouch>;
   unknownNumbers: UnknownNumberRow[];
   suggestions: ContactReconcileSuggestionRow[];
+  /** phone -> "Beth Dowling · 17 Beach · arriving today", for numbers that
+   *  belong to a guest on a real stay. Absent for everyone else. */
+  guestByPhone: Record<string, string>;
   error: string | null;
 }> {
-  const empty = { contacts: [], properties: [], lastTouchByContact: {}, unknownNumbers: [], suggestions: [] };
+  const empty = { contacts: [], properties: [], lastTouchByContact: {}, unknownNumbers: [], suggestions: [], guestByPhone: {} };
   if (!isHelmConfigured) {
     return { ...empty, error: 'Helm Supabase env vars are not set.' };
   }
@@ -67,12 +73,29 @@ async function getContacts(): Promise<{
       }
     }
 
+    const unknowns = (unknownNumbers ?? []) as UnknownNumberRow[];
+    const props = (properties ?? []) as PropertyMini[];
+
+    // Name the strangers who are actually our guests. Only worth a read when
+    // the queue has something in it.
+    const guestByPhone: Record<string, string> = {};
+    if (unknowns.length > 0) {
+      const today = todayET();
+      const stays = await loadGuestStaysByPhone(supabase, today);
+      const propName = new Map(props.map((p) => [p.id, p.name]));
+      for (const u of unknowns) {
+        const m = stays[normalizePhone(u.phone)];
+        if (m) guestByPhone[u.phone] = guestStayLabel(m, m.propertyId ? propName.get(m.propertyId) ?? null : null);
+      }
+    }
+
     return {
       contacts: (contacts ?? []) as ContactRow[],
-      properties: (properties ?? []) as PropertyMini[],
+      properties: props,
       lastTouchByContact,
-      unknownNumbers: (unknownNumbers ?? []) as UnknownNumberRow[],
+      unknownNumbers: unknowns,
       suggestions: (suggestions ?? []) as ContactReconcileSuggestionRow[],
+      guestByPhone,
       error: null,
     };
   } catch (err) {
@@ -81,7 +104,7 @@ async function getContacts(): Promise<{
 }
 
 export default async function CrmPage() {
-  const { contacts, properties, lastTouchByContact, unknownNumbers, suggestions, error } = await getContacts();
+  const { contacts, properties, lastTouchByContact, unknownNumbers, suggestions, guestByPhone, error } = await getContacts();
 
   const counts = {
     all: contacts.length,
@@ -132,6 +155,7 @@ export default async function CrmPage() {
           counts={counts}
           lastTouchByContact={lastTouchByContact}
           unknownNumbers={unknownNumbers}
+          guestByPhone={guestByPhone}
           suggestions={suggestions}
         />
       )}

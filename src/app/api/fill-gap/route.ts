@@ -7,10 +7,12 @@ import { netVendorCredits, vendorCreditFields, unappliedRefundGap, type VendorCh
 import { applyCreditOverrides, creditOverrideGaps, creditOverridesUnavailableGap, CREDIT_OVERRIDE_UNAPPLIED, CREDIT_OVERRIDE_COLLISION, CREDIT_OVERRIDES_UNAVAILABLE, type CreditOverrideGap } from '@/lib/cleaning-credit-overrides';
 import { loadCreditOverrides } from '@/lib/cleaning-credit-overrides-db';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { bookingTransferCorroborates } from '@/lib/booking-bank-corroboration';
 import { upsertCsvReservations } from '@/lib/guesty-csv-rows';
 import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals-write';
 import { assertStatementWritable, StatementFrozenError, frozenResponseBody } from '@/lib/statement-finality';
 import { splitFolio } from '@/lib/remittance';
+import { isVrboFlatCommissionBooking } from '@/lib/vrbo-commission';
 
 /**
  * Fill a data gap on an existing property_statement without running the full
@@ -134,8 +136,9 @@ function stripLegacyCommissionKludge(args: {
   totalTaxes: number;
   commission: number;
   folioPreTax?: number | null;
+  bookedAt?: string | null;
 }): { effective: number; hadKludge: boolean } {
-  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax, bookedAt } = args;
   if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
   // Booking-level base. total_paid is payment-level and Guesty logs only one
   // leg of a 50/50 split, which doubles the ratio and reads a real 5% VRBO
@@ -151,6 +154,8 @@ function stripLegacyCommissionKludge(args: {
     return { effective: commission, hadKludge: false };
   }
   if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    // Booked under Vrbo's flat 12% (lib/vrbo-commission.ts): real, keep it.
+    if (isVrboFlatCommissionBooking(bookedAt)) return { effective: commission, hadKludge: false };
     if (ratio > 0.07) {
       return { effective: round2(base * 0.05), hadKludge: true };
     }
@@ -395,14 +400,18 @@ async function fillPlatformGap(args: {
   // alongside and let the recognition math below prefer it. Same rule as
   // /api/ingest -- keep in lockstep.
   const folioByCode = new Map<string, { preTax: number; gross: number }>();
+  // When each guest booked, from the same read: decides whether a Vrbo
+  // commission is the flat 12% (real) or may carry the legacy kludge.
+  const bookedAtByCode = new Map<string, string>();
   {
     const codes = reservations.map(r => r.confirmation_code).filter(Boolean);
     if (codes.length > 0) {
       const { data: folioRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, folio_items')
+        .select('confirmation_code, folio_items, booked_at')
         .in('confirmation_code', codes);
       for (const row of folioRows || []) {
+        if (row.confirmation_code && row.booked_at) bookedAtByCode.set(row.confirmation_code, row.booked_at);
         const f = splitFolio(row.folio_items);
         if (f.hasFolio && row.confirmation_code) {
           folioByCode.set(row.confirmation_code, {
@@ -459,6 +468,7 @@ async function fillPlatformGap(args: {
           platform: normalizedPlatform,
           totalPaid, totalTaxes, commission: rawCommission,
           folioPreTax: folio ? folio.preTax : null,
+          bookedAt: bookedAtByCode.get(res.confirmation_code) ?? null,
         });
         stripeFee = calcStripeFee(totalPaid);
         adjustedRevenue = round2(totalPaid - totalTaxes - effective - stripeFee);
@@ -837,6 +847,27 @@ export async function POST(request: NextRequest) {
     const resUpdates: ResUpdate[] = [];
     const availableDeposits = [...deposits]; // consumed as we match
 
+    // Booking.com corroboration evidence: *5623 transfers forwarded to this
+    // property in the statement window (month start to 60 days past month
+    // end), same window as /api/ingest. See lib/booking-bank-corroboration.
+    let centralBookingTransfers: number[] = [];
+    {
+      const endD = new Date(`${month}-01T00:00:00Z`);
+      endD.setUTCMonth(endD.getUTCMonth() + 1);
+      endD.setUTCDate(endD.getUTCDate() + 60);
+      const { data: centralRows } = await supabase
+        .from('booking_account_activity')
+        .select('amount')
+        .eq('property_id', propertyId)
+        .eq('kind', 'property_transfer')
+        .gte('posting_date', `${month}-01`)
+        .lte('posting_date', endD.toISOString().slice(0, 10));
+      centralBookingTransfers = (centralRows || []).map(r => Number(r.amount) || 0);
+    }
+    const monthBookingIncome = (reservations || [])
+      .filter(r => (r.platform || '').toUpperCase().includes('BOOKING'))
+      .reduce((t, r) => t + (r.guesty_rental_income || 0), 0);
+
     for (const res of reservations || []) {
       // Operator-set markers survive the re-match. paid_off_stripe is a
       // decision (paid by check or wire, Stripe fee zeroed) and
@@ -888,11 +919,10 @@ export async function POST(request: NextRequest) {
             matched = { amount: availableDeposits[exactIdx].amount, status: 'matched' };
             availableDeposits.splice(exactIdx, 1);
           } else {
-            const hasBookingActivity = bankRows.some(r => {
-              const d = r['Description'] || '';
-              return d.toUpperCase().includes('BOOKING.COM') || d.toUpperCase().includes('BOOKING COM');
-            });
-            if (hasBookingActivity) matched = { amount: res.guesty_rental_income || 0, status: 'matched' };
+            // Mere Booking.com activity is not evidence this stay was paid;
+            // only a forwarded *5623 transfer of the right amount is.
+            const hit = bookingTransferCorroborates(res.guesty_rental_income || 0, monthBookingIncome, centralBookingTransfers);
+            if (hit != null) matched = { amount: hit, status: 'matched' };
           }
         }
       }

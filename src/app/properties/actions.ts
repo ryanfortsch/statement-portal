@@ -1,5 +1,6 @@
 'use server';
 
+import { randomUUID } from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -665,6 +666,23 @@ function noticePayload(formData: FormData): { eyebrow: string | null; title: str
   return { eyebrow, title, body };
 }
 
+/** Reuse a form's ID after an uncertain response; never overwrite an existing entry. */
+async function insertGuestMaterial(table: 'property_notes' | 'property_notices', row: Record<string, unknown>, formData: FormData): Promise<string> {
+  const id = String(formData.get('submission_id') || randomUUID());
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error('Invalid entry ID');
+  const client = getServiceClient();
+  const { error } = await client.from(table).upsert({ id, ...row }, { onConflict: 'id', ignoreDuplicates: true });
+  if (error) throw new Error(error.message);
+  const { data, error: readError } = await client.from(table).select(['id', ...Object.keys(row)].join(','))
+    .eq('id', id).eq('property_id', String(row.property_id)).maybeSingle();
+  if (readError) throw new Error(readError.message);
+  const saved = data as unknown as Record<string, unknown> | null;
+  if (!saved || Object.entries(row).some(([key, value]) => saved[key] !== value)) {
+    throw new Error('Could not confirm this entry. Check the property before creating another.');
+  }
+  return id;
+}
+
 /** Create a new bespoke notice for a property. Redirects back to the property page. */
 export async function createPropertyNotice(propertyId: string, formData: FormData) {
   const session = await auth();
@@ -673,16 +691,10 @@ export async function createPropertyNotice(propertyId: string, formData: FormDat
   const payload = noticePayload(formData);
   if (!payload) throw new Error('Title and body are required.');
 
-  const { data: created, error } = await getServiceClient()
-    .from('property_notices')
-    .insert({ property_id: propertyId, ...payload })
-    .select('id')
-    .single();
-  if (error) throw new Error(error.message);
-  if (!created) throw new Error('Notice insert returned no row.');
+  const createdId = await insertGuestMaterial('property_notices', { property_id: propertyId, ...payload }, formData);
 
   revalidatePath(`/properties/${propertyId}`);
-  redirect(`/properties/${propertyId}?tab=guest#notice-${created.id}`);
+  redirect(`/properties/${propertyId}?tab=guest#notice-${createdId}`);
 }
 
 /**
@@ -697,12 +709,14 @@ export async function updatePropertyNotice(propertyId: string, noticeId: string,
   const payload = noticePayload(formData);
   if (!payload) throw new Error('Title and body are required.');
 
-  const { error } = await getServiceClient()
+  const { data, error } = await getServiceClient()
     .from('property_notices')
     .update({ ...payload, updated_at: new Date().toISOString() })
     .eq('id', noticeId)
-    .eq('property_id', propertyId);
+    .eq('property_id', propertyId)
+    .select('id');
   if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Notice not found. Your changes were not saved.');
 
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/notice/${noticeId}`);
@@ -759,14 +773,7 @@ export async function createPropertyNote(propertyId: string, formData: FormData)
   // Service role: guest_facing is a recent column, so go through the
   // service-role client to dodge the anon schema-cache / grants edge
   // case that silently dropped new-column writes on 2026-06-02.
-  const { error } = await getServiceClient()
-    .from('property_notes')
-    .insert({
-      property_id: propertyId,
-      ...payload,
-      author_email: session.user.email,
-    });
-  if (error) throw new Error(error.message);
+  await insertGuestMaterial('property_notes', { property_id: propertyId, ...payload, author_email: session.user.email }, formData);
 
   revalidatePath(`/properties/${propertyId}`);
   redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
@@ -779,12 +786,14 @@ export async function updatePropertyNote(propertyId: string, noteId: string, for
   const payload = notePayload(formData);
   if (!payload) throw new Error('Title is required.');
 
-  const { error } = await getServiceClient()
+  const { data, error } = await getServiceClient()
     .from('property_notes')
     .update(payload)
     .eq('id', noteId)
-    .eq('property_id', propertyId);
+    .eq('property_id', propertyId)
+    .select('id');
   if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Note not found. Your changes were not saved.');
 
   revalidatePath(`/properties/${propertyId}`);
   redirect(`/properties/${propertyId}?tab=facts#ops-notebook`);
@@ -811,7 +820,7 @@ export async function deletePropertyNote(propertyId: string, noteId: string) {
  * full edit form. Re-running on an already-resolved note un-resolves
  * it (toggle semantics).
  */
-export async function togglePropertyNoteResolved(propertyId: string, noteId: string) {
+export async function togglePropertyNoteResolved(propertyId: string, noteId: string, resolveOnly = false) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
@@ -824,6 +833,14 @@ export async function togglePropertyNoteResolved(propertyId: string, noteId: str
     .maybeSingle();
   if (readErr) throw new Error(readErr.message);
   if (!current) throw new Error('Note not found');
+
+  // The flags shortcut is a Resolve command, including after a lost reply.
+  // Preserve the original resolver and timestamp on a repeated command.
+  // Existing callers without this option retain their toggle behavior.
+  if (resolveOnly && current.resolved_at) {
+    revalidatePath(`/properties/${propertyId}`);
+    return;
+  }
 
   const nextResolvedAt = current.resolved_at ? null : new Date().toISOString();
   const nextResolvedBy = nextResolvedAt ? session.user.email : null;
@@ -1022,7 +1039,7 @@ export async function parsePropertyCaptureAction(
 
 export type ApplyCaptureResult =
   | { ok: true; columns: number; notes: number; skipped: string[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string; completedIndices?: number[]; columns?: number; notes?: number; skipped?: string[] };
 
 /**
  * Step 2: apply the operator-approved items. Column values are coerced by the
@@ -1045,7 +1062,9 @@ export async function applyPropertyCaptureAction(
   const authorEmail = session.user.email;
   if (!Array.isArray(items) || items.length === 0) return { ok: false, error: 'Nothing selected to apply.' };
 
+  if (items.some((i) => i.noteId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(i.noteId))) return { ok: false, error: 'Invalid note reference. Start a new capture.' };
   const sb = getServiceClient();
+  const completedIndices: number[] = [];
   const accessKeys = new Set<string>(ACCESS_COLUMNS);
 
   // Build the column patches, coercing each value by its catalog type and
@@ -1069,10 +1088,12 @@ export async function applyPropertyCaptureAction(
     } else if (col.type === 'int') {
       // Parse the value as a whole, then round — matches intOrNull on the
       // edit form. Do NOT strip the decimal point first ('2.5' -> 25 bug).
-      const n = Number(raw.replace(/[^\d.-]/g, ''));
+      const numeric = raw.replace(/[^\d.-]/g, '');
+      const n = /\d/.test(numeric) ? Number(numeric) : NaN;
       coerced = Number.isFinite(n) ? Math.round(n) : null;
     } else if (col.type === 'float') {
-      const n = Number(raw.replace(/[^\d.-]/g, ''));
+      const numeric = raw.replace(/[^\d.-]/g, '');
+      const n = /\d/.test(numeric) ? Number(numeric) : NaN;
       coerced = Number.isFinite(n) ? n : null;
     } else {
       coerced = raw;
@@ -1107,6 +1128,7 @@ export async function applyPropertyCaptureAction(
       errors.push('fields (property not found)');
     } else {
       columnsApplied += Object.keys(patch).length;
+      items.forEach((item, index) => { if (item.target === 'column' && item.column && Object.hasOwn(patch, item.column)) completedIndices.push(index); });
     }
   }
 
@@ -1118,29 +1140,33 @@ export async function applyPropertyCaptureAction(
       errors.push(`access codes (${error})`);
     } else {
       columnsApplied += Object.keys(accessPatch).length;
+      items.forEach((item, index) => { if (item.target === 'column' && item.column && Object.hasOwn(accessPatch, item.column)) completedIndices.push(index); });
     }
   }
 
-  // Leg 3: notes — independent of the column writes above.
-  const noteRows = items
-    .filter((i) => i.target === 'note' && (i.noteTitle || i.noteBody))
-    .map((i) => ({
-      property_id: propertyId,
-      title: (i.noteTitle || (i.noteBody || '').slice(0, 80) || 'Captured note').trim(),
-      body: (i.noteBody || '').trim(),
-      tag: i.noteTag ? i.noteTag.trim().toLowerCase() : null,
-      guest_facing: !!i.guestFacing,
-      author_email: authorEmail,
-    }));
+  // Stable note IDs make a retry safe even when the first response was lost.
+  // Ignore an existing ID, then verify its property and content; never overwrite
+  // a different note or count a conflicting ID as a successful save.
   let notesApplied = 0;
-  if (noteRows.length > 0) {
-    const { error } = await sb.from('property_notes').insert(noteRows);
-    if (error) {
-      console.error('[applyPropertyCaptureAction] note insert failed', { propertyId, error });
-      errors.push(`notes (${error.message})`);
-    } else {
-      notesApplied = noteRows.length;
+  for (const [index, item] of items.entries()) {
+    if (item.target !== 'note' || !(item.noteTitle || item.noteBody)) continue;
+    const row = {
+      id: item.noteId || randomUUID(), property_id: propertyId,
+      title: (item.noteTitle || (item.noteBody || '').slice(0, 80) || 'Captured note').trim(),
+      body: (item.noteBody || '').trim(), tag: item.noteTag?.trim().toLowerCase() || null,
+      guest_facing: !!item.guestFacing, author_email: authorEmail,
+    };
+    const { error } = await sb.from('property_notes').upsert(row, { onConflict: 'id', ignoreDuplicates: true });
+    if (error) { errors.push(`note (${error.message})`); continue; }
+    const { data: saved, error: readError } = await sb.from('property_notes')
+      .select('id,property_id,title,body,tag,guest_facing,author_email').eq('id', row.id).eq('property_id', propertyId).maybeSingle();
+    if (readError || !saved) { errors.push('note (could not confirm the saved note; retry to check again)'); continue; }
+    if (Object.entries(row).some(([key, value]) => (saved as Record<string, unknown>)[key] !== value)) {
+      errors.push('note (this reference was already saved with different content; review property notes before starting a new capture)');
+      continue;
     }
+    notesApplied += 1;
+    completedIndices.push(index);
   }
 
   revalidatePath('/properties');
@@ -1159,7 +1185,7 @@ export async function applyPropertyCaptureAction(
     if (columnsApplied > 0) did.push(`${columnsApplied} field${columnsApplied === 1 ? '' : 's'}`);
     if (notesApplied > 0) did.push(`${notesApplied} note${notesApplied === 1 ? '' : 's'}`);
     const prefix = did.length ? `Saved ${did.join(' and ')}, but ` : '';
-    return { ok: false, error: `${prefix}some items didn't save: ${errors.join('; ')}.` };
+    return { ok: false, error: `${prefix}some items didn't save: ${errors.join('; ')}.`, completedIndices, columns: columnsApplied, notes: notesApplied, skipped };
   }
 
   if (columnsApplied === 0 && notesApplied === 0) {
@@ -1175,14 +1201,14 @@ export async function applyPropertyCaptureAction(
  *  geocoded best-effort so the home can join route maps and bundles right away.
  *  Owner columns are NOT NULL on properties; they stay empty strings until the
  *  home actually signs (real onboarding fills them). */
-export async function createProspectProperty(formData: FormData): Promise<void> {
+export async function createProspectProperty(formData: FormData): Promise<{ error: string }> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
   const name = String(formData.get('name') || '').trim().slice(0, 80);
   const address = String(formData.get('address') || '').trim().slice(0, 160);
   const city = String(formData.get('city') || '').trim().slice(0, 80) || 'Gloucester';
-  if (name.length < 2 || address.length < 3) redirect('/properties/prospects?prospect=err');
+  if (name.length < 2 || address.length < 3) return { error: 'Enter a name of at least 2 characters and an address of at least 3 characters.' };
 
   const db = getServiceClient();
   const base =
@@ -1210,7 +1236,7 @@ export async function createProspectProperty(formData: FormData): Promise<void> 
     owner_greeting: '',
     management_fee_pct: 0,
   });
-  if (error) redirect('/properties/prospects?prospect=err');
+  if (error) return { error: 'Could not create the prospective property. Your details are still here. Please retry.' };
 
   revalidatePath('/properties');
   revalidatePath('/properties/prospects');

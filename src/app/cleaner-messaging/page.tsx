@@ -1,7 +1,8 @@
+import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingFooter } from '@/components/MessagingFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -51,7 +52,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       <div style={{ flex: 1 }} />
 
-      <HelmFooter left="Stay Concierge · cleaner drafts via Opus 4.7" />
+      <MessagingFooter />
     </div>
   );
 }
@@ -152,7 +153,13 @@ async function ScheduleDigestSection({
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   return (
     <ScheduleDigestCard
-      notice={{ sent: first(sp.sent), failed: first(sp.failed), err: first(sp.err) }}
+      notice={{
+        sent: first(sp.sent),
+        failed: first(sp.failed),
+        err: first(sp.err),
+        noclean: first(sp.noclean),
+        nocleanSent: first(sp.noclean_sent),
+      }}
     />
   );
 }
@@ -181,6 +188,7 @@ export default function CleanerMessagingPage({
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
       </Suspense>
+      <Suspense fallback={null}><RecentMessageOutcomesSection audience="cleaners" /></Suspense>
       <Suspense fallback={null}>
         <ProposedUpdatesSection />
       </Suspense>

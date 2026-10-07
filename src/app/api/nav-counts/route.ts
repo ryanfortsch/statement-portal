@@ -1,12 +1,13 @@
+import { loadFieldReview, fieldReviewCounts } from '@/lib/field-review';
 import { NextResponse } from 'next/server';
 import { fieldDb } from '@/lib/field-db';
 import { isInternalSweepSource } from '@/lib/internal-transfers';
 
 /**
  * Lightweight count endpoint for the nav tab pills (NavTabCount), mirroring
- * /api/messaging/pending-count: polled every ~30s, cheap head-count selects,
- * and every failure path degrades to zeros with HTTP 200 so a config gap or
- * missing table never breaks the tab strips.
+ * /api/messaging/pending-count: polled every ~30s.
+ * Field failures return null so clients retain their last known count instead
+ * of falsely reporting an empty review queue.
  *
  * The definitions mirror the pages' own filters (statementsReview is scoped
  * to the latest statement period, which is the dashboard's default month):
@@ -29,15 +30,19 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  let fieldPackets = 0;
+  let fieldPackets: number | null = null;
+  let fieldPacketsByTrade = null;
   let statementsReview = 0;
   try {
     const db = fieldDb();
     const [packetsRes, periodRes] = await Promise.all([
-      db.from('inspection_packets').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
+      loadFieldReview().catch(() => null),
       db.from('statement_periods').select('month').order('month', { ascending: false }).limit(1).maybeSingle(),
     ]);
-    if (!packetsRes.error) fieldPackets = packetsRes.count ?? 0;
+    if (packetsRes) {
+      fieldPackets = packetsRes.length;
+      fieldPacketsByTrade = fieldReviewCounts(packetsRes);
+    }
     const latestMonth = (periodRes.data as { month: string } | null)?.month;
     if (latestMonth) {
       // Recognized internal sweeps (tax to *9928, the VRBO-commission and
@@ -57,8 +62,7 @@ export async function GET() {
       }
     }
   } catch {
-    // fieldDb throws when the service-role key is unset (local dev ships
-    // empty secrets); the pills just stay quiet.
+    // Preserve an unavailable Field count when configuration or loading fails.
   }
-  return NextResponse.json({ fieldPackets, statementsReview });
+  return NextResponse.json({ fieldPackets, fieldPacketsByTrade, statementsReview });
 }

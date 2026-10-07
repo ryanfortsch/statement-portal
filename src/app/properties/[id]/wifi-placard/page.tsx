@@ -3,6 +3,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { getPropertyAccess } from '@/lib/property-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { renderQrForPlacard } from '@/lib/qr-sizing';
+import { requirePropertyDocumentAccess } from '@/lib/property-document-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  */
 export default async function WifiPlacardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  await requirePropertyDocumentAccess(id, 'wifi-placard');
   const p = await getProperty(id);
   if (!p) notFound();
 
@@ -68,7 +70,7 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
   return (
     <>
       <style>{placardCss}</style>
-      <div className="rt-doc">
+      <div className="rt-doc" data-property-document="wifi-placard">
         {cards.map((card, i) => (
           <article className="rt-card" key={i}>
             {/* Cream inner panel */}
@@ -295,5 +297,19 @@ const placardCss = `
     font-size: 13px;
     letter-spacing: 0.04em;
     padding: 18px 0 22px;
+  }
+
+  @media print {
+    /* Keep the full-size QR and footer on the same 4x6 card, including a
+       unit label. Screen spacing overflowed the fixed-height print card. */
+    .rt-panel { padding: 14px 28px; }
+    .rt-mark { margin-top: 0; }
+    .rt-mark svg { width: 36px; height: 36px; }
+    .rt-eyebrow { margin-top: 8px; font-size: 24px; }
+    .rt-unit { margin-top: 4px; }
+    .rt-qr { margin-top: 12px; flex-shrink: 0; }
+    .rt-fields { margin-top: 12px; }
+    .rt-row { padding: 5px 0; }
+    .rt-footer { padding: 10px 0 12px; }
   }
 `;

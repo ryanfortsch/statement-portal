@@ -66,6 +66,7 @@ import { getGuestyToken } from '@/lib/guesty-client';
 import { selectAllPaged } from '@/lib/paged-select';
 import { recordSyncFailure, recordSyncResult } from '@/lib/sync-status';
 import { backfillGuestyToBookings } from '@/lib/guesty-backfill';
+import { loadGuestyRunPropertyIds } from '@/lib/pms-guards';
 import {
   fetchListingReservations,
   mapReservationRow,
@@ -108,6 +109,14 @@ export type { BookedRun };
 export type ReservationGapResult = {
   window: { startDate: string; endDate: string };
   booked_days: number;
+  /**
+   * Homes Helm runs, dropped before the diff. Their mirror is written by
+   * helm-calendar-mirror.ts FROM `bookings`, so every sold night there has no
+   * guesty_reservations row behind it by design; diffing them would report a
+   * permanent gap and probe Guesty for a listing it no longer manages every
+   * half hour.
+   */
+  skipped_helm_run: number;
   runs_found: number;
   /** Cached reservations with no `bookings` row yet: a copy that lagged,
    *  healed without touching Guesty. */
@@ -153,6 +162,7 @@ export async function backfillReservationGaps(opts: {
   const result: ReservationGapResult = {
     window: { startDate, endDate },
     booked_days: 0,
+    skipped_helm_run: 0,
     runs_found: 0,
     reservations_awaiting_copy: 0,
     runs_probed: 0,
@@ -179,21 +189,33 @@ export async function backfillReservationGaps(opts: {
           .range(from, to),
       { label: 'calendar-day gap scan' },
     );
-    result.booked_days = bookedRows.length;
-    if (bookedRows.length === 0) {
+    // Guesty-run homes only. null = the registry read failed; keep every
+    // property (today's behaviour) rather than skipping the fleet.
+    const guestyRunIds = await loadGuestyRunPropertyIds(sb);
+    const isGuestyRun = (propertyId: string): boolean => !guestyRunIds || guestyRunIds.has(propertyId);
+
+    const bookedByProperty = new Map<string, Set<string>>();
+    const helmRunSeen = new Set<string>();
+    let bookedDays = 0;
+    for (const row of bookedRows) {
+      if (!isGuestyRun(row.property_id)) {
+        helmRunSeen.add(row.property_id);
+        continue;
+      }
+      bookedDays += 1;
+      const set = bookedByProperty.get(row.property_id) ?? new Set<string>();
+      set.add(row.date);
+      bookedByProperty.set(row.property_id, set);
+    }
+    result.skipped_helm_run = helmRunSeen.size;
+    result.booked_days = bookedDays;
+    if (bookedDays === 0) {
       await recordSyncResult('guesty-reservation-gaps', {
         processed: 0,
         failed: 0,
         result: result as unknown as Record<string, unknown>,
       });
       return result;
-    }
-
-    const bookedByProperty = new Map<string, Set<string>>();
-    for (const row of bookedRows) {
-      const set = bookedByProperty.get(row.property_id) ?? new Set<string>();
-      set.add(row.date);
-      bookedByProperty.set(row.property_id, set);
     }
 
     // 2. Nights already accounted for by a real stay. A cancelled or
@@ -249,7 +271,9 @@ export async function backfillReservationGaps(opts: {
       ),
     ]);
     const copied = new Set(copiedIds.map((r) => r.external_booking_id).filter(Boolean));
-    const managedIds = new Set(managed.map((r) => r.id));
+    // Managed AND Guesty-run: a helm-run home's cached reservations are not
+    // awaiting a copy the backfill will never make (it skips them too).
+    const managedIds = new Set(managed.map((r) => r.id).filter(isGuestyRun));
     result.reservations_awaiting_copy = reservationRows.filter(
       (r) =>
         r.property_id != null &&

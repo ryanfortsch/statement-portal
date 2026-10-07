@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react';
 import { updateWorkSlipTitle } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
 type Props = {
   slipId: string;
@@ -21,8 +22,7 @@ const TITLE_STYLE: React.CSSProperties = {
 /**
  * The slip detail hero: "Work Slip" eyebrow + title, with an Edit
  * affordance that swaps the h1 for an input styled like it. Enter
- * saves, Escape cancels. Optimistic with rollback, matching the
- * other slip editors.
+ * saves, Escape cancels. Keep the draft open until the save is confirmed.
  */
 export function SlipTitleEditor({ slipId, initialTitle }: Props) {
   const softRefresh = useSoftRefresh();
@@ -32,6 +32,9 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const saving = useRef(false);
+
+  useUnsavedWorkGuard(pending || (editing && (draft !== title || !!err)));
 
   function beginEdit() {
     setDraft(title);
@@ -45,28 +48,37 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
   }
 
   function cancel() {
+    if (pending || saving.current) return;
     setEditing(false);
     setErr(null);
   }
 
   function save() {
+    if (pending || saving.current) return;
     const next = draft.trim();
-    if (!next || next === title) {
+    if (!next) return;
+    if (next === title && !err) {
       cancel();
       return;
     }
     setErr(null);
-    setEditing(false);
-    const prev = title;
-    setTitle(next);
+    saving.current = true;
     startTransition(async () => {
-      const res = await updateWorkSlipTitle({ id: slipId, title: next });
-      if (!res.ok) {
-        setTitle(prev);
-        setErr(res.error);
-        return;
+      try {
+        const res = await updateWorkSlipTitle({ id: slipId, title: next });
+        if (!res.ok) {
+          setErr(res.error);
+          return;
+        }
+        setTitle(next);
+        setDraft(next);
+        setEditing(false);
+        softRefresh();
+      } catch {
+        setErr('Could not confirm the save. Your title is still here. Try saving again.');
+      } finally {
+        saving.current = false;
       }
-      softRefresh();
     });
   }
 
@@ -101,9 +113,13 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
             ref={inputRef}
             type="text"
             value={draft}
+            disabled={pending}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') save();
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                save();
+              }
               if (e.key === 'Escape') cancel();
             }}
             aria-label="Work slip title"
@@ -123,7 +139,7 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
             <button
               type="button"
               onClick={save}
-              disabled={!draft.trim()}
+              disabled={pending || !draft.trim()}
               style={{
                 background: 'var(--ink)',
                 color: 'var(--paper)',
@@ -133,15 +149,16 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
                 letterSpacing: '.16em',
                 textTransform: 'uppercase',
                 fontWeight: 600,
-                cursor: draft.trim() ? 'pointer' : 'default',
-                opacity: draft.trim() ? 1 : 0.5,
+                cursor: pending ? 'wait' : draft.trim() ? 'pointer' : 'default',
+                opacity: !pending && draft.trim() ? 1 : 0.5,
               }}
             >
-              Save
+              {pending ? 'Saving…' : 'Save'}
             </button>
             <button
               type="button"
               onClick={cancel}
+              disabled={pending}
               style={{
                 background: 'none',
                 border: '1px solid var(--rule)',
@@ -164,7 +181,7 @@ export function SlipTitleEditor({ slipId, initialTitle }: Props) {
       )}
 
       {err && (
-        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--negative)', border: '1px solid var(--negative)', background: 'rgba(138, 58, 46, 0.06)', padding: '6px 10px', maxWidth: 720 }}>
+        <div role="alert" style={{ marginTop: 10, fontSize: 12, color: 'var(--negative)', border: '1px solid var(--negative)', background: 'rgba(138, 58, 46, 0.06)', padding: '6px 10px', maxWidth: 720 }}>
           {err}
         </div>
       )}

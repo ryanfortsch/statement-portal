@@ -1,6 +1,8 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { reorderPacketStops } from '../actions';
 
 /**
@@ -55,10 +57,41 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
   const orderRef = useRef(order);
   orderRef.current = order;
 
+  const lock = useRef(false);
+  const cancelDrag = useRef<(() => void) | null>(null);
+  const currentKey = useRef(idsKey);
+  currentKey.current = idsKey;
+  const mounted = useRef(true);
+  const [error, setError] = useState('');
+  const softRefresh = useSoftRefresh();
+  useUnsavedWorkGuard(isPending || dragId !== null);
+  useEffect(() => { cancelDrag.current?.(); }, [idsKey]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; cancelDrag.current?.(); }; }, []);
   const draggable = canReorder && items.length > 1;
 
+  function changeOrder(next: string[]) { orderRef.current = next; setOrder(next); }
+  function persist(next: string[], previous: string[], source: string) {
+    startTransition(async () => {
+      try {
+        const result = await reorderPacketStops(packetId, next);
+        if (!mounted.current) return;
+        if (!result.ok) {
+          if (currentKey.current === source) changeOrder(previous);
+          setError(result.error || 'Could not save the visit order. Please check the trip before retrying.');
+        }
+        softRefresh();
+      } catch {
+        if (!mounted.current) return;
+        if (currentKey.current === source) changeOrder(previous);
+        setError('Could not confirm the visit order. Check the refreshed trip before retrying.');
+        softRefresh();
+      } finally { lock.current = false; }
+    });
+  }
+
   function onGripDown(e: React.PointerEvent, id: string) {
-    if (!draggable) return;
+    if (!draggable || lock.current) return;
+    lock.current = true; setError('');
     e.preventDefault();
     const startOrder = [...orderRef.current];
     setDragId(id);
@@ -79,35 +112,39 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
       if (to !== fromIdx) {
         const next = cur.filter((rid) => rid !== id);
         next.splice(to, 0, id);
-        setOrder(next);
+        changeOrder(next);
       }
     };
 
-    const up = () => {
+    const cleanup = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      setDragId(null);
-      const finalOrder = orderRef.current;
-      if (finalOrder.join('|') === startOrder.join('|')) return; // no change
-      startTransition(async () => {
-        try {
-          await reorderPacketStops(packetId, finalOrder);
-        } catch {
-          setOrder(startOrder); // save failed — snap back so the screen never lies
-        }
-      });
+      window.removeEventListener('pointercancel', cancel);
+      cancelDrag.current = null;
+      if (mounted.current) setDragId(null);
     };
+    const cancel = () => {
+      cleanup(); lock.current = false;
+      if (mounted.current && currentKey.current === idsKey) changeOrder(startOrder);
+    };
+    const up = () => {
+      cleanup();
+      const finalOrder = [...orderRef.current];
+      if (currentKey.current !== idsKey || finalOrder.join('|') === startOrder.join('|')) { lock.current = false; return; }
+      persist(finalOrder, startOrder, idsKey);
+    };
+    cancelDrag.current = cancel;
 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    window.addEventListener('pointercancel', cancel);
   }
 
   // Tap-to-reorder: swap a stop with its neighbor. Same optimistic-then-save
   // path as the drag, so mobile gets a working reorder without the finicky
   // touch-drag. Snaps back if the save fails.
   function moveStop(id: string, dir: -1 | 1) {
+    if (!draggable || lock.current) return;
     const cur = orderRef.current;
     const from = cur.indexOf(id);
     const to = from + dir;
@@ -115,14 +152,9 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
     const startOrder = [...cur];
     const next = [...cur];
     [next[from], next[to]] = [next[to], next[from]];
-    setOrder(next);
-    startTransition(async () => {
-      try {
-        await reorderPacketStops(packetId, next);
-      } catch {
-        setOrder(startOrder);
-      }
-    });
+    lock.current = true; setError('');
+    changeOrder(next);
+    persist(next, startOrder, idsKey);
   }
 
   return (
@@ -160,12 +192,13 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
               <span style={{ color: 'var(--ink-4)', fontSize: 13 }}>{i + 1}</span>
               {draggable && (
                 <>
-                  <button type="button" onClick={() => moveStop(id, -1)} disabled={i === 0 || isPending} aria-label="Move up" title="Move up" style={arrowBtnStyle(i === 0)}>
+                  <button type="button" onClick={() => moveStop(id, -1)} disabled={i === 0 || isPending || dragId !== null} aria-label="Move up" title="Move up" style={arrowBtnStyle(i === 0)}>
                     ▲
                   </button>
                   <span
                     onPointerDown={(e) => onGripDown(e, id)}
                     title="Drag to reorder"
+                    aria-disabled={isPending}
                     style={{
                       touchAction: 'none',
                       cursor: dragging ? 'grabbing' : 'grab',
@@ -178,7 +211,7 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
                   >
                     ⋮⋮
                   </span>
-                  <button type="button" onClick={() => moveStop(id, 1)} disabled={i === order.length - 1 || isPending} aria-label="Move down" title="Move down" style={arrowBtnStyle(i === order.length - 1)}>
+                  <button type="button" onClick={() => moveStop(id, 1)} disabled={i === order.length - 1 || isPending || dragId !== null} aria-label="Move down" title="Move down" style={arrowBtnStyle(i === order.length - 1)}>
                     ▼
                   </button>
                 </>
@@ -188,6 +221,7 @@ export function StopList({ packetId, items, canReorder }: { packetId: string; it
           </div>
         );
       })}
+      {error && <div role="alert" style={{ fontSize: 12, color: 'var(--negative)', marginTop: 6 }}>{error}</div>}
       {isPending && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>Saving order…</div>
       )}

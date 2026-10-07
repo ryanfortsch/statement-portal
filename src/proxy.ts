@@ -65,7 +65,7 @@ const PUBLIC_PATH_PREFIXES = [
  *                            (lets a prospect download their signed contract)
  *   /api/agreement-pdf       same pattern for guest rental agreements (Helm
  *                            auth OR the agreement's signing token)
- *   /api/archive-onboarding  fired by the public onboarding thank-you page
+ *   /api/archive-onboarding  self-guards: Helm auth OR matching onboarding token
  *   /api/owner-outbound-quo  } the stay-concierge service authenticates to these
  *   /api/owners-sync         } with the STAY_CONCIERGE_KEY shared secret;
  *   /api/kb-facts            } it has no Helm session (kb-facts feeds property
@@ -115,10 +115,15 @@ const PUBLIC_API_PREFIXES = [
   "/api/kb-facts",
   "/api/backfill-owner-phones",
   "/api/work-slips",
+  "/api/checkout-commitments",
   // Stay-concierge bridge: an owner asking that the crew do something on
   // their way out becomes a line in the cleaners' schedule message for the
   // day they are next at the house. Self-guards via STAY_CONCIERGE_KEY.
   "/api/turnover-notes",
+  // Stay-concierge bridge: an owner asking that someone be added to (or
+  // dropped from) their statement emails, approved on the owner card.
+  // Self-guards via STAY_CONCIERGE_KEY.
+  "/api/owner-recipients",
   // Stay-concierge bridge: creates a Stripe Payment Link in the property's
   // own Stripe account for an approved guest add-on charge (Tesla charger,
   // pet fee, early check-in). Self-guards via STAY_CONCIERGE_KEY.
@@ -141,6 +146,13 @@ const PUBLIC_API_PREFIXES = [
   // accepted, balance paid). Self-guards via STAY_CONCIERGE_KEY (header
   // only); voided and never-sent quotes are 404 so the link reads as dead.
   "/api/sca-quotes/",
+  // PMS bridge: staycapeann.com and stay-concierge read availability, price
+  // a stay, create / cancel a reservation and read Helm-native guest threads
+  // for a home whose calendar_authority is 'helm' (the Guesty replacement).
+  // Every route self-guards via STAY_CONCIERGE_KEY (header only). The
+  // prefix is a fresh namespace with no session-gated siblings; never open
+  // a bare "/api/reservations", which would expose /api/reservations/remove.
+  "/api/pms/",
   // Field contractor uploads (profile photo). Self-guards via the contractor
   // session cookie, not Helm SSO — same auth plane as the /field portal.
   "/api/field/",
@@ -169,10 +181,10 @@ const PUBLIC_API_PREFIXES = [
  */
 const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|contract|onboarding-render)(\/.*)?$/;
 
-/** Same pattern for the Properties module. Guest-facing deliverables (Home
- * Guide, WiFi placard, Information Note, Welcome Card) need to be public
- * so puppeteer can render them to PDF. The property edit page at
- * `/properties/<id>` itself stays auth-gated. Property IDs are TEXT slugs
+/** Property deliverables pass the proxy so headless PDF rendering can reach
+ * them. Home Guide and WiFi placard SELF-GUARD before reading credentials:
+ * Helm staff session OR a short-lived, document-scoped render header.
+ * The property edit page stays auth-gated. Property IDs are TEXT slugs
  * (e.g. "21_horton") so the character class is wider than UUIDs. */
 const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard|info-note|welcome-card)(\/.*)?$/;
 

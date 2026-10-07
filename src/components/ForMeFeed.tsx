@@ -10,6 +10,8 @@ import { FeedClearButton } from '@/components/FeedClearButton';
 import { listRecentPaymentLinks, type PaymentLinkRow } from '@/lib/payment-links';
 import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl } from '@/lib/payment-links-text';
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
+import { loadMeetingCards } from '@/lib/meetings';
+import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
 
 type MyWork = {
   id: string;
@@ -89,12 +91,13 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
     loadQueueCards(),
     loadPaymentLinkCards(),
+    loadMeetingCards(),
   ]);
 
   // Guest payment links: paid this week (the "did they pay?" answer) and
@@ -121,7 +124,9 @@ export async function ForMeFeed() {
 
   const hasReplyItems = replyTotal > 0;
   const hasWalks = plannedWalks.length > 0;
+  const hasMeetings = meetingCards.length > 0;
   const nothing =
+    !hasMeetings &&
     !hasReplyItems &&
     workFiltered.length === 0 &&
     glance.length === 0 &&
@@ -219,6 +224,27 @@ export async function ForMeFeed() {
                 ))}
                 {keyProblems.map((k) => (
                   <PaymentKeyProblemRow key={k.propertyId} problem={k} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* MEETINGS — sit-downs with an owner, prospect or vendor logged on
+              the CRM contact page, today and tomorrow in Gloucester. Fixed
+              clock, so it sits with the walks, above work that can shift. No
+              clear button: the card leaves on its own once the day passes.
+              Important ones were also texted the evening before by
+              /api/cron/meeting-reminders; this card shows either way. */}
+          {hasMeetings && (
+            <div style={{ marginBottom: 36 }}>
+              <SectionHeaderLink
+                href="/crm"
+                title="Meetings"
+                eyebrow={meetingCards.length === 1 ? '1 coming up' : `${meetingCards.length} coming up`}
+              />
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {meetingCards.map((m) => (
+                  <MeetingFeedRow key={m.id} meeting={m} />
                 ))}
               </div>
             </div>
@@ -744,6 +770,34 @@ async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
   } catch {
     return [];
   }
+}
+
+function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
+  const today = todayET();
+  const isToday = m.date === today;
+  const dotColor = isToday ? 'var(--signal)' : 'var(--tide-deep)';
+  const detail = [m.propertyName, m.location].filter(Boolean).join(' · ');
+  return (
+    <Link
+      href={`/crm/${m.contactId}`}
+      style={{ ...feedRowStyle, alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
+    >
+      <span style={{ ...dotStyle, marginTop: 0, background: dotColor }} aria-hidden="true" />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, color: 'var(--ink)' }}>
+          {m.contactName}
+          {m.title && m.title.toLowerCase() !== `meeting with ${m.contactName}`.toLowerCase() ? (
+            <span style={{ color: 'var(--ink-3)' }}> · {m.title}</span>
+          ) : null}
+        </div>
+        <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
+          {meetingWhen(m, today)}
+          {detail ? ` · ${detail}` : ''}
+          {m.notes ? ` · ${m.notes}` : ''}
+        </div>
+      </div>
+    </Link>
+  );
 }
 
 function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {

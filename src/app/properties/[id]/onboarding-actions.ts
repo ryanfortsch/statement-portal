@@ -116,7 +116,7 @@ export async function applyWalkthroughAction(args: {
   rooms: { name: string; roomType: RoomType }[];
   roomItems: { roomName: string; kind: 'bed' | 'tv' | 'amenity' | 'quirk' | 'note'; value: string; guestFacing: boolean }[];
   captureItems: CaptureItem[];
-}): Promise<{ ok: true; rooms: number; roomFacts: number; columns: number; notes: number } | { ok: false; error: string }> {
+}): Promise<{ ok: true; rooms: number; roomFacts: number; columns: number; notes: number; skipped?: string[] } | { ok: false; error: string; completedRooms?: string[]; completedCaptureIndices?: number[]; rooms?: number; roomFacts?: number; columns?: number; notes?: number; skipped?: string[] }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
 
@@ -124,6 +124,7 @@ export async function applyWalkthroughAction(args: {
   const byName = new Map(existing.map((r) => [r.name.toLowerCase(), r]));
   let roomsTouched = 0;
   let roomFacts = 0;
+  const completedRooms: string[] = [];
 
   // Collapse case-variant duplicates from the model ("Main Bath" + "main
   // bath") into one room per lowercased name, pooling their items. Without
@@ -152,7 +153,6 @@ export async function applyWalkthroughAction(args: {
     const guestBits: string[] = current?.guest_summary ? [current.guest_summary] : [];
 
     for (const item of items) {
-      roomFacts += 1;
       if (item.kind === 'bed') {
         // "2x twin" style counts; default 1.
         const m = item.value.match(/^(\d+)\s*x\s*(.+)$/i);
@@ -210,22 +210,29 @@ export async function applyWalkthroughAction(args: {
       guest_summary: guestSummary,
       created_by_email: session.user.email,
     });
-    if (!res.ok) return { ok: false, error: res.error };
+    if (!res.ok) {
+      revalidatePath(`/properties/${args.propertyId}`);
+      return { ok: false, error: `Saved ${roomsTouched} rooms before a room failed: ${res.error}`, completedRooms, rooms: roomsTouched, roomFacts };
+    }
     // Keep the in-memory map current so a later loop pass (or a same-name
     // room) merges against what was just written, not the stale pre-loop row.
     byName.set(saved.name.toLowerCase(), { ...saved, id: res.id });
     roomsTouched += 1;
+    roomFacts += items.length;
+    completedRooms.push(...room.itemNames);
   }
 
   let columns = 0;
   let notes = 0;
+  let skipped: string[] = [];
   if (args.captureItems.length > 0) {
     const applied = await applyPropertyCaptureAction(args.propertyId, args.captureItems);
-    if (!applied.ok) return { ok: false, error: applied.error };
+    if (!applied.ok) return { ...applied, ok: false, error: `Saved ${roomsTouched} rooms. ${applied.error}`, completedRooms, completedCaptureIndices: applied.completedIndices, rooms: roomsTouched, roomFacts };
     columns = applied.columns;
     notes = applied.notes;
+    skipped = applied.skipped;
   }
 
   revalidatePath(`/properties/${args.propertyId}`);
-  return { ok: true, rooms: roomsTouched, roomFacts, columns, notes };
+  return { ok: true, rooms: roomsTouched, roomFacts, columns, notes, skipped };
 }

@@ -1,7 +1,16 @@
 'use client';
 
+import { Fragment } from 'react';
+import { InboxFollowup } from '@/components/InboxFollowup';
+
+import { MobileInboxReview } from '@/components/MobileInboxReview';
+
+import { MessageOutcomes } from '@/components/MessageOutcomes';
+import { MaintenanceWorkPanel } from '@/components/MaintenanceWorkPanel';
+import { splitMaintenanceOutcomes } from '@/lib/message-outcomes';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
@@ -25,7 +34,10 @@ import {
   scheduleDraft,
   cancelSchedule,
   editDraft,
+  dismissMaintenanceSlip,
 } from './actions';
+import { RentalInquiryPanel } from './RentalInquiryPanel';
+import { inquiryDraftState, inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
 import { ThreadPanel } from './Thread';
 import { UndoToast, type Decision } from './UndoToast';
 import {
@@ -77,6 +89,25 @@ const QUOTE_TONE = 'var(--ink-3)';
 // Add-on payment-link block: money being collected, so its own tone —
 // distinct from the slip teal, the queued bronze, and the extension sage.
 const ADDON_TONE = '#6b4f7a';
+/** The teammate handoff block. Distinct from the add-on purple: this one
+ *  files internal work, it never touches the guest or their money. */
+const HANDOFF_TONE = '#3d6b63';
+/** What the eyebrow calls each audience, and where the drafted note lands. */
+const HANDOFF_LABEL: Record<string, string> = {
+  cleaner: 'Cleaner note',
+  contractor: 'Contractor note',
+  owner: 'Owner note',
+};
+const HANDOFF_HREF: Record<string, string> = {
+  cleaner: '/cleaner-messaging',
+  contractor: '/contractor-messaging',
+  owner: '/owner-messaging',
+};
+const HANDOFF_SURFACE: Record<string, string> = {
+  cleaner: 'Cleaner messaging',
+  contractor: 'Contractor messaging',
+  owner: 'Owner messaging',
+};
 
 /** One colour per quote state, so a row reads before it is parsed. Sent and
  *  accepted are the two the operator is looking for; the rest stay quiet. */
@@ -101,7 +132,9 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
 
   // A card action changes both: the queue feed answers in ~60ms and drops the
   // card, the page catches up with the strips underneath in its own time.
-  const onResolved = useCallback(() => {
+  const [followupNotice, setFollowupNotice] = useState<string | null>(null);
+  const onResolved = useCallback((notice?: string) => {
+    if (notice) setFollowupNotice(notice);
     refresh();
     softRefresh();
   }, [refresh, softRefresh]);
@@ -111,44 +144,35 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
   const [lastDecision, setLastDecision] = useState<Decision | null>(null);
   const closeToast = useCallback(() => setLastDecision(null), []);
 
-  // Queued cards firing within the next 24h float to the top, ordered by
-  // when they actually fire, so the last chance to cancel stays in view.
-  // Sends parked further out sink BELOW the pending drafts instead -- a
-  // note scheduled two weeks ahead shouldn't occupy the top slot of the
-  // dashboard for two weeks. Pending drafts stay newest-first in between.
+  // Decisions first; scheduled sends stay visible in their own group.
   const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
   const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const soonCutoff = Date.now() + 24 * 60 * 60 * 1000;
-  const firesSoon = (a: Approval) => {
-    if (!a.send_at) return true; // no timestamp: keep it visible up top
-    const t = new Date(a.send_at).getTime();
-    return Number.isNaN(t) || t <= soonCutoff;
-  };
-  const ordered = [
-    ...queued.filter(firesSoon),
-    ...pending,
-    ...queued.filter((a) => !firesSoon(a)),
-  ];
+  const ordered = [...pending, ...queued];
   const queuedCount = queued.length;
   const pendingCount = pending.length;
   const title =
     approvals.length === 0
       ? 'Inbox zero'
       : pendingCount === 0
-        ? `Queued (${queuedCount})`
-        : `Pending (${pendingCount})${queuedCount ? ` · ${queuedCount} queued` : ''}`;
+        ? `Scheduled (${queuedCount})`
+        : `Needs review (${pendingCount})`;
 
   return (
+    <>
+    {followupNotice && <p role="status" style={{ padding: 14, border: '1px solid var(--rule)', color: 'var(--signal)' }}>{followupNotice} <button type="button" onClick={() => setFollowupNotice(null)}>Dismiss</button></p>}
     <Section
+      id="needs-review"
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}
       emptyMessage="No drafts waiting. New guest messages will show up here automatically when the AI drafts a reply."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval) => (
+        {ordered.map((approval, index) => (
+          <Fragment key={approval.id}>
+          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
           <ApprovalCard
             key={approval.id}
             approval={approval}
@@ -158,10 +182,12 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
             onRegenerating={watchRegen}
             regenStalled={stalledId === approval.id}
           />
+          </Fragment>
         ))}
       </div>
       <UndoToast decision={lastDecision} onClose={closeToast} onUndone={onResolved} />
     </Section>
+    </>
   );
 }
 
@@ -195,7 +221,7 @@ function ApprovalCard({
    *  count beside them. Undefined when the card has no email to join on, or
    *  when the lookup degraded. */
   quotes?: CardQuoteBlock;
-  onResolved: () => void;
+  onResolved: (notice?: string) => void;
   /** A reversible decision landed (reject / mark handled): offer undo. */
   onDecided: (d: Decision) => void;
   /** Coaching accepted upstream: watch closely for the rewritten card. */
@@ -220,7 +246,8 @@ function ApprovalCard({
   // this card is already doomed. Keep the card locked until its replacement
   // lands (or the watch gives up) so nobody approves a draft that is about to
   // be superseded out from under them.
-  const busy = isPending || pendingAction === 'coach';
+  const busy = isPending || pendingAction === 'coach' || pendingAction === 'redraft';
+  const retrySnapshot = useRef('');
   // Copy-to-send cards: transient "Copied" confirmation on the Copy button.
   const [copied, setCopied] = useState(false);
   // Inline edit + schedule UI. Mutually exclusive (opening one closes the
@@ -243,11 +270,15 @@ function ApprovalCard({
   // Inline conversation history (read-only ThreadPanel), so the operator can
   // judge a draft against what was actually said without opening Guesty.
   const [showThread, setShowThread] = useState(false);
-  // A 2027 pre-release request has exactly one useful next step: price it and
-  // send it. Everything else (the holding reply, coaching, dismissing) is an
-  // exception, so the card leads with one action and tucks the rest behind
-  // "Other options". Dotti, 2026-09-18: "I just don't understand what either
-  // of those mean, I want a simple system."
+  // A 2027 pre-release request usually has one useful next step, price it and
+  // send it, so the card leads with that and tucks coaching and the quiet
+  // exits behind "Other options". Dotti, 2026-09-18: "I just don't understand
+  // what either of those mean, I want a simple system."
+  //
+  // Sending the written reply is NOT one of those exceptions and no longer
+  // hides here. When the home is not ours to sell there is no price to send,
+  // and the only correct action was the one behind the link (2026-10-01, Beth
+  // Dowling on 4 Brier Neck, offboarded 8/31 and still on the request form).
   const [showMore, setShowMore] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
   // The draft text the editor was seeded from, so we can detect the AI/another
@@ -318,7 +349,11 @@ function ApprovalCard({
     setFeedback('');
   }, [approval.draft, isPending, editing]);
 
+  const inquiry = approval.rental_inquiry;
+  const inquiryWithoutDraft = !!inquiry && !(savedDraft ?? approval.draft).trim();
+  const inquiryState = inquiry ? inquiryDraftState(inquiry) : null;
   const propertyLabel =
+    (inquiry ? 'Rental inquiry' : '') ||
     approval.listing_name ||
     prettifySlug(approval.listing_id) ||
     'unknown property';
@@ -328,6 +363,12 @@ function ApprovalCard({
     'Guest';
   const topicLabel = prettifyTopic(approval.topic) || 'General';
   const isPrereleaseRequest = approval.topic === 'prerelease_request';
+  // Describes what the button DOES, not what the draft says: the drafted
+  // reply varies (a holding note, or a decline when the home is not ours to
+  // sell), and copy that claims its wording goes stale silently.
+  const PRERELEASE_SEND_HINT =
+    'Emails the draft above as written, from hello@staycapeann.com. No price, no payment link.';
+
   // The composer, prefilled from the request, so nothing is retyped. Party
   // size, email and phone ride the card in `prerelease`; without them the
   // form opened half-empty and the operator retyped them by hand.
@@ -336,7 +377,7 @@ function ApprovalCard({
   // The email the card knows: the pre-release sidecar's, else the address the
   // thread itself is with.
   const quoteEmail = pre?.guest_email || approval.guest_email || '';
-  const quoteHref =
+  const quoteHref = inquiry ? inquiryQuoteHref(inquiry, inquiry.homes.length === 1 ? inquiry.homes[0].property_id : '', { first: guestLabel, email: quoteEmail, source: approval.guesty_message_id }) :
     `/guests/quotes/new?property=${encodeURIComponent(quoteProperty)}` +
     `&check_in=${encodeURIComponent(approval.check_in || '')}` +
     `&check_out=${encodeURIComponent(approval.check_out || '')}` +
@@ -379,10 +420,31 @@ function ApprovalCard({
   const addon = approval.addon ?? null;
   const addonSmsPossible = !!(addon && addon.payment_link_url && addon.guest_phone);
   const [sendAddonSms, setSendAddonSms] = useState(true);
+  // A note to a teammate this reply commits us to. Ticked by default: the
+  // whole point is that she does not have to remember Rosa exists.
+  const handoff = approval.handoff ?? null;
+  const [createHandoff, setCreateHandoff] = useState(true);
+  const [cleanerChoice, setCleanerChoice] = useState<{ action: 'skip' | 'draft' | 'send'; token: string }>({ action: 'draft', token: '' });
+  const cleanerAction = cleanerChoice.action === 'send' && cleanerChoice.token !== handoff?.preview_token ? 'draft' : cleanerChoice.action;
+  const recordedHandoffStatus: Record<string, string> = { approved: 'Sent', sending: 'Sending', scheduled: 'Scheduled', rejected: 'Skipped', superseded: 'Replaced' };
+  const handoffStatus = handoff?.create_error ? 'Needs review'
+    : recordedHandoffStatus[handoff?.note_status || ''] || (handoff?.audience === 'cleaner'
+      ? { send: 'Send after reply', draft: 'Draft for approval', skip: 'Skip note' }[cleanerAction]
+      : handoff?.filed ? 'Draft awaiting approval' : createHandoff ? 'Draft when approved' : 'Skip note');
+
+  const [createWorkSlip, setCreateWorkSlip] = useState(true);
+  const workOutcomes = splitMaintenanceOutcomes(approval);
+  const [dismissingSlip, setDismissingSlip] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const approveOpts = addon
-    ? { sendAddonSms: addonSmsPossible && sendAddonSms }
-    : undefined;
+  const approveOpts =
+    addon || handoff || approval.maintenance_work
+      ? {
+          ...(addon ? { sendAddonSms: addonSmsPossible && sendAddonSms } : {}),
+          ...(handoff && handoff.audience !== 'cleaner' && !handoff.filed ? { createHandoff } : {}),
+          ...(handoff?.audience === 'cleaner' ? { cleanerAction, previewToken: cleanerChoice.token } : {}),
+          ...(approval.maintenance_work ? { workAction: createWorkSlip ? 'create' as const : 'skip' as const } : {}),
+        }
+      : undefined;
   const copyAddonLink = async () => {
     if (!addon?.payment_link_url) return;
     try {
@@ -426,7 +488,7 @@ function ApprovalCard({
         setPendingAction(null);
         return;
       }
-      onResolved();
+      onResolved(res.warning);
     });
   };
 
@@ -453,10 +515,13 @@ function ApprovalCard({
   const handleRedraft = () => {
     setError(null);
     closeDrawers();
+    retrySnapshot.current = JSON.stringify(approval.rental_inquiry);
     setPendingAction('redraft');
     onRegenerating(approval.id);
     startTransition(async () => {
-      const res = await redraftDraft(approval.id);
+      let res;
+      try { res = await redraftDraft(approval.id); }
+      catch { setError('Drafting could not start. Try again.'); setPendingAction(null); return; }
       if (!res.ok) {
         if (res.stale) { onResolved(); return; }
         setError(res.error);
@@ -540,17 +605,25 @@ function ApprovalCard({
   // The watch gave up: the regen failed upstream (the service logs a traceback
   // and returns, leaving this card pending). Stop claiming to be working on it.
   useEffect(() => {
-    if (!regenStalled || pendingAction !== 'coach') return;
+    if (!regenStalled || (pendingAction !== 'coach' && pendingAction !== 'redraft')) return;
     setPendingAction(null);
-    setShowCoach(true);
-    setError("The rewrite hasn't come back. Send the note again.");
+    if (pendingAction === 'coach') setShowCoach(true);
+    setError(pendingAction === 'redraft' ? 'The draft has not come back. Retry drafting or write the reply directly.' : "The rewrite hasn't come back. Send the note again.");
   }, [regenStalled, pendingAction]);
+
+  // An unsuccessful retry updates this case in place instead of replacing the card.
+  useEffect(() => {
+    if (pendingAction !== 'redraft' || !inquiry || (!inquiry.draft_issue && !inquiry.decision)) return;
+    if (JSON.stringify(inquiry) === retrySnapshot.current) return;
+    setPendingAction(null);
+    setError(inquiryWithoutDraft ? null : inquiry.draft_issue?.message || null);
+  }, [inquiry, inquiryWithoutDraft, pendingAction]);
 
   // Shared transition runner for the new actions: same stale/error/refresh
   // contract as the handlers above.
   const run = (
     action: PendingAction,
-    fn: () => Promise<{ ok: true } | { ok: false; error: string; stale?: boolean }>,
+    fn: () => Promise<{ ok: true; warning?: string } | { ok: false; error: string; stale?: boolean }>,
     onErr?: () => void,
     onStale?: () => void,
   ) => {
@@ -571,14 +644,14 @@ function ApprovalCard({
         if (onErr) onErr();
         return;
       }
-      onResolved();
+      onResolved(res.warning);
     });
   };
 
   const handleSchedule = (sendAtIso: string) => {
     setShowSchedule(false);
     setScheduleCustom(false);
-    run('schedule', () => scheduleDraft(approval.id, sendAtIso));
+    run('schedule', () => scheduleDraft(approval.id, sendAtIso, approveOpts));
   };
   const handleSendNow = () => run('send-now', () => approveDraft(approval.id, approveOpts));
   const handleCancelSchedule = () => run('cancel-schedule', () => cancelSchedule(approval.id));
@@ -650,6 +723,7 @@ function ApprovalCard({
   if (isScheduled && !expanded) {
     return (
       <article
+        id={`approval-${approval.id}`}
         ref={cardRef}
         style={{
           border: '1px solid var(--rule)',
@@ -715,13 +789,17 @@ function ApprovalCard({
             {error}
           </p>
         )}
-      </article>
+          <MessageOutcomes value={approval.outcomes} />
+    </article>
     );
   }
 
   return (
+    <MobileInboxReview id={approval.id} name={guestLabel} property={propertyLabel} preview={approval.guest_text} channel={approval.channel || ''} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={editing || showCoach || showSchedule || showHandled}>
     <article
+      id={`approval-${approval.id}`}
       ref={cardRef}
+      className="rt-message-card"
       style={{
         border: '1px solid var(--rule)',
         // A queued card wears a bronze left rule; otherwise the proactive
@@ -817,10 +895,10 @@ function ApprovalCard({
           subLabel={kind ? '' : guestReceivedSubLabel(approval.guest_received_at, approval.created_at)}
           subLabelTitle={approval.guest_received_at || approval.created_at || undefined}
         >
-          <BodyText>{approval.guest_text || '(empty)'}</BodyText>
+          <BodyText>{(inquiry ? inquiryMessageText(approval.guest_text || '') : approval.guest_text) || '(empty)'}</BodyText>
         </FieldBlock>
         <FieldBlock
-          label={editing ? 'Editing reply' : 'Proposed reply'}
+          label={editing ? 'Editing reply' : inquiryWithoutDraft ? inquiryState!.label : 'Proposed reply'}
           labelTone={editing ? 'var(--ink)' : undefined}
           action={
             !isScheduled && !editing ? (
@@ -906,8 +984,13 @@ function ApprovalCard({
                 </SecondaryButton>
               </div>
             </div>
+          ) : inquiryWithoutDraft && inquiry ? (
+            <RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} />
           ) : (
-            <BodyText emphasis>{(savedDraft ?? approval.draft) || '(no draft)'}</BodyText>
+            <>
+              <BodyText emphasis>{(savedDraft ?? approval.draft) || '(no draft)'}</BodyText>
+              {inquiry && <details style={{ marginTop: 14 }}><summary className="eyebrow" style={{ cursor: 'pointer', color: 'var(--ink-3)' }}>Inquiry details</summary><div style={{ marginTop: 10 }}><RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} /></div></details>}
+            </>
           )}
         </FieldBlock>
       </div>
@@ -1158,6 +1241,136 @@ function ApprovalCard({
         </div>
       )}
 
+      {approval.maintenance_work && <MaintenanceWorkPanel
+        id={approval.id} work={approval.maintenance_work} outcome={workOutcomes.maintenance}
+        create={createWorkSlip} busy={busy} dismissing={dismissingSlip}
+        onCreateChange={setCreateWorkSlip} onDismiss={async () => {
+          setDismissingSlip(true); const result = await dismissMaintenanceSlip(approval.id);
+          if (!result.ok) setError(result.error); else onResolved(); setDismissingSlip(false);
+        }}
+      />}
+
+      {handoff && (
+        <InboxFollowup
+          title={`Note to ${handoff.target_name || HANDOFF_LABEL[handoff.audience] || 'teammate'}${handoff.urgency === 'today' ? ' · today' : ''}`}
+          attention={!!handoff.create_error || (handoff.audience === 'cleaner' && cleanerAction === 'send')}
+          status={handoffStatus}
+        >
+          {handoff.reason && (
+            <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--ink-2)' }}>
+              {handoff.filed
+                ? `${handoff.target_name || 'The crew'} needs to know: ${handoff.reason}.`
+                : `This reply commits us to something ${handoff.target_name || 'the crew'} needs to know: ${handoff.reason}.`}
+            </p>
+          )}
+
+          <p
+            style={{
+              margin: 0,
+              fontSize: 13,
+              lineHeight: 1.55,
+              color: 'var(--ink-1)',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {handoff.preview}
+          </p>
+          {handoff.preview_english && (
+            <p
+              style={{
+                margin: '6px 0 0',
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: 'var(--ink-3)',
+                fontStyle: 'italic',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {handoff.preview_english}
+            </p>
+          )}
+
+          {handoff.audience === 'cleaner' ? (
+            handoff.note_status === 'approved' ? <p style={{ fontSize: 12 }}>Sent to {handoff.target_name || 'the cleaner'}.</p> :
+            ['sending', 'scheduled', 'rejected', 'superseded'].includes(handoff.note_status || '') ? <p style={{ fontSize: 12 }}>This note is {handoff.note_status}. Review it in <Link href="/cleaner-messaging">Cleaner messaging</Link>.</p> :
+            <>
+              <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: '10px 0 0', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 12 }}>
+                <legend className="sr-only">Note to {handoff.target_name || 'the cleaner'}</legend>
+                {(['skip', 'draft', 'send'] as const).map((action) => (
+                  <label key={action} style={{ cursor: 'pointer' }}>
+                    <input type="radio" name={`cleaner-${approval.id}`} checked={cleanerAction === action}
+                      disabled={action === 'send' && (!handoff.preview_token || !!handoff.create_error)}
+                      onChange={() => setCleanerChoice({ action, token: action === 'send' ? handoff.preview_token || '' : '' })}
+                      style={{ accentColor: HANDOFF_TONE }} />{' '}
+                    {action === 'skip' ? 'Skip note' : action === 'draft' ? 'Draft for approval' : `Send to ${handoff.target_name || 'cleaner'}`}
+                  </label>
+                ))}
+              </fieldset>
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>
+                {cleanerAction === 'send' ? 'Sends the note shown above after your guest reply sends.' : cleanerAction === 'skip' ? 'No cleaner note will be sent or kept as a draft when you approve.' : 'Keeps this as a draft in Cleaner messaging when you approve. Nothing sends to the cleaner.'}
+              </p>
+            </>
+          ) : (
+            <>
+          {/* Same row either way, so the eye learns one shape: a tick means a
+              note exists for the crew. Live, it is a decision; filed, it is a
+              receipt for one another module already made. */}
+          <label
+            style={{
+              marginTop: 10,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 7,
+              fontSize: 12,
+              color: 'var(--ink-2)',
+              cursor: handoff.filed ? 'default' : 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={handoff.filed ? true : createHandoff}
+              disabled={handoff.filed}
+              onChange={(e) => setCreateHandoff(e.target.checked)}
+              style={{ accentColor: HANDOFF_TONE, marginTop: 2 }}
+            />
+            <span>
+              {handoff.filed ? (
+                <>
+                  Drafted for {handoff.target_name || 'them'}
+                  <span style={{ color: 'var(--ink-4)' }}>
+                    {' '}(waiting on{' '}
+                    <a
+                      href={HANDOFF_HREF[handoff.audience] ?? '/messaging'}
+                      style={{ color: 'var(--ink-3)' }}
+                    >
+                      {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'}
+                    </a>
+                    {' '}for your approval, nothing has sent)
+                  </span>
+                </>
+              ) : (
+                <>
+                  Draft this for {handoff.target_name || 'them'} when I approve
+                  <span style={{ color: 'var(--ink-4)' }}>
+                    {' '}(it waits on {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'} for
+                    your approval, nothing sends now)
+                  </span>
+                </>
+              )}
+            </span>
+          </label>
+
+            </>
+          )}
+
+          {handoff.create_error && (
+            <p style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>
+              {handoff.audience === 'cleaner' ? <>Note needs review: {handoff.create_error} <Link href="/cleaner-messaging">Open Cleaner messaging</Link>.</> : <>Filing this last time failed ({handoff.create_error}). Approving tries again.</>}
+            </p>
+          )}
+        </InboxFollowup>
+      )}
+
       {error && (
         <p
           style={{
@@ -1189,6 +1402,7 @@ function ApprovalCard({
       )}
 
       <footer
+        className="rt-message-actions"
         style={{
           marginTop: 18,
           display: 'flex',
@@ -1257,11 +1471,36 @@ function ApprovalCard({
               Dismiss
             </SecondaryButton>
           </>
+        ) : inquiryWithoutDraft ? (
+          <>
+            {inquiryState?.pricing ? <PrimaryLink href={quoteHref} disabled={busy}>Set a price</PrimaryLink> : (
+              <PrimaryButton onClick={handleRedraft} disabled={busy} loading={pendingAction === 'redraft'} loadingLabel="Drafting">Retry draft</PrimaryButton>
+            )}
+            {inquiryState?.pricing && <SecondaryButton onClick={handleRedraft} disabled={busy} loading={pendingAction === 'redraft'} loadingLabel="Drafting">Recheck & draft</SecondaryButton>}
+            <SecondaryButton onClick={startEdit} disabled={busy}>Write reply</SecondaryButton>
+            <SecondaryButton onClick={() => setShowHandled(v => !v)} disabled={busy}>Mark handled</SecondaryButton>
+          </>
         ) : isPrereleaseRequest && !showMore ? (
           <>
             <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>
+            {/* Sending the written reply used to live behind "Other options",
+                so a card whose draft was the right answer looked unsendable.
+                Dotti, 2026-10-01, on Beth Dowling's 4 Brier Neck request (a
+                home we no longer manage, so there was no price to send): "why
+                cant i send this message?" ... "i want to be able to send this
+                message to her through helm". Pricing is still the primary
+                action; replying is no longer hidden. */}
+            <SecondaryButton
+              onClick={handleApprove}
+              disabled={busy}
+              loading={pendingAction === 'approve'}
+              loadingLabel="Sending"
+              title={PRERELEASE_SEND_HINT}
+            >
+              Send reply
+            </SecondaryButton>
             <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-              Opens the quote form with their home and dates filled in
+              Send a price opens the quote form, filled in. Send reply emails the draft above as written.
             </span>
             <button
               type="button"
@@ -1297,13 +1536,13 @@ function ApprovalCard({
                   disabled={busy}
                   loading={pendingAction === 'approve'}
                   loadingLabel="Sending"
-                  title="Sends the drafted note saying 2027 is not on sale yet and a quote will follow."
+                  title={PRERELEASE_SEND_HINT}
                 >
-                  Send holding reply
+                  Send reply
                 </SecondaryButton>
                 <span className="eyebrow" style={{ color: 'var(--ink-3)', flexBasis: '100%' }}>
-                  Send a price opens the quote form. The holding reply only says 2027 is not on
-                  sale yet, and sends no price.
+                  Send a price opens the quote form. Send reply emails the draft above as written,
+                  with no price and no payment link.
                 </span>
               </>
             ) : (
@@ -1338,15 +1577,9 @@ function ApprovalCard({
                 boxes, and sit apart from the send controls: one dark button,
                 one outlined, then the quiet exits. Four equal boxes read as
                 four equal choices, which they are not. */}
-            <span
-              style={{
-                marginLeft: 'auto',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 20,
-                flexWrap: 'wrap',
-              }}
-            >
+            <details className="rt-message-options">
+              <summary>More actions</summary>
+              <div className="rt-message-options-body">
               <QuietButton
                 onClick={handleRedraft}
                 disabled={busy}
@@ -1384,7 +1617,8 @@ function ApprovalCard({
                   Fewer options
                 </button>
               )}
-            </span>
+              </div>
+            </details>
           </>
         )}
       </footer>
@@ -1541,7 +1775,9 @@ function ApprovalCard({
           </div>
         </div>
       )}
+      <MessageOutcomes value={workOutcomes.remaining} />
     </article>
+    </MobileInboxReview>
   );
 }
 
@@ -1608,7 +1844,7 @@ function SplitSendButton({
   loading?: boolean;
   open?: boolean;
   /** Overrides "Approve & send" where that name would mislead. On a 2027
-   *  request this send is only the holding reply, never a price. */
+   *  request this send is the drafted reply as written, never a price. */
   label?: string;
   title?: string;
 }) {
@@ -1625,7 +1861,7 @@ function SplitSendButton({
     ...extra,
   });
   return (
-    <div style={{ display: 'inline-flex' }}>
+    <div className="rt-split-send" style={{ display: 'inline-flex' }}>
       <button
         type="button"
         onClick={onApprove}

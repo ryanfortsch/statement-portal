@@ -256,7 +256,7 @@ export async function getListingParkingAndHero(
  * JSON write helper (POST/PATCH/PUT) sharing guestyGet's token cache +
  * 429 backoff. The GET-only guestyGet can't mutate.
  */
-async function guestyWrite<T = unknown>(
+export async function guestyWrite<T = unknown>(
   method: 'POST' | 'PATCH' | 'PUT',
   path: string,
   body: unknown,
@@ -299,12 +299,80 @@ async function guestyWrite<T = unknown>(
 }
 
 /**
+ * The property-photos resource for a listing.
+ *
+ * Verified live 2026-09-27 against 19 Rackliffe: this path does NOT want a
+ * separate Guesty property id. For our single-unit listings the listing id
+ * IS the property id, and the response wrapper says so by echoing
+ * `propertyId` back equal to what we sent. The body is
+ * `{ propertyId, photos: [...] }`, not a bare array.
+ *
+ * THE THING THAT MATTERS: the `_id` on a photo here is NOT the `_id` on the
+ * same image in the listing's `pictures` array. Same 29 photos, same CDN
+ * URLs, completely disjoint id sets (`6ab53b19f6251b00118eb8e5` in
+ * `pictures` vs `6ab53b1b397e952e86a1f2c6` here, for one image). The
+ * caption write is keyed by THIS id. Sending the `pictures` id is how the
+ * caption tool spent its whole life getting a 201 back for a write that
+ * never landed anywhere.
+ */
+export async function getPropertyPhotos(listingId: string): Promise<GuestyPhoto[]> {
+  const body = await guestyGet<{ propertyId?: string; photos?: RawListingPicture[] } | RawListingPicture[]>(
+    propertyPhotosPath(listingId),
+  );
+  const photos = Array.isArray(body) ? body : Array.isArray(body?.photos) ? body.photos : [];
+  return photos.map((p, i) => ({
+    _id: (p._id && p._id.trim()) || String(i),
+    original: p.original,
+    thumbnail: p.thumbnail ?? p.regular ?? p.large ?? p.original,
+    caption: p.caption,
+    index: typeof p.index === 'number' ? p.index : i,
+  }));
+}
+
+/**
+ * The identity an image keeps across BOTH representations: the Cloudinary
+ * asset slug. `pictures` and `property-photos` disagree about `_id` and can
+ * carry different transformation prefixes or extensions on the URL, but the
+ * slug (`.../tsm2zzdy0gwh4hggdyor.jpg` -> `tsm2zzdy0gwh4hggdyor`) is the
+ * upload itself and is stable. Empty when there's no URL to key on, and an
+ * empty key never matches anything.
+ */
+export function photoAssetKey(url?: string | null): string {
+  if (!url) return '';
+  const last = url.split('?')[0].split('/').pop() || '';
+  return last.replace(/\.[a-z0-9]+$/i, '').toLowerCase();
+}
+
+/**
+ * The property-photos id for a listing picture, matched by asset slug.
+ * Returns '' when the image has no counterpart there (a caller must treat
+ * that as "cannot caption this one" rather than falling back to the
+ * listing id, which is what made the write inert).
+ */
+export async function resolvePropertyPhotoId(
+  listingId: string,
+  picture: { original?: string; thumbnail?: string },
+): Promise<string> {
+  const keys = [photoAssetKey(picture.original), photoAssetKey(picture.thumbnail)].filter(Boolean);
+  if (keys.length === 0) return '';
+  const photos = await getPropertyPhotos(listingId);
+  const hit = photos.find((p) => {
+    const cands = [photoAssetKey(p.original), photoAssetKey(p.thumbnail)].filter(Boolean);
+    return cands.some((c) => keys.includes(c));
+  });
+  return hit?._id ?? '';
+}
+
+/**
  * Edit one photo's caption.
  * POST /v1/properties-api/property-photos/property-photos/{id}/{photoId}
  * with { caption }. (Yes, POST, not PATCH — Guesty's property-photos API
  * uses POST for the caption/replace edit.) Order and room assignment are
  * preserved; only the caption changes. Returns the updated photo array
  * Guesty echoes back on 201 (best-effort; may be null).
+ *
+ * `photoId` MUST come from resolvePropertyPhotoId, not from the listing's
+ * `pictures` array. See getPropertyPhotos above for why.
  */
 export async function updatePhotoCaption(
   propertyId: string,

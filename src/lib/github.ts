@@ -121,6 +121,14 @@ export async function branchExists(branch: string): Promise<boolean> {
   }
 }
 
+/** Common ancestor distinguishes batch edits from newer production changes. */
+export async function getMergeBaseSha(base: string, head: string): Promise<string> {
+  const comparison = await gh<{ merge_base_commit: { sha: string } }>(
+    'GET', `${BASE}/compare/${refPath(base)}...${refPath(head)}`,
+  );
+  return comparison.merge_base_commit.sha;
+}
+
 // ── Writes ────────────────────────────────────────────────────────────────────
 
 export async function createBranch(branch: string, fromSha: string): Promise<void> {
@@ -186,9 +194,11 @@ export async function getPullRequest(number: number): Promise<PullRequest> {
 export async function mergePullRequest(
   number: number,
   method: 'squash' | 'merge' | 'rebase' = 'squash',
+  expectedHeadSha?: string,
 ): Promise<{ merged: boolean; sha: string }> {
   return gh<{ merged: boolean; sha: string }>('PUT', `${BASE}/pulls/${number}/merge`, {
     merge_method: method,
+    ...(expectedHeadSha ? { sha: expectedHeadSha } : {}),
   });
 }
 
@@ -277,7 +287,7 @@ export async function getBranchPreviewStatus(branch: string): Promise<PreviewSta
   try {
     const deployments = await gh<Array<{ id: number }>>(
       'GET',
-      `${BASE}/deployments?ref=${encodeURIComponent(branch)}&per_page=1`,
+      `${BASE}/deployments?${/^[0-9a-f]{40}$/i.test(branch) ? 'sha' : 'ref'}=${encodeURIComponent(branch)}&per_page=1`,
     );
     ok = true;
     if (deployments.length) {

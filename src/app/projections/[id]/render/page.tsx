@@ -1,3 +1,4 @@
+import { Fragment, type ReactNode } from 'react';
 import { notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ProjectionRow } from '@/lib/projections-types';
@@ -29,31 +30,75 @@ export default async function ProjectionRenderPage({ params }: { params: Promise
   const propertyTag = `${projection.property_address}${projection.property_city ? `, ${projection.property_city.split(',')[0].toUpperCase()}` : ''}`.toUpperCase();
   const footerLabel = `${monthYear} | ${propertyTag}`;
   const greetingName = (projection.prospect_first_name || projection.prospect_name.split(/[, ]/)[0]).toUpperCase();
+  const order = DECK_ORDER_BY_PROJECTION[projection.id] ?? DEFAULT_ORDER;
+  // The Ratings slide, when it comes before Earn more, introduces the 15%
+  // and carries notes 2 and 3; without it the Earn more rows number from 2.
+  const ratingsFirst =
+    order.includes('ratings') && order.indexOf('ratings') < order.indexOf('earnMore');
+  const earnRows = earnMoreRows(c, ratingsFirst);
+  const improvements = IMPROVEMENTS_BY_PROJECTION[projection.id] ?? [];
+
+  const improvementSlide = (i: number) => {
+    const it = improvements[i];
+    return it ? (
+      <SlideImprovement key={`improvement-${i + 1}`} n={i + 1} address={projection.property_address} item={it} footer={footerLabel} />
+    ) : null;
+  };
+  const slide = (key: SlideKey): ReactNode => {
+    switch (key) {
+      case 'cover':
+        return <SlideCover key={key} projection={projection} monthYear={monthYear} footer={footerLabel} />;
+      case 'hero':
+        return <SlideHero key={key} projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />;
+      case 'pillars':
+        return <SlidePillars key={key} footer={footerLabel} />;
+      case 'ratings':
+        return <SlideRatings key={key} revenueNote={RATINGS_NOTE} ratingNote={RATING_CARD_NOTE} footer={footerLabel} />;
+      case 'earnMore':
+        return <SlideEarnMore key={key} rows={earnRows} footer={footerLabel} />;
+      case 'improvements':
+        // The default placement: every improvement, with an opener once
+        // there is a real list (at one or two items the first slide's
+        // eyebrow opens the section).
+        return improvements.length === 0 ? null : (
+          <Fragment key={key}>
+            {improvements.length > 2 && (
+              <SlideImprovementsIntro projection={projection} items={improvements} footer={footerLabel} />
+            )}
+            {improvements.map((_, i) => improvementSlide(i))}
+          </Fragment>
+        );
+      case 'local':
+        return <SlideLocal key={key} projection={projection} footer={footerLabel} />;
+      case 'year1':
+        return <SlideYear1 key={key} computed={c} footer={footerLabel} />;
+      case 'ramp':
+        return projection.apply_ramp ? <SlideRamp key={key} projection={projection} computed={c} footer={footerLabel} /> : null;
+      case 'monthly':
+        // Opt-in line-item detail, read as a zoom-in on Year 1.
+        return projection.include_monthly_breakdown ? <SlideMonthlyBreakdown key={key} computed={c} footer={footerLabel} /> : null;
+      case 'year2':
+        return <SlideYear2 key={key} computed={c} footer={footerLabel} />;
+      case 'services':
+        return <SlideServices key={key} footer={footerLabel} />;
+      case 'owner':
+        return <SlideOwnerControl key={key} projection={projection} computed={c} footer={footerLabel} />;
+      case 'close':
+        return <SlideClose key={key} footer={footerLabel} />;
+      case 'endnotes':
+        return <SlideEndnotes key={key} earnRows={earnRows} ratingCard={ratingsFirst} footer={footerLabel} />;
+      default:
+        return improvementSlide(Number(key.slice('improvement-'.length)) - 1);
+    }
+  };
 
   return (
     <>
       {/* Inline CSS so this page is fully self-contained for print */}
       <style>{deckCss}</style>
 
-      <div className="rt-deck">
-        <SlideCover projection={projection} monthYear={monthYear} footer={footerLabel} />
-        <SlideHero projection={projection} computed={c} monthYear={monthYear} footer={footerLabel} greetingName={greetingName} />
-        <SlidePillars footer={footerLabel} />
-        <SlideRatings footer={footerLabel} />
-        <SlideLocal projection={projection} footer={footerLabel} />
-        <SlideYear1 computed={c} footer={footerLabel} />
-        {projection.apply_ramp && <SlideRamp projection={projection} computed={c} footer={footerLabel} />}
-        {/* Opt-in line-item detail for owners who want it. Placed right
-            after Year 1 so the prospect reads it as a zoom-in on the
-            monthly average they just saw. */}
-        {projection.include_monthly_breakdown && (
-          <SlideMonthlyBreakdown computed={c} footer={footerLabel} />
-        )}
-        <SlideYear2 computed={c} footer={footerLabel} />
-        <SlideServices footer={footerLabel} />
-        <SlideOwnerControl projection={projection} computed={c} footer={footerLabel} />
-        <SlideClose footer={footerLabel} />
-        <SlideEndnotes footer={footerLabel} />
+      <div className={`rt-deck${NUMBERED_DECKS.has(projection.id) ? ' rt-deck-numbered' : ''}`}>
+        {order.map(slide)}
       </div>
     </>
   );
@@ -162,8 +207,630 @@ function Pillar({ n, title, body }: { n: string; title: string; body: string }) 
   );
 }
 
-function SlideRatings({ footer }: { footer: string }) {
-  // Rising Tide: 2-decimal precision (4.99). Competitors: 1-decimal (industry-standard reporting).
+/**
+ * Rising Tide's own spend on guest consumables per operating home per year:
+ * toilet paper, paper towels, coffee pods, toiletries. Measured 2026-10-05
+ * from the operating card (overhead_expenses, category 'Guest supplies',
+ * Amazon and the big-box consumable vendors only; Fix Linens and
+ * furnishings excluded). April to August 2026 is the window where both the
+ * spend and the home count are known: $31,667 over 72 home-months,
+ * annualized with CC_SUPPLY_SEASON from forecast-model, gives $3,860. The
+ * statement home count gives $4,291, and last winter's $244 per home-month
+ * on the same curve gives about $4,100. The slide takes the low figure,
+ * rounded down. Rerun the measurement before raising it.
+ */
+const SUPPLIES_PER_HOME_YEAR = 3800;
+
+/**
+ * Earn more, spend less. The evidence behind the Pillars slide: compared
+ * with an owner listing on Airbnb alone, what each thing we do is worth as
+ * a share of rental revenue, then all of it stacked into one bar with the
+ * total. (The management fee was on the chart in #1741 and came off at the
+ * operator's request: the slide shows what the owner gains, not a netting.)
+ *
+ * The stack ADDS figures from separate sources (two AirDNA comparisons, a
+ * study and Rising Tide's own records). Five-star service (+15%, AirDNA
+ * 2025) joined the stack on 2026-10-06 to match the Instagram carousel; the
+ * Ratings slide's 15% cites the same row's endnote rather than repeating it. Endnote 6 says so on the page and
+ * cites the one study that measured the whole package (Li, Moreno & Zhang,
+ * +16.9%), which is the honest backstop for summing them.
+ *
+ * "Direct bookings" is Rising Tide's own math: on a 4-night 3 South stay,
+ * Airbnb (calendar +18.34%, 15.5% host-only fee) nets the owner $1,772 and
+ * staycapeann.com (calendar +6%, card fees at 3.9% + $0.40) nets $1,825,
+ * about +3% per direct stay. At the low end of the operator's 1/3 to 1/2
+ * direct share that is +1% of revenue. "Supplies" is SUPPLIES_PER_HOME_YEAR
+ * over this home's projected Year 1 rental revenue, so it varies by deck,
+ * and so does the row order (largest first). Footnote numbers follow the
+ * row order; endnotes read them from the same array.
+ */
+type EarnRow = {
+  key: string;
+  title: string;
+  line: string;
+  pct: number; // fraction of rental revenue
+  color: string;
+  n: number; // footnote number
+  note: ReactNode;
+};
+
+const EARN_COLORS = ['#7a5622', '#946d2e', '#b48f52', '#cdb07c', '#e2cfa6'];
+
+function earnMoreRows(computed: ProjectionComputed, ratingsFirst = true): EarnRow[] {
+  const gross = computed.year1.mid.grossRevenue;
+  const supplyPct = gross > 0 ? SUPPLIES_PER_HOME_YEAR / gross : 0;
+  const rows: Omit<EarnRow, 'color' | 'n'>[] = [
+    {
+      key: 'ratings',
+      title: 'Five-star service',
+      line: 'Our homes average 4.98 stars; the Airbnb average is 4.8.',
+      pct: 0.15,
+      note: (
+        <>
+          Source: AirDNA, &ldquo;Airbnb Ratings Explained and Why 4 Stars Doesn&rsquo;t Cut It&rdquo; (updated September
+          2025). In AirDNA&rsquo;s 2025 data, listings rated 4.9 stars or higher earned 15% more revenue per available
+          night than lower-rated listings, with 11% higher nightly rates and 4% higher occupancy.
+        </>
+      ),
+    },
+    {
+      key: 'pricing',
+      title: 'Market-based pricing',
+      line: 'Rates set every day using market data.',
+      pct: 0.086,
+      note: (
+        <>
+          Source: Zhang, Mehta, Singh &amp; Srinivasan, <em>Marketing Science</em> 40(5), 2021. Airbnb hosts who
+          adopted algorithmic pricing earned 8.6% more daily revenue while their average nightly rate fell 5.7%: more
+          nights booked, priced to demand.
+        </>
+      ),
+    },
+    {
+      key: 'platforms',
+      title: 'Every platform',
+      line: 'Airbnb, Vrbo, Booking.com, Google and Furnished Finder.',
+      pct: 0.074,
+      note: (
+        <>
+          Source: AirDNA, &ldquo;Airbnb vs Vrbo for Owners&rdquo; (August 2025). In 2025, homes listed on both Airbnb
+          and Vrbo were booked 58% of nights, against 54% for Airbnb-only homes: 7.4% more nights. U.S. averages.
+        </>
+      ),
+    },
+    {
+      key: 'supplies',
+      title: 'Supplies on us',
+      line: `About ${fmtMoney(SUPPLIES_PER_HOME_YEAR)} a year in guest supplies.`,
+      pct: supplyPct,
+      note: (
+        <>
+          Rising Tide card records, April to August 2026, spread across the year by season: guest consumables (toilet
+          paper, paper towels, coffee pods, toiletries) per operating home, about {fmtMoney(SUPPLIES_PER_HOME_YEAR)} a
+          year. Linens and furnishings excluded. Shown as a share of this home&rsquo;s projected Year 1 rental revenue.
+        </>
+      ),
+    },
+    {
+      key: 'direct',
+      title: 'Direct bookings',
+      line: '3% more on each, a third of stays or more.',
+      pct: 0.01,
+      note: (
+        <>
+          Rising Tide analysis. Airbnb charges hosts a 15.5% fee; a direct booking pays under 3% in card fees, so the
+          owner nets about 3% more per direct stay.
+          A third to a half of Rising Tide stays book direct; shown at the low end, 3% on one stay in three. Industry-wide,
+          direct bookings were 35% of managed-rental revenue in Key Data&rsquo;s Q2 2026 report.
+        </>
+      ),
+    },
+  ];
+  return rows
+    .sort((a, b) => b.pct - a.pct)
+    .map((r, i) => ({ ...r, color: EARN_COLORS[i] ?? EARN_COLORS[EARN_COLORS.length - 1] }))
+    .map((r, i, all) => ({
+      ...r,
+      // With the Ratings slide first, the ratings row reuses its note and the
+      // other rows number on from the rating card. Without it, the rows simply
+      // number 2, 3, 4... in display order.
+      n: !ratingsFirst
+        ? 2 + i
+        : r.key === 'ratings'
+          ? RATINGS_NOTE
+          : EARN_NOTE_BASE + all.filter((x) => x.key !== 'ratings').indexOf(r),
+    }));
+}
+
+/**
+ * Footnotes run in reading order: the hero is 1, the Ratings slide (when it
+ * comes before Earn more) is 2 and 3, and the Earn more rows continue from
+ * 4, the ratings row pointing back to 2. A deck without the Ratings slide
+ * numbers the rows from 2. The stack note follows the last row. Endnotes
+ * are rendered sorted by these numbers, so nothing is hard-coded twice.
+ */
+const RATINGS_NOTE = 2;
+const RATING_CARD_NOTE = 3;
+const EARN_NOTE_BASE = 4;
+const stackNoteFor = (rows: EarnRow[]) => Math.max(1, ...rows.map((r) => r.n)) + 1;
+
+const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;
+
+function SlideEarnMore({ rows, footer }: { rows: EarnRow[]; footer: string }) {
+  const total = rows.reduce((a, r) => a + r.pct, 0);
+  const stackNote = stackNoteFor(rows);
+  // The bar always fills the plot; segment heights are proportional.
+  const PLOT = 300;
+  const scale = PLOT / Math.max(total, 0.0001);
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <h2 className="rt-section-title">Earn more. Spend less.</h2>
+        <div className="rt-em-grid">
+          <div className="rt-em-ladder">
+            <div className="rt-em-base">
+              <span className="rt-em-eyebrow">Share of your rental revenue</span>
+              <span className="rt-em-base-body">compared with a home listed on Airbnb alone</span>
+            </div>
+            <div className="rt-em-rows" style={{ gridTemplateRows: `repeat(${rows.length}, minmax(0, 1fr))` }}>
+              {rows.map((r) => (
+                <div key={r.key} className="rt-em-row">
+                  <span className="rt-em-swatch" style={{ background: r.color }} />
+                  <span className="rt-em-pct">+{pct1(r.pct)}</span>
+                  <div>
+                    <div className="rt-em-row-title">{r.title}</div>
+                    <div className="rt-em-row-line">
+                      {r.line}
+                      <sup>({r.n})</sup>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rt-em-chart">
+            <div className="rt-em-base">
+              <span className="rt-em-eyebrow">All together</span>
+            </div>
+            <div className="rt-em-plot">
+              <div className="rt-em-bar" style={{ height: PLOT }}>
+                {[...rows].reverse().map((r) => (
+                  <div key={r.key} className="rt-em-seg" style={{ height: r.pct * scale, background: r.color }} />
+                ))}
+              </div>
+              <div className="rt-em-total" style={{ height: PLOT }}>
+                <div className="rt-em-total-num">+{pct1(total)}</div>
+                <div className="rt-em-total-cap">
+                  more for you, earned and saved, as a share of rental revenue<sup>({stackNote})</sup>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+/**
+ * Per-deck "specific improvements" section. Keyed by projection id, so a
+ * deck with no entry renders exactly as before; nothing here touches any
+ * other prospect's deck. Images live in public/projections/<home>/.
+ *
+ * To add an improvement to a deck, append to its list. To give another
+ * prospect a section, add their projection id.
+ */
+type Improvement =
+  | {
+      kind: 'beforeAfter';
+      title: string;
+      lead: string;
+      points: string[];
+      before: { src: string; label: string };
+      after: { src: string; label: string };
+    }
+  | {
+      // Several smaller changes on one slide, with one supporting image.
+      kind: 'bundle';
+      title: string;
+      items: { title: string; body: string }[];
+      image: { src: string; caption: string };
+      // When set, the image sits under an Instagram-style profile header so
+      // the account is recognizable at a glance.
+      profile?: InstagramProfile;
+    }
+  | {
+      // Today's nightly price against ours, with one week side by side.
+      kind: 'pricing';
+      title: string;
+      lead: string;
+      today: { figure: string; caption: string; sub: string };
+      ours: { figure: string; caption: string; sub: string };
+      week: {
+        days: string[];
+        rows: { label: string; prices: number[]; ours?: boolean }[];
+      };
+      source: string;
+    };
+
+type InstagramProfile = {
+  handle: string;
+  name: string;
+  posts: string;
+  followers: string;
+  following: string;
+  category: string;
+  bio: string[];
+  mention?: string; // trailing @handle on the last bio line, shown in link blue
+  link: string;
+};
+
+type SlideKey =
+  | 'cover'
+  | 'hero'
+  | 'pillars'
+  | 'ratings'
+  | 'earnMore'
+  | 'improvements'
+  | `improvement-${number}`
+  | 'local'
+  | 'year1'
+  | 'ramp'
+  | 'monthly'
+  | 'year2'
+  | 'services'
+  | 'owner'
+  | 'close'
+  | 'endnotes';
+
+/** Every deck's order unless it has its own below. Ramp and monthly render only when the projection opts in. */
+const DEFAULT_ORDER: SlideKey[] = [
+  'cover', 'hero', 'pillars', 'ratings', 'earnMore', 'improvements', 'local',
+  'year1', 'ramp', 'monthly', 'year2', 'services', 'owner', 'close', 'endnotes',
+];
+
+/**
+ * Per-deck running order, keyed by projection id. A slide left out does not
+ * render; footnotes renumber from whatever is shown.
+ */
+const DECK_ORDER_BY_PROJECTION: Record<string, SlideKey[]> = {
+  // John Erickson, 47 Atlantic Road: Dotti's order for the 2026-10-06
+  // meeting. Ratings sits in its usual place after Pillars (it was briefly
+  // left out and Dotti asked for it back), so it still introduces the 15%
+  // ahead of Earn more and the footnotes run 1..8.
+  '5373a935-9c5f-40ec-aa93-d3f0db639669': [
+    'cover', 'hero', 'pillars', 'ratings', 'local',
+    'improvement-1', 'improvement-2', 'improvement-3',
+    'year1', 'ramp', 'monthly', 'year2', 'earnMore',
+    'services', 'owner', 'close', 'endnotes',
+  ],
+};
+
+/**
+ * Decks that print a slide number at the bottom right, for walking through
+ * them in a meeting. Opt-in per projection so other decks are unchanged.
+ * The number is a CSS counter, so it follows whichever slides render.
+ */
+const NUMBERED_DECKS = new Set<string>([
+  '5373a935-9c5f-40ec-aa93-d3f0db639669', // John Erickson, 47 Atlantic Road
+]);
+
+const IMPROVEMENTS_BY_PROJECTION: Record<string, Improvement[]> = {
+  // John Erickson, 47 Atlantic Road, Gloucester (meeting 2026-10-06).
+  '5373a935-9c5f-40ec-aa93-d3f0db639669': [
+    {
+      kind: 'bundle',
+      title: 'A marketing refresh',
+      items: [
+        {
+          title: 'Drone photography',
+          body: 'Aerial shots that show how close the home sits to Good Harbor Beach. The listing has none today.',
+        },
+        {
+          title: 'A full listing description',
+          body: 'The home, the views and the neighborhood, written out in full. Today\u2019s copy is a few short lines.',
+        },
+        {
+          title: 'Sleeps 9, up from 8',
+          body: 'Listed for one more guest, so the home appears in searches from larger groups.',
+        },
+        {
+          title: 'Vrbo and Booking.com',
+          body: 'Listed beyond Airbnb, where families and groups also search: the \u201cevery platform\u201d lift from earlier.',
+        },
+        {
+          title: 'Stay Cape Ann social',
+          body: 'Featured on @staycapeann, our Instagram for guests, with 2,688 followers.',
+        },
+      ],
+      image: { src: '/projections/47-atlantic/stay-cape-ann-instagram.jpg', caption: '@staycapeann on Instagram' },
+      // As shown on instagram.com/staycapeann, 2026-10-06.
+      profile: {
+        handle: 'staycapeann',
+        name: 'Stay Cape Ann',
+        posts: '85',
+        followers: '2,688',
+        following: '38',
+        category: 'Hospitality Service',
+        bio: ['Vacation rentals in Gloucester + Rockport.', 'Book direct & save vs. Airbnb.', 'Professionally managed by'],
+        mention: '@risingtidestr',
+        link: 'www.staycapeann.com',
+      },
+    },
+    {
+      kind: 'beforeAfter',
+      title: 'New photography',
+      lead: 'Listing photos are the first thing every guest sees. We reshoot the home in full daylight, styled, so the ocean view does the selling.',
+      points: [
+        'Professional shoot of every room, in daylight',
+        'Styled: fresh linens, throws, rugs and flowers',
+        'The water in frame wherever the room has it',
+      ],
+      before: { src: '/projections/47-atlantic/primary-bedroom-today.jpg', label: 'Today' },
+      after: { src: '/projections/47-atlantic/primary-bedroom-rising-tide.jpg', label: 'With Rising Tide (preview)' },
+    },
+    {
+      // Today: AirDNA listing data for the home, read 2026-10-06 (every July
+      // 2027 night at $861; August 2026 average daily rate $803). Ours: 21
+      // Horton (3BR, Gloucester) in PriceLabs, July 4-10 2027, same day. The
+      // $1,200-$1,400 summer range is Dotti's estimate for this 2BR.
+      kind: 'pricing',
+      title: 'Priced to the market',
+      lead: 'Every July night at 47 Atlantic Road is priced the same today: weekends, the Fourth and midweek alike. We price each night to demand.',
+      today: { figure: '$861', caption: 'a night, every night of July 2027', sub: 'Today' },
+      ours: { figure: '$1,200\u2013$1,400', caption: 'a night in summer', sub: 'With Rising Tide (estimate)' },
+      week: {
+        days: ['Sun 4', 'Mon 5', 'Tue 6', 'Wed 7', 'Thu 8', 'Fri 9', 'Sat 10'],
+        rows: [
+          { label: '47 Atlantic Road today', prices: [861, 861, 861, 861, 861, 861, 861] },
+          { label: 'A 3-bedroom we manage in Gloucester', prices: [1563, 1574, 1575, 1577, 1587, 1594, 1596], ours: true },
+        ],
+      },
+      source: 'Sources: AirDNA listing data for 47 Atlantic Road, October 2026 (July 2027 calendar; August 2026 average daily rate $803). Rising Tide pricing in PriceLabs, July 2027. The summer range is Rising Tide\u2019s estimate for this home.',
+    },
+  ],
+};
+
+function SlideImprovementsIntro({
+  projection,
+  items,
+  footer,
+}: {
+  projection: ProjectionRow;
+  items: Improvement[];
+  footer: string;
+}) {
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <div className="rt-imp-eyebrow">Specific to {projection.property_address}</div>
+        <h2 className="rt-section-title">What we&rsquo;d improve</h2>
+        <ol className="rt-imp-list">
+          {items.map((it, i) => (
+            <li key={it.title}>
+              <span className="rt-imp-num">{String(i + 1).padStart(2, '0')}</span>
+              <span className="rt-imp-list-title">{it.title}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+function SlideImprovement({
+  n,
+  address,
+  item,
+  footer,
+}: {
+  n: number;
+  address: string;
+  item: Improvement;
+  footer: string;
+}) {
+  if (item.kind === 'pricing') {
+    return (
+      <section className="rt-slide">
+        <Header label={footer} />
+        <div className="rt-content-pad">
+          <div className="rt-imp-eyebrow">
+            Specific to {address} &middot; {String(n).padStart(2, '0')}
+          </div>
+          <h2 className="rt-section-title">{item.title}</h2>
+          <p className="rt-imp-price-lead">{item.lead}</p>
+          <div className="rt-imp-price-compare">
+            <div className="rt-imp-price-side">
+              <div className="rt-y2-cap">{item.today.sub}</div>
+              <div className="rt-imp-price-amt">{item.today.figure}</div>
+              <div className="rt-y2-sub">{item.today.caption}</div>
+            </div>
+            <div className="rt-y2-arrow-wrap rt-imp-price-arrow" aria-hidden="true">
+              <div className="rt-y2-arrow-line" />
+              <div className="rt-y2-arrow-pill">Priced daily</div>
+              <div className="rt-y2-arrow-head" />
+            </div>
+            <div className="rt-imp-price-side">
+              <div className="rt-y2-cap rt-y2-cap-rt">{item.ours.sub}</div>
+              <div className="rt-imp-price-amt rt-imp-price-amt-rt">{item.ours.figure}</div>
+              <div className="rt-y2-sub">{item.ours.caption}</div>
+            </div>
+          </div>
+          <table className="rt-imp-week">
+            <thead>
+              <tr>
+                <th />
+                {item.week.days.map((d) => (
+                  <th key={d}>{d}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {item.week.rows.map((r) => (
+                <tr key={r.label} className={r.ours ? 'rt-imp-week-ours' : ''}>
+                  <td className="rt-imp-week-label">{r.label}</td>
+                  {r.prices.map((p, i) => (
+                    <td key={i}>${p.toLocaleString('en-US')}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="rt-imp-price-src">{item.source}</p>
+        </div>
+        <Footer label={footer} />
+      </section>
+    );
+  }
+  if (item.kind === 'bundle') {
+    return (
+      <section className="rt-slide">
+        <Header label={footer} />
+        <div className="rt-content-pad">
+          <div className="rt-imp-eyebrow">
+            Specific to {address} &middot; {String(n).padStart(2, '0')}
+          </div>
+          <h2 className="rt-section-title">{item.title}</h2>
+          <div className="rt-imp-bundle">
+            <ol className="rt-imp-bundle-list">
+              {item.items.map((it, i) => (
+                <li key={it.title}>
+                  <span className="rt-imp-bundle-num">{i + 1}</span>
+                  <div>
+                    <div className="rt-imp-bundle-title">{it.title}</div>
+                    <div className="rt-imp-bundle-body">{it.body}</div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {item.profile ? (
+              <InstagramCard profile={item.profile} feed={item.image} />
+            ) : (
+              <figure className="rt-imp-fig rt-imp-bundle-fig">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.image.src} alt={item.image.caption} />
+                <figcaption>{item.image.caption}</figcaption>
+              </figure>
+            )}
+          </div>
+        </div>
+        <Footer label={footer} />
+      </section>
+    );
+  }
+  return (
+    <section className="rt-slide">
+      <Header label={footer} />
+      <div className="rt-content-pad">
+        <div className="rt-imp-eyebrow">
+          Specific to {address} &middot; {String(n).padStart(2, '0')}
+        </div>
+        <h2 className="rt-section-title">{item.title}</h2>
+        <div className="rt-imp-grid">
+          {[item.before, item.after].map((img, i) => (
+            <figure key={img.src} className={`rt-imp-fig${i === 1 ? ' rt-imp-fig-after' : ''}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.src} alt={`${item.title}: ${img.label}`} />
+              <figcaption>{img.label}</figcaption>
+            </figure>
+          ))}
+          <div className="rt-imp-text">
+            <p className="rt-imp-lead">{item.lead}</p>
+            <ul className="rt-imp-points">
+              {item.points.map((p) => (
+                <li key={p}>
+                  <span className="rt-imp-mark" aria-hidden="true">✓</span>
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+      <Footer label={footer} />
+    </section>
+  );
+}
+
+/**
+ * An Instagram profile, drawn rather than screenshotted (a live screenshot
+ * carries Instagram's "Note..." bubble over the avatar). The avatar is the
+ * Stay Cape Ann mark: navy ring, gabled house, sand beam, water below a
+ * chord, on cream, with Instagram's grey ring around it.
+ */
+function InstagramCard({ profile, feed }: { profile: InstagramProfile; feed: { src: string; caption: string } }) {
+  const chordHalf = Math.sqrt(95 * 95 - 45.3 * 45.3);
+  return (
+    <div className="rt-ig">
+      <div className="rt-ig-head">
+        <svg className="rt-ig-avatar" viewBox="0 0 240 240" aria-label={profile.name}>
+          <circle cx="120" cy="120" r="117" fill="#fff" stroke="#dbdbdb" strokeWidth="3" />
+          <circle cx="120" cy="120" r="108" fill="#f4ecd8" />
+          <g transform="translate(30 30) scale(0.9)">
+            <defs>
+              <clipPath id="rt-ig-disc">
+                <circle cx="100" cy="100" r="95" />
+              </clipPath>
+            </defs>
+            <path
+              clipPath="url(#rt-ig-disc)"
+              d={`M${100 - chordHalf} 145.3 L${100 + chordHalf} 145.3 L200 200 L0 200 Z`}
+              fill="#0b2545"
+            />
+            <circle cx="100" cy="100" r="95" fill="none" stroke="#0b2545" strokeWidth="5.6" />
+            <path d="M100 47.9 L136.8 79.6 L136.8 110.5 L63.6 110.5 L63.6 79.6 Z" fill="#0b2545" />
+            <rect x="39.1" y="114.6" width="121.4" height="4.4" rx="2.2" fill="#c8b89a" />
+          </g>
+        </svg>
+        <div className="rt-ig-meta">
+          <div className="rt-ig-handle">
+            {profile.handle}
+            <svg className="rt-ig-check" viewBox="0 0 40 40" aria-label="Verified">
+              <path
+                d="M20 1.6l4.6 3.4 5.7-.3 1.8 5.4 4.6 3.4-1.8 5.5 1.8 5.4-4.6 3.4-1.8 5.4-5.7-.3L20 38.4l-4.6-3.5-5.7.3-1.8-5.4-4.6-3.4 1.8-5.4-1.8-5.5 4.6-3.4 1.8-5.4 5.7.3z"
+                fill="#0095f6"
+              />
+              <path d="M13 20.5l4.6 4.6 9.4-9.6" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div className="rt-ig-name">{profile.name}</div>
+          <div className="rt-ig-stats">
+            <span><b>{profile.posts}</b> posts</span>
+            <span><b>{profile.followers}</b> followers</span>
+            <span><b>{profile.following}</b> following</span>
+          </div>
+          <div className="rt-ig-cat">{profile.category}</div>
+          <div className="rt-ig-bio">
+            {profile.bio.map((line, i) => (
+              <div key={line}>
+                {line}
+                {i === profile.bio.length - 1 && profile.mention ? (
+                  <> <span className="rt-ig-link">{profile.mention}</span></>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="rt-ig-url">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            {profile.link}
+          </div>
+        </div>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img className="rt-ig-feed" src={feed.src} alt={feed.caption} />
+    </div>
+  );
+}
+
+function SlideRatings({ revenueNote, ratingNote, footer }: { revenueNote: number; ratingNote: number; footer: string }) {
+  // Rising Tide: 2-decimal precision (4.98). Competitors: 1-decimal (industry-standard reporting).
   const competitors: { label: string; display: string }[] = [
     { label: 'National Average', display: '4.8' },
     { label: 'Atlantic Vacation Homes', display: '4.7' },
@@ -175,14 +842,14 @@ function SlideRatings({ footer }: { footer: string }) {
       <div className="rt-content-pad">
         <h2 className="rt-section-title">Why we obsess over guest service</h2>
         <div className="rt-rating-grid">
-          {/* HERO: +18% Revenue lift, the through-line for the slide */}
+          {/* HERO: +15% revenue lift (AirDNA, 2025 data), the through-line for the slide */}
           <div className="rt-rating-hero">
             <div className="rt-rating-hero-line">
-              <span className="rt-rating-hero-pct">+18%</span>
+              <span className="rt-rating-hero-pct">+15%</span>
               <span className="rt-rating-hero-word">Revenue</span>
             </div>
             <p className="rt-rating-hero-body">
-              Airbnb listings with a 4.9+ star rating earn <strong>18% more revenue</strong> on average.<sup>(3)</sup>
+              Airbnb listings rated 4.9 stars or higher earn <strong>15% more revenue</strong> per available night.<sup>({revenueNote})</sup>
             </p>
             <div className="rt-rating-hero-rule" />
             <p className="rt-rating-hero-tag">
@@ -192,10 +859,10 @@ function SlideRatings({ footer }: { footer: string }) {
 
           {/* Right-hand comparison card */}
           <div className="rt-rating-card">
-            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>(2)</sup></div>
+            <div className="rt-eyebrow rt-rating-card-eyebrow">AVG. GUEST RATING <sup>({ratingNote})</sup></div>
             <div className="rt-rating-rt-block">
               <div className="rt-rating-rt-label">RISING TIDE</div>
-              <div className="rt-rating-rt-value">4.99</div>
+              <div className="rt-rating-rt-value">4.98</div>
               <div className="rt-rating-rt-stars" aria-hidden="true">★★★★★</div>
             </div>
             <div className="rt-rating-comp-list">
@@ -852,7 +1519,7 @@ function SlideClose({ footer }: { footer: string }) {
   );
 }
 
-function SlideEndnotes({ footer }: { footer: string }) {
+function SlideEndnotes({ earnRows, ratingCard, footer }: { earnRows: EarnRow[]; ratingCard: boolean; footer: string }) {
   return (
     <section className="rt-slide">
       <Header label={footer} />
@@ -863,14 +1530,39 @@ function SlideEndnotes({ footer }: { footer: string }) {
             <span className="rt-en-num">(1)</span>
             Estimated revenue figures are based on data from AirDNA as well as Rising Tide&rsquo;s professional judgment drawn from managing other vacation rental homes on Cape Ann. These projections account for seasonal trends and platform performance across Airbnb, VRBO, and direct booking channels. Actual results may vary due to property-specific factors, market fluctuations, economic conditions, and unforeseen events.
           </li>
-          <li>
-            <span className="rt-en-num">(2)</span>
-            Source: AirDNA, Airbnb. Average star rating sourced from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
-          </li>
-          <li>
-            <span className="rt-en-num">(3)</span>
-            Source: CoStar. Airbnb listings with a 4.9+ star rating earn 18% more revenue on average than lower-rated comparable listings.
-          </li>
+          {[
+            ...earnRows.map((r) => ({ n: r.n, key: r.key, body: r.note })),
+            ...(ratingCard ? [{
+              n: RATING_CARD_NOTE,
+              key: 'rating-card',
+              body: (
+                <>
+                  National average: AirDNA (updated September 2025), 4.8 stars for available U.S. Airbnb listings. Rising
+                  Tide and company ratings from Airbnb as of {latestAirDnaMonth() || 'January 2026'}.
+                </>
+              ),
+            }] : []),
+            {
+              n: stackNoteFor(earnRows),
+              key: 'stack',
+              body: (
+                <>
+                  The stack adds figures from separate sources for illustration; no single study measured them together.
+                  The closest is Li, Moreno &amp; Zhang, &ldquo;Pros vs Joes: Agent Pricing Behavior in the Sharing
+                  Economy,&rdquo; Ross School of Business Working Paper 1298: properties run by professional hosts earned
+                  16.9% more daily revenue and 15.5% higher occupancy than owner-run properties, controlling for property
+                  and market.
+                </>
+              ),
+            },
+          ]
+            .sort((x, y) => x.n - y.n)
+            .map((e) => (
+              <li key={e.key}>
+                <span className="rt-en-num">({e.n})</span>
+                {e.body}
+              </li>
+            ))}
         </ol>
       </div>
       <Footer label={footer} />
@@ -956,6 +1648,21 @@ const deckCss = `
     right: 64px;
   }
   .rt-footer-dark .rt-eyebrow { color: var(--paper-3); }
+
+  /* Slide numbers (NUMBERED_DECKS only), on the footer line, right-aligned. */
+  .rt-deck-numbered { counter-reset: rt-slide; }
+  .rt-deck-numbered .rt-slide { counter-increment: rt-slide; }
+  .rt-deck-numbered .rt-slide::after {
+    content: counter(rt-slide);
+    position: absolute;
+    right: 64px;
+    bottom: 36px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--ink-3);
+  }
+  .rt-deck-numbered .rt-slide-cover::after { color: var(--paper-3); }
 
   /* ── Cover slide ── */
   .rt-cover-grid {
@@ -1101,7 +1808,7 @@ const deckCss = `
   }
   .rt-pillar-body { font-size: 14px; line-height: 1.55; color: var(--ink-3); }
 
-  /* ── Ratings (slide 5): +18% revenue hero on the left, comparison card on the right ── */
+  /* ── Ratings (slide 5): +15% revenue hero on the left, comparison card on the right ── */
   .rt-rating-grid {
     margin-top: 32px;
     flex: 1;
@@ -1958,13 +2665,305 @@ const deckCss = `
     display: block;
     background: var(--paper-2);
   }
-  /* ── Endnotes (slide 10) ── */
-  .rt-endnotes { margin-top: 24px; padding: 0; list-style: none; max-width: 960px; }
-  .rt-endnotes li { padding: 14px 0; border-top: 1px solid var(--rule); font-size: 13px; line-height: 1.65; color: var(--ink-3); }
-  .rt-endnotes li:last-child { border-bottom: 1px solid var(--rule); }
+  /* ── Earn more, spend less: percentage rows on the left (largest first),
+     the same rows stacked into one bar on the right with the total. ── */
+  .rt-em-grid {
+    margin-top: 28px;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.45fr 1fr;
+    gap: 64px;
+    min-height: 0;
+  }
+  .rt-em-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+  }
+  .rt-em-base {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--ink);
+  }
+  .rt-em-base-body { font-size: 12.5px; color: var(--ink-4); font-style: italic; }
+  .rt-em-ladder { display: flex; flex-direction: column; min-height: 0; }
+  .rt-em-rows { flex: 1; display: grid; min-height: 0; }
+  .rt-em-row {
+    display: grid;
+    grid-template-columns: 10px 118px 1fr;
+    gap: 18px;
+    align-items: center;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rt-em-row:last-child { border-bottom: 0; }
+  .rt-em-swatch { width: 10px; height: 38px; }
+  .rt-em-pct {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 40px;
+    line-height: 1;
+    font-weight: 300;
+    color: var(--signal);
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+  .rt-em-row-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 21px;
+    line-height: 1.2;
+    color: var(--ink);
+  }
+  .rt-em-row-line { margin-top: 3px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+
+  /* Chart: the rows stacked into one bar, colours matching the swatches
+     on the left (the legend), with the total beside the top of the bar. */
+  .rt-em-chart { display: flex; flex-direction: column; min-height: 0; }
+  .rt-em-plot {
+    margin-top: auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 28px;
+    border-bottom: 1.5px solid var(--ink);
+  }
+  .rt-em-bar { width: 140px; flex-shrink: 0; display: flex; flex-direction: column; }
+  .rt-em-seg { width: 100%; border-top: 1.5px solid var(--paper); }
+  .rt-em-seg:first-child { border-top: 0; }
+  .rt-em-total { display: flex; flex-direction: column; justify-content: flex-start; }
+  .rt-em-total-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 72px;
+    line-height: 0.9;
+    font-weight: 300;
+    color: var(--signal);
+    letter-spacing: -0.04em;
+  }
+  .rt-em-total-cap {
+    margin-top: 12px;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-style: italic;
+    font-size: 17px;
+    line-height: 1.4;
+    color: var(--ink-3);
+    max-width: 220px;
+  }
+
+  /* ── Per-deck improvements section (IMPROVEMENTS_BY_PROJECTION) ── */
+  .rt-imp-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--signal);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .rt-imp-list { margin: 40px 0 0; padding: 0; list-style: none; max-width: 760px; }
+  .rt-imp-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 28px;
+    padding: 18px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .rt-imp-list li:last-child { border-bottom: 1px solid var(--rule); }
+  .rt-imp-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 40px;
+    font-weight: 300;
+    color: var(--signal);
+    line-height: 1;
+    min-width: 56px;
+  }
+  .rt-imp-list-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 30px;
+    color: var(--ink);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+  .rt-imp-grid {
+    margin-top: 28px;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr 240px;
+    gap: 24px;
+    align-items: center;
+    align-content: center;
+    min-height: 0;
+  }
+  .rt-imp-fig { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  .rt-imp-fig img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    display: block;
+    border: 1px solid var(--rule);
+  }
+  /* outline, not border: a thicker border would push this caption down a line from the other */
+  .rt-imp-fig-after img { border-color: var(--signal); outline: 1px solid var(--signal); }
+  .rt-imp-fig figcaption {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+  .rt-imp-fig-after figcaption { color: var(--signal); }
+  .rt-imp-text { display: flex; flex-direction: column; }
+  .rt-imp-lead {
+    margin: 0;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.45;
+    color: var(--ink);
+  }
+  .rt-imp-points { margin: 18px 0 0; padding: 0; list-style: none; }
+  .rt-imp-points li {
+    display: flex;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--rule);
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--ink-3);
+  }
+  .rt-imp-mark { color: var(--signal); font-size: 12px; padding-top: 2px; }
+
+  .rt-imp-bundle {
+    margin-top: 22px;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 48px;
+    align-items: center;
+    min-height: 0;
+  }
+  .rt-imp-bundle-list { margin: 0; padding: 0; list-style: none; }
+  .rt-imp-bundle-list li {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 14px;
+    padding: 10px 0;
+    border-top: 1px solid var(--rule);
+    align-items: baseline;
+  }
+  .rt-imp-bundle-list li:last-child { border-bottom: 1px solid var(--rule); }
+  .rt-imp-bundle-num {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--signal);
+    line-height: 1;
+  }
+  .rt-imp-bundle-title {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 18px;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .rt-imp-bundle-body { margin-top: 3px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+  .rt-imp-bundle-fig img { aspect-ratio: auto; height: auto; }
+
+  /* Instagram-style profile card (InstagramCard). Inter stands in for
+     Instagram's system font: it is loaded for the PDF render, a system
+     stack is not. */
+  .rt-ig {
+    background: #fff;
+    border: 1px solid #dbdbdb;
+    border-radius: 10px;
+    padding: 16px 18px 12px;
+    box-shadow: 0 6px 22px rgba(11, 37, 69, 0.08);
+    font-family: var(--font-inter), system-ui, sans-serif;
+    color: #000;
+  }
+  .rt-ig-head { display: grid; grid-template-columns: 88px 1fr; gap: 20px; align-items: start; }
+  .rt-ig-avatar { width: 88px; height: 88px; display: block; }
+  .rt-ig-handle { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; line-height: 1.1; }
+  .rt-ig-check { width: 16px; height: 16px; }
+  .rt-ig-name { margin-top: 4px; font-size: 12px; }
+  .rt-ig-stats { margin-top: 7px; display: flex; gap: 14px; font-size: 12px; }
+  .rt-ig-stats b { font-weight: 700; }
+  .rt-ig-cat { margin-top: 7px; font-size: 11px; color: #737373; }
+  .rt-ig-bio { margin-top: 3px; font-size: 11.5px; line-height: 1.38; }
+  .rt-ig-link { color: #4150f7; }
+  .rt-ig-url { margin-top: 3px; display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; color: #4150f7; }
+  .rt-ig-url svg { width: 12px; height: 12px; }
+  .rt-ig-feed { margin-top: 12px; width: 100%; display: block; border-radius: 2px; }
+
+  /* Pricing improvement: today vs ours, then one week side by side. */
+  .rt-imp-price-lead { margin: 6px 0 0; font-size: 15px; line-height: 1.5; color: var(--ink-3); max-width: 860px; }
+  .rt-imp-price-compare {
+    margin-top: 22px;
+    display: grid;
+    grid-template-columns: 1fr 200px 1fr;
+    gap: 24px;
+    align-items: center;
+  }
+  .rt-imp-price-side { text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .rt-imp-price-side .rt-y2-cap { margin-bottom: 10px; }
+  .rt-imp-price-side .rt-y2-sub { margin-top: 8px; font-size: 16px; }
+  .rt-imp-price-amt {
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 64px;
+    line-height: 1;
+    font-weight: 300;
+    color: var(--ink-3);
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+  .rt-imp-price-amt-rt { color: var(--signal); }
+  .rt-imp-price-arrow { width: 200px; }
+  .rt-imp-price-arrow .rt-y2-arrow-pill { font-size: 15px; padding: 7px 16px; white-space: nowrap; }
+  .rt-imp-week {
+    margin-top: 26px;
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-variant-numeric: tabular-nums;
+  }
+  .rt-imp-week th {
+    padding: 8px 6px;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    text-align: center;
+    border-bottom: 1.5px solid var(--ink);
+  }
+  .rt-imp-week th:first-child { width: 260px; }
+  .rt-imp-week td {
+    padding: 10px 6px;
+    text-align: center;
+    font-family: var(--font-fraunces), "Times New Roman", serif;
+    font-size: 18px;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule);
+  }
+  .rt-imp-week td.rt-imp-week-label {
+    text-align: left;
+    font-family: var(--font-inter), system-ui, sans-serif;
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .rt-imp-week-ours td { color: var(--signal); background: rgba(148, 109, 46, 0.07); }
+  .rt-imp-week-ours td.rt-imp-week-label { color: var(--signal); font-weight: 600; }
+  .rt-imp-price-src { margin: 12px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--ink-4); max-width: 980px; }
+
+  /* ── Endnotes (last slide): two columns so the full source list fits one page ── */
+  .rt-endnotes {
+    margin-top: 18px;
+    padding: 0;
+    list-style: none;
+    columns: 2;
+    column-gap: 40px;
+  }
+  .rt-endnotes li { break-inside: avoid; padding: 9px 0; border-top: 1px solid var(--rule); font-size: 11px; line-height: 1.5; color: var(--ink-3); }
   .rt-en-num {
     display: inline-block;
-    width: 36px;
+    width: 28px;
     color: var(--signal);
     font-weight: 600;
     font-family: var(--font-fraunces), "Times New Roman", serif;

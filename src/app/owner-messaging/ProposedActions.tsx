@@ -1,12 +1,14 @@
 'use client';
 
+import { InboxFollowup } from '@/components/InboxFollowup';
+
 import type { OwnerProposedAction } from '@/lib/stay-concierge';
 
 /** One row's presentation, keyed by kind. A table rather than a ternary
  *  chain: the chain ended in "everything else is a cleaner note", so every
  *  new kind arrived mislabelled as one. An unknown kind now shows its own
  *  name, which is ugly on purpose and better than a wrong label. */
-const ACTION_KINDS = ['work_slip', 'cleaner_note', 'turnover_note', 'guest_notice', 'guest_message'] as const;
+const ACTION_KINDS = ['work_slip', 'cleaner_note', 'turnover_note', 'guest_notice', 'guest_message', 'statement_recipient'] as const;
 
 const ACTION_STYLE: Record<string, { label: string; color: string; count: (n: number) => string }> = {
   work_slip: {
@@ -34,6 +36,11 @@ const ACTION_STYLE: Record<string, { label: string; color: string; count: (n: nu
     color: 'var(--tide-deep)',
     count: (n) => `${n} message${n === 1 ? '' : 's'} to the guest`,
   },
+  statement_recipient: {
+    label: 'Statements',
+    color: 'var(--ink-2)',
+    count: (n) => `${n} statement recipient change${n === 1 ? '' : 's'}`,
+  },
 };
 
 function styleFor(kind: string) {
@@ -45,6 +52,12 @@ function actionHeadline(action: OwnerProposedAction): string {
   if (action.kind === 'work_slip') return action.title;
   if (action.kind === 'cleaner_note') return action.summary;
   if (action.kind === 'turnover_note') return action.note_en;
+  if (action.kind === 'statement_recipient') {
+    const who = action.name ? `${action.name} (${action.email})` : action.email;
+    return action.op === 'remove'
+      ? `Stop sending statements to ${who}`
+      : `Add ${who} to the statement emails`;
+  }
   return action.why;
 }
 
@@ -80,15 +93,11 @@ export function ProposedActions({
   const notes = tally.get('cleaner_note') ?? 0;
   const guestCards = (tally.get('guest_notice') ?? 0) + (tally.get('guest_message') ?? 0);
   const turnoverNotes = tally.get('turnover_note') ?? 0;
+  const recipients = tally.get('statement_recipient') ?? 0;
 
   return (
-    <section
-      style={{ border: '1px solid var(--rule)', padding: '14px 18px', background: 'var(--paper-2)' }}
-      aria-label="What approving also does"
-    >
-      <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 10 }}>
-        Approving also creates {summary}
-      </div>
+    <InboxFollowup title={`Follow-up work · ${summary}`} status={enabled ? 'Create when approved or handled' : 'Skip'}
+      attention={actions.some(a => (a.kind === 'work_slip' && a.priority === 'high') || (a.kind === 'guest_notice' && a.enters_guest_space))}>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
         {actions.map((action, i) => {
           const { label, color } = styleFor(action.kind);
@@ -131,7 +140,7 @@ export function ProposedActions({
         style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}
       >
         <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
-        Create these when I approve
+        Create these when I approve or mark handled
       </label>
       {notes > 0 && (
         <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
@@ -144,12 +153,19 @@ export function ProposedActions({
           at that house. That message still needs approving before it sends.
         </p>
       )}
+      {recipients > 0 && (
+        <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
+          A recipient change updates the statement send list and the owner contacts on every
+          property this owner receives statements for, so replies from that address reach this
+          queue too.
+        </p>
+      )}
       {guestCards > 0 && (
         <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--ink-4)' }}>
           Anything for a guest lands in the Guests queue for approval, addressed to whoever is
           actually in the house. Nothing is created if the house is empty.
         </p>
       )}
-    </section>
+    </InboxFollowup>
   );
 }

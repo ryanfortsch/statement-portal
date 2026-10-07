@@ -1,9 +1,8 @@
-import Link from 'next/link';
-import { SubmitButton } from '@/components/SubmitButton';
+import { RetainedPropertyForm } from './RetainedPropertyForm';
 
 /**
- * Shared form for creating + editing an internal property note. Server
- * component — the action prop is wired by the caller (createPropertyNote
+ * Shared form for creating + editing an internal property note. Server content
+ * with a recoverable client form wrapper. The action prop is wired by the caller (createPropertyNote
  * for /notes/new, updatePropertyNote.bind(null, id) for the edit page).
  *
  * Mirrors NoticeEditorForm for visual consistency, but the field set
@@ -24,7 +23,7 @@ export function NoteEditorForm({
   submitLabel: string;
 }) {
   return (
-    <form action={action} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+    <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={`/properties/${propertyId}?tab=facts`} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
       <Field label="Title" required hint="The headline. One line. Used as the card title in the Property Notes accordion.">
         <input
           name="title"
@@ -98,13 +97,7 @@ export function NoteEditorForm({
         </span>
       </label>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
-        <SubmitButton label={submitLabel} busyLabel="Saving…" style={primaryButtonStyle} />
-        <Link href={`/properties/${propertyId}?tab=facts`} style={secondaryLinkStyle}>
-          Cancel
-        </Link>
-      </div>
-    </form>
+    </RetainedPropertyForm>
   );
 }
 
@@ -164,14 +157,4 @@ const primaryButtonStyle: React.CSSProperties = {
   padding: '13px 22px',
   border: '1px solid var(--ink)',
   cursor: 'pointer',
-};
-
-const secondaryLinkStyle: React.CSSProperties = {
-  color: 'var(--ink-3)',
-  fontSize: 11,
-  fontWeight: 500,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '13px 14px',
-  textDecoration: 'none',
 };

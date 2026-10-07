@@ -1,7 +1,11 @@
 'use client';
 
+import { Fragment } from 'react';
+
+import { MobileInboxReview } from '@/components/MobileInboxReview';
+
+import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { memo, useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
@@ -56,29 +60,31 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
     softRefresh();
   }, [refresh, softRefresh]);
 
-  // Queued (scheduled) cards float to the top, ordered by when they fire;
-  // pending drafts stay in newest-first order below (guest-queue pattern).
+  // Decisions first; scheduled sends stay visible in their own group.
   const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
   const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const ordered = [...queued, ...pending];
+  const ordered = [...pending, ...queued];
   const title =
     approvals.length === 0
       ? 'Inbox zero'
       : pending.length === 0
-        ? `Queued (${queued.length})`
-        : `Pending (${pending.length})${queued.length ? ` · ${queued.length} queued` : ''}`;
+        ? `Scheduled (${queued.length})`
+        : `Needs review (${pending.length})`;
 
   return (
     <Section
+      id="needs-review"
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}
       emptyMessage="No owner drafts waiting. New owner messages will show up here automatically when the AI drafts a reply."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval) => (
+        {ordered.map((approval, index) => (
+          <Fragment key={approval.id}>
+          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
           <OwnerApprovalCard
             key={approval.id}
             approval={approval}
@@ -86,6 +92,7 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
             onRegenerating={watchRegen}
             regenStalled={stalledId === approval.id}
           />
+          </Fragment>
         ))}
       </div>
     </Section>
@@ -224,7 +231,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   const firstName = (approval.owner_name || '').trim().split(/\s+/)[0] || 'They';
 
   const proposedActions = approval.proposed_actions ?? [];
-  const [fileActions, setFileActions] = useState(true);
+  const [fileActions, setFileActions] = useState(approval.followup_status?.enabled !== 0);
 
   const canApprove = draftText.trim().length > 0 && !busy;
 
@@ -239,14 +246,14 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
     // An in-place edit rides along, mirroring approve, so the queued send
     // fires the operator's text.
     run('schedule', () =>
-      scheduleOwnerDraft(approval.id, sendAtIso, edited ? draftText : undefined),
+      scheduleOwnerDraft(approval.id, sendAtIso, edited ? draftText : undefined, fileActions),
     );
   };
   // Edits were persisted at schedule time, so Send now fires the stored draft.
   const doSendNow = () => run('send-now', () => approveOwnerDraft(approval.id, undefined, { fileActions }));
   const doCancelSchedule = () => run('cancel-schedule', () => cancelOwnerSchedule(approval.id));
   const doReject = () => run('reject', () => rejectOwnerDraft(approval.id));
-  const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id));
+  const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id, fileActions));
   const doCoach = () => {
     // Collapse the drawer immediately so the in-flight status line below
     // reads cleanly for the whole regeneration (guests-queue pattern —
@@ -313,8 +320,11 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   // dashboard. "Show" expands to the full card below.
   if (isScheduled && !expanded) {
     return (
-      <article
+      <MobileInboxReview id={approval.id} name={ownerLabel} property={propertyLabel} preview={approval.owner_text} channel={channelLabel} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={edited || showCoach || showSchedule}>
+    <article
+        id={`approval-${approval.id}`}
         ref={cardRef}
+        className="rt-message-card"
         style={{
           border: '1px solid var(--rule)',
           borderLeft: `3px solid ${QUEUED_TONE}`,
@@ -368,13 +378,18 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             {error}
           </p>
         )}
-      </article>
+          <MessageOutcomes value={approval.outcomes} />
+    </article>
+    </MobileInboxReview>
     );
   }
 
   return (
+    <MobileInboxReview id={approval.id} name={ownerLabel} property={propertyLabel} preview={approval.owner_text} channel={channelLabel} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={edited || showCoach || showSchedule}>
     <article
+      id={`approval-${approval.id}`}
       ref={cardRef}
+      className="rt-message-card"
       tabIndex={0}
       onKeyDown={onKeyDown}
       style={{
@@ -429,7 +444,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             Hide ▴
           </button>
         ) : (
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={approval.created_at}>
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`${approval.created_at} · ${approval.short_id}`}>
             {'drafted '}
             <span
               style={{
@@ -439,8 +454,6 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             >
               {ageLabel}
             </span>
-            {' · id '}
-            {approval.short_id}
           </span>
         )}
       </header>
@@ -456,7 +469,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
               {error}
             </p>
           )}
-          <footer style={{ display: 'flex', gap: 10 }}>
+          <footer className="rt-message-actions" style={{ display: 'flex', gap: 10 }}>
             <SecondaryButton
               onClick={doReject}
               disabled={busy}
@@ -478,7 +491,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
               {relativeTimeShort(approval.created_at) && (
                 <span
                   style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.10em', color: 'var(--ink-3)', textTransform: 'none' }}
-                  title={approval.created_at}
+                  title={`${approval.created_at} · ${approval.short_id}`}
                 >
                   sent {relativeTimeShort(approval.created_at)}
                 </span>
@@ -525,6 +538,11 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             />
           )}
 
+          {approval.followup_status?.enabled !== 0 && approval.followup_status && ['checking', 'retrying', 'unchecked'].includes(approval.followup_status.state) && (
+            <p role="status" style={{ fontSize: 13, color: 'var(--signal)' }}>
+              {approval.followup_status.error || 'Checking this message for follow-up work.'}
+            </p>
+          )}
           {proposedActions.length > 0 && !isScheduled && (
             <ProposedActions actions={proposedActions} enabled={fileActions} onToggle={setFileActions} />
           )}
@@ -535,7 +553,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
             </p>
           )}
 
-          <footer style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <footer className="rt-message-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             {isScheduled ? (
               <>
                 <SecondaryButton
@@ -573,6 +591,9 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                       ? 'Cancel coaching'
                       : 'Coach the AI'}
                 </SecondaryButton>
+                <details className="rt-message-options">
+              <summary>More actions</summary>
+              <div className="rt-message-options-body">
                 <SecondaryButton
                   onClick={doHandled}
                   disabled={busy}
@@ -587,6 +608,8 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                 >
                   {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
                 </SecondaryButton>
+              </div>
+            </details>
               </>
             )}
           </footer>
@@ -666,7 +689,9 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
           )}
         </>
       )}
+      <MessageOutcomes value={approval.outcomes} />
     </article>
+    </MobileInboxReview>
   );
 });
 

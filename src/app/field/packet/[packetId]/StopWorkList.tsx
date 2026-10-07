@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { PhotoUploader, PhotoThumbs } from '@/components/PhotoUploader';
-import { resolveSlipFromStop, updateSlipFromStop } from '../../actions';
+import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
+import { useCallback, useRef, useState } from 'react';
+import { StopSlipEditor } from './StopSlipEditor';
+import { PhotoUploader, PhotoThumbs, usePhotoDraftCleaner } from '@/components/PhotoUploader';
+import { confirmedSave } from '@/lib/confirmed-save';
+import { resolveSlipFromStop, checkFieldTaskCompletion } from '../../actions';
 
 export type StopWorkItem = {
   slipId: string;
@@ -84,6 +87,9 @@ export function StopWorkList({
   onOtherTrip?: number;
   readOnly?: boolean;
 }) {
+  const clearPhotoDraft = usePhotoDraftCleaner();
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState(0);
   const [doneIds, setDoneIds] = useState<Set<string>>(() => new Set(items.filter((i) => i.done).map((i) => i.slipId)));
   const [openId, setOpenId] = useState<string | null>(null);
   const [mode, setMode] = useState<PanelMode>('info');
@@ -91,113 +97,99 @@ export function StopWorkList({
   // right before the page refreshes.
   const [edits, setEdits] = useState<Map<string, { title: string; description: string | null }>>(new Map());
   const [photos, setPhotos] = useState<string[]>([]);
-  const [note, setNote] = useState('');
-  const [expense, setExpense] = useState('');
-  const [editTitle, setEditTitle] = useState('');
-  const [editDesc, setEditDesc] = useState('');
+  const formDraft = useFieldFormDraft(openId && (mode === 'photo' || mode === 'handled') ? `slip-complete:${packetId}:${stopId}:${openId}:${mode}` : undefined, { note: '', expense: '' });
+  const { note, expense } = formDraft.value;
+  const setNote = (v: string) => formDraft.set('note', v);
+  const setExpense = (v: string) => formDraft.set('expense', v);
+  const [savedPhotos, setSavedPhotos] = useState<Map<string, string[]>>(new Map());
+  const editGuard = useRef({ dirty: false, busy: false });
+  const reportEditGuard = useCallback((dirty: boolean, busy: boolean) => { editGuard.current = { dirty, busy }; }, []);
+  function canLeaveEdit() {
+    return !busy.current && !failedId && !photoBusy && !failedPhotos && !editGuard.current.busy && (!editGuard.current.dirty || window.confirm('Leave without submitting this slip?'));
+  }
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [, start] = useTransition();
+  const busy = useRef(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [failedId, setFailedId] = useState<string | null>(null);
+  const retry = useRef<(() => void) | null>(null);
 
   const markDone = (id: string) => setDoneIds((prev) => new Set([...prev, id]));
-  const unmark = (id: string) =>
-    setDoneIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
 
   function resetForms() {
     setPhotos([]);
-    setNote('');
-    setExpense('');
     setErr(null);
   }
   function openPanel(i: StopWorkItem, m: PanelMode) {
+    if (!canLeaveEdit()) return;
     resetForms();
-    const cur = edits.get(i.slipId);
-    setEditTitle(cur?.title ?? i.title);
-    setEditDesc(cur?.description ?? i.description ?? '');
     setOpenId(i.slipId);
     setMode(m);
   }
   function closePanel() {
+    if (!canLeaveEdit()) return;
     setOpenId(null);
     setMode('info');
     resetForms();
   }
 
+  async function saveCompletion(i: StopWorkItem, input: Parameters<typeof resolveSlipFromStop>[0], afterSaved?: () => Promise<void>, wasRetry = false) {
+    if (busy.current || readOnly || doneIds.has(i.slipId)) return;
+    busy.current = true;
+    setSaving(true);
+    setSavingId(i.slipId);
+    setErr(null);
+    retry.current = () => { void saveCompletion(i, input, afterSaved, true); };
+    try {
+      const confirm = () => checkFieldTaskCompletion({ packetId, stopId, workSlipId: i.slipId });
+      const result = await confirmedSave(async () => {
+        if (wasRetry && (await confirm()).ok) return { ok: true };
+        return resolveSlipFromStop(input);
+      }, confirm, { checkReturnedFailure: true });
+      if (!result.ok) {
+        setFailedId(i.slipId);
+        setErr(result.error || 'Could not confirm completion. Retry to check the same task.');
+        return;
+      }
+      await afterSaved?.();
+      markDone(i.slipId);
+      setFailedId(null);
+      retry.current = null;
+      setOpenId(null);
+      setMode('info');
+      resetForms();
+    } finally {
+      busy.current = false;
+      setSaving(false);
+      setSavingId(null);
+    }
+  }
+
   function tap(i: StopWorkItem) {
-    if (readOnly || doneIds.has(i.slipId)) return;
-    markDone(i.slipId);
-    if (openId === i.slipId) closePanel();
-    start(async () => {
-      const res = await resolveSlipFromStop({ packetId, stopId, workSlipId: i.slipId, outcome: 'done', note: '', photoUrls: [] });
-      if (!res.ok) unmark(i.slipId);
-    });
+    if (readOnly || failedId || doneIds.has(i.slipId) || !canLeaveEdit()) return;
+    void saveCompletion(i, { packetId, stopId, workSlipId: i.slipId, outcome: 'done', note: '', photoUrls: [] });
   }
 
   function submitDone(i: StopWorkItem) {
-    if (doneIds.has(i.slipId) || saving) return;
-    setSaving(true);
-    setErr(null);
+    if (!formDraft.ready || failedId || doneIds.has(i.slipId) || busy.current || photoBusy || failedPhotos > 0) return;
     const expNum = Number(expense);
-    start(async () => {
-      const res = await resolveSlipFromStop({
-        packetId,
-        stopId,
-        workSlipId: i.slipId,
-        outcome: 'done',
-        note: note.trim(),
-        photoUrls: photos,
-        expenseCents: Number.isFinite(expNum) && expNum > 0 ? Math.round(expNum * 100) : null,
-      });
-      setSaving(false);
-      if (!res.ok) {
-        setErr("Couldn't save that. Check your signal and try again.");
-        return;
-      }
-      markDone(i.slipId);
-      closePanel();
+    void saveCompletion(i, {
+      packetId, stopId, workSlipId: i.slipId, outcome: 'done', note: note.trim(), photoUrls: photos,
+      expenseCents: Number.isFinite(expNum) && expNum > 0 ? Math.round(expNum * 100) : null,
+    }, async () => {
+      formDraft.clear();
+      await clearPhotoDraft(`slip-complete:${packetId}:${stopId}:${i.slipId}`, photos);
     });
   }
 
   function submitHandled(i: StopWorkItem) {
-    if (doneIds.has(i.slipId) || saving) return;
-    setSaving(true);
-    setErr(null);
-    start(async () => {
-      const res = await resolveSlipFromStop({ packetId, stopId, workSlipId: i.slipId, outcome: 'already_handled', note: note.trim(), photoUrls: [] });
-      setSaving(false);
-      if (!res.ok) {
-        setErr("Couldn't save that. Check your signal and try again.");
-        return;
-      }
-      markDone(i.slipId);
-      closePanel();
+    if (!formDraft.ready || failedId || doneIds.has(i.slipId) || busy.current || photoBusy || failedPhotos > 0) return;
+    void saveCompletion(i, { packetId, stopId, workSlipId: i.slipId, outcome: 'already_handled', note: note.trim(), photoUrls: [] }, async () => {
+      formDraft.clear();
+      await clearPhotoDraft(`slip-complete:${packetId}:${stopId}:${i.slipId}`, photos);
     });
   }
 
-  function submitEdit(i: StopWorkItem) {
-    if (saving) return;
-    const title = editTitle.trim();
-    if (title.length < 3) {
-      setErr('Give it a short title first.');
-      return;
-    }
-    setSaving(true);
-    setErr(null);
-    start(async () => {
-      const res = await updateSlipFromStop({ packetId, stopId, workSlipId: i.slipId, title, description: editDesc });
-      setSaving(false);
-      if (!res.ok) {
-        setErr("Couldn't save that. Check your signal and try again.");
-        return;
-      }
-      setEdits((prev) => new Map(prev).set(i.slipId, { title, description: editDesc.trim() || null }));
-      setMode('info');
-    });
-  }
 
   const tasks = items.filter((i) => i.kind === 'task');
   const pinned = tasks.filter((i) => i.group === 'stop');
@@ -218,22 +210,23 @@ export function StopWorkList({
     const shown = edits.get(i.slipId);
     const title = shown?.title ?? i.title;
     const description = shown ? shown.description : i.description;
-    const meta = [i.sub, i.priority === 'high' ? 'high priority' : null, i.thumbs.length ? `${i.thumbs.length} ${i.thumbs.length === 1 ? 'photo' : 'photos'}` : null].filter(Boolean);
+    const thumbs = savedPhotos.get(i.slipId) ?? i.thumbs;
+    const meta = [i.sub, i.priority === 'high' ? 'high priority' : null, thumbs.length ? `${thumbs.length} ${thumbs.length === 1 ? 'photo' : 'photos'}` : null].filter(Boolean);
     return (
       <div key={i.slipId} style={{ borderBottom: '1px solid var(--rule-soft, var(--rule))' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 0' }}>
           <button
             type="button"
             onClick={() => tap(i)}
-            disabled={done || readOnly}
-            aria-label={done ? 'Done' : `Mark ${title} done`}
+            disabled={done || readOnly || saving || !!failedId}
+            aria-label={done ? 'Done' : savingId === i.slipId ? `Saving ${title}` : `Mark ${title} done`}
             style={{ background: 'none', border: 'none', padding: 0, cursor: done || readOnly ? 'default' : 'pointer', flexShrink: 0, width: 36, minHeight: 36, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', marginLeft: -6 }}
           >
             <span
               aria-hidden
               style={{ width: 24, height: 24, marginTop: 1, borderRadius: '50%', border: `2px solid ${done ? 'var(--positive)' : 'var(--rule)'}`, background: done ? 'var(--positive)' : 'transparent', color: 'var(--paper)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, lineHeight: 1 }}
             >
-              {done ? '✓' : ''}
+              {done ? '✓' : savingId === i.slipId ? '…' : ''}
             </span>
           </button>
           <button
@@ -260,36 +253,22 @@ export function StopWorkList({
           </button>
         </div>
 
+        {savingId === i.slipId && <p role="status" style={{ fontSize: 12, color: 'var(--ink-3)' }}>Saving and confirming…</p>}
+        {failedId === i.slipId && <div role="alert" style={{ fontSize: 13, color: 'var(--signal)', marginBottom: 10 }}>
+          {err}<button type="button" disabled={saving} onClick={() => retry.current?.()} style={{ ...pillGhost, marginLeft: 8 }}>Check / retry save</button>
+        </div>}
         {open && (
           <div style={{ margin: '0 0 12px', background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 14px', fontSize: 13.5, lineHeight: 1.5, color: 'var(--ink)' }}>
             {mode === 'edit' ? (
-              <div>
-                <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600, marginBottom: 8 }}>Edit this slip</div>
-                <input
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  maxLength={200}
-                  placeholder="What needs attention"
-                  style={field}
-                />
-                <textarea
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  rows={3}
-                  maxLength={4000}
-                  placeholder="Details (optional)"
-                  style={{ ...field, marginTop: 8, resize: 'vertical' }}
-                />
-                {err && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                  <button type="button" onClick={() => submitEdit(i)} disabled={saving} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                  <button type="button" onClick={() => { setMode('info'); setErr(null); }} disabled={saving} style={pillGhost}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              <StopSlipEditor key={i.slipId} packetId={packetId} stopId={stopId} workSlipId={i.slipId}
+                title={title} description={description} photos={thumbs} readOnly={readOnly || done}
+                onGuardChange={reportEditGuard}
+                onCancel={() => { if (canLeaveEdit()) { setMode('info'); setErr(null); } }}
+                onSaved={saved => {
+                  setEdits(previous => new Map(previous).set(i.slipId, { title: saved.title, description: saved.description }));
+                  setSavedPhotos(previous => new Map(previous).set(i.slipId, saved.photoUrls));
+                  editGuard.current = { dirty: false, busy: false }; setMode('info');
+                }}/>
             ) : (
               <>
                 <div style={{ whiteSpace: 'pre-wrap', color: description ? 'var(--ink)' : 'var(--ink-4)' }}>
@@ -317,12 +296,14 @@ export function StopWorkList({
                     <span style={{ color: 'var(--ink-4)' }}>Bring: </span>{i.bring}
                   </div>
                 )}
-                {i.thumbs.length > 0 && <PhotoThumbs urls={i.thumbs} size={64} />}
+                {thumbs.length > 0 && <PhotoThumbs urls={thumbs} size={64} />}
 
                 {mode === 'photo' && !done && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--rule-soft, var(--rule))' }}>
-                    <PhotoUploader value={photos} onChange={setPhotos} folder="field-maintenance" />
+                    <PhotoUploader disabled={saving || !!failedId} draftKey={`slip-complete:${packetId}:${stopId}:${i.slipId}`} onUploadingChange={setPhotoBusy} onFailedUploadsChange={setFailedPhotos} value={photos} onChange={setPhotos} folder="field-maintenance" />
+                    {!saving && !failedId && <FieldDraftStatus status={formDraft.status} />}
                     <textarea
+                      disabled={!formDraft.ready || saving || !!failedId}
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       rows={2}
@@ -337,18 +318,19 @@ export function StopWorkList({
                         step={0.01}
                         inputMode="decimal"
                         placeholder="0.00"
+                        disabled={!formDraft.ready || saving || !!failedId}
                         value={expense}
                         onChange={(e) => setExpense(e.target.value)}
                         style={{ ...field, width: 110, display: 'inline-block' }}
                       />
                       receipt total, if you bought something
                     </label>
-                    {err && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
+                    {err && !failedId && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                      <button type="button" onClick={() => submitDone(i)} disabled={saving} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
+                      <button type="button" onClick={() => submitDone(i)} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
                         {saving ? 'Saving…' : 'Mark done'}
                       </button>
-                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={saving} style={pillGhost}>
+                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={pillGhost}>
                         Cancel
                       </button>
                     </div>
@@ -360,19 +342,21 @@ export function StopWorkList({
                     <div style={{ color: 'var(--ink-3)' }}>
                       Already taken care of when you got here, or it no longer applies? It comes off the list and the office sees it was found done, not done by you.
                     </div>
+                    {!saving && !failedId && <FieldDraftStatus status={formDraft.status} />}
                     <textarea
+                      disabled={!formDraft.ready || saving || !!failedId}
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
                       rows={2}
                       placeholder="Anything the office should know (optional)"
                       style={{ ...field, marginTop: 8, resize: 'vertical' }}
                     />
-                    {err && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
+                    {err && !failedId && <div style={{ color: 'var(--signal)', fontSize: 13, marginTop: 8 }}>{err}</div>}
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-                      <button type="button" onClick={() => submitHandled(i)} disabled={saving} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
+                      <button type="button" onClick={() => submitHandled(i)} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={{ ...pillDark, opacity: saving ? 0.7 : 1 }}>
                         {saving ? 'Saving…' : 'Yes, take it off the list'}
                       </button>
-                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={saving} style={pillGhost}>
+                      <button type="button" onClick={() => { setMode('info'); resetForms(); }} disabled={!formDraft.ready || !!failedId || saving || photoBusy || failedPhotos > 0} style={pillGhost}>
                         Cancel
                       </button>
                     </div>

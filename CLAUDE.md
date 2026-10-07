@@ -2,6 +2,10 @@
 
 # Rising Tide Helm
 
+Claude Code remains the primary agent. Shared roles, work preservation, data access,
+verification, and deployment rules live in `AGENTS.md` and apply to every agent.
+This file remains the business and architecture reference for all agents.
+
 ## What this is
 
 **Helm** is the internal operations hub for Rising Tide STR, a vacation rental management
@@ -41,7 +45,7 @@ Related docs:
 
 **Vercel plan: Pro.** Verified against the Vercel API on 2026-08-25 (team "Rising Tide",
 `plan: pro`). Older source comments calling this a Hobby project were wrong and have been corrected.
-Practical consequences: the 25 scheduled crons and the 20 routes at `maxDuration = 300` are all
+Practical consequences: the 27 scheduled crons and the 20 routes at `maxDuration = 300` are all
 fine, and platform Skew Protection is available. It was switched **on** on 2026-08-26 at
 `skewProtectionMaxAge = 43200` (12 hours).
 
@@ -55,7 +59,7 @@ you where the weight sits, nothing more.
 ```
 src/
   app/          35 route groups + api/. 136 pages, 65 *actions.ts server-action files
-    api/        120 route handlers, 26 cron routes (25 scheduled in vercel.json)
+    api/        120 route handlers, 29 cron routes (28 scheduled in vercel.json)
   lib/          262 top-level modules (290 including subfolders). The domain logic lives here.
   components/   96 shared components (62 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -64,7 +68,7 @@ supabase/migrations/   256 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**26 cron routes, 25 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**29 cron routes, 28 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -101,7 +105,7 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/cleaner-messaging` | Bilingual cleaner drafts, Portuguese with English side-by-side |
 | `/contractor-messaging` | Contractor reply drafts |
 | `/guests` | Subscriber list, segments, campaigns. `/guests/agreements` for SCA rental agreements. `/guests/quotes` for SCA custom quotes and booking requests (composed here, paid on staycapeann.com) |
-| `/crm` | Contacts and touch timeline |
+| `/crm` | Contacts, touch timeline, and meetings. An important meeting (owner and prospect meetings by default) texts the operator the evening before from the 24/7 line, the AirDNA reminder's rail (`DOTTI_PHONE`); every meeting shows on the home feed today and tomorrow |
 | `/channels` | The Helm-native Guesty replacement: multi-channel listings, iCal sync, bookings |
 | `/marketing` | Site traffic and conversions for both sites. `/marketing/airdna` for comps |
 | `/competitors` | Other Cape Ann managers, inventory tracking |
@@ -113,6 +117,35 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 The four messaging surfaces share a client panel (`src/components/ProactiveRemindersPanel.tsx`)
 but keep separate server-action files by audience. That split is deliberate: Next server actions
 are per-route.
+
+**A guest reply can draft a note to a teammate.** When the AI sees that a reply COMMITS something
+a teammate must act on (an 11 AM late checkout Rosa has to plan the turnover around, a repair for
+a contractor), the guest card carries a preview of that teammate's message and a ticked checkbox.
+Approving files it as a PENDING card in that audience's own queue, where it waits for a second
+approve. Nothing sends from the guest card, and nothing reaches the crew unattended.
+
+Detection and the preview live in stay-concierge (`src/team_handoffs.py`), because that is what
+composes the draft; Helm renders the block and passes `create_handoff` back on approve. Two rules
+are load-bearing and were both learned the hard way:
+
+- The gate reads the guest's message AND the reply, never the reply alone. The settlement is the
+  shortest line in the thread and carries no vocabulary at all ("11am works, you're all set"); the
+  ask carries all of it.
+- The commitment is created by the approve TAP, not by history. The three thread miners
+  (`messages-to-slips`, `mine-checkout-changes`, `turnover-notes`) all read the past on a cron and
+  all three miss this by design or by timing. Do not "fix" one of them to cover it.
+
+**Confirmed checkout changes update the cleaner schedule.** Stay-concierge records a
+`checkout_commitments` outbox event in the successful-delivery transaction for approved
+and scheduled replies, and in the manual-send audit transaction. Its worker retries
+extraction and `/api/checkout-commitments` delivery separately, with a stable event key.
+Helm resolves the property through the registry, reuses `checkout_adjustments`, and
+refreshes pending digests. Sent digests are left intact; the resolved-message follow-up
+links to the schedule's existing Send update review. No correction texts automatically.
+Date changes, uncertain extraction, and conflicts with stronger schedule decisions are
+proposals. The bridge uses the existing header-only stay-concierge authorization.
+This covers concierge-delivered guest messages; Helm-native thread delivery is a separate
+rail and is not handled by this outbox.
 
 ## Auth and routing
 
@@ -131,6 +164,18 @@ Public surfaces that self-guard by token rather than session: `/onboarding/<toke
 `/agreement/<token>`, `/c/<token>` (cleaner schedule), `/field/*` (contractor session cookie),
 `/book/*`, and the puppeteer-rendered deliverables under `/projections/<id>/`,
 `/properties/<id>/`, `/inspections/<id>/render`, `/statements/render`.
+
+The property Home Guide and WiFi placard contain credentials. They pass the proxy for PDF
+rendering but self-guard before data access: a Helm staff session or a two-minute HMAC token
+scoped to one property and document. `/api/property-pdf` authenticates staff before rendering.
+`property-pdf.ts` sends the token only on the exact document navigation, in a header, never a
+URL. Keep the document-root check: Next can stream a 200 shell for an unauthorized not-found
+page. Printed WiFi QR codes encode network details directly and do not use these web routes.
+
+`/api/archive-onboarding` also self-guards: staff may archive by projection ID; owners must
+send that projection's onboarding token in the POST body. The thank-you page passes its
+validated token to the silent archive trigger. Keep authorization ahead of both the existing
+Drive URL response and all PDF/Drive work; the public proxy exemption is needed for owners.
 
 # Money: the canonical statement math
 
@@ -195,6 +240,12 @@ Guesty's CHANNEL COMMISSION column so its PDF would approximate the post-Stripe 
 rows still carry it. `stripLegacyCommissionKludge` in `src/app/api/ingest/route.ts` removes it:
 Manual real commission is 0 (anything above a 2% ratio is the kludge); VRBO real commission is 5%
 (anything above 7% is the kludge stacked on top); Airbnb and Booking.com pass through untouched.
+**Except Vrbo bookings made on or after 2026-10-29**, when Vrbo moved to a flat 12% commission: the
+ratio rule would cut a real 12% to 5% and overpay the owner, so a Vrbo row whose
+`guesty_reservations.booked_at` is on or after the cutoff keeps its commission as given. The cutoff
+and predicate live in `src/lib/vrbo-commission.ts`, every strip copy consults it, and
+`vrbo-flat-commission.test.ts` guards all four sites. A null `booked_at` (every row before
+2026-09-02) keeps the old rule.
 `src/lib/revenue-math.ts` holds the UI-side mirror of this, and its docblock explains why the
 canonical copy in `/api/ingest` must not import from it.
 
@@ -328,7 +379,7 @@ rate changes, and the two lookups are keyed differently.
 `/guests/quotes` composes a custom quote or booking request for a named guest: property, dates,
 guests, a negotiated nightly rate or total, cleaning, extra fees, a discount, tax (owed rate, auto,
 exempt over 31 nights), pay-in-full or a deposit now with the balance by a date, a note, an expiry,
-and the cancellation wording. Helm sends it by email (Resend, as Allie) and/or SMS (Quo GUESTS
+and the cancellation wording. Helm sends it by email (Resend, from and CC hello@staycapeann.com) and/or SMS (Quo GUESTS
 line) with a link to `https://staycapeann.com/quote/<token>`. Table `sca_quotes` (service-role
 only); pure math and the wire types in `src/lib/sca-quotes-types.ts`, with a byte-compatible copy
 in stay-cape-ann `lib/helmQuotes.ts`. Change one, change both.
@@ -452,37 +503,45 @@ Gloucester cart sentence off a Rockport home that has no curbside collection at 
 
 | City | Rule |
 |---|---|
-| **Gloucester** | Automated Casella carts since **2026-10-01**, one 65-gal trash and one 65-gal recycling per unit, $300/yr billed $75/quarter on the utility account. STRs are not exempt. Everything inside with the lid closed; nothing beside a cart is collected; personal barrels are done. Purple pay-as-you-throw bags died 2026-09-30. |
+| **Gloucester** | Automated Casella carts since **2026-10-01**, one 65-gal trash and one 65-gal recycling per unit, $300/yr billed $75/quarter on the utility account. STRs are not exempt. Everything inside with the lid closed; nothing beside a cart is collected. |
 | **Rockport** | No curbside collection at all. Transfer Station, Town PAYT bags. |
 | **Beverly** | Casella carts since 2026-07-01 on its own specs (95-gal recycling). Not Gloucester's rule. |
 
 Three things to know before editing any of it:
 
-1. **The Gloucester rule is date-resolved**, off `GLOUCESTER_CART_CUTOVER`, because stays straddled
-   the switch. Every surface that prints it is `force-dynamic`, so it flips itself with nothing for
-   anyone to remember. `GLOUCESTER_BAG_RULE` is still LIVE until the cutover and a guest with a
-   pickup on or before 2026-09-30 needs it, so do not delete that branch before 10-01. After
-   that date it is dead and should go, along with `durableReceptacleRule` in the Guesty push.
-2. **Never write "the night before" or "out by 7am".** The wording is
-   *"out after 4 PM the day before, back in that evening"*, which satisfies both the current rule
-   and the pending Chapter 9 Sec. 9-4 deadline. The return half is the compliance clause, not
-   politeness: Gloucester STR ordinance **Sec. 5-66(q) fines $400 per occurrence** for a cart left
-   at the curb, each day a separate offence, chained to the Board of Health rental permit.
+1. **Purple bags are gone.** The program ended 2026-09-30 and its code, KB text and facts were
+   deleted on 2026-10-02. No surface may mention them; stay-concierge's `content_guard` swaps any
+   sentence that does for the cart rule.
+2. **The wording is short (Dotti, 2026-10-02):** *"Carts go out the night before pickup and come
+   back in once they're emptied."* Pickup is in the morning. The "back in" half is the compliance
+   clause, not politeness: Gloucester STR ordinance **Sec. 5-66(q) fines $400 per occurrence** for
+   a cart left at the curb, each day a separate offence, chained to the Board of Health rental
+   permit. Never drop it.
 3. **`properties.trash_notes` is LOCATION ONLY.** Where the bins and carts live, nothing else. The
    day and the city rule compose on top of it at render time. This keeps the column regime-neutral
    and matches what stay-concierge's `_house_lines` filter expects: it drops note sentences
    carrying a weekday or a clock time and keeps location sentences.
 
 Collection days come from the DPW street list in `civic.ts`, overridable per property via
-`properties.trash_day`. Checked against the city on 2026-09-25: the 11-16-23 revision is still
+`properties.trash_day`. The city's PDF is checked in at
+`docs/civic/gloucester-trash-street-list-2023-11-16.pdf`; the table was diffed against it row for
+row on 2026-10-02 (690 streets, no differences). Checked against the city on 2026-09-25: the 11-16-23 revision is still
 the current published list and the cart rollout does not move days. **Twelve streets carry two
 published days** (the route splits them, and ten give no segment note), so `civic.ts` refuses to
 answer for those rather than guessing; only an operator who has phoned DPW should fill the column.
-`84_thatcher` is the live case, unresolved, and `225_washington` claims Wednesday off a four-way
-split that predates the check. `/api/kb-facts` bridges the **resolved** day plus `city` and
+Both live split-street homes are confirmed with DPW by Dotti on 2026-10-02 and set on the row:
+`84_thatcher` is **Friday** (migration `20261002_thatcher_trash_friday.sql`) and `225_washington`
+is **Wednesday** (the row already said so; now verified). `/api/kb-facts` bridges the **resolved** day plus `city` and
 `receptacle_rule`, so the guest AI can gate its own wording. Writing `trash_day` for a
-**non-Gloucester** property is currently unsafe: stay-concierge's `_receptacle_rule` has no city
+**non-Gloucester** property is currently unsafe: stay-concierge's `RECEPTACLE_RULE` has no city
 gate and emits the Gloucester cart clause for any property with a parseable day.
+
+**Guest messages** (stay-concierge `src/trash_reminders.py`, approval-gated): any stay of **3+
+nights** that spans a pickup, so the city hauls the trash instead of the cleaner. A pickup the
+morning after check-in is skipped (the turnover just emptied the house). A pickup on checkout
+morning counts: the guest rolls the carts out on their last night and the turnover cleaner brings
+them back in, which Rosa's schedule (`/c/<token>`) flags with a "bring the carts in" tag. Day-2 evening check-in naming the next pickup (or "tomorrow morning, carts out
+tonight"), then a reminder two days before each later pickup.
 
 # Properties
 
@@ -685,7 +744,7 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 26 cron routes fail closed without it (verified 2026-09-26: every
+- **Cron**: `CRON_SECRET`. All 29 cron routes fail closed without it (verified 2026-09-26: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
@@ -733,7 +792,9 @@ Also present, and NOT part of `npm test`:
 - `scripts/paged_select_check.mjs`: exercises `selectAllPaged` page boundaries via Node's native
   TypeScript stripping.
 
-The gate before shipping is `npx tsc --noEmit` **and `npm test`**. Run both. Chain commits on them.
+For code changes, the gate before shipping is `npx tsc --noEmit` **and `npm test`**.
+Run both before committing. Documentation-only validation and deployment authorization
+are defined in `AGENTS.md`.
 
 # Known watch-outs
 

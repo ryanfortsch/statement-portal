@@ -9,6 +9,8 @@ import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import { ContactDetail } from './ContactDetail';
+import { listContactMeetings } from '@/lib/meetings';
+import type { ContactMeetingRow } from '@/lib/meetings-core';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +23,7 @@ async function getData(id: string): Promise<{
   touches: ContactTouchRow[];
   properties: PropertyMini[];
   linkedSlips: ContactSlip[];
+  meetings: { upcoming: ContactMeetingRow[]; past: ContactMeetingRow[] };
 } | null> {
   const { data: contact } = await supabase
     .from('contacts')
@@ -33,7 +36,7 @@ async function getData(id: string): Promise<{
   const linkedIds = c.linked_property_ids ?? [];
   const todayIso = new Date().toISOString().slice(0, 10);
 
-  const [{ data: touches }, { data: properties }, { data: slipsData }] = await Promise.all([
+  const [{ data: touches }, { data: properties }, { data: slipsData }, meetings] = await Promise.all([
     supabase
       .from('contact_touches')
       .select('*')
@@ -50,6 +53,7 @@ async function getData(id: string): Promise<{
           .order('priority', { ascending: false })
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as WorkSlipRow[] }),
+    listContactMeetings(id).catch(() => ({ upcoming: [] as ContactMeetingRow[], past: [] as ContactMeetingRow[] })),
   ]);
 
   const propertyMap = new Map<string, string>(
@@ -65,6 +69,7 @@ async function getData(id: string): Promise<{
     touches: (touches ?? []) as ContactTouchRow[],
     properties: (properties ?? []) as PropertyMini[],
     linkedSlips,
+    meetings,
   };
 }
 
@@ -100,6 +105,7 @@ export default async function ContactDetailPage({ params }: { params: Promise<Pa
         touches={data.touches}
         properties={data.properties}
         linkedSlips={data.linkedSlips}
+        meetings={data.meetings}
         myEmail={myEmail}
       />
 

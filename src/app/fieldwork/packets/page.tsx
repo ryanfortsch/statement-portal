@@ -1,4 +1,9 @@
+import { operatingDate } from '@/lib/operating-date';
+import { RefreshNavCounts } from '@/components/NavTabCount';
 import Link from 'next/link';
+import { loadFieldReview } from '@/lib/field-review';
+import { RetryDashboard } from '@/components/RetryDashboard';
+import { TRADE_META } from '@/lib/field-types';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -17,7 +22,7 @@ import { approvePacket, markPacketPaid, releasePacket, publishPacket, cancelPack
 export const dynamic = 'force-dynamic';
 
 function todayET(): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  return operatingDate();
 }
 function daysUntilET(d: string): number {
   return Math.round((Date.parse(`${d}T00:00:00`) - Date.parse(`${todayET()}T00:00:00`)) / 86_400_000);
@@ -106,18 +111,18 @@ function fmtVisitDay(d: string): string {
   return fmtStampDate(`${d}T12:00:00Z`);
 }
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return operatingDate();
 }
 function plusDays(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
+  const d = new Date(`${operatingDate()}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().split('T')[0];
 }
 
 export default async function PacketsBoard({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; sent?: string; trade?: string; who?: string; skipped?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; sent?: string; trade?: string; who?: string; skipped?: string; focus?: string }>;
 }) {
   if (!isFieldConfigured) {
     return (
@@ -135,11 +140,18 @@ export default async function PacketsBoard({
   const from = sp.from || todayStr();
   const to = sp.to || plusDays(14);
   const trade = parseTrade(sp.trade);
+  const focus = ['late', 'today', 'unclaimed', 'drafts', 'review'].includes(sp.focus ?? '') ? sp.focus : 'all';
+  const focusHref = (next: string) => {
+    const query = new URLSearchParams({ trade, from, to });
+    if (next !== 'all') query.set('focus', next);
+    return `/fieldwork/packets?${query}#field-results`;
+  };
 
-  const [calendar, allPackets, { data: cData }] = await Promise.all([
+  const [calendar, allPackets, { data: cData }, reviewPackets] = await Promise.all([
     loadInspectionCalendar(from, to),
     loadPackets(),
     fieldDb().from('contractors').select('*'),
+    loadFieldReview().catch(() => null),
   ]);
   // Scope the board to the active job type. Packets carry a trade; legacy rows
   // with none are inspection. Creative has no packets and never links here.
@@ -162,7 +174,7 @@ export default async function PacketsBoard({
     return c ? { name: c.full_name, photoUrl: c.photo_url } : null;
   };
 
-  const live = packets.filter((p) => isLiveStatus(p.status));
+  const live = packets.filter((p) => isLiveStatus(p.status) && p.status !== 'submitted');
   // Split the old lump "Closed" so finished work reads clean and cancellations
   // (the noise) collapse away. Both most-recent first.
   const completed = packets
@@ -184,7 +196,6 @@ export default async function PacketsBoard({
 
   const today = todayET();
   const outToday = packets.filter((p) => p.visit_date === today && (isWorkingStatus(p.status)));
-  const startedToday = outToday.filter((p) => p.status === 'in_progress').length;
   const unclaimedSoon = packets.filter((p) => p.status === 'published' && daysUntilET(p.visit_date) >= 0 && daysUntilET(p.visit_date) <= 2);
   // At risk: claimed but never started, and the window is genuinely slipping —
   // the contractor may no-show before the guest arrives.
@@ -194,7 +205,11 @@ export default async function PacketsBoard({
   // new date, a Record, or a Dismiss - so it belongs in the brief, not just the
   // Drafts list below.
   const expiredDrafts = drafts.filter((p) => daysUntilET(p.visit_date) < 0);
-  const hasBrief = outToday.length > 0 || unclaimedSoon.length > 0 || atRiskPackets.length > 0 || expiredDrafts.length > 0;
+  const visibleReviews = reviewPackets === null ? null : focus === 'review' ? reviewPackets.filter(p => parseTrade(p.trade) === trade) : reviewPackets;
+  const focusedPackets = focus === 'late' ? atRiskPackets : focus === 'today' ? outToday : focus === 'unclaimed' ? unclaimedSoon : null;
+  const visibleLive = focusedPackets ?? (focus === 'all' ? live : []);
+  const visibleDrafts = focus === 'drafts' ? expiredDrafts : focus === 'all' ? drafts : [];
+  const focusLabels: Record<string, string> = { late: 'Late visits', today: 'Visits today', unclaimed: 'Unassigned soon', drafts: 'Visits to reschedule', review: 'Awaiting approval' };
 
   // Live per-packet progress (done stops) for claimed/in-progress packets, so
   // the office can watch a visit move stop-by-stop on the board.
@@ -211,6 +226,7 @@ export default async function PacketsBoard({
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
       <FieldTabs current="packets" trade={trade} />
+      {reviewPackets && <RefreshNavCounts revision={reviewPackets.map(p => p.id).join(',')} />}
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         {/* One calm header: title left, the two CREATE actions right.
             "Manage contractors" was a duplicate of the CONTRACTORS tab above;
@@ -232,24 +248,37 @@ export default async function PacketsBoard({
             shows inline on the calendar's bundle bar. */}
         <SentFlash sent={sp.sent} who={sp.who} skipped={sp.skipped} />
 
-        {hasBrief && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 22 }}>
-            {atRiskPackets.length > 0 && (
-              <TodayStat n={atRiskPackets.length} label="at risk" tone="#c0392b" />
-            )}
-            {outToday.length > 0 && (
-              <TodayStat n={outToday.length} label="out today" sub={`${startedToday} started`} tone="var(--tide-deep)" />
-            )}
-            {unclaimedSoon.length > 0 && (
-              <TodayStat n={unclaimedSoon.length} label="unclaimed within 48h" tone="#7a5512" />
-            )}
-            {expiredDrafts.length > 0 && (
-              <TodayStat n={expiredDrafts.length} label="expired, in Drafts to reschedule" tone="#7a5512" />
-            )}
-          </div>
-        )}
+        <nav aria-label="Filter field visits" className="rt-field-filters" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 20 }}>
+          <Link href={focusHref('all')} aria-current={focus === 'all' ? 'page' : undefined}>All visits</Link>
+          {[
+            { id: 'late', label: 'Late visits', count: atRiskPackets.length },
+            { id: 'today', label: 'Today', count: outToday.length },
+            { id: 'unclaimed', label: 'Unassigned soon', count: unclaimedSoon.length },
+            { id: 'drafts', label: 'Reschedule', count: expiredDrafts.length },
+          ].filter(item => item.count > 0 || item.id === focus).map(item => <Link key={item.id} href={focusHref(item.id)} aria-current={focus === item.id ? 'page' : undefined}>{item.label} · {item.count}</Link>)}
+        </nav>
+        <div id="field-results" style={{ scrollMarginTop: 88 }} />
+        {(focus === 'all' || focus === 'review') && (visibleReviews === null || focus === 'review' || !!visibleReviews?.length) && <section id="needs-review" aria-labelledby="review-heading" style={{ marginTop: 24, scrollMarginTop: 88 }}>
+          <h2 id="review-heading" style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
+            Needs review{visibleReviews ? ` · ${visibleReviews.length}` : ''}
+          </h2>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted packets awaiting your approval{focus === 'review' ? '' : ' · all trades'}</p>
+          {visibleReviews === null ? <div role="status">Couldn’t load packets awaiting review. <RetryDashboard /></div>
+            : visibleReviews.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No packets awaiting approval.</p>
+            : <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden' }}>
+              {visibleReviews.map(p => <div key={p.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <Link href={`/fieldwork/packets/${p.id}`} className="font-serif" style={{ fontSize: 17, color: 'var(--ink)' }}>{p.title}</Link>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
+                    {TRADE_META[parseTrade(p.trade)].label} · {whoOf(p.awarded_contractor_id)?.name ?? 'Contractor unavailable'} · Visited {fmtDate(p.visit_date)}
+                  </div>
+                </div>
+                <Link href={`/fieldwork/packets/${p.id}`} aria-label={`Review ${p.title}`} style={{ ...btnDark, textDecoration: 'none' }}>Review</Link>
+              </div>)}
+            </div>}
+        </section>}
 
-        {trade === 'inspection' && (
+        {trade === 'inspection' && focus === 'all' && (
         <div style={{ marginTop: 28 }}>
           <InspectionCalendar days={calendar.days} rows={calendar.rows} assignable={assignable} />
           {calendar.missingProps.length > 0 && (
@@ -272,29 +301,29 @@ export default async function PacketsBoard({
         </div>
         )}
 
-        {drafts.length > 0 && (
+        {visibleDrafts.length > 0 && (
           <div style={{ marginTop: 40 }}>
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 4 }}>
-              Drafts · {drafts.length}
+              {focus === 'drafts' ? 'Visits to reschedule' : 'Drafts'} · {visibleDrafts.length}
             </h2>
             <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 8 }}>
               Saved but not published yet. Publish to send to inspectors, or dismiss.
             </div>
             <div style={{ border: '1px dashed var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
-              {drafts.map((p) => (
+              {visibleDrafts.map((p) => (
                 <DraftRow key={p.id} p={p} />
               ))}
             </div>
           </div>
         )}
 
-        {live.length > 0 && (
+        {visibleLive.length > 0 && (
           <div style={{ marginTop: 40 }}>
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
-              Out to contractors · {live.length}
+              {focusLabels[focus ?? 'all'] ?? 'Out to contractors'} · {visibleLive.length}
             </h2>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
-              {live.map((p) => (
+              {visibleLive.map((p) => (
                 <LiveRow
                   key={p.id}
                   p={p}
@@ -307,9 +336,11 @@ export default async function PacketsBoard({
           </div>
         )}
 
+        {focus !== 'all' && focus !== 'review' && visibleLive.length === 0 && visibleDrafts.length === 0 && <p style={{ padding: '24px 0', fontSize: 13 }}>No visits match this filter.</p>}
+
         {/* Finished work is history, not the day's job: folded away like
             Cancelled so the board opens on what still needs a decision. */}
-        {completed.length > 0 && (
+        {focus === 'all' && completed.length > 0 && (
           <details style={{ marginTop: 32 }}>
             <summary style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8, cursor: 'pointer', listStyle: 'none' }}>
               Completed · {completed.length} ▾
@@ -325,7 +356,7 @@ export default async function PacketsBoard({
           </details>
         )}
 
-        {cancelled.length > 0 && (
+        {focus === 'all' && cancelled.length > 0 && (
           <details style={{ marginTop: 32 }}>
             <summary style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8, cursor: 'pointer', listStyle: 'none' }}>
               Cancelled · {cancelled.length} ▾
@@ -342,18 +373,6 @@ export default async function PacketsBoard({
         )}
       </section>
       <HelmFooter module="Field" right="Inspection packets" />
-    </div>
-  );
-}
-
-function TodayStat({ n, label, sub, tone }: { n: number; label: string; sub?: string; tone: string }) {
-  return (
-    <div style={{ border: '1px solid var(--rule)', borderLeft: `3px solid ${tone}`, borderRadius: 8, padding: '10px 16px', minWidth: 130, background: 'var(--paper-2, #fff)' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span className="font-mono" style={{ fontSize: 22, color: 'var(--ink)' }}>{n}</span>
-        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{label}</span>
-      </div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }

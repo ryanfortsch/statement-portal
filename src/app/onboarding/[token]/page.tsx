@@ -142,6 +142,7 @@ function onboardingDataFromProperty(p: HelmPropertyRow): OnboardingData {
   // STR setup
   set('currently_listed', p.currently_listed);
   set('listing_urls', p.existing_listing_urls);
+  set('room_occupancy_cert', p.tax_cert_id);
   set('str_registration', p.str_registration_id);
   set('str_insurance', p.str_insurance_carrier);
   set('guest_access_method', p.guest_access_method);
@@ -323,8 +324,22 @@ export default async function OnboardingFormPage({ params }: { params: Promise<{
           <Section eyebrow="04" title="Short-term Rental Information">
             <Field name="currently_listed" label="Currently listed?" defaultValue={ob.currently_listed} hint="Platform(s) if yes — Airbnb, VRBO, etc." />
             <Field name="listing_urls" label="Existing listing URL(s)" defaultValue={ob.listing_urls} />
+            <Field
+              name="room_occupancy_cert"
+              label="MA Room Occupancy Certificate #"
+              defaultValue={ob.room_occupancy_cert}
+              hint={
+                <>
+                  Required for every Massachusetts short-term rental. Not registered yet?{' '}
+                  <a href="/onboarding/ma-str-registration" target="_blank" rel="noopener">
+                    Follow our step-by-step guide
+                  </a>
+                  .
+                </>
+              }
+            />
             <Row>
-              <Field name="str_registration" label="STR registration #" defaultValue={ob.str_registration} hint="Room Occupancy Certificate number" />
+              <Field name="str_registration" label="Local STR permit #" defaultValue={ob.str_registration} hint="Your city or town's registration, if it issues one" />
               <Field name="str_insurance" label="STR insurance carrier" defaultValue={ob.str_insurance} hint="Policy # if available" />
             </Row>
             <Field name="guest_access_method" label="Guest access method" defaultValue={ob.guest_access_method} hint="Smart Lock / Key Box / Other" />
@@ -495,7 +510,7 @@ type FieldProps = {
   required?: boolean;
   type?: string;
   step?: string;
-  hint?: string;
+  hint?: React.ReactNode;
   textarea?: boolean;
   as?: 'select';
   children?: React.ReactNode;
@@ -689,6 +704,8 @@ const publicCss = `
     background-size: 16px;
   }
   .rt-pub-hint { font-size: 11px; color: var(--ink-4); font-style: italic; }
+  .rt-pub-hint a { color: var(--signal); text-decoration: none; font-style: normal; }
+  .rt-pub-hint a:hover { text-decoration: underline; }
 
   /* Submit */
   .rt-pub-submit {

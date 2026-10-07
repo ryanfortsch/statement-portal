@@ -1,12 +1,14 @@
 'use client';
 
-import { useMemo, useState, useTransition, type CSSProperties } from 'react';
+import { useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import Image from 'next/image';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { publishBedroomPhotos, type PublishBedroomResult } from './actions';
 
 /** One bedroom slot in the editor (photos held as an array of Blob URLs). */
-export type BedroomSlot = { name?: string; beds?: string; photo: string[] };
+export type BedroomSlot = { editorId?: string; name?: string; beds?: string; photo: string[] };
 
 /** A Stay Cape Ann listing as surfaced to the picker/editor. */
 export type BedroomListing = {
@@ -47,10 +49,14 @@ function photoCount(slots: BedroomSlot[]): number {
 function seedDraft(listing: BedroomListing): BedroomSlot[] {
   if (listing.arrangements.length) {
     // Deep-copy so edits don't mutate the prop.
-    return listing.arrangements.map((s) => ({ name: s.name, beds: s.beds, photo: [...s.photo] }));
+    return listing.arrangements.map((s) => ({ editorId: crypto.randomUUID(), name: s.name, beds: s.beds, photo: [...s.photo] }));
   }
   const n = Math.max(listing.bedrooms ?? 1, 1);
-  return Array.from({ length: n }, () => ({ photo: [] as string[] }));
+  return Array.from({ length: n }, () => ({ editorId: crypto.randomUUID(), photo: [] as string[] }));
+}
+
+function draftSignature(slots: BedroomSlot[]): string {
+  return JSON.stringify(slots.map((s) => [s.name ?? '', s.beds ?? '', s.photo]));
 }
 
 export function BedroomPhotosClient({
@@ -66,11 +72,19 @@ export function BedroomPhotosClient({
   const [listings, setListings] = useState<BedroomListing[]>(initial);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(preselected?.guestyListingId ?? null);
-  const [draft, setDraft] = useState<BedroomSlot[]>(preselected ? seedDraft(preselected) : []);
+  const [draft, setDraft] = useState<BedroomSlot[]>(() => preselected ? seedDraft(preselected) : []);
   const [result, setResult] = useState<PublishBedroomResult | null>(null);
-  const [pending, startTransition] = useTransition();
+  const action = useRecoverableAction();
+  const pending = action.pending;
+  const uploadRefs = useRef(new Set<string>());
+  const [failedSlots, setFailedSlots] = useState<Set<string>>(() => new Set());
+  const [uploadingSlots, setUploadingSlots] = useState<Set<string>>(() => new Set());
 
   const selected = listings.find((l) => l.guestyListingId === selectedId) ?? null;
+  const busy = pending || uploadingSlots.size > 0;
+  const dirty = selected !== null && draftSignature(draft) !== draftSignature(seedDraft(selected));
+
+  useDraftNavigationGuard(dirty || failedSlots.size > 0, busy);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,9 +98,24 @@ export function BedroomPhotosClient({
   }, [listings, query]);
 
   function select(listing: BedroomListing) {
+    if (listing.guestyListingId === selectedId || action.busy.current || uploadRefs.current.size > 0 || busy) return;
+    if ((dirty || failedSlots.size > 0) && !window.confirm('You have unsaved bedroom changes. Discard them and switch properties?')) return;
     setSelectedId(listing.guestyListingId);
     setDraft(seedDraft(listing));
     setResult(null);
+    setFailedSlots(new Set());
+    action.setError(null);
+  }
+
+  function setSlotUploading(i: string, uploading: boolean) {
+    if (uploading) uploadRefs.current.add(i); else uploadRefs.current.delete(i);
+    setUploadingSlots((prev) => {
+      if (prev.has(i) === uploading) return prev;
+      const next = new Set(prev);
+      if (uploading) next.add(i);
+      else next.delete(i);
+      return next;
+    });
   }
 
   function updateSlot(i: number, patch: Partial<BedroomSlot>) {
@@ -94,17 +123,22 @@ export function BedroomPhotosClient({
   }
 
   function addBedroom() {
-    setDraft((prev) => [...prev, { photo: [] }]);
+    if (action.busy.current || uploadRefs.current.size) return;
+    setDraft((prev) => [...prev, { editorId: crypto.randomUUID(), photo: [] }]);
   }
 
   function removeBedroom(i: number) {
+    if (action.busy.current || uploadRefs.current.size) return;
+    const key = draft[i].editorId!;
+    if (failedSlots.has(key) && !window.confirm('Remove this bedroom and its failed uploads?')) return;
+    setFailedSlots(previous => { const next = new Set(previous); next.delete(key); return next; });
     setDraft((prev) => prev.filter((_, j) => j !== i));
   }
 
   function publish() {
-    if (!selected) return;
+    if (!selected || busy || action.busy.current || uploadRefs.current.size || failedSlots.size) return;
     setResult(null);
-    startTransition(async () => {
+    action.run(async () => {
       const res = await publishBedroomPhotos(
         selected.guestyListingId,
         selected.internalName,
@@ -122,7 +156,7 @@ export function BedroomPhotosClient({
           ),
         );
       }
-    });
+    }, 'Could not confirm publishing. Your bedroom changes are kept. Retry to check the same changes.');
   }
 
   return (
@@ -145,6 +179,7 @@ export function BedroomPhotosClient({
                 key={l.guestyListingId}
                 type="button"
                 onClick={() => select(l)}
+                disabled={busy}
                 style={{
                   display: 'block',
                   width: '100%',
@@ -153,7 +188,7 @@ export function BedroomPhotosClient({
                   borderBottom: '1px solid var(--rule)',
                   background: isSel ? 'var(--paper-2)' : 'transparent',
                   borderLeft: isSel ? '2px solid var(--signal)' : '2px solid transparent',
-                  cursor: 'pointer',
+                  cursor: busy ? 'wait' : 'pointer',
                 }}
               >
                 <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{l.internalName}</div>
@@ -175,7 +210,7 @@ export function BedroomPhotosClient({
       </aside>
 
       {/* RIGHT — editor */}
-      <section>
+      <section key={selectedId}>
         {!selected ? (
           <div style={{ padding: '40px 0', fontSize: 14, color: 'var(--ink-3)' }}>
             Pick a listing on the left to add or replace its bedroom photos. Drop the
@@ -213,13 +248,13 @@ export function BedroomPhotosClient({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
               {draft.map((slot, i) => (
-                <div key={i} style={{ border: '1px solid var(--rule)', padding: 16 }}>
+                <div key={slot.editorId} style={{ border: '1px solid var(--rule)', padding: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                     <span style={{ ...labelStyle }}>Bedroom {i + 1}</span>
                     <button
                       type="button"
                       onClick={() => removeBedroom(i)}
-                      disabled={pending}
+                      disabled={busy}
                       style={{ background: 'transparent', border: 'none', color: 'var(--ink-3)', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', cursor: 'pointer' }}
                     >
                       Remove
@@ -228,12 +263,14 @@ export function BedroomPhotosClient({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                     <input
                       style={inputStyle}
+                      disabled={pending}
                       value={slot.name ?? ''}
                       onChange={(e) => updateSlot(i, { name: e.target.value })}
                       placeholder="Name (optional, e.g. Primary suite)"
                     />
                     <input
                       style={inputStyle}
+                      disabled={pending}
                       value={slot.beds ?? ''}
                       onChange={(e) => updateSlot(i, { beds: e.target.value })}
                       placeholder="Beds (optional, e.g. 1 King)"
@@ -242,8 +279,14 @@ export function BedroomPhotosClient({
                   <PhotoUploader
                     value={slot.photo}
                     onChange={(next) => updateSlot(i, { photo: next })}
+                    onFailedUploadsChange={count => setFailedSlots(previous => {
+                      const key = slot.editorId!;
+                      if (previous.has(key) === (count > 0)) return previous;
+                      const next = new Set(previous); if (count) next.add(key); else next.delete(key); return next;
+                    })}
                     folder={`sca-bedrooms-${selected.guestyListingId}`}
                     disabled={pending}
+                    onUploadingChange={(uploading) => setSlotUploading(slot.editorId!, uploading)}
                   />
                 </div>
               ))}
@@ -252,20 +295,22 @@ export function BedroomPhotosClient({
             <button
               type="button"
               onClick={addBedroom}
-              disabled={pending}
+              disabled={busy}
               style={{ marginTop: 14, background: 'transparent', border: '1px dashed var(--rule)', padding: '10px 16px', fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)', cursor: 'pointer', width: '100%', fontWeight: 500 }}
             >
               + Add bedroom
             </button>
 
+            {failedSlots.size > 0 && <p role="alert">Retry or remove failed uploads before publishing.</p>}
+            {action.error && <p role="alert" style={{ color: 'var(--signal)' }}>{action.error}</p>}
             <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
               <button
                 type="button"
                 onClick={publish}
-                disabled={pending}
-                style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', padding: '12px 26px', fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600, cursor: pending ? 'wait' : 'pointer' }}
+                disabled={busy || failedSlots.size > 0}
+                style={{ background: 'var(--ink)', color: 'var(--paper)', border: 'none', padding: '12px 26px', fontSize: 12, letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600, cursor: busy ? 'wait' : 'pointer' }}
               >
-                {pending ? 'Publishing…' : 'Publish to Stay Cape Ann'}
+                {pending ? 'Publishing…' : uploadingSlots.size > 0 ? 'Uploading photos…' : 'Publish to Stay Cape Ann'}
               </button>
               {result && <ResultNote result={result} />}
             </div>

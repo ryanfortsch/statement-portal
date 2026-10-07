@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { deleteDraft } from '@/lib/daily-brief';
+import { auth } from '@/auth';
 
 /**
  * Dismiss an email from the daily brief.
@@ -22,25 +23,25 @@ import { deleteDraft } from '@/lib/daily-brief';
  * No row deletion: keep the classification so we don't pay the LLM
  * again if Gmail re-flags it.
  */
-export async function markEmailHandled(gmailMessageId: string): Promise<{ ok: boolean }> {
+export async function markEmailHandled(gmailMessageId: string): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Please sign in again.' };
   if (!gmailMessageId) return { ok: false };
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   if (!url || !key) return { ok: false };
   const sb = createClient(url, key);
 
-  const { data: row } = await sb
+  const { data: row, error: readError } = await sb
     .from('email_triage')
     .select('draft_id')
     .eq('gmail_message_id', gmailMessageId)
     .maybeSingle();
-  const draftId = (row as { draft_id: string | null } | null)?.draft_id ?? null;
-  if (draftId) {
-    await deleteDraft(draftId);
-  }
+  if (readError || !row) return { ok: false, error: 'Could not load this email. Refresh the inbox before trying again.' };
+  const draftId = (row as { draft_id: string | null }).draft_id ?? null;
 
   const nowIso = new Date().toISOString();
-  await sb
+  const { data: saved, error: saveError } = await sb
     .from('email_triage')
     .update({
       is_unread: false,
@@ -49,7 +50,9 @@ export async function markEmailHandled(gmailMessageId: string): Promise<{ ok: bo
       handled_via: 'operator',
       last_seen_at: nowIso,
     })
-    .eq('gmail_message_id', gmailMessageId);
+    .eq('gmail_message_id', gmailMessageId).select('gmail_message_id').maybeSingle();
+  if (saveError || !saved) return { ok: false, error: 'Could not mark this email handled. Please try again.' };
+  if (draftId) await deleteDraft(draftId);
   revalidatePath('/today');
   revalidatePath('/');
   return { ok: true };

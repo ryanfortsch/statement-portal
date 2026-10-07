@@ -1,8 +1,10 @@
 import 'server-only';
+import { scanPaidSessions, paidReceipt } from '@/lib/payment-link-paid-core';
 
 import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
 import { getStripeKeysMap } from '@/lib/stripe-sync';
 import { addOnIsTaxable, splitAddOnTax, formatTaxRate } from '@/lib/addon-tax';
+import { isStayPrincipalTitle } from '@/lib/extras-markers';
 import { guestyGet } from '@/lib/guesty';
 import { sendMessage, quoFromNumber } from '@/lib/quo';
 import {
@@ -224,9 +226,65 @@ export type MintResult =
     }
   | {
       ok: false;
-      error: 'no_key' | 'stripe_permission' | 'stripe_error' | 'amount_out_of_range' | 'not_configured';
+      error:
+        | 'no_key'
+        | 'stripe_permission'
+        | 'stripe_error'
+        | 'amount_out_of_range'
+        | 'not_configured'
+        /** The property is outside Cape Ann and has no property_tax_config
+         *  row, so Helm does not know what tax to add. Never defaults to MA. */
+        | 'tax_jurisdiction_unknown';
       detail?: string;
     };
+
+/** The quote-side tax jurisdiction for a home outside Cape Ann. */
+type TaxConfigPick = {
+  state_rate: number | string | null;
+  local_rate: number | string | null;
+  cif_rate: number | string | null;
+};
+
+/**
+ * Which tax rate an add-on for this property carries.
+ *
+ *   - Cape Ann (region null or 'cape_ann'): 'ma' means the existing MA path,
+ *     splitAddOnTax over owedOccupancyTaxRate, byte for byte as before.
+ *   - Any other region: the property_tax_config row is REQUIRED and its
+ *     summed rate (state + local + CIF, fractions) is used. No row means
+ *     'unknown': the mint refuses rather than charging a CT guest 11.7% MA
+ *     tax, which is what owedOccupancyTaxRate would silently do.
+ *
+ * Inline read on purpose: src/lib/tax-config.ts is the fuller reader and is
+ * being written separately; this keeps payment-links self-contained until
+ * that lands. A failed read is 'unknown', never a guessed rate.
+ */
+async function resolveAddOnTaxJurisdiction(
+  propertyId: string,
+): Promise<{ kind: 'ma' } | { kind: 'config'; rate: number } | { kind: 'unknown' }> {
+  const { data: prop, error: propErr } = await supabase
+    .from('properties')
+    .select('region')
+    .eq('id', propertyId)
+    .maybeSingle();
+  // An unreadable registry is treated as Cape Ann: the fleet was MA-only
+  // before regions existed, and this keeps a transient read error from
+  // blocking a Cape Ann link. A row with an explicit other region is the
+  // signal, and that row is read below.
+  const region = propErr ? null : ((prop as { region?: string | null } | null)?.region ?? null);
+  if (region === null || region === 'cape_ann') return { kind: 'ma' };
+
+  const { data: cfg, error: cfgErr } = await supabase
+    .from('property_tax_config')
+    .select('state_rate, local_rate, cif_rate')
+    .eq('property_id', propertyId)
+    .maybeSingle();
+  if (cfgErr || !cfg) return { kind: 'unknown' };
+  const c = cfg as TaxConfigPick;
+  const rate = Number(c.state_rate ?? 0) + Number(c.local_rate ?? 0) + Number(c.cif_rate ?? 0);
+  if (!Number.isFinite(rate) || rate < 0) return { kind: 'unknown' };
+  return { kind: 'config', rate };
+}
 
 /**
  * Create a Stripe Payment Link in the property's own account and record it.
@@ -290,7 +348,7 @@ export async function mintPaymentLink(input: MintInput): Promise<MintResult> {
   // Product name = the statements-facing description. Guard the two prefixes
   // the ingest treats specially (SCA principal / Guesty code shapes).
   let productName = [label, guestName, propertyTitle].filter(Boolean).join(' - ');
-  if (/^stay at\b/i.test(productName) || /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]/.test(productName)) {
+  if (isStayPrincipalTitle(productName) || /^(HM|HA-|GY-|BC-)[A-Za-z0-9-]/.test(productName)) {
     productName = `Add-on: ${productName}`;
   }
 
@@ -299,12 +357,31 @@ export async function mintPaymentLink(input: MintInput): Promise<MintResult> {
   // the line the guest reads on the checkout page (Stripe's price
   // product_data has no description field; sending one 400s the call).
   const taxable = addOnIsTaxable({ requestKey, saveCard, taxable: input.taxable });
-  const split = splitAddOnTax({
-    propertyId,
-    baseCents: amountCents,
-    chargeCreatedIso: new Date().toISOString().slice(0, 10),
-    taxable,
-  });
+  // Jurisdiction gate: a home outside Cape Ann must carry its own
+  // property_tax_config row before Helm will add tax to (or mint at all for)
+  // one of its add-ons. Cape Ann homes take the unchanged MA path.
+  const jurisdiction = await resolveAddOnTaxJurisdiction(propertyId);
+  if (jurisdiction.kind === 'unknown') {
+    return {
+      ok: false,
+      error: 'tax_jurisdiction_unknown',
+      detail: `no property_tax_config row for ${propertyId}; add its jurisdiction before minting a link`,
+    };
+  }
+  const split =
+    jurisdiction.kind === 'config'
+      ? (() => {
+          const base = Math.round(amountCents);
+          if (!taxable) return { baseCents: base, taxCents: 0, totalCents: base, rate: 0 };
+          const taxCents = Math.round(base * jurisdiction.rate);
+          return { baseCents: base, taxCents, totalCents: base + taxCents, rate: jurisdiction.rate };
+        })()
+      : splitAddOnTax({
+          propertyId,
+          baseCents: amountCents,
+          chargeCreatedIso: new Date().toISOString().slice(0, 10),
+          taxable,
+        });
   const priceParams: Record<string, string> = {
     unit_amount: String(split.totalCents),
     currency: 'usd',
@@ -480,49 +557,41 @@ export async function checkPaymentLinkPaid(row: {
   property_id: string;
   stripe_link_id: string;
   paid_at?: string | null;
+  paid_session_id?: string | null;
 }): Promise<PaidCheck> {
+  // A confirmed receipt must not disappear because a later Stripe read
+  // fails, returns a partial page, or no longer lists that session.
+  const remembered: PaidCheck | null = row.paid_at ? {
+    ok: true, paid: true, paid_at: row.paid_at,
+    session_id: row.paid_session_id || '', customer_id: '', payment_method_id: '', sessions_seen: 0,
+  } : null;
   const stripeKey = getStripeKeysMap()[row.property_id];
   if (!stripeKey) {
+    if (remembered) return remembered;
     await stampPaidCheck(row.request_key, { error: 'no Stripe key for this property' });
     return { ok: false, error: 'no_key', detail: 'no Stripe key for this property' };
   }
-  let sessions = await stripeGetJson(stripeKey, 'checkout/sessions', {
-    payment_link: String(row.stripe_link_id),
-    limit: '10',
-    'expand[]': 'data.payment_intent',
+  const scan = await scanPaidSessions(async (after) => {
+    const params: Record<string, string> = {
+      payment_link: String(row.stripe_link_id), limit: '100',
+      ...(after ? { starting_after: after } : {}),
+    };
+    return await stripeGetJson(stripeKey, 'checkout/sessions', { ...params, 'expand[]': 'data.payment_intent' })
+      // Restricted keys may allow session reads but reject the expansion.
+      || await stripeGetJson(stripeKey, 'checkout/sessions', params);
   });
-  if (!sessions) {
-    // A restricted key without PaymentIntents READ refuses the expand
-    // outright. Paid detection must never depend on the expand: retry
-    // plain, and the card ids simply come back ''.
-    const errOut: { status?: number; message?: string } = {};
-    sessions = await stripeGetJson(
-      stripeKey,
-      'checkout/sessions',
-      { payment_link: String(row.stripe_link_id), limit: '10' },
-      errOut,
-    );
-    if (!sessions) {
-      const detail = `${errOut.status ?? ''} ${errOut.message ?? ''}`.trim();
-      await stampPaidCheck(row.request_key, { error: detail || 'stripe error' });
-      return { ok: false, error: 'stripe_error', detail };
-    }
+  if (!scan.ok) {
+    if (remembered) return remembered;
+    const detail = 'Could not completely verify payment status';
+    await stampPaidCheck(row.request_key, { error: detail });
+    return { ok: false, error: 'stripe_error', detail };
   }
-  const list =
-    (sessions.data as
-      | {
-          id?: string;
-          payment_status?: string;
-          created?: number;
-          customer?: string | null;
-          payment_intent?: { payment_method?: string | null } | string | null;
-        }[]
-      | undefined) ?? [];
-  const paidSession = list.find((s) => s.payment_status === 'paid');
+  const paidSession = scan.session;
+  if (!paidSession && remembered) return remembered;
   const pi = paidSession?.payment_intent;
   const paymentMethodId =
     pi && typeof pi === 'object' && typeof pi.payment_method === 'string' ? pi.payment_method : '';
-  const paidAt = paidSession?.created ? new Date(paidSession.created * 1000).toISOString() : '';
+  const paidAt = paidReceipt(row.paid_at, paidSession);
   await stampPaidCheck(row.request_key, {
     paid: !!paidSession,
     paidAt: paidAt || (paidSession ? new Date().toISOString() : ''),
@@ -536,7 +605,7 @@ export async function checkPaymentLinkPaid(row: {
     session_id: paidSession?.id || '',
     customer_id: typeof paidSession?.customer === 'string' ? paidSession.customer : '',
     payment_method_id: paymentMethodId,
-    sessions_seen: list.length,
+    sessions_seen: scan.seen,
   };
 }
 
@@ -642,13 +711,15 @@ type PaymentLinkLite = {
   amount_cents: number;
   deactivated_at: string | null;
   nudge_count: number | null;
+  paid_at: string | null;
+  paid_session_id: string | null;
 };
 
 export async function loadPaymentLinkLite(requestKey: string): Promise<PaymentLinkLite | null> {
   if (!isServiceConfigured || !requestKey) return null;
   const { data } = await supabase
     .from('payment_link_requests')
-    .select('property_id, stripe_link_id, amount_cents, deactivated_at, nudge_count')
+    .select('property_id, stripe_link_id, amount_cents, deactivated_at, nudge_count, paid_at, paid_session_id')
     .eq('request_key', requestKey)
     .maybeSingle();
   return (data as PaymentLinkLite | null) ?? null;
@@ -840,6 +911,9 @@ export async function nudgePaymentLink(requestKey: string): Promise<NudgeResult>
   const row = await loadPaymentLink(requestKey);
   if (!row) return { ok: false, error: 'unknown_request_key' };
   if (row.paid_at || row.deactivated_at) return { ok: false, error: 'closed' };
+  const payment = await checkPaymentLinkPaid(row);
+  if (!payment.ok) return { ok: false, error: 'send_failed', detail: 'Payment status could not be verified. Try again before sending a reminder.' };
+  if (payment.paid) return { ok: false, error: 'closed' };
   let phone = toE164(row.guest_phone);
   let guestName = row.guest_name;
   if (!phone) {

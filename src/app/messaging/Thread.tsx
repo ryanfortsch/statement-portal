@@ -30,6 +30,7 @@ type Props = {
   channel: string;
   module: string;
   listingId?: string;
+  stayContext?: { reservationId?: string; checkIn?: string; checkOut?: string };
   /** Sticky context bar content: guest name + stay meta. Omit both to skip
    * the bar (the approval card already carries this in its own header). */
   contextName?: string;
@@ -144,6 +145,7 @@ export function ThreadPanel({
   channel,
   module,
   listingId,
+  stayContext,
   contextName,
   contextMeta,
   canSend = false,
@@ -335,6 +337,7 @@ export function ThreadPanel({
           channel={channel}
           module={module}
           listingId={listingId}
+          stayContext={{ ...stayContext, guestFirst }}
           onSent={(text) => {
             // Optimistic append so the reply is visible instantly; the next
             // quiet refetch reconciles with Guesty's canonical thread.
@@ -523,12 +526,14 @@ function Composer({
   channel,
   module,
   listingId,
+  stayContext,
   onSent,
 }: {
   conversationId: string;
   channel: string;
   module: string;
   listingId?: string;
+  stayContext?: Props['stayContext'] & { guestFirst?: string };
   onSent: (text: string) => void;
 }) {
   const [text, setText] = useState('');
@@ -539,7 +544,7 @@ function Composer({
     setError(null);
     const body = text;
     startTransition(async () => {
-      const res = await sendThreadMessage(conversationId, body, module, listingId);
+      const res = await sendThreadMessage(conversationId, body, module, listingId, stayContext);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -575,7 +580,9 @@ function Composer({
       )}
       <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
         <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-          Sends through Guesty on this guest&rsquo;s channel
+          {conversationId.startsWith('helm:')
+            ? 'Sends by SMS from the GUESTS line (978) 865-2575'
+            : <>Sends through Guesty on this guest&rsquo;s channel</>}
         </span>
         <button
           type="button"

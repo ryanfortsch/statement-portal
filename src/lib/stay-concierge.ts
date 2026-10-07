@@ -14,9 +14,12 @@
  * should render a setup hint instead of crashing the page.
  */
 
+import type { MessageOutcomeCarrier } from '@/lib/message-outcomes';
+import type { RentalInquiry } from '@/lib/rental-inquiry';
+
 import type { ConciergeAttention } from '@/lib/concierge-alerts';
 
-export type Approval = {
+export type Approval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   /** Undo rail (2026-09-20), on /approvals/recent rows only: a rejected or
@@ -54,6 +57,12 @@ export type Approval = {
   /** Mined add-on charge (Tesla charger, pet fee, early check-in fee) with
    * its Stripe payment link. Null/absent for ordinary cards. */
   addon?: AddonCharge | null;
+  /** Note to a teammate this reply commits us to. Null/absent for ordinary
+   * cards. See TeamHandoff. */
+  handoff?: TeamHandoff | null;
+  rental_inquiry?: RentalInquiry | null;
+  schedule_update?: import('./checkout-commitment').ScheduleUpdate | null;
+  maintenance_work?: { status: string; slip_id: string; title: string; error: string } | null;
   /** The guest's email, when the card's channel knows it: a 2027 request
    * carries it in its own sidecar, an email card IS an address. Empty on OTA
    * chat. Helm uses it to open the quote composer complete and to find this
@@ -85,7 +94,7 @@ export type AddonCharge = {
   amount_usd: number;
   /** Empty when link creation failed; see link_error. */
   payment_link_url: string;
-  /** '' | 'no_key' | 'stripe_permission' | 'stripe_error' | 'amount_out_of_range' */
+  /** '' | 'no_key' | 'stripe_permission' | 'stripe_error' | 'amount_out_of_range' | 'tax_jurisdiction_unknown' */
   link_error: string;
   /** The exact SMS that will send on approve (already contains the link). */
   sms_body: string;
@@ -93,6 +102,43 @@ export type AddonCharge = {
   guest_phone: string;
   /** UTC ISO when the guest completed checkout; '' / absent = not yet paid. */
   paid_at?: string;
+};
+
+/** A note to a TEAMMATE that this guest reply commits us to, composed at
+ * draft time so the operator sees the exact text before she approves.
+ *
+ * The reply says "11am works, you're all set" and Rosa has to plan the
+ * turnover around it. Leaving the box ticked files this as a PENDING card in
+ * that audience's own queue (/cleaner-messaging, /contractor-messaging,
+ * /owner-messaging), where it waits for a second approve. Nothing sends from
+ * the guest card. Absent on ordinary cards, and absent once the teammate card
+ * exists, so a re-opened card never offers to file a duplicate. */
+export type TeamHandoff = {
+  /** True when the teammate card ALREADY EXISTS: this reply was approved, or
+   * another module filed it off the same inbound message (early_checkout does,
+   * because an empty house cannot wait on a reply being approved). The block
+   * renders read-only rather than disappearing, so the operator can see from
+   * the guest queue that the crew was told. */
+  filed: boolean;
+  note_status?: string;
+  preview_token?: string;
+  audience: 'cleaner' | 'contractor' | 'owner';
+  /** Rosa, the handyman, the owner. '' when the roster had no name. */
+  target_name: string;
+  /** E.164 line the teammate card will send on. */
+  target_contact: string;
+  /** Short why, e.g. "checkout moved to 11am". */
+  reason: string;
+  /** What will SEND. Portuguese for a cleaner (#1614: stored is sent). */
+  preview: string;
+  /** The English alongside it, '' when the send language is already English. */
+  preview_english: string;
+  /** 'today' | 'soon' | 'routine' */
+  urgency: string;
+  /** 'high' | 'medium' | 'low' */
+  confidence: string;
+  /** Non-empty when a previous approve failed to file the card. */
+  create_error: string;
 };
 
 export type ApprovalsResponse = {
@@ -147,7 +193,13 @@ export type MessagingStats = {
 
 export type StayConciergeError =
   | { kind: 'unconfigured' }
-  | { kind: 'http'; status: number; detail: string }
+  // fromService: the body was the concierge's own JSON error ({"detail": ...}).
+  // A 502 can come from two very different places and only this tells them
+  // apart: the concierge raises 502 WITH a JSON detail when a send fails, while
+  // the Cloudflare Tunnel answers a bare 502 when the concierge is down. The
+  // tunnel's body is not JSON, so `detail` then falls back to the HTTP status
+  // text ("Bad Gateway"), which is non-empty, so "has a detail" cannot be the test.
+  | { kind: 'http'; status: number; detail: string; fromService?: boolean }
   | { kind: 'network'; message: string };
 
 // A hung Cloudflare tunnel (sleepy Mac Mini) used to stall a render for the
@@ -196,13 +248,18 @@ async function request<T>(
     });
     if (!res.ok) {
       let detail = '';
+      let fromService = false;
       try {
         const j = (await res.json()) as { detail?: string };
         detail = j?.detail || '';
+        fromService = j !== null && typeof j === 'object' && 'detail' in j;
       } catch {
         detail = await res.text().catch(() => '');
       }
-      return { ok: false, error: { kind: 'http', status: res.status, detail: detail || res.statusText } };
+      return {
+        ok: false,
+        error: { kind: 'http', status: res.status, detail: detail || res.statusText, fromService },
+      };
     }
     const data = (await res.json()) as T;
     return { ok: true, data };
@@ -394,15 +451,40 @@ export async function endRecurring(id: string) {
 }
 
 export async function listApprovals() {
-  return request<ApprovalsResponse>('/api/approvals');
+  return withMessageOutcomes(request<ApprovalsResponse>('/api/approvals'));
 }
 
 export async function listRecentApprovals(hours = 24) {
-  return request<ApprovalsResponse>(`/api/approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<ApprovalsResponse>(`/api/approvals/recent?hours=${hours}`));
 }
 
-export async function approveApproval(id: string, opts?: { sendAddonSms?: boolean; actor?: string }) {
-  return request<{ status: string; id: string }>(`/api/approvals/${id}/approve`, {
+/** Only the overrides the card actually carries travel; an ordinary approval
+ * keeps its empty-body shape. Pass the RAW object: request() stringifies, and
+ * pre-stringifying double-encoded it into a JSON string, which FastAPI
+ * rejected with a 422 on every addon-carrying approve (2026-08-20). */
+export type FollowupOptions = {
+  sendAddonSms?: boolean;
+  createHandoff?: boolean;
+  cleanerAction?: 'skip' | 'draft' | 'send';
+  workAction?: 'skip' | 'create';
+  previewToken?: string;
+};
+
+export function buildApproveBody(opts?: FollowupOptions) {
+  const body: Record<string, boolean | string> = {};
+  if (opts?.sendAddonSms !== undefined) body.send_addon_sms = opts.sendAddonSms;
+  if (opts?.createHandoff !== undefined) body.create_handoff = opts.createHandoff;
+  if (opts?.cleanerAction !== undefined) body.cleaner_action = opts.cleanerAction;
+  if (opts?.workAction !== undefined) body.work_action = opts.workAction;
+  if (opts?.cleanerAction === 'send' && opts.previewToken) body.preview_token = opts.previewToken;
+  return Object.keys(body).length > 0 ? body : undefined;
+}
+
+export async function approveApproval(
+  id: string,
+  opts?: FollowupOptions & { actor?: string },
+) {
+  return request<{ status: string; id: string; followup_warning?: string }>(`/api/approvals/${id}/approve`, {
     method: 'POST',
     actor: opts?.actor,
     // Only travels when the card carries an addon; ordinary approvals keep
@@ -410,10 +492,7 @@ export async function approveApproval(id: string, opts?: { sendAddonSms?: boolea
     // and pre-stringifying here double-encoded the body into a JSON string,
     // which FastAPI rejected with a 422 on every addon-carrying approve
     // (Leah / 3 Locust EV fee, 2026-08-20).
-    body:
-      opts && opts.sendAddonSms !== undefined
-        ? { send_addon_sms: opts.sendAddonSms }
-        : undefined,
+    body: buildApproveBody(opts),
   });
 }
 
@@ -486,10 +565,10 @@ export function explainUndoRefusal(detail: string): string {
 }
 
 /** Queue an approved draft to send later. sendAtUtc is a UTC ISO string. */
-export async function scheduleApproval(id: string, sendAtUtc: string) {
+export async function scheduleApproval(id: string, sendAtUtc: string, opts?: FollowupOptions) {
   return request<{ status: string; id: string; send_at: string }>(
     `/api/approvals/${id}/schedule`,
-    { method: 'POST', body: { send_at: sendAtUtc } },
+    { method: 'POST', body: { send_at: sendAtUtc, ...buildApproveBody(opts) } },
   );
 }
 
@@ -584,7 +663,7 @@ export async function sendConversationMessage(
    * concierge queues a scheduled card on the shared dispatcher rail
    * (Send now / Cancel in the Inbox queue, guest-reply revert). */
   schedule?: {
-    sendAtUtc: string;
+    sendAtUtc?: string;
     guestFirst?: string;
     reservationId?: string;
     checkIn?: string;
@@ -619,7 +698,7 @@ export async function sendConversationMessage(
 
 // ── Owner-messaging surface (mirrors the guest one) ──────────────────────
 
-export type OwnerApproval = {
+export type OwnerApproval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   channel: string;            // 'sms_quo' | 'email_gmail'
@@ -644,6 +723,7 @@ export type OwnerApproval = {
    *  heads-up cards for the cleaning crew, mined from the owner's message
    *  (2026-09-23). Empty or absent when the message asked for nothing. */
   proposed_actions?: OwnerProposedAction[];
+  followup_status?: { state: string; enabled: number; error: string };
   /** Exactly who an approved reply reaches, and the identity it leaves as.
    *  The service computes this with the same code that sends, so the card
    *  cannot advertise a recipient the send would not use. Absent when the
@@ -739,6 +819,18 @@ export type OwnerProposedAction =
       note_en: string;
       /** The same line in Portuguese, which is what the crew receives. */
       note_pt: string;
+    }
+  | {
+      /** The owner asked for someone to be added to, or dropped from, their
+       *  statement emails. Approving writes properties.owner_emails and an
+       *  owner contact card via /api/owner-recipients. */
+      kind: 'statement_recipient';
+      op: 'add' | 'remove';
+      email: string;
+      /** The person's name when the owner gave one. */
+      name?: string;
+      /** One line for the operator. */
+      why: string;
     };
 
 export type OwnerApprovalsResponse = {
@@ -747,11 +839,11 @@ export type OwnerApprovalsResponse = {
 };
 
 export async function listOwnerApprovals() {
-  return request<OwnerApprovalsResponse>('/api/owner-approvals');
+  return withMessageOutcomes(request<OwnerApprovalsResponse>('/api/owner-approvals'));
 }
 
 export async function listRecentOwnerApprovals(hours = 24) {
-  return request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<OwnerApprovalsResponse>(`/api/owner-approvals/recent?hours=${hours}`));
 }
 
 export async function approveOwnerApproval(
@@ -774,19 +866,19 @@ export async function rejectOwnerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/reject`, { method: 'POST' });
 }
 
-export async function markHandledOwnerApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST' });
+export async function markHandledOwnerApproval(id: string, fileActions = true) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST', body: { file_actions: fileActions } });
 }
 
 /** Queue an owner draft to send at a future UTC ISO time. `finalText` is the
  * operator's hand-edited reply (same contract as approve): it persists before
  * scheduling so the queued send fires the edited text. */
-export async function scheduleOwnerApproval(id: string, sendAtUtc: string, finalText?: string) {
+export async function scheduleOwnerApproval(id: string, sendAtUtc: string, finalText?: string, fileActions = true) {
   return request<{ status: string; id: string; send_at: string }>(
     `/api/owner-approvals/${id}/schedule`,
     {
       method: 'POST',
-      body: { send_at: sendAtUtc, ...(finalText !== undefined ? { final_text: finalText } : {}) },
+      body: { send_at: sendAtUtc, file_actions: fileActions, ...(finalText !== undefined ? { final_text: finalText } : {}) },
     },
   );
 }
@@ -945,7 +1037,7 @@ export type ProposedWorkSlip = {
   note: string;
 };
 
-export type CleanerApproval = {
+export type CleanerApproval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   channel: string;                  // 'sms_quo'
@@ -980,11 +1072,11 @@ export type CleanerApprovalsResponse = {
 };
 
 export async function listCleanerApprovals() {
-  return request<CleanerApprovalsResponse>('/api/cleaner-approvals');
+  return withMessageOutcomes(request<CleanerApprovalsResponse>('/api/cleaner-approvals'));
 }
 
 export async function listRecentCleanerApprovals(hours = 24) {
-  return request<CleanerApprovalsResponse>(`/api/cleaner-approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<CleanerApprovalsResponse>(`/api/cleaner-approvals/recent?hours=${hours}`));
 }
 
 /** Approve a cleaner draft. `opts` carries the operator's decision on the
@@ -1062,7 +1154,7 @@ export async function saveCleanerCuratedFacts(content: string) {
 // are no PT/EN translation fields, so ContractorApproval drops
 // cleaner_text_english / inbound_language / draft_english.
 
-export type ContractorApproval = {
+export type ContractorApproval = MessageOutcomeCarrier & {
   id: string;
   short_id: string;
   channel: string;                  // 'sms_quo'
@@ -1094,11 +1186,11 @@ export type ContractorApprovalsResponse = {
 };
 
 export async function listContractorApprovals() {
-  return request<ContractorApprovalsResponse>('/api/contractor-approvals');
+  return withMessageOutcomes(request<ContractorApprovalsResponse>('/api/contractor-approvals'));
 }
 
 export async function listRecentContractorApprovals(hours = 24) {
-  return request<ContractorApprovalsResponse>(`/api/contractor-approvals/recent?hours=${hours}`);
+  return withMessageOutcomes(request<ContractorApprovalsResponse>(`/api/contractor-approvals/recent?hours=${hours}`));
 }
 
 /** Approve a contractor draft. `opts` carries the operator's decision on the
@@ -1373,10 +1465,28 @@ export function explainError(error: StayConciergeError): string {
   if (error.status === 400 && error.detail === 'send_at_in_past') {
     return 'That time has already passed. Pick a time a little further out.';
   }
-  if (error.status === 503) return 'Guesty is in OAuth cooldown. Try again in a minute.';
-  // 502/504 from the Cloudflare Tunnel mean the stay-concierge origin is down or
-  // mid-restart, NOT a send failure. This surfaces on plain list calls too, so
-  // keep the message generic to the service rather than implying a draft action.
+  // Dotti, 2026-10-05, approving April's courtesy ack: Helm said "unreachable
+  // (it may be restarting)" while the concierge had been up for an hour. Guesty
+  // had refused the send with a 429. Both 503s below mean Guesty REFUSED the
+  // request, so nothing reached the guest and the card is back to pending.
+  if (error.status === 503 && error.detail === 'guesty_rate_limited')
+    return 'Guesty is rate-limiting us and refused the send, so nothing went out. Try again in a minute.';
+  if (error.status === 503)
+    return 'Guesty is in OAuth cooldown, so nothing went out. Try again in a minute.';
+  // A 502 the CONCIERGE raised (JSON detail) is a send that failed after it
+  // left us, which is a very different thing from the service being down.
+  // guesty_send_failed now only covers a timeout or 5xx from Guesty (a 429 is
+  // the 503 above), and either may have been processed, so this does not
+  // promise nothing went out: it says to look first, which avoids a double send.
+  if (error.status === 502 && error.fromService) {
+    if (error.detail === 'guesty_send_failed')
+      return "Guesty didn't confirm the send. Check the conversation before trying again, in case it went through.";
+    const what = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+    return `The send failed (${what}). Check the conversation before trying again.`;
+  }
+  // A 502/504 that is NOT the concierge's JSON is the Cloudflare Tunnel saying
+  // the origin is down or mid-restart. This surfaces on plain list calls too,
+  // so keep it generic to the service rather than implying a draft action.
   if (error.status === 502 || error.status === 504)
     return 'Messaging service is unreachable (it may be restarting). Try again in a moment.';
   // detail can be a FastAPI validation payload (an array of error objects);
@@ -1521,4 +1631,45 @@ export async function dismissReflectionProposal(id: string, reason: string, acto
     `/api/reflection/proposals/${encodeURIComponent(id)}/dismiss`,
     { method: 'POST', body: { reason }, actor },
   );
+}
+
+export async function listWorkFollowups() {
+  return request<{
+    owner_items: { id: string; property_id: string; owner_name: string; state: string; error: string }[];
+    delivery_items: { id: string; property_id: string; title: string; error: string; attempts: number }[];
+  }>('/api/work-followups');
+}
+
+export async function markMaintenanceDismissed(id: string) {
+  return request<{ ok: boolean }>(`/api/approvals/${id}/maintenance_dismissed`, { method: 'POST' });
+}
+
+type StayConciergeResult<T> = { ok: true; data: T } | { ok: false; error: StayConciergeError };
+
+async function withMessageOutcomes<T extends { approvals: import('./message-outcomes').OutcomeSource[] }>(pending: Promise<StayConciergeResult<T>>): Promise<StayConciergeResult<T>> {
+  const result = await pending;
+  if (!result.ok) return result;
+  try {
+    const { enrichMessageOutcomes } = await import('./message-outcomes-server');
+    return { ...result, data: { ...result.data, approvals: await enrichMessageOutcomes(result.data.approvals) } };
+  } catch {
+    return { ...result, data: { ...result.data, approvals: result.data.approvals.map(a => ({ ...a, outcomes: { work: [], notes: a.followup_refs?.notes ?? [], error: 'Linked work status could not be checked.' } })) } };
+  }
+}
+
+export type InboxHealthResponse = {
+  channels: { id: string; label: string; status: string; coverage: string; detail: string; checked_at: number | null; success_at: number | null }[];
+  unresolved: { channel: string; source_id: string; status: string; detail: string; updated_at: number }[];
+  unresolved_count: number;
+  unmatched_count: number;
+};
+
+export function getInboxHealth() {
+  return request<InboxHealthResponse>('/api/inbox-health');
+}
+
+/** Search uses approval records only; avoid expensive work/visit enrichment for every result. */
+export async function listInboxSearchApprovals(audience: import('./inbox-search').InboxAudience, recent = false) {
+  const paths = { guests: 'approvals', owners: 'owner-approvals', cleaners: 'cleaner-approvals', contractors: 'contractor-approvals' };
+  return request<{ approvals: import('./inbox-search').SearchableApproval[]; count: number }>(`/api/${paths[audience]}${recent ? '/recent?hours=168' : ''}`);
 }

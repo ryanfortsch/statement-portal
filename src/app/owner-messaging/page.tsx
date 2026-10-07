@@ -1,7 +1,8 @@
+import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingFooter } from '@/components/MessagingFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -52,7 +53,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       <div style={{ flex: 1 }} />
 
-      <HelmFooter left="Stay Concierge · owner drafts via Opus 4.7" />
+      <MessagingFooter />
     </div>
   );
 }
@@ -174,6 +175,7 @@ export default function OwnerMessagingPage() {
       <Suspense fallback={<QueueSkeleton />}>
         <OwnerQueueSection />
       </Suspense>
+      <Suspense fallback={null}><RecentMessageOutcomesSection audience="owners" /></Suspense>
       <Suspense fallback={null}>
         <ProposedUpdatesSection />
       </Suspense>

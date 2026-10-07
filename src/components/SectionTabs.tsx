@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 /**
  * The one tab-strip primitive for Helm's section sub-navigation. Every
@@ -25,6 +25,7 @@ export type SectionTab = {
   label: string;
   href: string;
   badge?: ReactNode;
+  badgeOutside?: boolean;
 };
 
 export function SectionTabs({
@@ -37,6 +38,7 @@ export function SectionTabs({
   secondRow?: ReactNode;
 }) {
   const pathname = usePathname();
+  const strip = useRef<HTMLElement>(null);
 
   let activeId = current;
   if (activeId === undefined) {
@@ -52,12 +54,22 @@ export function SectionTabs({
     }
   }
 
+  useEffect(() => {
+    const container = strip.current;
+    const active = container?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!container || !active) return;
+    const left = active.getBoundingClientRect().left - container.getBoundingClientRect().left + container.scrollLeft;
+    if (left < container.scrollLeft || left + active.offsetWidth > container.scrollLeft + container.clientWidth) {
+      container.scrollLeft = Math.max(0, left - 12);
+    }
+  }, [activeId]);
+
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20, paddingBottom: 4 }}>
-      <div className="flex items-baseline" style={{ gap: 28, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
+    <section className="max-w-[1100px] mx-auto px-10 rt-section-tabs" style={{ width: '100%', paddingTop: 20, paddingBottom: 4 }}>
+      <nav ref={strip} aria-label="Section navigation" className="flex items-baseline rt-tab-strip" style={{ gap: 28, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
         {tabs.map((t) => {
           const isActive = t.id === activeId;
-          return (
+          const label = (
             <Link
               key={t.id}
               href={t.href}
@@ -76,11 +88,14 @@ export function SectionTabs({
               }}
             >
               {t.label}
-              {t.badge}
+              {!t.badgeOutside && t.badge}
             </Link>
           );
+          return t.badgeOutside ? <span key={t.id} className="rt-tab-with-badge" style={{ display: 'inline-flex', alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+            {label}{t.badge}
+          </span> : label;
         })}
-      </div>
+      </nav>
       {secondRow}
     </section>
   );

@@ -334,6 +334,9 @@ export type OnboardingData = {
   // STR
   currently_listed?: string;
   listing_urls?: string;
+  /** MA DOR Room Occupancy Certificate #, lands in properties.tax_cert_id. */
+  room_occupancy_cert?: string;
+  /** Local (city/town) STR permit #, lands in properties.str_registration_id. */
   str_registration?: string;
   str_insurance?: string;
   guest_access_method?: string;

@@ -1,5 +1,11 @@
 'use client';
 
+import { Fragment } from 'react';
+import { InboxFollowup } from '@/components/InboxFollowup';
+
+import { MobileInboxReview } from '@/components/MobileInboxReview';
+
+import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
@@ -57,29 +63,31 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
     softRefresh();
   }, [refresh, softRefresh]);
 
-  // Queued (scheduled) cards float to the top, ordered by when they fire;
-  // pending drafts stay in newest-first order below (guest-queue pattern).
+  // Decisions first; scheduled sends stay visible in their own group.
   const queued = approvals
     .filter((a) => a.status === 'scheduled')
     .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
   const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const ordered = [...queued, ...pending];
+  const ordered = [...pending, ...queued];
   const title =
     approvals.length === 0
       ? 'Inbox zero'
       : pending.length === 0
-        ? `Queued (${queued.length})`
-        : `Pending (${pending.length})${queued.length ? ` · ${queued.length} queued` : ''}`;
+        ? `Scheduled (${queued.length})`
+        : `Needs review (${pending.length})`;
 
   return (
     <Section
+      id="needs-review"
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}
       emptyMessage="No cleaner-manager drafts waiting. Texts from Rosa or Nina show up here automatically."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval) => (
+        {ordered.map((approval, index) => (
+          <Fragment key={approval.id}>
+          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
           <CleanerApprovalCard
             key={approval.id}
             approval={approval}
@@ -88,6 +96,7 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
             onRegenerating={watchRegen}
             regenStalled={stalledId === approval.id}
           />
+          </Fragment>
         ))}
       </div>
     </Section>
@@ -237,8 +246,11 @@ function CleanerApprovalCard({
   // Collapsed queued card: a single dense row so waiting sends stay quiet.
   if (isScheduled && !expanded) {
     return (
-      <article
+      <MobileInboxReview id={approval.id} name={nameLabel} property={approval.property_name || ''} preview={approval.cleaner_text} channel={'SMS'} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={showCoach || showSchedule}>
+    <article
+        id={`approval-${approval.id}`}
         ref={cardRef}
+        className="rt-message-card"
         style={{
           border: '1px solid var(--rule)',
           borderLeft: `3px solid ${QUEUED_TONE}`,
@@ -292,13 +304,18 @@ function CleanerApprovalCard({
             {error}
           </p>
         )}
-      </article>
+          <MessageOutcomes value={approval.outcomes} />
+    </article>
+    </MobileInboxReview>
     );
   }
 
   return (
+    <MobileInboxReview id={approval.id} name={nameLabel} property={approval.property_name || ''} preview={approval.cleaner_text} channel={'SMS'} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={showCoach || showSchedule}>
     <article
+      id={`approval-${approval.id}`}
       ref={cardRef}
+      className="rt-message-card"
       style={{
         border: '1px solid var(--rule)',
         borderLeft: isScheduled ? `3px solid ${QUEUED_TONE}` : '1px solid var(--rule)',
@@ -342,7 +359,7 @@ function CleanerApprovalCard({
             Hide ▴
           </button>
         ) : (
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={approval.created_at}>
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`${approval.created_at} · ${approval.short_id}`}>
             {'drafted '}
             <span
               style={{
@@ -352,8 +369,6 @@ function CleanerApprovalCard({
             >
               {ageLabel}
             </span>
-            {' · id '}
-            {approval.short_id}
           </span>
         )}
       </header>
@@ -378,18 +393,8 @@ function CleanerApprovalCard({
       </div>
 
       {slip && (
-        <div
-          style={{
-            marginTop: 16,
-            border: '1px solid var(--rule)',
-            borderLeft: `3px solid ${SLIP_TONE}`,
-            background: 'var(--paper)',
-            padding: '12px 14px',
-          }}
-        >
-          <div className="eyebrow" style={{ color: SLIP_TONE, marginBottom: 8 }}>
-            Work slip on approval
-          </div>
+        <InboxFollowup title={`Work slip · ${slip.title}`} attention={slipBlocked}
+          status={slipBlocked ? 'Select property' : fileSlip ? 'Create when approved' : 'Skip'}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>
               {slip.title}
@@ -440,7 +445,7 @@ function CleanerApprovalCard({
               Pick a property for the slip (or untick it).
             </p>
           )}
-        </div>
+        </InboxFollowup>
       )}
 
       {error && (
@@ -450,6 +455,7 @@ function CleanerApprovalCard({
       )}
 
       <footer
+        className="rt-message-actions"
         style={{
           marginTop: 18,
           display: 'flex',
@@ -516,7 +522,10 @@ function CleanerApprovalCard({
                     : 'Coach the AI'}
               </SecondaryButton>
             )}
-            <SecondaryButton
+            <details className="rt-message-options">
+              <summary>More actions</summary>
+              <div className="rt-message-options-body">
+                <SecondaryButton
               onClick={() => run('mark-handled', () => markCleanerHandled(approval.id))}
               disabled={busy}
               title="Already replied directly. Clears the queue without sending."
@@ -530,6 +539,8 @@ function CleanerApprovalCard({
             >
               {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
             </SecondaryButton>
+              </div>
+            </details>
           </>
         )}
       </footer>
@@ -606,7 +617,9 @@ function CleanerApprovalCard({
           </div>
         </div>
       )}
+      <MessageOutcomes value={approval.outcomes} />
     </article>
+    </MobileInboxReview>
   );
 }
 

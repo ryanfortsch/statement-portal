@@ -45,6 +45,13 @@ export function EditFormShell({
     for (const [k, v] of fd.entries()) {
       if (typeof v === 'string') out[k] = v;
     }
+    // FormData omits unchecked boxes. Record them explicitly so unchecking
+    // an amenity is detected as a change and can be restored later.
+    for (const el of form.elements) {
+      if (el instanceof HTMLInputElement && el.type === 'checkbox' && el.name && !el.disabled) {
+        out[el.name] = el.checked ? el.value : '';
+      }
+    }
     return out;
   }, []);
 
@@ -98,7 +105,9 @@ export function EditFormShell({
       if (!form || !values) return;
       for (const [name, value] of Object.entries(values)) {
         const el = form.elements.namedItem(name);
-        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+        if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+          el.checked = value !== '';
+        } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
           el.value = value;
         }
       }

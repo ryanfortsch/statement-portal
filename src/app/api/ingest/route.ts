@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { bookingTransferCorroborates } from '@/lib/booking-bank-corroboration';
 import { matchProperty, loadListingMatches } from '@/lib/listing-match';
 import { reportMissingStripeKey, syncPropertyStripe, getStripeKeysMap, type StripeSyncResult } from '@/lib/stripe-sync';
 import { cachePlatformCSV, loadCachedPlatformCSVText } from '@/lib/platform-csv-cache';
@@ -26,6 +27,7 @@ import { writeStatementTotals, type FreezeReceipt } from '@/lib/statement-totals
 import { loadAddOnTotals } from '@/lib/statement-addons';
 import { detectMissingDirectStays, missingDirectGapRows } from '@/lib/missing-direct-stays';
 import { splitFolio } from '@/lib/remittance';
+import { isVrboFlatCommissionBooking } from '@/lib/vrbo-commission';
 
 // Service role so future UPDATEs don't silently no-op. Anon has
 // INSERT/DELETE policies on reservations/cleaning_events/data_gaps but
@@ -314,6 +316,12 @@ function calcStripeFee(processedAmount: number): number {
  * remains the fallback for rows Guesty gave us no folio for, which is the
  * pre-folio historical shape and exactly the population the kludge lives in.
  *
+ * A Vrbo booking made on or after Vrbo's flat-12% cutoff carries its real
+ * commission as given: the ratio rule would read 12% as the kludge and cut
+ * it to 5%. `bookedAt` is guesty_reservations.booked_at; see
+ * lib/vrbo-commission.ts. Null (every row before 2026-09-02) keeps the old
+ * rule, which is right for those bookings.
+ *
  * Returns a safe effective_commission plus whether a legacy adjustment
  * was applied so we can flag it in the statement audit trail.
  */
@@ -323,8 +331,9 @@ function stripLegacyCommissionKludge(args: {
   totalTaxes: number;
   commission: number;
   folioPreTax?: number | null;
+  bookedAt?: string | null;
 }): { effective: number; hadKludge: boolean } {
-  const { platform, totalPaid, totalTaxes, commission, folioPreTax } = args;
+  const { platform, totalPaid, totalTaxes, commission, folioPreTax, bookedAt } = args;
   if (!commission || commission <= 0) return { effective: 0, hadKludge: false };
   const base = folioPreTax && folioPreTax > 0
     ? folioPreTax
@@ -338,6 +347,8 @@ function stripLegacyCommissionKludge(args: {
     return { effective: commission, hadKludge: false };
   }
   if (p.includes('HOMEAWAY') || p === 'VRBO') {
+    // Booked under Vrbo's flat 12%: the commission is real, never the kludge.
+    if (isVrboFlatCommissionBooking(bookedAt)) return { effective: commission, hadKludge: false };
     // Real VRBO commission = 5% of the pre-tax booking total. Above 7% = kludge.
     if (ratio > 0.07) {
       const cleaned = Math.round(base * 0.05 * 100) / 100;
@@ -733,12 +744,13 @@ export async function POST(request: NextRequest) {
       channel_commission: number | null;
       owner_net_revenue_guesty: number | null;
       folio_items: unknown;
+      booked_at: string | null;
     };
     const guestyLookupMap = new Map<string, GuestyLookup>();
     if (codes.length > 0) {
       const { data: guestyRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, guest_name, channel, guesty_channel_id, status, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, folio_items')
+        .select('confirmation_code, guest_name, channel, guesty_channel_id, status, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, folio_items, booked_at')
         .in('confirmation_code', codes);
       (guestyRows || []).forEach(r => {
         if (r.confirmation_code) guestyLookupMap.set(r.confirmation_code, r);
@@ -804,6 +816,7 @@ export async function POST(request: NextRequest) {
       total_taxes: number | null;
       channel_commission: number | null;
       owner_net_revenue_guesty: number | null;
+      booked_at: string | null;
     };
     const syntheticInstallments: Installment[] = installmentsThisMonth.filter(i => !codes.includes(i.confirmation_code));
     const synthGuestyByCode = new Map<string, SynthGuesty>();
@@ -814,7 +827,7 @@ export async function POST(request: NextRequest) {
       const synthCodes = syntheticInstallments.map(i => i.confirmation_code);
       const { data: synthRows } = await supabase
         .from('guesty_reservations')
-        .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty')
+        .select('confirmation_code, guest_name, check_in, check_out, nights, channel, guesty_channel_id, total_paid, total_taxes, channel_commission, owner_net_revenue_guesty, booked_at')
         .in('confirmation_code', synthCodes);
       (synthRows || []).forEach(r => {
         if (r.confirmation_code) synthGuestyByCode.set(r.confirmation_code, r as SynthGuesty);
@@ -1036,7 +1049,7 @@ export async function POST(request: NextRequest) {
     // in the statement window corroborates the channel paid us. Window runs
     // 60 days past month end because Booking.com payouts lag checkout.
     // Tolerates the booking_account_activity migration not having run yet.
-    let centralBookingTransfers = 0;
+    let centralBookingTransfers: number[] = [];
     {
       const windowStart = `${month}-01`;
       const windowEndD = new Date(`${month}-01T00:00:00Z`);
@@ -1045,7 +1058,7 @@ export async function POST(request: NextRequest) {
       const windowEnd = windowEndD.toISOString().slice(0, 10);
       const { data: centralRows, error: centralErr } = await supabase
         .from('booking_account_activity')
-        .select('id')
+        .select('amount')
         .eq('property_id', propertyId)
         .eq('kind', 'property_transfer')
         .gte('posting_date', windowStart)
@@ -1053,7 +1066,7 @@ export async function POST(request: NextRequest) {
       if (centralErr && centralErr.code !== 'PGRST205' && !/does not exist|relation|Could not find the table/i.test(centralErr.message || '')) {
         console.warn('booking_account_activity read skipped:', centralErr.message);
       }
-      centralBookingTransfers = (centralRows || []).length;
+      centralBookingTransfers = (centralRows || []).map(r => Number(r.amount) || 0);
     }
 
     // Cancellation payouts (src/lib/cancellation-payout-match.ts). An
@@ -1236,6 +1249,20 @@ export async function POST(request: NextRequest) {
     // Collected, never recognized; reported below.
     const outOfMonthRows: { code: string; guest: string; checkOut: string; amount: number }[] = [];
 
+    // All of the month's Booking.com stays together, for a batched *5623
+    // payout (see lib/booking-bank-corroboration). Same platform waterfall
+    // and checkout-month test as the loop below.
+    const monthBookingIncome = reservations
+      .filter(r => (r.check_out || '').slice(0, 7) === month)
+      .filter(r => {
+        const p =
+          normalizePlatform(platformMap[r.confirmation_code]?.platform) ||
+          normalizePlatform(guestyLookupMap.get(r.confirmation_code)?.guesty_channel_id) ||
+          normalizePlatform(guestyLookupMap.get(r.confirmation_code)?.channel) || '';
+        return p.toUpperCase().includes('BOOKING');
+      })
+      .reduce((t, r) => t + (r.rental_income || 0), 0);
+
     for (const res of reservations) {
       // ── Statement-month gate ──────────────────────────────────────────
       // Revenue is recognized at CHECKOUT (see CLAUDE.md "Recognition").
@@ -1333,6 +1360,7 @@ export async function POST(request: NextRequest) {
             totalTaxes,
             commission: rawCommission,
             folioPreTax: folio.hasFolio ? folio.preTax : null,
+            bookedAt: guestyInfo?.booked_at ?? null,
           });
           stripeFee = calcStripeFee(totalPaid);
           adjustedRevenue = Math.round((totalPaid - totalTaxes - effCommission - stripeFee) * 100) / 100;
@@ -1469,21 +1497,11 @@ export async function POST(request: NextRequest) {
             bankMatch = { amount: deposits[exactIdx].amount, status: 'matched' };
             deposits.splice(exactIdx, 1);
           } else {
-            // Booking.com often handles payouts internally; mark as covered if we see
-            // any Booking.com activity (debits for commissions mean they're managing the property)
-            const hasBookingActivity = bankRows.some(r => {
-              const d = r['Description'] || '';
-              return d.toUpperCase().includes('BOOKING.COM') || d.toUpperCase().includes('BOOKING COM');
-            });
-            if (hasBookingActivity) {
-              bankMatch = { amount: res.rental_income, status: 'matched' };
-            } else if (centralBookingTransfers > 0) {
-              // The payout landed in the central Bookingcom Deposits account
-              // (...5623) and was transferred to this property's checking in
-              // the statement window -- corroborated even though nothing
-              // Booking.com-labeled appears in the property's own bank CSV.
-              bankMatch = { amount: res.rental_income, status: 'matched' };
-            }
+            // Corroborated only by a forwarded *5623 transfer whose amount
+            // accounts for this stay (or the month's batched payout). Mere
+            // Booking.com activity is not evidence this stay was paid.
+            const hit = bookingTransferCorroborates(res.rental_income, monthBookingIncome, centralBookingTransfers);
+            if (hit != null) bankMatch = { amount: hit, status: 'matched' };
           }
         }
       }
@@ -1596,6 +1614,7 @@ export async function POST(request: NextRequest) {
         const rawCommission = synth.channel_commission ?? 0;
         const { effective: effCommission } = stripLegacyCommissionKludge({
           platform, totalPaid, totalTaxes, commission: rawCommission,
+          bookedAt: synth.booked_at ?? null,
         });
         bookingStripeFee = calcStripeFee(totalPaid);
         // adjusted_revenue full = totalPaid - taxes - commission - fee

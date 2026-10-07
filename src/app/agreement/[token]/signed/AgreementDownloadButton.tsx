@@ -1,30 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { usePdfDownload } from '@/lib/use-pdf-download';
 
-/**
- * "Download a copy" on the agreement confirmation page. The PDF endpoint
- * takes 5-10s (cold Puppeteer render), so the button shifts into a
- * preparing state on click — the guest knows the request registered.
- * Mirrors the owner contract's DownloadCopyButton.
- */
+/** Keep the guest on the confirmation page if PDF preparation fails. */
 export function AgreementDownloadButton({ href }: { href: string }) {
-  const [preparing, setPreparing] = useState(false);
-
-  return (
-    <a
-      href={href}
-      className={`sca-th-download${preparing ? ' is-preparing' : ''}`}
-      onClick={() => {
-        setPreparing(true);
-        // The download response never navigates the page, so clear the
-        // state after the render window passes in case they want a
-        // second copy.
-        setTimeout(() => setPreparing(false), 15_000);
-      }}
-    >
-      {preparing && <span className="sca-th-spinner" aria-hidden="true" />}
-      {preparing ? 'Preparing PDF…' : 'Download a copy'}
+  const { pending, error, download } = usePdfDownload(href, 'signed-agreement.pdf');
+  return <div>
+    <a href={href} download className={`sca-th-download${pending ? ' is-preparing' : ''}`}
+      aria-busy={pending} aria-disabled={pending}
+      onClick={event => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault(); void download();
+      }}>
+      {pending && <span className="sca-th-spinner" aria-hidden="true" />}
+      {pending ? 'Preparing PDF…' : 'Download a copy'}
     </a>
-  );
+    {error && <p role="alert" style={{ color: 'var(--negative)', fontSize: 13 }}>{error} Use the download link to retry.</p>}
+  </div>;
 }

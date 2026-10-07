@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRef, useState } from 'react';
+import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { summarizeManualSync } from '@/lib/manual-sync-result';
 
 /**
  * Manual trigger for /api/sync-quo. Webhooks are the live path; this is
@@ -11,13 +13,17 @@ import { useRouter } from 'next/navigation';
  * the webhook handler.
  */
 export function SyncQuoButton() {
-  const router = useRouter();
+  const softRefresh = useSoftRefresh();
+  const lock = useRef(false);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  useUnsavedWorkGuard(pending);
+
   async function sync() {
-    if (pending) return;
+    if (lock.current) return;
+    lock.current = true;
     setPending(true);
     setErr(null);
     setResult(null);
@@ -27,26 +33,20 @@ export function SyncQuoButton() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ days: 14 }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setErr(data?.error || `Failed (${res.status})`);
+        setErr(typeof data?.error === 'string' ? data.error : `Failed (${res.status})`);
         return;
       }
       const s = data.summary ?? {};
-      const inserted = Number(s.messages_inserted ?? 0) + Number(s.calls_inserted ?? 0);
-      const cleanings = Number(s.cleaning_completions_inserted ?? 0);
-      const fragments: string[] = [];
-      if (inserted > 0) fragments.push(`${inserted} new ${inserted === 1 ? 'touch' : 'touches'}`);
-      if (cleanings > 0) fragments.push(`${cleanings} cleaning ${cleanings === 1 ? 'signal' : 'signals'}`);
-      setResult(
-        fragments.length > 0
-          ? `Captured ${fragments.join(', ')}.`
-          : `No new activity from Quo (last 14 days).`,
-      );
-      if (inserted > 0 || cleanings > 0) router.refresh();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const summary = summarizeManualSync('quo', data);
+      if (summary.warning) setErr(summary.message);
+      else setResult(summary.message);
+      if (summary.refresh) softRefresh();
+    } catch {
+      setErr('Could not confirm the sync result. Check the latest activity before retrying.');
     } finally {
+      lock.current = false;
       setPending(false);
     }
   }
@@ -75,6 +75,7 @@ export function SyncQuoButton() {
       </button>
       {(result || err) && (
         <div
+          role={err ? 'alert' : 'status'}
           style={{
             fontSize: 11,
             color: err ? 'var(--negative)' : 'var(--ink-4)',

@@ -31,7 +31,7 @@
 
 import { supabaseAdmin } from './supabase-admin';
 import { getGuestyToken, guestyGet, sleep, GuestyNotFound } from './guesty-client';
-import { REAL_HOLD_TYPES } from './calendar-holds';
+import { REAL_HOLD_TYPES, ruleTypeOf } from './calendar-holds';
 
 // The deliberate-hold types (vs Guesty's availability-rule artifacts) live in
 // calendar-holds.ts so this sync and the day-clear check agree on them.
@@ -82,6 +82,11 @@ export type CalendarDayRow = {
   /** Guesty block range, INCLUSIVE end (last held day). */
   block_start: string | null;
   block_end: string | null;
+  /** On a night closed by one of Guesty's rules rather than a hold: the
+   *  rule's type ('bd' closed from a fixed date, 'bw' rolling booking window,
+   *  'an' advance notice, 'b' / 'a' padding; see ruleTypeOf). Null on a hold,
+   *  or on an open or booked night. */
+  block_rule_type?: string | null;
 };
 
 export type CalendarDaysSyncResult = {
@@ -100,6 +105,16 @@ export type CalendarDaysSyncResult = {
    *  homes). Their day rows cannot be written (FK), so they are skipped
    *  rather than failed every run. */
   skipped_unknown_property?: string[];
+  /** Mapped property ids Helm runs (properties.calendar_authority = 'helm').
+   *  Their mirror is written by src/lib/helm-calendar-mirror.ts; this sync
+   *  neither fetches nor sweeps them, or a Guesty sweep would delete Helm's
+   *  rows. Passed in by the caller as opts.skipPropertyIds. */
+  skipped_helm_run?: string[];
+};
+
+export type CalendarDaysSyncOptions = {
+  /** Property ids to leave entirely alone (no fetch, no upsert, no sweep). */
+  skipPropertyIds?: ReadonlySet<string>;
 };
 
 /** listing_id -> property_id from the guesty_listings mapping table (already
@@ -182,6 +197,9 @@ export function mapGuestyDays(propertyId: string, days: GuestyDay[]): CalendarDa
       block_ref_id: holdRef?._id ?? null,
       block_start: holdRef ? toDateOnly(holdRef.startDate) : null,
       block_end: holdRef ? toDateOnly(holdRef.endDate) : null,
+      // Recorded under holds and stays too: a closed season running on under
+      // the mirror's last night must still read as one (the cutover handover).
+      block_rule_type: status !== 'available' ? ruleTypeOf(day.blockRefs) : null,
     });
   }
   return rows;
@@ -220,6 +238,7 @@ export function mergeListingDays(perListing: CalendarDayRow[][]): CalendarDayRow
     block_ref_id: null,
     block_start: null,
     block_end: null,
+    block_rule_type: null,
   });
   const out: CalendarDayRow[] = [];
   for (const rows of byDate.values()) {
@@ -240,11 +259,17 @@ export function mergeListingDays(perListing: CalendarDayRow[][]): CalendarDayRow
  * Stale rows inside the window (days Guesty no longer reports, holds that
  * were released) are swept AFTER the upsert by synced_at, so concurrent
  * readers never see an empty window mid-sync.
+ *
+ * opts.skipPropertyIds names the homes Helm is the calendar authority for
+ * (pms-guards loadHelmRunPropertyIds). They are reported as skipped_helm_run
+ * and never touched: not fetched, not upserted and, the part that matters,
+ * never swept.
  */
 export async function syncCalendarDays(
   listingMap: Record<string, string>,
   startDate: string,
   endDate: string,
+  opts: CalendarDaysSyncOptions = {},
 ): Promise<CalendarDaysSyncResult> {
   const token = await getGuestyToken();
   const runStartIso = new Date().toISOString();
@@ -273,8 +298,16 @@ export async function syncCalendarDays(
   }
   const goneListings: string[] = [];
   const skippedUnknownProperty: string[] = [];
+  const skippedHelmRun: string[] = [];
+  const skipPropertyIds = opts.skipPropertyIds ?? new Set<string>();
 
   for (const [propertyId, listingIds] of listingsByProperty) {
+    // Helm-run first: the whole point is that nothing below, the sweep
+    // included, ever runs for one of these.
+    if (skipPropertyIds.has(propertyId)) {
+      skippedHelmRun.push(propertyId);
+      continue;
+    }
     if (knownProperties && !knownProperties.has(propertyId)) {
       skippedUnknownProperty.push(propertyId);
       continue;
@@ -367,6 +400,7 @@ export async function syncCalendarDays(
     errors: errors.length > 0 ? errors : undefined,
     gone_listings: goneListings.length > 0 ? goneListings : undefined,
     skipped_unknown_property: skippedUnknownProperty.length > 0 ? skippedUnknownProperty : undefined,
+    skipped_helm_run: skippedHelmRun.length > 0 ? skippedHelmRun : undefined,
   };
 }
 

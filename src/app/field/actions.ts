@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
+import { fieldSubmissionId } from '@/lib/field-submission-id';
 import { fieldDb } from '@/lib/field-db';
 import { maybeAwardStreakBonus } from '@/lib/field-streaks';
 import { geocodeAddress } from '@/lib/geocode';
@@ -32,7 +33,27 @@ export async function sendContractorNote(message: string): Promise<{ ok: boolean
   return sent ? { ok: true } : { ok: false, error: 'Could not send just now. Give us a text or call instead.' };
 }
 
-export type ReportState = { ok: boolean; error?: string; home?: string };
+export type ReportState = { ok: boolean; error?: string; home?: string; uncertain?: boolean };
+
+async function findFieldReport(contractorId: string, attempt: string, propertyId: string): Promise<ReportState & { missing?: boolean }> {
+  const id = fieldSubmissionId(contractorId, attempt);
+  if (!id) return { ok: false, error: 'Reopen the report page before sending.' };
+  const { data, error } = await fieldDb().from('work_slips')
+    .select('id, reported_from_packet_id, expense_cents')
+    .eq('id', id).eq('reported_by_contractor_id', contractorId).eq('property_id', propertyId).maybeSingle();
+  if (error) return { ok: false, uncertain: true, error: 'Could not check whether your report was filed. Retry when connected.' };
+  if (!data) return { ok: false, missing: true };
+  // Finish the existing idempotent receipt recompute if the first response was lost.
+  if (data.expense_cents && data.reported_from_packet_id) await recomputePacketExpenses(data.reported_from_packet_id).catch(() => {});
+  return { ok: true };
+}
+
+export async function checkFieldReportSubmission(attempt: string, propertyId: string): Promise<ReportState> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, uncertain: true, error: 'Reopen your portal link to check this report.' };
+  const result = await findFieldReport(contractor.id, attempt, propertyId);
+  return result.ok ? result : { ok: false, uncertain: true, error: result.error || 'The report is not confirmed yet. Retry to safely finish the same submission.' };
+}
 
 /** Inspector flags an issue at a home they visited in the last 72 hours. Creates
  *  a normal OPEN work_slip (so it flows onto the /work board + property page like
@@ -43,6 +64,11 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
   if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
 
   const propertyId = String(formData.get('property_id') || '').trim();
+  const attempt = String(formData.get('submission_id') || '');
+  const submissionId = fieldSubmissionId(contractor.id, attempt);
+  if (!submissionId) return { ok: false, error: 'Reopen the report page before sending.' };
+  const prior = await findFieldReport(contractor.id, attempt, propertyId);
+  if (!prior.missing) return prior;
   const title = String(formData.get('title') || '').trim();
   const location = String(formData.get('location') || '').trim();
   const description = String(formData.get('description') || '').trim();
@@ -74,6 +100,7 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
   const expenseCents = Number.isFinite(expenseRaw) && expenseRaw > 0 ? Math.min(Math.round(expenseRaw * 100), 50_000) : 0;
 
   const { error } = await fieldDb().from('work_slips').insert({
+    id: submissionId,
     property_id: propertyId,
     title: title.slice(0, 200),
     description: description ? description.slice(0, 4000) : null,
@@ -87,7 +114,11 @@ export async function reportFieldWorkSlip(_prev: ReportState, formData: FormData
     reported_from_packet_id: visit.packetId,
     ...(expenseCents > 0 ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
   });
-  if (error) return { ok: false, error: 'Could not file that just now. Try again, or text the office.' };
+  if (error) {
+    // The primary key arbitrates concurrent retries, including a lost insert response.
+    const saved = await findFieldReport(contractor.id, attempt, propertyId);
+    return saved.ok ? saved : { ok: false, uncertain: true, error: 'Could not confirm your report. Retry to safely finish the same submission.' };
+  }
 
   // Fold the receipt into the visit's payout right away (recompute is
   // idempotent and refuses to touch a paid packet).
@@ -368,7 +399,7 @@ export async function completeOnboarding(
   }
 
   const { ip, userAgent } = await reqContext();
-  await fieldDb()
+  const { data: saved, error: saveError } = await fieldDb()
     .from('contractors')
     .update({
       full_name: fullName || contractor.full_name,
@@ -384,7 +415,8 @@ export async function completeOnboarding(
       status: 'active',
       updated_at: new Date().toISOString(),
     })
-    .eq('id', contractor.id);
+    .eq('id', contractor.id).select('id').maybeSingle();
+  if (saveError || !saved) return { error: 'Could not finish account setup. Your answers are kept; please try again.' };
 
   await logEvent({ contractorId: contractor.id, actorEmail: contractor.email, eventType: 'onboarded' });
   await sendContractorOnboardedEmail({
@@ -497,13 +529,14 @@ export async function saveProfilePhoto(url: string): Promise<void> {
 
 /** Toggle the "text me when new work is posted" preference (opt-out; default on).
  *  notifyContractorsOfPacket gates the blast on this. */
-export async function setSmsOptIn(optIn: boolean): Promise<{ ok: boolean }> {
+export async function setSmsOptIn(optIn: boolean): Promise<{ ok: boolean; error?: string }> {
   const contractor = await resolveContractorFromCookie();
-  if (!contractor) return { ok: false };
-  await fieldDb()
+  if (!contractor) return { ok: false, error: 'Please reopen your portal link and try again.' };
+  const { data, error } = await fieldDb()
     .from('contractors')
     .update({ sms_opt_in: optIn, updated_at: new Date().toISOString() })
-    .eq('id', contractor.id);
+    .eq('id', contractor.id).select('id').maybeSingle();
+  if (error || !data) return { ok: false, error: 'Could not save your text preference. Please try again.' };
   revalidatePath('/field/profile');
   return { ok: true };
 }
@@ -722,30 +755,33 @@ export async function undoStartStop(formData: FormData) {
 /** Complete a maintenance stop: record the resolution on the work slip and mark
  *  the stop done. No inspection deck — the "work" is the slip's job, and a short
  *  note on what was done is the maintenance quality floor. */
-export async function completeMaintenanceStop(formData: FormData) {
+async function saveMaintenanceStop(formData: FormData) {
   const packetId = String(formData.get('packet_id') || '');
   const stopId = String(formData.get('stop_id') || '');
   const note = String(formData.get('resolution') || '').trim();
   const contractor = await resolveContractorFromCookie();
   if (!contractor) redirect('/field');
 
-  const { data: pData } = await fieldDb()
+  const { data: pData, error: packetError } = await fieldDb()
     .from('inspection_packets')
     .select('id, status, awarded_contractor_id')
     .eq('id', packetId)
     .maybeSingle();
+  if (packetError) throw new Error('Could not check the job. Please retry.');
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== contractor.id) redirect('/field');
-  if (!isWorkingStatus(packet.status)) redirect(`/field/packet/${packetId}`);
 
-  const { data: sData } = await fieldDb()
+  const { data: sData, error: stopError } = await fieldDb()
     .from('packet_stops')
     .select('*')
     .eq('id', stopId)
     .eq('packet_id', packetId)
     .maybeSingle();
+  if (stopError) throw new Error('Could not check the task. Please retry.');
   const stop = sData as PacketStopRow | null;
   if (!stop || !stop.work_slip_id) redirect(`/field/packet/${packetId}`);
+  if (stop.status === 'complete') return;
+  if (!isWorkingStatus(packet.status)) throw new Error('This job is no longer active.');
   // A completion note is optional now — a restock or a quick fix shouldn't be
   // gated on writing a paragraph. resolution_notes just stores whatever's there.
 
@@ -764,7 +800,7 @@ export async function completeMaintenanceStop(formData: FormData) {
   // Contractor self-report records the resolution but does NOT close the slip —
   // it stays in_progress until the office approves the packet (then it goes
   // done). Prevents a self-reported "done" from being the terminal truth.
-  await fieldDb()
+  const { data: savedSlip, error: saveError } = await fieldDb()
     .from('work_slips')
     .update({
       status: 'in_progress',
@@ -774,9 +810,16 @@ export async function completeMaintenanceStop(formData: FormData) {
       ...(expenseCents != null ? { expense_cents: expenseCents, receipt_contractor_id: contractor.id } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', stop.work_slip_id);
+    .eq('id', stop.work_slip_id).select('id').maybeSingle();
+  if (saveError || !savedSlip) throw new Error('Could not save the task details. Please retry.');
   if (expenseCents != null) await recomputePacketExpenses(packetId).catch(() => {});
-  await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId);
+  const { data: savedStop, error: completeError } = await fieldDb().from('packet_stops').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', stopId).eq('packet_id', packetId).neq('status', 'complete').select('id').maybeSingle();
+  if (completeError) throw new Error('Could not confirm completion. Please retry.');
+  if (!savedStop) {
+    const { data: completed, error } = await fieldDb().from('packet_stops').select('id').eq('id', stopId).eq('packet_id', packetId).eq('status', 'complete').maybeSingle();
+    if (error || !completed) throw new Error('Could not confirm completion. Please retry.');
+    return;
+  }
   await advancePacketToInProgress(packetId);
   await logEvent({
     packetId,
@@ -787,7 +830,28 @@ export async function completeMaintenanceStop(formData: FormData) {
     payload: { work_slip_id: stop.work_slip_id },
   });
   revalidatePath(`/field/packet/${packetId}`);
-  redirect(`/field/packet/${packetId}`);
+}
+
+export async function completeMaintenanceStop(formData: FormData) {
+  await saveMaintenanceStop(formData);
+  redirect(`/field/packet/${String(formData.get('packet_id') || '')}`);
+}
+
+/** Non-redirecting completion so the client can check a lost response. */
+export async function completeMaintenanceTask(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  const attachmentId = String(formData.get('attachment_id') || '');
+  if (!attachmentId) { await saveMaintenanceStop(formData); return { ok: true }; }
+  let photos: string[] = [];
+  try {
+    const parsed = JSON.parse(String(formData.get('photo_urls') || '[]'));
+    if (Array.isArray(parsed)) photos = parsed.filter((v): v is string => typeof v === 'string');
+  } catch { /* no photos */ }
+  const expense = Number(formData.get('expense_dollars') || 0);
+  return completeAttachedSlipInFlow({
+    packetId: String(formData.get('packet_id') || ''), attachmentId,
+    note: String(formData.get('resolution') || '').trim(), photoUrls: photos,
+    expenseCents: Number.isFinite(expense) && expense > 0 ? Math.round(expense * 100) : null,
+  });
 }
 
 /** Inspector marks an ATTACHED work slip done (an extra task the office put on a
@@ -814,28 +878,31 @@ async function applyAttachedSlipCompletion(args: {
    *  from work found done. */
   eventType?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { data: pData } = await fieldDb()
+  const { data: pData, error: packetError } = await fieldDb()
     .from('inspection_packets')
     .select('id, status, awarded_contractor_id')
     .eq('id', args.packetId)
     .maybeSingle();
+  if (packetError) return { ok: false, error: 'Could not check the job. Please retry.' };
   const packet = pData as { id: string; status: string; awarded_contractor_id: string | null } | null;
   if (!packet || packet.awarded_contractor_id !== args.contractor.id) return { ok: false, error: 'not-your-packet' };
   if (!isWorkingStatus(packet.status)) return { ok: false, error: 'packet-not-live' };
 
-  const { data: aData } = await fieldDb()
+  const { data: aData, error: attachmentError } = await fieldDb()
     .from('packet_stop_work_slips')
     .select('id, work_slip_id, completed_at, packet_stops!inner(packet_id, property_id)')
     .eq('id', args.attachmentId)
     .maybeSingle();
+  if (attachmentError) return { ok: false, error: 'Could not check the task. Please retry.' };
   const att = aData as { id: string; work_slip_id: string; completed_at: string | null; packet_stops: { packet_id: string; property_id: string } } | null;
   if (!att || att.packet_stops.packet_id !== args.packetId) return { ok: false, error: 'bad-attachment' };
   if (att.completed_at) return { ok: true }; // already done — idempotent no-op
 
-  const { data: cur } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
+  const { data: cur, error: photosError } = await fieldDb().from('work_slips').select('photo_urls').eq('id', att.work_slip_id).maybeSingle();
+  if (photosError) return { ok: false, error: 'Could not load existing photos. Please retry.' };
   const existing = ((cur as { photo_urls: string[] } | null)?.photo_urls) ?? [];
   const mergedPhotos = [...new Set([...existing, ...args.photoUrls])];
-  await fieldDb()
+  const { data: savedSlip, error: saveError } = await fieldDb()
     .from('work_slips')
     .update({
       status: 'in_progress',
@@ -845,16 +912,18 @@ async function applyAttachedSlipCompletion(args: {
       ...(args.expenseCents && args.expenseCents > 0 ? { expense_cents: Math.min(Math.round(args.expenseCents), 50000), receipt_contractor_id: args.contractor.id } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', att.work_slip_id);
+    .eq('id', att.work_slip_id).select('id').maybeSingle();
+  if (saveError || !savedSlip) return { ok: false, error: 'Could not save the task details. Please retry.' };
   // Guard the stamp so a race (two submits both seeing null) can't double-fire
   // the packet bump + audit event.
-  const { data: stamped } = await fieldDb()
+  const { data: stamped, error: stampError } = await fieldDb()
     .from('packet_stop_work_slips')
     .update({ completed_at: new Date().toISOString() })
     .eq('id', args.attachmentId)
     .is('completed_at', null)
     .select('id')
     .maybeSingle();
+  if (stampError) return { ok: false, error: 'Could not confirm completion. Please retry.' };
   if (!stamped) return { ok: true }; // lost the race; already stamped elsewhere
   await advancePacketToInProgress(args.packetId);
   await logEvent({
@@ -885,7 +954,8 @@ export async function completeAttachedSlip(formData: FormData) {
   })();
   const expRaw = Number(formData.get('expense_dollars') || 0);
   const expenseCents = Number.isFinite(expRaw) && expRaw > 0 ? Math.round(expRaw * 100) : null;
-  await applyAttachedSlipCompletion({ contractor: { id: contractor.id, email: contractor.email }, packetId, attachmentId, note, photoUrls: photos, expenseCents });
+  const result = await applyAttachedSlipCompletion({ contractor: { id: contractor.id, email: contractor.email }, packetId, attachmentId, note, photoUrls: photos, expenseCents });
+  if (!result.ok) throw new Error(result.error || 'Could not confirm completion. Please retry.');
   revalidatePath(`/field/packet/${packetId}`);
   redirect(`/field/packet/${packetId}`);
 }
@@ -924,7 +994,7 @@ export async function completeAttachedSlipInFlow(input: {
 // work this trip actually touched.
 
 type StopSlipContext =
-  | { ok: true; propertyId: string; slip: { id: string; title: string; description: string | null; status: string } }
+  | { ok: true; propertyId: string; slip: { id: string; title: string; description: string | null; status: string; photoUrls: string[] } }
   | { ok: false; error: string };
 
 /** Ownership + liveness for anything an inspector does to a slip from a stop:
@@ -950,12 +1020,39 @@ async function stopSlipContext(args: { contractorId: string; packetId: string; s
   if (!stop) return { ok: false, error: 'bad-stop' };
   const { data: wData } = await fieldDb()
     .from('work_slips')
-    .select('id, property_id, title, description, status')
+    .select('id, property_id, title, description, status, photo_urls')
     .eq('id', args.workSlipId)
     .maybeSingle();
-  const slip = wData as { id: string; property_id: string | null; title: string; description: string | null; status: string } | null;
+  const slip = wData as { id: string; property_id: string | null; title: string; description: string | null; status: string; photo_urls: string[] | null } | null;
   if (!slip || slip.property_id !== stop.property_id) return { ok: false, error: 'bad-slip' };
-  return { ok: true, propertyId: stop.property_id, slip: { id: slip.id, title: slip.title, description: slip.description, status: slip.status } };
+  return { ok: true, propertyId: stop.property_id, slip: { id: slip.id, title: slip.title, description: slip.description, status: slip.status, photoUrls: slip.photo_urls || [] } };
+}
+
+/** Read-only recovery after a lost completion response. All client IDs are checked. */
+export async function checkFieldTaskCompletion(input: { packetId: string; stopId?: string; workSlipId?: string; attachmentId?: string }): Promise<{ ok: boolean; error?: string }> {
+  const contractor = await resolveContractorFromCookie();
+  if (!contractor) return { ok: false, error: 'not-signed-in' };
+  const { data: packet, error: packetError } = await fieldDb().from('inspection_packets')
+    .select('id').eq('id', input.packetId).eq('awarded_contractor_id', contractor.id).maybeSingle();
+  if (packetError || !packet) return { ok: false, error: 'Could not verify this job.' };
+  if (input.attachmentId) {
+    const { data, error } = await fieldDb().from('packet_stop_work_slips')
+      .select('completed_at, packet_stops!inner(packet_id)').eq('id', input.attachmentId)
+      .eq('packet_stops.packet_id', input.packetId).maybeSingle();
+    return { ok: !error && !!data?.completed_at };
+  }
+  if (!input.stopId) return { ok: false };
+  const { data: stop, error: stopError } = await fieldDb().from('packet_stops')
+    .select('id, status, property_id').eq('id', input.stopId).eq('packet_id', input.packetId).maybeSingle();
+  if (stopError || !stop) return { ok: false };
+  if (!input.workSlipId) return { ok: stop.status === 'complete' };
+  const { data: slip, error: slipError } = await fieldDb().from('work_slips')
+    .select('id, status').eq('id', input.workSlipId).eq('property_id', stop.property_id).maybeSingle();
+  if (slipError || !slip) return { ok: false };
+  if (slip.status === 'done' || slip.status === 'dismissed') return { ok: true };
+  const { data, error } = await fieldDb().from('packet_stop_work_slips').select('completed_at')
+    .eq('stop_id', stop.id).eq('work_slip_id', slip.id).maybeSingle();
+  return { ok: !error && !!data?.completed_at };
 }
 
 export type StopSlipOutcome = 'done' | 'already_handled';
@@ -1018,7 +1115,7 @@ export async function resolveSlipFromStop(input: {
 }
 
 /** Fix a slip's wording from the door: a typo, a vague title, a detail only
- *  someone standing in the room can add. Title + details only; category,
+ *  someone standing in the room can add. Title, details and added photos; category,
  *  priority and status stay the office's. The slip's thread gets a line so
  *  the office sees what changed and who changed it. */
 export async function updateSlipFromStop(input: {
@@ -1027,7 +1124,8 @@ export async function updateSlipFromStop(input: {
   workSlipId: string;
   title: string;
   description: string;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+  photoUrls?: string[];
+}): Promise<{ ok: true; photoUrls: string[] } | { ok: false; error: string }> {
   const contractor = await resolveContractorFromCookie();
   if (!contractor) return { ok: false, error: 'not-signed-in' };
   const ctx = await stopSlipContext({ contractorId: contractor.id, packetId: input.packetId, stopId: input.stopId, workSlipId: input.workSlipId });
@@ -1038,16 +1136,18 @@ export async function updateSlipFromStop(input: {
   const description = (input.description || '').trim().slice(0, 4000) || null;
   const titleChanged = title !== ctx.slip.title;
   const detailsChanged = (description ?? '') !== (ctx.slip.description ?? '');
-  if (!titleChanged && !detailsChanged) return { ok: true };
+  const photos = input.photoUrls ?? [];
+  if (!Array.isArray(photos) || photos.length > 12 || photos.some(url => typeof url !== 'string' || url.length > 2000 || !/^https:\/\//.test(url))) return { ok: false, error: 'invalid-photos' };
+  const newPhotos = [...new Set(photos)].filter(url => !ctx.slip.photoUrls.includes(url));
+  if (!titleChanged && !detailsChanged && newPhotos.length === 0) return { ok: true, photoUrls: ctx.slip.photoUrls };
 
-  const nowIso = new Date().toISOString();
-  const { error } = await fieldDb()
-    .from('work_slips')
-    .update({ title, description, updated_at: nowIso })
-    .eq('id', input.workSlipId)
-    .eq('property_id', ctx.propertyId);
+  const { data, error } = await fieldDb().rpc('helm_edit_field_slip', {
+    p_slip_id: input.workSlipId, p_property_id: ctx.propertyId, p_title: title,
+    p_description: description, p_photo_urls: newPhotos,
+  });
   if (error) return { ok: false, error: error.message };
-  const what = [titleChanged ? `title was "${ctx.slip.title}"` : null, detailsChanged ? 'details updated' : null].filter(Boolean).join('; ');
+  if (!data) return { ok: false, error: 'Could not confirm the slip save.' };
+  const what = [newPhotos.length ? `${newPhotos.length} photo(s) added` : null, titleChanged ? `title was "${ctx.slip.title}"` : null, detailsChanged ? 'details updated' : null].filter(Boolean).join('; ');
   await fieldDb()
     .from('work_slip_comments')
     .insert({ work_slip_id: input.workSlipId, author_email: contractor.email, body: `Edited from the field by ${contractor.full_name} (${what}).` });
@@ -1062,7 +1162,7 @@ export async function updateSlipFromStop(input: {
   revalidatePath(`/field/packet/${input.packetId}`);
   revalidatePath('/work');
   revalidatePath(`/work/${input.workSlipId}`);
-  return { ok: true };
+  return { ok: true, photoUrls: (data as { photo_urls: string[] }).photo_urls };
 }
 
 /** Submit the whole packet for office review once every stop is complete. */
@@ -1182,13 +1282,15 @@ export async function acceptShoot(formData: FormData) {
   const todayEt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
   if (shoot.shoot_date < todayEt) redirect(`/field/shoot/${shootId}?answer=expired`);
 
-  const { data: updated } = await fieldDb()
+  const { data: updated, error } = await fieldDb()
     .from('creative_shoots')
     .update({ status: 'scheduled', responded_at: new Date().toISOString(), decline_reason: null, updated_at: new Date().toISOString() })
     .eq('id', shootId)
     .eq('status', 'offered')
     .select('id')
     .maybeSingle();
+  if (error) return { error: 'Could not save your acceptance. Please try again.' };
+  if (!updated) return { error: 'This offer has changed. Refresh the page to see its current status.' };
   // Only a real transition sends the confirmation, so a double tap cannot
   // text them the same brief twice.
   if (updated) {
@@ -1220,13 +1322,15 @@ export async function declineShoot(formData: FormData) {
   if (!contractor) redirect('/field');
   if (!shoot) redirect('/field');
 
-  const { data: updated } = await fieldDb()
+  const { data: updated, error } = await fieldDb()
     .from('creative_shoots')
     .update({ status: 'declined', responded_at: new Date().toISOString(), decline_reason: reason, updated_at: new Date().toISOString() })
     .eq('id', shootId)
     .eq('status', 'offered')
     .select('id')
     .maybeSingle();
+  if (error) return { error: 'Could not save your pass. Your reason is kept; please try again.' };
+  if (!updated) return { error: 'This offer has changed. Refresh the page to see its current status.' };
   if (updated) {
     // The office is the party who has to act on a no, so this one does email.
     const propertyName = await shootPropertyName(shoot.property_id);

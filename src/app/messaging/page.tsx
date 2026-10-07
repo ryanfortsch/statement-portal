@@ -1,7 +1,9 @@
+import { reviewCountsByConversation } from '@/lib/inbox-search';
+import { RecentMessageOutcomesSection } from '@/components/RecentMessageOutcomesSection';
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingFooter } from '@/components/MessagingFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -10,6 +12,7 @@ import { QueueSkeleton } from '@/components/QueueSkeleton';
 import {
   isStayConciergeConfigured,
   listApprovals,
+  listInboxSearchApprovals,
   listRecentApprovals,
   listConversations,
   getStats,
@@ -23,6 +26,8 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
+import { listHelmConversations } from '@/lib/helm-inbox';
+import { mergeConversationLists } from '@/lib/helm-inbox-core';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
@@ -53,7 +58,7 @@ function Shell({ children }: { children: ReactNode }) {
 
       <div style={{ flex: 1 }} />
 
-      <HelmFooter left="Stay Concierge · drafts via Opus 4.7" />
+      <MessagingFooter />
     </div>
   );
 }
@@ -116,11 +121,26 @@ async function QueueSection() {
 // in place into the full thread with a manual-reply composer. Its own
 // boundary because the first cold gather pages the Guesty API (cached 90s
 // on the concierge after that).
+//
+// Helm-native threads (guest SMS on the GUESTS line, email, OTA stays with
+// their deep link) ride in the same list, sorted together by last activity.
+// Each half fails soft: the concierge being down still shows Helm threads,
+// and a Helm read error still shows the concierge list.
 async function ConversationsSection() {
-  const conversations = await listConversations(60);
+  const [conversations, helm, approvals] = await Promise.all([
+    listConversations(60),
+    listHelmConversations(60).catch(() => []),
+    listInboxSearchApprovals('guests').catch(() => null),
+  ]);
+  const concierge = conversations.ok ? conversations.data.conversations : [];
+  const counts = approvals?.ok ? reviewCountsByConversation(approvals.data.approvals) : null;
+  const merged = mergeConversationLists(concierge, helm).map(c => ({
+    // Helm counts already use awaiting_approval; concierge counts include scheduled sends.
+    ...c, review_count: c.conversation_id.startsWith('helm:') ? c.pending_count : counts ? counts.get(c.conversation_id) || 0 : undefined,
+  }));
   return (
     <ConversationsBrowser
-      initialConversations={conversations.ok ? conversations.data.conversations : []}
+      initialConversations={merged}
       initialError={conversations.ok ? null : explainError(conversations.error)}
     />
   );
@@ -236,6 +256,7 @@ export default function MessagingPage() {
       <Suspense fallback={null}>
         <ConversationsSection />
       </Suspense>
+      <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
       <Suspense fallback={null}>
         <ProposedUpdatesSection />
       </Suspense>

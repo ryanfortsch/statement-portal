@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
@@ -24,6 +24,10 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
 import { suppliesLabel } from '@/lib/inspection-supplies';
+import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
+import { operatingDate } from '@/lib/operating-date';
+import { compareWork, workOverdue, workSignals, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 type PropertyForPicker = {
@@ -46,7 +50,7 @@ type Props = {
   reporterNames: Record<string, string>;
 };
 
-type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
+type FilterId = 'all' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
 
 // The board has two faces: property work, where you land, and the team
 // task list one tab over. The old third "All" tab stacked both sections
@@ -54,7 +58,7 @@ type FilterId = 'all' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-act
 // you had to scroll past. One at a time.
 type TabId = 'slips' | 'tasks';
 
-const FILTER_IDS: FilterId[] = ['all', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
+const FILTER_IDS: FilterId[] = ['all', 'overdue', 'blocked', 'mine', 'high', 'due-today', 'unclaimed', 'owner-action', 'snoozed'];
 
 /** Filters that only mean anything to a work slip. On the Tasks tab they
  *  neither render nor apply, but they stay in the URL so tabbing back to
@@ -183,9 +187,12 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   const [selectedSlipIds, setSelectedSlipIds] = useState<Set<string>>(() => new Set());
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
   const [bulkPending, startBulkTransition] = useTransition();
+  const bulkLock = useRef(false);
+  useUnsavedWorkGuard(bulkPending);
   const [bulkErr, setBulkErr] = useState<string | null>(null);
 
   function toggleSlip(id: string) {
+    if (bulkLock.current) return;
     setSelectedSlipIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -194,6 +201,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     });
   }
   function toggleTask(id: string) {
+    if (bulkLock.current) return;
     setSelectedTaskIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -202,6 +210,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     });
   }
   function clearSelection() {
+    if (bulkLock.current) return;
     setSelectedSlipIds(new Set());
     setSelectedTaskIds(new Set());
     setBulkErr(null);
@@ -212,55 +221,61 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     priority?: WorkSlipPriority;
     assigned_to_email?: string | null;
   }) {
-    setBulkErr(null);
+    if (bulkLock.current) return;
     const slipIds = Array.from(selectedSlipIds);
     const taskIds = Array.from(selectedTaskIds);
     if (slipIds.length === 0 && taskIds.length === 0) return;
+    bulkLock.current = true;
+    setBulkErr(null);
 
     startBulkTransition(async () => {
-      const ops: Promise<{ ok: boolean; error?: string }>[] = [];
-      if (slipIds.length > 0) {
-        ops.push(
-          bulkUpdateWorkSlips({
-            ids: slipIds,
-            patch: {
-              status: patch.status,
-              priority: patch.priority,
-              assigned_to_email: patch.assigned_to_email,
-            },
-          }) as Promise<{ ok: boolean; error?: string }>,
-        );
-      }
-      if (taskIds.length > 0) {
-        // Tasks share priority shape with slips (low/normal/high vs low/medium/high) —
-        // map normal → medium when bulk-setting from the slip-style picker.
-        const taskPriority: TaskPriority | undefined =
-          patch.priority === 'normal' ? 'medium' : (patch.priority as TaskPriority | undefined);
-        ops.push(
-          bulkUpdateTasks({
+      // Each server action updates a whole group. A failure in one group
+      // must not hide the other group's confirmed result or retry its IDs.
+      const groups = [
+        {
+          label: 'Work slips', ids: slipIds, deselect: setSelectedSlipIds,
+          run: () => bulkUpdateWorkSlips({ ids: slipIds, patch }),
+        },
+        {
+          label: 'Tasks', ids: taskIds, deselect: setSelectedTaskIds,
+          run: () => bulkUpdateTasks({
             ids: taskIds,
-            patch: {
-              status: patch.status,
-              priority: taskPriority,
-              assigned_to_email: patch.assigned_to_email,
-            },
-          }) as Promise<{ ok: boolean; error?: string }>,
-        );
+            patch: { ...patch, priority: patch.priority === 'normal' ? 'medium' : patch.priority },
+          }),
+        },
+      ].filter((group) => group.ids.length > 0);
+      try {
+        const results = await Promise.allSettled(groups.map((group) => Promise.resolve().then(group.run)));
+        const messages: string[] = [];
+        let failed = false;
+        results.forEach((result, index) => {
+          const group = groups[index];
+          if (result.status === 'fulfilled' && result.value.ok) {
+            group.deselect((current) => {
+              const next = new Set(current);
+              for (const id of group.ids) next.delete(id);
+              return next;
+            });
+            messages.push(`${group.label}: update confirmed for ${result.value.updated}.`);
+          } else {
+            failed = true;
+            if (result.status === 'rejected') {
+              messages.push(`${group.label}: could not confirm the update. Check their current status before retrying.`);
+            } else if (!result.value.ok) {
+              messages.push(`${group.label}: ${result.value.error}`);
+            }
+          }
+        });
+        if (failed) setBulkErr(`${messages.join(' ')} Items without a confirmed update remain selected.`);
+        softRefresh();
+      } finally {
+        bulkLock.current = false;
       }
-
-      const results = await Promise.all(ops);
-      const firstErr = results.find((r) => !r.ok);
-      if (firstErr && firstErr.error) {
-        setBulkErr(firstErr.error);
-        return;
-      }
-      clearSelection();
-      softRefresh();
     });
   }
 
   const propertyMap = useMemo(() => new Map(properties.map((p) => [p.id, p])), [properties]);
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = operatingDate();
 
   // A slip-only filter left over from the Property Work tab reads as "all"
   // over on Tasks rather than blanking the list. The URL keeps the real
@@ -273,10 +288,12 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     // to see what they pushed off, not what's active.
     const source = activeFilter === 'snoozed' ? snoozedSlips : workSlips;
     return source.filter((w) => {
+      if (activeFilter === 'overdue' && !workOverdue(w, todayIso)) return false;
+      if (activeFilter === 'blocked' && w.status !== 'blocked') return false;
       if (activeFilter === 'mine' && w.assigned_to_email !== myEmail) return false;
       if (activeFilter === 'high' && w.priority !== 'high') return false;
       if (activeFilter === 'due-today' && w.scheduled_date !== todayIso) return false;
-      if (activeFilter === 'unclaimed' && (w.assigned_to_type !== 'unassigned' || w.assigned_to_email)) return false;
+      if (activeFilter === 'unclaimed' && !workUnassigned(w)) return false;
       if (activeFilter === 'owner-action' && !w.owner_action_required) return false;
       return true;
     });
@@ -284,15 +301,17 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
+      if (activeFilter === 'overdue' && !workOverdue(t, todayIso)) return false;
+      if (activeFilter === 'blocked' && t.status !== 'blocked') return false;
       if (activeFilter === 'mine' && t.assigned_to_email !== myEmail) return false;
       if (activeFilter === 'high' && t.priority !== 'high') return false;
       if (activeFilter === 'due-today' && t.due_date !== todayIso) return false;
       if (activeFilter === 'unclaimed' && t.assigned_to_email) return false;
       return true;
-    });
+    }).sort((a, b) => compareWork(a, b, todayIso));
   }, [tasks, activeFilter, myEmail, todayIso]);
 
-  /** The ideal ranking: urgency first, then backlog size. What order the
+  /** The ideal ranking: overdue, blocked, due today, then priority. What order the
    *  board WOULD be in if it re-sorted right now. */
   const rankedProperties = useMemo(() => {
     const groups = new Map<string, WorkSlipRow[]>();
@@ -302,28 +321,16 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
       else groups.set(ws.property_id, [ws]);
     }
     for (const [, list] of groups) {
-      list.sort((a, b) => {
-        if (a.priority === 'high' && b.priority !== 'high') return -1;
-        if (a.priority !== 'high' && b.priority === 'high') return 1;
-        return b.created_at.localeCompare(a.created_at);
-      });
+      list.sort((a, b) => compareWork(a, b, todayIso));
     }
     return [...groups.entries()].sort((a, b) => {
-      // Surface urgency first so the page reads as "what needs me today"
-      // rather than "biggest backlog wins": HIGH slips beat owner-action
-      // beats raw count, then alpha-by-name as the tiebreaker.
-      const highA = a[1].filter((s) => s.priority === 'high').length;
-      const highB = b[1].filter((s) => s.priority === 'high').length;
-      if (highA !== highB) return highB - highA;
-      const ownerA = a[1].filter((s) => s.owner_action_required).length;
-      const ownerB = b[1].filter((s) => s.owner_action_required).length;
-      if (ownerA !== ownerB) return ownerB - ownerA;
-      if (a[1].length !== b[1].length) return b[1].length - a[1].length;
+      const urgency = compareWork(a[1][0], b[1][0], todayIso);
+      if (urgency) return urgency;
       const an = propertyMap.get(a[0])?.name ?? a[0];
       const bn = propertyMap.get(b[0])?.name ?? b[0];
       return an.localeCompare(bn);
     });
-  }, [filteredSlips, propertyMap]);
+  }, [filteredSlips, propertyMap, todayIso]);
 
   // ── Rank order freezes while you work ────────────────────────────────
   // The ranking is the good part; re-applying it on every ✓ Done was the
@@ -379,21 +386,19 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   const counts = useMemo(() => {
     if (tab === 'tasks') {
       return {
+        ...workSignals(tasks, todayIso),
         all: tasks.length,
         mine: tasks.filter((t) => t.assigned_to_email === myEmail).length,
         high: tasks.filter((t) => t.priority === 'high').length,
-        dueToday: tasks.filter((t) => t.due_date === todayIso).length,
-        unclaimed: tasks.filter((t) => !t.assigned_to_email).length,
         ownerAction: 0,
         snoozed: 0,
       };
     }
     return {
+      ...workSignals(workSlips, todayIso),
       all: workSlips.length,
       mine: workSlips.filter((w) => w.assigned_to_email === myEmail).length,
       high: workSlips.filter((w) => w.priority === 'high').length,
-      dueToday: workSlips.filter((w) => w.scheduled_date === todayIso).length,
-      unclaimed: workSlips.filter((w) => w.assigned_to_type === 'unassigned' && !w.assigned_to_email).length,
       ownerAction: workSlips.filter((w) => w.owner_action_required).length,
       snoozed: snoozedSlips.length,
     };
@@ -442,47 +447,29 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                 ↕ Re-sort
               </button>
             )}
-            <button type="button" onClick={() => setShowTaskModal(true)} style={ghostBtn()}>
+            {!onSlips && <button type="button" onClick={() => setShowTaskModal(true)} style={primaryBtn()}>
               + Task
-            </button>
-            <button type="button" onClick={() => setShowSlipModal(true)} style={primaryBtn()}>
+            </button>}
+            {onSlips && <button type="button" onClick={() => setShowSlipModal(true)} style={primaryBtn()}>
               + Work Slip
-            </button>
+            </button>}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap rt-work-filters" aria-label="Filter work">
           <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
-          {(counts.mine > 0 || activeFilter === 'mine') && (
-            <Pill active={activeFilter === 'mine'} onClick={() => setFilter('mine')} label="My Items" count={counts.mine} />
-          )}
-          {(counts.high > 0 || activeFilter === 'high') && (
-            <Pill active={activeFilter === 'high'} onClick={() => setFilter('high')} label="High Priority" count={counts.high} accent="var(--negative)" />
-          )}
-          {(counts.dueToday > 0 || activeFilter === 'due-today') && (
-            <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due Today" count={counts.dueToday} accent="var(--signal)" />
-          )}
-          {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && (
-            <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unclaimed" count={counts.unclaimed} />
-          )}
-          {onSlips && (counts.ownerAction > 0 || activeFilter === 'owner-action') && (
-            <Pill active={activeFilter === 'owner-action'} onClick={() => setFilter('owner-action')} label="Owner Action" count={counts.ownerAction} accent="var(--signal)" />
-          )}
-          {/* Snoozed no longer rides the row. It renders only when you're
-              standing in the bucket — arriving from a snoozed slip's back
-              link, which carries &filter=snoozed — so you can see where you
-              are and click All to get out. Nothing is stranded there: a
-              snoozed slip rejoins the board on its own the day its snooze
-              runs out. */}
-          {activeFilter === 'snoozed' && (
-            <Pill
-              active
-              onClick={() => setFilter('snoozed')}
-              label="Snoozed"
-              count={counts.snoozed}
-              accent="var(--tide-deep)"
-            />
-          )}
+          {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--negative)" />}
+          {(counts.dueToday > 0 || activeFilter === 'due-today') && <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due today" count={counts.dueToday} />}
+          {(counts.blocked > 0 || activeFilter === 'blocked') && <Pill active={activeFilter === 'blocked'} onClick={() => setFilter('blocked')} label="Blocked" count={counts.blocked} accent="var(--signal)" />}
+          {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unassigned" count={counts.unclaimed} />}
+          <select aria-label="More work filters" value={['mine', 'high', 'owner-action', 'snoozed'].includes(activeFilter) ? activeFilter : ''}
+            onChange={e => setFilter(e.target.value as FilterId)} style={{ ...selectStyle(), width: ['mine', 'high', 'owner-action', 'snoozed'].includes(activeFilter) ? 'auto' : 96, padding: '8px', fontSize: 12, minHeight: 44 }}>
+            <option value="" disabled>More</option>
+            <option value="mine">My items ({counts.mine})</option>
+            <option value="high">High priority ({counts.high})</option>
+            {onSlips && <option value="owner-action">Owner action ({counts.ownerAction})</option>}
+            {onSlips && <option value="snoozed">Snoozed ({counts.snoozed})</option>}
+          </select>
         </div>
       </section>
 
@@ -511,6 +498,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                   myEmail={myEmail}
                   expanded={openProps.has(propId)}
                   onToggleExpanded={() => toggleOpenProp(propId)}
+                  bulkPending={bulkPending}
                   selectedIds={selectedSlipIds}
                   onToggleSelect={toggleSlip}
                   commentCounts={slipCommentCounts}
@@ -540,6 +528,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                 <TaskRowItem
                   key={t.id}
                   task={t}
+                  bulkPending={bulkPending}
                   selected={selectedTaskIds.has(t.id)}
                   onToggleSelect={toggleTask}
                   commentCount={taskCommentCounts[t.id] ?? 0}
@@ -662,7 +651,7 @@ function BoardTab({ active, onClick, label, count }: { active: boolean; onClick:
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className="font-serif"
+      className="font-serif rt-work-tab"
       style={{
         background: 'none',
         border: 'none',
@@ -670,6 +659,7 @@ function BoardTab({ active, onClick, label, count }: { active: boolean; onClick:
         padding: '0 0 6px',
         margin: 0,
         fontSize: 22,
+        whiteSpace: 'nowrap',
         fontWeight: 400,
         letterSpacing: '-0.01em',
         color: active ? 'var(--ink)' : 'var(--ink-4)',
@@ -797,6 +787,7 @@ function PropertyGroup({
   onToggleExpanded,
   selectedIds,
   onToggleSelect,
+  bulkPending = false,
   commentCounts,
   reporterNames,
   onAddSlip,
@@ -813,13 +804,14 @@ function PropertyGroup({
   onToggleExpanded: () => void;
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
+  bulkPending?: boolean;
   commentCounts: Record<string, number>;
   reporterNames: Record<string, string>;
   onAddSlip: () => void;
 }) {
-  const [drafting, setDrafting] = useState(false);
-  const [draftErr, setDraftErr] = useState<string | null>(null);
+  const signals = workSignals(slips, operatingDate());
   const highCount = slips.filter((s) => s.priority === 'high').length;
+  const summary = [signals.overdue && `${signals.overdue} overdue`, signals.blocked && `${signals.blocked} blocked`, signals.dueToday && `${signals.dueToday} due today`, !signals.overdue && !signals.blocked && !signals.dueToday && highCount && `${highCount} high priority`, signals.unclaimed && `${signals.unclaimed} unassigned`].filter(Boolean).join(' · ');
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
   const supplySlips = slips.filter(isSupplySlip);
   const workSlips = slips.filter((s) => !isSupplySlip(s));
@@ -839,30 +831,7 @@ function PropertyGroup({
     window.open(`/properties/${propertyId}/work-slips/print?auto=1`, '_blank', 'noopener,noreferrer');
   }
 
-  async function draftOwnerEmail() {
-    if (!propertyId || drafting) return;
-    setDrafting(true);
-    setDraftErr(null);
-    try {
-      const res = await fetch('/api/work/draft-owner-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ property_id: propertyId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setDraftErr(data?.error || `Failed (${res.status})`);
-        return;
-      }
-      if (data?.draft_url) {
-        window.open(data.draft_url, '_blank', 'noopener,noreferrer');
-      }
-    } catch (err) {
-      setDraftErr(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDrafting(false);
-    }
-  }
+  const { pending: drafting, error: draftErr, draftUrl, draft: draftOwnerEmail } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
 
   return (
     // Anchor target for /work?open=X#prop-X (the slip page's back link);
@@ -885,6 +854,8 @@ function PropertyGroup({
           <button
             type="button"
             onClick={onToggleExpanded}
+            aria-expanded={expanded}
+            aria-controls={`work-items-${propId}`}
             style={{
               background: 'none',
               border: 'none',
@@ -896,13 +867,13 @@ function PropertyGroup({
             }}
           >
             <span className="font-serif" style={{ fontSize: 18, fontWeight: 500 }}>
-              {propName}
+              {propName}<span aria-hidden="true" style={{ marginLeft: 8, fontSize: 12 }}>{expanded ? '−' : '+'}</span>
             </span>
           </button>
-          {/* Inventory at a glance: which supplies this property needs,
-              readable without expanding the group. Open restock slips
-              drive it, so checking one off clears its chip. */}
-          {supplyNames.length > 0 && (
+          {summary && <div style={{ fontSize: 12, marginTop: 5, color: signals.overdue || signals.blocked ? 'var(--signal)' : 'var(--ink-3)' }}>{summary}</div>}
+          {/* Supply details appear with the expanded property. Open restock
+              slips drive these chips, so completing one clears its chip. */}
+          {expanded && supplyNames.length > 0 && (
             <div
               className="rt-no-print"
               style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}
@@ -930,7 +901,7 @@ function PropertyGroup({
             </div>
           )}
         </div>
-        {highCount > 0 && (
+        {expanded && highCount > 0 && (
           <span
             style={{
               fontSize: 10,
@@ -943,7 +914,7 @@ function PropertyGroup({
             {highCount} HIGH
           </span>
         )}
-        {ownerActionCount > 0 && (
+        {expanded && ownerActionCount > 0 && (
           <span
             title="Open items flagged for owner input"
             style={{
@@ -957,8 +928,8 @@ function PropertyGroup({
             {ownerActionCount} OWNER
           </span>
         )}
-        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{slips.length}</span>
-        {ownerActionCount > 0 && propertyId && (
+        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{slips.length} open</span>
+        {expanded && ownerActionCount > 0 && propertyId && (
           <button
             type="button"
             onClick={draftOwnerEmail}
@@ -976,10 +947,10 @@ function PropertyGroup({
               opacity: drafting ? 0.6 : 1,
             }}
           >
-            {drafting ? 'Drafting…' : 'Draft Owner Email'}
+            {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : 'Draft Owner Email'}
           </button>
         )}
-        {propertyId && (
+        {expanded && propertyId && (
           <Link
             href={`/properties/${propertyId}`}
             prefetch={false}
@@ -1001,7 +972,7 @@ function PropertyGroup({
             Property ↗
           </Link>
         )}
-        {propertyId && (
+        {expanded && propertyId && (
           <button
             type="button"
             onClick={printPropertyWork}
@@ -1021,7 +992,7 @@ function PropertyGroup({
             🖨
           </button>
         )}
-        <button
+        {expanded && <button
           type="button"
           onClick={onAddSlip}
           className="rt-no-print"
@@ -1037,11 +1008,12 @@ function PropertyGroup({
           }}
         >
           + Slip
-        </button>
+        </button>}
       </div>
 
+      {draftUrl && <a className="rt-no-print" href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
       {draftErr && (
-        <div
+        <div role="alert"
           style={{
             margin: '0 0 12px 56px',
             padding: '8px 12px',
@@ -1056,7 +1028,7 @@ function PropertyGroup({
       )}
 
       {expanded && (
-        <div style={{ paddingBottom: 12 }}>
+        <div id={`work-items-${propId}`} style={{ paddingBottom: 12 }}>
           {/* Inventory first, then work, with group labels whenever the
               property has restocks — keeps a shopping run and a repair
               visit from reading as one undifferentiated list. The
@@ -1069,6 +1041,7 @@ function PropertyGroup({
             <WorkSlipRowItem
               key={s.id}
               slip={s}
+              bulkPending={bulkPending}
               isSupply
               selected={selectedIds.has(s.id)}
               onToggleSelect={onToggleSelect}
@@ -1083,6 +1056,7 @@ function PropertyGroup({
             <WorkSlipRowItem
               key={s.id}
               slip={s}
+              bulkPending={bulkPending}
               selected={selectedIds.has(s.id)}
               onToggleSelect={onToggleSelect}
               commentCount={commentCounts[s.id] ?? 0}
@@ -1099,6 +1073,7 @@ function WorkSlipRowItem({
   slip,
   selected,
   onToggleSelect,
+  bulkPending = false,
   commentCount,
   reporterName,
   isSupply = false,
@@ -1106,6 +1081,7 @@ function WorkSlipRowItem({
   slip: WorkSlipRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  bulkPending?: boolean;
   commentCount: number;
   reporterName?: string;
   isSupply?: boolean;
@@ -1119,14 +1095,30 @@ function WorkSlipRowItem({
   // here usually means Vercel shed the response AFTER the update committed,
   // so the refresh clears the row even on the "failure" path.
   const [hidden, setHidden] = useState(false);
-  const isOverdue = !!slip.scheduled_date && slip.scheduled_date < new Date().toISOString().slice(0, 10);
+  const doneLock = useRef(false);
+  const [doneError, setDoneError] = useState<string | null>(null);
+  useUnsavedWorkGuard(isPending);
+  const isOverdue = workOverdue(slip, operatingDate());
 
   function markDone() {
+    if (doneLock.current || hidden || bulkPending) return;
+    doneLock.current = true;
+    setDoneError(null);
     setHidden(true);
     startTransition(async () => {
-      const res = await updateWorkSlipStatus({ id: slip.id, status: 'done' }).catch(() => null);
-      if (!res || !res.ok) setHidden(false);
-      softRefresh();
+      try {
+        const res = await updateWorkSlipStatus({ id: slip.id, status: 'done' });
+        if (!res.ok) {
+          setHidden(false);
+          setDoneError(`Could not mark done: ${res.error}`);
+        }
+      } catch {
+        setHidden(false);
+        setDoneError('Could not confirm completion. Check the current status before retrying.');
+      } finally {
+        doneLock.current = false;
+        softRefresh();
+      }
     });
   }
 
@@ -1134,6 +1126,7 @@ function WorkSlipRowItem({
 
   return (
     <div
+      className="rt-work-row"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -1146,6 +1139,7 @@ function WorkSlipRowItem({
       <span className="rt-no-print">
         <SelectCheckbox
           checked={selected}
+          disabled={bulkPending || isPending}
           onChange={() => onToggleSelect(slip.id)}
           ariaLabel={`Select work slip ${slip.title}`}
         />
@@ -1158,25 +1152,15 @@ function WorkSlipRowItem({
           alignItems: 'center',
           gap: 14,
           flex: 1,
+          minWidth: 0,
+          flexWrap: 'wrap',
           textDecoration: 'none',
           color: 'inherit',
         }}
       >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background:
-              slip.priority === 'high' ? 'var(--negative)' :
-              isSupply ? 'var(--tide)' :
-              slip.priority === 'normal' ? 'var(--ink-3)' :
-              'var(--ink-4)',
-            flexShrink: 0,
-          }}
-        />
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: '1 1 180px', minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
+          {doneError && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: 'var(--negative)' }}>{doneError}</div>}
           {/* The detail is what you triage on — surface it right on the row
               (one clamped line, full text on hover) so you don't have to
               open the slip just to see what it's about. Assignment info
@@ -1201,7 +1185,8 @@ function WorkSlipRowItem({
           )}
           <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
-            {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : 'Unclaimed')}
+            {slip.assigned_to_label || (slip.assigned_to_email ? displayNameForEmail(slip.assigned_to_email) : slip.assigned_to_type === 'owner' ? 'Owner' : 'Unassigned')}
+            {slip.scheduled_date ? ` · ${slip.scheduled_date === operatingDate() ? 'Due today' : `Scheduled ${slip.scheduled_date}`}` : ''}
             {slip.location ? ` · ${slip.location}` : ''}
             {reporterName && <span style={{ color: 'var(--tide-deep)' }}> · flagged by {reporterName}</span>}
             {slip.last_verified_open_at && (
@@ -1225,9 +1210,7 @@ function WorkSlipRowItem({
             <span className="rt-no-print" style={pillTinyStyle('var(--tide-deep)')}>supply</span>
           </>
         ) : (
-          <span className="rt-no-print" style={pillTinyStyle(slip.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
-            {slip.priority}
-          </span>
+          slip.priority === 'high' && <span className="rt-no-print" style={pillTinyStyle('var(--negative)')}>High</span>
         )}
         {/* Who the AI-triaged fix belongs to: a handyman run or a licensed
             vendor. Inspector-scope stays quiet — that's the default fate of
@@ -1241,14 +1224,12 @@ function WorkSlipRowItem({
             {slip.run_scope === 'pro' ? 'vendor' : 'handyman'}
           </span>
         )}
-        <span className="rt-no-print" style={pillTinyStyle('var(--ink-3)')}>
-          {slip.status.replace('_', ' ')}
-        </span>
+        {slip.status !== 'open' && <span className="rt-no-print" style={pillTinyStyle(slip.status === 'blocked' ? 'var(--signal)' : 'var(--ink-3)')}>{slip.status.replace('_', ' ')}</span>}
       </Link>
       <button
         type="button"
         onClick={markDone}
-        disabled={isPending}
+        disabled={isPending || bulkPending}
         className="rt-no-print"
         style={{
           background: 'none',
@@ -1273,26 +1254,44 @@ function TaskRowItem({
   task,
   selected,
   onToggleSelect,
+  bulkPending = false,
   commentCount,
 }: {
   task: TaskRow;
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  bulkPending?: boolean;
   commentCount: number;
 }) {
   const [isPending, startTransition] = useTransition();
   const softRefresh = useSoftRefresh();
-  const isOverdue = !!task.due_date && task.due_date < new Date().toISOString().slice(0, 10);
+  const isOverdue = !!task.due_date && task.due_date < operatingDate();
   // Same optimistic removal as WorkSlipRowItem: hide now, reconcile on
   // the refresh, restore only if the action reports a real failure.
   const [hidden, setHidden] = useState(false);
+  const doneLock = useRef(false);
+  const [doneError, setDoneError] = useState<string | null>(null);
+  useUnsavedWorkGuard(isPending);
 
   function markDone() {
+    if (doneLock.current || hidden || bulkPending) return;
+    doneLock.current = true;
+    setDoneError(null);
     setHidden(true);
     startTransition(async () => {
-      const res = await updateTaskStatus({ id: task.id, status: 'done' }).catch(() => null);
-      if (!res || !res.ok) setHidden(false);
-      softRefresh();
+      try {
+        const res = await updateTaskStatus({ id: task.id, status: 'done' });
+        if (!res.ok) {
+          setHidden(false);
+          setDoneError(`Could not mark done: ${res.error}`);
+        }
+      } catch {
+        setHidden(false);
+        setDoneError('Could not confirm completion. Check the current status before retrying.');
+      } finally {
+        doneLock.current = false;
+        softRefresh();
+      }
     });
   }
 
@@ -1300,6 +1299,7 @@ function TaskRowItem({
 
   return (
     <div
+      className="rt-work-row"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -1311,6 +1311,7 @@ function TaskRowItem({
     >
       <SelectCheckbox
         checked={selected}
+        disabled={bulkPending || isPending}
         onChange={() => onToggleSelect(task.id)}
         ariaLabel={`Select task ${task.title}`}
       />
@@ -1322,24 +1323,15 @@ function TaskRowItem({
           alignItems: 'center',
           gap: 14,
           flex: 1,
+          minWidth: 0,
+          flexWrap: 'wrap',
           textDecoration: 'none',
           color: 'inherit',
         }}
       >
-        <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background:
-              task.priority === 'high' ? 'var(--negative)' :
-              task.priority === 'medium' ? 'var(--ink-3)' :
-              'var(--ink-4)',
-            flexShrink: 0,
-          }}
-        />
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: '1 1 180px', minWidth: 0 }}>
           <div style={{ fontSize: 14, color: 'var(--ink)' }}>{task.title}</div>
+          {doneError && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: 'var(--negative)' }}>{doneError}</div>}
           {task.description && (
             <div
               style={{
@@ -1359,22 +1351,20 @@ function TaskRowItem({
           )}
           <div style={{ marginTop: 4, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
             {isOverdue && <span style={{ fontWeight: 700 }}>OVERDUE · </span>}
-            {displayNameForEmail(task.assigned_to_email)}
-            {task.due_date ? ` · due ${task.due_date}` : ''}
+            {task.assigned_to_email ? displayNameForEmail(task.assigned_to_email) : 'Unassigned'}
+            {task.due_date ? ` · ${task.due_date === operatingDate() ? 'Due today' : `Due ${task.due_date}`}` : ''}
           </div>
         </div>
         {commentCount > 0 && (
           <CommentBadge count={commentCount} />
         )}
-        <span style={pillTinyStyle(task.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)')}>
-          {task.priority}
-        </span>
-        <span style={pillTinyStyle('var(--ink-3)')}>{task.status.replace('_', ' ')}</span>
+        {task.priority === 'high' && <span style={pillTinyStyle('var(--negative)')}>High</span>}
+        {task.status !== 'open' && <span style={pillTinyStyle(task.status === 'blocked' ? 'var(--signal)' : 'var(--ink-3)')}>{task.status.replace('_', ' ')}</span>}
       </Link>
       <button
         type="button"
         onClick={markDone}
-        disabled={isPending}
+        disabled={isPending || bulkPending}
         style={{
           background: 'none',
           border: '1px solid var(--rule)',
@@ -1437,6 +1427,20 @@ function WorkSlipModal({
   const [photosOpen, setPhotosOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const saving = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
+  const uploadBusy = useRef(false);
+  const [uploading, setUploading] = useState(false);
+  const snapshot = JSON.stringify([propertyId, title, description, location, category, priority, scheduledDate, assignedToEmail, photos]);
+  const original = useRef(snapshot);
+  const dirty = snapshot !== original.current;
+  useUnsavedWorkGuard(dirty || submitting || uploading || uncertain);
+
+  function requestClose() {
+    if (saving.current || uploadBusy.current) return;
+    if ((dirty || uncertain) && !window.confirm('Discard this unfinished work slip?')) return;
+    onClose();
+  }
 
   const showMore =
     moreOpen ||
@@ -1448,8 +1452,12 @@ function WorkSlipModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving.current || uploadBusy.current) return;
+    saving.current = true;
+    setUncertain(false);
     setError(null);
     setSubmitting(true);
+    try {
     const res = await createWorkSlip({
       property_id: propertyId,
       title,
@@ -1468,11 +1476,19 @@ function WorkSlipModal({
     }
     onClose();
     router.push(`/work/${res.id}`);
+    } catch {
+      setUncertain(true);
+      setError('Could not confirm whether the work slip was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
+    }
   }
 
   return (
-    <ModalShell title="New Work Slip" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <ModalShell title="New Work Slip" onClose={requestClose} busy={submitting || uploading}>
+      <form onSubmit={handleSubmit}>
+        <fieldset disabled={submitting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Property *">
           <select
             value={propertyId}
@@ -1606,6 +1622,7 @@ function WorkSlipModal({
             <PhotoUploader
               value={photos}
               onChange={setPhotos}
+              onUploadingChange={(value) => { uploadBusy.current = value; setUploading(value); }}
               folder="work_slips"
               disabled={submitting}
             />
@@ -1619,9 +1636,10 @@ function WorkSlipModal({
           </Field>
         )}
 
-        {error && <ErrorBlock message={error} />}
+        {error && <div role="alert"><ErrorBlock message={error} />{uncertain && <a href="/work" target="_blank" rel="noopener noreferrer">View saved work</a>}</div>}
 
-        <ModalActions onCancel={onClose} submitLabel="Create Work Slip" submitting={submitting} />
+        <ModalActions onCancel={requestClose} submitLabel="Create Work Slip" submitting={submitting || uploading} />
+      </fieldset>
       </form>
     </ModalShell>
   );
@@ -1658,11 +1676,27 @@ function TaskModal({
   const [assignedToEmail, setAssignedToEmail] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const saving = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
+  const snapshot = JSON.stringify([title, description, scope, priority, dueDate, propertyIds, tagsInput, assignedToEmail]);
+  const original = useRef(snapshot);
+  const dirty = snapshot !== original.current;
+  useUnsavedWorkGuard(dirty || submitting || uncertain);
+
+  function requestClose() {
+    if (saving.current) return;
+    if ((dirty || uncertain) && !window.confirm('Discard this unfinished task?')) return;
+    onClose();
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving.current) return;
+    saving.current = true;
+    setUncertain(false);
     setError(null);
     setSubmitting(true);
+    try {
     const tags = tagsInput
       .split(',')
       .map((t) => t.trim())
@@ -1684,11 +1718,19 @@ function TaskModal({
     }
     onClose();
     router.push(`/work/tasks/${res.id}`);
+    } catch {
+      setUncertain(true);
+      setError('Could not confirm whether the task was created. Your draft is kept. Check the work list in another tab before retrying to avoid a duplicate.');
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
+    }
   }
 
   return (
-    <ModalShell title="New Task" onClose={onClose}>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <ModalShell title="New Task" onClose={requestClose} busy={submitting}>
+      <form onSubmit={handleSubmit}>
+        <fieldset disabled={submitting} className="flex flex-col gap-4" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <Field label="Title *">
           <input
             type="text"
@@ -1778,15 +1820,16 @@ function TaskModal({
           />
         </Field>
 
-        {error && <ErrorBlock message={error} />}
+        {error && <div role="alert"><ErrorBlock message={error} />{uncertain && <a href="/work" target="_blank" rel="noopener noreferrer">View saved work</a>}</div>}
 
-        <ModalActions onCancel={onClose} submitLabel="Create Task" submitting={submitting} />
+        <ModalActions onCancel={requestClose} submitLabel="Create Task" submitting={submitting} />
+      </fieldset>
       </form>
     </ModalShell>
   );
 }
 
-function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function ModalShell({ title, onClose, busy, children }: { title: string; onClose: () => void; busy: boolean; children: React.ReactNode }) {
   return (
     <div
       role="dialog"
@@ -1823,6 +1866,8 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
             style={{
               background: 'none',
               border: 'none',
@@ -1974,16 +2019,19 @@ function CommentBadge({ count }: { count: number }) {
  */
 function SelectCheckbox({
   checked,
+  disabled = false,
   onChange,
   ariaLabel,
 }: {
   checked: boolean;
+  disabled?: boolean;
   onChange: () => void;
   ariaLabel: string;
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       role="checkbox"
       aria-checked={checked}
       aria-label={ariaLabel}
@@ -2105,6 +2153,7 @@ function BulkActionBar({
 
       {err && (
         <div
+          role="alert"
           style={{
             width: '100%',
             background: 'var(--negative)',

@@ -38,7 +38,8 @@ export async function fetchProactiveReminders(): Promise<
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const rec = await listRecurring(AUDIENCE);
-  return { ok: true, recurring: rec.ok ? rec.data.recurring : [] };
+  if (!rec.ok) return { ok: false, error: explainError(rec.error) };
+  return { ok: true, recurring: rec.data.recurring };
 }
 
 export async function fetchProactiveTargets(): Promise<
@@ -47,7 +48,8 @@ export async function fetchProactiveTargets(): Promise<
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const res = await listProactiveTargets(AUDIENCE);
-  return { ok: true, targets: res.ok ? res.data.targets : [] };
+  if (!res.ok) return { ok: false, error: explainError(res.error) };
+  return { ok: true, targets: res.data.targets };
 }
 
 export async function createProactiveReminder(

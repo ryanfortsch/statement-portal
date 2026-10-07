@@ -135,7 +135,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
 
       {/* TWO-UP: top sources + top pages */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
+        <div className="rt-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
           <div>
             <div className="eyebrow" style={{ marginBottom: 14 }}>Top sources</div>
             <Table

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { SubmitButton } from '@/components/SubmitButton';
+import { useRecoverableAction } from '@/lib/use-recoverable-action';
+import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { acceptShoot, declineShoot } from '@/app/field/actions';
 
 /**
@@ -17,6 +18,20 @@ import { acceptShoot, declineShoot } from '@/app/field/actions';
  */
 export function AnswerPanel({ shootId, when, what }: { shootId: string; when: string; what: string }) {
   const [passing, setPassing] = useState(false);
+  const [reason, setReason] = useState('');
+  const { busy, pending, error, setError, run } = useRecoverableAction();
+  useDraftNavigationGuard(passing && reason.length > 0, pending);
+  function reply(data: FormData, action: typeof acceptShoot) {
+    if (busy.current) return;
+    run(async () => {
+      const result = await action(data);
+      if (result?.error) setError(result.error);
+    }, 'Could not confirm your reply. Your text is kept. Refresh to check the offer before retrying.');
+  }
+  function back() {
+    if (busy.current || (reason && !confirm('Discard your reason for passing?'))) return;
+    setPassing(false); setReason(''); setError(null);
+  }
 
   return (
     <div
@@ -37,22 +52,26 @@ export function AnswerPanel({ shootId, when, what }: { shootId: string; when: st
 
       {!passing ? (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 14 }}>
-          <form action={acceptShoot} style={{ margin: 0 }}>
+          <form action={async data => { reply(data, acceptShoot); }} style={{ margin: 0 }}>
             <input type="hidden" name="shoot_id" value={shootId} />
-            <SubmitButton label="Yes, I'll take it" busyLabel="Confirming…" style={btnGo} />
+            <button type="submit" disabled={pending} style={btnGo}>{pending ? 'Confirming…' : "Yes, I'll take it"}</button>
           </form>
-          <button type="button" onClick={() => setPassing(true)} style={btnPass}>
+          <button type="button" disabled={pending} onClick={() => { if (!busy.current) { setPassing(true); setError(null); } }} style={btnPass}>
             Can&apos;t make it
           </button>
         </div>
       ) : (
-        <form action={declineShoot} style={{ marginTop: 14 }}>
+        <form action={async data => { reply(data, declineShoot); }} style={{ marginTop: 14 }}>
           <input type="hidden" name="shoot_id" value={shootId} />
           <label style={{ display: 'block', fontSize: 12.5, color: 'var(--ink-3)', marginBottom: 6 }}>
             Anything you want us to know? Optional.
           </label>
           <input
             name="reason"
+            aria-label="Reason for passing"
+            value={reason}
+            onChange={event => setReason(event.target.value)}
+            disabled={pending}
             maxLength={500}
             placeholder="e.g. away that week, or try me Thursday"
             style={{
@@ -67,13 +86,14 @@ export function AnswerPanel({ shootId, when, what }: { shootId: string; when: st
             }}
           />
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
-            <SubmitButton label="Send my pass" busyLabel="Sending…" style={btnPassSolid} />
-            <button type="button" onClick={() => setPassing(false)} style={btnQuiet}>
+            <button type="submit" disabled={pending} style={btnPassSolid}>{pending ? 'Sending…' : 'Send my pass'}</button>
+            <button type="button" disabled={pending} onClick={back} style={btnQuiet}>
               Back
             </button>
           </div>
         </form>
       )}
+      {error && <p role="alert" style={{ color: 'var(--negative)', fontSize: 13 }}>{error}</p>}
     </div>
   );
 }

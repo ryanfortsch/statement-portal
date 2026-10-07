@@ -16,6 +16,7 @@
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { loadGuestyRunPropertyIds } from '@/lib/pms-guards';
 
 let _service: SupabaseClient | null = null;
 function getServiceClient(): SupabaseClient {
@@ -34,6 +35,9 @@ export type FinanceBackfillResult = {
   written: number;
   skipped_higher_confidence: number;
   unmatched: number;
+  /** Canonical bookings on homes Helm runs: Guesty's money view of them is
+   *  stale after the flip, so nothing here may rewrite their finance rows. */
+  skipped_helm_run: number;
 };
 
 type GuestyMoney = {
@@ -76,7 +80,15 @@ export async function backfillBookingFinance(): Promise<FinanceBackfillResult> {
     .is('duplicate_of', null)
     .neq('status', 'cancelled');
   if (bErr) throw new Error(`read bookings: ${bErr.message}`);
-  const bookings = bookingRows ?? [];
+  const allBookings = bookingRows ?? [];
+
+  // Only bookings on homes Guesty still runs. null = the registry read
+  // failed; keep everything rather than skip the fleet.
+  const guestyRunIds = await loadGuestyRunPropertyIds(sb);
+  const bookings = guestyRunIds
+    ? allBookings.filter((b) => guestyRunIds.has(b.property_id as string))
+    : allBookings;
+  const skippedHelmRun = allBookings.length - bookings.length;
 
   const { data: grRows, error: grErr } = await sb
     .from('guesty_reservations')
@@ -168,5 +180,6 @@ export async function backfillBookingFinance(): Promise<FinanceBackfillResult> {
     written,
     skipped_higher_confidence: skippedHigher,
     unmatched,
+    skipped_helm_run: skippedHelmRun,
   };
 }
