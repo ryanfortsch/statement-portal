@@ -283,4 +283,16 @@ Regression coverage proves attached-channel reads use GET only, changed capacity
 fails, and prior read success cannot enable a snapshot or any calendar POST. Updated
 existing sync/message/process-recovery fixtures for the explicit read interface. All
 1,822 tests, nonincremental TypeScript, targeted ESLint and diff checks passed. Base
-8bf5b49c; remote main observed 7b9a358a. Hosted polling verification pending deployment.
+8bf5b49c; remote main observed 7b9a358a.
+
+Deployed source `a14214e128e1b2f7e62dd4c693ce2134a04fd4a0` to the existing worker:
+Render `dep-db38u4u7bikc73c22jg0`, live October 7 at 14:27 EDT. The new instance reports
+booking `sync-success` at 18:27:50Z with received/saved/acknowledged/published all zero,
+and `complete=false`. Both Front and Back report `message-sync-success`, zero threads
+and messages. This restores empty-feed polling, not full snapshot completeness, live
+message delivery, or channel activation. No calendar writes occurred. Prior deployment
+f286e93d remains recoverable. Evidence: `/tmp/helm-staging-sync-restored.png`.
+
+Next: canonical inventory projection and provider task/read-back reconciliation remain
+unimplemented for live delivery. A complete booking baseline and real-message coverage
+must be separately verified before any migration. No new service or subscription.
