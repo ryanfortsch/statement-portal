@@ -1,3 +1,4 @@
+import { readCalderwoodChannex, compareProviders } from './channex.ts';
 import { readCalderwoodCalendar, compareCalendar } from './calendar.ts';
 import { readCalderwoodGuesty } from './guesty-reader.ts';
 type Environment = { VERCEL_ENV?: string; VERCEL_GIT_COMMIT_REF?: string; CHANNEX_STAGING_ENABLED?: string };
@@ -7,7 +8,7 @@ export function calderwoodReadAllowed(email: string | null | undefined, env: Env
 }
 /** Guard before acquiring any token. Token remains server-side and never enters the result. */
 export async function loadCalderwoodRead(input: { email?: string | null; env: Environment; from: string; to: string; includeCalendar?: boolean }, dependencies: {
-  token: () => Promise<string>; read?: typeof readCalderwoodGuesty; calendar?: typeof readCalderwoodCalendar;
+  token: () => Promise<string>; read?: typeof readCalderwoodGuesty; calendar?: typeof readCalderwoodCalendar; stagingKey?: () => string; stagingRead?: typeof readCalderwoodChannex;
 }) {
   if (!calderwoodReadAllowed(input.email, input.env)) throw Error('Calderwood preview unavailable');
   // Validate the requested window before touching the existing connection.
@@ -23,6 +24,12 @@ export async function loadCalderwoodRead(input: { email?: string | null; env: En
       try { const read = await (dependencies.calendar ?? readCalderwoodCalendar)(token, snapshot.window); calendar = { ...read, days: compareCalendar(read, snapshot.reservations) }; }
       catch { calendarError = true; }
     }
-    return { ...snapshot, calendar, calendarError, startedAt, finishedAt: new Date().toISOString() };
+    let staging = null;
+    let stagingError = false;
+    if (calendar && dependencies.stagingKey) {
+      try { const data = await (dependencies.stagingRead ?? readCalderwoodChannex)(dependencies.stagingKey(), snapshot.window); staging = { ...data, comparison: compareProviders(calendar, data) }; }
+      catch { stagingError = true; }
+    }
+    return { ...snapshot, calendar, calendarError, staging, stagingError, startedAt, finishedAt: new Date().toISOString() };
   } catch { throw Error('Calderwood could not be read from the existing Guesty connection. No calendar changes were made.'); }
 }

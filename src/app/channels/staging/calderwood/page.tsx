@@ -19,7 +19,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   let result: Awaited<ReturnType<typeof loadCalderwoodRead>> | null = null;
   let error = '';
   if (params.load === '1') {
-    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: true }, { token: getGuestyToken }); }
+    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: true }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
     catch (e) { error = e instanceof Error ? e.message : 'Snapshot unavailable'; }
   }
   return <main className="mx-auto max-w-6xl space-y-6 p-6">
@@ -30,11 +30,23 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
       <input type="hidden" name="load" value="1" />
       <label className="grid gap-1 text-sm">From<input className="rounded border p-2" type="date" name="from" required defaultValue={from} /></label>
       <label className="grid gap-1 text-sm">Until (exclusive)<input className="rounded border p-2" type="date" name="to" required defaultValue={to} /></label>
-      <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit">Read bookings and calendar</button>
+      <button className="rounded bg-slate-900 px-4 py-2 text-white" type="submit">Compare calendars</button>
     </form>
-    <aside className="rounded-lg bg-amber-50 p-4 text-sm text-amber-950">Comparison incomplete: Channex is not mapped to Calderwood. Calendar evidence is from Guesty only. Authoritative booking revisions and independent channel delivery checks are still missing. An empty result does not mean dates are available.</aside>
+    <aside className="rounded-lg bg-amber-50 p-4 text-sm text-amber-950">Staging comparison only: Channex has an isolated test property with placeholder pricing and no sales channels. Differences are expected. Authoritative booking revisions and independent channel delivery checks are still missing. An empty result does not mean dates are available.</aside>
     {error && <p role="alert" className="rounded border border-red-300 p-4 text-sm">{error}</p>}
     {result?.calendarError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Reservations loaded, but the calendar read failed. Pricing and block coverage remain unverified.</p>}
+    {result?.stagingError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Channex staging could not be verified. Its mapping, channel isolation, key access or calendar response needs review. Guesty results remain visible.</p>}
+    {result?.staging && <section className="space-y-3">
+      <h2 className="text-lg font-semibold">Guesty live vs Channex staging</h2>
+      <p className="text-sm">{result.staging.comparison.length} nights compared · {result.staging.comparison.filter(r => r.differences.length).length} with differences · {result.staging.comparison.filter(r => r.missing.length).length} with missing evidence · {result.staging.comparison.filter(r => r.test.stopSell !== true).length} without verified stop-sell</p>
+      <p className="text-xs text-slate-500">Staging read {result.staging.finishedAt}. Minimum comparison uses arrival minimum only; through-stay and maximum-stay semantics remain unverified. Matching fields do not prove booking, block ownership, fees, policies or channel parity.</p>
+      <div className="max-h-[32rem] overflow-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="sticky top-0 bg-slate-50"><tr>{['Night', 'Guesty live', 'Channex test', 'Differences / missing evidence'].map(label => <th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>{result.staging.comparison.map(row => <tr key={row.date} className="border-t align-top">
+        <td className="whitespace-nowrap p-3">{row.date}</td>
+        <td className="p-3">{row.live ? <>{row.live.status}<br />{row.live.currency ?? '?'} {row.live.price ?? '?'} · min {row.live.minNights ?? '?'}<br />{row.live.reasons.join(', ')}</> : 'Missing night'}</td>
+        <td className="p-3"><strong>{row.safety}</strong><br />Inventory {row.test.inventory ?? '?'} · USD {row.test.price ?? '?'}<br />Min arrival {row.test.minArrival ?? '?'} / through {row.test.minThrough ?? '?'}</td>
+        <td className="p-3">{[...row.missing, ...row.differences].join(' · ') || 'Displayed fields agree; broader parity unverified'}</td>
+      </tr>)}</tbody></table></div>
+    </section>}
     {result?.calendar && <section className="space-y-3">
       <h2 className="font-semibold">{result.calendar.days.length} calendar nights returned · {result.calendar.missingDates.length} missing · {result.calendar.days.filter(d => d.issues.length).length} nights to review</h2>
       <p className="text-sm text-slate-600">Guesty posted rates in the listed currency, not a guest quote or proof of PriceLabs delivery. Reads are sequential; a mismatch may reflect a change between requests. No dates are cleared for sale by this review.</p>

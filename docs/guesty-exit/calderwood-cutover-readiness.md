@@ -444,3 +444,30 @@ were output; no raw response bodies, secrets or booking records were logged.
 This completes API access verification, not calendar parity or live OTA mapping.
 No rates, availability, bookings or messages were written through the API.
 Documentation-only diff check; no application source changes or new test run.
+
+## October 6 two-provider read-only comparison
+
+Added a separate Calderwood Channex GET-only adapter. It verifies exact property,
+room and rate identities/relationships, USD/New York, six spaces, per-room pricing,
+all-week stopped defaults and an explicitly empty channel collection before ARI
+reads. It rejects unexpected inventory keys/dates and warning/error envelopes.
+Missing nightly values remain null; property defaults are not substituted for
+missing daily evidence. The user-approved existing key stays server-side.
+
+The manual staff preview now compares each Guesty night with Channex staging:
+posted rate/currency, arrival minimum, CTA/CTD and coarse closed/open state. Counts
+separate missing evidence, differences and unverified stop-sell. Through-stay and
+maximum-stay semantics remain unverified. Placeholder differences are expected;
+this never asserts complete parity or executable availability. A Channex failure
+leaves Guesty results visible and reports staging verification failure. Neither
+provider receives a write. No customer booking records are copied to Channex.
+
+Reference: https://docs.channex.io/api-v.1-documentation/ari
+
+Validation: 1,782 tests, TypeScript, targeted ESLint and diff check passed. An initial
+synthetic fixture cast failed TypeScript; replaced it with an extra-key mutation
+and reran all checks successfully before commit. The actual fixed staging GET
+reader returned 90 nights, all stopped, no missing prices, for October 6 through
+January 4 exclusive. Hosted combined comparison verification remains pending.
+Prior recoverable checkpoint e83bae63; base a148b0e6; current main reference checked
+at e9cb232b2da53ad65c8e33712a5c2a5b516e6e46. PR #1714 retained.
