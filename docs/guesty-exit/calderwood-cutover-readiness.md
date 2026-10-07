@@ -488,3 +488,11 @@ production deployment occurred.
 - Exact staging mapping and full date coverage are required; missing evidence, unknown blocks, calendar discrepancies and non-stopped baseline nights withhold candidates. Status never claims executable or migration-ready.
 - Validation: 1,786 tests passed, nonincremental TypeScript passed, targeted ESLint passed, diff whitespace check passed. Synthetic tests cover preserved restrictions, stopped output, missing/duplicate/extra dates, bad rates, source discrepancies and mapping changes.
 - Recoverable prior commit: `0691ada9`. Hosted verification pending at this entry. Live channel settings and production remain unchanged.
+
+### Hosted proposal verification (2026-10-07 UTC)
+
+- Source `be98ceae` verified in the authenticated hosted preview for 2026-10-06 through 2027-01-04 exclusive: 90 reviewed nights, 90 complete candidates, status awaiting restriction review. Expanded nightly details visibly show inventory zero, stop-sell on and unmapped Guesty minimums with staging stay restrictions retained.
+- Underlying provider comparison remains 90 nights, zero missing evidence and zero nights without verified stop-sell. Staging read completed 2026-10-07T00:47:58.770Z. This is sequential snapshot evidence, not atomic parity or live migration approval.
+- Vercel preview build passed; GitHub CI run 37553552848 completed successfully. Screenshot inspected locally at `/tmp/calderwood-stopped-proposal.jpg`; no live rate values committed to documentation.
+- Next: establish minimum-stay mapping semantics and test them before any proposed provider write. Production, live channel connections, messages, database and worker were unchanged.
+- This verification entry is documentation-only; complete diff and whitespace checked, application checks remain those run on source `be98ceae`.
