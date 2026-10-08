@@ -5,7 +5,7 @@ import {projectInventory} from '../channex-staging/inventory-projection.ts';
 const start='2027-01-01',end='2027-01-03',now=1000;
 function fixture(){
  const config:SnapshotConfiguration={version:1,resources:['home'],listings:[{id:'home',resources:['home']}],requiredSources:['direct'],holds:[]};
- const scan:InventorySourceScan={source:'direct',resources:['home'],start,end,observedAt:900,freshUntil:2000,pages:[{scan:'stable-1',cursor:null,next:null,bookings:[]}]};
+ const scan:InventorySourceScan={source:'direct',resources:['home'],start,end,complete:true,observedAt:900,freshUntil:2000,pages:[{scan:'stable-1',cursor:null,next:null,bookings:[]}]};
  return {config,scan};
 }
 const assemble=(f:ReturnType<typeof fixture>)=>assembleInventorySnapshot(f.config,[f.scan],start,end,now);

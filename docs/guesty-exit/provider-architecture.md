@@ -511,3 +511,33 @@ codex/channex-staging-pilot, base d841f99e, main observed 7b9a358a. No hosted sc
 change, customer data, calendar writes or new expense. Remaining: provider-specific canonical
 identity/revision and full-scan guarantees, hosted snapshot writer verification, and delivery
 acceptance. The synthetic collector is not evidence of real feed completeness.
+
+### Persisted Channex observation adapter: October 8, 2026
+
+Reviewed official booking documentation:
+https://docs.channex.io/api-v.1-documentation/bookings-collection and
+https://docs.channex.io/guides/best-practices-guide. The revision feed contains unacknowledged
+changes; empty feed results do not establish initial reservation coverage. Documentation
+recommends an initial pull plus durable revision handling and acknowledgment after saving.
+No atomic full-scan token guarantee was established by this review.
+
+Added `inventory-channex-source.ts`, reading the existing persisted synthetic ownership
+journal through a read-only store interface. It verifies/replays that journal, uses existing
+revision ordering, maps Front/Back explicitly, and namespaces booking IDs by source and unit.
+Whole-house simulation rows are excluded from this provider observation and still require
+the independent whole-house source. No feed consumption, ACK, client/network call or worker
+activation. This is the existing staging normalized format, not an adapter for real guest data.
+
+Source scans now require an explicit completeness boolean in addition to stable pagination.
+The Channex observation adapter always supplies false, regardless of any journal simulation
+completeness flag. Its local journal token identifies a durable read only; it is not provider
+coverage evidence. Read time and the minimal expiry do not assert upstream freshness. Even
+empty history cannot authorize inventory. Three new tests cover that boundary, late older
+revisions, cancellation ordering, unit identity separation and invalid mapping/version.
+
+All 1,854 tests, nonincremental TypeScript, targeted lint, diff checks and existing integrated
+local SQL/worker rehearsal passed. Branch codex/channex-staging-pilot, base dcbe7b18, remote
+main observed 7b9a358a. No new expense, hosted mutation or live channel changes. Next required
+milestone is initial reconciliation evidence plus ongoing durable revision coverage, rather
+than simply marking this incremental feed complete. Real-guest normalization, Calderwood
+mapping, hosted snapshot writer and live delivery acceptance remain unproven.

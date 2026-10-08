@@ -64,7 +64,7 @@ try {
       bookings:[],holds:[{id:'maintenance',resources:['home'],start:'2027-01-01',end:'2027-01-02'}]}};
   const {coverage,bookings,...configuration} = state.snapshot;
   state.snapshot = assembleInventorySnapshot(configuration,[{source:'canonical',resources:['home'],
-    start:'2027-01-01',end:'2027-02-01',observedAt:now,freshUntil:coverage[0].freshUntil,
+    start:'2027-01-01',end:'2027-02-01',complete:true,observedAt:now,freshUntil:coverage[0].freshUntil,
     pages:[{scan:'synthetic-complete-scan',cursor:null,next:null,bookings}]}],
     '2027-01-01','2027-01-03',now);
   await db.query('insert into helm_pilot_inventory_snapshot values(1,1,1,$1)',[state]);
@@ -74,7 +74,7 @@ try {
   const jobs = async () => replayInventoryJournal((await history().read()).journal).queue.list();
   const replacement = {...state.snapshot,version:2};
   assert.equal((await collectInventorySnapshot(planning,async()=>[{source:'canonical',resources:['home'],
-    start:'2027-01-01',end:'2027-02-01',observedAt:now,freshUntil:coverage[0].freshUntil,
+    start:'2027-01-01',end:'2027-02-01',complete:true,observedAt:now,freshUntil:coverage[0].freshUntil,
     pages:[{scan:'synthetic-collected-scan',cursor:null,next:null,bookings}]}],
     '2027-01-01','2027-01-03',()=>now)).status,'saved');
   assert.equal(await planning.replaceSnapshot({snapshotVersion:1,configurationVersion:1},replacement,'2027-01-01','2027-01-03',now),false);

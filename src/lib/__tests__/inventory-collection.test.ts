@@ -12,7 +12,7 @@ function fixture(){
  events.push('save');if(expected.snapshotVersion!==state.snapshot.version||expected.configurationVersion!==state.configurationVersion)return false;
  state.snapshot=structuredClone(snapshot);return true;
  }};
- const scan={source:'canonical',resources:['home'],start,end,observedAt:900,freshUntil:2000,pages:[{scan:'one',cursor:null,next:null,bookings:[]}]};
+ const scan={source:'canonical',resources:['home'],start,end,complete:true,observedAt:900,freshUntil:2000,pages:[{scan:'one',cursor:null,next:null,bookings:[]}]};
  return {state,store,events,scan};
 }
 test('baseline is read before collection and saved exactly once; collector cannot mutate routing',async()=>{

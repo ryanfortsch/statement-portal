@@ -7,7 +7,7 @@ import { nights } from './core.ts';
 type Booking = InventorySnapshot['bookings'][number];
 export type InventorySourceScan = {
   source: string; resources: string[]; start: string; end: string;
-  observedAt: number; freshUntil: number;
+  observedAt: number; freshUntil: number; complete: boolean;
   pages: Array<{ scan: string; cursor: string | null; next: string | null; bookings: Booking[] }>;
 };
 export type SnapshotConfiguration = Pick<InventorySnapshot, 'version' | 'resources' | 'listings' | 'requiredSources' | 'holds'>;
@@ -24,7 +24,7 @@ export function assembleInventorySnapshot(configuration: SnapshotConfiguration, 
     nights(scan.start, scan.end);
     if (!Number.isSafeInteger(scan.observedAt) || !Number.isSafeInteger(scan.freshUntil) ||
         scan.observedAt < 0 || scan.observedAt > now || scan.freshUntil <= scan.observedAt) throw new Error('Invalid source freshness');
-    let complete = scan.pages.length > 0;
+    let complete = scan.complete === true && scan.pages.length > 0;
     let expected: string | null = null;
     const cursors = new Set<string | null>();
     const token = scan.pages[0]?.scan;
