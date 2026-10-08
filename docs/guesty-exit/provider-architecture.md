@@ -608,3 +608,75 @@ behavior and OTA delivery remain unverified. No additional sync is enabled here.
 Primary documentation rechecked 2026-10-08:
 - [Channex integration](https://help.pricelabs.co/portal/en/kb/articles/how-to-integrate-pricelabs-with-channex): supports rates and stay restrictions, parent plans and per-room prices; warns against competing PMS price writes and excludes direct-booking input via this API.
 - [PMS transition](https://help.pricelabs.co/portal/en/kb/articles/transitioning-between-management-systems): old/new mapping can copy listing customizations; account-level settings need separate handling. Both synced listings may be counted on the invoice, with a support-requested amendment described. Do not assume automatic billing relief or promise a free overlap period. No support message has been sent.
+
+
+## Calderwood message parity audit (2026-10-08)
+
+Evidence: user-provided Guesty workflow screenshots at 11:04:04 through 11:05:28,
+and explicit user clarification that codes normally send automatically at 3 PM,
+with an occasional manual delay. Guest-facing guidance remains 3:30-4 PM. Do not
+add an inspection-completion gate to routine code sending. No live rules changed.
+Templates, Wi-Fi credentials, door codes, guest records and contact numbers are
+not copied into source. The following is a migration specification, not enabled
+configuration.
+
+| Event | Observed schedule | Audience / transport | Remaining evidence |
+| --- | --- | --- | --- |
+| Reservation confirmed | 30 minutes after confirmation | Guest / booking channel | Three channel exclusions; authoritative confirmation timestamp |
+| Check-in instructions | 1 day before check-in | Guest / booking channel | Exact local send time and exclusions |
+| Key code | 60 minutes before check-in; normally 3 PM | Guest / booking channel | Lock-code source and transport delivery |
+| Checkout reminder | 1 day before checkout | Guest / booking channel | Exact local send time and exclusions |
+| Cleaner advance reminder | 10 days before check-in | Assigned cleaner / SMS | Exact local send time and verified recipient mapping |
+| Cleaner arrival reminder | 7 hours before check-in; normally 9 AM | Assigned cleaner / SMS | Verified recipient mapping |
+
+Cleaner workflow covers all channels and includes checkout dates. Its Guesty
+schedule link must be replaced by an access-controlled Helm schedule. The report
+shown has future-checkout, confirmed-status and cleaner-tag filters. Seven rows
+match the earlier supplied export's dates; this is not proof of all holds or all
+future bookings outside those filters. The user says the displayed staff-change
+workflow contains nothing; exclude it from captured rules, but do not infer that
+all other global automations are absent. Changes/cancellations need an explicit
+operating policy rather than an invented migrated notification.
+
+### Reuse audit against existing engine
+
+Inspected `src/lib/automations-core.ts` and `src/lib/automations.ts` on pilot branch
+9e6f3fe1. This is source inspection, not a production-state or delivery test.
+
+- `fireAtFor` immediately returns now for booking_confirmed. It does not implement
+  a 30-minute offset from provider confirmation. First-seen/import time must not
+  cause historical confirmation messages to replay.
+- Rules use offset_days plus at_local. A fixed 15:00 or 09:00 can reproduce normal
+  arrivals but is not a relative-hour implementation for changed check-in times.
+  Confirm exact day-offset wall times before configuring the other three rules.
+- `decideDispatch` routes OTA messages to manual approval/paste or an explicitly
+  configured Airbnb-native schedule. That is not automatic Channex delivery.
+  Reuse the ledger while adding a separately gated provider transport; retain
+  property authority, current destination and secret-resolution checks.
+- `skipSend` cancels the current message or marks old dates skipped. It is not a
+  reversible manual hold. Reusing it as Hold would lose the intended later send.
+- Existing cleaner SMS and recipient scoping are reusable foundations; validate
+  property-to-recipient coverage and avoid duplicating any existing cleaner digest.
+
+### Bounded implementation sequence
+
+1. Extend existing rule timing to represent confirmation +30 minutes and check-in
+   -60/-420 minutes using authoritative event times and property timezone. Keep
+   existing rules unchanged. Test delayed imports, edits, cancellations and DST.
+2. Add durable per-message hold/release to the existing ledger and UI. A hold wins
+   against replanning and survives restart; release rechecks current reservation,
+   recipient, code, authority and destination before making it eligible. Record
+   actor/time/reason. A held message stays held on date changes until reviewed.
+   A message already dispatching or delivered cannot be recalled by Hold; show
+   that state honestly. Release after arrival needs an explicit late-send decision.
+3. Add Channex sending only behind verified current thread mapping and explicit
+   activation. Reconcile ambiguous sends before retrying. Preserve masked stored
+   previews and resolve secrets at dispatch; do not paste screenshot credentials.
+4. Reconcile existing Guesty scheduled/sent messages per booking before handoff.
+   Never replay all six rules for every imported stay. One sender owns each event.
+5. Verify cleaner schedule access and SMS receipt, then guest-channel receipt in
+   a controlled authorized test. Synthetic green tests alone do not enable sending.
+
+Next engineering scope is timing parity in the existing engine, followed by
+hold/release. DB changes require reading SCHEMA.md and reviewing migrations;
+this audit authorizes no production changes or new messaging subscription.
