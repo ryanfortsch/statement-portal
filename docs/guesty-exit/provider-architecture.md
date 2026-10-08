@@ -437,3 +437,29 @@ targeted ESLint and diff checks passed. Branch codex/channex-staging-pilot, base
 remote main observed 7b9a358a. Existing draft PR #1714; no new expense. Next required work:
 canonical snapshot writer and source reconciliation, followed by hosted adapter integration
 and live provider task/read-back checks before any cutover.
+
+### Source scan reconciliation boundary: October 8, 2026
+
+Added `inventory-snapshot.ts` to assemble explicitly mapped normalized source scans into
+the existing inventory snapshot. Completeness requires a nonempty stable scan token,
+first null cursor, unbroken page chain and terminal null cursor. Missing scans/pages,
+changed tokens, repeated cursors and stale evidence cannot authorize an open calendar.
+Identical explicit canonical booking copies deduplicate; conflicting dates/status/listing
+fail the whole assembly rather than allowing one cancellation to erase a confirmed stay.
+Unmapped booking resource scope and unexpected/duplicate scans are rejected. Holds remain
+separate and existing strict projection validation checks the assembled output.
+
+The local SQL/worker rehearsal now obtains its snapshot through this assembler. Six
+regular tests cover stable pagination, duplicate copies, holds, missing source/page,
+unstable scans, stale/future observations, conflicts and resource scope. All 1,845 tests,
+nonincremental TypeScript, targeted ESLint, diff checks and the integrated local PostgreSQL
+rehearsal passed. Branch codex/channex-staging-pilot, base 2ad294b2, main observed 7b9a358a.
+
+This is a pure boundary, not a production canonical snapshot writer. Canonical IDs,
+source requirements, freshness deadlines and stable scan tokens are trusted upstream
+inputs. A provider adapter must demonstrate stable full-scan semantics or reconcile
+against a durable watermark; inventing a token around an inconsistent paginated feed
+is insufficient. Missing rows are never interpreted here as cancellation events. Prior
+revision handling, authoritative cancellation provenance, atomic writer/version advance
+and hosted integration still require implementation/verification. No customer data,
+new expense, provider calls, production deployment or calendar changes.

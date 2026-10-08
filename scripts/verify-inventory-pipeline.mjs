@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { isAbsolute } from 'node:path';
+import { assembleInventorySnapshot } from '../src/lib/channex-staging/inventory-snapshot.ts';
 import { planInventory } from '../src/lib/channex-staging/inventory-planner.ts';
 import { projectInventory } from '../src/lib/channex-staging/inventory-projection.ts';
 import { createInventoryPlanningStore } from '../src/lib/channex-staging/inventory-planning-store.ts';
@@ -56,6 +57,11 @@ try {
     snapshot:{version:1,resources:['home'],listings:[{id:'home',resources:['home']}],requiredSources:['canonical'],
       coverage:[{source:'canonical',resources:['home'],start:'2027-01-01',end:'2027-02-01',complete:true,freshUntil:now+600000}],
       bookings:[],holds:[{id:'maintenance',resources:['home'],start:'2027-01-01',end:'2027-01-02'}]}};
+  const {coverage,bookings,...configuration} = state.snapshot;
+  state.snapshot = assembleInventorySnapshot(configuration,[{source:'canonical',resources:['home'],
+    start:'2027-01-01',end:'2027-02-01',observedAt:now,freshUntil:coverage[0].freshUntil,
+    pages:[{scan:'synthetic-complete-scan',cursor:null,next:null,bookings}]}],
+    '2027-01-01','2027-01-03',now);
   await db.query('insert into helm_pilot_inventory_snapshot values(1,1,1,$1)',[state]);
   await db.exec('set role service_role');
   const planning = createInventoryPlanningStore(origin,'synthetic-key',transport);
