@@ -198,6 +198,11 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
         </span>
         <span style={{ fontSize: 14, fontWeight: 600, ...(noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>{row.propertyName}</span>
         {row.guestName && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{row.guestName}</span>}
+        {row.ownerHold && (
+          <span title={`Guesty hold${row.ownerHold.reason ? ` · ${row.ownerHold.reason}` : ''}${row.ownerHold.note ? ` · ${row.ownerHold.note}` : ''}`} style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 3, padding: '2px 7px' }}>
+            owner stay{row.ownerHold.note && !/^owner\s*(use|block|stay)$/i.test(row.ownerHold.note.trim()) ? ` · ${row.ownerHold.note}` : ''}
+          </span>
+        )}
         {noClean && (
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--ink-3)', border: '1px dashed var(--ink-4)', borderRadius: 3, padding: '2px 7px' }}>
             no cleaning needed
@@ -307,7 +312,9 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
           />
         </form>
         {row.checkIn <= today && (
-          <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>Guest is in-house (checked in {row.checkIn}).</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+            {row.ownerHold ? 'Owner has the house' : 'Guest is in-house'} ({row.ownerHold ? 'held since' : 'checked in'} {row.checkIn}).
+          </div>
         )}
       </div>
     </details>

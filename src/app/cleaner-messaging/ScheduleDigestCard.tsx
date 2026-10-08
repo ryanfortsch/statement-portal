@@ -102,6 +102,11 @@ function RowLine({ row }: { row: ScheduleRow }) {
       <span style={{ fontSize: 14, fontWeight: 600, ...(row.noClean ? { color: 'var(--ink-4)', textDecoration: 'line-through' } : {}) }}>{row.propertyName}</span>
       {row.guestName && <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{row.guestName}</span>}
       <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {row.ownerHold && (
+          <span title={[row.ownerHold.reason, row.ownerHold.note].filter(Boolean).join(' · ') || 'Guesty hold'}>
+            <Chip tone="muted">owner stay</Chip>
+          </span>
+        )}
         {row.noClean && (
           <span title={row.noClean.reason}>
             <Chip tone="muted">no cleaning needed{row.noClean.reason ? ` · ${row.noClean.reason}` : ''}</Chip>

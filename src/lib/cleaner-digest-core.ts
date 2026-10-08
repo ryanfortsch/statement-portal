@@ -205,6 +205,9 @@ export function composeDigestBody(
     if (clean) {
       tags.push(clean < r.time ? `ATENCAO: saida so as ${r.time}` : `saida ${r.time}`);
     }
+    // An owner's own stay, read from the Guesty hold: no guest, and the
+    // crew should know whose mess it is.
+    if (r.ownerHold) tags.push('uso do proprietario');
     if (r.sameDayTurnover) tags.push(`MESMO DIA, prox. entrada ${r.nextCheckinTime}`);
     if (r.adjustment?.adjustedTime) tags.push(`mudou de ${r.defaultTime}`);
     if (r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut) tags.push('estadia estendida');
@@ -258,6 +261,7 @@ function composeDigestBodyEn(
     if (clean) {
       tags.push(clean < r.time ? `WARNING: guest leaves at ${r.time}` : `checkout ${r.time}`);
     }
+    if (r.ownerHold) tags.push('owner stay');
     if (r.sameDayTurnover) tags.push(`SAME DAY, next check-in ${r.nextCheckinTime}`);
     if (r.adjustment?.adjustedTime) tags.push(`moved from ${r.defaultTime}`);
     if (r.adjustment?.adjustedDate && r.adjustment.adjustedDate !== r.baseCheckOut) tags.push('extended stay');

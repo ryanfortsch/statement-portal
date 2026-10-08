@@ -294,6 +294,7 @@ export default async function CleanerSchedulePage({
                     {r.city ? `, ${r.city}` : ''}
                   </div>
                   <div className="rt-cl-tags">
+                    {r.ownerHold && <span className="rt-cl-tag">uso do proprietário</span>}
                     {r.sameDayTurnover && (
                       <span className="rt-cl-tag is-sameday">mesmo dia · próx. entrada {r.nextCheckinTime}</span>
                     )}
