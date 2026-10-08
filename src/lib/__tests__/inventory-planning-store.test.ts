@@ -24,3 +24,19 @@ test('missing snapshot refuses initialization and invalid append never calls sto
  await assert.rejects(()=>store.read(),/unavailable/);assert.equal(calls,1);
  await assert.rejects(()=>store.commit(expected,{format:1,commands:[]},2000),/Expected one/);assert.equal(calls,1);
 });
+test('snapshot replacement validates content before storage and rejects uncertain responses',async()=>{
+ let calls=0;
+ const store=createInventoryPlanningStore(url,'synthetic',async()=>{calls++;return Response.json(null)});
+ const snapshot={version:2,resources:['home'],listings:[{id:'home',resources:['home']}],requiredSources:['canonical'],coverage:[],bookings:[],holds:[]};
+ await assert.rejects(()=>store.replaceSnapshot({snapshotVersion:1,configurationVersion:1},{...snapshot,version:1},'2027-01-01','2027-01-02',1000),/next snapshot version/);
+ assert.equal(calls,0);
+ await assert.rejects(()=>store.replaceSnapshot({snapshotVersion:1,configurationVersion:1},snapshot,'2027-01-01','2027-01-02',1000),/Snapshot save uncertain/);
+ assert.equal(calls,1);
+});
+test('incomplete snapshot can replace stale evidence without granting planning permission',async()=>{
+ const calls:unknown[]=[];
+ const store=createInventoryPlanningStore(url,'synthetic',async(_input,init)=>{calls.push(JSON.parse(String(init?.body)));return Response.json(false)});
+ const snapshot={version:2,resources:['home'],listings:[{id:'home',resources:['home']}],requiredSources:['canonical'],coverage:[],bookings:[],holds:[]};
+ assert.equal(await store.replaceSnapshot({snapshotVersion:1,configurationVersion:3},snapshot,'2027-01-01','2027-01-02',1000),false);
+ assert.deepEqual(calls,[{expected_snapshot:1,expected_configuration:3,next_snapshot:snapshot}]);
+});

@@ -38,6 +38,10 @@ const transport = async (input, init) => {
         value = (await db.query('select helm_pilot_inventory_plan_commit($1,$2,$3,$4,$5) as value',
           [p.expected_snapshot,p.expected_configuration,p.expected_journal,p.next_journal,p.fresh_until])).rows[0].value;
         break;
+      case '/rest/v1/rpc/helm_pilot_inventory_snapshot_replace':
+        value = (await db.query('select helm_pilot_inventory_snapshot_replace($1,$2,$3) as value',
+          [p.expected_snapshot,p.expected_configuration,p.next_snapshot])).rows[0].value;
+        break;
       case '/rest/v1/rpc/helm_pilot_inventory_append':
         value = (await db.query('select helm_pilot_inventory_append($1,$2) as value',
           [p.expected_version,p.next_journal])).rows[0].value;
@@ -49,7 +53,7 @@ const transport = async (input, init) => {
 };
 try {
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-  for (const file of ['inventory-store.sql','inventory-planning.sql']) {
+  for (const file of ['inventory-store.sql','inventory-planning.sql','inventory-snapshot-write.sql']) {
     await db.exec(readFileSync(new URL(`../docs/guesty-exit/staging-storage/${file}`,import.meta.url),'utf8'));
   }
   let now = Date.now();
@@ -67,6 +71,17 @@ try {
   const planning = createInventoryPlanningStore(origin,'synthetic-key',transport);
   const history = () => createInventoryJournalStore(origin,'synthetic-key',transport);
   const jobs = async () => replayInventoryJournal((await history().read()).journal).queue.list();
+  const replacement = {...state.snapshot,version:2};
+  assert.equal(await planning.replaceSnapshot({snapshotVersion:1,configurationVersion:1},replacement,'2027-01-01','2027-01-03',now),true);
+  assert.equal(await planning.replaceSnapshot({snapshotVersion:1,configurationVersion:1},replacement,'2027-01-01','2027-01-03',now),false);
+  assert.equal(await planning.replaceSnapshot({snapshotVersion:2,configurationVersion:2},{...replacement,version:3},'2027-01-01','2027-01-03',now),false);
+  await assert.rejects(()=>planning.replaceSnapshot({snapshotVersion:2,configurationVersion:1},{...replacement,version:3,requiredSources:['other']},'2027-01-01','2027-01-03',now));
+  await assert.rejects(()=>db.query('select helm_pilot_inventory_snapshot_replace($1,$2,$3)',
+    [2,1,{...replacement,version:3,requiredSources:['other']}]),/configuration review/);
+  await db.exec('reset role; set role anon');
+  await assert.rejects(()=>db.query('select helm_pilot_inventory_snapshot_replace($1,$2,$3)',[2,1,{...replacement,version:3}]),/permission denied/);
+  await db.exec('reset role; set role service_role');
+  assert.equal((await planning.read()).snapshot.version,2);
   const plan = () => planInventory(planning,'2027-01-01','2027-01-03',()=>now);
   assert.equal((await plan()).status,'queued');
   assert.equal((await plan()).status,'unchanged');

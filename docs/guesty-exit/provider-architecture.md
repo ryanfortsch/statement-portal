@@ -463,3 +463,31 @@ is insufficient. Missing rows are never interpreted here as cancellation events.
 revision handling, authoritative cancellation provenance, atomic writer/version advance
 and hosted integration still require implementation/verification. No customer data,
 new expense, provider calls, production deployment or calendar changes.
+
+### Atomic synthetic snapshot replacement: October 8, 2026
+
+Added manually reviewed `staging-storage/inventory-snapshot-write.sql` and a
+`replaceSnapshot` method on the fixed-project planning adapter. The SQL locks the existing
+snapshot, compares expected snapshot and configuration versions, and advances exactly one
+snapshot version. It preserves configuration and refuses resource, listing or required-source
+mapping changes. Missing rows are not initialized. Anonymous/authenticated callers cannot
+execute the replacement RPC; service role still has no direct table mutation grant.
+This SQL has been executed locally only, not applied to hosted staging or production.
+
+The adapter validates the proposed snapshot through projection before the single RPC. It
+can store incomplete evidence to invalidate older availability; incomplete evidence cannot
+enter the planner queue. Uncertain responses throw rather than retry. Callers MUST capture
+the expected versions before collecting source pages. CAS prevents competing stale writes
+against that baseline, but does not establish upstream revision order or make an old feed
+current merely because its local snapshot number increased. A source adapter still needs
+verified full-scan/watermark semantics and cancellation provenance.
+
+The local PostgreSQL integration rehearsal now replaces its assembled snapshot through the
+real adapter before planning and worker preparation. It verifies successful replacement,
+stale snapshot/configuration rejection, forbidden mapping change and denied anonymous RPC
+access. Two suite tests cover invalid input before IO, uncertain save and incomplete evidence.
+All 1,847 tests, nonincremental TypeScript, targeted lint, diff checks and local integrated
+SQL rehearsal passed. Branch codex/channex-staging-pilot, base 43170262, remote main observed
+7b9a358a. No hosted migration, provider calls, live calendar change or new expense. Remaining:
+source collection orchestration capturing the baseline before fetch, verified provider
+revision mapping, then hosted integration and delivery acceptance.
