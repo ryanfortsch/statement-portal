@@ -723,3 +723,22 @@ release/cancel operations, integrate the current schema and cancellation lifecyc
 and verify the held queue is visible. Audit retention/FK behavior needs migration
 review alongside existing booking deletion policy. Base 120f43c7; pilot branch
 codex/channex-staging-pilot. No production or live messaging changes.
+
+
+### Disabled operator hold controls checkpoint
+
+Added authenticated Hold and Release server actions and panel controls behind
+`HELM_AUTOMATION_HOLDS_ENABLED=true`. The flag remains off by default. Actions
+supply the session actor, property, send ID and unmodified row timestamp to the
+atomic RPC. Conflicts and uncertain responses never report success or retry.
+Held messages have a separate visible queue, loaded with pagination independently
+of the bounded recent-history query. Release explains that an overdue message
+may become eligible on the next worker run; it still passes ordinary send checks.
+
+All 1,863 tests pass, along with nonincremental TypeScript, targeted ESLint,
+whitespace checks and the sequential local SQL rehearsal. This checkpoint has
+not been deployed or visually verified in a browser. The SQL draft remains
+unapplied to hosted databases. Real multi-session hold/claim and release/cancel
+races, cancellation lifecycle and schema integration remain activation gates.
+No guest or cleaner messages were sent and no new subscription was added.
+Base 71f61459; pilot branch codex/channex-staging-pilot.

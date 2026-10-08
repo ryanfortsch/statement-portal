@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import {
   approveSendAction,
+  setAutomationHoldAction,
   otaPasteTextAction,
   deleteRuleOverrideAction,
   saveRuleOverrideAction,
@@ -70,9 +71,10 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
 
   const { property, helmRun, lockMapped, hasRatePlan, recipients, nextStay, rules, sends, counts } = view;
   const on = property.automations_enabled;
+  const held = sends.filter((s) => s.status === 'held');
   const awaiting = sends.filter((s) => s.status === 'awaiting_approval');
   const scheduled = sends.filter((s) => s.status === 'scheduled' || s.status === 'sending');
-  const history = sends.filter((s) => s.status !== 'awaiting_approval' && s.status !== 'scheduled' && s.status !== 'sending');
+  const history = sends.filter((s) => s.status !== 'held' && s.status !== 'awaiting_approval' && s.status !== 'scheduled' && s.status !== 'sending');
 
   return (
     <div style={{ paddingBottom: 6 }}>
@@ -222,10 +224,15 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
           </span>
         </div>
 
-        {awaiting.length === 0 && scheduled.length === 0 && history.length === 0 && (
+        {held.length === 0 && awaiting.length === 0 && scheduled.length === 0 && history.length === 0 && (
           <div style={noteStyle}>Nothing planned yet. {on ? 'The planner runs every 15 minutes over the next 30 days of stays.' : 'Turn automations on to plan the next 30 days.'}</div>
         )}
 
+        {held.map((s) => (
+          <SendRow key={s.id} s={s} open={true} onOpen={() => {}} pending={pending} busy={busy}
+            onRelease={view.holdControlsEnabled ? () => run(`release:${s.id}`,
+              () => setAutomationHoldAction(propertyId, s.id, false, s.updated_at)) : undefined} />
+        ))}
         {awaiting.map((s) => (
           <SendRow
             key={s.id}
@@ -270,6 +277,8 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
             onOpen={() => setOpenSend(openSend === s.id ? null : s.id)}
             pending={pending}
             busy={busy}
+            onHold={view.holdControlsEnabled && s.status === 'scheduled' ? () => run(`hold:${s.id}`,
+              () => setAutomationHoldAction(propertyId, s.id, true, s.updated_at)) : undefined}
             onSkip={() => run(`sk:${s.id}`, () => skipSendAction(propertyId, s.id))}
           />
         ))}
@@ -409,6 +418,8 @@ function SendRow({
   pending,
   busy,
   onApprove,
+  onHold,
+  onRelease,
   onSkip,
   onCopy,
   pasteText,
@@ -421,6 +432,8 @@ function SendRow({
   pending: boolean;
   busy: string | null;
   onApprove?: () => void;
+  onHold?: () => void;
+  onRelease?: () => void;
   onSkip?: () => void;
   onCopy?: () => void;
   pasteText?: string;
@@ -447,7 +460,7 @@ function SendRow({
           {s.delivery_used ? ` by ${railLabel(s.delivery_used)}` : ''}
         </span>
       </div>
-      {(open || s.status === 'awaiting_approval') && (
+      {(open || s.status === 'held' || s.status === 'awaiting_approval') && (
         <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.55 }}>
           {s.error && <div style={{ color: s.status === 'sent' ? 'var(--ink-3)' : 'var(--negative)', marginBottom: 6 }}>{s.error}</div>}
           {s.missing_fields.length > 0 && (
@@ -503,6 +516,18 @@ function SendRow({
                 {pending && busy === `sk:${s.id}` ? 'Skipping' : 'Skip'}
               </button>
             </div>
+          )}
+          {s.status === 'held' && (
+            <div style={{ marginTop: 8 }}>
+              <p>This message will not send while held. Release returns it to the schedule; if overdue, it may send on the next worker run.</p>
+              <button type="button" disabled={pending || !onRelease} onClick={onRelease} style={ghostBtn(pending)}>
+                Release for sending
+              </button>
+              {!onRelease && <p>Hold controls are not enabled in this environment.</p>}
+            </div>
+          )}
+          {s.status === 'scheduled' && onHold && (
+            <button type="button" disabled={pending} onClick={onHold} style={ghostBtn(pending)}>Hold this message</button>
           )}
           {s.status === 'scheduled' && onSkip && (
             <div style={{ marginTop: 8 }}>

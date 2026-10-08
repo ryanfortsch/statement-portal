@@ -29,6 +29,7 @@
  * rules themselves are pure and tested in automations-core.ts.
  */
 import 'server-only';
+import { changeAutomationHold } from './automation-hold-control';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { selectAllPaged } from '@/lib/paged-select';
 import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
@@ -1047,6 +1048,17 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
 
 // ── Operator verbs ──────────────────────────────────────────────────────
 
+/** Disabled until the reviewed SQL is installed and the environment is explicitly enabled. */
+export async function setAutomationHold(propertyId: string, id: string, actor: string,
+  hold: boolean, expectedUpdatedAt: string) {
+  return changeAutomationHold({ propertyId, sendId: id, actor, hold, expectedUpdatedAt },
+    isServiceConfigured && process.env.HELM_AUTOMATION_HOLDS_ENABLED === 'true',
+    async (args) => {
+      const { data, error } = await supabaseAdmin.rpc('automation_set_hold', args);
+      return { data, error };
+    });
+}
+
 export type SendVerbResult = { ok: true; status: string } | { ok: false; error: string };
 
 /**
@@ -1466,6 +1478,7 @@ export type PanelRule = {
 
 export type PanelSend = {
   id: string;
+  updated_at: string;
   automation_id: string | null;
   key: string;
   booking_id: string;
@@ -1495,6 +1508,7 @@ export type PanelSend = {
 };
 
 export type AutomationsPanelView = {
+  holdControlsEnabled: boolean;
   property: {
     id: string;
     name: string;
@@ -1573,6 +1587,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
     const rule = s.automation_id ? ruleById.get(s.automation_id) : undefined;
     return {
       id: s.id,
+      updated_at: s.updated_at,
       automation_id: s.automation_id,
       key: rule?.key ?? s.automation_key ?? 'rule',
       booking_id: s.booking_id,
@@ -1596,6 +1611,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
   });
 
   return {
+    holdControlsEnabled: process.env.HELM_AUTOMATION_HOLDS_ENABLED === 'true',
     property: {
       id: bundle.property.id,
       name: bundle.property.name,
@@ -1633,11 +1649,13 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
 
 /** Every parked row plus the most recent 60 of everything else. */
 async function loadPanelSends(propertyId: string): Promise<AutomationSendRow[]> {
-  const [{ data: parked }, { data: recent }] = await Promise.all([
+  const [{ data: parked }, { data: recent }, held] = await Promise.all([
     supabaseAdmin.from('automation_sends').select(SEND_COLS).eq('property_id', propertyId).in('status', ['awaiting_approval', 'scheduled', 'sending']).order('fire_at', { ascending: true }).limit(200),
     supabaseAdmin.from('automation_sends').select(SEND_COLS).eq('property_id', propertyId).order('fire_at', { ascending: false }).limit(60),
+    selectAllPaged<AutomationSendRow>((from, to) => supabaseAdmin.from('automation_sends').select(SEND_COLS).eq('property_id', propertyId).eq('status', 'held').order('id').range(from, to)),
   ]);
   const byId = new Map<string, AutomationSendRow>();
+  for (const row of held) byId.set(row.id, row);
   for (const r of [...((parked ?? []) as AutomationSendRow[]), ...((recent ?? []) as AutomationSendRow[])]) byId.set(r.id, r);
   return [...byId.values()].sort((a, b) => {
     const rank = (s: string) => (s === 'awaiting_approval' ? 0 : s === 'scheduled' || s === 'sending' ? 1 : 2);
