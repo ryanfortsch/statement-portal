@@ -541,3 +541,70 @@ main observed 7b9a358a. No new expense, hosted mutation or live channel changes.
 milestone is initial reconciliation evidence plus ongoing durable revision coverage, rather
 than simply marking this incremental feed complete. Real-guest normalization, Calderwood
 mapping, hosted snapshot writer and live delivery acceptance remain unproven.
+
+
+## Calderwood pricing and booking-policy evidence (2026-10-08)
+
+User reaffirmed that PriceLabs controls dynamic minimum stays per property and
+that staff change them over time. This is an ongoing source-of-authority decision,
+not permission to translate today's settings into a permanent Helm rule engine.
+
+User-provided screenshots dated 2026-10-08 show this Calderwood baseline:
+
+| Setting | Observed value | Treatment |
+| --- | --- | --- |
+| PriceLabs default minimum | Weekday 2, weekend 2 nights | Dated observation only |
+| PriceLabs beyond 15 nights | Weekday 2, weekend 3 nights | Verify actual date output at boundary |
+| PriceLabs beyond 60 nights | Weekday 3, weekend 4 nights | Verify actual date output at boundary |
+| Guesty default availability | Available always | Still subject to reservations, holds and restrictions |
+| Guesty booking window | 365 days | Rolling window, separate from pricing coverage |
+| Guesty advance notice | 1 day for direct, Airbnb, Booking.com and Expedia | Rolling rule; channel semantics require verification |
+| Guesty maximum stay | 91 nights | Separate maximum-stay rule |
+| Guesty minimum-stay default | 3 nights | Must not replace PriceLabs date-specific minimums |
+| Preparation time, check-in restrictions, annual night cap | Not defined in Guesty | Do not invent values or infer absence on every channel |
+
+The October 8 calendar tooltip identifies advance notice as the reason that date
+was unavailable. It is not a reservation or permanent manual hold. Source images:
+`Screenshot 2026-10-08 at 10.02.50 AM.png` (PriceLabs),
+`Screenshot 2026-10-08 at 10.04.05 AM.png` and `10.04.11 AM.png` (Guesty),
+with the `10.01.37 AM.png` calendar tooltip. Images are user-supplied evidence,
+not executable configuration or proof of provider delivery.
+
+### Next integration experiment and acceptance gate
+
+The prior staging-key experiment failed with Invalid API Key and the temporary
+key was withdrawn. It does not establish a working PriceLabs connector. Before
+another attempt, verify production Channex account access and existing entitlement,
+any added property cost, and PriceLabs duplicate-listing billing. Do not subscribe,
+create a production property or transfer a production key solely from this plan.
+Prepare an isolated, channel-free destination for the documented connector route
+once those concrete costs and scope are resolved. Existing Guesty sync continues.
+
+Use the mapped parent rate plan and Price and Restrictions mode, subject to review
+of the imported listing and inherited settings. Acceptance evidence must include:
+
+1. Exact property/room/rate-plan mapping, currency, per-room pricing and any offset.
+2. A dated, complete comparison of actual PriceLabs nightly rates and minimum stays
+   with Channex read-back over the intended 365-day selling window. Missing dates
+   fail the comparison; matching screenshots for a few nights are not coverage.
+3. Weekdays/weekends and dates around the 15/60-day transitions, date overrides,
+   and any applicable gap rules. Compare provider outputs rather than guessing
+   inclusive boundaries, weekend definitions or arrival/stay-through semantics.
+4. A subsequent approved change on the isolated test listing and another sync,
+   proving later edits propagate. Also observe rolling lead-time changes. Never
+   alter the live parent merely to manufacture a test.
+5. Separate checks of 1-day advance notice, rolling 365-day window and 91-night
+   maximum, with explicit channel mapping. A 540-day price feed must not by itself
+   open sales beyond the booking window. Verify that inventory publishing leaves
+   PriceLabs fields unchanged.
+6. Reservation feedback for occupancy-dependent pricing and gaps, including direct
+   bookings. Price transmission alone does not prove this feedback works.
+7. After separately approved channel cutover, OTA read-back and booking behavior.
+   Channex parity before connection cannot prove Airbnb delivery.
+
+Status: settings baseline captured; actual connector delivery, repeat-update
+behavior and OTA delivery remain unverified. No additional sync is enabled here.
+
+Primary documentation rechecked 2026-10-08:
+- [Channex integration](https://help.pricelabs.co/portal/en/kb/articles/how-to-integrate-pricelabs-with-channex): supports rates and stay restrictions, parent plans and per-room prices; warns against competing PMS price writes and excludes direct-booking input via this API.
+- [PMS transition](https://help.pricelabs.co/portal/en/kb/articles/transitioning-between-management-systems): old/new mapping can copy listing customizations; account-level settings need separate handling. Both synced listings may be counted on the invoice, with a support-requested amendment described. Do not assume automatic billing relief or promise a free overlap period. No support message has been sent.

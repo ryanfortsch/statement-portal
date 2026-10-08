@@ -47,8 +47,11 @@ The 20-night January–April minimum remains the initial policy. Dynamic shorter
 front-unit stays during a long back-unit booking are not yet automated. Define the
 exact eligible nights, boundary-crossing stays and cancellation behavior before
 changing restrictions. PriceLabs and Helm must not both overwrite minimum stays.
-Candidate policy: PriceLabs owns rates; either PriceLabs owns all restrictions, or
-PriceLabs is price-only and Helm owns restrictions. Confirm before implementation.
+Confirmed ownership (user, 2026-10-08): PriceLabs owns rates and dynamic minimum
+stays, including future property-specific changes. Helm inventory commands must
+not write those fields. The Beach policy above is a historical requirement to
+reconcile with PriceLabs, not a Calderwood default or authority to overwrite
+PriceLabs. See the dated baseline and acceptance gate in provider-architecture.md.
 
 ## Questions prepared for provider support (not sent)
 
