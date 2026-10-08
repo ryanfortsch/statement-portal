@@ -321,3 +321,26 @@ The adapter must next obtain an atomic, complete canonical booking/hold snapshot
 source identities and version it with the outbox transaction. Required source configuration
 and completeness assertions are trusted inputs here, not proven by this function. Live
 provider task/read-back reconciliation and migration approval are still separate gates.
+
+### Snapshot-to-outbox planning boundary: October 8, 2026
+
+Added `inventory-planner.ts` and six synthetic transaction-boundary tests. The planner reads
+one consistent snapshot/configuration/journal state, projects inventory, rejects incomplete
+coverage, derives a deterministic command ID, and proposes one journal append. Its store
+contract requires an atomic comparison of snapshot, configuration and journal versions plus
+commit-time freshness. It deliberately does not adapt the existing journal-only CAS with
+separate snapshot reads, which would leave a race. No production store implementation is
+provided in this increment; tests use a synthetic atomic store.
+
+Verified repeated planning is idempotent, racing planners cannot both append, snapshot or
+configuration changes reject stale proposals, expired evidence fails at commit, changed
+content under the same version is rejected, and newer booking versions supersede pending
+availability. An uncertain save throws without retry or dispatch. Queuing does not confer
+publishing permission. All existing worker authority and pre-send checks still apply.
+
+All 1,834 tests, nonincremental TypeScript, targeted ESLint and diff checks passed. Branch
+codex/channex-staging-pilot, base 665f2b94, remote main observed 7b9a358a. No hosted migration,
+worker deployment, customer-data access, provider call or new expense. Remaining: implement
+and verify this atomic contract against the canonical database with source reconciliation,
+then provider task/read-back delivery. Routing changes need a reviewed generation/version
+advance; arbitrary date-window changes cannot silently reuse a desired-state version.
