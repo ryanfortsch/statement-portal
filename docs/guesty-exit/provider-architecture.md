@@ -680,3 +680,21 @@ Inspected `src/lib/automations-core.ts` and `src/lib/automations.ts` on pilot br
 Next engineering scope is timing parity in the existing engine, followed by
 hold/release. DB changes require reading SCHEMA.md and reviewing migrations;
 this audit authorizes no production changes or new messaging subscription.
+
+### Relative timing calculation checkpoint
+
+Added `relativeAutomationTime` to the existing pure automation core. It accepts
+explicit normalized confirmation/check-in instants and integer minute offsets;
+missing, invalid or already-overdue timing returns needs-review. It never falls
+back to import time. Tests cover +30, -60 and -420 minute schedules, changed
+arrivals, DST instants, midnight crossing and unchanged legacy timing.
+
+This is calculation support only: no persisted rule fields, planner wiring,
+manual hold/release, Channex sending or live activation was added. Normalize
+provider timestamps and apply reservation cancellation, authority and hold checks
+before considering any calculated time eligible for dispatch. Next: integrate
+versioned rule timing and durable hold/release with the existing ledger, including
+explicit overdue handling instead of implicit replay.
+
+Validation: all 1,859 tests pass, nonincremental TypeScript, targeted ESLint and
+whitespace checks pass. Pilot branch codex/channex-staging-pilot, base 2d5b6456.

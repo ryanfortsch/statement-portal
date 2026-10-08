@@ -312,6 +312,41 @@ export function anchorDateFor(
   }
 }
 
+/** Explicit event instants, supplied only after provider/timezone normalization.
+ * Never substitute import time for confirmation time. This calculation is not
+ * a send authorization and is not yet wired to persisted automation rules.
+ */
+export type RelativeAutomationTiming = {
+  anchor: 'confirmation' | 'checkin';
+  offsetMinutes: number;
+};
+export type RelativeAutomationTime =
+  | { status: 'ready'; fireAt: Date }
+  | { status: 'needs-review'; reason: 'missing-anchor' | 'invalid-timing' | 'overdue' };
+
+export function relativeAutomationTime(
+  timing: RelativeAutomationTiming,
+  events: { confirmationAt: Date | null; checkinAt: Date | null },
+  now: Date,
+): RelativeAutomationTime {
+  if (!['confirmation', 'checkin'].includes(timing.anchor)
+    || !Number.isSafeInteger(timing.offsetMinutes)
+    || Math.abs(timing.offsetMinutes) > 366 * 24 * 60
+    || !Number.isFinite(now.getTime())) {
+    return { status: 'needs-review', reason: 'invalid-timing' };
+  }
+  const anchor = timing.anchor === 'confirmation' ? events.confirmationAt : events.checkinAt;
+  if (!anchor || !Number.isFinite(anchor.getTime())) {
+    return { status: 'needs-review', reason: 'missing-anchor' };
+  }
+  const fireAt = new Date(anchor.getTime() + timing.offsetMinutes * 60_000);
+  if (!Number.isFinite(fireAt.getTime())) return { status: 'needs-review', reason: 'invalid-timing' };
+  // Imported or released late messages require a separate explicit decision.
+  // Recalculating must not silently turn an old event into "send now".
+  if (fireAt.getTime() < now.getTime()) return { status: 'needs-review', reason: 'overdue' };
+  return { status: 'ready', fireAt };
+}
+
 /**
  * When a rule fires for a stay, or null when that moment is already more
  * than 12 hours gone (never send stale). booking_confirmed fires now: a
