@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { isAbsolute } from 'node:path';
+import { collectInventorySnapshot } from '../src/lib/channex-staging/inventory-collection.ts';
 import { assembleInventorySnapshot } from '../src/lib/channex-staging/inventory-snapshot.ts';
 import { planInventory } from '../src/lib/channex-staging/inventory-planner.ts';
 import { projectInventory } from '../src/lib/channex-staging/inventory-projection.ts';
@@ -72,7 +73,10 @@ try {
   const history = () => createInventoryJournalStore(origin,'synthetic-key',transport);
   const jobs = async () => replayInventoryJournal((await history().read()).journal).queue.list();
   const replacement = {...state.snapshot,version:2};
-  assert.equal(await planning.replaceSnapshot({snapshotVersion:1,configurationVersion:1},replacement,'2027-01-01','2027-01-03',now),true);
+  assert.equal((await collectInventorySnapshot(planning,async()=>[{source:'canonical',resources:['home'],
+    start:'2027-01-01',end:'2027-02-01',observedAt:now,freshUntil:coverage[0].freshUntil,
+    pages:[{scan:'synthetic-collected-scan',cursor:null,next:null,bookings}]}],
+    '2027-01-01','2027-01-03',()=>now)).status,'saved');
   assert.equal(await planning.replaceSnapshot({snapshotVersion:1,configurationVersion:1},replacement,'2027-01-01','2027-01-03',now),false);
   assert.equal(await planning.replaceSnapshot({snapshotVersion:2,configurationVersion:2},{...replacement,version:3},'2027-01-01','2027-01-03',now),false);
   await assert.rejects(()=>planning.replaceSnapshot({snapshotVersion:2,configurationVersion:1},{...replacement,version:3,requiredSources:['other']},'2027-01-01','2027-01-03',now));

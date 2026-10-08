@@ -491,3 +491,23 @@ SQL rehearsal passed. Branch codex/channex-staging-pilot, base 43170262, remote 
 7b9a358a. No hosted migration, provider calls, live calendar change or new expense. Remaining:
 source collection orchestration capturing the baseline before fetch, verified provider
 revision mapping, then hosted integration and delivery acceptance.
+
+### Baseline-before-fetch collection: October 8, 2026
+
+Added `inventory-collection.ts`: capture and clone the persisted baseline before invoking
+an injected source collector, assemble the resulting scans, then perform exactly one
+version-checked snapshot replacement. No reread/rebase or automatic retry. A collector
+receives a separate configuration copy so incidental mutation cannot change saved routing.
+Holds are retained from the captured baseline. Missing/expired coverage saves as incomplete;
+collector failures propagate without a save, leaving prior evidence subject to its existing
+expiry (this does not immediately invalidate it). Uncertain saves propagate without planning
+or dispatch. No real provider collector is installed by this increment.
+
+Four regular tests cover ordering, configuration isolation, concurrent snapshot/configuration
+changes, incomplete evidence and failures. The local SQL/worker integration rehearsal now
+passes through collection before planning. All 1,851 tests, nonincremental TypeScript,
+targeted lint, diff checks and the integrated PostgreSQL rehearsal passed. Branch
+codex/channex-staging-pilot, base d841f99e, main observed 7b9a358a. No hosted schema or worker
+change, customer data, calendar writes or new expense. Remaining: provider-specific canonical
+identity/revision and full-scan guarantees, hosted snapshot writer verification, and delivery
+acceptance. The synthetic collector is not evidence of real feed completeness.
