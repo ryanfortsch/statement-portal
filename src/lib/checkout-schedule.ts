@@ -24,6 +24,12 @@
  *      per-property defaults (fill-empty synced from the Guesty listing's
  *      defaultCheckOutTime by /api/sync-guesty), falling back to
  *      10:00 / 16:00 when unset.
+ *   4. `property_calendar_days` owner holds - an owner's own stay is a
+ *      Guesty calendar BLOCK, never a reservation, so it is absent from
+ *      `bookings`. The morning after an owner-tagged run of held nights
+ *      is a checkout like any other (src/lib/owner-hold-checkouts.ts),
+ *      merged here as a synthetic stay so the same adjustment, skip and
+ *      same-day rules apply to it.
  *
  * One thing it refuses to list: a checkout where the same real guest
  * checks back in at the same house that day. An owner blocking their home
@@ -45,6 +51,7 @@ import { selectAllPaged } from '@/lib/paged-select';
 import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { NON_LIVE_STATUSES } from '@/lib/ghost-booking-reconcile';
 import { guestNameScore, displayGuestName, isContinuation } from '@/lib/stay-continuation';
+import { ownerHoldCheckouts, type HeldNight } from '@/lib/owner-hold-checkouts';
 
 // Which homes a schedule covers is a registry question (properties.region,
 // read through lib/property-scope.ts), never a literal id set: Rosa's Cape
@@ -183,6 +190,10 @@ export type ScheduleRow = {
    *  never in `rows`. The reason is internal and never reaches the crew
    *  raw: it is typed in English and the crew reads Portuguese. */
   noClean?: { id: string; reason: string; by: string } | null;
+  /** This checkout is the end of an OWNER'S stay, read from the Guesty
+   *  calendar hold rather than a reservation. No guest name exists; the
+   *  note is what the office typed on the block ("Owner use"). */
+  ownerHold?: { blockType: string; reason: string | null; note: string | null } | null;
 };
 
 export type ScheduleDay = {
@@ -491,7 +502,7 @@ export async function buildCheckoutSchedule(
   const scope = opts.scope ?? DEFAULT_SCHEDULE_SCOPE;
   const endDate = addDays(startDate, days - 1);
 
-  const [propsRes, checkoutsRes, checkinsRes, adjRes, skipsRes] = await Promise.all([
+  const [propsRes, checkoutsRes, checkinsRes, adjRes, skipsRes, holdsRes] = await Promise.all([
     supabase
       .from('properties')
       .select('id, name, address, city, default_checkout_time, default_checkin_time, is_active, kind, region'),
@@ -525,6 +536,25 @@ export async function buildCheckoutSchedule(
       .is('cleared_at', null)
       .gte('stay_check_in', addDays(startDate, -60))
       .lte('stay_check_in', endDate),
+    // Held nights, for owner stays (layer 4). Same lookback as adjustments
+    // so a long owner stay's start is seen; fetched THROUGH endDate so a
+    // hold still running at the window's edge reads as unfinished rather
+    // than as a checkout on the last day. Paged: a few weeks of fleet holds
+    // can pass the 1000-row cap, and a truncated read drops stays silently.
+    selectAllPaged<HeldNight>((fromIdx, toIdx) =>
+      supabase
+        .from('property_calendar_days')
+        .select('property_id, date, block_type, block_reason, block_note, block_start')
+        .not('block_type', 'is', null)
+        .gte('date', addDays(startDate, -60))
+        .lte('date', endDate)
+        .order('property_id', { ascending: true })
+        .order('date', { ascending: true })
+        .range(fromIdx, toIdx),
+    ).then(
+      (data) => ({ data, error: null as { message: string } | null }),
+      (err: unknown) => ({ data: null as HeldNight[] | null, error: { message: err instanceof Error ? err.message : String(err) } }),
+    ),
   ]);
 
   // Fail CLOSED. A missing result is an unknown schedule, never an empty
@@ -613,6 +643,45 @@ export async function buildCheckoutSchedule(
     for (const [k, v] of fetched) checkoutStays.set(k, v);
   }
 
+  // Owner stays (layer 4). Each becomes a synthetic stay in checkoutStays
+  // so everything below (adjustments, skips, same-day arrival, bucketing)
+  // treats it exactly like a reservation. Two guards:
+  //   - a stay already keyed on that property and check-in wins (the same
+  //     owner stay sometimes exists as a $0 direct booking AND a block);
+  //   - a stay already checking out at that home on that effective day
+  //     wins too, so a block that merely shadows a reservation never lists
+  //     the house twice.
+  // A failed mirror read fails OPEN, like the skips read: the schedule
+  // without owner stays is the schedule as it stood before this layer, and
+  // losing the whole day over a secondary source would cost more. It is
+  // logged, because a missing owner checkout is exactly the bug this fixes.
+  const ownerHoldByStay = new Map<string, NonNullable<ScheduleRow['ownerHold']>>();
+  if (holdsRes.error) {
+    console.error('[checkout-schedule] property_calendar_days holds read failed:', holdsRes.error.message);
+  } else {
+    const effectiveDays = new Set<string>();
+    for (const stay of checkoutStays.values()) {
+      const adj = activeByStay.get(`${stay.property_id}|${stay.check_in}`);
+      effectiveDays.add(`${stay.property_id}|${adj?.adjusted_check_out ?? stay.check_out}`);
+    }
+    for (const hold of ownerHoldCheckouts(holdsRes.data ?? [], endDate)) {
+      if (!properties.has(hold.propertyId)) continue;
+      const key = `${hold.propertyId}|${hold.checkIn}`;
+      if (checkoutStays.has(key) || ghosts.has(key)) continue;
+      const adj = activeByStay.get(key);
+      if (effectiveDays.has(`${hold.propertyId}|${adj?.adjusted_check_out ?? hold.checkOut}`)) continue;
+      checkoutStays.set(key, {
+        id: `ownerhold:${hold.propertyId}:${hold.checkIn}`,
+        property_id: hold.propertyId,
+        check_in: hold.checkIn,
+        check_out: hold.checkOut,
+        guest_name: null,
+        source: 'owner_hold',
+      });
+      ownerHoldByStay.set(key, { blockType: hold.blockType, reason: hold.reason, note: hold.note });
+    }
+  }
+
   // Arrivals for same-day-turnover detection, keyed by property|date.
   // Ghost-filtered too: the guard was only ever applied to checkouts, so a
   // cancelled ARRIVAL still flagged a real checkout as MESMO DIA. That
@@ -693,6 +762,7 @@ export async function buildCheckoutSchedule(
         : null,
       proposals: proposalsByStay.get(stayKey) ?? [],
       noClean: skipByStay.get(stayKey) ?? null,
+      ownerHold: ownerHoldByStay.get(stayKey) ?? null,
     };
     const bucket = row.noClean ? skippedByDay : rowsByDay;
     const arr = bucket.get(effectiveCheckOut) ?? [];
