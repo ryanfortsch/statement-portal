@@ -1,11 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { replayInventoryJournal, type InventoryJournalStore } from './inventory-journal.ts';
 /** No environment fallbacks or automatic initialization. Apply reviewed staging SQL first. */
-export function createInventoryJournalStore(url: string, key: string): InventoryJournalStore {
+export function createInventoryJournalStore(url: string, key: string, fetcher: typeof fetch = fetch): InventoryJournalStore {
   if (typeof window !== 'undefined' || url !== 'https://jgkblfozftcvymvwhhii.supabase.co' || !key) {
     throw new Error('Explicit isolated staging storage required');
   }
-  const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: fetcher } });
   return {
     async read() {
       const { data, error } = await db.from('helm_pilot_inventory_state').select('version,journal').eq('id', 1).single();

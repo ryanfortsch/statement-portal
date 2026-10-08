@@ -405,3 +405,35 @@ PR #1714 continues. No Render deployment, customer records, live calendar change
 subscription. Next: exercise the TypeScript planner/store boundary end to end with a
 synthetic complete snapshot, then establish the canonical snapshot writer and source
 reconciliation before any real availability publishing.
+
+### Integrated local planning/worker rehearsal: October 8, 2026
+
+Added `scripts/verify-inventory-pipeline.mjs`, an explicit local PostgreSQL integration
+check using the temporary PGlite module. It runs the actual planner, both Supabase storage
+adapters, reviewed SQL and worker preparation against a complete synthetic snapshot. The
+injected transport translates only known Supabase requests into parameterized local SQL;
+no network, credentials or provider transport is used. Journal storage now accepts the
+same optional fetch injection as planning storage; its default behavior is unchanged.
+The local service role models Supabase's BYPASSRLS role attribute. This is fixture setup,
+not a hosted permission change. An initial rehearsal failure exposed that missing local
+role attribute; correcting the fixture made the integrated path pass.
+
+Verified a maintenance hold closes only its covered night, repeat planning is unchanged,
+and the durable submitting barrier exists before a simulated provider receipt. Omitting
+the accepted-save simulates a crash boundary. Reconstructed store handles refuse another
+dispatch both before and after lease expiry; complete receipt evidence reconciles the
+uncertain attempt to verified, and repeat dispatch/planning still produces no new send.
+This simulates the crash boundary in one process, not an OS process restart. It does not
+prove hosted PostgREST transport, live provider delivery, or canonical writer completeness.
+
+Repeat: `node scripts/verify-inventory-pipeline.mjs /absolute/path/to/pglite/dist/index.js`.
+Like the existing SQL verification script, this requires an explicitly supplied local
+PGlite installation and is not part of npm test or an application dependency. Two regular
+suite tests also cover missing/mismatched journal history, host confinement and uncertain
+append responses. No schema, hosted worker or live calendar changes in this increment.
+
+Validation: integrated local SQL rehearsal, all 1,839 tests, nonincremental TypeScript,
+targeted ESLint and diff checks passed. Branch codex/channex-staging-pilot, base 0b9c069c,
+remote main observed 7b9a358a. Existing draft PR #1714; no new expense. Next required work:
+canonical snapshot writer and source reconciliation, followed by hosted adapter integration
+and live provider task/read-back checks before any cutover.
