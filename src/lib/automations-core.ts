@@ -1136,7 +1136,7 @@ export function diffPlan(planned: readonly PlannedSend[], existing: readonly Exi
  * or dates-moved row, or a failure does not.
  */
 export function keyDecided(e: Pick<ExistingSend, 'status' | 'error'>): boolean {
-  if (e.status === 'sent' || e.status === 'sending' || e.status === 'configured_in_ota' || e.status === 'awaiting_approval') return true;
+  if (e.status === 'held' || e.status === 'sent' || e.status === 'sending' || e.status === 'configured_in_ota' || e.status === 'awaiting_approval') return true;
   return e.status === 'cancelled' && String(e.error ?? '').startsWith('skipped by ');
 }
 
@@ -1295,6 +1295,7 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
  *  with an error starting 'stale:', and reads "Missed its time", never "Stay
  *  cancelled" (the stay was not). */
 export function sendStatusLabel(status: string, error?: string | null): string {
+  if (status === 'held') return 'Held by operator';
   if (status === 'skipped_cancelled' && String(error ?? '').startsWith('stale:')) return 'Missed its time';
   // The engine's pauses are not verdicts: the row resumes if the stay or rule comes back.
   if (status === 'cancelled' && error === PAUSE_REASON_STAY_CANCELLED) return 'Paused: stay cancelled';

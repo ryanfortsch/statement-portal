@@ -698,3 +698,28 @@ explicit overdue handling instead of implicit replay.
 
 Validation: all 1,859 tests pass, nonincremental TypeScript, targeted ESLint and
 whitespace checks pass. Pilot branch codex/channex-staging-pilot, base 2d5b6456.
+
+### Durable hold draft and local rehearsal
+
+Prepared `staging-storage/automation-holds.sql`, not applied to any hosted DB.
+It adds held to the existing send ledger and a restricted hold-event audit table.
+A service-only operation checks property and expected row timestamp, locks the
+booking then send, and atomically changes state plus audit. Scheduled sends can
+be held; sending/sent/approval rows cannot. Release requires an unchanged confirmed
+nonduplicate stay, preserves fire_at and returns to ordinary dispatch checks.
+It does not send directly. Overdue release must be explicitly explained by the
+future UI. A moved stay remains held pending operator review.
+
+The pure planner recognizes held as a decided message key, preventing replacement
+rules from creating a duplicate; date replanning leaves it held. Local PGlite
+rehearsal verifies stale requests, worker exclusion, cancelled/moved rejection,
+future timing preservation, audit count and role restrictions. This is sequential
+transaction validation, not a multi-session race or operating-system restart test.
+
+All 1,860 tests, nonincremental TypeScript, targeted lint and diff checks pass.
+No RPC adapter, UI controls or deployment in this checkpoint. Before activation,
+wire authenticated property-scoped controls, test real concurrent hold/claim and
+release/cancel operations, integrate the current schema and cancellation lifecycle,
+and verify the held queue is visible. Audit retention/FK behavior needs migration
+review alongside existing booking deletion policy. Base 120f43c7; pilot branch
+codex/channex-staging-pilot. No production or live messaging changes.
