@@ -344,3 +344,35 @@ worker deployment, customer-data access, provider call or new expense. Remaining
 and verify this atomic contract against the canonical database with source reconciliation,
 then provider task/read-back delivery. Routing changes need a reviewed generation/version
 advance; arbitrary date-window changes cannot silently reuse a desired-state version.
+
+### Staging planning transaction implementation: October 8, 2026
+
+Added manually reviewed `staging-storage/inventory-planning.sql` and the fixed-project
+`inventory-planning-store.ts` adapter. No hosted application of this SQL in this checkpoint.
+A separate synthetic snapshot row stores snapshot/configuration versions; a trigger rejects
+non-advancing snapshot updates and routing changes without configuration advancement.
+One SQL read returns snapshot and journal consistently. Commit holds the snapshot lock,
+then journal lock, compares versions, checks wall-clock expiry AFTER waiting, binds the
+intent to stored staging identity/generation/version, and invokes the existing append-only
+journal function. No initialization or production fallback. RLS is enabled; service role
+gets read/RPC access, no direct snapshot mutation; anon/authenticated receive neither.
+
+The trusted TypeScript planner still owns desired-payload and coverage-range calculation.
+The database checks stored evidence cannot be extended by the caller, but is not a complete
+independent implementation of projection. Existing service-role journal APIs are trusted
+operator interfaces, not a hostile-caller security boundary. The fixture snapshot table is
+NOT the production booking ledger or its production source adapter. Hosted multi-session
+locking verification and canonical writer integration remain pending.
+
+Executed actual SQL in temporary local PGlite 0.3.14: creation, valid append, stale snapshot/
+configuration/journal rejection, expired and overstated freshness, wrong identity, snapshot
+and routing version guards, RLS and role permissions passed. Repeat with
+`node scripts/verify-inventory-planning.mjs /absolute/path/to/@electric-sql/pglite/dist/index.js`.
+This script creates only an in-memory PostgreSQL instance and synthetic records; it has no
+hosted connection or credentials. PGlite is a temporary verification tool, not an application
+or worker dependency. Three adapter tests additionally cover RPC payloads, host confinement,
+uncertain responses and refusal to initialize absent state.
+
+All 1,837 application tests, nonincremental TypeScript, targeted lint and diff checks passed.
+Branch codex/channex-staging-pilot, base b1135b7e, main observed 7b9a358a. No live calendar,
+customer records, new subscription, production migration or Render deployment touched.
