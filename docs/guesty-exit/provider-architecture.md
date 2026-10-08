@@ -376,3 +376,32 @@ uncertain responses and refusal to initialize absent state.
 All 1,837 application tests, nonincremental TypeScript, targeted lint and diff checks passed.
 Branch codex/channex-staging-pilot, base b1135b7e, main observed 7b9a358a. No live calendar,
 customer records, new subscription, production migration or Render deployment touched.
+
+### Hosted planning transaction verification: October 8, 2026
+
+Applied the reviewed `staging-storage/inventory-planning.sql` from c41b5827 to the
+separate Helm Channex Staging Supabase project `jgkblfozftcvymvwhhii`. Preflight
+confirmed no snapshot table and the existing inventory journal at version 7.
+Schema installation succeeded without initializing a snapshot or replacing the journal.
+
+Rollback-only synthetic hosted checks passed: RLS and role permissions, rejection of
+non-advancing snapshot updates, valid atomic append, stale snapshot/configuration/journal
+rejection, and expired or overstated freshness rejection. After rollback the retained
+journal remained version 7 and the snapshot table contained zero rows.
+
+A separate two-session test held the journal row lock for 30 seconds. The contender
+created a transaction-local synthetic snapshot with five seconds of freshness, then
+attempted the planning commit. It asserted that the call waited at least five seconds,
+returned false after expiry, and did not advance the journal. Both transactions rolled
+back. Hosted results again showed retained journal version 7 and zero snapshot rows.
+This proves expiry is checked after a real competing lock wait; it does not claim a
+complete matrix of simultaneous snapshot/configuration writer races or provider delivery.
+
+No application source changed in this checkpoint. Documentation diff and referenced paths
+were checked. The preceding source checkpoint passed 1,837 tests, nonincremental TypeScript
+and targeted lint; those are historical checks, not a new suite run. Branch
+`codex/channex-staging-pilot`, base c41b5827, remote main observed 7b9a358a. Existing draft
+PR #1714 continues. No Render deployment, customer records, live calendar changes or new
+subscription. Next: exercise the TypeScript planner/store boundary end to end with a
+synthetic complete snapshot, then establish the canonical snapshot writer and source
+reconciliation before any real availability publishing.
