@@ -639,3 +639,94 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
   revalidatePath(CARD);
   redirect(`${PAGE}?saved=recipient${anchor}`);
 }
+
+// ─── owner blocks: clean after? ────────────────────────────────────────
+
+/**
+ * The operator's answer to "does this owner block need a cleaning after?"
+ * (OwnerHoldQuestionsCard on /cleaner-messaging and the home feed).
+ *
+ * The answer is recorded in owner_hold_decisions, keyed on the stay like
+ * every other schedule overlay. 'no_clean' ALSO writes the same
+ * checkout_cleaning_skips row that "No cleaning needed" on the schedule
+ * page writes, because that table is what the schedule honours; 'clean'
+ * clears any live skip for the stay, so flipping the answer flips the
+ * route. A pending digest for the checkout day is re-drafted so the card
+ * reads right; a day already sent is left intact and the notice points at
+ * Send update, exactly as setNoCleanAction does.
+ */
+export async function decideOwnerHoldAction(formData: FormData): Promise<void> {
+  const email = await requireEmail();
+  const propertyId = String(formData.get('propertyId') || '');
+  const stayCheckIn = String(formData.get('stayCheckIn') || '');
+  const checkOut = String(formData.get('checkOut') || '');
+  const decision = String(formData.get('decision') || '');
+  const holdReason = String(formData.get('holdReason') || '').slice(0, 200) || null;
+  const holdNote = String(formData.get('holdNote') || '').slice(0, 300) || null;
+  const back = String(formData.get('back') || 'card');
+  const anchor = `#owner-hold-${propertyId}-${stayCheckIn}`;
+  const land = (notice: string) =>
+    back === 'home' ? `/?ownerhold=${notice}${anchor}`
+    : back === 'page' ? `${PAGE}?ownerhold=${notice}${anchor}`
+    : `${CARD}?ownerhold=${notice}${anchor}`;
+  const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+  if (!propertyId || !isDate(stayCheckIn) || !isDate(checkOut) || (decision !== 'clean' && decision !== 'no_clean')) {
+    redirect(land('bad_hold'));
+  }
+
+  const { error } = await supabase
+    .from('owner_hold_decisions')
+    .upsert(
+      {
+        property_id: propertyId,
+        stay_check_in: stayCheckIn,
+        check_out: checkOut,
+        decision,
+        hold_reason: holdReason,
+        hold_note: holdNote,
+        decided_by: email,
+        decided_at: new Date().toISOString(),
+      },
+      { onConflict: 'property_id,stay_check_in' },
+    );
+  if (error) redirect(land('save_failed'));
+
+  const skipReason = `Owner block${holdNote ? ` (${holdNote})` : ''}: no cleaning after, answered on the card`;
+  if (decision === 'no_clean') {
+    const { error: skipErr } = await supabase
+      .from('checkout_cleaning_skips')
+      .insert({ property_id: propertyId, stay_check_in: stayCheckIn, reason: skipReason, created_by: email });
+    if (skipErr && skipErr.code !== '23505') redirect(land('save_failed'));
+  } else {
+    const { error: clearErr } = await supabase
+      .from('checkout_cleaning_skips')
+      .update({ cleared_at: new Date().toISOString(), cleared_by: email })
+      .eq('property_id', propertyId)
+      .eq('stay_check_in', stayCheckIn)
+      .is('cleared_at', null);
+    if (clearErr) redirect(land('save_failed'));
+  }
+
+  // Bring a pending draft for that day up to date; flag a sent one.
+  let digestState = '';
+  try {
+    const { data: prop } = await supabase.from('properties').select('region').eq('id', propertyId).maybeSingle();
+    const region = (prop as { region: string | null } | null)?.region || CAPE_ANN_REGION;
+    const { data: digest } = await supabase
+      .from('cleaner_schedule_digests')
+      .select('status')
+      .eq('service_date', checkOut)
+      .eq('region', region)
+      .maybeSingle();
+    digestState = (digest as { status: string } | null)?.status ?? '';
+    if (digestState === 'pending') await upsertDigestDraft(supabase, checkOut, region);
+  } catch {
+    // The answer is saved and the schedule reads it live; the draft catches
+    // up on its next refresh or at send, which composes live.
+  }
+
+  revalidatePath(CARD);
+  revalidatePath(PAGE);
+  revalidatePath('/');
+  redirect(land(decision === 'no_clean' && digestState === 'sent' ? 'no_clean_sent' : decision));
+}
