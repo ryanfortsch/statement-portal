@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { AutomationHoldControls } from '@/components/AutomationHoldControls';
 import {
   approveSendAction,
   setAutomationHoldAction,
@@ -518,13 +519,7 @@ function SendRow({
             </div>
           )}
           {s.status === 'held' && (
-            <div style={{ marginTop: 8 }}>
-              <p>{s.holdReleaseBlockedReason ?? 'This message will not send while held. Release returns it to the schedule; if overdue, it may send on the next worker run.'}</p>
-              <button type="button" disabled={pending || !onRelease} onClick={onRelease} style={ghostBtn(pending)}>
-                Release for sending
-              </button>
-              {!onRelease && !s.holdReleaseBlockedReason && <p>Hold controls are not enabled in this environment.</p>}
-            </div>
+            <AutomationHoldControls blockedReason={s.holdReleaseBlockedReason} pending={pending} onRelease={onRelease} />
           )}
           {s.status === 'scheduled' && onHold && (
             <button type="button" disabled={pending} onClick={onHold} style={ghostBtn(pending)}>Hold this message</button>

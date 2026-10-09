@@ -819,3 +819,24 @@ checks remain incomplete.
 Validation: 1,865 tests, nonincremental TypeScript, targeted ESLint and whitespace
 checks passed. Base d22f48f6; codex/channex-staging-pilot. Remote main read as
 bafe5ce05859a1dd0a4ad78b37ff1b942cf55d97. No deployment or paid service added.
+
+### Synthetic browser rehearsal prepared (October 9)
+
+Added `/channels/staging/automation-rehearsal`, gated by the existing staging
+non-production switch and Rising Tide sign-in. It uses fake bookings held entirely
+in browser memory. Confirmed, cancelled, unconfirmed, moved, duplicate, unavailable
+and controls-disabled scenarios exercise the same extracted
+`AutomationHoldControls` component used by the property panel. Release and Hold
+are explicitly simulated; no database client, server mutation action or provider
+sender is imported into the rehearsal client. Refresh resets the scenario.
+
+This isolates presentation checks from the regular property page's database
+requirements. It is not a replacement for hosted RPC/schema verification. The
+route has not been deployed or visually verified. No local browser restriction
+was bypassed. Existing authenticated preview deployment and browser verification
+remain the next delivery step, followed by isolated hosted database integration.
+
+Validation: all 1,865 repository tests, nonincremental TypeScript, targeted ESLint
+and whitespace checks passed. Base 954588a9 on codex/channex-staging-pilot; remote
+main verified as bafe5ce05859a1dd0a4ad78b37ff1b942cf55d97. No new service cost,
+message delivery or hosted configuration change.
