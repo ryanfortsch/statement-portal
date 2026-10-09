@@ -1,0 +1,543 @@
+# Helm provider architecture and next implementation boundary
+
+Decision draft, October 7, 2026. Goal: replace Guesty across the portfolio after a successful Calderwood pilot. This is an architecture deliverable, not an implemented production connector or an approval to disconnect channels. Contract timetable remains in `calderwood-cutover-readiness.md`; `SCHEMA.md` remains authoritative for existing tables. No new platform purchase is required for the next milestone.
+
+## 1. Reuse Helm's system of record
+
+Use existing `properties`, `channel_listings`, `bookings`, `booking_events`, `booking_finance` and `property_calendar_days`. Do not make the synthetic Beach ownership journal the production booking ledger. Provider-specific revisions and delivery jobs are integration records around the existing ledger, not competing reservation truth.
+
+| Concern | Owner after a verified cutover | Boundary |
+| --- | --- | --- |
+| Property identity, physical inventory and linked units | Helm | Stable property IDs; parent listing is a sales product consuming both units, not a third physical unit |
+| Reservation lifecycle | OTA/provider supplies source events; Helm records operational state | Explicit provider identities, durable revisions, deduplication and conflict handling |
+| Availability, owner/maintenance holds | Helm | Recompute all blockers; only publish through the designated channel connector |
+| OTA rates and dynamic stay restrictions | PriceLabs | Channex distributes; Helm must not overwrite these fields |
+| Direct-booking quote rates | Existing Helm rate tables | A separate verified PriceLabs-to-Helm rate import/parity decision is required; do not assume OTA delivery also updates direct quotes |
+| OTA connectivity | Channex for migrated connections; Guesty for remaining ones | Provider is distinct from booking channel: Channex is a transport, Airbnb is the channel |
+| Inbox and approved send intent | Helm | Provider thread/message IDs and capability-aware sending; preserve historical Guesty threads |
+| Scheduled messages and operational tasks | Existing Helm automation services | Exactly one scheduled sender per property/event during handoff |
+| Payments, accounting, statements, locks and SMS | Existing specialized Helm integrations | Audit dependencies and parity before retiring Guesty; no financial writer changes in this scope |
+
+Build a modular connector layer inside Helm with the existing Render worker and Supabase. Do not introduce Redis, Kafka, another database, or separate microservices without measured need. Production sizing and isolation are later cost decisions; staging must retain its own credentials, database and fixed host allowlist.
+
+## 2. Provider-neutral identity and explicit authority
+
+A connection needs environment, provider, provider-account identity, Helm property, OTA listing, provider property/room/rate-plan references, capabilities, operating mode and monotonically increasing configuration generation. Enforce unique external mappings within provider account and environment. Missing or ambiguous mapping quarantines the event, never guesses from name, dates or guest email.
+
+Continue using `properties.calendar_authority` and the existing `flip_calendar_authority` RPC for the canonical Guesty/Helm ownership change. A proposed connection policy supplements that switch with per-capability ownership: reservation ingestion, inventory publishing, pricing, message reads and message sends. Shadow mode cannot publish. Do not add a second authority switch that can disagree with the existing one.
+
+Provider revision identity: environment + provider account + provider reservation ID + revision ID. Link the resulting canonical booking ID explicitly. Separate source/channel confirmation IDs help reconcile Guesty and Channex copies of a carried-over stay. Dates or guest similarity alone never authorize merging. Unknown source ordering or conflicting revisions require reconciliation; missing a record in a partial feed is not cancellation.
+
+Cutover grouping follows Airbnb account authorization constraints and linked physical inventory, not just individual property rows. Calderwood's owner account is the pilot boundary. The 17 Beach parent/front/back group must be reconciled together even if its listings have different connectors.
+
+## 3. Incoming event path
+
+1. Authenticate the source (provider-documented webhook verification if used), enforce payload limits and map the exact allowlisted environment/account/listing. Current polling can remain the primary trigger; do not require an unverified public webhook.
+2. Save a minimal durable provider-event record with unique identity and content digest. Retain necessary guest data only in restricted storage, never logs; exclude payment card data and access codes from event payloads.
+3. Acknowledge a provider revision only after verified durable receipt. Process it independently with durable status/retry tracking so ACK cannot lose an unapplied event.
+4. In one database transaction, claim the event, validate its source ordering and current authority, update the canonical booking and its audit event, recompute affected inventory versions, and enqueue resulting delivery intents. Roll back all changes on failure. Do not patch canonical rows directly from UI or connector code.
+5. Extend existing booking RPC invariants through a dedicated import transaction. A real OTA booking that conflicts must be retained in durable ingestion/conflict records and surfaced urgently, even if the canonical overlap guard refuses it; never silently drop or ACK-and-forget it.
+6. Refresh existing calendar/operations projections. Monitor oldest unapplied event, source completeness, last successful reconciliation and blocked imports separately from worker liveness.
+
+Current `channex-staging/shared-sync.ts` already saves exact normalized revisions before ACK. It does not yet implement this general transactional canonical-booking/outbox path. Periodic complete reconciliation remains required even with webhooks.
+
+## 4. Outgoing inventory delivery: first build milestone
+
+Proposed durable outbox, initially pure logic plus in-memory synthetic storage. It is not a new production migration in this phase.
+
+Each intent contains: immutable command ID; environment; property/connection; capability; configuration generation; affected dates; desired availability/stop-sell values; desired-state version; payload digest; creation reason; status; attempt count; next attempt time; lease/attempt token; provider task reference; error category; observation timestamps. No guest content belongs in inventory intents. Price and minimum-stay fields are forbidden in inventory payloads.
+
+State transitions:
+
+- `pending -> leased -> submitted -> verified`
+- A definite retryable failure before acceptance schedules bounded exponential backoff with jitter and provider retry guidance.
+- A timeout or worker death after dispatch becomes `uncertain`, never blindly resubmitted. Reconcile task status and read-back first. If that cannot establish a safe action, require review.
+- Invalid mapping, auth, permanent validation failures or conflicting generation become `needs-review` or `superseded`, not an infinite retry loop.
+
+Serialize delivery per provider property/capability. Claim with compare-and-swap, finite leases and attempt fencing. An expired lease is not proof that an old network request stopped; no competing dispatch for an uncertain lane. Where the provider cannot fence writes, wait for the prior task to settle or escalate before dispatching a newer version. Stale completion cannot mark a newer version delivered. Reconcile again if an old request could have applied late.
+
+Coalesce only undispatched compatible intents to the newest absolute desired state. Never coalesce message sends or discard uncertain attempts. Recheck environment, mapping generation, authority, feature gate and input completeness immediately before IO. Freshly recompute versioned desired inventory before opening any date. Unknown blockers/stale inputs prohibit opening; do not invent provider ownership from an observed zero count.
+
+Track API acceptance, provider processing, read-back and OTA delivery as distinct evidence. A successful HTTP response is not proof that the OTA calendar is correct. Surface the strongest available evidence without promoting it to a stronger claim.
+
+First milestone acceptance tests (synthetic, no credentials): duplicate enqueue; concurrent claims; crash before/after dispatch; expired-lease stale worker; superseded intent; delayed provider task; partial batch results; 429/backoff; auth rejection; stale source prevents opening; shared-unit cancellation preserves sibling/owner holds; environment or generation mismatch prevents dispatch; rate/minimum-stay fields cannot enter inventory commands. Then implement a staging-only durable adapter and stopped-inventory rehearsal as a separately reviewed milestone.
+
+## 5. Messaging uses the same reliability principles, separate commands
+
+Maintain provider-qualified thread/message identities plus canonical property/booking links. Existing Guesty history can remain viewable after migration without making its old thread a send destination. A migrated conversation needs an explicitly verified current provider thread; unavailable history is labelled, not fabricated.
+
+Read permissions, manual reply sending and automation sending are separate gates. Start with read-only history; then operator-approved manual sends; then scheduled automation. Each send has one immutable intent ID, recorded approval, current destination generation and provider receipt. Do not claim exactly-once delivery if the provider lacks idempotency support. Ambiguous sends require history/receipt reconciliation rather than automatic resend. Inventory coalescing rules never apply to messages.
+
+Automation identity includes property, canonical booking, event/template version and schedule occurrence. A booking modification invalidates outdated pending schedules; cancellation suppresses future sends. Re-evaluate reservation, destination, approval and authority at dispatch. Import already-sent evidence and explicitly hand off future scheduled messages to prevent dual sending. SMS cleaning reminders remain on their SMS transport, not the OTA messaging add-on.
+
+Vrbo is deferred for Calderwood new sales, not silently removed from existing-stay support. Fleet migration still requires a documented Vrbo messaging operating model.
+
+## 6. Cutover and recovery are explicit operations
+
+Progression: `shadow -> reconciled -> ready -> operator-approved cutover -> observed live`. Separate connection write gates remain off until the appropriate transition. Scheduled automation activation is a later explicit step, not implied by calendar authority.
+
+A cutover checklist verifies complete future bookings/holds, provider mappings, PriceLabs date coverage and dynamic restrictions, remaining sales channels, carried-over message destinations, payment/refund responsibilities and downstream operations. In-flight deliveries must drain or be reconciled. Stamp a new connection generation so queued old-provider commands cannot send after the transition. Capture provider-side authorization and local RPC changes as separate audited steps: they cannot be one atomic transaction.
+
+Rollback is not just setting `calendar_authority` back. Reconcile bookings received since cutover, restore provider authorization/mappings/feeds, suppress duplicate automation and verify rate/availability ownership. Never automatically revert on a transient provider outage. Freeze unsafe openings, alert the operator and use the rehearsed provider-specific recovery runbook.
+
+## 7. Concrete gaps found in existing source
+
+- `pms-guards.ts` has legacy authority-read fallbacks that can keep Guesty processing on a failed lookup. New publishers must fail closed, and existing mutation call sites require an integration audit before enabling a live Channex writer.
+- The inspected `flip_calendar_authority` migration restores the property Guesty ID on reverse flip, but does not itself restore deleted Guesty mapping rows or retired aggregate feed rows. Documentation must not portray this RPC alone as a complete rollback.
+- `channels-types.ts` has no Channex API booking source. Schema/type/RPC additions must be coordinated with the current main branch; do not label API records as iCal imports.
+- Current Beach client and closure worker intentionally use fixed stopped test inventory and placeholder restrictions. They are not a production publisher and must retain their narrow safety boundary.
+- Existing message archive is a read-side foundation, not proof of live outbound messaging or historical migration completeness.
+- Existing direct-pricing tables, finance and operational consumers must be reused through their established interfaces; API channel support alone cannot certify accounting or operational parity.
+
+## Delivery / review record
+
+Reviewed existing pilot sources, `SCHEMA.md`, `channels-types.ts`, `pms-guards.ts`, and the cutover migration. Existing owned branch: `codex/channex-staging-pilot`; checkpoint `8085cc42`; original base `a148b0e6`; current remote main observed `fe2e83aa`. This is review of the owned checkpoint, not a claim that the branch contains every main change. Rebase/integration review is required before cross-cutting implementation.
+
+Next bounded implementation: pure inventory outbox state machine and synthetic fault tests, followed by the separate staging storage/worker adapter. No live APIs, schema changes, paid activation or deployment in this architecture update. Documentation diff check only; application tests are not applicable.
+
+### Implementation checkpoint: October 7, 2026
+
+Implemented `src/lib/channex-staging/inventory-outbox.ts` with synthetic tests in
+`src/lib/__tests__/inventory-outbox.test.ts`. This is an isolated, in-memory transition
+model with no production callers, provider IO, credentials, storage adapter or deployment.
+It is not durable across process restarts. The future adapter must atomically persist each
+transition, including the pre-dispatch barrier, and preserve fencing tokens across restarts.
+
+The 22 new tests cover command identity conflicts/deduplication, defensive copies,
+strict inventory-only payloads, exact-date pending coalescing, lane serialization,
+pre-dispatch lease recovery, stale attempts, post-dispatch uncertainty, partial read-back,
+provider acceptance versus verification, bounded rejection retries, permanent rejection,
+and environment/identity/authority/version/freshness dispatch gates. Unknown delivery
+blocks the lane; incomplete evidence never releases it. Read-back verification is not
+proof of OTA delivery. Review states deliberately have no automatic reset path.
+
+Validation: all 1,808 tests pass via `npm test`; `npx tsc --noEmit --incremental false`
+and targeted ESLint pass on Node 25.9.0. Remote main observed this turn:
+`d8c2a596fa14ffd2a9c08f95f30a25d32068a07e`; no rebase or integration with that revision.
+The implementation remains scoped to owned branch checkpoint `8085cc42`.
+
+Still required: transactional durable adapter, worker dispatch/reconciliation integration,
+real process-restart tests, provider partial-batch semantics, and the canonical inventory
+projection that preserves sibling/owner holds after cancellation. The current model accepts
+an externally computed desired snapshot; it does not calculate bookings or validate hold
+ownership. A dispatch adapter must refresh that snapshot and source completeness before IO,
+and a reconciliation adapter must prove the attempt settled before supplying complete
+read-back evidence. No live writer is ready for activation from these synthetic tests alone.
+
+### Persistence implementation checkpoint: October 7, 2026
+
+Added `inventory-journal.ts`, `inventory-journal-store.ts`, and `inventory-worker.ts`.
+Successful transitions append to a validated command journal; replay reconstructs the queue
+and fencing sequence. Storage CAS selects a single winner, and the worker helper returns a
+submitting job only after the barrier is committed. A lost commit response yields no dispatch
+authorization. A restored submitting attempt becomes uncertain on lease expiry. Context must
+be refreshed between claim and dispatch. These helpers are not installed in the running
+Render loop and contain no provider transport.
+
+The Supabase adapter accepts only the isolated staging URL, never production environment
+fallbacks, and never initializes missing history. The append RPC draft is in
+`staging-storage/inventory-store.sql`, outside production migrations. It serializes appends,
+rejects prior-command rewrites, retains the full event history, enables RLS, denies client
+roles, and grants only read plus the append RPC to the service role. It seeds an empty journal
+only when the SQL is deliberately applied. Nothing has been applied remotely.
+
+Nine additional tests cover concurrent CAS claims, lost save response, failure/slow refresh,
+replay validation, and recovery in a separate Node process from a temporary saved journal.
+All 1,817 tests pass; TypeScript (no emit/no incremental) and targeted ESLint pass. The database
+RPC has NOT been executed: no local Postgres executable is available, and no remote DB was
+accessed. The file-backed subprocess check validates replay, not Supabase persistence or
+network durability. Current remote main was observed at `0a3cb8b6`; this isolated work remains
+based on the owned pilot branch, with current-main integration review still required.
+
+Next verification step: review/apply the SQL solely to the isolated staging project, exercise
+real CAS contention, denied client access and history preservation there, then wire a
+synthetic-only worker exercise. Keep live publisher activation separate. Use the database
+clock for distributed leases in a future dispatch adapter; current helpers accept a clock for
+synthetic tests. The full-journal model is bounded at 10,000 commands and deliberately stops
+rather than trimming history. It is a small pilot adapter, not a fleet-scale storage design.
+No live transport should rely on this helper without the existing mapping, source completeness,
+authority and provider task reconciliation gates.
+
+### Hosted staging storage verification: October 7, 2026
+
+Applied the reviewed `staging-storage/inventory-store.sql` only through the authenticated
+Supabase SQL editor for **Helm Channex Staging**, project `jgkblfozftcvymvwhhii`.
+Preflight confirmed the table/function did not already exist; creation returned success.
+Supabase labels this project's default branch "Production", but this is the separate
+staging project, not Helm's production database. No credentials were extracted or moved.
+
+Hosted rollback-only checks passed for RLS, denied anon/authenticated table/RPC access,
+service-role read/RPC access without direct INSERT/UPDATE/DELETE, valid append, stale-version
+rejection, and preservation of earlier commands. Saved repeatable SQL:
+`staging-storage/inventory-verify.sql`. It explicitly checks the history-rewrite exception
+and rolls back its test appends. The generalized query passed against nonempty history too.
+
+Two independent SQL editor sessions tested the same expected version. The first quick race
+left version 1 with one expiration event (the second session won that race). A second run held
+the row lock for 20 seconds, with a competing request delayed by 5 seconds: the competitor
+waited **14.707074 seconds** and returned **false**. Final version is **2**, retaining exactly
+`expire(now=0)` and `expire(now=1)`. Both are harmless history entries; replay creates zero
+jobs. They were deliberately retained rather than resetting audited history. Final rollback
+verification left version 2 and two commands unchanged.
+
+Evidence screenshot: `/tmp/helm-inventory-staging-verified.png`. No worker/preview deployment,
+provider transport, customer data access, live calendar change or additional paid service.
+Next: verify the TypeScript adapter through an authenticated synthetic worker run. SQL-level
+contention is proven; hosted process-restart and actual adapter/worker integration are still
+pending. Existing local process recovery tests do not establish those hosted guarantees.
+
+This checkpoint adds only a verification SQL file and documentation. The verification SQL
+was executed against staging; application source is unchanged, so the prior 1,817-test result
+is historical and was not rerun for this checkpoint. Diff/whitespace checks passed. Branch
+`codex/channex-staging-pilot`, implementation base `517ec281`; remote main observed `0a3cb8b6`.
+
+### Synthetic dispatch/recovery rehearsal: October 7, 2026
+
+Added `inventory-rehearsal.ts`, `scripts/channex-inventory-rehearsal.mts`, and
+`inventory-worker-rehearsal.test.ts`. The runner uses the real queue preparation and command
+journal, a synthetic provider only, fixed non-listing identities and stopped test inventory.
+The operator CLI uses the existing allowlisted Supabase adapter, never a Channex client.
+A synthetic receipt file models provider evidence; losing it blocks recovery instead of
+inventing a successful delivery. This file is not durable provider infrastructure and must
+not be used as a production receipt store.
+
+Three subprocess fault tests terminate after the persisted pre-send barrier, after the
+synthetic provider applies a command, and after receipt persistence. New processes recover
+from disk, reject partial evidence, repeat recovery and dispatch, and assert exactly one
+submission for applied commands, zero for the pre-send interruption. A pre-send interruption
+remains uncertain because no provider evidence proves a safe resend. All records are synthetic,
+child environments exclude credentials, and there are no network calls in these tests.
+
+Worker packaging now pins zod 4.4.1 and copies the opt-in CLI; the existing Docker CMD and
+normal booking/message loops are unchanged. Clean worker-only `npm ci` succeeded with ten
+installed packages and zero reported vulnerabilities; module imports and refusal to run
+without explicit mode passed without network IO. All 1,820 application tests, TypeScript,
+targeted lint and diff checks passed. No hosted deploy or rehearsal invocation this turn.
+
+Hosted operator sequence AFTER reviewed staging deployment (credentials already in worker
+configuration; never paste or print them):
+
+```sh
+CHANNEX_INVENTORY_REHEARSAL=synthetic-only node scripts/channex-inventory-rehearsal.mts dispatch rehearsal-UNIQUE /tmp/inventory-UNIQUE.json exit-after-submit
+# Use a lowercase unique identifier in place of UNIQUE. Exit 72 is the intentional interruption.
+# Retain that receipt file. After the 30-second lease has elapsed:
+CHANNEX_INVENTORY_REHEARSAL=synthetic-only node scripts/channex-inventory-rehearsal.mts recover rehearsal-UNIQUE /tmp/inventory-UNIQUE.json
+```
+
+Expected recovery result is verified with recordedSubmissions=1 and submissions=0. Repeat
+recovery and dispatch with the same run ID: recordedSubmissions must stay 1. The new CLI is
+ready locally but has not run against hosted storage, so this remains the next verification
+gate. Deployment/main integration review is pending. Branch codex/channex-staging-pilot;
+base for this change ee3b4e4a; remote main observed 0a3cb8b6. No paid activation or live channel
+change. Preserve existing Guesty operation and PriceLabs authority.
+
+### Hosted inventory recovery checkpoint: October 7, 2026
+
+Deployed exact commit `f286e93d880c1261284aa5717984671edd1f1d18` to the existing
+`helm-channex-staging-worker` service. Render deployment
+`dep-db38m5l9fdbs73abc0v0` is live. The Docker CMD, booking/message loops, service size
+and credentials were unchanged; previous worker `477944fe` remains available for rollback.
+No new paid service or production deployment.
+
+Ran `rehearsal-oct7-worker-a` through the Render web shell against the existing isolated
+Supabase journal. The dispatch process exited **72** after its synthetic provider receipt
+was saved to `/tmp/inventory-oct7-worker-a.json`. A fresh CLI process recovered after lease
+expiry with `result=verified`, `submissions=0`, `recordedSubmissions=1`. Repeated recovery
+returned the same result; repeated dispatch returned `not-dispatched`, zero submissions,
+and exactly one recorded submission. Screenshot: `/tmp/helm-inventory-hosted-rehearsal.png`.
+This verifies the real hosted adapter and process-level recovery using synthetic evidence.
+It does not prove actual Channex/OTA delivery or recovery after losing the instance-local
+receipt file. No live publisher was invoked.
+
+The accompanying health audit found a separate existing blocker: booking/message sync
+failed on the old instance before deployment and continues on the new instance. The old
+booking loop reported last success `2026-10-04T00:44:26.752Z`; new failures are not evidence
+of a new deployment regression. A read-only `ChannexStagingClient.inspect()` diagnosis
+returned the explicit guard reason: `A channel is attached to the pilot; sandbox writes
+are prohibited`. No credentials or response bodies were printed. This identifies a channel
+record on at least one Beach pilot; the redacted diagnostic does not identify which unit
+or establish an authorized/live Airbnb connection. Existing polling is therefore NOT verified healthy.
+
+Preserved the channel record and the fail-closed guard. Next bounded change: separate
+read-only source identity/ownership validation from no-channel publishing authorization,
+with tests proving that reads cannot bypass write gates. Do not simply remove the shared
+inspection guard. Canonical inventory projection and actual provider task/read-back
+reconciliation remain prerequisites to live publishing. Guesty and PriceLabs remain active.
+
+This checkpoint changes documentation only. Reviewed its complete diff and referenced
+paths; `git diff --check` passed. The 1,820 tests, TypeScript and targeted lint passed on
+the deployed source in the preceding implementation checkpoint, not rerun for this doc
+update. Branch `codex/channex-staging-pilot`, implementation base `f286e93d`; existing
+draft PR #1714 updated.
+
+### Separate ingestion and publishing checks: October 7, 2026
+
+Added `inspectReadSource()` for message ingestion and the shared revision sync. It retains
+fixed staging host, property/room identity, capacity, currency/timezone, isolated rate-plan
+and stopped-default checks. Only the no-channel requirement differs. The original
+`inspect()` remains strict for snapshots/rehearsals and every inventory publication;
+read inspection produces no reusable write permission. Revision normalization and durable
+storage-before-ACK are unchanged; this is not live booking ingestion support.
+
+Regression coverage proves attached-channel reads use GET only, changed capacity still
+fails, and prior read success cannot enable a snapshot or any calendar POST. Updated
+existing sync/message/process-recovery fixtures for the explicit read interface. All
+1,822 tests, nonincremental TypeScript, targeted ESLint and diff checks passed. Base
+8bf5b49c; remote main observed 7b9a358a.
+
+Deployed source `a14214e128e1b2f7e62dd4c693ce2134a04fd4a0` to the existing worker:
+Render `dep-db38u4u7bikc73c22jg0`, live October 7 at 14:27 EDT. The new instance reports
+booking `sync-success` at 18:27:50Z with received/saved/acknowledged/published all zero,
+and `complete=false`. Both Front and Back report `message-sync-success`, zero threads
+and messages. This restores empty-feed polling, not full snapshot completeness, live
+message delivery, or channel activation. No calendar writes occurred. Prior deployment
+f286e93d remains recoverable. Evidence: `/tmp/helm-staging-sync-restored.png`.
+
+Next: canonical inventory projection and provider task/read-back reconciliation remain
+unimplemented for live delivery. A complete booking baseline and real-message coverage
+must be separately verified before any migration. No new service or subscription.
+
+### Pure canonical snapshot projection: October 7, 2026
+
+Added `inventory-projection.ts` and six synthetic regression cases. The explicit snapshot
+contains unique physical resources, listing-to-resource mappings, canonical current booking
+states, holds, required source identities and dated completeness/freshness evidence. It
+supports one property or linked whole/front/back products without treating the whole home
+as a third physical resource. It does not reuse the Beach revision journal as production
+reservation truth, read any database, or resolve provider duplicate identities heuristically.
+
+For each target night, recompute all overlapping active bookings and holds with exclusive
+checkout. Cancelled bookings do not erase other blockers. Date changes recompute old and
+new nights from the current snapshot. Missing, incomplete, stale or partial source coverage
+closes the whole requested batch. Duplicate canonical IDs, ambiguous coverage, unknown
+listing/resource mappings and invalid date ranges are rejected. The result carries version,
+digest, completeness, freshness and explanatory blockers; its delivery payload contains
+only date, availability and stop-sell. No rates, minimum stays or publishing authority.
+
+All 1,828 tests, nonincremental TypeScript, targeted ESLint and diff checks passed. Base
+67209c87, remote main observed 7b9a358a, branch codex/channex-staging-pilot. This is a pure
+calculation and test increment, not a deployed live inventory source. No new paid service.
+The adapter must next obtain an atomic, complete canonical booking/hold snapshot, resolve
+source identities and version it with the outbox transaction. Required source configuration
+and completeness assertions are trusted inputs here, not proven by this function. Live
+provider task/read-back reconciliation and migration approval are still separate gates.
+
+### Snapshot-to-outbox planning boundary: October 8, 2026
+
+Added `inventory-planner.ts` and six synthetic transaction-boundary tests. The planner reads
+one consistent snapshot/configuration/journal state, projects inventory, rejects incomplete
+coverage, derives a deterministic command ID, and proposes one journal append. Its store
+contract requires an atomic comparison of snapshot, configuration and journal versions plus
+commit-time freshness. It deliberately does not adapt the existing journal-only CAS with
+separate snapshot reads, which would leave a race. No production store implementation is
+provided in this increment; tests use a synthetic atomic store.
+
+Verified repeated planning is idempotent, racing planners cannot both append, snapshot or
+configuration changes reject stale proposals, expired evidence fails at commit, changed
+content under the same version is rejected, and newer booking versions supersede pending
+availability. An uncertain save throws without retry or dispatch. Queuing does not confer
+publishing permission. All existing worker authority and pre-send checks still apply.
+
+All 1,834 tests, nonincremental TypeScript, targeted ESLint and diff checks passed. Branch
+codex/channex-staging-pilot, base 665f2b94, remote main observed 7b9a358a. No hosted migration,
+worker deployment, customer-data access, provider call or new expense. Remaining: implement
+and verify this atomic contract against the canonical database with source reconciliation,
+then provider task/read-back delivery. Routing changes need a reviewed generation/version
+advance; arbitrary date-window changes cannot silently reuse a desired-state version.
+
+### Staging planning transaction implementation: October 8, 2026
+
+Added manually reviewed `staging-storage/inventory-planning.sql` and the fixed-project
+`inventory-planning-store.ts` adapter. No hosted application of this SQL in this checkpoint.
+A separate synthetic snapshot row stores snapshot/configuration versions; a trigger rejects
+non-advancing snapshot updates and routing changes without configuration advancement.
+One SQL read returns snapshot and journal consistently. Commit holds the snapshot lock,
+then journal lock, compares versions, checks wall-clock expiry AFTER waiting, binds the
+intent to stored staging identity/generation/version, and invokes the existing append-only
+journal function. No initialization or production fallback. RLS is enabled; service role
+gets read/RPC access, no direct snapshot mutation; anon/authenticated receive neither.
+
+The trusted TypeScript planner still owns desired-payload and coverage-range calculation.
+The database checks stored evidence cannot be extended by the caller, but is not a complete
+independent implementation of projection. Existing service-role journal APIs are trusted
+operator interfaces, not a hostile-caller security boundary. The fixture snapshot table is
+NOT the production booking ledger or its production source adapter. Hosted multi-session
+locking verification and canonical writer integration remain pending.
+
+Executed actual SQL in temporary local PGlite 0.3.14: creation, valid append, stale snapshot/
+configuration/journal rejection, expired and overstated freshness, wrong identity, snapshot
+and routing version guards, RLS and role permissions passed. Repeat with
+`node scripts/verify-inventory-planning.mjs /absolute/path/to/@electric-sql/pglite/dist/index.js`.
+This script creates only an in-memory PostgreSQL instance and synthetic records; it has no
+hosted connection or credentials. PGlite is a temporary verification tool, not an application
+or worker dependency. Three adapter tests additionally cover RPC payloads, host confinement,
+uncertain responses and refusal to initialize absent state.
+
+All 1,837 application tests, nonincremental TypeScript, targeted lint and diff checks passed.
+Branch codex/channex-staging-pilot, base b1135b7e, main observed 7b9a358a. No live calendar,
+customer records, new subscription, production migration or Render deployment touched.
+
+### Hosted planning transaction verification: October 8, 2026
+
+Applied the reviewed `staging-storage/inventory-planning.sql` from c41b5827 to the
+separate Helm Channex Staging Supabase project `jgkblfozftcvymvwhhii`. Preflight
+confirmed no snapshot table and the existing inventory journal at version 7.
+Schema installation succeeded without initializing a snapshot or replacing the journal.
+
+Rollback-only synthetic hosted checks passed: RLS and role permissions, rejection of
+non-advancing snapshot updates, valid atomic append, stale snapshot/configuration/journal
+rejection, and expired or overstated freshness rejection. After rollback the retained
+journal remained version 7 and the snapshot table contained zero rows.
+
+A separate two-session test held the journal row lock for 30 seconds. The contender
+created a transaction-local synthetic snapshot with five seconds of freshness, then
+attempted the planning commit. It asserted that the call waited at least five seconds,
+returned false after expiry, and did not advance the journal. Both transactions rolled
+back. Hosted results again showed retained journal version 7 and zero snapshot rows.
+This proves expiry is checked after a real competing lock wait; it does not claim a
+complete matrix of simultaneous snapshot/configuration writer races or provider delivery.
+
+No application source changed in this checkpoint. Documentation diff and referenced paths
+were checked. The preceding source checkpoint passed 1,837 tests, nonincremental TypeScript
+and targeted lint; those are historical checks, not a new suite run. Branch
+`codex/channex-staging-pilot`, base c41b5827, remote main observed 7b9a358a. Existing draft
+PR #1714 continues. No Render deployment, customer records, live calendar changes or new
+subscription. Next: exercise the TypeScript planner/store boundary end to end with a
+synthetic complete snapshot, then establish the canonical snapshot writer and source
+reconciliation before any real availability publishing.
+
+### Integrated local planning/worker rehearsal: October 8, 2026
+
+Added `scripts/verify-inventory-pipeline.mjs`, an explicit local PostgreSQL integration
+check using the temporary PGlite module. It runs the actual planner, both Supabase storage
+adapters, reviewed SQL and worker preparation against a complete synthetic snapshot. The
+injected transport translates only known Supabase requests into parameterized local SQL;
+no network, credentials or provider transport is used. Journal storage now accepts the
+same optional fetch injection as planning storage; its default behavior is unchanged.
+The local service role models Supabase's BYPASSRLS role attribute. This is fixture setup,
+not a hosted permission change. An initial rehearsal failure exposed that missing local
+role attribute; correcting the fixture made the integrated path pass.
+
+Verified a maintenance hold closes only its covered night, repeat planning is unchanged,
+and the durable submitting barrier exists before a simulated provider receipt. Omitting
+the accepted-save simulates a crash boundary. Reconstructed store handles refuse another
+dispatch both before and after lease expiry; complete receipt evidence reconciles the
+uncertain attempt to verified, and repeat dispatch/planning still produces no new send.
+This simulates the crash boundary in one process, not an OS process restart. It does not
+prove hosted PostgREST transport, live provider delivery, or canonical writer completeness.
+
+Repeat: `node scripts/verify-inventory-pipeline.mjs /absolute/path/to/pglite/dist/index.js`.
+Like the existing SQL verification script, this requires an explicitly supplied local
+PGlite installation and is not part of npm test or an application dependency. Two regular
+suite tests also cover missing/mismatched journal history, host confinement and uncertain
+append responses. No schema, hosted worker or live calendar changes in this increment.
+
+Validation: integrated local SQL rehearsal, all 1,839 tests, nonincremental TypeScript,
+targeted ESLint and diff checks passed. Branch codex/channex-staging-pilot, base 0b9c069c,
+remote main observed 7b9a358a. Existing draft PR #1714; no new expense. Next required work:
+canonical snapshot writer and source reconciliation, followed by hosted adapter integration
+and live provider task/read-back checks before any cutover.
+
+### Source scan reconciliation boundary: October 8, 2026
+
+Added `inventory-snapshot.ts` to assemble explicitly mapped normalized source scans into
+the existing inventory snapshot. Completeness requires a nonempty stable scan token,
+first null cursor, unbroken page chain and terminal null cursor. Missing scans/pages,
+changed tokens, repeated cursors and stale evidence cannot authorize an open calendar.
+Identical explicit canonical booking copies deduplicate; conflicting dates/status/listing
+fail the whole assembly rather than allowing one cancellation to erase a confirmed stay.
+Unmapped booking resource scope and unexpected/duplicate scans are rejected. Holds remain
+separate and existing strict projection validation checks the assembled output.
+
+The local SQL/worker rehearsal now obtains its snapshot through this assembler. Six
+regular tests cover stable pagination, duplicate copies, holds, missing source/page,
+unstable scans, stale/future observations, conflicts and resource scope. All 1,845 tests,
+nonincremental TypeScript, targeted ESLint, diff checks and the integrated local PostgreSQL
+rehearsal passed. Branch codex/channex-staging-pilot, base 2ad294b2, main observed 7b9a358a.
+
+This is a pure boundary, not a production canonical snapshot writer. Canonical IDs,
+source requirements, freshness deadlines and stable scan tokens are trusted upstream
+inputs. A provider adapter must demonstrate stable full-scan semantics or reconcile
+against a durable watermark; inventing a token around an inconsistent paginated feed
+is insufficient. Missing rows are never interpreted here as cancellation events. Prior
+revision handling, authoritative cancellation provenance, atomic writer/version advance
+and hosted integration still require implementation/verification. No customer data,
+new expense, provider calls, production deployment or calendar changes.
+
+### Atomic synthetic snapshot replacement: October 8, 2026
+
+Added manually reviewed `staging-storage/inventory-snapshot-write.sql` and a
+`replaceSnapshot` method on the fixed-project planning adapter. The SQL locks the existing
+snapshot, compares expected snapshot and configuration versions, and advances exactly one
+snapshot version. It preserves configuration and refuses resource, listing or required-source
+mapping changes. Missing rows are not initialized. Anonymous/authenticated callers cannot
+execute the replacement RPC; service role still has no direct table mutation grant.
+This SQL has been executed locally only, not applied to hosted staging or production.
+
+The adapter validates the proposed snapshot through projection before the single RPC. It
+can store incomplete evidence to invalidate older availability; incomplete evidence cannot
+enter the planner queue. Uncertain responses throw rather than retry. Callers MUST capture
+the expected versions before collecting source pages. CAS prevents competing stale writes
+against that baseline, but does not establish upstream revision order or make an old feed
+current merely because its local snapshot number increased. A source adapter still needs
+verified full-scan/watermark semantics and cancellation provenance.
+
+The local PostgreSQL integration rehearsal now replaces its assembled snapshot through the
+real adapter before planning and worker preparation. It verifies successful replacement,
+stale snapshot/configuration rejection, forbidden mapping change and denied anonymous RPC
+access. Two suite tests cover invalid input before IO, uncertain save and incomplete evidence.
+All 1,847 tests, nonincremental TypeScript, targeted lint, diff checks and local integrated
+SQL rehearsal passed. Branch codex/channex-staging-pilot, base 43170262, remote main observed
+7b9a358a. No hosted migration, provider calls, live calendar change or new expense. Remaining:
+source collection orchestration capturing the baseline before fetch, verified provider
+revision mapping, then hosted integration and delivery acceptance.
+
+### Baseline-before-fetch collection: October 8, 2026
+
+Added `inventory-collection.ts`: capture and clone the persisted baseline before invoking
+an injected source collector, assemble the resulting scans, then perform exactly one
+version-checked snapshot replacement. No reread/rebase or automatic retry. A collector
+receives a separate configuration copy so incidental mutation cannot change saved routing.
+Holds are retained from the captured baseline. Missing/expired coverage saves as incomplete;
+collector failures propagate without a save, leaving prior evidence subject to its existing
+expiry (this does not immediately invalidate it). Uncertain saves propagate without planning
+or dispatch. No real provider collector is installed by this increment.
+
+Four regular tests cover ordering, configuration isolation, concurrent snapshot/configuration
+changes, incomplete evidence and failures. The local SQL/worker integration rehearsal now
+passes through collection before planning. All 1,851 tests, nonincremental TypeScript,
+targeted lint, diff checks and the integrated PostgreSQL rehearsal passed. Branch
+codex/channex-staging-pilot, base d841f99e, main observed 7b9a358a. No hosted schema or worker
+change, customer data, calendar writes or new expense. Remaining: provider-specific canonical
+identity/revision and full-scan guarantees, hosted snapshot writer verification, and delivery
+acceptance. The synthetic collector is not evidence of real feed completeness.
+
+### Persisted Channex observation adapter: October 8, 2026
+
+Reviewed official booking documentation:
+https://docs.channex.io/api-v.1-documentation/bookings-collection and
+https://docs.channex.io/guides/best-practices-guide. The revision feed contains unacknowledged
+changes; empty feed results do not establish initial reservation coverage. Documentation
+recommends an initial pull plus durable revision handling and acknowledgment after saving.
+No atomic full-scan token guarantee was established by this review.
+
+Added `inventory-channex-source.ts`, reading the existing persisted synthetic ownership
+journal through a read-only store interface. It verifies/replays that journal, uses existing
+revision ordering, maps Front/Back explicitly, and namespaces booking IDs by source and unit.
+Whole-house simulation rows are excluded from this provider observation and still require
+the independent whole-house source. No feed consumption, ACK, client/network call or worker
+activation. This is the existing staging normalized format, not an adapter for real guest data.
+
+Source scans now require an explicit completeness boolean in addition to stable pagination.
+The Channex observation adapter always supplies false, regardless of any journal simulation
+completeness flag. Its local journal token identifies a durable read only; it is not provider
+coverage evidence. Read time and the minimal expiry do not assert upstream freshness. Even
+empty history cannot authorize inventory. Three new tests cover that boundary, late older
+revisions, cancellation ordering, unit identity separation and invalid mapping/version.
+
+All 1,854 tests, nonincremental TypeScript, targeted lint, diff checks and existing integrated
+local SQL/worker rehearsal passed. Branch codex/channex-staging-pilot, base dcbe7b18, remote
+main observed 7b9a358a. No new expense, hosted mutation or live channel changes. Next required
+milestone is initial reconciliation evidence plus ongoing durable revision coverage, rather
+than simply marking this incremental feed complete. Real-guest normalization, Calderwood
+mapping, hosted snapshot writer and live delivery acceptance remain unproven.
