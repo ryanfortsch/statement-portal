@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { getPropertyNotice, splitNoticeParagraphs } from '@/lib/property-notices';
+import { ScaMark } from '@/components/properties/ScaMark';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,8 +9,8 @@ export const dynamic = 'force-dynamic';
  * property-specific quirk (e.g. "please run the bathroom fan during
  * showers"). Same brand language as the WiFi placard so a stack of these
  * sitting in glass cases around a property reads as one consistent set:
- * navy #0F2A44 outer frame, cream #F4ECD8 interior, tan #B89B6E sun in
- * the inlined SCA logo, Fraunces display + Inter body.
+ * navy #0F2A44 outer frame, cream #F4ECD8 interior, the shared SCA mark,
+ * Fraunces display + Inter body.
  *
  * Renders the notice keyed by its UUID rather than the property id so the
  * proxy regex can keep "anything under /properties/<id>/notice/<uuid>"
@@ -37,7 +38,7 @@ export default async function PropertyNoticePage({
       <div className="rt-doc">
         <article className="rt-card">
           <div className="rt-panel">
-            <ScaMark />
+            <ScaMark size={42} />
 
             {notice.eyebrow ? <div className="rt-eyebrow">{notice.eyebrow}</div> : null}
 
@@ -54,25 +55,6 @@ export default async function PropertyNoticePage({
         </article>
       </div>
     </>
-  );
-}
-
-/**
- * Inlined Stay Cape Ann logo mark — same simplified version used on the
- * WiFi placard (cream circle dropped, just navy house + tan sun + horizon
- * + navy water band) so the bespoke notices read as part of the same set.
- * Source of truth: /Users/maguire/Developer/stay-cape-ann/app/icon.svg.
- */
-function ScaMark() {
-  return (
-    <div className="rt-mark" aria-hidden="true">
-      <svg viewBox="0 0 200 200" width="42" height="42">
-        <circle cx="100" cy="82" r="28" fill="#B89B6E" />
-        <path d="M100 48 L138 82 L138 112 L62 112 L62 82 Z" fill="#0F2A44" />
-        <line x1="40" y1="118" x2="160" y2="118" stroke="#B89B6E" strokeWidth="5" />
-        <path d="M18 145 L182 145 A95 95 0 0 1 18 145 Z" fill="#0F2A44" />
-      </svg>
-    </div>
   );
 }
 

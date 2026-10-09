@@ -4,6 +4,7 @@ import { getPropertyAccess } from '@/lib/property-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { renderQrForPlacard } from '@/lib/qr-sizing';
 import { requirePropertyDocumentAccess } from '@/lib/property-document-auth';
+import { ScaMark } from '@/components/properties/ScaMark';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,8 +23,8 @@ async function getProperty(id: string): Promise<HelmPropertyRow | null> {
  * property.
  *
  * Brand palette pulled directly from the Stay Cape Ann logo: navy #0F2A44
- * on a cream #F4ECD8 ground, with a tan #B89B6E sun accent. Logo mark
- * inlined at the top so the whole card reads as Stay Cape Ann at a glance.
+ * on a cream #F4ECD8 ground, with a tan #B89B6E accent. The shared SCA
+ * mark sits at the top so the whole card reads as Stay Cape Ann at a glance.
  *
  * QR encoding follows the WIFI: URI format used by both iOS Camera and
  * the Android scanner. When scanned, the phone offers to auto-join the
@@ -75,7 +76,7 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
           <article className="rt-card" key={i}>
             {/* Cream inner panel */}
             <div className="rt-panel">
-              <ScaMark />
+              <ScaMark size={48} />
 
               <div className="rt-eyebrow">Wi-Fi</div>
               {/* Unit label distinguishes the two cards of a two-network
@@ -112,26 +113,6 @@ export default async function WifiPlacardPage({ params }: { params: Promise<{ id
         ))}
       </div>
     </>
-  );
-}
-
-/**
- * Inlined Stay Cape Ann logo mark — simplified version of the full logo
- * (cream circle, tan sun, navy house, horizon line, navy water band).
- * Source of truth: /Users/maguire/Developer/stay-cape-ann/app/icon.svg.
- * Sits on the cream panel without a stroke ring so it reads as a quiet
- * brand stamp rather than a logo lockup.
- */
-function ScaMark() {
-  return (
-    <div className="rt-mark" aria-hidden="true">
-      <svg viewBox="0 0 200 200" width="48" height="48">
-        <circle cx="100" cy="82" r="28" fill="#B89B6E" />
-        <path d="M100 48 L138 82 L138 112 L62 112 L62 82 Z" fill="#0F2A44" />
-        <line x1="40" y1="118" x2="160" y2="118" stroke="#B89B6E" strokeWidth="5" />
-        <path d="M18 145 L182 145 A95 95 0 0 1 18 145 Z" fill="#0F2A44" />
-      </svg>
-    </div>
   );
 }
 
@@ -304,6 +285,7 @@ const placardCss = `
        unit label. Screen spacing overflowed the fixed-height print card. */
     .rt-panel { padding: 14px 28px; }
     .rt-mark { margin-top: 0; }
+    /* The shared ScaMark wraps its svg in div.rt-mark, so this reaches it. */
     .rt-mark svg { width: 36px; height: 36px; }
     .rt-eyebrow { margin-top: 8px; font-size: 24px; }
     .rt-unit { margin-top: 4px; }
