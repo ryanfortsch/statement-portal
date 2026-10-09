@@ -22,7 +22,9 @@ export function TrashNoticeCard({ notice }: { notice: TrashNotice }) {
       <div className="rt-panel">
         <ScaMark size={40} />
 
-        <h1 className="rt-title">Trash &amp; Recycling</h1>
+        <h1 className="rt-title">
+          Trash <span className="rt-amp">&amp;</span> Recycling
+        </h1>
         <div className="rt-day">{notice.day}</div>
 
         <dl className="rt-steps">
@@ -126,6 +128,12 @@ export const trashNoticeCss = `
     font-weight: 400;
     letter-spacing: -0.01em;
     color: var(--sca-navy);
+    white-space: nowrap;
+  }
+  /* Room on both sides of the ampersand so the two words read apart
+     (Dotti, 2026-10-09: "more spacing between trash and recycling"). */
+  .rt-title .rt-amp {
+    margin: 0 0.22em;
   }
 
   /* The headline. Big enough to read from the kitchen table; 60px is the
