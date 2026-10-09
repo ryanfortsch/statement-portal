@@ -23,7 +23,7 @@ import { selectAllPaged } from '@/lib/paged-select';
 import { isCapeAnnOps } from '@/lib/property-scope';
 import { slipIdsOnLivePackets } from '@/lib/field-work-board';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
-import { holdOccupiesDay, type HoldDay } from '@/lib/field-stale-hold';
+import { ownerHoldOccupiesDay, type HoldDayRow } from '@/lib/field-stale-hold';
 import { stayNoteIsPast } from '@/lib/stay-note-slips';
 import { gearNeedsArrivals, slipInVisitWindow, type HomeArrival } from '@/lib/slip-visit-window';
 import { getContractorShootStats } from '@/lib/creative-shoots';
@@ -802,17 +802,17 @@ export async function stopPresence(
   const dayBefore = addDays(visitDate, -1);
   const { data: dData } = await fieldDb()
     .from('property_calendar_days')
-    .select('property_id, date, block_type, block_start, block_ref_id')
+    .select('property_id, date, block_type, block_start, block_ref_id, block_reason, block_note')
     .in('date', [dayBefore, visitDate])
-    .eq('block_type', 'o')
+    .not('block_type', 'is', null)
     .in('property_id', ids);
-  const holdByKey = new Map<string, HoldDay>();
-  for (const r of (dData ?? []) as Array<{ property_id: string; date: string } & HoldDay>) {
+  const holdByKey = new Map<string, HoldDayRow>();
+  for (const r of (dData ?? []) as Array<{ property_id: string; date: string } & HoldDayRow>) {
     holdByKey.set(`${r.property_id}|${r.date}`, r);
   }
   const owner = new Set<string>();
   for (const pid of ids) {
-    if (holdOccupiesDay(visitDate, holdByKey.get(`${pid}|${visitDate}`), holdByKey.get(`${pid}|${dayBefore}`))) owner.add(pid);
+    if (ownerHoldOccupiesDay(visitDate, holdByKey.get(`${pid}|${visitDate}`), holdByKey.get(`${pid}|${dayBefore}`))) owner.add(pid);
   }
   for (const s of testable) {
     const pid = s.property_id as string;
