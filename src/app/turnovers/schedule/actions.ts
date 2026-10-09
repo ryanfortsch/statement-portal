@@ -68,7 +68,11 @@ function withParam(query: string, key: string, value: string): string {
 function digestLanding(base: typeof CARD | typeof PAGE, formData: FormData, query = ''): string {
   if (base === CARD) return `${CARD}${query}#schedule-digest`;
   const region = regionFrom(formData);
-  return `${PAGE}${withParam(query, 'region', region)}#digest-${region}`;
+  // A form posted from a day-selected card (?digest=<date>) lands back on
+  // that same day, so the outcome is read against the text it was about.
+  const digestDate = String(formData.get('digestDate') || '');
+  const q = /^\d{4}-\d{2}-\d{2}$/.test(digestDate) ? withParam(query, 'digest', digestDate) : query;
+  return `${PAGE}${withParam(q, 'region', region)}#digest-${region}`;
 }
 
 /** Digest exits for the shared actions: back=card lands on the card,
