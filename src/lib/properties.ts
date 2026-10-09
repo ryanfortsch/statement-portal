@@ -638,6 +638,9 @@ export type HelmPropertyRow = {
   trash_day: string | null;
   recycling_day: string | null;
   trash_notes: string | null;
+  /** We, not the guest, roll the City carts to the curb and back (16 Waterman).
+   *  The trash-day notice words its two steps for that; civic.ts owns the wording. */
+  carts_handled_by_us: boolean;
   parking_regulations: string | null;
   gas_shutoff_location: string | null;
   water_shutoff_location: string | null;

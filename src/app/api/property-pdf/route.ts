@@ -6,6 +6,8 @@ import {
   propertyPdfFilename,
   type PropertyDeliverable,
 } from '@/lib/property-pdf';
+import { trashNoticeFor, TRASH_NOTICE_COLUMNS } from '@/lib/trash-notice';
+import type { HelmPropertyRow } from '@/lib/properties';
 
 /**
  * GET /api/property-pdf?id=<property_id>&type=<deliverable>[&noticeId=<uuid>]
@@ -21,7 +23,7 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note', 'notice', 'welcome-card'];
+const VALID_TYPES: PropertyDeliverable[] = ['home-guide', 'wifi-placard', 'info-note', 'notice', 'welcome-card', 'trash-notice'];
 
 // Was a hand-rolled client that fell back to the anon key when
 // SUPABASE_SERVICE_ROLE_KEY was unset -- reuse the canonical service-role
@@ -71,6 +73,21 @@ export async function GET(request: NextRequest) {
           { status: 400 },
         );
       }
+    }
+
+    // The trash notice only exists for a Gloucester home with a resolved
+    // collection day. Resolve it here with the same function the page uses,
+    // so a home that would render the "no notice" explanation gets a clear
+    // 400 instead of a PDF of that explanation.
+    if (type === 'trash-notice') {
+      const { data } = await getSupabase()
+        .from('properties')
+        .select(TRASH_NOTICE_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (!data) return NextResponse.json({ error: 'Property not found.' }, { status: 404 });
+      const result = trashNoticeFor(data as unknown as HelmPropertyRow);
+      if (!result.ok) return NextResponse.json({ error: result.skip.reason }, { status: 400 });
     }
 
     // For bespoke notices, look up the title so the download filename

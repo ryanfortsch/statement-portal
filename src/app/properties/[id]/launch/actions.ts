@@ -174,6 +174,7 @@ export async function setLaunchStepField(
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath(`/properties/${propertyId}/home-guide`);
   revalidatePath(`/properties/${propertyId}/wifi-placard`);
+  revalidatePath(`/properties/${propertyId}/trash-notice`);
   return { ok: true };
 }
 

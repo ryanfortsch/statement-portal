@@ -4,6 +4,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Stat } from '@/components/Stat';
 import { DownloadPropertyPdfButton } from '@/components/properties/DownloadPropertyPdfButton';
+import { trashNoticeFor } from '@/lib/trash-notice';
 import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomizeForm';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
@@ -697,10 +698,14 @@ export default async function PropertyDetailPage({
   // wifi_password; info note (Gloucester-only) gates on the six fields the
   // doc renders. Bespoke notices are by definition optional, so they ride
   // alongside in the summary as a separate count.
-  const totalDeliverables = 3 + (isGloucester ? 1 : 0);
+  // Gloucester adds two: the Information Note and the trash-day fridge
+  // card, which is ready once a collection day resolves.
+  const totalDeliverables = 3 + (isGloucester ? 2 : 0);
   const wifiReady = Boolean(p.wifi_name && p.wifi_password);
   const infoNoteReady = isGloucester && missingInfoNoteFields(p).length === 0;
-  const readyDeliverables = 2 + (wifiReady ? 1 : 0) + (infoNoteReady ? 1 : 0);
+  const trashNotice = isGloucester ? trashNoticeFor(p) : null;
+  const trashNoticeReady = Boolean(trashNotice?.ok);
+  const readyDeliverables = 2 + (wifiReady ? 1 : 0) + (infoNoteReady ? 1 : 0) + (trashNoticeReady ? 1 : 0);
   const noticeCountLabel = propertyNotices.length === 1 ? '1 bespoke notice' : `${propertyNotices.length} bespoke notices`;
   const standardSummary =
     readyDeliverables === totalDeliverables
@@ -2405,6 +2410,57 @@ export default async function PropertyDetailPage({
                   Open ↗
                 </Link>
                 <DownloadPropertyPdfButton propertyId={p.id} type="info-note" label="Download PDF" />
+              </div>
+            </div>
+          )}
+          {/* Trash Day Notice tile, Gloucester-only. The 4 x 6 fridge card
+              that names the collection day and nudges the guest to bring the
+              trash down and roll the carts out the night before. Every sentence
+              is civic.ts or the row; it is ready once a day resolves. */}
+          {isGloucester && trashNotice && (
+            <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="eyebrow">Trash Day Notice</div>
+              <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+                4 × 6 fridge card
+              </h3>
+              <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
+                The collection day in big type, carts out the night before and back in once emptied, where the
+                carts live, the city small print.
+                {trashNotice.ok ? (
+                  <span style={{ display: 'block', marginTop: 6 }}>
+                    {trashNotice.notice.day}
+                    {trashNotice.notice.daySource === 'row' ? ', set on the property' : ', from the DPW street list'}.
+                    {trashNotice.notice.cartsHandledByUs ? ' We move the carts here, and the card says so.' : ''}
+                    {trashNotice.notice.location ? '' : ' Add where the carts live under Operations and it prints on the card.'}
+                  </span>
+                ) : (
+                  <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>
+                    {trashNotice.skip.reason}
+                  </span>
+                )}
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
+                <Link href={`/properties/${p.id}/trash-notice`} target="_blank" style={primaryActionStyle}>
+                  Open ↗
+                </Link>
+                {trashNotice.ok ? (
+                  <DownloadPropertyPdfButton propertyId={p.id} type="trash-notice" label="Download PDF" />
+                ) : null}
+                <Link
+                  href="/properties/trash-notices"
+                  target="_blank"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    letterSpacing: '.18em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-3)',
+                    textDecoration: 'none',
+                    padding: '9px 12px',
+                  }}
+                >
+                  Whole fleet
+                </Link>
               </div>
             </div>
           )}

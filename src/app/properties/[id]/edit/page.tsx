@@ -224,6 +224,9 @@ export default async function PropertyEditPage({
             <Field name="recycling_day" label="Recycling pickup day" defaultValue={p.recycling_day} />
           </Row>
           <Field name="trash_notes" label="Trash & recycling notes" defaultValue={p.trash_notes} hint="Where the indoor bins and outdoor carts live. The city set-out rule is added automatically, do not repeat it here." textarea />
+          <CheckGroup label="Carts" hint="Tick when we, or someone we arrange, roll the City carts to the curb and back, so the guest only fills them. The trash-day fridge card then says so instead of asking the guest to roll them out.">
+            <CheckField name="carts_handled_by_us" label="We move the carts, not the guest" checked={p.carts_handled_by_us} />
+          </CheckGroup>
           <Field
             name="parking_regulations"
             label="Parking regulations"
