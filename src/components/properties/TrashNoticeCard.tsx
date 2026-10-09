@@ -16,6 +16,22 @@ import { ScaMark } from './ScaMark';
  * Server-renderable. The per-property page, the fleet-wide print page and
  * the Puppeteer PDF all render this one component.
  */
+/**
+ * The day is the headline and should fill the cream, but Fraunces widths
+ * differ by almost two to one between "Friday" and "Wednesday", so one size
+ * either cramps the long days or wastes the short ones. Sized per weekday
+ * instead, each measured in the preview harness to sit just inside the
+ * cream (about 290px of the 312px panel). Collection runs Monday to Friday;
+ * anything else falls back to the smallest.
+ */
+const DAY_SIZE: Record<string, number> = {
+  Monday: 92,
+  Tuesday: 86,
+  Wednesday: 60,
+  Thursday: 72,
+  Friday: 118,
+};
+
 export function TrashNoticeCard({ notice }: { notice: TrashNotice }) {
   return (
     <article className="rt-card" data-property-document="trash-notice" data-property-id={notice.propertyId}>
@@ -25,22 +41,28 @@ export function TrashNoticeCard({ notice }: { notice: TrashNotice }) {
         <h1 className="rt-title">
           Trash <span className="rt-amp">&amp;</span> Recycling
         </h1>
-        <div className="rt-day">{notice.day}</div>
+        <div className="rt-day" style={{ fontSize: DAY_SIZE[notice.day] ?? 60 }}>
+          {notice.day}
+        </div>
 
-        <dl className="rt-steps">
-          <div className="rt-step">
-            <dt>{notice.outNight} night</dt>
-            <dd>{notice.outLine}</dd>
-          </div>
-          <div className="rt-step">
-            <dt>{notice.backWhen ? `${notice.day}, ${notice.backWhen}` : notice.day}</dt>
-            <dd>{notice.backLine}</dd>
-          </div>
-        </dl>
+        {/* Centred in whatever height the day leaves, so a short day name
+            and a long one both read as one balanced card. */}
+        <div className="rt-body">
+          <dl className="rt-steps">
+            <div className="rt-step">
+              <dt>{notice.outNight} night</dt>
+              <dd>{notice.outLine}</dd>
+            </div>
+            <div className="rt-step">
+              <dt>{notice.backWhen ? `${notice.day}, ${notice.backWhen}` : notice.day}</dt>
+              <dd>{notice.backLine}</dd>
+            </div>
+          </dl>
 
-        {/* Where the carts live, in the operator's own words (trash_notes is
-            location only by contract; the day and the rule compose on top). */}
-        {notice.location ? <p className="rt-location">{notice.location}</p> : null}
+          {/* Where the carts live, in the operator's own words (trash_notes is
+              location only by contract; the day and the rule compose on top). */}
+          {notice.location ? <p className="rt-location">{notice.location}</p> : null}
+        </div>
       </div>
 
       {/* The home's name rides in the footer so a stack printed for the
@@ -103,13 +125,13 @@ export const trashNoticeCss = `
     .rt-screen { display: none !important; }
   }
 
-  /* Cream inner panel. Content sits high; the air at the bottom is on
-     purpose, the same way the Welcome Card breathes. */
+  /* Cream inner panel. Mark, title and day sit at the top; the steps
+     centre in what is left. */
   .rt-panel {
     flex: 1;
     min-height: 0;
     background: var(--sca-cream);
-    padding: 26px 24px 20px;
+    padding: 24px 24px 22px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -118,12 +140,11 @@ export const trashNoticeCss = `
     overflow: hidden;
   }
 
-  /* The subject, at title size: a guest should know what the card is for
-     before they read the day. */
+  /* The subject. Clearly second to the day, but readable from the table. */
   .rt-title {
-    margin: 14px 0 0;
+    margin: 12px 0 0;
     font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
-    font-size: 30px;
+    font-size: 25px;
     line-height: 1.1;
     font-weight: 400;
     letter-spacing: -0.01em;
@@ -136,39 +157,49 @@ export const trashNoticeCss = `
     margin: 0 0.22em;
   }
 
-  /* The headline. Big enough to read from the kitchen table; 60px is the
-     most "Wednesday" allows inside the cream. */
+  /* The headline. Font size is set inline per weekday (DAY_SIZE) so every
+     day name fills the cream. */
   .rt-day {
-    margin: 2px 0 0;
+    margin: 4px 0 0;
     font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
-    font-size: 60px;
     line-height: 1;
     font-weight: 400;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.03em;
     color: var(--sca-navy);
+    white-space: nowrap;
+  }
+
+  /* Steps and location, centred in the height the day leaves. */
+  .rt-body {
+    margin: auto 0;
+    padding-top: 22px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   /* The two steps, as dated rows divided by hairlines. */
   .rt-steps {
-    margin: 28px 0 0;
+    margin: 0;
     padding: 0;
     width: 100%;
     border-top: 1px solid var(--sca-navy);
   }
   .rt-step {
-    padding: 15px 0 14px;
+    padding: 16px 0 15px;
     border-bottom: 1px solid var(--sca-navy);
   }
   .rt-step dt {
     margin: 0;
-    font-size: 11px;
+    font-size: 11.5px;
     letter-spacing: 0.26em;
     text-transform: uppercase;
     font-weight: 700;
   }
   .rt-step dd {
-    margin: 6px 0 0;
-    font-size: 15.5px;
+    margin: 7px 0 0;
+    font-size: 16px;
     line-height: 1.4;
   }
 
@@ -177,7 +208,7 @@ export const trashNoticeCss = `
     margin: 16px 0 0;
     font-family: var(--font-fraunces), Georgia, serif;
     font-style: italic;
-    font-size: 14px;
+    font-size: 14.5px;
     line-height: 1.45;
     max-width: 264px;
   }
