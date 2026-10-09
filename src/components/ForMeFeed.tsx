@@ -12,6 +12,8 @@ import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { loadMeetingCards } from '@/lib/meetings';
 import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
+import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
+import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 
 type MyWork = {
   id: string;
@@ -91,14 +93,19 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
-  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards] = await Promise.all([
+  const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards, ownerHolds] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
     loadQueueCards(),
     loadPaymentLinkCards(),
     loadMeetingCards(),
+    // Owner blocks nobody has answered "clean after?" for. No clear
+    // button: answering is the clear, on the buttons right here.
+    loadOwnerHoldQuestions(supabase).catch(() => null),
   ]);
+  const ownerHoldAsks: OwnerHoldQuestionCard[] = ownerHolds?.pending ?? [];
+  const ownerHoldToday = ownerHolds?.today ?? todayET();
 
   // Guest payment links: paid this week (the "did they pay?" answer) and
   // still open past a day (the "they haven't" answer). Both clear with ×.
@@ -126,6 +133,7 @@ export async function ForMeFeed() {
   const hasWalks = plannedWalks.length > 0;
   const hasMeetings = meetingCards.length > 0;
   const nothing =
+    ownerHoldAsks.length === 0 &&
     !hasMeetings &&
     !hasReplyItems &&
     workFiltered.length === 0 &&
@@ -172,6 +180,27 @@ export async function ForMeFeed() {
               itself the moment the vendor's schedule catches up. First,
               because Jobber books about two days out: this is the one
               section with a clock on it. */}
+          {/* OWNER BLOCKS TO ANSWER - Guesty holds for the owner with no
+              "clean after?" answer yet. The stay is on the cleaner schedule
+              meanwhile; the buttons here are the same ones as on the cleaner
+              messaging card. Ahead of everything, because it is a question
+              the operator asked to be served loudly (2026-10-08). */}
+          {ownerHoldAsks.length > 0 && (
+            <div style={{ marginBottom: 36 }}>
+              <SectionHeaderLink
+                href="/cleaner-messaging#owner-holds"
+                title="Owner blocks · clean after?"
+                eyebrow={`${ownerHoldAsks.length} to answer`}
+                subline="On the cleaner schedule until you say otherwise."
+              />
+              <div style={{ borderTop: '2px solid var(--signal)' }}>
+                {ownerHoldAsks.map((c) => (
+                  <HoldRow key={`${c.propertyId}|${c.checkIn}`} card={c} today={ownerHoldToday} back="home" />
+                ))}
+              </div>
+            </div>
+          )}
+
           {cleaningFlags.length > 0 && (
             <div style={{ marginBottom: 36 }}>
               <SectionHeaderLink

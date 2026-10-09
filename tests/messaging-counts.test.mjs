@@ -34,7 +34,7 @@ test('late pre-action count cannot overwrite a post-action count', async () => {
   } finally { globalThis.fetch = original; }
 });
 
-function route({ guestFailed = false, digestFailed = false, configured = true } = {}) {
+function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0 } = {}) {
   const queries = [];
   const db = { from(table) { queries.push(['from',table]); return this; }, select(...a) { queries.push(['select',...a]); return this; }, eq(...a) { queries.push(['eq',...a]); return this; }, gte(...a) { queries.push(['gte',...a]); return this; }, order(...a) { queries.push(['order',...a]); return this; }, limit(...a) { queries.push(['limit',...a]); return this; }, then(done) { return Promise.resolve(digestFailed ? { error: {} } : { data: [{ id: 'visible' }] }).then(done); } };
   const ok = (...status) => ({ ok: true, data: { approvals: status.map(status => ({ status })) } });
@@ -43,6 +43,9 @@ function route({ guestFailed = false, digestFailed = false, configured = true } 
     '@/lib/property-scope': { CAPE_ANN_REGION: 'cape-ann' },
     '@/lib/checkout-schedule': { todayET: () => '2026-09-29' },
     '@/lib/supabase-admin': { supabaseAdmin: db },
+    // Owner blocks waiting on "clean after?" ride on the Cleaners badge; null
+    // means the mirror could not be read.
+    '@/lib/owner-hold-questions': { countPendingOwnerHoldQuestions: async () => ownerHolds },
     '@/lib/stay-concierge': { isStayConciergeConfigured: () => configured,
       listApprovals: async () => guestFailed ? { ok: false } : ok('pending','scheduled','pending'),
       listOwnerApprovals: async () => ok('scheduled'),
@@ -77,4 +80,14 @@ test('digest failure never makes the cleaner total look complete', async () => {
 test('the native cleaner digest remains counted when concierge is not configured', async () => {
   const data = await route({ configured: false }).GET();
   assert.equal(data.cleaners, 1); assert.equal(data.guests, 0);
+});
+
+test('an owner block waiting on "clean after?" counts on the Cleaners badge, configured or not', async () => {
+  assert.equal((await route({ ownerHolds: 2 }).GET()).cleaners, 4);
+  assert.equal((await route({ ownerHolds: 2, configured: false }).GET()).cleaners, 3);
+});
+
+test('an unreadable owner-hold count never makes the cleaner total look complete', async () => {
+  const data = await route({ ownerHolds: null }).GET();
+  assert.equal(data.cleaners, null); assert.equal(data.count, null); assert.equal(data.guests, 2);
 });

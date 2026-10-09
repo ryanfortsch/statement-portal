@@ -19,6 +19,7 @@ import {
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { CleanerMessagingQueue } from './CleanerMessagingQueue';
 import { ScheduleDigestCard } from './ScheduleDigestCard';
+import { OwnerHoldQuestionsCard } from './OwnerHoldQuestionsCard';
 import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
 import {
   fetchProactiveReminders,
@@ -141,6 +142,19 @@ async function ProposedUpdatesSection() {
   );
 }
 
+// "Owner block: clean after?" Above everything, because it is a question
+// with a date on it and the operator asked to see it loudly. Helm-native,
+// like the digest below it, so it renders with the Mac Mini asleep.
+async function OwnerHoldSection({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = searchParams ? await searchParams : {};
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  return <OwnerHoldQuestionsCard notice={first(sp.ownerhold) ?? null} />;
+}
+
 // The daily checkout-schedule digest (Helm-native, sends via Helm's own
 // Quo credentials): rendered ABOVE the concierge queue and in the
 // unconfigured branch too, because it must survive a sleeping Mac Mini.
@@ -173,6 +187,9 @@ export default function CleanerMessagingPage({
     return (
       <Shell>
         <Suspense fallback={null}>
+          <OwnerHoldSection searchParams={searchParams} />
+        </Suspense>
+        <Suspense fallback={null}>
           <ScheduleDigestSection searchParams={searchParams} />
         </Suspense>
         <NotReachable message="STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel." />
@@ -182,6 +199,9 @@ export default function CleanerMessagingPage({
 
   return (
     <Shell>
+      <Suspense fallback={null}>
+        <OwnerHoldSection searchParams={searchParams} />
+      </Suspense>
       <Suspense fallback={null}>
         <ScheduleDigestSection searchParams={searchParams} />
       </Suspense>

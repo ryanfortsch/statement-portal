@@ -37,17 +37,23 @@ async function pendingDigestCount(): Promise<number | null> {
   }
 }
 
+import { countPendingOwnerHoldQuestions } from '@/lib/owner-hold-questions';
+
 export async function GET() {
+  // Owner blocks waiting on "clean after?" sit on the cleaner page above
+  // the digest, so they count on the Cleaners badge like a pending digest.
   if (!isStayConciergeConfigured()) {
-    const digests = await pendingDigestCount();
-    return NextResponse.json({ count: digests, guests: 0, owners: 0, cleaners: digests, contractors: 0 });
+    const [digests, ownerHolds] = await Promise.all([pendingDigestCount(), countPendingOwnerHoldQuestions(supabase)]);
+    const cleaners = digests !== null && ownerHolds !== null ? digests + ownerHolds : null;
+    return NextResponse.json({ count: cleaners, guests: 0, owners: 0, cleaners, contractors: 0 });
   }
-  const [guestRes, ownerRes, cleanerRes, contractorRes, digests] = await Promise.all([
+  const [guestRes, ownerRes, cleanerRes, contractorRes, digests, ownerHolds] = await Promise.all([
     listApprovals(),
     listOwnerApprovals(),
     listCleanerApprovals(),
     listContractorApprovals(),
     pendingDigestCount(),
+    countPendingOwnerHoldQuestions(supabase),
   ]);
   // Mirror the messaging PAGES' own filters exactly. Each prior tweak
   // (data.count, then approvals.length, then resolved_at filter) failed to
@@ -71,7 +77,9 @@ export async function GET() {
   const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
   const guests = guestRes.ok ? guestRes.data.approvals.filter(notScheduled).length : null;
   const owners = ownerRes.ok ? ownerRes.data.approvals.filter(notScheduled).length : null;
-  const cleaners = cleanerRes.ok && digests !== null ? cleanerRes.data.approvals.filter(notScheduled).length + digests : null;
+  const cleaners = cleanerRes.ok && digests !== null && ownerHolds !== null
+    ? cleanerRes.data.approvals.filter(notScheduled).length + digests + ownerHolds
+    : null;
   const contractors = contractorRes.ok ? contractorRes.data.approvals.filter(notScheduled).length : null;
   return NextResponse.json({
     count: guests !== null && owners !== null && cleaners !== null && contractors !== null ? guests + owners + cleaners + contractors : null,
