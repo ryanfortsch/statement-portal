@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { renderQrForPlacard } from '@/lib/qr-sizing';
+import { ScaMark } from '@/components/properties/ScaMark';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +63,7 @@ export default async function WelcomeCardPage({
       <div className="rt-doc">
         <article className="rt-card">
           <div className="rt-panel">
-            <ScaMark />
+            <ScaMark size={40} />
 
             <h1 className="rt-display">
               Welcome<em>.</em>
@@ -94,24 +95,6 @@ export default async function WelcomeCardPage({
         </article>
       </div>
     </>
-  );
-}
-
-/**
- * Inlined Stay Cape Ann logo mark — same simplified version used on the
- * WiFi placard and bespoke notices so the whole 4 × 6 set reads
- * consistently. Source of truth: /Users/maguire/Developer/stay-cape-ann/app/icon.svg.
- */
-function ScaMark() {
-  return (
-    <div className="rt-mark" aria-hidden="true">
-      <svg viewBox="0 0 200 200" width="40" height="40">
-        <circle cx="100" cy="82" r="28" fill="#B89B6E" />
-        <path d="M100 48 L138 82 L138 112 L62 112 L62 82 Z" fill="#0F2A44" />
-        <line x1="40" y1="118" x2="160" y2="118" stroke="#B89B6E" strokeWidth="5" />
-        <path d="M18 145 L182 145 A95 95 0 0 1 18 145 Z" fill="#0F2A44" />
-      </svg>
-    </div>
   );
 }
 
