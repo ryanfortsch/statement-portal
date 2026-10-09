@@ -28,3 +28,18 @@ export async function changeAutomationHold(request: HoldRequest, enabled: boolea
     return { ok: false, error: 'Could not verify the change. Refresh the message before trying again.' };
   }
 }
+
+/** Display preflight only. The atomic RPC remains authoritative at click time. */
+export function holdReleaseBlockReason(
+  send: { property_id: string; planned_check_in: string; planned_check_out: string },
+  booking: { property_id: string; status: string; duplicate_of: string | null; check_in: string; check_out: string } | undefined,
+): string | null {
+  if (!booking) return 'Booking could not be verified. Refresh before releasing this message.';
+  if (booking.property_id !== send.property_id) return 'Booking property changed. Review this message before release.';
+  if (booking.status === 'cancelled') return 'Booking cancelled. This message remains held and cannot be released.';
+  if (booking.status !== 'confirmed') return 'Booking is not confirmed. This message cannot be released.';
+  if (booking.duplicate_of) return 'This is a duplicate booking. Review the current booking instead.';
+  if (booking.check_in !== send.planned_check_in || booking.check_out !== send.planned_check_out)
+    return 'Booking dates changed. This message remains held pending review of its timing and content.';
+  return null;
+}

@@ -230,7 +230,7 @@ export function AutomationsPanel({ propertyId, view }: { propertyId: string; vie
 
         {held.map((s) => (
           <SendRow key={s.id} s={s} open={true} onOpen={() => {}} pending={pending} busy={busy}
-            onRelease={view.holdControlsEnabled ? () => run(`release:${s.id}`,
+            onRelease={view.holdControlsEnabled && !s.holdReleaseBlockedReason ? () => run(`release:${s.id}`,
               () => setAutomationHoldAction(propertyId, s.id, false, s.updated_at)) : undefined} />
         ))}
         {awaiting.map((s) => (
@@ -519,11 +519,11 @@ function SendRow({
           )}
           {s.status === 'held' && (
             <div style={{ marginTop: 8 }}>
-              <p>This message will not send while held. Release returns it to the schedule; if overdue, it may send on the next worker run.</p>
+              <p>{s.holdReleaseBlockedReason ?? 'This message will not send while held. Release returns it to the schedule; if overdue, it may send on the next worker run.'}</p>
               <button type="button" disabled={pending || !onRelease} onClick={onRelease} style={ghostBtn(pending)}>
                 Release for sending
               </button>
-              {!onRelease && <p>Hold controls are not enabled in this environment.</p>}
+              {!onRelease && !s.holdReleaseBlockedReason && <p>Hold controls are not enabled in this environment.</p>}
             </div>
           )}
           {s.status === 'scheduled' && onHold && (

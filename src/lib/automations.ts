@@ -29,7 +29,7 @@
  * rules themselves are pure and tested in automations-core.ts.
  */
 import 'server-only';
-import { changeAutomationHold } from './automation-hold-control';
+import { changeAutomationHold, holdReleaseBlockReason } from './automation-hold-control';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { selectAllPaged } from '@/lib/paged-select';
 import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
@@ -1478,6 +1478,7 @@ export type PanelRule = {
 
 export type PanelSend = {
   id: string;
+  holdReleaseBlockedReason: string | null;
   updated_at: string;
   automation_id: string | null;
   key: string;
@@ -1588,6 +1589,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
     return {
       id: s.id,
       updated_at: s.updated_at,
+      holdReleaseBlockedReason: s.status === 'held' ? holdReleaseBlockReason(s, b) : null,
       automation_id: s.automation_id,
       key: rule?.key ?? s.automation_key ?? 'rule',
       booking_id: s.booking_id,

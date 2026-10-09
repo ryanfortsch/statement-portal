@@ -775,3 +775,20 @@ Base b8018e3f on codex/channex-staging-pilot. Remote main was read as
 or deployed. The hosted SQL and feature flag remain untouched.
 Validation: six local race/restart scenarios passed, all 1,863 repository tests
 passed, and nonincremental TypeScript, targeted ESLint and whitespace checks passed.
+
+### Held queue booking explanations
+
+The operator panel now explains why a held message cannot be released when the
+booking is missing/unverified, belongs to another property, is cancelled or
+unconfirmed, is a duplicate, or has changed dates. These rows stay visible with
+Release disabled. An unchanged confirmed canonical stay remains eligible for an
+explicit release when the environment flag is enabled. This view is a preflight;
+the atomic RPC still rechecks the current booking and send timestamp at click time.
+Cancellation does not erase the hold, and reconfirmation does not automatically
+release it. Date changes still require a separate review/rescheduling workflow.
+
+Validation: 1,864 tests pass, nonincremental TypeScript, targeted ESLint and
+whitespace checks pass. Browser validation and hosted schema integration remain
+outstanding. No deployment, hosted SQL or flag changes. Base e55331b0 on
+codex/channex-staging-pilot; remote main verified as
+2dfa17dcb44004d86b747a177181870f454dbf50.

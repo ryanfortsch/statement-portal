@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changeAutomationHold, type HoldRequest } from '../automation-hold-control.ts';
+import { changeAutomationHold, holdReleaseBlockReason, type HoldRequest } from '../automation-hold-control.ts';
 const request: HoldRequest = { propertyId: 'home', sendId: '00000000-0000-0000-0000-000000000002',
  actor: 'operator', hold: true, expectedUpdatedAt: '2026-10-08T12:00:00.123456Z' };
 test('disabled or invalid hold operations never reach the database', async () => {
@@ -34,4 +34,17 @@ test('lost CAS and uncertain outcomes never report success or retry', async () =
  const response = await changeAutomationHold(request, true, async () => { calls++; throw new Error('timeout after commit'); });
  assert.equal(response.ok, false);
  assert.equal(calls, 1);
+});
+
+test('held queue explains blocked releases and permits only unchanged canonical confirmed stays', () => {
+ const send = { property_id: 'home', planned_check_in: '2027-01-01', planned_check_out: '2027-01-04' };
+ const booking = { property_id: 'home', status: 'confirmed', duplicate_of: null, check_in: '2027-01-01', check_out: '2027-01-04' };
+ assert.equal(holdReleaseBlockReason(send, booking), null);
+ assert.match(holdReleaseBlockReason(send, undefined)!, /could not be verified/);
+ assert.match(holdReleaseBlockReason(send, { ...booking, status: 'cancelled' })!, /cancelled/);
+ assert.match(holdReleaseBlockReason(send, { ...booking, status: 'pending' })!, /not confirmed/);
+ assert.match(holdReleaseBlockReason(send, { ...booking, duplicate_of: 'canonical' })!, /duplicate/);
+ assert.match(holdReleaseBlockReason(send, { ...booking, property_id: 'other' })!, /property changed/);
+ assert.match(holdReleaseBlockReason(send, { ...booking, check_in: '2027-01-02' })!, /dates changed/);
+ assert.match(holdReleaseBlockReason(send, { ...booking, check_out: '2027-01-05' })!, /dates changed/);
 });
