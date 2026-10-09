@@ -792,3 +792,30 @@ whitespace checks pass. Browser validation and hosted schema integration remain
 outstanding. No deployment, hosted SQL or flag changes. Base e55331b0 on
 codex/channex-staging-pilot; remote main verified as
 2dfa17dcb44004d86b747a177181870f454dbf50.
+
+### Hold activation database isolation
+
+Source inspection found that the existing property automation panel and hold RPC
+use the ordinary Helm `supabaseAdmin` client, configured by
+`NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. The Channex staging
+storage is separate. A preview deployment alone therefore cannot prove that this
+client targets isolated storage. No hosted schema or environment was changed.
+
+Both the operator action and panel now require the explicit hold feature flag,
+a non-production runtime, and exactly the approved staging project URL
+`https://jgkblfozftcvymvwhhii.supabase.co`. Another project, missing URL or a
+production runtime disables hold controls. Production rollout will require a
+separately reviewed activation policy; this gate intentionally covers only pilot
+verification. Do not change the shared preview's core database configuration to
+make this guard pass.
+
+Hosted verification needs a dedicated synthetic automation fixture/setup with
+reviewed schema dependencies, or a dedicated isolated deployment of the existing
+property panel. Its current data loader also reads property, rules, bookings,
+guest and access context; the hold SQL alone is not a complete fixture. Keep
+provider sending disabled throughout that rehearsal. Browser and hosted schema
+checks remain incomplete.
+
+Validation: 1,865 tests, nonincremental TypeScript, targeted ESLint and whitespace
+checks passed. Base d22f48f6; codex/channex-staging-pilot. Remote main read as
+bafe5ce05859a1dd0a4ad78b37ff1b942cf55d97. No deployment or paid service added.

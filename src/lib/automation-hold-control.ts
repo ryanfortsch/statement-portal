@@ -43,3 +43,16 @@ export function holdReleaseBlockReason(
     return 'Booking dates changed. This message remains held pending review of its timing and content.';
   return null;
 }
+
+/** Pilot-only: a preview label never proves the ordinary Helm client is isolated. */
+export function automationHoldsEnabled(env: {
+  HELM_AUTOMATION_HOLDS_ENABLED?: string; NEXT_PUBLIC_SUPABASE_URL?: string;
+  VERCEL_ENV?: string; NODE_ENV?: string;
+}): boolean {
+  if (env.HELM_AUTOMATION_HOLDS_ENABLED !== 'true') return false;
+  const preview = env.VERCEL_ENV === 'preview';
+  const local = (!env.VERCEL_ENV || env.VERCEL_ENV === 'development') && env.NODE_ENV !== 'production';
+  if (!preview && !local) return false;
+  // Exact approved isolated project. Do not retarget the shared preview's core DB.
+  return env.NEXT_PUBLIC_SUPABASE_URL === 'https://jgkblfozftcvymvwhhii.supabase.co';
+}

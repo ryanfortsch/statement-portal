@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { changeAutomationHold, holdReleaseBlockReason, type HoldRequest } from '../automation-hold-control.ts';
+import { changeAutomationHold, holdReleaseBlockReason, automationHoldsEnabled, type HoldRequest } from '../automation-hold-control.ts';
 const request: HoldRequest = { propertyId: 'home', sendId: '00000000-0000-0000-0000-000000000002',
  actor: 'operator', hold: true, expectedUpdatedAt: '2026-10-08T12:00:00.123456Z' };
 test('disabled or invalid hold operations never reach the database', async () => {
@@ -47,4 +47,17 @@ test('held queue explains blocked releases and permits only unchanged canonical 
  assert.match(holdReleaseBlockReason(send, { ...booking, property_id: 'other' })!, /property changed/);
  assert.match(holdReleaseBlockReason(send, { ...booking, check_in: '2027-01-02' })!, /dates changed/);
  assert.match(holdReleaseBlockReason(send, { ...booking, check_out: '2027-01-05' })!, /dates changed/);
+});
+
+test('pilot hold controls require both non-production runtime and exact isolated database', () => {
+ const env = { HELM_AUTOMATION_HOLDS_ENABLED: 'true', VERCEL_ENV: 'preview', NODE_ENV: 'production',
+  NEXT_PUBLIC_SUPABASE_URL: 'https://jgkblfozftcvymvwhhii.supabase.co' };
+ assert.equal(automationHoldsEnabled(env), true);
+ for (const over of [
+  { HELM_AUTOMATION_HOLDS_ENABLED: undefined }, { VERCEL_ENV: 'production' },
+  { VERCEL_ENV: undefined }, { NEXT_PUBLIC_SUPABASE_URL: undefined },
+  { NEXT_PUBLIC_SUPABASE_URL: 'https://another-project.supabase.co' },
+  { NEXT_PUBLIC_SUPABASE_URL: 'https://jgkblfozftcvymvwhhii.supabase.co.attacker.example' },
+ ]) assert.equal(automationHoldsEnabled({ ...env, ...over }), false);
+ assert.equal(automationHoldsEnabled({ ...env, VERCEL_ENV: undefined, NODE_ENV: 'development' }), true);
 });

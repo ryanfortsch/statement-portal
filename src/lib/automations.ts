@@ -29,7 +29,7 @@
  * rules themselves are pure and tested in automations-core.ts.
  */
 import 'server-only';
-import { changeAutomationHold, holdReleaseBlockReason } from './automation-hold-control';
+import { changeAutomationHold, holdReleaseBlockReason, automationHoldsEnabled } from './automation-hold-control';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { selectAllPaged } from '@/lib/paged-select';
 import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
@@ -1052,7 +1052,7 @@ export async function dispatchDue(opts: { now?: Date; propertyId?: string | null
 export async function setAutomationHold(propertyId: string, id: string, actor: string,
   hold: boolean, expectedUpdatedAt: string) {
   return changeAutomationHold({ propertyId, sendId: id, actor, hold, expectedUpdatedAt },
-    isServiceConfigured && process.env.HELM_AUTOMATION_HOLDS_ENABLED === 'true',
+    isServiceConfigured && automationHoldsEnabled(process.env),
     async (args) => {
       const { data, error } = await supabaseAdmin.rpc('automation_set_hold', args);
       return { data, error };
@@ -1613,7 +1613,7 @@ export async function getAutomationsPanelView(propertyId: string): Promise<Autom
   });
 
   return {
-    holdControlsEnabled: process.env.HELM_AUTOMATION_HOLDS_ENABLED === 'true',
+    holdControlsEnabled: isServiceConfigured && automationHoldsEnabled(process.env),
     property: {
       id: bundle.property.id,
       name: bundle.property.name,
