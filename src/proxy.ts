@@ -185,8 +185,10 @@ const PROJECTION_DELIVERABLE_RE = /^\/projections\/[0-9a-f-]+\/(render|guide|con
  * them. Home Guide and WiFi placard SELF-GUARD before reading credentials:
  * Helm staff session OR a short-lived, document-scoped render header.
  * The property edit page stays auth-gated. Property IDs are TEXT slugs
- * (e.g. "21_horton") so the character class is wider than UUIDs. */
-const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard|info-note|welcome-card)(\/.*)?$/;
+ * (e.g. "21_horton") so the character class is wider than UUIDs.
+ * `trash-notice` is the per-home 4 x 6 fridge card; the fleet-wide print page
+ * at /properties/trash-notices has no second segment, so it stays gated. */
+const PROPERTY_DELIVERABLE_RE = /^\/properties\/[a-z0-9_-]+\/(home-guide|wifi-placard|info-note|welcome-card|trash-notice)(\/.*)?$/;
 
 /**
  * Bespoke notices live at `/properties/<id>/notice/<uuid>` (singular).

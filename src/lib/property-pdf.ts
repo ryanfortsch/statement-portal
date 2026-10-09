@@ -18,6 +18,8 @@ import {
  *                    addressed by an additional `noticeId` UUID
  *   welcome-card  — 4" × 6" portrait, the on-arrival welcome + subscribe
  *                    pitch with a QR to staycapeann.com/contact
+ *   trash-notice  — 4" × 6" portrait, the fridge card naming the collection
+ *                    day and the cart set-out (Gloucester only)
  *
  * Same Puppeteer + Vercel-protection-bypass pattern as the Statements and
  * Projections PDFs. The deliverable render pages set their own @page rule;
@@ -29,7 +31,8 @@ export type PropertyDeliverable =
   | 'wifi-placard'
   | 'info-note'
   | 'notice'
-  | 'welcome-card';
+  | 'welcome-card'
+  | 'trash-notice';
 
 type Geometry = {
   viewportWidth: number;
@@ -44,6 +47,7 @@ const GEOMETRIES: Record<PropertyDeliverable, Geometry> = {
   'info-note':     { viewportWidth: 816, viewportHeight: 1056, pdfWidth: '8.5in', pdfHeight: '11in' },
   'notice':        { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
   'welcome-card':  { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
+  'trash-notice':  { viewportWidth: 384, viewportHeight: 576,  pdfWidth: '4in',   pdfHeight: '6in'  },
 };
 
 export async function renderPropertyPdf(args: {
@@ -136,6 +140,7 @@ export function propertyPdfFilename(
     'info-note': 'Information Note',
     'notice': 'Notice',
     'welcome-card': 'Welcome Card',
+    'trash-notice': 'Trash Day Notice',
   };
   const baseLabel =
     type === 'notice' && noticeTitle

@@ -327,6 +327,20 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
     section: 'properties',
   },
+  // The fleet-wide trash-day notice print page. Reached from a property's
+  // Guest Deliverables tile; registered here for search, hidden from menus.
+  {
+    id: 'trash-notices',
+    href: '/properties/trash-notices',
+    number: '05e',
+    title: 'Trash day notices',
+    description: 'The 4 x 6 fridge card for every Gloucester home, one per printed page: collection day, carts out the night before and back in once emptied, where the carts live.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'properties',
+  },
   {
     id: 'property-onboarding',
     href: '/properties/onboarding',

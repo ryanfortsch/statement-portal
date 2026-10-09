@@ -260,6 +260,7 @@ async function performPropertyUpdate(
     trash_day: strOrNull(formData, 'trash_day'),
     recycling_day: strOrNull(formData, 'recycling_day'),
     trash_notes: strOrNull(formData, 'trash_notes'),
+    carts_handled_by_us: boolFromCheckbox(formData, 'carts_handled_by_us'),
     parking_regulations: strOrNull(formData, 'parking_regulations'),
     gas_shutoff_location: strOrNull(formData, 'gas_shutoff_location'),
     water_shutoff_location: strOrNull(formData, 'water_shutoff_location'),
@@ -346,6 +347,8 @@ async function performPropertyUpdate(
   revalidatePath(`/properties/${id}/home-guide`);
   revalidatePath(`/properties/${id}/wifi-placard`);
   revalidatePath(`/properties/${id}/welcome-card`);
+  revalidatePath(`/properties/${id}/trash-notice`);
+  revalidatePath('/properties/trash-notices');
   return { error: null };
 }
 

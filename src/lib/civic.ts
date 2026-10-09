@@ -69,6 +69,58 @@ export type CivicInfo = {
 export const GLOUCESTER_CART_RULE =
   'Everything goes in the two City carts with the lids closed, since nothing left beside a cart is collected. Carts go out the night before pickup and come back in once they are emptied. A holiday earlier in the week pushes pickup one day later, and Friday runs Saturday.';
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export type CartSetOut = {
+  /** Collection weekday, e.g. "Friday". */
+  day: string;
+  /** The evening the carts go out, e.g. "Thursday". */
+  outNight: string;
+  /** What the household does that evening. */
+  outLine: string;
+  /** When the carts come back, as a label fragment ("once emptied"), or null when that is our job. */
+  backWhen: string | null;
+  /** What it does once the truck has been. */
+  backLine: string;
+};
+
+/**
+ * The set-out half of GLOUCESTER_CART_RULE applied to one collection weekday,
+ * for a surface that wants it as two dated lines (the fridge notice) instead
+ * of the paragraph. Still city policy and still only this module's to word.
+ * Gloucester only, since the lines describe City carts a Rockport home does
+ * not have, and null without a resolved day so a card never prints a blank
+ * where the day goes.
+ *
+ * "Bring the trash down" is the nudge the card exists for (Dotti, 2026-10-09):
+ * the kitchen bag reaches the cart, and the cart reaches the curb. The second
+ * line is the half that costs money under Sec. 5-66(q). The card is for
+ * guests and says only these two things; the lids clause rides inside the
+ * first line, and the holiday shift is the reminder texts' job.
+ *
+ * `cartsHandledByUs` (properties.carts_handled_by_us) is the one home where we
+ * roll the carts ourselves, so the guest only fills them. The two lines say so.
+ */
+export function cartSetOutFor(
+  city: string,
+  trashDay: string | null,
+  opts: { cartsHandledByUs?: boolean } = {},
+): CartSetOut | null {
+  if (city !== 'Gloucester' || !trashDay) return null;
+  const idx = WEEKDAYS.indexOf(trashDay);
+  if (idx < 0) return null;
+  const ours = opts.cartsHandledByUs === true;
+  return {
+    day: trashDay,
+    outNight: WEEKDAYS[(idx + 6) % 7],
+    outLine: ours
+      ? 'Bring the trash down, lids closed. We roll the carts to the curb.'
+      : 'Bring the trash down and roll the carts to the curb, lids closed.',
+    backWhen: ours ? null : 'once emptied',
+    backLine: ours ? 'We bring the carts back in.' : 'Bring the carts back in.',
+  };
+}
+
 /**
  * Rockport has no curbside collection at all: the town runs a Transfer Station
  * and its own pay-as-you-throw bags. Never send it cart wording.
@@ -161,6 +213,15 @@ export function isCollectionDay(trashDay: string | null, isoDate: string): boole
  * with no curbside service.
  */
 const NO_SERVICE_DAYS = new Set(['na', 'n/a', 'none', 'no', 'dump', '-', '—']);
+
+/**
+ * The weekday an operator typed on the row, or null when the column is empty
+ * or holds a no-service sentinel. Exported so a surface can say whether the
+ * day it prints came from the row (a DPW-confirmed answer) or the street list.
+ */
+export function normalizeTrashDay(raw: string | null | undefined): string | null {
+  return normalizeDay(raw);
+}
 
 function normalizeDay(raw: string | null | undefined): string | null {
   const v = (raw ?? '').trim();
