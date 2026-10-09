@@ -742,3 +742,36 @@ unapplied to hosted databases. Real multi-session hold/claim and release/cancel
 races, cancellation lifecycle and schema integration remain activation gates.
 No guest or cleaner messages were sent and no new subscription was added.
 Base 71f61459; pilot branch codex/channex-staging-pilot.
+
+### Concurrent hold rehearsal checkpoint
+
+Added `scripts/verify-automation-hold-races.mjs`. It launches a temporary,
+loopback-only PostgreSQL cluster with synthetic tables and no application secrets.
+Two independent sessions compete while a third verifies that the second session
+actually waits on the first session's lock. It loads the hold SQL draft and the
+repository's actual `helm_cancel_booking` function. Worker claims use the current
+scheduled-and-due update predicate from `dispatchDue`, not a live worker process.
+
+Verified both orderings of hold versus claim and release versus cancellation,
+duplicate releases, transaction rollback and a database stop/start. A winning
+hold prevents the waiting claim; a winning claim rejects Hold. Cancellation after
+release cancels the message; cancellation before release rejects it. Only a
+successful committed hold/release creates an audit event. Holds and audit records
+survive restart and remain ineligible for claiming.
+
+The existing cancellation function deliberately does not touch held rows in this
+draft: a cancelled stay remains visible as held, and release is rejected. Decide
+the operator presentation and cancellation/reconfirmation lifecycle before enabling
+controls. These tests do not verify hosted schema parity, browser behavior,
+provider delivery, an in-flight external send or the end-to-end worker process.
+
+Reproduce with an externally installed `embedded-postgres` runtime:
+`node scripts/verify-automation-hold-races.mjs /absolute/path/to/embedded-postgres/dist/index.js`.
+The run used package 18.4.0-beta.17, port 55439, and a generated temporary directory.
+The test cluster is stopped in cleanup; no repository dependency was added.
+
+Base b8018e3f on codex/channex-staging-pilot. Remote main was read as
+2dfa17dcb44004d86b747a177181870f454dbf50; this existing pilot branch was not rebased
+or deployed. The hosted SQL and feature flag remain untouched.
+Validation: six local race/restart scenarios passed, all 1,863 repository tests
+passed, and nonincremental TypeScript, targeted ESLint and whitespace checks passed.
