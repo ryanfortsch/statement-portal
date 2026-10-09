@@ -22,6 +22,7 @@ import {
   listScheduleRecipients,
   portalLink,
   getOpenDigest,
+  getDigestByDate,
   previewRecipientBodies,
   regionsForDigests,
   describeRecipientScope,
@@ -402,6 +403,14 @@ export default async function CheckoutSchedulePage({
   const sp = await searchParams;
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const err = first(sp.err);
+  // A specific day's digest, from a day section's chip. Without it the card
+  // shows the open digest (pending first, else the soonest from today), and
+  // on an evening after the 6 PM autosend that is TODAY's already-done text,
+  // with tomorrow's sent one unreachable for "Send an update" until morning.
+  // The schedule moved after the send is exactly when the update is wanted
+  // (225 Washington, 2026-10-08).
+  const digestDateRaw = first(sp.digest) || '';
+  const digestDate = /^\d{4}-\d{2}-\d{2}$/.test(digestDateRaw) ? digestDateRaw : null;
   // Where the outcome belongs: a region's digest section, the recipients
   // section, or the page head (see the notice helpers above).
   const noticeRegion = first(sp.region) || null;
@@ -476,8 +485,10 @@ export default async function CheckoutSchedulePage({
   const digestRegions = await regionsForDigests(supabase).catch(() => [CAPE_ANN_REGION]);
   const regionCards = await Promise.all(
     digestRegions.map(async (region) => {
-      const digest = await getOpenDigest(supabase, region).catch(() => null);
-      const serviceDate = digest?.service_date ?? tomorrowET();
+      const digest = digestDate
+        ? await getDigestByDate(supabase, digestDate, region).catch(() => null)
+        : await getOpenDigest(supabase, region).catch(() => null);
+      const serviceDate = digest?.service_date ?? (digestDate ?? tomorrowET());
       let preview: { bodies: RecipientBody[]; error: string | null } = { bodies: [], error: null };
       try {
         preview = { bodies: (await previewRecipientBodies(supabase, serviceDate, region)).bodies, error: null };
@@ -606,6 +617,10 @@ export default async function CheckoutSchedulePage({
               digest && digest.status === 'pending' ? (
                 <Link href="/cleaner-messaging#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
                   Approve on the cleaner inbox →
+                </Link>
+              ) : digest && digest.status === 'sent' ? (
+                <Link href={`/turnovers/schedule?digest=${day.date}#digest-${CAPE_ANN_REGION}`} style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                  {digestDate === day.date ? 'Shown below' : 'Open this text, send an update →'}
                 </Link>
               ) : undefined
             }
@@ -783,6 +798,7 @@ export default async function CheckoutSchedulePage({
                     <input type="hidden" name="digestId" value={digest.id} />
                     <input type="hidden" name="region" value={region} />
                     <input type="hidden" name="back" value="page" />
+                    <input type="hidden" name="digestDate" value={digest.service_date} />
                     <SubmitButton
                       label="Send an update (schedule changed)"
                       busyLabel="Sending..."
