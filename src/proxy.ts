@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
+import { apiRequiresOwner, pathRequiresOwner, roleForEmail, NOT_AVAILABLE_PATH } from "@/lib/helm-access";
 
 /**
  * Public path prefixes (no auth required):
@@ -247,7 +248,15 @@ export default auth((req) => {
     // Exact match on purpose: a prefix would also open /api/upload-platform-csv.
     if (pathname === "/api/upload") return;
     if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) return;
-    if (req.auth) return;
+    if (req.auth) {
+      // Owner-only endpoints (the statement pipeline, bank and receipt
+      // writes, Stripe, the books, contracts). A staff session gets a 403,
+      // never a redirect: these are fetch callers.
+      if (apiRequiresOwner(pathname) && roleForEmail(req.auth.user?.email) !== "owner") {
+        return NextResponse.json({ error: "owners only" }, { status: 403 });
+      }
+      return;
+    }
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -255,6 +264,16 @@ export default auth((req) => {
     const url = req.nextUrl.clone();
     url.pathname = "/auth/signin";
     url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
+    return NextResponse.redirect(url);
+  }
+
+  // Owner-only pages. The nav never links a staff login here, so this is a
+  // typed URL or an old bookmark: land on a page that says so, not a 404.
+  if (pathRequiresOwner(pathname) && roleForEmail(req.auth.user?.email) !== "owner") {
+    const url = req.nextUrl.clone();
+    url.pathname = NOT_AVAILABLE_PATH;
+    url.search = "";
+    url.searchParams.set("from", pathname);
     return NextResponse.redirect(url);
   }
 });

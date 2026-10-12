@@ -13,12 +13,21 @@
 
 export type TeamMemberRole = 'principal' | 'operations' | 'inspector' | 'contractor';
 
+/**
+ * What a login may open. `owner` sees everything; `staff` sees operations
+ * and not money (statements, books, forecast, contracts, prospects, owner
+ * messaging, contractor pay). Any @risingtidestr.com sign-in that is not
+ * listed here at all is staff. See `src/lib/helm-access.ts`.
+ */
+export type TeamAccess = 'owner' | 'staff';
+
 export type TeamMember = {
   email: string;        // canonical id
   name: string;         // first + last
   short: string;        // first name, used in pills/badges
   initials: string;     // 1-2 chars for the avatar
   role: TeamMemberRole;
+  access: TeamAccess;
   active: boolean;      // false = hidden from picker but old assignments still resolve
 };
 
@@ -29,6 +38,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     short: 'Ryan',
     initials: 'RF',
     role: 'principal',
+    access: 'owner',
     active: true,
   },
   {
@@ -37,6 +47,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     short: 'Allie',
     initials: 'AO',
     role: 'operations',
+    access: 'owner',
     active: true,
   },
   {
@@ -45,6 +56,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     short: 'Dotti',
     initials: 'DM',
     role: 'principal',
+    access: 'owner',
     active: true,
   },
 ];

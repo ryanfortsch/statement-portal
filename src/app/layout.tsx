@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Analytics } from "@vercel/analytics/next";
+import { auth } from "@/auth";
 import { CommandPalette } from "@/components/CommandPalette";
 import { VersionGuard } from "@/components/VersionGuard";
 import { Providers } from "@/components/Providers";
@@ -59,18 +60,22 @@ export const viewport = {
   themeColor: "#c85a3a",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Read once here and hand to the client SessionProvider, so the nav knows
+  // the owner/staff role on first paint (see Providers). Null on the public
+  // token pages, which is fine: they render no Helm chrome.
+  const session = await auth();
   return (
     <html
       lang="en"
       className={`${fraunces.variable} ${inter.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <Providers>
+        <Providers session={session}>
           {children}
           <CommandPalette />
           <VersionGuard />

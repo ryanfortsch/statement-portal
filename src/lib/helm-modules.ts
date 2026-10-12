@@ -72,7 +72,21 @@ export type HelmModule = {
    * e.g. an href carrying a query string.
    */
   routePrefixes?: string[];
+  /**
+   * `'owner'` keeps the module out of a staff login's nav and search. The
+   * route itself is turned away by the proxy (OWNER_PATH_PREFIXES in
+   * helm-access.ts); this flag is what stops the chrome linking there.
+   * The two lists must agree: the test in helm-access.test.ts checks it.
+   */
+  access?: 'owner';
 };
+
+import type { HelmRole } from '@/lib/helm-access';
+
+/** Whether a role gets to see a module in the nav and in search. */
+export function moduleVisibleTo(m: HelmModule, role: HelmRole): boolean {
+  return m.access !== 'owner' || role === 'owner';
+}
 
 export const HELM_MODULES: HelmModule[] = [
   // ── Active modules, in canonical number order ──────────────────────
@@ -90,6 +104,7 @@ export const HELM_MODULES: HelmModule[] = [
     status: 'active',
     primary: true,
     group: 'money',
+    access: 'owner',
   },
   // Statements / Revenue / Forecast are tabs inside Financials (see
   // FinancialsTabs). Kept in the registry so their routes + search resolve,
@@ -107,6 +122,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     section: 'financials',
     group: 'money',
+    access: 'owner',
   },
   {
     id: 'statements',
@@ -119,6 +135,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'money',
     section: 'financials',
+    access: 'owner',
   },
   {
     id: 'operations',
@@ -232,6 +249,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'operations',
     section: 'field',
+    access: 'owner',
   },
   // Trades is the Field section's vendor directory (see FieldTabs). The
   // description carries the trade vocabulary on purpose: Cmd+K for "plumber"
@@ -326,6 +344,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'relationships',
     section: 'properties',
+    access: 'owner',
   },
   // The fleet-wide trash-day notice print page. Reached from a property's
   // Guest Deliverables tile; registered here for search, hidden from menus.
@@ -375,6 +394,7 @@ export const HELM_MODULES: HelmModule[] = [
     // onboarding-render) plus the legacy redirect stub, so both prefixes
     // light the Properties tab.
     routePrefixes: ['/prospects', '/projections'],
+    access: 'owner',
   },
   {
     id: 'messaging',
@@ -431,6 +451,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'relationships',
     section: 'messaging',
+    access: 'owner',
   },
   // Cleaner Messaging is a TAB inside Messaging (see MessagingTabs), same as
   // Owner Messaging above. Hidden from the nav lists so it doesn't duplicate
@@ -473,6 +494,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'money',
     section: 'financials',
+    access: 'owner',
   },
   {
     id: 'marketing',
@@ -510,6 +532,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'money',
     section: 'financials',
+    access: 'owner',
   },
   // LLC Accounting ("Books") is a tab inside Financials (see FinancialsTabs),
   // like Statements/Revenue/Forecast/Cost Analysis. Hidden from the nav
@@ -526,6 +549,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'money',
     section: 'financials',
+    access: 'owner',
   },
   // Cost Analysis is the housekeeping-cost trend view -- a tab inside
   // Financials (see FinancialsTabs), not a top-level destination. Registered
@@ -596,6 +620,7 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'growth',
     section: 'marketing',
+    access: 'owner',
   },
   // Reviews is not a module of its own - it's the "Reviews" tab inside
   // the Guests section (/guests?tab=reviews). /reviews redirects there.
@@ -745,6 +770,11 @@ export const PRIMARY_MODULES = HELM_MODULES
     return ai - bi;
   });
 
+/** The masthead tabs a role gets: staff lose the Money tab. */
+export function primaryModulesFor(role: HelmRole): HelmModule[] {
+  return PRIMARY_MODULES.filter((m) => moduleVisibleTo(m, role));
+}
+
 // The mobile menu (HelmMobileMenu) no longer keeps its own ranked list.
 // It renders the same PRIMARY_MODULES pair plus the same overflow set the
 // desktop "More" dropdown shows (HELM_MODULES minus primary minus hidden),
@@ -761,9 +791,9 @@ export const PRIMARY_MODULES = HELM_MODULES
  * Analysis -- tabs of Financials) are excluded from the nav lists but their
  * routes still resolve and Cmd+K search still finds them.
  */
-export function getGroupedOverflowModules(): { group: HelmGroup; label: string; modules: HelmModule[] }[] {
+export function getGroupedOverflowModules(role: HelmRole = 'owner'): { group: HelmGroup; label: string; modules: HelmModule[] }[] {
   const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
-  const overflow = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden);
+  const overflow = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden && moduleVisibleTo(m, role));
 
   const statusRank: Record<HelmModule['status'], number> = {
     active: 0,
@@ -791,8 +821,8 @@ const OVERFLOW_PRIORITY = ['playbook', 'crm', 'channels', 'search'];
  * the front in OVERFLOW_PRIORITY order. Single source of truth so the two
  * surfaces stay congruent.
  */
-export function getOverflowModulesFlat(): HelmModule[] {
-  const flat = getGroupedOverflowModules().flatMap((s) => s.modules);
+export function getOverflowModulesFlat(role: HelmRole = 'owner'): HelmModule[] {
+  const flat = getGroupedOverflowModules(role).flatMap((s) => s.modules);
   const pinned = OVERFLOW_PRIORITY
     .map((id) => flat.find((m) => m.id === id))
     .filter((m): m is HelmModule => !!m);

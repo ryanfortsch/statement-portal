@@ -18,6 +18,7 @@ type Who = { name: string; photoUrl: string | null } | null;
 import { InspectionCalendar } from './InspectionCalendar';
 import { SentFlash } from './SentFlash';
 import { approvePacket, markPacketPaid, releasePacket, publishPacket, cancelPacket } from './actions';
+import { isOwnerSession } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -137,6 +138,8 @@ export default async function PacketsBoard({
   }
 
   const sp = await searchParams;
+  // Approve and Mark paid on the rows are owner controls (see LiveRow).
+  const owner = await isOwnerSession();
   const from = sp.from || todayStr();
   const to = sp.to || plusDays(14);
   const trade = parseTrade(sp.trade);
@@ -330,6 +333,7 @@ export default async function PacketsBoard({
                   who={whoOf(p.awarded_contractor_id)}
                   done={progress.get(p.id) ?? 0}
                   assigned={officeAssigned.has(p.id)}
+                  owner={owner}
                 />
               ))}
             </div>
@@ -347,7 +351,7 @@ export default async function PacketsBoard({
             </summary>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {completed.slice(0, 25).map((p) => (
-                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim assigned={officeAssigned.has(p.id)} />
+                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim assigned={officeAssigned.has(p.id)} owner={owner} />
               ))}
             </div>
             {completed.length > 25 && (
@@ -363,7 +367,7 @@ export default async function PacketsBoard({
             </summary>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {cancelled.slice(0, 25).map((p) => (
-                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim assigned={officeAssigned.has(p.id)} />
+                <LiveRow key={p.id} p={p} who={whoOf(p.awarded_contractor_id)} dim assigned={officeAssigned.has(p.id)} owner={owner} />
               ))}
             </div>
             {cancelled.length > 25 && (
@@ -410,7 +414,7 @@ function DraftRow({ p }: { p: PacketRow }) {
   );
 }
 
-function LiveRow({ p, who, dim, done = 0, assigned = false }: { p: PacketRow; who: Who; dim?: boolean; done?: number; assigned?: boolean }) {
+function LiveRow({ p, who, dim, done = 0, assigned = false, owner = false }: { p: PacketRow; who: Who; dim?: boolean; done?: number; assigned?: boolean; owner?: boolean }) {
   const c = statusChip(p.status, assigned);
   const atRisk = packetAtRisk(p);
   const overdue = pastCompleteByET(p);
@@ -473,13 +477,15 @@ function LiveRow({ p, who, dim, done = 0, assigned = false }: { p: PacketRow; wh
           <SubmitButton label="Release" busyLabel="Releasing…" style={btnGhost} spinnerTone="ink" />
         </form>
       )}
-      {p.status === 'submitted' && (
+      {/* Approve and Mark paid are owner controls; the actions refuse a
+          staff session, so the buttons are hidden for one too. */}
+      {owner && p.status === 'submitted' && (
         <form action={approvePacket} style={{ margin: 0 }}>
           <input type="hidden" name="packet_id" value={p.id} />
           <SubmitButton label="Approve" busyLabel="Approving…" style={btnDark} />
         </form>
       )}
-      {p.status === 'approved' && !p.paid_at && (
+      {owner && p.status === 'approved' && !p.paid_at && (
         <form action={markPacketPaid} style={{ margin: 0 }}>
           <input type="hidden" name="packet_id" value={p.id} />
           <SubmitButton label="Mark paid" busyLabel="Recording…" style={btnGhost} spinnerTone="ink" />

@@ -14,6 +14,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
+import { useHelmRole } from './useHelmRole';
 
 type Props = {
   active?: string;
@@ -22,6 +23,7 @@ type Props = {
 export function HelmModuleNavMore({ active }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const role = useHelmRole();
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +49,7 @@ export function HelmModuleNavMore({ active }: Props) {
   // visible section headers and the resulting dropdown was nearly half the
   // viewport tall with six small-caps labels burning vertical real estate
   // on a ~14-item list. The implicit grouping reads fine without them.
-  const items: HelmModule[] = getOverflowModulesFlat();
+  const items: HelmModule[] = getOverflowModulesFlat(role);
   if (items.length === 0) return null;
 
   // Mark "More" as active if the current page is anywhere in the overflow.

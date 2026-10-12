@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { fieldDb } from '@/lib/field-db';
 import type { RateCard } from '@/lib/creative-rates';
 import { loadShootDetail, shootPaySummary, isPreWork } from '@/lib/creative-shoots';
@@ -16,6 +17,13 @@ async function staffEmail(): Promise<string> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
   return session.user.email;
+}
+
+// Owners only: the pay, approval and contractor-admin actions below. A
+// server action posts to whatever page rendered it, so the page gate in
+// src/proxy.ts is not enough on its own (see src/lib/helm-access.ts).
+async function ownerEmail(): Promise<string> {
+  return requireOwnerEmail();
 }
 
 /**
@@ -471,7 +479,7 @@ export async function readAssetViews(formData: FormData): Promise<void> {
 
 /** Flip an asset's qualification (e.g. allow a sub-minSeconds reel anyway). */
 export async function setAssetQualifies(formData: FormData): Promise<void> {
-  await staffEmail();
+  await ownerEmail();
   const assetId = String(formData.get('asset_id') || '');
   const shootId = String(formData.get('shoot_id') || '');
   if (!assetId) return;
@@ -533,7 +541,7 @@ async function refreshShootSettlement(shootId: string): Promise<void> {
  * starts the view count that resolves countDays later into that reel's bonus.
  */
 export async function payDeliveryBase(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const shootId = String(formData.get('shoot_id') || '');
   if (!shootId) return;
   const reference = String(formData.get('reference') || '').trim() || null;

@@ -9,6 +9,7 @@ import { CopyCode } from '@/app/field/CopyCode';
 import { SubmitButton } from '@/components/SubmitButton';
 import { inviteApplicant, declineApplicant, reopenApplicant, screenApplicants } from './actions';
 import { ScreenButton } from './ScreenButton';
+import { isOwnerSession } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,9 @@ export default async function ApplicantsPage({
 }) {
   const trade = parseTrade((await searchParams).trade);
   const meta = TRADE_META[trade];
+  // Staff screen and shortlist; inviting, declining and reopening an
+  // applicant are owner calls (the actions refuse a staff session too).
+  const owner = await isOwnerSession();
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -143,14 +147,14 @@ export default async function ApplicantsPage({
         )}
 
         {active.map((a) => (
-          <ApplicantCard key={a.id} a={a} />
+          <ApplicantCard key={a.id} a={a} owner={owner} />
         ))}
 
         {invited.length > 0 && (
-          <Closed title={`Invited · ${invited.length}`} apps={invited} />
+          <Closed title={`Invited · ${invited.length}`} apps={invited} owner={owner} />
         )}
         {declined.length > 0 && (
-          <Closed title={`Declined · ${declined.length}`} apps={declined} />
+          <Closed title={`Declined · ${declined.length}`} apps={declined} owner={owner} />
         )}
       </section>
       <HelmFooter module="Field" right={`${meta.label} applicants`} />
@@ -158,7 +162,7 @@ export default async function ApplicantsPage({
   );
 }
 
-function ApplicantCard({ a }: { a: ContractorApplication }) {
+function ApplicantCard({ a, owner }: { a: ContractorApplication; owner: boolean }) {
   return (
     <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '16px 18px', marginBottom: 12, background: 'var(--paper-2, #fff)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
@@ -218,31 +222,35 @@ function ApplicantCard({ a }: { a: ContractorApplication }) {
           {a.about && <div style={{ marginTop: 4 }}>{a.about}</div>}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-        <form action={inviteApplicant} style={{ margin: 0 }}>
-          <input type="hidden" name="application_id" value={a.id} />
-          <SubmitButton label="Invite" busyLabel="Inviting…" style={btnDark} />
-        </form>
-        <form action={declineApplicant} style={{ margin: 0 }}>
-          <input type="hidden" name="application_id" value={a.id} />
-          <SubmitButton label="Decline" busyLabel="Declining…" style={btnGhost} spinnerTone="ink" />
-        </form>
-      </div>
+      {owner && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+          <form action={inviteApplicant} style={{ margin: 0 }}>
+            <input type="hidden" name="application_id" value={a.id} />
+            <SubmitButton label="Invite" busyLabel="Inviting…" style={btnDark} />
+          </form>
+          <form action={declineApplicant} style={{ margin: 0 }}>
+            <input type="hidden" name="application_id" value={a.id} />
+            <SubmitButton label="Decline" busyLabel="Declining…" style={btnGhost} spinnerTone="ink" />
+          </form>
+        </div>
+      )}
     </div>
   );
 }
 
-function Closed({ title, apps }: { title: string; apps: ContractorApplication[] }) {
+function Closed({ title, apps, owner }: { title: string; apps: ContractorApplication[]; owner: boolean }) {
   return (
     <div style={{ marginTop: 28 }}>
       <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>{title}</h2>
       {apps.map((a) => (
         <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--rule)', opacity: 0.7, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 14 }}>{a.full_name} <a href={`mailto:${a.email}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.email}</a>{a.phone ? <> <a href={`tel:${a.phone.replace(/[^+\d]/g, '')}`} style={{ color: 'var(--tide-deep)', fontSize: 12, textDecoration: 'none' }}>· {a.phone}</a></> : null}</span>
-          <form action={reopenApplicant} style={{ margin: 0 }}>
-            <input type="hidden" name="application_id" value={a.id} />
-            <SubmitButton label="Reopen" busyLabel="Reopening…" style={{ ...btnGhost, padding: '4px 10px' }} spinnerTone="ink" />
-          </form>
+          {owner && (
+            <form action={reopenApplicant} style={{ margin: 0 }}>
+              <input type="hidden" name="application_id" value={a.id} />
+              <SubmitButton label="Reopen" busyLabel="Reopening…" style={{ ...btnGhost, padding: '4px 10px' }} spinnerTone="ink" />
+            </form>
+          )}
         </div>
       ))}
     </div>

@@ -22,6 +22,7 @@ import { canClaim, fmtVisitTime, parseTrade, navTrade, type ContractorRow } from
 import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { loadOpenReceipts, loadPacketReceipts } from '@/lib/field-receipts';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { suggestFinalCents, isRushVisit } from '@/lib/field-pricing';
 import { FinalPayoutField } from './FinalPayoutField';
 import { loadTextWindow, fmtSpan } from '@/lib/field-text-window';
@@ -102,6 +103,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
 
   const editable = packet.status === 'draft';
   const isLive = isLiveStatus(packet.status);
+  // Pricing, approval, final pay, bonus, mark paid and receipt homing are
+  // owner controls. The actions refuse a staff session anyway; hiding the
+  // forms keeps the page honest about who can press them.
+  const owner = await isOwnerSession();
   // Attaching work slips + instructions is allowed any time the packet is still
   // live (incl. after a contractor claims it); locked once submitted/closed.
   const attachEditable = isAttachableStatus(packet.status);
@@ -476,7 +481,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     </div>
                   )}
                 </div>
-                {!packet.paid_at && (
+                {owner && !packet.paid_at && (
                   <form action={unhomeReceiptFromPacket}>
                     <input type="hidden" name="packet_id" value={packet.id} />
                     <input type="hidden" name="slip_id" value={r.slipId} />
@@ -511,11 +516,13 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                     </div>
                   )}
                 </div>
-                <form action={homeReceiptOnPacket}>
-                  <input type="hidden" name="packet_id" value={packet.id} />
-                  <input type="hidden" name="slip_id" value={r.slipId} />
-                  <PendingButton label={`Add to this payout · ${dollars(r.expenseCents)}`} busyLabel="Adding…" style={btnDark} />
-                </form>
+                {owner && (
+                  <form action={homeReceiptOnPacket}>
+                    <input type="hidden" name="packet_id" value={packet.id} />
+                    <input type="hidden" name="slip_id" value={r.slipId} />
+                    <PendingButton label={`Add to this payout · ${dollars(r.expenseCents)}`} busyLabel="Adding…" style={btnDark} />
+                  </form>
+                )}
               </div>
             ))}
           </div>
@@ -543,12 +550,16 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               {editable && (
                 <>
-                  <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <input type="hidden" name="packet_id" value={packet.id} />
-                    <span style={{ color: 'var(--ink-4)' }}>$</span>
-                    <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
-                    <PendingButton label="Update price" busyLabel="Updating…" style={btnGhost} spinnerTone="ink" />
-                  </form>
+                  {owner ? (
+                    <form action={setPacketPrice} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input type="hidden" name="packet_id" value={packet.id} />
+                      <span style={{ color: 'var(--ink-4)' }}>$</span>
+                      <input type="number" name="price_dollars" min={0} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={priceInput} />
+                      <PendingButton label="Update price" busyLabel="Updating…" style={btnGhost} spinnerTone="ink" />
+                    </form>
+                  ) : (
+                    <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>Posted at {dollars(packet.posted_price_cents)}</span>
+                  )}
                   {packet.visit_date < todayET() ? (
                     // Expired (or otherwise past-dated) draft: publishPacket
                     // refuses past dates server-side, so don't offer a button
@@ -579,7 +590,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   </span>
                 </form>
               )}
-              {packet.status === 'submitted' && (
+              {packet.status === 'submitted' && !owner && (
+                <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                  Submitted. Ryan reviews and approves the pay.
+                </span>
+              )}
+              {packet.status === 'submitted' && owner && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-start' }}>
                   {/* Approve is the one loud action. The bonus and the send-back
                       path are each one quiet click so they don't compete with it.
@@ -619,7 +635,12 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   </details>
                 </div>
               )}
-              {packet.status === 'approved' && !packet.paid_at && (
+              {packet.status === 'approved' && !packet.paid_at && !owner && (
+                <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+                  Approved. Ryan records the payment.
+                </span>
+              )}
+              {packet.status === 'approved' && !packet.paid_at && owner && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {/* Adjust the final pay any time before it's paid (decide-later,
                       like the bonus). Quiet once it's been set; open while it's
@@ -794,7 +815,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   </div>
                 </details>
               )}
-              {(packet.status === 'claimed' || packet.status === 'in_progress') && (
+              {owner && (packet.status === 'claimed' || packet.status === 'in_progress') && (
                 <details style={{ position: 'relative' }}>
                   <summary style={quietSummary}>Adjust estimate ▾</summary>
                   <div style={menuCard}>
