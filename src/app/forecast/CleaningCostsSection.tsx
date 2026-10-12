@@ -56,6 +56,7 @@ function thStyle(first?: boolean, totals?: boolean): React.CSSProperties {
     textTransform: 'uppercase',
     whiteSpace: 'nowrap',
     width: first ? 200 : 'auto',
+    ...(first ? { position: 'sticky', left: 0 } : null),
   };
 }
 
@@ -81,6 +82,12 @@ function labelCellStyle(extra?: React.CSSProperties): React.CSSProperties {
     fontSize: 11.5,
     color: 'var(--ink-2)',
     whiteSpace: 'nowrap',
+    // Pinned while the months scroll under it; opaque so figures do not
+    // show through.
+    position: 'sticky',
+    left: 0,
+    background: 'var(--paper)',
+    boxShadow: 'inset -1px 0 0 var(--rule)',
     ...extra,
   };
 }
@@ -179,7 +186,12 @@ export async function CleaningCostsSection() {
                     <td
                       style={labelCellStyle(
                         isUnattributed
-                          ? { color: 'var(--ink-3)', fontStyle: 'italic' }
+                          ? {
+                              color: 'var(--ink-3)',
+                              fontStyle: 'italic',
+                              background:
+                                'linear-gradient(rgba(200, 90, 58, 0.04), rgba(200, 90, 58, 0.04)), var(--paper)',
+                            }
                           : { fontWeight: 500 }
                       )}
                     >
