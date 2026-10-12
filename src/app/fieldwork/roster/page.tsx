@@ -11,6 +11,7 @@ import { loadPaymentSummaries } from '@/lib/field-pay';
 import { dollars, parseTrade, TRADE_META, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import { loadRateCards, type RateCard } from '@/lib/creative-rates';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { CopyCode } from '@/app/field/CopyCode';
 import { SubmitButton } from '@/components/SubmitButton';
 import { RevealW9 } from './RevealW9';
@@ -85,6 +86,9 @@ export default async function ContractorsPage({
 }) {
   const trade = parseTrade((await searchParams).trade);
   const meta = TRADE_META[trade];
+  // Pay, W-9 and the contractor-admin buttons are owner controls. The
+  // actions refuse a staff session; the cards hide them for one too.
+  const owner = await isOwnerSession();
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -210,6 +214,7 @@ export default async function ContractorsPage({
             {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.
           </p>
           {/* Invite form */}
+          {owner && (
           <form action={inviteContractor} style={{ border: '1px solid var(--rule)', borderRadius: 12, background: 'var(--paper-2, #fff)', padding: '14px 18px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={lbl}>
             Name
@@ -234,6 +239,7 @@ export default async function ContractorsPage({
           </label>
           <SubmitButton label="Send invite" busyLabel="Sending invite…" style={btnDark} />
           </form>
+          )}
         </details>
 
         {/* W-9 workspace: clear the recurring pre-1099 chore in one place. */}
@@ -252,11 +258,13 @@ export default async function ContractorsPage({
                     <span style={{ fontSize: 14, color: 'var(--ink)' }}>{c.full_name}</span>
                     <span style={{ fontSize: 12, color: 'var(--ink-4)' }}> · {c.email}</span>
                   </div>
-                  <form action={setContractorW9} style={{ margin: 0 }}>
-                    <input type="hidden" name="contractor_id" value={c.id} />
-                    <input type="hidden" name="on_file" value="true" />
-                    <SubmitButton label="Mark on file" busyLabel="Marking…" style={actBtn} spinnerTone="ink" />
-                  </form>
+                  {owner && (
+                    <form action={setContractorW9} style={{ margin: 0 }}>
+                      <input type="hidden" name="contractor_id" value={c.id} />
+                      <input type="hidden" name="on_file" value="true" />
+                      <SubmitButton label="Mark on file" busyLabel="Marking…" style={actBtn} spinnerTone="ink" />
+                    </form>
+                  )}
                 </div>
               ))}
             </div>
@@ -271,6 +279,7 @@ export default async function ContractorsPage({
               key={c.id}
               c={c}
               base={base}
+              owner={owner}
               rating={ratings.get(c.id)}
               rank={rankMap.get(c.id)}
               rel={reliability.get(c.id)}
@@ -300,6 +309,7 @@ export default async function ContractorsPage({
                   key={c.id}
                   c={c}
                   base={base}
+                  owner={owner}
                   rating={ratings.get(c.id)}
                   rank={rankMap.get(c.id)}
                   rel={reliability.get(c.id)}
@@ -341,10 +351,12 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
 }
 
 function ContractorCard({
-  c, base, rating, rank, rel, ps, w9, pm, books, rate,
+  c, base, owner, rating, rank, rel, ps, w9, pm, books, rate,
 }: {
   c: ContractorRow;
   base: string;
+  /** Owner session: shows pay, W-9 reveal and the admin buttons. */
+  owner: boolean;
   rating?: RatingVal;
   rank?: number;
   rel?: RelVal;
@@ -422,7 +434,7 @@ function ContractorCard({
                 // a firm number yet, so it can't be "paid" from here.
                 <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 2 }}>{dollars(ps!.pendingCents)} counting views</div>
               )}
-              {ps!.owedCents > 0 && (
+              {owner && ps!.owedCents > 0 && (
                 isCreative ? (
                   // Creative pay is settled per post on the shoot page, not swept here.
                   <Link href="/fieldwork/shoots" style={{ marginTop: 5, display: 'inline-block', fontSize: 11.5, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
@@ -485,12 +497,14 @@ function ContractorCard({
           <div style={{ fontSize: 11, marginTop: 2 }}>
             {w9OnFile ? (
               <span style={{ color: 'var(--positive)' }}>W-9 on file</span>
-            ) : (
+            ) : owner ? (
               <form action={setContractorW9} style={{ display: 'inline' }}>
                 <input type="hidden" name="contractor_id" value={c.id} />
                 <input type="hidden" name="on_file" value="true" />
                 <SubmitButton label="Mark W-9 on file" busyLabel="Marking…" style={linkBtn} spinnerTone="ink" />
               </form>
+            ) : (
+              <span style={{ color: 'var(--ink-4)' }}>W-9 not on file</span>
             )}
           </div>
         </Stat>
@@ -503,13 +517,13 @@ function ContractorCard({
       <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--rule)', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.7 }}>
         {w9 && (
           <div>
-            <span style={{ color: 'var(--ink-3)' }}>{w9.legalName}</span>{w9.businessName ? ` (${w9.businessName})` : ''} · {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'} · <RevealW9 contractorId={c.id} /> · {w9.address}
+            <span style={{ color: 'var(--ink-3)' }}>{w9.legalName}</span>{w9.businessName ? ` (${w9.businessName})` : ''} · {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'}{owner ? <> · <RevealW9 contractorId={c.id} /></> : null} · {w9.address}
           </div>
         )}
         {pm && (
           <div>
             Pays via {pm.method}{pm.hint ? ` · ${pm.hint}` : ''}
-            {pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? <> · <RevealPay contractorId={c.id} /></> : null}
+            {owner && pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? <> · <RevealPay contractorId={c.id} /></> : null}
           </div>
         )}
         {Math.abs(gap) > 5000 && (
@@ -533,7 +547,12 @@ function ContractorCard({
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule)' }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>Background</span>
-          {(['pending', 'cleared', 'failed'] as const)
+          {!owner && (
+            <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{BG_LABEL[c.background_check_status] ?? c.background_check_status}</span>
+          )}
+          {/* Clearing a check is the one gate between a person and an
+              owner's house: owners only. */}
+          {owner && (['pending', 'cleared', 'failed'] as const)
             .filter((s) => s !== c.background_check_status)
             .map((s) => (
               <form key={s} action={setContractorBackgroundCheck} style={{ margin: 0 }} title={`Mark background check ${s}`}>
@@ -547,39 +566,49 @@ function ContractorCard({
           {/* Their portal link, first-class next to the other row actions
               (was buried in the quiet compliance strip below). */}
           <CopyCode value="Copy portal link" copyValue={`${base}/field/${c.portal_token}`} mono={false} />
-          {c.status === 'active' && (
+          {/* Pause / reactivate / retire, the property board grant and the
+              link controls are owner-only: each one changes what a person
+              can reach, and setContractorStatus('archived') pulls door codes
+              and republishes their work. */}
+          {owner && c.status === 'active' && (
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="paused" />
               <SubmitButton label="Pause" busyLabel="Pausing…" style={actBtn} spinnerTone="ink" />
             </form>
           )}
-          {(c.status === 'paused' || c.status === 'archived') && (
+          {owner && (c.status === 'paused' || c.status === 'archived') && (
             <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="active" />
               <SubmitButton label="Reactivate" busyLabel="Reactivating…" style={actBtn} spinnerTone="ink" />
             </form>
           )}
-          <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal — reveals the full portfolio, so grant deliberately">
-            <input type="hidden" name="contractor_id" value={c.id} />
-            <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
-            <SubmitButton
-              label={c.work_board_access ? 'Revoke property board' : 'Grant property board'}
-              busyLabel="Saving…"
-              style={c.work_board_access ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn}
-              spinnerTone="ink"
-            />
-          </form>
-          <form action={resendInvite} style={{ margin: 0 }}>
-            <input type="hidden" name="contractor_id" value={c.id} />
-            <SubmitButton label="Resend invite" busyLabel="Resending…" style={actBtn} spinnerTone="ink" />
-          </form>
-          <form action={rotateContractorToken} style={{ margin: 0 }} title="Kill the old link + all sessions and email a fresh one">
-            <input type="hidden" name="contractor_id" value={c.id} />
-            <SubmitButton label="Rotate link" busyLabel="Rotating…" style={actBtn} spinnerTone="ink" />
-          </form>
-          {c.status !== 'archived' && (
+          {owner && (
+            <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal — reveals the full portfolio, so grant deliberately">
+              <input type="hidden" name="contractor_id" value={c.id} />
+              <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
+              <SubmitButton
+                label={c.work_board_access ? 'Revoke property board' : 'Grant property board'}
+                busyLabel="Saving…"
+                style={c.work_board_access ? { ...actBtn, color: 'var(--positive)', borderColor: 'var(--positive)' } : actBtn}
+                spinnerTone="ink"
+              />
+            </form>
+          )}
+          {owner && (
+            <form action={resendInvite} style={{ margin: 0 }}>
+              <input type="hidden" name="contractor_id" value={c.id} />
+              <SubmitButton label="Resend invite" busyLabel="Resending…" style={actBtn} spinnerTone="ink" />
+            </form>
+          )}
+          {owner && (
+            <form action={rotateContractorToken} style={{ margin: 0 }} title="Kill the old link + all sessions and email a fresh one">
+              <input type="hidden" name="contractor_id" value={c.id} />
+              <SubmitButton label="Rotate link" busyLabel="Rotating…" style={actBtn} spinnerTone="ink" />
+            </form>
+          )}
+          {owner && c.status !== 'archived' && (
             <form action={setContractorStatus} style={{ margin: 0 }} title="Retire them: kills their portal link + sessions, pulls any live door codes, and releases work they were holding. Reversible with Reactivate.">
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="archived" />

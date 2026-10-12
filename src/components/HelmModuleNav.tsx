@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { PRIMARY_MODULES, activeModuleIdForPathname, type HelmModule } from '@/lib/helm-modules';
+import { primaryModulesFor, activeModuleIdForPathname, type HelmModule } from '@/lib/helm-modules';
 import { HelmModuleNavMore } from './HelmModuleNavMore';
 import { MessagingPendingBadge } from './MessagingPendingBadge';
 import { NavTabCount } from './NavTabCount';
+import { useHelmRole } from './useHelmRole';
 
 export function HelmModuleNav() {
   // The active tab derives from the pathname, not a per-page prop: the
@@ -13,11 +14,13 @@ export function HelmModuleNav() {
   // about where it is.
   const pathname = usePathname();
   const active = activeModuleIdForPathname(pathname ?? '');
+  const role = useHelmRole();
 
-  // Always show the primary set. If the current module isn't in the primary
-  // set, the More dropdown handles it (no need to append a "you are here"
-  // tab here too, since the More button activates when the page is in overflow).
-  const visible: HelmModule[] = [...PRIMARY_MODULES];
+  // Always show the primary set the role gets (staff see no Money tab). If
+  // the current module isn't in the primary set, the More dropdown handles
+  // it (no need to append a "you are here" tab here too, since the More
+  // button activates when the page is in overflow).
+  const visible: HelmModule[] = primaryModulesFor(role);
 
   return (
     <nav className="flex items-baseline rt-helm-modulenav" style={{

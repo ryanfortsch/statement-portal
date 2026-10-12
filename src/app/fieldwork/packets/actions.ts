@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { fieldDb } from '@/lib/field-db';
 import { loadVendorTimesForDay } from '@/lib/vendor-schedule';
 import { newPortalToken } from '@/lib/field-auth';
@@ -24,6 +25,13 @@ async function staffEmail(): Promise<string> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
   return session.user.email;
+}
+
+// Owners only: the pay, approval and contractor-admin actions below. A
+// server action posts to whatever page rendered it, so the page gate in
+// src/proxy.ts is not enough on its own (see src/lib/helm-access.ts).
+async function ownerEmail(): Promise<string> {
+  return requireOwnerEmail();
 }
 
 // Fat-finger ceilings for operator-entered pay. A purely relative cap breaks
@@ -111,7 +119,7 @@ export async function setPacketInstructions(packetId: string, text: string): Pro
 
 /** Office-only: decrypt a contractor's full TIN for filing their 1099. */
 export async function revealW9(contractorId: string): Promise<string | null> {
-  const email = await staffEmail(); // staff session required
+  const email = await ownerEmail(); // staff session required
   const tin = await revealTin(contractorId);
   // Audit every SSN/EIN reveal: who looked at whose TIN, when.
   await fieldDb()
@@ -419,7 +427,7 @@ export async function createAdHocPacketAction(_prev: AdhocState, formData: FormD
 
 /** Office-only: decrypt a contractor's full payout details (e.g. ACH account). */
 export async function revealPay(contractorId: string): Promise<string | null> {
-  await staffEmail();
+  await ownerEmail();
   return revealPayment(contractorId);
 }
 
@@ -595,7 +603,7 @@ export async function bundleMaintenanceAndSend(formData: FormData): Promise<void
 }
 
 export async function setPacketPrice(formData: FormData): Promise<void> {
-  await staffEmail();
+  await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const dollarsValue = Number(formData.get('price_dollars') || 0);
   if (!packetId || !Number.isFinite(dollarsValue) || dollarsValue < 0) return;
@@ -617,7 +625,7 @@ export async function setPacketPrice(formData: FormData): Promise<void> {
  *  contractor is re-notified of the new number. Once the packet is submitted,
  *  the final-payout flow owns the dollars instead. */
 export async function raisePacketEstimate(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const dollarsValue = Number(formData.get('price_dollars') || 0);
   const reason = String(formData.get('reason') || '').trim().slice(0, 500) || null;
@@ -963,7 +971,7 @@ export async function syncPacketWindows(formData: FormData): Promise<void> {
  *  price as a fat-finger guard. The bonus rides the paid receipt and the
  *  contractor's approved view; the posted price itself never changes. */
 export async function setPacketBonus(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const bonusDollars = Number(formData.get('bonus_dollars') || 0);
   const reason = String(formData.get('bonus_reason') || '').trim().slice(0, 500) || null;
@@ -1013,7 +1021,7 @@ export async function setPacketBonus(formData: FormData): Promise<void> {
  *  small. Methodology stays office-side; the contractor just sees the number
  *  settle from "estimated" to final. */
 export async function finalizePacketPayout(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const raw = String(formData.get('final_dollars') ?? '').trim();
   if (!packetId) return;
@@ -1065,7 +1073,7 @@ export async function finalizePacketPayout(formData: FormData): Promise<void> {
 }
 
 export async function markContractorPaid(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   if (!contractorId) return;
   const reference = String(formData.get('reference') || '').trim() || null;
@@ -1101,7 +1109,7 @@ export async function markContractorPaid(formData: FormData): Promise<void> {
 /** Record that the awarded contractor has been paid for an approved packet.
  *  Field's own ledger; the actual payment runs through QuickBooks/books. */
 export async function markPacketPaid(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const reference = String(formData.get('reference') || '').trim() || null;
   const { data } = await fieldDb()
@@ -1393,7 +1401,7 @@ export async function submitPacketForContractor(formData: FormData): Promise<voi
 }
 
 export async function approvePacket(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
 
   // Optional above-and-beyond bonus, set right in the approve form. Clamped to
@@ -1515,7 +1523,7 @@ export async function approvePacket(formData: FormData): Promise<void> {
  *  Reopens it (in_progress) and resets the stops so they re-inspect; the prior
  *  inspection rows stay as an audit trail. */
 export async function requestChanges(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const note = String(formData.get('note') || '').trim();
   const { data } = await fieldDb()
@@ -1656,7 +1664,7 @@ export async function removeStop(formData: FormData): Promise<void> {
 
 /** Invite a contractor: create the row + email their personal portal link. */
 export async function inviteContractor(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const fullName = String(formData.get('full_name') || '').trim();
   const contractorEmail = String(formData.get('email') || '').trim().toLowerCase();
   const phone = String(formData.get('phone') || '').trim() || null;
@@ -1698,7 +1706,7 @@ export async function inviteContractor(formData: FormData): Promise<void> {
  *  Archived is cut off entirely — the token + session stop resolving — so we
  *  also drop their sessions. */
 export async function setContractorStatus(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const id = String(formData.get('contractor_id') || '');
   const status = String(formData.get('status') || '');
   if (!['active', 'paused', 'archived'].includes(status)) return;
@@ -1737,7 +1745,7 @@ export async function setContractorStatus(formData: FormData): Promise<void> {
 /** Rotate an inspector's portal token (kills the old link + all live sessions)
  *  and email them the fresh link. Use when a link may have leaked. */
 export async function rotateContractorToken(formData: FormData): Promise<void> {
-  await staffEmail();
+  await ownerEmail();
   const id = String(formData.get('contractor_id') || '');
   const { data } = await fieldDb()
     .from('contractors')
@@ -1753,7 +1761,7 @@ export async function rotateContractorToken(formData: FormData): Promise<void> {
 
 /** Re-send the existing portal link (no rotation). */
 export async function resendInvite(formData: FormData): Promise<void> {
-  await staffEmail();
+  await ownerEmail();
   const id = String(formData.get('contractor_id') || '');
   const { data } = await fieldDb().from('contractors').select('*').eq('id', id).maybeSingle();
   const c = (data as ContractorRow | null) ?? null;
@@ -1768,7 +1776,7 @@ export async function resendInvite(formData: FormData): Promise<void> {
 /** Set a contractor's background-check status. Claiming is gated on 'cleared'
  *  (canClaim), so this is what lets a vetted inspector start taking work. */
 export async function setContractorBackgroundCheck(formData: FormData): Promise<void> {
-  const staff = await staffEmail();
+  const staff = await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   const statusIn = String(formData.get('bg_status') || '');
   const allowed = ['not_started', 'pending', 'cleared', 'failed'];
@@ -1788,7 +1796,7 @@ export async function setContractorBackgroundCheck(formData: FormData): Promise<
 /** Grant / revoke the property-work board (reveals the full portfolio, so
  *  it's an explicit per-contractor approval, audited). */
 export async function setContractorWorkBoard(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   const grant = formData.get('grant') === 'true';
   if (!contractorId) return;
@@ -1804,7 +1812,7 @@ export async function setContractorWorkBoard(formData: FormData): Promise<void> 
 }
 
 export async function setContractorW9(formData: FormData): Promise<void> {
-  await staffEmail();
+  await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '');
   const onFile = formData.get('on_file') === 'true';
   const { data } = await fieldDb()
@@ -1834,7 +1842,7 @@ export async function setContractorW9(formData: FormData): Promise<void> {
  *  contractor; one click and expenses_cents carries it, so Mark paid and the
  *  paid email both include it. Refuses a paid packet. */
 export async function homeReceiptOnPacket(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const slipId = String(formData.get('slip_id') || '');
   if (!packetId || !slipId) return;
@@ -1846,7 +1854,7 @@ export async function homeReceiptOnPacket(formData: FormData): Promise<void> {
 /** Take a receipt back off this packet's payout (a mis-click, or it was paid
  *  another way). The receipt returns to open and the packet recomputes. */
 export async function unhomeReceiptFromPacket(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const packetId = String(formData.get('packet_id') || '');
   const slipId = String(formData.get('slip_id') || '');
   if (!slipId) return;

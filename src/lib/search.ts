@@ -16,7 +16,8 @@
  */
 
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
-import { HELM_MODULES, type HelmModule } from '@/lib/helm-modules';
+import { HELM_MODULES, moduleVisibleTo } from '@/lib/helm-modules';
+import type { HelmRole } from '@/lib/helm-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
@@ -44,8 +45,11 @@ export type SearchResults = {
 
 const EMPTY: SearchResults = { pages: [], properties: [], contacts: [], slips: [], tasks: [], playbook: [], total: 0 };
 
-/** Return up to N module pages matching the query against title / description / id. */
-function searchPages(q: string, limit = 6): PageMatch[] {
+/** Return up to N module pages matching the query against title / description / id.
+ *  Owner-only modules are left out for staff, so search never links a page
+ *  the proxy would turn away. Defaults to staff: a caller that forgets the
+ *  role hides more, not less. */
+function searchPages(q: string, limit = 6, role: HelmRole = 'staff'): PageMatch[] {
   const ql = q.toLowerCase().trim();
   if (!ql) return [];
   const hits: PageMatch[] = [];
@@ -53,6 +57,7 @@ function searchPages(q: string, limit = 6): PageMatch[] {
     // Parked modules are real routes, just demoted in the nav, so search
     // still finds them (with a visible marker). Soon/external stay out.
     if (m.status !== 'active' && m.status !== 'parked') continue;
+    if (!moduleVisibleTo(m, role)) continue;
     const title = m.title.toLowerCase();
     const desc = m.description.toLowerCase();
     if (title.includes(ql) || desc.includes(ql) || m.id.includes(ql)) {
@@ -73,7 +78,7 @@ function searchPages(q: string, limit = 6): PageMatch[] {
  * Run the full cross-module search. Returns empty groups for queries
  * shorter than 2 chars (avoids hammering the DB on every keystroke).
  */
-export async function searchEverything(q: string, opts?: { perGroup?: number }): Promise<SearchResults> {
+export async function searchEverything(q: string, opts?: { perGroup?: number; role?: HelmRole }): Promise<SearchResults> {
   if (!isHelmConfigured) return EMPTY;
   const trimmed = (q ?? '').trim();
   if (trimmed.length < 2) return EMPTY;
@@ -124,7 +129,7 @@ export async function searchEverything(q: string, opts?: { perGroup?: number }):
   );
   const todayIso = new Date().toISOString().slice(0, 10);
 
-  const pages = searchPages(trimmed);
+  const pages = searchPages(trimmed, 6, opts?.role ?? 'staff');
   const properties = (propRes.data ?? []) as HelmPropertyRow[];
   const contacts = (contactRes.data ?? []) as ContactRow[];
   const slips: SlipMatch[] = ((slipRes.data ?? []) as WorkSlipRow[])
@@ -140,6 +145,6 @@ export async function searchEverything(q: string, opts?: { perGroup?: number }):
 }
 
 /** Page-only search. Cheap, in-memory, no DB. Used as an instant pre-flight. */
-export function searchPagesOnly(q: string): PageMatch[] {
-  return searchPages(q, 8);
+export function searchPagesOnly(q: string, role: HelmRole = 'staff'): PageMatch[] {
+  return searchPages(q, 8, role);
 }

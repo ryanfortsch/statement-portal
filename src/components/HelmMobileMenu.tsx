@@ -31,8 +31,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { PRIMARY_MODULES, activeModuleIdForPathname, getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
+import { primaryModulesFor, activeModuleIdForPathname, getOverflowModulesFlat, type HelmModule } from '@/lib/helm-modules';
 import { MessagingPendingBadge } from './MessagingPendingBadge';
+import { useHelmRole } from './useHelmRole';
 
 export function HelmMobileMenu() {
   const [open, setOpen] = useState(false);
@@ -40,13 +41,15 @@ export function HelmMobileMenu() {
   const dialog = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const active = activeModuleIdForPathname(pathname ?? '');
+  const role = useHelmRole();
 
   // Same split the desktop nav uses (HelmModuleNav + HelmModuleNavMore):
-  // the seven primary sections, then the Library shelf minus the hidden
-  // sub-tabs. Uses the same grouping helper for ORDER but renders flat,
-  // mirroring the desktop dropdown - visible section headers were burning
-  // vertical space without improving wayfinding.
-  const overflow: HelmModule[] = getOverflowModulesFlat();
+  // the primary sections the role gets, then the Library shelf minus the
+  // hidden sub-tabs. Uses the same grouping helper for ORDER but renders
+  // flat, mirroring the desktop dropdown - visible section headers were
+  // burning vertical space without improving wayfinding.
+  const primary: HelmModule[] = primaryModulesFor(role);
+  const overflow: HelmModule[] = getOverflowModulesFlat(role);
 
   // Lock body scroll + listen for Escape while the sheet is open.
   useEffect(() => {
@@ -139,7 +142,7 @@ export function HelmMobileMenu() {
 
           <nav className="rt-mobile-menu-list" aria-label="Modules">
             {/* Primary sections: the daily-use tabs, same as desktop. */}
-            {PRIMARY_MODULES.map((m) => (
+            {primary.map((m) => (
               <ModuleItem
                 key={m.id}
                 module={m}

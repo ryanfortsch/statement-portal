@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { fieldDb } from '@/lib/field-db';
 import { newPortalToken } from '@/lib/field-auth';
 import { sendInviteEmail } from '@/lib/field-notify';
@@ -15,10 +16,17 @@ async function staffEmail(): Promise<string> {
   return session.user.email;
 }
 
+// Owners only: the pay, approval and contractor-admin actions below. A
+// server action posts to whatever page rendered it, so the page gate in
+// src/proxy.ts is not enough on its own (see src/lib/helm-access.ts).
+async function ownerEmail(): Promise<string> {
+  return requireOwnerEmail();
+}
+
 /** Convert an application into a contractor + email them their portal link.
  *  If a contractor with that email already exists, just resend the link. */
 export async function inviteApplicant(formData: FormData): Promise<void> {
-  const staff = await staffEmail();
+  const staff = await ownerEmail();
   const id = String(formData.get('application_id') || '');
   if (!id) return;
 
@@ -62,7 +70,7 @@ export async function inviteApplicant(formData: FormData): Promise<void> {
 }
 
 export async function declineApplicant(formData: FormData): Promise<void> {
-  const staff = await staffEmail();
+  const staff = await ownerEmail();
   const id = String(formData.get('application_id') || '');
   if (!id) return;
   await fieldDb()
@@ -120,7 +128,7 @@ export async function screenApplicants(formData: FormData): Promise<void> {
 
 /** Put a declined/invited application back in the active queue. */
 export async function reopenApplicant(formData: FormData): Promise<void> {
-  await staffEmail();
+  await ownerEmail();
   const id = String(formData.get('application_id') || '');
   if (!id) return;
   await fieldDb()

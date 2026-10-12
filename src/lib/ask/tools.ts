@@ -18,16 +18,24 @@
  * contact_touches) alongside the permissive ones.
  */
 
-import { tool } from 'ai';
+import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadOperationsData, type Range } from '@/lib/operations';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
 import { todayET } from '@/lib/checkout-schedule';
+import { OWNER_ONLY_ASK_TOOLS, type HelmRole } from '@/lib/helm-access';
 
 export type AskSource = { label: string; href: string };
 
-export function createAskTools() {
+/**
+ * `opts.role` decides the tool set: a staff login (operations, not money)
+ * gets no get_statements or list_prospects, and the shared tools leave out
+ * owner money. Defaults to staff so a caller that forgets hides more, not
+ * less.
+ */
+export function createAskTools(opts: { role: HelmRole } = { role: 'staff' }) {
+  const role = opts.role;
   const sources: AskSource[] = [];
   const addSource = (label: string, href: string) => {
     if (label && href && !sources.some((s) => s.href === href)) {
@@ -78,12 +86,15 @@ export function createAskTools() {
           });
         }
 
-        // Prospect / deal pipeline.
-        const { data: prospects } = await supabase
-          .from('projections')
-          .select('id, property_address, property_city, prospect_name, status, presentation_month, contract_signed_at, property_id')
-          .or(`property_address.ilike.${like},prospect_name.ilike.${like},property_city.ilike.${like}`)
-          .limit(8);
+        // Prospect / deal pipeline. Owners only: the pipeline is an owner
+        // module, so staff get no prospect hits (and no /prospects links).
+        const { data: prospects } = role === 'owner'
+          ? await supabase
+              .from('projections')
+              .select('id, property_address, property_city, prospect_name, status, presentation_month, contract_signed_at, property_id')
+              .or(`property_address.ilike.${like},prospect_name.ilike.${like},property_city.ilike.${like}`)
+              .limit(8)
+          : { data: [] };
         for (const pr of (prospects ?? []) as Array<{
           id: string;
           property_address: string;
@@ -141,10 +152,17 @@ export function createAskTools() {
           .eq('is_active', true)
           .order('name');
         if (error) return { error: error.message };
-        const rows = data ?? [];
-        for (const p of rows as Array<{ id: string; name: string }>) {
+        const all = (data ?? []) as Array<Record<string, unknown> & { id: string; name: string }>;
+        for (const p of all) {
           addSource(p.name, `/properties/${p.id}`);
         }
+        // The fee and the owner's emails are owner money: staff get the
+        // roster without them.
+        const ownerMoney = new Set(['owner_emails', 'management_fee_pct']);
+        const rows =
+          role === 'owner'
+            ? all
+            : all.map((p) => Object.fromEntries(Object.entries(p).filter(([k]) => !ownerMoney.has(k))));
         return { count: rows.length, properties: rows };
       },
     }),
@@ -896,5 +914,10 @@ export function createAskTools() {
     }),
   };
 
-  return { tools, getSources: () => sources };
+  const visible: ToolSet =
+    role === 'owner'
+      ? tools
+      : Object.fromEntries(Object.entries(tools).filter(([name]) => !OWNER_ONLY_ASK_TOOLS.has(name)));
+
+  return { tools: visible, getSources: () => sources };
 }

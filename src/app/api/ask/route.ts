@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { generateText, stepCountIs } from 'ai';
 import { auth } from '@/auth';
 import { createAskTools } from '@/lib/ask/tools';
+import { roleForEmail } from '@/lib/helm-access';
 
 /**
  * Ask Helm — Claude-powered natural-language Q&A over Helm's data.
@@ -45,6 +46,13 @@ Rules:
 
 Today's date: ${new Date().toISOString().slice(0, 10)}.`;
 
+// Staff logins (operations, not money) have no get_statements or
+// list_prospects tool. Tell the model so it answers plainly instead of
+// reaching for a tool it does not have.
+const STAFF_ADDENDUM = `
+
+This user is operations staff, not an owner. Owner statements, payouts, revenue, the books and the prospect pipeline are not available to them in Helm and you have no tool for them. If asked, say that part of Helm is owners-only and to ask Ryan. Never estimate a payout or revenue figure.`;
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) {
@@ -65,12 +73,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Question is too long.' }, { status: 400 });
   }
 
-  const { tools, getSources } = createAskTools();
+  const role = roleForEmail(session.user.email);
+  const { tools, getSources } = createAskTools({ role });
 
   try {
     const { text } = await generateText({
       model: 'anthropic/claude-sonnet-4.5',
-      system: SYSTEM_PROMPT,
+      system: role === 'owner' ? SYSTEM_PROMPT : SYSTEM_PROMPT + STAFF_ADDENDUM,
       prompt: question,
       tools,
       // Allow several tool calls in sequence (resolve a name, then pull

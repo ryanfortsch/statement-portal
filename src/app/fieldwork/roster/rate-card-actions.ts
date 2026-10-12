@@ -6,13 +6,14 @@
  */
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { saveRateCard, resetRateCard, type RateTier } from '@/lib/creative-rates';
 
-async function staffEmail(): Promise<string> {
-  const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
-  return session.user.email;
+// Owners only: a rate card sets what the creative crew is paid. A server
+// action posts to whatever page rendered it, so the page gate in
+// src/proxy.ts is not enough on its own (see src/lib/helm-access.ts).
+async function ownerEmail(): Promise<string> {
+  return requireOwnerEmail();
 }
 
 /** "$1,250", "1250", "1,250.50" -> cents; null when blank or unparseable. */
@@ -30,7 +31,7 @@ function intIn(v: FormDataEntryValue | null, lo: number, hi: number, dflt: numbe
 }
 
 export async function saveRateCardAction(formData: FormData) {
-  const email = await staffEmail();
+  const email = await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '').trim() || null;
 
   const baseCents = money(formData.get('base')) ?? 12500;
@@ -81,7 +82,7 @@ export async function saveRateCardAction(formData: FormData) {
 }
 
 export async function resetRateCardAction(formData: FormData) {
-  await staffEmail();
+  await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '').trim();
   if (contractorId) await resetRateCard(contractorId);
   revalidatePath('/fieldwork/roster');
