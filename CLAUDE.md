@@ -153,6 +153,28 @@ rail and is not handled by this outbox.
 `PUBLIC_PATH_PREFIXES`, `PUBLIC_API_PREFIXES`, or one of the deliverable regexes. Anonymous `/api`
 callers get a 401 JSON, not a sign-in redirect, so integrations can read the failure.
 
+**Two roles sit behind the sign-in: owner and staff** (`src/lib/helm-access.ts`, since
+2026-10-12). Owners are the explicit `access: 'owner'` rows in `src/lib/team.ts` (Ryan, Allie,
+Dotti); every other `@risingtidestr.com` sign-in is staff, so a new Workspace seat fails closed.
+Staff see operations and not money: the proxy turns them away from `OWNER_PATH_PREFIXES`
+(statements, books, forecast, revenue, payments, contracts, prospects, owner messaging, quotes,
+creative pay, rate card, the field test page) with a redirect to `/not-available`, and from
+`OWNER_API_PREFIXES` (the statement pipeline and every `owner_payout` writer, bank and receipt
+writes, Stripe, the books, contracts, W-9 reveal) with a 403. Three things must agree, and
+`helm-access.test.ts` checks that they do:
+
+- a module with `access: 'owner'` in `helm-modules.ts` is hidden from the staff nav and search,
+  and its href must sit behind a gated prefix;
+- a server action that moves money or reveals a contractor's pay or tax details calls
+  `requireOwnerEmail()` from `helm-access-server.ts` (a server action posts to whatever page
+  rendered it, so the path gate alone cannot cover an action shared across pages);
+- Ask Helm builds its tool set per role (`createAskTools({ role })`), because the home page is
+  open to everyone.
+
+When you add a money page, add its prefix to the list AND the flag to its module. When you add
+a money action, call `requireOwnerEmail()`. Owner money that still prints on pages staff keep
+(the home payout tile, fee percentages and payouts on property pages) is not yet redacted.
+
 Two shared auth helpers exist. Use them; do not hand-roll a check:
 - `authorizeCron(request)` in `src/lib/cron-auth.ts`. Accepts Vercel Cron's bearer or a signed-in
   Helm session. **Fails closed** when `CRON_SECRET` is unset. Every cron route uses it.
