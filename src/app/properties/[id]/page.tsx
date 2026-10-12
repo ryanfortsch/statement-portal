@@ -83,6 +83,7 @@ import {
   type OnboardingDeriveContext,
 } from '@/lib/onboarding-catalog';
 import type { OwnerCard } from '@/app/properties/actions';
+import { roleForEmail } from '@/lib/helm-access';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -472,6 +473,9 @@ export default async function PropertyDetailPage({
     getFleetCoverage().then((r) => (r.ok ? r.data : null)).catch(() => null),
   ]);
   const myEmail = session?.user?.email ?? '';
+  // Owner money on this page (the fee, bank digits, owner emails, payouts,
+  // the contract) renders for owners only. Staff keep the operations.
+  const owner = roleForEmail(session?.user?.email) === 'owner';
 
   // PMS plumbing: who runs this home's calendar (properties.calendar_authority,
   // read off the select('*') row), plus the three Helm-native records the
@@ -516,6 +520,7 @@ export default async function PropertyDetailPage({
     });
   }
   if (
+    owner &&
     activeContract?.fee_pct != null &&
     p.management_fee_pct != null &&
     Number(p.management_fee_pct) !== Number(activeContract.fee_pct)
@@ -662,7 +667,9 @@ export default async function PropertyDetailPage({
   const statementsSummary =
     statements.length === 0
       ? 'no statements yet'
-      : `${formatMonth(statements[0].month)} · ${formatCurrency(statements[0].owner_payout)} payout`;
+      : owner
+        ? `${formatMonth(statements[0].month)} · ${formatCurrency(statements[0].owner_payout)} payout`
+        : `${formatMonth(statements[0].month)} closed`;
   const inspectionsSummary = (() => {
     if (recentInspections.length === 0) return 'no inspections yet';
     const last = recentInspections[0];
@@ -809,7 +816,7 @@ export default async function PropertyDetailPage({
         keyCodeLocation={p.key_code_location}
         ownerName={p.owner_full || p.owner_last}
         ownerPhone={p.owner_phone}
-        ownerEmail={p.owner_emails?.[0] ?? null}
+        ownerEmail={owner ? (p.owner_emails?.[0] ?? null) : null}
         ownerPreferredContact={p.owner_preferred_contact}
         openSlipCount={openSlips.length}
         lastInspectionAt={recentInspections[0]?.completed_at ?? recentInspections[0]?.started_at ?? null}
@@ -1692,18 +1699,20 @@ export default async function PropertyDetailPage({
             marginBottom: 18,
           }}
         >
-          <Stat label="Mgmt Fee" value={p.is_rising_tide_owned ? 'RT owned' : `${p.management_fee_pct}%`} />
+          {owner && <Stat label="Mgmt Fee" value={p.is_rising_tide_owned ? 'RT owned' : `${p.management_fee_pct}%`} />}
           <Stat
             label="Cleaning Est"
             value={p.cleaning_cost_estimate != null ? `$${p.cleaning_cost_estimate}` : 'Not set'}
             sub={p.cleaning_cost_estimate != null ? 'manual fallback' : undefined}
             href={`/properties/${p.id}/edit#cleaning`}
           />
-          <Stat
-            label="Bank"
-            value={p.bank_last4 ? `**${p.bank_last4}` : 'Not set'}
-            href={`/properties/${p.id}/edit#bank`}
-          />
+          {owner && (
+            <Stat
+              label="Bank"
+              value={p.bank_last4 ? `**${p.bank_last4}` : 'Not set'}
+              href={`/properties/${p.id}/edit#bank`}
+            />
+          )}
           <Stat label="Owner" value={p.owner_last || 'Not set'} last />
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
@@ -1727,6 +1736,7 @@ export default async function PropertyDetailPage({
           <Detail term="Owner" definition={p.owner_full} />
           <Detail term="Greeting" definition={p.owner_greeting} />
 
+          {owner && (
           <div>
             <dt className="eyebrow" style={{ marginBottom: 4 }}>Emails</dt>
             <dd className="font-mono" style={{ color: 'var(--ink)', fontSize: 12, margin: 0, lineHeight: 1.7 }}>
@@ -1743,6 +1753,7 @@ export default async function PropertyDetailPage({
               ))}
             </dd>
           </div>
+          )}
 
           <div>
             <dt className="eyebrow" style={{ marginBottom: 4 }}>Phone</dt>
@@ -1774,12 +1785,14 @@ export default async function PropertyDetailPage({
               <MarkContactedButton propertyId={p.id} />
             </dd>
           </div>
+          {owner && (
           <div>
             <dt className="eyebrow" style={{ marginBottom: 4 }}>Tax Cert ID</dt>
             <dd style={{ margin: 0 }}>
               <TaxCertEditor propertyId={p.id} initial={p.tax_cert_id} />
             </dd>
           </div>
+          )}
         </dl>
 
         {/* Also owns — other properties / open prospects under the same
@@ -1860,6 +1873,7 @@ export default async function PropertyDetailPage({
         {/* Public onboarding-form link. Lazily generated; once minted,
             the same URL backfills this property's operational columns
             from the owner's answers (utilities, access, emergency, etc.). */}
+        {owner && (
         <PropertyOnboardingLink
           propertyId={p.id}
           initialToken={p.onboarding_token}
@@ -1868,6 +1882,7 @@ export default async function PropertyDetailPage({
           ownerGreeting={p.owner_greeting ?? null}
           propertyName={p.name}
         />
+        )}
       </CollapsibleSection>
 
       {/* CONTACTS — folds the CRM into the property page. Every contact
@@ -1890,7 +1905,7 @@ export default async function PropertyDetailPage({
           the two arms of one ternary, so only ever one is in the DOM, and the
           deep links from /properties/contracts and the alert lane must land
           on whichever arm rendered. */}
-      {activeContract ? (
+      {owner && (activeContract ? (
         <CollapsibleSection
           id="management-agreement"
           title="Management Agreement"
@@ -2119,7 +2134,7 @@ export default async function PropertyDetailPage({
             </Link>
           </div>
         </CollapsibleSection>
-      )}
+      ))}
       {/* DOCUMENTS — folded into the same collapsible grammar as its
           neighbors; the upload form used to render permanently expanded
           even when nothing was filed. */}
@@ -2131,6 +2146,7 @@ export default async function PropertyDetailPage({
         <DocumentsPanel propertyId={p.id} documents={documents} />
       </CollapsibleSection>
       {/* RECENT STATEMENTS (Helm-native) */}
+      {owner && (
       <CollapsibleSection title="Recent Statements" summary={statementsSummary}>
         {statements.length === 0 ? (
           <div style={{ padding: '14px 0', color: 'var(--ink-3)', fontSize: 13 }}>
@@ -2172,6 +2188,7 @@ export default async function PropertyDetailPage({
           </div>
         )}
       </CollapsibleSection>
+      )}
 
         </TabSection>
 

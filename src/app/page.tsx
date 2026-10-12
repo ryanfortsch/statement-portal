@@ -19,6 +19,7 @@ import { OccupancyCalendar } from '@/components/OccupancyCalendar';
 import { CleaningsStrip } from '@/components/CleaningsStrip';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { ConciergeAlerts } from '@/components/ConciergeAlerts';
+import { isOwnerSession } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 // Today's signals read live from Supabase per request, so don't cache.
@@ -299,6 +300,9 @@ async function getHelmStats() {
 }
 
 export default async function HelmHome() {
+  // The headline payout tile is owner money. Staff get the other three
+  // signals and no tile that links to /revenue, which would bounce them.
+  const owner = await isOwnerSession();
   const ops = await loadHomeOps();
   const stats = await getDashboardStats(ops);
 
@@ -340,7 +344,7 @@ export default async function HelmHome() {
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: `repeat(${owner ? 4 : 3}, 1fr)`,
           }}
         >
           <Stat
@@ -386,11 +390,13 @@ export default async function HelmHome() {
             })()}
             href="/guests?days=30"
             size="hero"
+            last={!owner}
             accent={
               stats.reviews30dTotal > 0 &&
               stats.reviews30dFiveStar === stats.reviews30dTotal
             }
           />
+          {owner && (
           <Stat
             label={(() => {
               // Headline the current month's booked-so-far payout. A failed
@@ -428,6 +434,7 @@ export default async function HelmHome() {
             last
             accent
           />
+          )}
         </div>
       </section>
 

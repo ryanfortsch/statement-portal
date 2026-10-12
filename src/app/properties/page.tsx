@@ -9,6 +9,7 @@ import type { LaunchSummary } from '@/lib/launch-checklist';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
 import { PropertiesTabBar } from './PropertiesTabBar';
+import { isOwnerSession } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -63,6 +64,9 @@ async function getWorkCountsByProperty(): Promise<Record<string, WorkCounts>> {
 }
 
 export default async function PropertiesPage() {
+  // The fee percentage on each row is owner money; staff see the roster
+  // without it.
+  const owner = await isOwnerSession();
   // The Properties index is the managed roster + map. Its sibling route
   // /properties/prospects carries the deal funnel; the tab bar below
   // switches between the two real URLs.
@@ -159,6 +163,7 @@ export default async function PropertiesPage() {
                   number={String(i + 1).padStart(2, '0')}
                   workCounts={workCounts[p.id]}
                   launch={launchByProperty.get(p.id)?.summary}
+                  owner={owner}
                 />
               ))}
             </div>
@@ -175,6 +180,7 @@ export default async function PropertiesPage() {
                       property={p}
                       number={String(i + 1).padStart(2, '0')}
                       workCounts={workCounts[p.id]}
+                      owner={owner}
                       dimmed
                     />
                   ))}
@@ -195,9 +201,12 @@ function PropertyRow({
   number,
   workCounts,
   launch,
+  owner,
   dimmed = false,
 }: {
   property: HelmPropertyRow;
+  /** Owner session: the row shows the management fee. */
+  owner: boolean;
   number: string;
   workCounts?: WorkCounts;
   /** Undefined for anything not loaded (inactive, HQ, prospects) or on a
@@ -333,7 +342,7 @@ function PropertyRow({
             whiteSpace: 'nowrap',
           }}
         >
-          {p.is_active ? `${p.management_fee_pct}% →` : p.kind === 'hq' ? 'HQ' : p.kind === 'prospect' ? 'Prospect' : 'Inactive'}
+          {p.is_active ? (owner ? `${p.management_fee_pct}% →` : 'Managed →') : p.kind === 'hq' ? 'HQ' : p.kind === 'prospect' ? 'Prospect' : 'Inactive'}
         </span>
       </div>
     </Link>

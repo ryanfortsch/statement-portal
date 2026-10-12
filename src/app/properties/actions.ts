@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { put, del } from '@vercel/blob';
 import { auth } from '@/auth';
+import { roleForEmail } from '@/lib/helm-access';
 import { formatUsPhone } from '@/lib/phone';
 import { geocodeAddress } from '@/lib/geocode';
 import { upsertPropertyAccess, getPropertyAccess, ACCESS_COLUMNS, type PropertyAccess } from '@/lib/property-access';
@@ -116,7 +117,7 @@ export async function updateProperty(id: string, formData: FormData) {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
-  const result = await performPropertyUpdate(id, formData);
+  const result = await performPropertyUpdate(id, formData, { owner: roleForEmail(session.user.email) === 'owner' });
   if (result.error) throw new Error(result.error);
 
   redirect(`/properties/${id}?tab=facts`);
@@ -139,7 +140,7 @@ export async function updatePropertyWithState(
   const session = await auth();
   if (!session?.user?.email) return { error: 'Not signed in. Refresh and sign in again.' };
 
-  const result = await performPropertyUpdate(id, formData);
+  const result = await performPropertyUpdate(id, formData, { owner: roleForEmail(session.user.email) === 'owner' });
   if (result.error) return { error: result.error };
 
   // Land back on the tab the operator came from (the onboarding hub's
@@ -157,11 +158,16 @@ export async function updatePropertyWithState(
 async function performPropertyUpdate(
   id: string,
   formData: FormData,
+  // Owner session or not. The statement send list (owner_emails) and the
+  // bank digits are owner fields: the edit form leaves them out for staff,
+  // and a staff save must leave the columns exactly as they are, because
+  // an absent field would otherwise read as "clear it".
+  opts: { owner: boolean },
 ): Promise<{ error: string | null }> {
   // Bank account last 4: optional, but if present must be exactly 4 digits
   // (it keys the statement bank-matching). Empty clears the field.
   const bankDigits = String(formData.get('bank_last4') ?? '').replace(/\D/g, '');
-  if (bankDigits && bankDigits.length !== 4) {
+  if (opts.owner && bankDigits && bankDigits.length !== 4) {
     return { error: 'Bank account last 4 must be exactly 4 digits.' };
   }
 
@@ -287,11 +293,19 @@ async function performPropertyUpdate(
   // and it flows into the messaging pipeline" work.
   const { data: currentRow, error: readErr } = await sb
     .from('properties')
-    .select('owners')
+    .select('owners, owner_emails, bank_last4')
     .eq('id', id)
     .maybeSingle();
   if (readErr) {
     console.error('[updateProperty] read-before-merge failed', { id, readErr });
+  }
+  if (!opts.owner) {
+    // Staff save: the owner fields stay what the row already holds. A
+    // failed read-before-merge would make that "unknown", so refuse rather
+    // than write an empty send list.
+    if (readErr || !currentRow) return { error: 'Could not read the property before saving. Try again.' };
+    payload.owner_emails = ((currentRow as { owner_emails?: string[] | null }).owner_emails ?? []) as string[];
+    payload.bank_last4 = ((currentRow as { bank_last4?: string | null }).bank_last4 ?? null) as string | null;
   }
   const mergedOwners = mergePrimaryOwnerFromScalars(currentRow?.owners, {
     owner_full: payload.owner_full,

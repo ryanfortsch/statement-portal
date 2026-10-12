@@ -146,6 +146,7 @@ async function dashboard({ dbError = null, reviewError = false } = {}) {
   const mocks = {
     'next/link': { default: link, __esModule: true }, '@/lib/recovery': { availableCount },
     '@/lib/supabase-admin': { supabaseAdmin: { from: () => chain }, isServiceConfigured: true },
+    '@/lib/helm-access-server': { isOwnerSession: async () => true },
     '@/components/Stat': { Stat }, '@/components/RetryDashboard': { RetryDashboard: () => React.createElement('button', null, 'Retry unavailable data') },
     '@/lib/revenue-date-range': { computeDateRange: () => ({ rangeStart: '', rangeEnd: '' }) },
     '@/lib/revenue-snapshot': { computeRevenueSnapshot: async () => ({ portfolio: { totalPayout: 0 } }) },
