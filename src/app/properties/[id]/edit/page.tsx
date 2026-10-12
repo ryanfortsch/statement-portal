@@ -7,6 +7,7 @@ import { updatePropertyWithState } from '@/app/properties/actions';
 import { EditFormShell } from './EditFormShell';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { formatUsPhone } from '@/lib/phone';
+import { isOwnerSession } from '@/lib/helm-access-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +52,11 @@ export default async function PropertyEditPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
+  // The statement send list and the bank digits are owner fields. The form
+  // leaves them out for staff, and performPropertyUpdate leaves the columns
+  // untouched for a staff save (an absent field must never clear them).
+  const owner = await isOwnerSession();
+
   // Deep links from the Setup tab carry ?return=setup so the save redirect
   // lands back on that tab. Threaded through the form as a hidden
   // input; the action allowlists the value.
@@ -91,7 +97,9 @@ export default async function PropertyEditPage({
             <Field name="owner_full" label="Owner name" defaultValue={p.owner_full} hint="As it should read on the statement — e.g. Khristin Lambert-Vorais" />
             <Field name="owner_greeting" label="Greeting" defaultValue={p.owner_greeting} hint="First name(s) for emails — e.g. Khristin and Carol Ann" />
           </Row>
-          <Field name="owner_emails" label="Owner emails" defaultValue={p.owner_emails.join(', ')} hint="Comma-separated. Everyone here gets the monthly statement." />
+          {owner && (
+            <Field name="owner_emails" label="Owner emails" defaultValue={p.owner_emails.join(', ')} hint="Comma-separated. Everyone here gets the monthly statement." />
+          )}
           <Row>
             <Field name="owner_phone" label="Owner phone" type="tel" defaultValue={formatUsPhone(p.owner_phone)} hint="(781) 223-1091" />
             <Field name="owner_preferred_contact" label="Preferred contact" defaultValue={p.owner_preferred_contact} hint="email / phone / text" />
@@ -320,14 +328,16 @@ export default async function PropertyEditPage({
 
         {/* ── Billing ── */}
         <Group eyebrow="09" id="billing" title="Billing">
-          <Field
-            name="bank_last4"
-            label="Bank account last 4"
-            defaultValue={p.bank_last4}
-            id="bank"
-            maxLength={4}
-            hint="Last 4 digits of the account that receives this property's deposits. Used to match Chase deposits on the monthly statement."
-          />
+          {owner && (
+            <Field
+              name="bank_last4"
+              label="Bank account last 4"
+              defaultValue={p.bank_last4}
+              id="bank"
+              maxLength={4}
+              hint="Last 4 digits of the account that receives this property's deposits. Used to match Chase deposits on the monthly statement."
+            />
+          )}
           <Field
             name="cleaning_cost_estimate"
             label="Cleaning cost estimate"

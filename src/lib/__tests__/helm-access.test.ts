@@ -211,6 +211,28 @@ describe('the money server actions refuse a staff session', () => {
     });
   }
 
+  test('owner money on the pages staff keep renders for owners only', () => {
+    // The home payout tile, the fee on the properties list, and the fee /
+    // bank / owner emails / payouts / contract on a property page.
+    const home = read('src/app/page.tsx');
+    assert.ok(home.includes('const owner = await isOwnerSession();'), 'home page must know the role');
+    assert.ok(home.includes('`repeat(${owner ? 4 : 3}, 1fr)`'), 'the signals strip drops the payout tile for staff');
+    const list = read('src/app/properties/page.tsx');
+    assert.ok(list.includes("owner ? `${p.management_fee_pct}% →` : 'Managed →'"), 'the properties list hides the fee from staff');
+    const page = read('src/app/properties/[id]/page.tsx');
+    assert.ok(page.includes("const owner = roleForEmail(session?.user?.email) === 'owner';"));
+    assert.ok(page.includes('{owner && <Stat label="Mgmt Fee"'), 'the Mgmt Fee stat is owners only');
+    assert.ok(/\{owner && \(\n\s*<CollapsibleSection title="Recent Statements"/.test(page), 'the statements section is owners only');
+    assert.ok(page.includes('{owner && (activeContract ? ('), 'the contract section is owners only');
+    assert.ok(page.includes("ownerEmail={owner ? (p.owner_emails?.[0] ?? null) : null}"));
+    const edit = read('src/app/properties/[id]/edit/page.tsx');
+    assert.ok(/\{owner && \(\n\s*<Field name="owner_emails"/.test(edit), 'the send list field is owners only');
+    assert.ok(/\{owner && \(\n\s*<Field\n\s*name="bank_last4"/.test(edit), 'the bank field is owners only');
+    const actions = read('src/app/properties/actions.ts');
+    assert.ok(actions.includes('if (!opts.owner) {'), 'a staff save must not touch the owner columns');
+    assert.ok(actions.includes("performPropertyUpdate(id, formData, { owner: roleForEmail(session.user.email) === 'owner' })"));
+  });
+
   test('the pure helper never pulls Auth.js into the proxy or client bundles', () => {
     const src = read('src/lib/helm-access.ts');
     assert.ok(!src.includes("from '@/auth'"), 'helm-access.ts must stay pure');
