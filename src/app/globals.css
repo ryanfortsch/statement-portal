@@ -180,6 +180,12 @@ body { font-family: var(--font-inter), system-ui, sans-serif; -webkit-font-smoot
   visibility: visible;
   opacity: 1;
 }
+/* A pinned (sticky) label cell is its own layer, so without this the next
+   row's label paints over an open popover. */
+td:has(.rt-info-icon:hover),
+td:has(.rt-info-icon:focus-within) {
+  z-index: 3;
+}
 
 /* ─── Operations: dense turnover ledger (CompactTurnoverRow) ─────────────
    One ~38px line per turnover so a dozen-plus fit in one field of view.

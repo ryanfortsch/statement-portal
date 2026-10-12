@@ -529,7 +529,13 @@ function SmartForecastPanel({
         <tbody>
           {/* Pacing row — portfolio-level current vs historical. */}
           <tr style={{ background: 'rgba(58, 107, 74, 0.04)' }}>
-            <td style={labelCellStyle({ fontWeight: 600, color: 'var(--ink-2)' })}>
+            <td
+              style={labelCellStyle({
+                fontWeight: 600,
+                color: 'var(--ink-2)',
+                background: onPaper('rgba(58, 107, 74, 0.04)'),
+              })}
+            >
               Portfolio pacing
             </td>
             <td style={cellStyle({ color: 'var(--ink-4)' })}>—</td>
@@ -575,7 +581,13 @@ function SmartForecastPanel({
           />
           {data.properties.map((p) => (
             <tr key={`fee-${p.property.id}`} style={{ background: 'rgba(58, 107, 74, 0.03)' }}>
-              <td style={labelCellStyle({ color: 'var(--ink-2)', fontWeight: 500 })}>
+              <td
+                style={labelCellStyle({
+                  color: 'var(--ink-2)',
+                  fontWeight: 500,
+                  background: onPaper('rgba(58, 107, 74, 0.03)'),
+                })}
+              >
                 {p.property.name}
                 {p.annualBasis === 'statements' && (
                   <span
@@ -1717,6 +1729,7 @@ function Th({
         textTransform: 'uppercase',
         whiteSpace: 'nowrap',
         width: first ? 220 : 'auto',
+        ...(first ? { position: 'sticky', left: 0 } : null),
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
@@ -1758,7 +1771,7 @@ function SubsectionRow({ label }: { label: string }) {
           borderTop: '1px dotted var(--rule)',
         }}
       >
-        {label}
+        <span style={{ position: 'sticky', left: 22, display: 'inline-block' }}>{label}</span>
       </td>
     </tr>
   );
@@ -1812,6 +1825,7 @@ function SectionRow({ label, tag }: { label: string; tag?: string }) {
           borderBottom: '1px solid var(--rule)',
         }}
       >
+        <span style={{ position: 'sticky', left: 12, display: 'inline-block' }}>
         {label}
         {tag && (
           <span
@@ -1828,6 +1842,7 @@ function SectionRow({ label, tag }: { label: string; tag?: string }) {
             {tag}
           </span>
         )}
+        </span>
       </td>
     </tr>
   );
@@ -1855,8 +1870,25 @@ function labelCellStyle(extra?: React.CSSProperties): React.CSSProperties {
     fontSize: 11.5,
     color: 'var(--ink-3)',
     whiteSpace: 'nowrap',
+    ...stickyLabelColumn,
     ...extra,
   };
+}
+
+/**
+ * The row label stays pinned while the months scroll under it. The cell has
+ * to be opaque or the figures show through, so a row that carries a tint
+ * passes `background: onPaper(tint)` to keep its wash on the label too.
+ */
+const stickyLabelColumn: React.CSSProperties = {
+  position: 'sticky',
+  left: 0,
+  background: 'var(--paper)',
+  boxShadow: 'inset -1px 0 0 var(--rule)',
+};
+
+function onPaper(tint: string): string {
+  return `linear-gradient(${tint}, ${tint}), var(--paper)`;
 }
 
 function DataRow({
@@ -1877,7 +1909,12 @@ function DataRow({
   const rowBg = highlight ? 'rgba(200, 90, 58, 0.04)' : dim ? 'rgba(255, 252, 235, 0.5)' : 'transparent';
   return (
     <tr style={{ background: rowBg }}>
-      <td style={labelCellStyle({ color: dim ? 'var(--ink-3)' : 'var(--ink-2)' })}>
+      <td
+        style={labelCellStyle({
+          color: dim ? 'var(--ink-3)' : 'var(--ink-2)',
+          ...(rowBg !== 'transparent' ? { background: onPaper(rowBg) } : null),
+        })}
+      >
         {label}
         {info && <InfoIcon text={info} />}
       </td>
@@ -1956,7 +1993,15 @@ function SubtotalRow({
 }) {
   return (
     <tr style={{ background: 'rgba(138, 58, 46, 0.04)' }}>
-      <td style={labelCellStyle({ fontWeight: 600, color: 'var(--ink)' })}>{label}</td>
+      <td
+        style={labelCellStyle({
+          fontWeight: 600,
+          color: 'var(--ink)',
+          background: onPaper('rgba(138, 58, 46, 0.04)'),
+        })}
+      >
+        {label}
+      </td>
       {values.map((v, i) => (
         <td key={i} style={cellStyle({ color: 'var(--ink)' })}>
           {fmtNum(v)}
