@@ -55,3 +55,40 @@ live delivery test is included in this step.
 Continues owned branch `codex/channex-staging-pilot` from `2c715dba`.
 Remote main observed before work: `c5f220028cc11deeb8f109fd44e418a6e0ab5ad5`.
 This change does not merge the pilot into main.
+
+## First live UI evidence review, October 13
+
+Read-only review of the next Calderwood stay was authorized by the user's reply
+following the proposed sent/queued evidence check. No message bodies, guest names,
+reservation IDs or contact details are retained here or in fixtures.
+
+The reservation's **Guest auto messages** panel showed one completed confirmation
+in History and three enabled scheduled guest messages. Their displayed offsets
+matched the rehearsal: check-in instructions one day before arrival at 4 PM,
+key code on arrival day at 3 PM, checkout reminder one day before departure at
+11 AM. These are observations for the sampled standard-time stay, not proof of
+all reservations or delivery across every channel.
+
+The panel also displayed explicit expiry timestamps. Handoff evidence now
+preserves a source expiry and refuses a candidate when expiry is missing,
+invalid, passed, or no later than the proposed send. Do not infer every workflow's
+expiry from this single stay or replace it with a hardcoded window.
+
+Cleaner evidence remains incomplete. The guest panel does not include the two
+cleaner SMS workflows. The inbox's Scheduled messages page showed no scheduled
+messages despite the three automation rows above, so that page cannot be used as
+proof of an empty automation queue. The cleaner workflow Activity Log showed
+configuration edits, not reservation delivery records. Neither observation proves
+cleaner SMS sent/queued state.
+
+Therefore the combined snapshot is incomplete, Guesty remains the sender, and
+all six automated handoff decisions remain review-only. The human review has
+verified four guest-message states; the two cleaner-message states are unknown.
+No live API adapter, persistent evidence import or sender cutover was performed.
+Next: locate reservation-specific third-party SMS sent/queue evidence, then build
+the adapter against an authoritative source with completeness and expiry fields.
+
+Validation after expiry protection: 1,884 tests passed, including a synthetic
+partial guest-only snapshot that cannot produce a takeover candidate. The test
+uses fictional dates and identities, not the customer's reservation. TypeScript,
+targeted ESLint and diff checks passed before commit.

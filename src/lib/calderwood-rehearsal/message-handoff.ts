@@ -14,6 +14,8 @@ export type HandoffEvidence = {
     sent: boolean;
     queued: boolean;
     uncertain: boolean;
+    /** Verified source expiry; missing expiry blocks a takeover candidate. */
+    expiresAt?: string;
   }>>;
 };
 export type HandoffInput = {
@@ -69,11 +71,15 @@ export function calderwoodMessageHandoff(input: HandoffInput) {
         reason = 'No queued copy observed, but Guesty may still schedule or send. Verify sender stop first.';
       } else if (!row.fireAt || Date.parse(row.fireAt) <= now || row.status !== 'planned') {
         reason = 'Missing, due or overdue time. Review without automatic catch-up.';
+      } else if (!message.expiresAt || !Number.isFinite(timestamp(message.expiresAt))
+          || timestamp(message.expiresAt) <= now
+          || timestamp(message.expiresAt) <= Date.parse(row.fireAt)) {
+        reason = 'Source expiry is missing, invalid or already reached before the proposed send. Review required.';
       } else {
         disposition = 'candidate';
         reason = 'Future unsent message with source sender stopped. Candidate for a separate activation review only.';
       }
     }
-    return { key: row.key, fireAt: row.fireAt, disposition, reason, canSend: false as const };
+    return { key: row.key, fireAt: row.fireAt, expiresAt: message?.expiresAt ?? null, disposition, reason, canSend: false as const };
   });
 }

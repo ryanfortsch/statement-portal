@@ -6,7 +6,7 @@ function fixture(): HandoffInput {
   return {
     reservationId: 'fictional-stay', revision: 'v1', maxEvidenceAgeMs: 300_000,
     schedule: { checkIn: '2027-01-15', checkOut: '2027-01-18', confirmationAt: '2027-01-01T15:00:00Z', now: new Date('2027-01-01T15:00:00Z'), status: 'confirmed' },
-    evidence: { reservationId: 'fictional-stay', revision: 'v1', observedAt: '2027-01-01T15:00:00Z', complete: true, senderStoppedAt: '2027-01-01T14:59:00Z', messages: Object.fromEntries(CALDERWOOD_MESSAGE_KEYS.map(key => [key, { sent: false, queued: false, uncertain: false }])) },
+    evidence: { reservationId: 'fictional-stay', revision: 'v1', observedAt: '2027-01-01T15:00:00Z', complete: true, senderStoppedAt: '2027-01-01T14:59:00Z', messages: Object.fromEntries(CALDERWOOD_MESSAGE_KEYS.map(key => [key, { sent: false, queued: false, uncertain: false, expiresAt: '2027-01-25T16:00:00Z' }])) },
   };
 }
 const row = (input: HandoffInput) => calderwoodMessageHandoff(input).find(row => row.key === 'key_code')!;
@@ -64,4 +64,21 @@ test('due and overdue messages never become automatic catch-up candidates', () =
 test('invalid identity and freshness policy rejected', () => {
   assert.throws(() => calderwoodMessageHandoff({ ...fixture(), reservationId: '' }));
   assert.throws(() => calderwoodMessageHandoff({ ...fixture(), maxEvidenceAgeMs: NaN }));
+});
+
+test('takeover candidates preserve verified expiry and refuse missing or invalid expiry', () => {
+  for (const expiresAt of [undefined, 'invalid', '2027-01-25T16:00:00', '2027-01-01T15:00:00Z', '2027-01-15T20:00:00Z']) {
+    const input = fixture(); input.evidence!.messages.key_code!.expiresAt = expiresAt;
+    assert.equal(row(input).disposition, 'review');
+  }
+  assert.equal(row(fixture()).expiresAt, '2027-01-25T16:00:00Z');
+});
+test('guest-only evidence never presents the full handoff as ready', () => {
+  const input = fixture(); input.evidence!.complete = false;
+  input.evidence!.senderStoppedAt = null;
+  input.evidence!.messages.confirmation!.sent = true;
+  for (const key of ['pre_arrival', 'key_code', 'pre_checkout'] as const) input.evidence!.messages[key]!.queued = true;
+  delete input.evidence!.messages.cleaner_reminder;
+  delete input.evidence!.messages.cleaner_arrival;
+  assert.ok(calderwoodMessageHandoff(input).every(r => r.disposition === 'review' && !r.canSend));
 });
