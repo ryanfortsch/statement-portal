@@ -59,6 +59,20 @@ export const TEAM_MEMBERS: TeamMember[] = [
     access: 'owner',
     active: true,
   },
+  // Operations Manager from 2026-11-01. Staff access: operations, not
+  // money (see helm-access.ts). Listed ahead of her Workspace seat so an
+  // assignment made today resolves to her name the day she signs in. Her
+  // contractor record (delaneyjordan@outlook.com) stays on the Field
+  // roster for the history behind it, flagged employee on her start date.
+  {
+    email: 'delaney@risingtidestr.com',
+    name: 'Delaney Jordan',
+    short: 'Delaney',
+    initials: 'DJ',
+    role: 'operations',
+    access: 'staff',
+    active: true,
+  },
 ];
 
 export function getTeamMember(email: string | null | undefined): TeamMember | null {

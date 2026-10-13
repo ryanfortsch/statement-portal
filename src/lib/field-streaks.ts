@@ -100,6 +100,16 @@ export async function maybeAwardStreakBonus(packetId: string): Promise<StreakAwa
   } | null;
   if (!packet || packet.status !== 'submitted' || !packet.awarded_contractor_id) return null;
 
+  // A streak bonus is a contractor instrument. An employee on salary never
+  // earns one, even on a packet awarded before the conversion and submitted
+  // after it, and even via the record-a-past-visit path.
+  const { data: cData } = await fieldDb()
+    .from('contractors')
+    .select('employment_status')
+    .eq('id', packet.awarded_contractor_id)
+    .maybeSingle();
+  if ((cData as { employment_status?: string } | null)?.employment_status === 'employee') return null;
+
   const days = await workedDays(packet.awarded_contractor_id);
   const streak = runEndingAt(days, packet.visit_date);
   if (streak < 5) return null;

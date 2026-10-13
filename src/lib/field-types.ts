@@ -137,6 +137,11 @@ export type ContractorRow = {
   // Office-granted access to the property-work board (reveals the full
   // portfolio, so it's explicit per-contractor approval; default false).
   work_board_access: boolean;
+  // 'employee' = on payroll. The record stays (slips, history, the work
+  // board), but canClaim() is false for good: no awarded or claimed paid
+  // packet, no "new work near you" text, no streak bonus. Each of those
+  // would be a second payment on top of a salary. Default 'contractor'.
+  employment_status: 'contractor' | 'employee';
   payment_method: string | null;
   payment_hint: string | null;
   vendor_key: string | null;
@@ -157,9 +162,17 @@ export function onboardingComplete(c: Pick<ContractorRow, 'status' | 'agreement_
  *  'pending' (running) unlocks claiming so a contractor can start while it
  *  completes; 'cleared' keeps them unlocked; 'not_started' and 'failed' do not.
  *  (They enter owners' homes, so a not-yet-started or failed check still gates.) */
+/** On payroll: never a paid packet. Tolerates rows read before the column
+ *  existed (undefined reads as contractor). */
+export function isEmployee(c: Partial<Pick<ContractorRow, 'employment_status'>>): boolean {
+  return c.employment_status === 'employee';
+}
+
 export function canClaim(
-  c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file' | 'background_check_status'>,
+  c: Pick<ContractorRow, 'status' | 'agreement_signed_at' | 'w9_on_file' | 'background_check_status'> &
+    Partial<Pick<ContractorRow, 'employment_status'>>,
 ): boolean {
+  if (isEmployee(c)) return false;
   return onboardingComplete(c) && (c.background_check_status === 'cleared' || c.background_check_status === 'pending');
 }
 

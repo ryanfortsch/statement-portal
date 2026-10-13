@@ -8,7 +8,7 @@ import { getContractorPayStats, getContractorReliability, loadApplications } fro
 import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
-import { dollars, parseTrade, TRADE_META, type ContractorRow } from '@/lib/field-types';
+import { dollars, parseTrade, isEmployee, TRADE_META, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import { loadRateCards, type RateCard } from '@/lib/creative-rates';
 import { isOwnerSession } from '@/lib/helm-access-server';
@@ -19,7 +19,7 @@ import { RevealPay } from './RevealPay';
 import { RateCardPanel, TalentRateStrip, rateCardSummary } from './RateCardPanel';
 import {
   inviteContractor,
-  setContractorW9, setContractorWorkBoard,
+  setContractorW9, setContractorWorkBoard, setContractorEmployment,
   setContractorBackgroundCheck,
   markContractorPaid,
   setContractorStatus,
@@ -402,6 +402,7 @@ function ContractorCard({
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+          {isEmployee(c) && <Pill label="Employee" color="var(--tide-deep)" />}
           <Pill label={STATUS_LABEL[c.status] ?? c.status} color={STATUS_TINT[c.status] ?? 'var(--ink-4)'} />
           <Pill label={`Check: ${BG_LABEL[c.background_check_status] ?? c.background_check_status}`} color={BG_TINT[c.background_check_status] ?? 'var(--ink-4)'} />
           <span aria-hidden style={{ fontSize: 11, color: 'var(--ink-4)' }}>&#9662;</span>
@@ -416,7 +417,8 @@ function ContractorCard({
           <span>&#9733; {rating.rated && rating.avg != null ? rating.avg.toFixed(2) : '\u2014'} <span style={{ color: 'var(--ink-4)' }}>({rating.count})</span></span>
         )}
         {!isCreative && rel && <span style={{ color: TIER_TINT[rel.tier] }}>{TIER_LABEL[rel.tier]}{rel.score != null ? ` \u00b7 ${rel.score}` : ''}</span>}
-        {!w9OnFile && c.status === 'active' && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>W-9 needed</span>}
+        {!w9OnFile && c.status === 'active' && !isEmployee(c) && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>W-9 needed</span>}
+        {isEmployee(c) && <span>On payroll · no paid packets</span>}
       </div>
       </summary>
 
@@ -582,6 +584,13 @@ function ContractorCard({
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="active" />
               <SubmitButton label="Reactivate" busyLabel="Reactivating…" style={actBtn} spinnerTone="ink" />
+            </form>
+          )}
+          {owner && (
+            <form action={setContractorEmployment} style={{ margin: 0 }} title={isEmployee(c) ? 'Back to a 1099 contractor: paid packets, new-work texts and streak bonuses resume.' : 'On payroll: the record and the work board stay, but no paid packet, new-work text or streak bonus from here on. Approve and pay anything outstanding first.'}>
+              <input type="hidden" name="contractor_id" value={c.id} />
+              <input type="hidden" name="employment_status" value={isEmployee(c) ? 'contractor' : 'employee'} />
+              <SubmitButton label={isEmployee(c) ? 'Mark contractor' : 'Mark employee'} busyLabel="Saving…" style={isEmployee(c) ? { ...actBtn, color: 'var(--tide-deep)', borderColor: 'var(--tide-deep)' } : actBtn} spinnerTone="ink" />
             </form>
           )}
           {owner && (

@@ -264,6 +264,10 @@ is the broader unified outbound log.
 
 `contractor_sessions` + `contractors`: the Field external contractor
 portal (`/field`). Token-gated, NOT Helm-SSO gated. Service-role only.
+`contractors.employment_status` ('contractor' | 'employee', default
+'contractor') marks a record whose person moved to payroll: the row and
+its history stay, but `canClaim()` is false for good, so no paid packet,
+no "new work" text and no streak bonus. Flipped by an owner on the roster.
 
 `trade_vendors` is deliberately NOT `contractors`. A contractor is a
 person we onboard onto the portal: portal token, W-9, background check,
