@@ -61,7 +61,7 @@ export const ACTUALS_TRAILING_12MO: ExpenseLine[] = [
     label: 'Payroll (Gusto NET + TAX)',
     total12mo: -11768.19,
     avgMonthly: -980.68,
-    note: 'Bi-weekly Gusto runs. Wound down through 2026 - the field bench moved to direct Zelle and the Chase payroll rail instead, which is why the contractor lines below exist.',
+    note: 'Bi-weekly Gusto runs. Wound down through 2026 - the field bench moved to direct Zelle and the Chase payroll rail instead, which is why the contractor lines below exist. Resumes 2026-11-01: the operations manager is on W-2 and her runs land here again.',
     inScope: true,
   },
   {
@@ -307,6 +307,8 @@ export type MonthlyActual = {
   exp_bank: number;
   exp_cc_ops: number;
   exp_contractors: number;
+  /** Gusto NET + TAX + FEE, and anyone on W-2 from their start date. */
+  exp_payroll: number;
   exp_onboard_presigned: number;
   exp_onboard_new: number;
   /**
@@ -330,6 +332,7 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 0, // $1,208.78 deposit return is a wash, not a fee
     exp_cc_ops: 3054.42, // CC payment only
     exp_contractors: 1410.00, // Mark Bell
+    exp_payroll: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },
@@ -344,6 +347,7 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 0,
     exp_cc_ops: 3411.32, // CC payment only
     exp_contractors: 150.00, // Mateo
+    exp_payroll: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },
@@ -358,6 +362,7 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 0,
     exp_cc_ops: 6637.24, // CC $6,597.24 + Allie $40.00
     exp_contractors: 0,
+    exp_payroll: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },
@@ -372,6 +377,7 @@ export const ACTUALS_2026: MonthlyActual[] = [
     exp_bank: 30.00, // Stop payment fee
     exp_cc_ops: 8040.00, // CC $8,000 + Allie $40
     exp_contractors: 250.00, // Ian Drometer
+    exp_payroll: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   },

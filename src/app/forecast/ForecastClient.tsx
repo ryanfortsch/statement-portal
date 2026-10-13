@@ -1050,8 +1050,8 @@ const sections2026: AssumptionSection[] = [
       { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,420 in July and $3,804 in August, on Anthropic API credits the operator ruled a one-off.' },
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave plus $50/mo dumpster, from March 2026 when the lease began.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
-      { label: 'Contractors', value: 'The 1099 bench, paid direct from the operating account. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, from July 2026. Creative work (Cooper) $1,300/mo per 16 homes, scaled to the live fleet, from July 2026. Everyone else $250/mo blended. The whole bench ran $8,288/mo over July 1 to August 25, 2026.' },
-      { label: 'Salaried hire', value: 'None, in 2026 or any later year. The August 2026 hire in the plan became the contractor bench instead, and the count-triggered second hire was dropped on 2026-09-06: people cost scales linearly with the fleet through the bench, about $3,340 per home per year.' },
+      { label: 'Contractors', value: 'The 1099 bench, paid direct from the operating account. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Creative work (Cooper) $1,300/mo per 16 homes, scaled to the live fleet, from July 2026. Everyone else $250/mo blended. The whole bench ran $8,288/mo over July 1 to August 25, 2026.' },
+      { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $65,000 a year: about $6,226 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder pending the Wister quote, the $55 Gusto fee, the $50 phone allowance), flat. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
     ],
   },
   {
@@ -1088,8 +1088,8 @@ const sections2027: AssumptionSection[] = [
       { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
       { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
       { label: 'Bank fees', value: '$10/mo.' },
-      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count, all year. Creative $1,300/mo per 16 homes, scaled the same way. Everyone else $250/mo. That is the whole people line, about $3,340 per home per year.' },
-      { label: 'Salaried hire', value: 'None. Dropped 2026-09-06: the $5,000/mo January hire and the second hire at 20 homes were planning steps, not bank facts, and the step made whichever home landed on 20 read as a loss. People cost now scales linearly with the fleet through the bench, which is what Rising Tide actually pays.' },
+      { label: 'Contractors', value: 'Creative $1,300/mo per 16 homes, scaled to the live count, plus $250/mo for everyone else. Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
+      { label: 'Operations manager', value: '$65,000 a year, about $6,226 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder, the $55 Gusto fee, the $50 phone allowance), flat all year. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
     ],
   },
   {
@@ -1125,8 +1125,8 @@ const sections2028: AssumptionSection[] = [
       { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed.' },
       { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
       { label: 'Bank fees', value: '$10/mo.' },
-      { label: 'Contractors', value: 'Field labor $33,700 a year per 16 homes on Cape Ann seasonality, scaled to the live count. Creative $1,300/mo per 16 homes, scaled the same way. Everyone else $250/mo. The whole people line, about $3,340 per home per year.' },
-      { label: 'Salaried hire', value: 'None. People cost scales linearly with the fleet through the bench (decided 2026-09-06).' },
+      { label: 'Contractors', value: 'Creative $1,300/mo per 16 homes, scaled to the live count, plus $250/mo for everyone else. Field labor is the operations manager\'s salary, not the bench.' },
+      { label: 'Operations manager', value: '$65,000 a year, about $6,226 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
     ],
   },
   {
@@ -1474,7 +1474,7 @@ function KpiStrip({
       <KpiCell
         label="Total expenses"
         value={fmtDollar(totals.exp_total)}
-        sub="Corp + office + bench"
+        sub="Corp + office + people"
         last
       />
       <KpiCell
@@ -1666,10 +1666,16 @@ function ForecastTable({
 
         <SubsectionRow label="People" />
         <DataRow
-          label="Contractors & payroll"
-          info="Everyone RT pays to do the work. The whole people line: there is no salaried hire in any year (dropped 2026-09-06; the count-triggered second hire made whichever home landed on 20 read as a loss). The bench is paid straight out of Chase ...5130 by Zelle and the Chase payroll rail. Delaney Jordan's field labor started 2026-07-07 and is paid per job, clustered on checkout days, so it rides the seasonality curve and scales with the fleet. Cooper's creative work is $1,300/mo per 16 homes from 2026-07-29, scaled the same way. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The bench ran $8,288/mo across July and August 2026, about $3,340 per home per year."
+          label="Contractors"
+          info="The 1099 bench, paid straight out of Chase ...5130 by Zelle and the Chase payroll rail. Delaney Jordan's field labor ran per job from 2026-07-07, clustered on checkout days, so it rode the seasonality curve and scaled with the fleet; it ends in October 2026, when she joins payroll (the row below). Cooper's creative work is $1,300/mo per 16 homes from 2026-07-29, scaled to the live fleet. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The bench ran $8,288/mo across July and August 2026."
           values={monthly.map((r) => r.exp_contractors)}
           fy={monthly.reduce((a, r) => a + r.exp_contractors, 0)}
+        />
+        <DataRow
+          label="Operations manager"
+          info="The one salaried hire, dated: Delaney Jordan moves from the bench to W-2 on 2026-11-01 at $65,000 a year. Projected months carry $5,417 of salary plus 9% payroll taxes, a 4% workers comp placeholder until the Wister quote lands, the $55 Gusto fee and the $50 phone allowance, about $6,226 a month, flat; it does not scale with the fleet. Mileage and summer overtime are not projected. ACT months read the Gusto debits (net pay, taxes and the fee) from the operating account. $0 before November 2026."
+          values={monthly.map((r) => r.exp_payroll)}
+          fy={monthly.reduce((a, r) => a + r.exp_payroll, 0)}
         />
 
         <SubsectionRow label="Periodic & wind-down" />

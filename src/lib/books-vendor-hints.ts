@@ -169,8 +169,13 @@ export const VENDOR_HINTS: VendorHint[] = [
   // ── Payroll / payments ──────────────────────────────────────────────
   {
     matcher: 'gusto',
-    rule: 'Gusto payroll service fee -> payroll_service_fee.',
-    default_category: 'payroll_service_fee',
+    rule: 'Gusto debits name their kind in CO ENTRY DESCR: NET is the employees\' direct deposit -> wages; TAX is the withheld plus employer payroll taxes -> payroll_taxes; FEE is the platform subscription -> payroll_service_fee. W-2 payroll ran Mar-Oct 2025 and resumes 2026-11-01 with the operations manager.',
+    default_category: 'wages',
+  },
+  {
+    matcher: 'delaney',
+    rule: 'Delaney Jordan: Zelle payments dated through 2026-10-31 are 1099 field labor -> contract_labor. From 2026-11-01 she is a W-2 employee paid through Gusto, so a direct payment to her on or after that date is wages (an off-cycle payment or a reimbursement), never contract_labor, and those payments are not 1099 candidates.',
+    default_category: 'contract_labor',
   },
 
   // ── Travel ──────────────────────────────────────────────────────────

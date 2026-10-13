@@ -264,7 +264,7 @@ export default async function CostAnalysisPage() {
             </div>
             <Vendor1099Table rows={report1099.rows} />
             <div style={{ marginTop: 14, padding: '10px 14px', borderLeft: '2px solid var(--rule)', background: 'var(--paper-2)', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-              <strong style={{ color: 'var(--ink-2)' }}>How this works:</strong> totals roll up YTD payments across <em>cleaning_events</em>, <em>repair_events</em>, and <em>overhead_expenses</em>. The W9 document itself stays in QuickBooks under the vendor record &mdash; tick the box here once you&apos;ve confirmed it&apos;s on file. Corporations don&apos;t actually need a 1099 (W9 entity type tells you), so &ldquo;candidate&rdquo; means &ldquo;over the threshold; verify W9 + entity type, then act.&rdquo;
+              <strong style={{ color: 'var(--ink-2)' }}>How this works:</strong> totals roll up YTD payments across <em>cleaning_events</em>, <em>repair_events</em>, and <em>overhead_expenses</em>. Payroll rows are left out (Gusto runs, and anyone on W-2 from their start date): wages get a W-2, not a 1099. The W9 document itself stays in QuickBooks under the vendor record &mdash; tick the box here once you&apos;ve confirmed it&apos;s on file. Corporations don&apos;t actually need a 1099 (W9 entity type tells you), so &ldquo;candidate&rdquo; means &ldquo;over the threshold; verify W9 + entity type, then act.&rdquo;
             </div>
           </>
         )}

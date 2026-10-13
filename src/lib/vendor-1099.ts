@@ -15,6 +15,13 @@
  * bookkeeper go and the "quietly tracked in someone else's head" path
  * is closing.
  *
+ * Payroll never counts. An overhead row the categorizer filed as Payroll is
+ * wages, payroll taxes or the Gusto fee, and from a hire's start date every
+ * direct payment to them lands there too (EMPLOYEE_PAYEES in
+ * overhead-categories.ts). A W-2 employee gets a W-2; their contractor
+ * history before the date still rolls up here, which is the 1099 they are
+ * owed for it. A card payoff is Rising Tide paying itself and is skipped too.
+ *
  * Vendor matching across sources is by a normalized key (lowercased,
  * trimmed, whitespace collapsed) so spelling variants merge to one row.
  *
@@ -28,6 +35,9 @@ import { canonicalVendor } from '@/lib/overhead-categories';
 
 
 export const IRS_1099_THRESHOLD = 600;
+
+/** Overhead categories that are not payments to a vendor. See the header. */
+export const NOT_VENDOR_PAYMENTS: ReadonlySet<string> = new Set(['Payroll', 'Card payment']);
 
 export type Vendor1099Row = {
   vendorKey: string;       // normalized key (used for w9 lookup + actions)
@@ -128,13 +138,14 @@ export async function getVendor1099Report(year?: number): Promise<Vendor1099Repo
     for (let from = 0; ; from += 1000) {
       const { data, error } = await supabase
         .from('overhead_expenses')
-        .select('description, amount, txn_date')
+        .select('description, amount, txn_date, category')
         .gte('txn_date', `${y}-01-01`)
         .lt('txn_date', `${y + 1}-01-01`)
         .range(from, from + 999);
       if (error) { if (from === 0) break; break; }
       if (!data || data.length === 0) break;
-      for (const r of data as { description: string | null; amount: number | string | null; txn_date: string | null }[]) {
+      for (const r of data as { description: string | null; amount: number | string | null; txn_date: string | null; category: string | null }[]) {
+        if (r.category && NOT_VENDOR_PAYMENTS.has(r.category)) continue;
         const amt = Math.abs(Number(r.amount) || 0);
         if (amt > 0) {
           const name = canonicalVendor(r.description || '');

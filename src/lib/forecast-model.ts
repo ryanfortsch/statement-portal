@@ -513,9 +513,10 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
 /* --------------------------------------------------------------------- */
 
 /**
- * Field labor (Delaney Jordan and successors). Paid per job by Zelle out of
- * ...5130, not through Gusto, so it never touched the old payroll line and
- * the model carried it as $0 until this rerack.
+ * Field labor (Delaney Jordan). Paid per job by Zelle out of ...5130, not
+ * through Gusto, so it never touched the old payroll line and the model
+ * carried it as $0 until this rerack. Runs July to October 2026 only: from
+ * 2026-11-01 she is salaried (payrollCost below) and this line is $0 for good.
  *
  * Calibration: the whole 1099 bench ran $15,248 over the 56 days from
  * 2026-07-01 to 2026-08-25, $272.29/day, $8,288/mo, in peak season. Net
@@ -580,8 +581,10 @@ export function contractorCost(
   const fieldStart = year === 2026 ? CONTRACTOR_FIELD_START_MONTH_2026 : 1;
   const creativeStart = year === 2026 ? CONTRACTOR_CREATIVE_START_MONTH_2026 : 1;
 
+  // The field contractor joined payroll on 2026-11-01 (see payrollCost): the
+  // per-job line ends in October 2026 and never returns.
   let field = 0;
-  if (month >= fieldStart) {
+  if (month >= fieldStart && !onPayroll(year, month)) {
     const scale = activeCount / CONTRACTOR_FIELD_PROP_COUNT;
     field = CONTRACTOR_FIELD_ANNUAL * seasonShare * scale;
   }
@@ -593,19 +596,63 @@ export function contractorCost(
   return field + creative + misc;
 }
 
+/* --------------------------------------------------------------------- */
+/* Payroll: the operations manager                                        */
+/* --------------------------------------------------------------------- */
+
 /**
- * There is no salaried-hire line.
+ * One salaried hire, on a DATE, never on a headcount.
  *
  * The plan once put a $5K/mo body in August 2026 and a second at 20 homes.
- * The first became the 1099 bench instead (Delaney from 2026-07-07, Cooper
- * from 2026-07-29), and the second was a step: whichever home happened to
- * be the twentieth dragged $20K of hire in behind it and read as a loss.
- * Decided 2026-09-06: people cost scales linearly with the fleet, which is
- * what the bench above already does, about $3,340 per home per year on
- * the 2026 calibration. Nothing here prices a body to run twenty-plus
- * homes who is not an owner; the model treats the owners' time as free
- * everywhere else too, so this is the consistent choice, not a hidden one.
+ * The first became the 1099 bench instead and the second was a step:
+ * whichever home happened to be the twentieth dragged $20K of hire in
+ * behind it and read as a loss, so both were dropped on 2026-09-06 and
+ * people cost scaled linearly with the fleet through the bench.
+ *
+ * The hire that did happen is dated. The field contractor (Delaney Jordan)
+ * joins payroll as Operations Manager on 2026-11-01 at $65,000, and the
+ * field-labor line above ends the month before: the same person, the same
+ * work, paid as salary instead of per job. The salary is flat and does not
+ * scale with the fleet; the creative and misc bench still does.
+ *
+ * Employer cost on top of the salary, per month:
+ *   - payroll taxes at 9% (FICA 7.65%, plus FUTA and MA unemployment on
+ *     their small wage bases, blended over the year);
+ *   - workers compensation at 4%, a PLACEHOLDER until the Wister quote
+ *     lands. Move it to the Insurance line once the policy exists, so the
+ *     projected and measured shapes agree;
+ *   - the Gusto platform fee, $55 (Simple plan, one person; the 2025 runs
+ *     paid $68 to $87 with more people on it);
+ *   - the $50 phone allowance in the offer letter.
+ * Mileage (IRS rate, reimbursed as driven) and summer overtime are not
+ * modeled; ACT months carry them as they are paid.
+ *
+ * ACT months read the Gusto debits (NET + TAX + FEE) from overhead_expenses,
+ * which is gross wages plus employer taxes plus the fee: the same shape as
+ * the projection, less the workers comp placeholder.
  */
+export const SALARY_ANNUAL = 65000;
+export const SALARY_START_YEAR = 2026;
+export const SALARY_START_MONTH = 11;
+export const SALARY_EMPLOYER_TAX_RATE = 0.09;
+export const SALARY_WORKERS_COMP_RATE = 0.04;
+export const PAYROLL_PLATFORM_MONTHLY = 55;
+export const PHONE_ALLOWANCE_MONTHLY = 50;
+
+/** True from the operations manager's first month on payroll. */
+export function onPayroll(year: number, month: number): boolean {
+  return year > SALARY_START_YEAR || (year === SALARY_START_YEAR && month >= SALARY_START_MONTH);
+}
+
+/** Employer cost of the salaried operations manager for a month; $0 before the hire. */
+export function payrollCost(year: number, month: number): number {
+  if (!onPayroll(year, month)) return 0;
+  return (
+    (SALARY_ANNUAL / 12) * (1 + SALARY_EMPLOYER_TAX_RATE + SALARY_WORKERS_COMP_RATE) +
+    PAYROLL_PLATFORM_MONTHLY +
+    PHONE_ALLOWANCE_MONTHLY
+  );
+}
 
 export const MONTH_LABELS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -632,12 +679,13 @@ export function bookkeeperCost(month: number, lastMonth: number | null): number 
 /**
  * Per-year configuration. `getYearConfig(2026)` returns the seventeen homes
  * that filed 2026 statements (CURRENT_2026) plus N new from the slider, with
- * the bookkeeper through May, the office from March and no salaried hire.
+ * the bookkeeper through May, the office from March and the operations
+ * manager on payroll from November.
  * `getYearConfig(2027)` and 2028 return that roster minus any home the
  * operating windows have offline for the whole year (14 today), plus the
  * rolled-forward synthetics at the fleet average fee, plus N new spread
- * across the year, no bookkeeper and the office all year. No year carries a
- * salaried hire: people cost is the bench, scaled to the fleet.
+ * across the year, no bookkeeper and the office all year. People cost is the
+ * bench, scaled to the fleet, plus the flat salary from 2026-11 (payrollCost).
  */
 export type YearConfig = {
   year: ForecastYear;
@@ -759,8 +807,14 @@ export type MonthRow = {
    * then splits exp_cc_ops by the CC_OPERATING_BREAKDOWN weights).
    */
   cc_detail: CardDetail | null;
-  /** 1099 contractor bench, field labor + creative + misc. */
+  /** 1099 contractor bench: field labor through 2026-10, creative + misc throughout. */
   exp_contractors: number;
+  /**
+   * The salaried operations manager from 2026-11: salary, employer taxes,
+   * the workers comp placeholder, the Gusto fee and the phone allowance.
+   * $0 before the hire. Flat; it does not scale with the fleet.
+   */
+  exp_payroll: number;
   /** Onboarding cost for pre-signed contracts — $0 (folded into supplies). */
   exp_onboard_presigned: number;
   /** Onboarding cost for slider-added properties — $0 (folded into supplies). */
@@ -809,6 +863,7 @@ export type ActualsByMonth = ReadonlyArray<{
   exp_bank: number;
   exp_cc_ops: number;
   exp_contractors: number;
+  exp_payroll: number;
   exp_onboard_presigned: number;
   exp_onboard_new: number;
   /** Card itemisation; absent or null when the month has no category detail. */
@@ -906,6 +961,7 @@ export function calcYear(
         a.exp_bank +
         a.exp_cc_ops +
         a.exp_contractors +
+        a.exp_payroll +
         a.exp_onboard_presigned +
         a.exp_onboard_new;
       // Active count for actuals month: derived from config so it matches
@@ -930,6 +986,7 @@ export function calcYear(
         exp_cc_ops: a.exp_cc_ops,
         cc_detail: a.cc_detail ?? null,
         exp_contractors: a.exp_contractors,
+        exp_payroll: a.exp_payroll,
         exp_onboard_presigned: a.exp_onboard_presigned,
         exp_onboard_new: a.exp_onboard_new,
         exp_total,
@@ -1045,6 +1102,7 @@ export function calcYear(
     const cc_detail = ccOperatingDetail(operatingCount, year, m);
     const exp_cc_ops = ccOperatingCost(operatingCount, year, m);
     const exp_contractors = contractorCost(year, m, operatingCount, dist.CA);
+    const exp_payroll = payrollCost(year, m);
     const exp_onboard_presigned = presignedStartCount * ONBOARDING_COST;
     const exp_onboard_new = newStartCount * ONBOARDING_COST;
     const exp_total =
@@ -1056,6 +1114,7 @@ export function calcYear(
       exp_bank +
       exp_cc_ops +
       exp_contractors +
+      exp_payroll +
       exp_onboard_presigned +
       exp_onboard_new;
 
@@ -1076,6 +1135,7 @@ export function calcYear(
       exp_cc_ops,
       cc_detail,
       exp_contractors,
+      exp_payroll,
       exp_onboard_presigned,
       exp_onboard_new,
       exp_total,
