@@ -8,7 +8,7 @@ import { MAINTENANCE_BASE_CENTS } from '@/lib/field-pricing';
 import { loadContractorShoots, shootPaySummary, type ShootSummary } from '@/lib/creative-shoots';
 import { loadRecentVisits } from '@/lib/field-report';
 import { getContractorRatings, type ContractorRating } from '@/lib/field-ratings';
-import { canClaim, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail , tripWindowLabel } from '@/lib/field-types';
+import { canClaim, isEmployee, fmtVisitTime, onboardingComplete, dollars, packetHeadline, effectiveBaseCents, isPayoutFinal, parseTrade, TRADE_META, type ContractorRow, type ContractorTrade, type PacketDetail , tripWindowLabel } from '@/lib/field-types';
 import { FieldShell } from './FieldShell';
 import { ProfilePhoto } from './ProfilePhoto';
 import { ContractorHeader } from './ContractorHeader';
@@ -566,6 +566,36 @@ export default async function FieldHome({
 
   const setupDone = onboardingComplete(contractor);
   const claimable = canClaim(contractor);
+
+  // On payroll: canClaim is false for good, but not because setup is missing,
+  // so the "one step left" story below would be wrong. Say what is true: the
+  // paid marketplace is closed to them, the rest of their work is in Helm.
+  if (isEmployee(contractor) && !preview) {
+    const first = contractor.full_name.split(' ')[0];
+    const linkStyle = { display: 'inline-block', marginTop: 22, marginRight: 12, background: 'var(--paper)', color: 'var(--ink)', textDecoration: 'none', fontSize: 12, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase' as const, padding: '12px 24px' };
+    return (
+      <FieldShell contractorName={contractor.full_name} showSignOut showNav>
+        <div style={{ background: 'var(--ink)', borderRadius: 4, padding: 'clamp(28px,6vw,36px)', marginBottom: 40 }}>
+          <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--signal-soft)', fontWeight: 600, marginBottom: 6 }}>
+            On the team
+          </div>
+          <h1 className="font-serif" style={{ fontSize: 'clamp(28px,7vw,36px)', fontWeight: 300, lineHeight: 1.05, letterSpacing: '-0.01em', margin: 0, color: 'var(--paper)' }}>
+            Your work lives in Helm now, <span style={{ color: 'var(--signal-soft)' }}>{first}</span>
+          </h1>
+          <p style={{ fontSize: 14, color: 'rgba(245,239,226,0.78)', lineHeight: 1.6, margin: '24px 0 0' }}>
+            You&apos;re on payroll, so paid packets no longer come through this portal and nothing here pays.
+            {contractor.work_board_access ? ' The property board and issue reports still work here.' : ' Issue reports still work here.'}
+            {' '}Everything else is in Helm with your Rising Tide sign-in.
+          </p>
+          <div>
+            <a href="https://helm.risingtidestr.com" style={linkStyle}>Open Helm</a>
+            {contractor.work_board_access && <Link href="/field/property-work" style={linkStyle}>Property board</Link>}
+            <Link href="/field/report" style={linkStyle}>Report an issue</Link>
+          </div>
+        </div>
+      </FieldShell>
+    );
+  }
 
   if (!claimable) {
     // Read-only marketplace: invitees (and people awaiting their check) can see

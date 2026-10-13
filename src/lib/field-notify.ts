@@ -352,6 +352,11 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     .eq('status', 'active')
     .eq('trade', packet.trade)
     .eq('w9_on_file', true)
+    // An employee keeps their record but is never offered paid work
+    // (matches canClaim): texting the salaried operations manager "new
+    // work near you, claim it" on her own publish would be noise at best
+    // and a double payment at worst.
+    .eq('employment_status', 'contractor')
     // Claim-eligible = check underway or cleared (matches canClaim), so a
     // pending-check contractor is pinged for new packets too.
     .in('background_check_status', ['cleared', 'pending'])

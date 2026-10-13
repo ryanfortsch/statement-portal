@@ -1795,6 +1795,32 @@ export async function setContractorBackgroundCheck(formData: FormData): Promise<
 
 /** Grant / revoke the property-work board (reveals the full portfolio, so
  *  it's an explicit per-contractor approval, audited). */
+/**
+ * Flip a record between contractor and employee. Owners only. The employee
+ * side is the W-2 conversion: the record and its history stay, the work
+ * board stays, but canClaim() is false from here on, so no paid packet is
+ * ever awarded or claimed, no "new work" text goes out, and no streak
+ * bonus lands. Approve and pay everything outstanding BEFORE flipping:
+ * getContractorPayStats has no date filter and an unpaid approved packet
+ * would keep a live "Mark paid" on the card.
+ */
+export async function setContractorEmployment(formData: FormData): Promise<void> {
+  const email = await ownerEmail();
+  const contractorId = String(formData.get('contractor_id') || '');
+  const next = String(formData.get('employment_status') || '');
+  if (!contractorId || (next !== 'contractor' && next !== 'employee')) return;
+  await fieldDb()
+    .from('contractors')
+    .update({ employment_status: next, updated_at: new Date().toISOString() })
+    .eq('id', contractorId);
+  await fieldDb()
+    .from('packet_events')
+    .insert({ contractor_id: contractorId, actor_email: email, event_type: next === 'employee' ? 'marked_employee' : 'marked_contractor' })
+    .then(() => {}, () => {});
+  revalidatePath('/fieldwork/roster');
+  revalidatePath('/fieldwork/packets');
+}
+
 export async function setContractorWorkBoard(formData: FormData): Promise<void> {
   const email = await ownerEmail();
   const contractorId = String(formData.get('contractor_id') || '');

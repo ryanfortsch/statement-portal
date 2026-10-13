@@ -35,14 +35,21 @@ const read = (repoPath: string): string =>
 
 describe('who is an owner', () => {
   test('the three principals are owners and nobody else is', () => {
-    for (const m of TEAM_MEMBERS) {
-      assert.equal(m.access, 'owner', `${m.email} should be an owner`);
+    const owners = TEAM_MEMBERS.filter((m) => m.access === 'owner');
+    assert.deepEqual(
+      owners.map((m) => m.email).sort(),
+      ['allie@risingtidestr.com', 'dotti@risingtidestr.com', 'ryan@risingtidestr.com'],
+    );
+    for (const m of owners) {
       assert.equal(roleForEmail(m.email), 'owner');
       assert.equal(roleForEmail(m.email.toUpperCase()), 'owner', 'email matching is case-insensitive');
     }
+    for (const m of TEAM_MEMBERS.filter((t) => t.access !== 'owner')) {
+      assert.equal(roleForEmail(m.email), 'staff', `${m.email} is on the team list but not an owner`);
+    }
   });
 
-  test('an unknown Workspace address is staff, so a new seat fails closed', () => {
+  test('a staff or unknown Workspace address is staff, so a new seat fails closed', () => {
     assert.equal(roleForEmail('delaney@risingtidestr.com'), 'staff');
     assert.equal(roleForEmail('someone-new@risingtidestr.com'), 'staff');
     assert.equal(roleForEmail(''), 'staff');
@@ -190,7 +197,7 @@ describe('the money server actions refuse a staff session', () => {
       'revealW9', 'revealPay', 'setPacketPrice', 'raisePacketEstimate', 'setPacketBonus',
       'finalizePacketPayout', 'markContractorPaid', 'markPacketPaid', 'approvePacket', 'requestChanges',
       'inviteContractor', 'setContractorStatus', 'rotateContractorToken', 'resendInvite',
-      'setContractorBackgroundCheck', 'setContractorWorkBoard', 'setContractorW9',
+      'setContractorBackgroundCheck', 'setContractorWorkBoard', 'setContractorW9', 'setContractorEmployment',
       'homeReceiptOnPacket', 'unhomeReceiptFromPacket',
     ],
     'src/app/fieldwork/hiring/actions.ts': ['inviteApplicant', 'declineApplicant', 'reopenApplicant'],
