@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { stagingBoardEnabled } from '@/lib/channex-staging/board';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -80,6 +81,9 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
           <p className="mt-2 text-sm">Review the calendar, reservation details and imported-record differences. No operational changes.</p>
         </Link>
       </section>
+      {stagingBoardEnabled(process.env) && <section className="max-w-[1100px] mx-auto px-10 pb-8 w-full">
+        <Link href="/channels/staging" className="text-sm font-medium underline underline-offset-4">17 Beach · Channex staging workspace →</Link>
+      </section>}
       {!dbReady && <DbSetupBlock />}
 
       {dbReady && (

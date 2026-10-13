@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import {
   approveSend,
+  setAutomationHold,
   deletePropertyRule,
   sendTestToOperator,
   setAutomationsEnabled,
@@ -187,4 +188,15 @@ export async function sendTestAction(propertyId: string, ruleId: string, phone: 
   if (!who) return { ok: false, message: 'Not signed in' };
   const r = await sendTestToOperator(propertyId, ruleId, phone);
   return r.ok ? { ok: true, message: 'Test sent from the GUESTS line, secrets masked.' } : { ok: false, message: r.error ?? 'Test failed.' };
+}
+
+export async function setAutomationHoldAction(propertyId: string, sendId: string,
+  hold: boolean, expectedUpdatedAt: string): Promise<AutomationActionResult> {
+  const who = await actor();
+  if (!who) return { ok: false, message: 'Not signed in' };
+  const r = await setAutomationHold(propertyId, sendId, who, hold, expectedUpdatedAt);
+  bump(propertyId);
+  return r.ok ? { ok: true, message: hold ? 'Held. This message will wait for release.'
+    : 'Released to the schedule. Due messages may send on the next worker run after normal checks.' }
+    : { ok: false, message: r.error };
 }

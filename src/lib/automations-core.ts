@@ -312,6 +312,41 @@ export function anchorDateFor(
   }
 }
 
+/** Explicit event instants, supplied only after provider/timezone normalization.
+ * Never substitute import time for confirmation time. This calculation is not
+ * a send authorization and is not yet wired to persisted automation rules.
+ */
+export type RelativeAutomationTiming = {
+  anchor: 'confirmation' | 'checkin';
+  offsetMinutes: number;
+};
+export type RelativeAutomationTime =
+  | { status: 'ready'; fireAt: Date }
+  | { status: 'needs-review'; reason: 'missing-anchor' | 'invalid-timing' | 'overdue' };
+
+export function relativeAutomationTime(
+  timing: RelativeAutomationTiming,
+  events: { confirmationAt: Date | null; checkinAt: Date | null },
+  now: Date,
+): RelativeAutomationTime {
+  if (!['confirmation', 'checkin'].includes(timing.anchor)
+    || !Number.isSafeInteger(timing.offsetMinutes)
+    || Math.abs(timing.offsetMinutes) > 366 * 24 * 60
+    || !Number.isFinite(now.getTime())) {
+    return { status: 'needs-review', reason: 'invalid-timing' };
+  }
+  const anchor = timing.anchor === 'confirmation' ? events.confirmationAt : events.checkinAt;
+  if (!anchor || !Number.isFinite(anchor.getTime())) {
+    return { status: 'needs-review', reason: 'missing-anchor' };
+  }
+  const fireAt = new Date(anchor.getTime() + timing.offsetMinutes * 60_000);
+  if (!Number.isFinite(fireAt.getTime())) return { status: 'needs-review', reason: 'invalid-timing' };
+  // Imported or released late messages require a separate explicit decision.
+  // Recalculating must not silently turn an old event into "send now".
+  if (fireAt.getTime() < now.getTime()) return { status: 'needs-review', reason: 'overdue' };
+  return { status: 'ready', fireAt };
+}
+
 /**
  * When a rule fires for a stay, or null when that moment is already more
  * than 12 hours gone (never send stale). booking_confirmed fires now: a
@@ -1101,7 +1136,7 @@ export function diffPlan(planned: readonly PlannedSend[], existing: readonly Exi
  * or dates-moved row, or a failure does not.
  */
 export function keyDecided(e: Pick<ExistingSend, 'status' | 'error'>): boolean {
-  if (e.status === 'sent' || e.status === 'sending' || e.status === 'configured_in_ota' || e.status === 'awaiting_approval') return true;
+  if (e.status === 'held' || e.status === 'sent' || e.status === 'sending' || e.status === 'configured_in_ota' || e.status === 'awaiting_approval') return true;
   return e.status === 'cancelled' && String(e.error ?? '').startsWith('skipped by ');
 }
 
@@ -1260,6 +1295,7 @@ export function decideDispatch(input: DecisionInput): DispatchDecision {
  *  with an error starting 'stale:', and reads "Missed its time", never "Stay
  *  cancelled" (the stay was not). */
 export function sendStatusLabel(status: string, error?: string | null): string {
+  if (status === 'held') return 'Held by operator';
   if (status === 'skipped_cancelled' && String(error ?? '').startsWith('stale:')) return 'Missed its time';
   // The engine's pauses are not verdicts: the row resumes if the stay or rule comes back.
   if (status === 'cancelled' && error === PAUSE_REASON_STAY_CANCELLED) return 'Paused: stay cancelled';

@@ -1,0 +1,9 @@
+FROM node:24-bookworm-slim
+WORKDIR /app
+COPY deployment/channex-staging-worker/package.json deployment/channex-staging-worker/package-lock.json ./
+RUN npm ci --ignore-scripts --omit=dev
+COPY src/lib/channex-staging ./src/lib/channex-staging
+COPY scripts/channex-airbnb-reader.mts ./scripts/channex-airbnb-reader.mts
+USER node
+# Activation variables intentionally absent; this image fails closed by default.
+CMD ["node", "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "scripts/channex-airbnb-reader.mts"]
