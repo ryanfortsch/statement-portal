@@ -21,6 +21,15 @@ export type TeamMemberRole = 'principal' | 'operations' | 'inspector' | 'contrac
  */
 export type TeamAccess = 'owner' | 'staff';
 
+/**
+ * A duty a notice is addressed to, independent of who holds it today.
+ * `field_pay`: approves and pays Field packets and answers contractor
+ * questions. `creative`: runs the creative program (shoots, view counts).
+ * Notices resolve through `src/lib/team-recipients.ts`; nothing in the app
+ * should name a teammate's inbox directly.
+ */
+export type TeamDuty = 'field_pay' | 'creative';
+
 export type TeamMember = {
   email: string;        // canonical id
   name: string;         // first + last
@@ -29,6 +38,14 @@ export type TeamMember = {
   role: TeamMemberRole;
   access: TeamAccess;
   active: boolean;      // false = hidden from picker but old assignments still resolve
+  duties?: TeamDuty[];
+  /**
+   * First day on the team, YYYY-MM-DD. Before it the member is listed, so
+   * an assignment made today resolves to their name, but receives no
+   * notices: the ops digest and contractor threads reach them from this
+   * day, not from the day the row was added.
+   */
+  starts?: string;
 };
 
 export const TEAM_MEMBERS: TeamMember[] = [
@@ -40,6 +57,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
+    duties: ['field_pay'],
   },
   {
     email: 'allie@risingtidestr.com',
@@ -58,6 +76,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'principal',
     access: 'owner',
     active: true,
+    duties: ['creative'],
   },
   // Operations Manager from 2026-11-01. Staff access: operations, not
   // money (see helm-access.ts). Listed ahead of her Workspace seat so an
@@ -72,6 +91,7 @@ export const TEAM_MEMBERS: TeamMember[] = [
     role: 'operations',
     access: 'staff',
     active: true,
+    starts: '2026-11-01',
   },
 ];
 

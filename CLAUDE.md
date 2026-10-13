@@ -175,6 +175,17 @@ When you add a money page, add its prefix to the list AND the flag to its module
 a money action, call `requireOwnerEmail()`. Owner money that still prints on pages staff keep
 (the home payout tile, fee percentages and payouts on property pages) is not yet redacted.
 
+**Team notices resolve by role and duty, never by a named inbox** (`src/lib/team-recipients.ts`,
+since 2026-10-13). `team.ts` says who runs operations (role `operations`), who approves Field
+pay and answers contractor questions (`duties: ['field_pay']`, Ryan) and who runs the creative
+program (`duties: ['creative']`, Dotti); a member with a `starts` date joins every list on that
+day. `officeNotice()` is the Field office (first operations seat, the rest and field pay on
+copy), `operationsEmails()` is the CC on contractor-facing mail, `fieldReplyTo()` is the one
+inbox a contractor's reply lands in, `creativeLeadEmail()` the shoot and view-count reminders.
+`team-recipients.test.ts` fails if `field-notify.ts` names an `@risingtidestr.com` address, and
+checks the operations manager's start date agrees across `team.ts`, the payroll matcher and the
+forecast. The AirDNA nudge and meeting reminders are owner work and still text `DOTTI_PHONE`.
+
 Two shared auth helpers exist. Use them; do not hand-roll a check:
 - `authorizeCron(request)` in `src/lib/cron-auth.ts`. Accepts Vercel Cron's bearer or a signed-in
   Helm session. **Fails closed** when `CRON_SECRET` is unset. Every cron route uses it.
