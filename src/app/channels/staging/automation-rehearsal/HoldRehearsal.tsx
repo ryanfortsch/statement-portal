@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { PersistentHoldRehearsal } from './PersistentHoldRehearsal';
+import { MessageScheduleRehearsal } from './MessageScheduleRehearsal';
 import { AutomationHoldControls } from '@/components/AutomationHoldControls';
 import { holdReleaseBlockReason } from '@/lib/automation-hold-control';
 
@@ -20,7 +21,7 @@ export function HoldRehearsal() {
   const reason = holdReleaseBlockReason(planned, booking);
   return <main style={{ maxWidth: 720, padding: 24, margin: '0 auto', lineHeight: 1.6 }}>
     <h1>Message hold rehearsal</h1>
-    <p><strong>Synthetic data only.</strong> These controls change browser memory. They do not call the database or send messages. Refresh resets the rehearsal.</p>
+    <p><strong>Synthetic data only.</strong> The first panel changes browser memory and resets on refresh. The persistent test below saves a fictional hold. None of these rehearsals send messages.</p>
     <label htmlFor="hold-scenario">Booking situation </label>
     <select id="hold-scenario" value={scenario} onChange={event => { setScenario(event.target.value as Scenario); setHeld(true); setNotice(''); }}>
       {scenarios.map(value => <option key={value}>{value}</option>)}
@@ -36,5 +37,6 @@ export function HoldRehearsal() {
     </section>
     <p>This checks the shared controls and booking explanations. Competing worker actions are tested separately.</p>
     <PersistentHoldRehearsal />
+    <MessageScheduleRehearsal />
   </main>;
 }
