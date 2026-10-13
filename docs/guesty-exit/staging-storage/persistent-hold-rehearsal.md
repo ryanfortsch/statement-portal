@@ -17,6 +17,13 @@ The PGlite fixture check passed release/hold, stale version rejection, retained
 fire time, audit history, cancelled/moved booking rejection, reapplication without
 reset, and restricted privileges. This is not full production schema validation.
 
-Hosted browser acceptance remains pending deployment: load saved state, release,
-reload and load again, hold, then verify the saved history. A stale browser must
-receive a conflict and require a refresh. No messages should be dispatched.
+Hosted browser acceptance passed on source `d8231e8a`, Vercel deployment
+`4qDZWePvPvPQsbZCdaQWZqoA1pbk`: initial held state loaded, release saved with
+one audit event, reload returned the same scheduled version, stale release from
+a second tab was rejected and removed the controls until refresh, and hold saved
+with a second audit event. Final fixture state is held. The ordinary public
+`automation_sends` table was separately confirmed absent. No delivery occurred.
+
+Branch: `codex/channex-staging-pilot`; work resumed from `41acb96b`.
+Remote main observed before edits: `aa861513a9c9e4daba28f96edc8e00819542d493`.
+No main merge, production configuration, Render change, or subscription added.
