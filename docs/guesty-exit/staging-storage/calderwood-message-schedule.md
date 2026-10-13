@@ -17,7 +17,11 @@ cancellation, and already-sent suppression. Held rows retain a held disposition;
 the new time displayed is a proposal, not a write or permission to release.
 
 Validation October 13, 2026: all 1,873 tests passed, nonincremental TypeScript,
-targeted ESLint and diff checks passed. Hosted panel acceptance is pending.
+targeted ESLint and diff checks passed. Hosted panel acceptance passed on source `243f4e60`, deployment
+`DhnWZ7FS6PQGV9qcw2vD6JhBTgQR`: winter and summer retain 3 PM / 9 AM, moved
+dates keep the code held, cancellation blocks all six, late entries require
+review, and an already-sent confirmation is suppressed. Three unknown clocks
+remain visibly unconfirmed. This browser check did not send messages.
 
 This does not prove the complete operational schedule: global workflows, exact
 channel exclusions, existing Guesty sent/queued handoff, access-code provisioning,
