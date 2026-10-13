@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { PersistentHoldRehearsal } from './PersistentHoldRehearsal';
 import { AutomationHoldControls } from '@/components/AutomationHoldControls';
 import { holdReleaseBlockReason } from '@/lib/automation-hold-control';
 
@@ -33,6 +34,7 @@ export function HoldRehearsal() {
         : <button type="button" onClick={() => { setHeld(true); setNotice('Simulated hold completed.'); }}>Hold this message</button>}
       <p role="status" aria-live="polite">{notice}</p>
     </section>
-    <p>This checks the shared controls and booking explanations. Database persistence and competing worker actions are tested separately.</p>
+    <p>This checks the shared controls and booking explanations. Competing worker actions are tested separately.</p>
+    <PersistentHoldRehearsal />
   </main>;
 }

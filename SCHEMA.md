@@ -431,3 +431,16 @@ But two things should make you reread it carefully:
 - A bug where two surfaces disagree about the same number. If the
   answer is "they read different tables that both think they're
   authoritative", that is the bolt-on feel in action.
+
+## Isolated Channex hold rehearsal
+
+Only project `jgkblfozftcvymvwhhii` uses schema `helm_hold_rehearsal`.
+It contains minimal synthetic `bookings`, `automation_sends`, and
+`automation_hold_events`, with no contact details, message bodies or dispatcher.
+`scripts/hold-rehearsal-sql.mjs` generates setup by namespacing the reviewed
+`docs/guesty-exit/staging-storage/automation-holds.sql`. It does not install or
+modify the ordinary public Helm automation tables. Public service-only RPCs
+`helm_pilot_hold_read` and `helm_pilot_hold_change` expose one fixed fictional
+message. The authenticated preview route uses only explicit staging credentials.
+This fixture proves persistence and compare-and-swap behavior, not full hosted
+Helm schema parity or guest delivery. Setup preserves existing state and history.
