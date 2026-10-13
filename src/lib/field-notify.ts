@@ -11,16 +11,22 @@ import { loadPacketDetail, getContractorReliability } from '@/lib/field-packets'
 import { fieldDb } from '@/lib/field-db';
 import { dollars, fmtVisitTime, packetHeadline } from '@/lib/field-types';
 import type { ContractorRow, PacketRow } from '@/lib/field-types';
+import { creativeLeadEmail, fieldPayNotice, fieldReplyTo, officeNotice, operationsEmails } from '@/lib/team-recipients';
 
 const FROM_NAME = 'Rising Tide Field';
-const OFFICE_CC = 'allie@risingtidestr.com';
+
+// Nobody's inbox is named in this file. Who the office is (the operations
+// seats, with whoever approves field pay on copy), where a contractor's reply
+// lands, and who runs the creative program all come from the team list by
+// role and duty on the day of the send, so the operations manager joins every
+// list on her start date without an edit here. See src/lib/team-recipients.ts.
 
 // All Field email goes out from a dedicated Field sender (if FIELD_FROM_EMAIL is
 // set, else the default Resend sender) with replies routed to the office —
 // otherwise contractor replies land in whatever inbox the default sender uses.
 // Wraps the base sender so no call site has to repeat it.
 function sendTransactionalViaResend(args: Parameters<typeof baseTransactional>[0]): Promise<boolean> {
-  return baseTransactional({ fromEmail: process.env.FIELD_FROM_EMAIL || undefined, replyTo: OFFICE_CC, ...args });
+  return baseTransactional({ fromEmail: process.env.FIELD_FROM_EMAIL || undefined, replyTo: fieldReplyTo(), ...args });
 }
 
 export function fieldBaseUrl(): string {
@@ -154,7 +160,7 @@ export async function sendStartTimeEmail(
     text: timeLabel
       ? `Your trip ${packet.title} on ${packet.visit_date} opens at ${timeLabel}; start any time from then. ${link}`
       : `Your trip ${packet.title} on ${packet.visit_date} no longer has a start window; any time that day works. ${link}`,
-    cc: OFFICE_CC,
+    cc: operationsEmails(),
   });
 }
 
@@ -175,7 +181,7 @@ export async function sendEstimateRaisedEmail(
     to: contractor.email,
     subject: `Pay raised to ${dollars(packet.posted_price_cents)}: ${packet.title}`,
     fromName: FROM_NAME,
-    cc: OFFICE_CC,
+    cc: operationsEmails(),
     html,
     text: `Good news — we raised your pay on ${packet.title} from ${dollars(oldCents)} to ${dollars(packet.posted_price_cents)}${reason && reason.trim() ? ` — ${reason.trim()}` : ''}. ${link}`,
   });
@@ -200,7 +206,7 @@ export async function sendTripStopAddedEmail(
     to: contractor.email,
     subject: `New stop added: ${packet.title}`,
     fromName: FROM_NAME,
-    cc: OFFICE_CC,
+    cc: operationsEmails(),
     html,
     text: `We added ${stopLabel} to your trip (+${dollars(addedCents)}). New estimated pay ${dollars(packet.posted_price_cents)}. ${link}`,
   });
@@ -222,7 +228,7 @@ export async function sendTripStopRemovedEmail(
     to: contractor.email,
     subject: `Stop removed: ${packet.title}`,
     fromName: FROM_NAME,
-    cc: OFFICE_CC,
+    cc: operationsEmails(),
     html,
     text: `We removed ${stopLabel} from your trip — skip it. New estimated pay ${dollars(packet.posted_price_cents)}. ${link}`,
   });
@@ -249,7 +255,7 @@ export async function sendClaimConfirmation(
     to: contractor.email,
     subject: `${opts.assigned ? 'Booked for you' : 'Confirmed'}: ${packet.title} on ${packet.visit_date}${fmtVisitTime(packet.visit_time) ? ` from ${fmtVisitTime(packet.visit_time)}` : ''}`,
     fromName: FROM_NAME,
-    cc: OFFICE_CC,
+    cc: operationsEmails(),
     html,
     text: `${opts.assigned ? `We booked you for ${packet.title}` : `You claimed ${packet.title}`} on ${packet.visit_date}. Estimated pay ${dollars(packet.posted_price_cents)}, confirmed after your visit. ${link}`,
   });
@@ -263,7 +269,7 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
     ${btn(`${fieldBaseUrl()}/fieldwork/roster`, 'Open roster')}
   `);
   return sendTransactionalViaResend({
-    to: OFFICE_CC,
+    ...officeNotice(),
     subject: `Field: ${contractor.full_name} signed up — needs background check`,
     fromName: FROM_NAME,
     html,
@@ -285,7 +291,7 @@ export async function sendStreakBonusOfficeEmail(
     ${btn(`${fieldBaseUrl()}/fieldwork/packets/${packet.id}`, 'Review the packet')}
   `);
   return sendTransactionalViaResend({
-    to: OFFICE_CC,
+    ...officeNotice(),
     subject: `Field: ${contractor.full_name} hit a ${award.days}-day streak (+${amount} on ${packet.title})`,
     fromName: FROM_NAME,
     html,
@@ -567,7 +573,7 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
     ${btn(`${fieldBaseUrl()}/fieldwork/packets`, 'Open the board')}
   `);
   return sendTransactionalViaResend({
-    to: OFFICE_CC,
+    ...officeNotice(),
     subject: `Field today: ${atRisk ? `${atRisk} at risk · ` : ''}${submitted ? `${submitted} to approve · ` : ''}${expired ? `${expired} expired · ` : ''}${unclaimedSoon} unclaimed soon`,
     fromName: FROM_NAME,
     html,
@@ -576,9 +582,9 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
 }
 
 /**
- * Dotti's lock-the-views reminder: reels whose countDays window has closed
- * (or closes today) and whose views were never read + locked. One email to
- * Dotti per morning, only when nonempty — each line links the shoot page
+ * The creative lead's lock-the-views reminder: reels whose countDays window
+ * has closed (or closes today) and whose views were never read + locked. One
+ * email per morning, only when nonempty — each line links the shoot page
  * (where Read views lives) and the IG post itself. Uses the same per-shoot
  * pay math as the board, so a disqualified or over-cap reel never nags.
  */
@@ -618,7 +624,7 @@ export async function sendCreativeCountsDue(): Promise<boolean> {
     ${btn(`${fieldBaseUrl()}/operations/creative`, 'Open the creative board')}
   `);
   return sendTransactionalViaResend({
-    to: 'dotti@risingtidestr.com',
+    to: creativeLeadEmail(),
     subject: `Creative: ${due.length} view count${due.length === 1 ? '' : 's'} to lock`,
     fromName: FROM_NAME,
     html,
@@ -738,7 +744,7 @@ export async function notifyOfficeShootDeclined(
     ${btn(`${fieldBaseUrl()}/fieldwork/shoots`, 'Open the planner')}
   `);
   return sendTransactionalViaResend({
-    to: 'dotti@risingtidestr.com',
+    to: creativeLeadEmail(),
     subject: `Shoot passed: ${what}, ${when}`,
     fromName: FROM_NAME,
     html,
@@ -913,7 +919,7 @@ export async function sendCreativeDayOfChecks(): Promise<{ go: number; hold: num
         ? `${esc(first)} was told to hold for your word. Once you know the home is free, text the all-clear from the shoot page.`
         : `${esc(first)} could NOT be texted. Reach them directly before they drive over.`;
       await sendTransactionalViaResend({
-        to: 'dotti@risingtidestr.com',
+        to: creativeLeadEmail(),
         subject: `Shoot conflict today: ${home}`,
         fromName: FROM_NAME,
         html: shell(`
@@ -973,9 +979,10 @@ export async function sendShootAllClear(
   return { texted, emailed };
 }
 
-/** A contractor tapped "Send a note" in the portal. Goes to Ryan (cc office),
- *  with reply-to set to the contractor so Ryan can answer straight from his
- *  inbox, and their phone surfaced for a quick text back. */
+/** A contractor tapped "Send a note" in the portal. Goes to whoever approves
+ *  field pay (operations on copy), with reply-to set to the contractor so the
+ *  answer goes straight from the inbox, and their phone surfaced for a quick
+ *  text back. */
 export async function sendContractorQuestionEmail(
   contractor: Pick<ContractorRow, 'full_name' | 'email' | 'phone'>,
   message: string,
@@ -993,8 +1000,7 @@ export async function sendContractorQuestionEmail(
     <p style="font-size:13px;color:#7a8a90;border-top:1px solid #e6ded2;padding-top:14px;">Reply to this email to answer ${first} directly${phone ? `, or text ${phone}` : ''}.</p>
   `);
   return sendTransactionalViaResend({
-    to: 'ryan@risingtidestr.com',
-    cc: OFFICE_CC,
+    ...fieldPayNotice(),
     subject: `Field question from ${contractor.full_name}`,
     fromName: FROM_NAME,
     replyTo: contractor.email,
@@ -1022,10 +1028,9 @@ export async function sendNewApplicantEmail(app: {
     ${btn(`${fieldBaseUrl()}/fieldwork/hiring`, 'Review in Helm')}
   `);
   return sendTransactionalViaResend({
-    to: OFFICE_CC,
+    ...officeNotice(),
     subject: `New Field applicant: ${app.full_name}`,
     fromName: FROM_NAME,
-    cc: 'ryan@risingtidestr.com',
     html,
     text: `New Field applicant: ${app.full_name} (${app.email}). Review at ${fieldBaseUrl()}/fieldwork/hiring`,
   });
@@ -1041,10 +1046,9 @@ export async function sendPacketSubmittedEmail(
     ${btn(`${fieldBaseUrl()}/fieldwork/packets/${packet.id}`, 'Review in Helm')}
   `);
   return sendTransactionalViaResend({
-    to: OFFICE_CC,
+    ...officeNotice(),
     subject: `Field packet submitted: ${packet.title}`,
     fromName: FROM_NAME,
-    cc: 'ryan@risingtidestr.com',
     html,
     text: `${contractor.full_name} submitted ${packet.title} (${packet.visit_date}) for review.`,
   });
