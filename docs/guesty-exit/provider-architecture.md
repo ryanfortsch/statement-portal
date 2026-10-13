@@ -840,3 +840,23 @@ Validation: all 1,865 repository tests, nonincremental TypeScript, targeted ESLi
 and whitespace checks passed. Base 954588a9 on codex/channex-staging-pilot; remote
 main verified as bafe5ce05859a1dd0a4ad78b37ff1b942cf55d97. No new service cost,
 message delivery or hosted configuration change.
+
+### Hosted rehearsal verified (October 12)
+
+Published source e0b041a4 to the existing pilot preview branch. Vercel deployment
+3vov8ohiW76v9Zrye5vmt9UdLnPJ completed successfully; GitHub verify and
+layout-database checks passed. Local suite rerun: 1,865 tests and nonincremental
+TypeScript passed. No main merge, production deployment, hosted SQL or feature
+flag change was made.
+
+Authenticated browser verification at `/channels/staging/automation-rehearsal`
+confirmed simulated release, simulated hold, disabled release for all six blocked
+scenarios (cancelled, unconfirmed, moved dates, duplicate, unavailable and controls
+disabled), and reset to confirmed/held after refresh. Inspected the default
+1280x720 screenshot. No additional viewport acceptance claimed. Evidence saved
+locally at `/tmp/helm-hold-rehearsal-verified.png`.
+
+This closes presentation rehearsal only. Hosted hold schema/RPC integration,
+actual provider delivery, production Channex account access and PriceLabs channel
+parity remain open. These are integration milestones, not implied by the unit
+test count. Guesty remains the live operator until end-to-end pilot acceptance.
