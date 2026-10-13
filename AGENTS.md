@@ -30,11 +30,12 @@ an access-control system; tool permissions and CI must enforce their own limits.
 - Codex handles explicitly scoped implementation, tests, audits, and reviews.
   Return the branch, base commit, changed files, checks run, and remaining risks
   for Claude or the user to review. Do not expand scope into unrelated cleanup.
-- A future lower-cost agent starts with bounded documentation, mechanical edits,
-  or isolated pure-logic tests with clear acceptance criteria. Give it an explicit
-  file scope and require Claude or user review before integration. Money, auth,
-  migrations, production integrations, deployment, and ambiguous failures go back
-  to Claude or the user. No model or provider is selected by this document.
+- The optional `helm_low_cost` agent uses GPT-6 Luna for read-only file lookup,
+  test mapping, and proposed documentation/test patches. Give it explicit input
+  files and acceptance criteria. Claude or the user reviews its output; the primary
+  agent applies and validates any changes. Money, auth, migrations, production
+  integrations, deployment, and ambiguous failures go back to Claude or the user.
+  See `docs/low-cost-agent.md` for invocation, limitations, and the handoff format.
 - Do not start other agents or resume another session without user authorization.
   Stopped sessions and old worktrees may still contain unfinished work.
 - If a tool does not automatically load `AGENTS.md`, supply this file explicitly
