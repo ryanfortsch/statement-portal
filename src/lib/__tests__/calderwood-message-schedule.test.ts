@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import {calderwoodMessageSchedule, type ScheduleInput} from '../calderwood-rehearsal/message-schedule.ts';
 const baseline: ScheduleInput = {checkIn:'2027-01-15',checkOut:'2027-01-18',confirmationAt:'2027-01-01T15:00:00Z',now:new Date('2027-01-01T15:00:00Z'),status:'confirmed'};
 const row = (input: ScheduleInput,key:string) => calderwoodMessageSchedule(input).find(r=>r.key===key)!;
-test('six known workflows keep unknown clocks unresolved and calculate confirmed offsets',()=>{
+test('six verified workflows inherit reservation timing and calculate confirmed offsets',()=>{
  const rows=calderwoodMessageSchedule(baseline);
  assert.equal(rows.length,6);
- assert.equal(rows.filter(r=>r.status==='needs-review').length,3);
+ assert.equal(rows.filter(r=>r.status==='needs-review').length,0);
  assert.equal(row(baseline,'confirmation').fireAt,'2027-01-01T15:30:00.000Z');
  assert.equal(row(baseline,'key_code').fireAt,'2027-01-15T20:00:00.000Z');
  assert.equal(row(baseline,'cleaner_arrival').fireAt,'2027-01-15T14:00:00.000Z');
@@ -43,4 +43,15 @@ test('bad stay dates and missing confirmation cannot invent timing',()=>{
  assert.throws(()=>calderwoodMessageSchedule({...baseline,checkIn:'2027-02-30'}));
  assert.throws(()=>calderwoodMessageSchedule({...baseline,checkOut:baseline.checkIn}));
  assert.equal(row({...baseline,confirmationAt:null},'confirmation').status,'needs-review');
+});
+
+test('Guesty day offsets inherit listing times and reservation ETA/ETD overrides',()=>{
+ assert.equal(row(baseline,'pre_arrival').fireAt,'2027-01-14T21:00:00.000Z');
+ assert.equal(row(baseline,'pre_checkout').fireAt,'2027-01-17T16:00:00.000Z');
+ assert.equal(row(baseline,'cleaner_reminder').fireAt,'2027-01-05T21:00:00.000Z');
+ const adjusted={...baseline,checkInTime:'18:00',checkOutTime:'12:00'};
+ assert.equal(row(adjusted,'pre_arrival').fireAt,'2027-01-14T23:00:00.000Z');
+ assert.equal(row(adjusted,'pre_checkout').fireAt,'2027-01-17T17:00:00.000Z');
+ assert.equal(row(adjusted,'key_code').fireAt,'2027-01-15T22:00:00.000Z');
+ assert.equal(row(adjusted,'cleaner_arrival').fireAt,'2027-01-15T16:00:00.000Z');
 });

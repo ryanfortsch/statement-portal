@@ -5,6 +5,8 @@ export type CalderwoodMessageKey = typeof CALDERWOOD_MESSAGE_KEYS[number];
 export type ScheduleInput = {
  checkIn: string; checkOut: string; confirmationAt: string | null; now: Date;
  status: 'confirmed' | 'cancelled';
+ /** Reservation ETA/ETD when known; otherwise verified listing defaults. */
+ checkInTime?: string; checkOutTime?: string;
  localTimes?: Partial<Record<'pre_arrival' | 'pre_checkout' | 'cleaner_reminder', string>>;
  held?: readonly CalderwoodMessageKey[]; sent?: readonly CalderwoodMessageKey[];
 };
@@ -19,8 +21,11 @@ function validDate(value: string) {
 export function calderwoodMessageSchedule(input: ScheduleInput): ScheduleRow[] {
  if (!validDate(input.checkIn) || !validDate(input.checkOut) || input.checkOut <= input.checkIn
   || !Number.isFinite(input.now.getTime())) throw new Error('Valid stay dates and review time required');
+ const checkInTime = input.checkInTime ?? '16:00';
+ const checkOutTime = input.checkOutTime ?? '11:00';
+ if (![checkInTime,checkOutTime].every(t=>/^([01]\d|2[0-3]):[0-5]\d$/.test(t))) throw new Error('Invalid reservation time');
  const events = { confirmationAt: input.confirmationAt ? new Date(input.confirmationAt) : null,
-  checkinAt: new Date(zonedTimeToMs(input.checkIn,'16:00','America/New_York')) };
+  checkinAt: new Date(zonedTimeToMs(input.checkIn,checkInTime,'America/New_York')) };
  const definitions = [
   {key:'confirmation',label:'Reservation confirmation',audience:'guest',date:'',anchor:'confirmation',offset:30},
   {key:'pre_arrival',label:'Check-in instructions',audience:'guest',date:addDays(input.checkIn,-1)},
@@ -38,7 +43,7 @@ export function calderwoodMessageSchedule(input: ScheduleInput): ScheduleRow[] {
    if (result.status === 'ready') fireAt = result.fireAt.toISOString();
    else reason = 'Confirmation time is missing or invalid.';
   } else {
-   const clock = input.localTimes?.[def.key];
+   const clock = input.localTimes?.[def.key] ?? (def.key === 'pre_checkout' ? checkOutTime : checkInTime);
    if (!clock) reason = 'Existing Guesty send time still needs confirmation.';
    else if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(clock)) reason = 'Invalid local send time.';
    else {
