@@ -43,15 +43,20 @@
  *     Insurance         → exp_insurance
  *     Bank fees         → exp_bank
  *     Software          → exp_software
- *     Payroll           → exp_contractors (Gusto NET + TAX are wages.
- *                         The old mapping sent these to exp_software,
- *                         which put $29,473 of lifetime wages on the
- *                         Software row. W-2 payroll ran Mar-Oct 2025 and
- *                         stopped; the 1099 bench replaced that rail.)
- *     Contractors       → exp_contractors (the 1099 bench: Delaney's
- *                         field labor, Cooper's creative work, and the
- *                         one-off handymen. Paid direct from ...5130,
- *                         never through Gusto.)
+ *     Payroll           → exp_payroll (Gusto NET + TAX + FEE: wages, the
+ *                         payroll taxes and the platform fee, plus any
+ *                         direct payment to someone on W-2 from their
+ *                         start date. W-2 payroll ran Mar-Oct 2025, the
+ *                         1099 bench replaced it, and it resumes
+ *                         2026-11-01 with the operations manager. An
+ *                         older mapping sent these rows to exp_software,
+ *                         which put $29,473 of wages on the Software row,
+ *                         and the one after it folded them into the
+ *                         contractor line.)
+ *     Contractors       → exp_contractors (the 1099 bench: field labor
+ *                         through October 2026, Cooper's creative work,
+ *                         and the one-off handymen. Paid direct from
+ *                         ...5130, never through Gusto.)
  *     Health benefits   → dropped (out of scope for the mgmt business)
  *     Professional      → exp_debt for MH Partners, exp_accounting for
  *                         MS Consultants, else exp_cc_ops
@@ -132,6 +137,7 @@ function blank(month: string): MonthlyActual {
     exp_bank: 0,
     exp_cc_ops: 0,
     exp_contractors: 0,
+    exp_payroll: 0,
     exp_onboard_presigned: 0,
     exp_onboard_new: 0,
   };
@@ -262,11 +268,11 @@ export async function getActualsFromDb(
           case 'Insurance':       ma.exp_insurance += amt; break;
           case 'Bank fees':       ma.exp_bank += amt; break;
           case 'Software':        ma.exp_software += amt; break;
-          // Gusto NET + TAX are wages and belong on the people line. The old
-          // convention sent the whole Payroll category to exp_software on the
-          // theory that Gusto is a SaaS fee; that was true of the ~$68/mo
-          // platform fee and false of the $29,473 of wages it also carried.
-          case 'Payroll':         ma.exp_contractors += amt; break;
+          // Gusto NET + TAX + FEE, and anyone on W-2 from their start date:
+          // the salary line, which payrollCost() projects in the same shape.
+          // Never the contractor line, where it sat until the operations
+          // manager hire (2026-11-01) gave payroll its own row.
+          case 'Payroll':         ma.exp_payroll += amt; break;
           case 'Contractors':     ma.exp_contractors += amt; break;
           // Card payoff standing in for card spend. Only survives to here in
           // months whose card export does not reach month end; the rest were
@@ -340,6 +346,7 @@ export async function getActualsFromDb(
         exp_bank: round2(ma.exp_bank),
         exp_cc_ops: round2(ma.exp_cc_ops),
         exp_contractors: round2(ma.exp_contractors),
+        exp_payroll: round2(ma.exp_payroll),
       };
     }
     const actuals = dense as MonthlyActual[];

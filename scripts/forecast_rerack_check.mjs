@@ -13,7 +13,9 @@
  *
  *   2. The 1099 contractor line must reproduce the observed bench cost in
  *      the window it was calibrated on: $8,288/mo across 2026-07-01 to
- *      2026-08-25 ($15,248 over 56 days).
+ *      2026-08-25 ($15,248 over 56 days), and hand the field work to the
+ *      dated salary line from 2026-11-01 (one hire, on a date, never on a
+ *      headcount).
  *
  *   3. The operating-account categorizer must route the bench to
  *      Contractors and must NOT book a bounced deposit as a bank fee. The
@@ -33,6 +35,10 @@ import {
 } from '../src/lib/overhead-categories.ts';
 import {
   calcYear,
+  payrollCost,
+  CONTRACTOR_CREATIVE_MONTHLY,
+  CONTRACTOR_FIELD_PROP_COUNT,
+  CONTRACTOR_MISC_MONTHLY,
   ccOperatingDetail,
   CC_OPERATING_BREAKDOWN,
   CC_SUPPLY_SEASON,
@@ -67,7 +73,7 @@ const denom = CC_OPERATING_BREAKDOWN.reduce((a, c) => a + c.monthly, 0);
 const rowValue = (m, cat) => (m.cc_detail ? m.cc_detail[cat.key] : (m.exp_cc_ops * cat.monthly) / denom);
 const renderedTotal = (m) =>
   CC_OPERATING_BREAKDOWN.reduce((a, c) => a + rowValue(m, c), 0) +
-  m.exp_office + m.exp_software + m.exp_bank + m.exp_contractors +
+  m.exp_office + m.exp_software + m.exp_bank + m.exp_contractors + m.exp_payroll +
   m.exp_debt + m.exp_insurance + m.exp_accounting +
   m.exp_onboard_presigned + m.exp_onboard_new;
 
@@ -201,9 +207,20 @@ for (const mo of [1, 2, 3, 4, 5, 6]) {
   const got = y26.monthly[mo - 1].exp_contractors;
   if (got > 260) fail(`2026-${String(mo).padStart(2, '0')} contractors ${got.toFixed(0)} — field labor started 2026-07-07, only the misc baseline belongs here`);
 }
-// There is no salaried-hire line in any year (decided 2026-09-06): people
-// cost scales linearly with the fleet through the bench.
-if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow; the salaried hire was removed');
+// The field contractor joins payroll on 2026-11-01: the field line ends in
+// October, and the salary line starts in November, dated, never count-driven.
+for (const mo of [11, 12]) {
+  const m = y26.monthly[mo - 1];
+  const benchOnly = CONTRACTOR_CREATIVE_MONTHLY * (m.active_count / CONTRACTOR_FIELD_PROP_COUNT) + CONTRACTOR_MISC_MONTHLY;
+  if (Math.abs(m.exp_contractors - benchOnly) > 1e-6) fail(`2026-${mo} bench ${m.exp_contractors.toFixed(0)} still carries field labor; expected creative + misc ${benchOnly.toFixed(0)}`);
+  if (Math.abs(m.exp_payroll - payrollCost(2026, mo)) > 1e-9 || m.exp_payroll <= 0) fail(`2026-${mo} salary line ${m.exp_payroll.toFixed(2)} is not payrollCost()`);
+}
+for (let mo = 1; mo <= 10; mo++) {
+  if (y26.monthly[mo - 1].exp_payroll !== 0) fail(`2026-${String(mo).padStart(2, '0')} carries salary before the 2026-11-01 hire`);
+}
+// No count-triggered hire in any year (decided 2026-09-06): the one salaried
+// hire is dated above, and the bench still scales linearly with the fleet.
+if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow; the count-triggered hire was removed');
 
 /* -- invariant 2b: people scale linearly, so an added home never loses --- */
 // The old count-triggered second hire made whichever home landed on 20 read
@@ -219,13 +236,16 @@ if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow
     }
     prev = cur;
   }
-  // Per-home people cost lands where the 2026 bench put it: field $33,700/16
-  // plus creative $15,600/16, about $3,080 a year per home before misc.
+  // From 2027 the people line is the flat salary plus the creative and misc
+  // bench: every month carries payrollCost(), and the bench carries no field
+  // labor (that work is the salary now). The bench part still scales with
+  // the fleet, which is what keeps the slider monotonic above.
   const full = run(0);
-  const people = full.monthly.reduce((a, m) => a + m.exp_contractors, 0);
-  const homes = full.monthly.reduce((a, m) => a + m.active_count, 0) / 12;
-  const perHome = (people - 12 * 250) / homes;
-  if (perHome < 2500 || perHome > 4000) fail(`2027 people cost per home is ${perHome.toFixed(0)}/yr, expected roughly $3,100 (bench scaled linearly)`);
+  for (const m of full.monthly) {
+    if (Math.abs(m.exp_payroll - payrollCost(2027, m.month)) > 1e-9) fail(`2027-${m.month} salary line ${m.exp_payroll.toFixed(2)} is not payrollCost()`);
+    const benchCeiling = CONTRACTOR_CREATIVE_MONTHLY * (m.active_count / CONTRACTOR_FIELD_PROP_COUNT) + CONTRACTOR_MISC_MONTHLY;
+    if (m.exp_contractors > benchCeiling + 1e-6 || m.exp_contractors < CONTRACTOR_MISC_MONTHLY) fail(`2027-${m.month} bench ${m.exp_contractors.toFixed(0)} should be creative + misc only (field labor is on payroll); ceiling ${benchCeiling.toFixed(0)}`);
+  }
 }
 
 /* -- invariant 2c: the cost roster comes from the registry --------------- */
@@ -353,6 +373,6 @@ if (!has('2026-07', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-07 lo
 if (!has('2026-07', (r) => r.category === 'Contractors')) fail('resolveCardSpendSource dropped a non-card row');
 
 console.log(failures === 0
-  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench and is the whole people line (no salaried hire, so 2027 net rises with every added home), the cost roster comes from the registry (RT-owned off, activation month honored, a new home costs from day one), the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench then hands the field work to the dated salary line in November 2026 (2027 net still rises with every added home), the cost roster comes from the registry (RT-owned off, activation month honored, a new home costs from day one), the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

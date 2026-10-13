@@ -144,6 +144,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         amount: r.amount,
         chaseCategory: r.chaseCategory,
         type: r.type,
+        txnDate: r.txn_date,
       });
       if (!category) {
         // On the operating account, a dropped *debit* that isn't a transfer

@@ -76,7 +76,7 @@ export type OverheadCategory =
   | 'Bank fees'
   | 'Other';
 
-type Rule = { category: OverheadCategory; matches: string[] };
+type Rule = { category: OverheadCategory; matches: string[]; pattern?: RegExp };
 
 // Vendor substring rules (upper-cased). Order matters only in that the
 // first match wins; lists are kept disjoint in practice. Expanded after
@@ -108,8 +108,16 @@ const VENDOR_RULES: Rule[] = [
   // Zelle, bill-pay or the Chase "Basic Online Payroll" rail. Must sit BEFORE
   // the Payroll rule: "Basic Online Payroll Payment ... to #######4113" is
   // Cooper, not a Gusto run, and would otherwise land in Payroll.
+  //
+  // 'DELANEY' stays here for the Zelle history (field labor, 2026-07-07 to
+  // 2026-10-31). From 2026-11-01 she is on payroll, and EMPLOYEE_PAYEES below
+  // claims her name BEFORE this list runs, so a dated row never reaches it.
   { category: 'Contractors', matches: ['DELANEY', 'COOPER', 'BASIC ONLINE PAYROLL', 'MAGGIE BUTLER', 'NICOLE WHITTEN', 'MARK BELL', 'OWEN BRILL', 'MORGAN DENHART', 'IAN DROMETER', 'LUKE WALLACE', 'SANDY MAID', 'ONYX INFRASTRUCTURE', 'TOMER', 'MORRIS HOME SERVICES'] },
-  { category: 'Payroll', matches: ['GUSTO', 'ADP', 'PAYCHEX', 'PAYROLL'] },
+  // Gusto debits read "ORIG CO NAME:GUSTO ... CO ENTRY DESCR:NET|TAX|FEE". All
+  // three are the payroll line: NET is the direct deposit, TAX the withheld
+  // and employer taxes, FEE the platform subscription. ADP is word-bounded
+  // because the bare substring lives inside HEADPHONES and ROADPASS.
+  { category: 'Payroll', matches: ['GUSTO', 'PAYCHEX', 'PAYROLL'], pattern: /\bADP\b/ },
   { category: 'Travel', matches: ['DELTA AIR', 'JETBLUE', 'UNITED AIR', 'AMERICAN AIR', 'SOUTHWEST AIR', 'ENTERPRISE RENT', 'HERTZ', 'AVIS', 'BUDGET RENT', 'NATIONAL CAR', 'UBER', 'LYFT', 'AMTRAK'] },
   { category: 'Bank fees', matches: ['STOP PAYMENT', 'SERVICE CHARGE', 'OVERDRAFT', 'WIRE FEE', 'RETURNED ITEM', 'NSF', 'MONTHLY SERVICE FEE'] },
 ];
@@ -130,9 +138,38 @@ const TRANSFER_SIGNALS = [
   'TO CHK', 'FROM CHK', 'AUTOPAY', 'CHASE CREDIT CRD', 'INTERNAL TRANSFER',
 ];
 
-function matchVendor(descUpper: string): OverheadCategory | null {
+/**
+ * People on payroll, by the name a direct payment to them carries, with the
+ * date they joined it. A Zelle or bill-pay row naming one of them on or after
+ * that date files as Payroll, never Contractors, whatever the vendor rules
+ * above would say: once someone is on W-2, every dollar paid to them is
+ * payroll (an off-cycle payment, a reimbursement), and none of it may reach
+ * the 1099 report. Rows before the date keep their contractor history.
+ *
+ * The regular paycheck itself arrives as a Gusto debit and never carries the
+ * name; this list is for the money that goes round the payroll service.
+ */
+export const EMPLOYEE_PAYEES: ReadonlyArray<{ needle: string; from: string }> = [
+  // Delaney Jordan: 1099 field labor by Zelle from 2026-07-07, W-2 operations
+  // manager from 2026-11-01.
+  { needle: 'DELANEY', from: '2026-11-01' },
+];
+
+/** 'Payroll' when `descUpper` names an employee on or after their start date, else null. */
+export function employeePayrollCategory(descUpper: string, txnDate?: string | null): OverheadCategory | null {
+  if (!txnDate) return null;
+  const day = txnDate.slice(0, 10);
+  for (const p of EMPLOYEE_PAYEES) {
+    if (day >= p.from && descUpper.includes(p.needle)) return 'Payroll';
+  }
+  return null;
+}
+
+function matchVendor(descUpper: string, txnDate?: string | null): OverheadCategory | null {
+  const onPayroll = employeePayrollCategory(descUpper, txnDate);
+  if (onPayroll) return onPayroll;
   for (const r of VENDOR_RULES) {
-    if (r.matches.some(m => descUpper.includes(m))) return r.category;
+    if (r.matches.some(m => descUpper.includes(m)) || (r.pattern && r.pattern.test(descUpper))) return r.category;
   }
   return null;
 }
@@ -145,6 +182,9 @@ function matchVendor(descUpper: string): OverheadCategory | null {
  * @param amount  signed amount as it appears in the CSV (negative = cost).
  * @param chaseCategory  the card's Category column (operating accounts: '').
  * @param type  the bank Type column (operating: ACCT_XFER, ACH_DEBIT, FEE_TRANSACTION...).
+ * @param txnDate  YYYY-MM-DD. Lets a payment to someone on payroll file as
+ *                 Payroll from their start date (EMPLOYEE_PAYEES). Omitted,
+ *                 every row is categorized as if it predates every hire.
  */
 export function categorizeOverhead(args: {
   account: OverheadAccount;
@@ -152,8 +192,9 @@ export function categorizeOverhead(args: {
   amount: number;
   chaseCategory?: string;
   type?: string;
+  txnDate?: string | null;
 }): OverheadCategory | null {
-  const { account, description, amount, chaseCategory, type } = args;
+  const { account, description, amount, chaseCategory, type, txnDate } = args;
 
   // Costs are negative. Credits / income / refunds (>= 0) are never overhead.
   if (amount >= 0) return null;
@@ -170,7 +211,7 @@ export function categorizeOverhead(args: {
     // Drop personal per Chase's own category.
     if (chaseCategory && PERSONAL_CHASE_CATEGORIES.has(chaseCategory)) return null;
     // Card payments/credits to the issuer aren't charges (already excluded by amount >= 0).
-    const vendor = matchVendor(descUpper);
+    const vendor = matchVendor(descUpper, txnDate);
     if (vendor) return vendor;
     // Unknown card vendor that isn't flagged personal: keep as Other so we
     // don't silently lose real business spend.
@@ -209,7 +250,7 @@ export function categorizeOverhead(args: {
   // Whitelist only: the operating account is mostly noise, so we keep only
   // recognized overhead vendors. Unknown debits are excluded (flagged in
   // the ingest summary so they can be added if they're real).
-  return matchVendor(descUpper);
+  return matchVendor(descUpper, txnDate);
 }
 
 /**
@@ -313,6 +354,10 @@ export const OVERHEAD_CATEGORIES: OverheadCategory[] = [
 const CANONICAL_VENDORS: { name: string; match: string[] }[] = [
   { name: 'Amazon', match: ['AMAZON', 'AMZN'] },
   { name: 'Gusto (payroll)', match: ['GUSTO'] },
+  // The roster card finds a person's books total by their name. Without this
+  // a Zelle row title-cased to "Zelle Payment To Delaney Jor" and never met
+  // the contractor record.
+  { name: 'Delaney Jordan', match: ['DELANEY JORDAN'] },
   { name: 'Guesty', match: ['GUESTY'] },
   { name: 'PriceLabs', match: ['PRICELABS', 'PRICE LABS'] },
   { name: 'AirDNA', match: ['AIRDNA'] },
