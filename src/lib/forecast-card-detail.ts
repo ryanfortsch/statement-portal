@@ -19,7 +19,10 @@
  * (#1459), a non-vehicle insurance premium on the card is a one-time hit
  * that belongs on the Insurance line beside Phillips, not in the monthly
  * run rate, and Republic Services (the office dumpster, filed as Rent &
- * office) rides the Office line beside the rent it is projected with.
+ * office) rides the Office line beside the rent. The projection carries the
+ * dumpster through November 2026 (service ends 2026-11-30); the route is
+ * not dated, so the final invoice and any later Republic charge still land
+ * on the Office line and an ACT month reads what the card paid.
  *
  * Deliberately dependency-free so `scripts/forecast_rerack_check.mjs` can
  * import it on its own.
@@ -113,10 +116,12 @@ export function routeCardRow(category: string, descUpper: string): CardRoute {
       return isVehicleInsurance(descUpper) ? 'vehicle_insurance' : 'insurance';
     case 'Rent & office':
       // Republic Services, the office dumpster, bills the card. The Office
-      // line projects it (DUMPSTER_MONTHLY beside the rent), so an ACT month
-      // has to carry it there too or the row changes shape at the seam.
-      // Until 2026-09-06 it fell through to Travel & other while the Office
-      // row projected a $50 dumpster no bank row had ever shown.
+      // line projects it (DUMPSTER_MONTHLY beside the rent) through November
+      // 2026, so an ACT month has to carry it there too or the row changes
+      // shape at the seam. Until 2026-09-06 it fell through to Travel & other
+      // while the Office row projected a $50 dumpster no bank row had ever
+      // shown. The service ends 2026-11-30; this route stays undated so the
+      // final invoice still lands on the Office line.
       return 'office';
     case 'Guest supplies':
       return 'supplies';

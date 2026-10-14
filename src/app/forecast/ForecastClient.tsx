@@ -1048,7 +1048,7 @@ const sections2026: AssumptionSection[] = [
     items: [
       { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through September 1. Variable: guest supplies and small repairs at $8,360 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%. Fixed: GEICO $519, AT&T $114, travel $175, admin $110, marketing $680 through May 2026 and $175 from June (the step-down is measured on the card, not assumed), and the $199 Furnished Finder renewal each August. The six Recurring rows are a fixed-ratio split of that card total, so no row equals its named constant.' },
       { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,420 in July and $3,804 in August, on Anthropic API credits the operator ruled a one-off.' },
-      { label: 'Office', value: '$750/mo rent at 85 Eastern Ave plus $50/mo dumpster, from March 2026 when the lease began.' },
+      { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $193/mo for the Republic Services dumpster through November 2026. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
       { label: 'Contractors', value: 'The 1099 bench, paid direct from the operating account. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Creative work (Cooper) $1,300/mo per 16 homes, scaled to the live fleet, from July 2026. Everyone else $250/mo blended. The whole bench ran $8,288/mo over July 1 to August 25, 2026.' },
       { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $65,000 a year: about $6,226 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder pending the Wister quote, the $55 Gusto fee, the $50 phone allowance), flat. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
@@ -1086,7 +1086,7 @@ const sections2027: AssumptionSection[] = [
     items: [
       { label: 'Corporate card', value: 'Same two-part model as 2026: $8,360 per live home per year on the turnover curve, plus the fixed floor (GEICO $519, AT&T $114, travel $175, admin $110, marketing $175 at the post-cut level measured on the card, Furnished Finder $199 in August). Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. The six Recurring rows are a fixed-ratio split of the card total, so no row equals its named constant.' },
       { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
-      { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
+      { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: 'Creative $1,300/mo per 16 homes, scaled to the live count, plus $250/mo for everyone else. Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
       { label: 'Operations manager', value: '$65,000 a year, about $6,226 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder, the $55 Gusto fee, the $50 phone allowance), flat all year. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
@@ -1123,7 +1123,7 @@ const sections2028: AssumptionSection[] = [
     items: [
       { label: 'Corporate card', value: 'Same two-part model: $8,360 per live home per year on the turnover curve, plus the fixed floor (GEICO $519, AT&T $114, travel $175, admin $110, marketing $175, Furnished Finder $199 in August). Scales with the homes operating each month. The six Recurring rows are a fixed-ratio split of the card total.' },
       { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed.' },
-      { label: 'Office', value: '$800/mo (rent plus dumpster), full year.' },
+      { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
       { label: 'Contractors', value: 'Creative $1,300/mo per 16 homes, scaled to the live count, plus $250/mo for everyone else. Field labor is the operations manager\'s salary, not the bench.' },
       { label: 'Operations manager', value: '$65,000 a year, about $6,226 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
@@ -1647,7 +1647,7 @@ function ForecastTable({
         })}
         <DataRow
           label="Office"
-          info="$750/mo rent at 85 Eastern Ave plus $193/mo for the Republic Services dumpster, the mean since service began: $165 a month April to June 2026, then $471 on 2026-08-14 with no July charge. Lease started March 2026. ACT months read the landlord ACHs from the operating account plus the Republic Services charges on the card."
+          info="$750/mo rent at 85 Eastern Ave plus $193/mo for the Republic Services dumpster through November 2026, the mean since service began: $165 a month April to June 2026, then $471 on 2026-08-14 with no July charge. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. ACT months read the landlord ACHs from the operating account plus any Republic Services charge on the card."
           values={monthly.map((r) => r.exp_office)}
           fy={monthly.reduce((a, r) => a + r.exp_office, 0)}
         />
