@@ -127,3 +127,27 @@ Calderwood retains Guesty ownership until cleaner history/queue disposition and
 replacement delivery are verified. Historical received-text confirmation alone
 does not clear activation. Today's work was documentation/source inspection only;
 no tests were rerun because executable code was unchanged. Diff check passed.
+
+## Per-recipient delivery model
+
+`src/lib/calderwood-rehearsal/cleaner-delivery.ts` adds an immutable synthetic
+ledger with a frozen recipient list and separate attempt/provider identities.
+Acceptance is distinct from delivery. Sending or unknown outcomes block another
+attempt; delivered recipients are suppressed. Authoritatively rejected attempts
+are eligible for retry review, never automatically retried. Positive acceptance
+or delivery cannot be downgraded by a late error. Duplicate start events are
+no-ops, not permission to call the transport again.
+
+Six tests cover partial delivery, recipient-specific retries, accepted versus
+delivered status, uncertain sends, duplicate claims, invalid identities and
+provider receipt conflicts. All recipients must have delivery evidence before
+the aggregate reports delivered. Every summary carries `canSend: false`.
+
+This is a pure state model, not durable storage, a webhook validator or a live
+worker. A future adapter must validate events, authenticate provider receipts,
+normalize and deduplicate destinations before freezing recipients, and persist
+attempt claims atomically before network calls. A generic HTTP error or timeout
+must never be classified as authoritative rejection. Reconciliation events must
+be tied to the exact attempt; do not infer retry safety from stale error records.
+Production integration also needs current booking/hold/expiry checks and frozen
+content revisions. No existing shared sender or database schema was modified.
