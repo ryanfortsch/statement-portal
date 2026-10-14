@@ -20,8 +20,10 @@
  *                   on 2026-04-15, belongs beside Phillips and not in a
  *                   monthly run rate); exp_office for a Rent & office row
  *                   (Republic Services, the dumpster, bills the card and
- *                   is projected on the Office line beside the rent, so
- *                   the ACT month carries it there too); exp_cc_ops for
+ *                   is projected on the Office line beside the rent through
+ *                   November 2026, so the ACT month carries it there too;
+ *                   the service ends 2026-11-30 and the final invoice still
+ *                   lands here); exp_cc_ops for
  *                   everything else,
  *                   itemised into `cc_detail` by routeCardRow so the six
  *                   Recurring rows read what the card actually carried.

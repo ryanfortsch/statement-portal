@@ -209,14 +209,25 @@ export const OFFICE_RENT_MONTHLY = 750;
  *
  * The August charge does not say what it covers. Read as July and August
  * together it is a raised rate of about $235; read as a quarter it is $157.
- * The mean since service began is the figure carried until a September
- * charge settles it. It was $50 flat until 2026-09-06, a number no bank row
+ * The mean since service began is the figure carried for the months the
+ * service still runs. It was $50 flat until 2026-09-06, a number no bank row
  * had ever shown, while the real charges read as Travel & other because a
  * card row filed under Rent & office had no route to the Office line.
  * routeCardRow sends them here now, so ACT months and projected months
  * describe the same shape.
+ *
+ * The service ends 2026-11-30. Rising Tide sent Republic written notice on
+ * 2026-10-05 (CSA A913211849) and the operator confirmed on 2026-10-14 that
+ * the cancellation stands. November 2026 is the last month the Office line
+ * projects the dumpster; from December 2026 it is rent alone (dumpsterCost).
+ * Actuals are not gated: the final Republic invoice, and anything billed
+ * after, still files under Rent & office and rides the Office line, so an
+ * ACT month reads what the card actually paid.
  */
 export const DUMPSTER_MONTHLY = 193;
+/** The last month the dumpster is projected: service ends 2026-11-30. */
+export const DUMPSTER_LAST_YEAR = 2026;
+export const DUMPSTER_LAST_MONTH = 11;
 /** Office costs only kick in from March (when the lease begins). */
 export const OFFICE_START_MONTH = 3;
 
@@ -659,9 +670,23 @@ export const MONTH_LABELS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ] as const;
 
-export function officeCost(month: number, startMonth: number): number {
+/** True while the dumpster is still under contract: through November 2026. */
+export function hasDumpster(year: number, month: number): boolean {
+  return year < DUMPSTER_LAST_YEAR || (year === DUMPSTER_LAST_YEAR && month <= DUMPSTER_LAST_MONTH);
+}
+
+/** Projected dumpster cost for a month; $0 once the service has ended. */
+export function dumpsterCost(year: number, month: number): number {
+  return hasDumpster(year, month) ? DUMPSTER_MONTHLY : 0;
+}
+
+/**
+ * Office cost for a month: rent from the lease start, plus the dumpster
+ * while Republic Services is still under contract (through 2026-11).
+ */
+export function officeCost(year: number, month: number, startMonth: number): number {
   if (month < startMonth) return 0;
-  return OFFICE_RENT_MONTHLY + DUMPSTER_MONTHLY;
+  return OFFICE_RENT_MONTHLY + dumpsterCost(year, month);
 }
 
 /**
@@ -786,7 +811,7 @@ export type MonthRow = {
   /** All revenue combined. */
   rev_total: number;
 
-  /** Office rent + dumpster (from March). */
+  /** Office rent from March 2026, plus the dumpster through November 2026 (service ends 2026-11-30). */
   exp_office: number;
   /** Software subscriptions on the corporate card (Guesty, Anthropic, PriceLabs, QuickBooks, Adobe, Quo, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). */
   exp_software: number;
@@ -1093,7 +1118,7 @@ export function calcYear(
       }
     }
 
-    const exp_office = officeCost(m, config.officeStartMonth);
+    const exp_office = officeCost(year, m, config.officeStartMonth);
     const exp_software = softwareCost(year, m);
     const exp_debt = bookkeeperCost(m, config.bookkeeperLastMonth);
     const exp_insurance = m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0;
