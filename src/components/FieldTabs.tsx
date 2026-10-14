@@ -24,7 +24,7 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * leaving it returns you to the job type you were in.
  */
 
-type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring' | 'trades';
+type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring' | 'trades' | 'close';
 
 const LENS_HREF: Record<FieldLens, string> = {
   packets: '/fieldwork/packets',
@@ -32,6 +32,7 @@ const LENS_HREF: Record<FieldLens, string> = {
   contractors: '/fieldwork/roster',
   hiring: '/fieldwork/hiring',
   trades: '/fieldwork/trades',
+  close: '/fieldwork/close',
 };
 
 export function FieldTabs({
@@ -60,6 +61,9 @@ export function FieldTabs({
       { id: 'contractors', label: 'Roster' },
       { id: 'hiring', label: 'Hiring' },
       { id: 'trades', label: 'Trades' },
+      // The month-close handoff: field data for the statement close. Not
+      // scoped by job type either; it carries ?trade= the same way.
+      { id: 'close', label: 'Close handoff' },
     ].filter(Boolean) as { id: FieldLens; label: string }[]
   ).map((l) => ({ ...l, href: `${LENS_HREF[l.id]}?trade=${trade}` }));
 

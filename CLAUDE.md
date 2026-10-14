@@ -94,7 +94,7 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions |
 | `/turnovers/cleanings` | Cape Ann Elite's own bookings (A-1 Maintenance, via Jobber reminder texts to Quo) against our checkouts. A three-day strip of the same data sits on the home page |
 | `/inspections` | Property inspection runs |
-| `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger), trades (the outside vendor directory) |
+| `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger), trades (the outside vendor directory), close (the field's handoff before the statement close; staff add items, owners file them through the receipt path) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
 | `/work` | Work slips per property plus team tasks. `/work/gear` tracks guest gear |
 | `/properties` | Property registry. The largest module: 26 pages |

@@ -12,6 +12,8 @@ import { fieldDb } from '@/lib/field-db';
 import { dollars, fmtVisitTime, packetHeadline } from '@/lib/field-types';
 import type { ContractorRow, PacketRow } from '@/lib/field-types';
 import { creativeLeadEmail, fieldPayNotice, fieldReplyTo, officeNotice, operationsEmails } from '@/lib/team-recipients';
+import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
+import { loadHandoffItems } from '@/lib/close-handoff-db';
 
 const FROM_NAME = 'Rising Tide Field';
 
@@ -558,7 +560,25 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
     .eq('auto_generated', false)
     .lt('visit_date', today);
   const expired = expiredCount ?? 0;
-  if (outToday + atRisk + unclaimedSoon + submitted + expired === 0) return false;
+
+  // The month-close handoff, inside its nag window only: items the field
+  // has not yet sent for a month whose due date is a week out or past.
+  // Best-effort, the digest never fails on it.
+  let handoffOpen = 0;
+  let handoffWhen = '';
+  try {
+    for (const m of handoffMonths(today)) {
+      if (!inNagWindow(m, today)) continue;
+      const open = (await loadHandoffItems({ months: [m], statuses: ['open'] })).length;
+      if (open > 0) {
+        handoffOpen += open;
+        handoffWhen = `${monthName(m)}, ${dueWording(m, today)}`;
+      }
+    }
+  } catch {
+    /* no table yet, or a read hiccup: the rest of the digest still goes */
+  }
+  if (outToday + atRisk + unclaimedSoon + submitted + expired + handoffOpen === 0) return false;
 
   const line = (n: number, label: string) => (n > 0 ? `<li><strong>${n}</strong> ${label}</li>` : '');
   const html = shell(`
@@ -569,6 +589,7 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
       ${line(unclaimedSoon, 'unclaimed within 48h')}
       ${line(expired, 'expired unclaimed, in Drafts to reschedule')}
       ${line(submitted, 'awaiting your approval')}
+      ${line(handoffOpen, `field item${handoffOpen === 1 ? '' : 's'} not yet sent for the close (${handoffWhen})`)}
     </ul>
     ${btn(`${fieldBaseUrl()}/fieldwork/packets`, 'Open the board')}
   `);
@@ -577,7 +598,7 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
     subject: `Field today: ${atRisk ? `${atRisk} at risk · ` : ''}${submitted ? `${submitted} to approve · ` : ''}${expired ? `${expired} expired · ` : ''}${unclaimedSoon} unclaimed soon`,
     fromName: FROM_NAME,
     html,
-    text: `Field today - at risk: ${atRisk}, out today: ${outToday}, unclaimed within 48h: ${unclaimedSoon}, expired needing reschedule: ${expired}, awaiting approval: ${submitted}.`,
+    text: `Field today - at risk: ${atRisk}, out today: ${outToday}, unclaimed within 48h: ${unclaimedSoon}, expired needing reschedule: ${expired}, awaiting approval: ${submitted}${handoffOpen ? `, close handoff not sent: ${handoffOpen} (${handoffWhen})` : ''}.`,
   });
 }
 

@@ -23,6 +23,7 @@ for its DDL or `git grep "from('<table>')"` for its writers and readers.
   `repairs_total`, `owner_payout`. The editorial render at `/statements/render`
   reads this, and so does the sent PDF.
 - **`statement_periods`** is the month-level header (`month` + `created_at`).
+- **`close_handoff_items`** (2026-10-14) is the field's input to the close: repair costs, card charges by home and cleaning issues the operations manager adds on `/fieldwork/close` and marks sent three days before the close. `status` runs open, sent, filed, dismissed. It never writes a payout: an owner files a money item through `/api/receipts` (the row then carries `receipt_id`) or notes a cleaning issue on the period. Photos sit in the private `expense-receipts` bucket under `handoff/`. Service-role only.
 - **`reservations`** are the per-stay rows that fed `rental_revenue`
   (`adjusted_revenue`, `stripe_fee`, `guesty_rental_income`). The Guesty
   Owner Statement PDF is the upstream source of truth for which stays count;
