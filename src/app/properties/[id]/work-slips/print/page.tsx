@@ -3,8 +3,18 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
+import {
+  groupSlipsByLane,
+  LANE_HINTS,
+  LANE_LABELS,
+  laneCounts,
+  slipDetailLine,
+  slipDisplayTitle,
+  slipSourceLabel,
+  type WorkLane,
+} from '@/lib/work-slip-lanes';
 import { PrintButton } from './PrintButton';
-import { SlipRow } from './SlipRow';
+import { SlipRow, type PrintSlip } from './SlipRow';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,15 +39,59 @@ async function getData(id: string): Promise<{
     .eq('property_id', id)
     .in('status', ACTIVE_WORK_SLIP_STATUSES)
     .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
-    // Print order: high priority first, then oldest first so the easy
-    // wins float toward the top of any given priority band.
-    .order('priority', { ascending: false })
+    // Lane order, priority and clustering are applied in memory
+    // (groupSlipsByLane); the read just needs a stable base order.
     .order('created_at', { ascending: true });
 
   return {
     property: property as HelmPropertyRow,
     slips: (slipsData ?? []) as WorkSlipRow[],
   };
+}
+
+const OWNER_ASK_LABELS: Record<string, string> = {
+  purchase: 'Purchase',
+  approve: 'Approval',
+  schedule: 'Scheduling',
+  decide: 'Decision',
+  reimburse: 'Reimbursement',
+};
+
+function shortDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+}
+
+/** The meta line under a printed row: where it came from and when, whether
+ *  someone standing in the home has confirmed it is still open, the date
+ *  it is for, and for an owner item where the ask stands. */
+function metaLine(slip: WorkSlipRow, lane: WorkLane, today: string): string {
+  const parts: string[] = [];
+  const opened = shortDate(slip.created_at);
+  parts.push(`From ${slipSourceLabel(slip)}${opened ? ` · ${opened}` : ''}`);
+  if (slip.scheduled_date) {
+    parts.push(slip.scheduled_date < today ? `overdue since ${shortDate(slip.scheduled_date)}` : `for ${shortDate(slip.scheduled_date)}`);
+  }
+  if (slip.last_verified_open_at) parts.push(`still open ${shortDate(slip.last_verified_open_at)}`);
+  if (slip.status === 'in_progress') parts.push('started');
+  if (lane === 'owner') {
+    const ask = slip.owner_action_type ? OWNER_ASK_LABELS[slip.owner_action_type] ?? slip.owner_action_type : 'Owner input';
+    const stand =
+      slip.owner_status === 'approved'
+        ? 'approved'
+        : slip.owner_status === 'declined'
+          ? 'declined'
+          : slip.owner_status === 'questions'
+            ? 'owner has questions'
+            : slip.owner_last_contacted_at
+              ? `asked ${shortDate(slip.owner_last_contacted_at)}`
+              : 'not asked yet';
+    parts.push(`${ask} · ${stand}`);
+  }
+  if (slip.location) parts.push(slip.location);
+  return parts.join(' · ');
 }
 
 export default async function WorkSlipsPrintPage({
@@ -53,11 +107,54 @@ export default async function WorkSlipsPrintPage({
   if (!data) notFound();
 
   const { property, slips } = data;
+  const todayIso = new Date().toISOString().slice(0, 10);
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
+  });
+
+  const lanes = groupSlipsByLane(slips);
+  const counts = laneCounts(slips);
+  const visitCount = counts.supply + counts.visit;
+  const waitingCount = counts.handyman + counts.pro + counts.owner + counts.office;
+  const summaryBits = [
+    counts.supply && `${counts.supply} to bring`,
+    counts.visit && `${counts.visit} for this visit`,
+    counts.handyman && `${counts.handyman} for a handyman run`,
+    counts.pro && `${counts.pro} for a pro`,
+    counts.owner && `${counts.owner} waiting on the owner`,
+    counts.office && `${counts.office} for the office`,
+  ].filter(Boolean) as string[];
+
+  // Row numbers run across the whole sheet so a phone call can say "number
+  // 14" and both people find it; the lane header carries its own count.
+  let number = 0;
+  const sections = lanes.map(({ lane, slips: laneSlips }) => {
+    const rows: Array<{ slip: PrintSlip; groupLabel: string | null }> = [];
+    let lastGroup: string | null = null;
+    for (const s of laneSlips) {
+      number += 1;
+      const group = s.organize_group ?? null;
+      rows.push({
+        slip: {
+          id: s.id,
+          number,
+          title: slipDisplayTitle(s.title, property.name),
+          detail: lane === 'office' ? null : slipDetailLine(s, property.name, 260),
+          meta: metaLine(s, lane, todayIso),
+          priority: s.priority,
+          categoryLabel: null,
+          done: s.status === 'done',
+        },
+        // A cluster header prints once, above the first member of a run of
+        // slips that share a group inside this lane.
+        groupLabel: group && group !== lastGroup ? s.organize_group_label ?? group.replace(/-/g, ' ') : null,
+      });
+      lastGroup = group;
+    }
+    return { lane, rows };
   });
 
   return (
@@ -71,6 +168,8 @@ export default async function WorkSlipsPrintPage({
           .ws-pdf-sheet { box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
           .ws-pdf-page { background: white !important; }
           .ws-pdf-row { break-inside: avoid; opacity: 1 !important; }
+          .ws-pdf-lane-head { break-after: avoid; break-inside: avoid; }
+          .ws-pdf-group { break-after: avoid; }
           /* Paper always prints pristine — tick boxes empty, no strikethrough,
              regardless of what got tapped on screen. */
           .ws-pdf-row-done { opacity: 1 !important; }
@@ -196,27 +295,79 @@ export default async function WorkSlipsPrintPage({
                 color: 'var(--ink-2)',
                 lineHeight: 1.55,
                 fontStyle: 'italic',
-                maxWidth: 480,
+                maxWidth: 520,
               }}
             >
               {slips.length === 0
                 ? 'No open work slips. Nothing to bring.'
-                : `${slips.length} ${slips.length === 1 ? 'slip' : 'slips'} to handle on this turnover.`}
+                : visitCount > 0
+                  ? `${visitCount} ${visitCount === 1 ? 'item' : 'items'} for this visit${waitingCount > 0 ? `, ${waitingCount} waiting on someone else` : ''}.`
+                  : `Nothing for a routine visit. ${waitingCount} ${waitingCount === 1 ? 'item is' : 'items are'} waiting on someone else.`}
             </p>
+            {summaryBits.length > 1 && (
+              <p style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                {summaryBits.join(' · ')}
+              </p>
+            )}
           </section>
 
-          {/* CHECKLIST */}
-          {slips.length > 0 && (
-            <section
-              style={{
-                borderTop: '1px solid var(--ink)',
-              }}
-            >
-              {slips.map((s, i) => (
-                <SlipRow key={s.id} slip={s} number={i + 1} />
+          {/* CHECKLIST, one section per lane in walk order */}
+          {sections.map(({ lane, rows }) => (
+            <section key={lane} style={{ marginBottom: 22 }}>
+              <div
+                className="ws-pdf-lane-head"
+                style={{
+                  borderTop: '1px solid var(--ink)',
+                  paddingTop: 12,
+                  paddingBottom: 6,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  gap: 16,
+                }}
+              >
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      letterSpacing: '.2em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: lane === 'owner' || lane === 'pro' ? 'var(--signal)' : lane === 'supply' ? 'var(--tide-deep)' : 'var(--ink)',
+                    }}
+                  >
+                    {LANE_LABELS[lane]}
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                    {LANE_HINTS[lane]}
+                  </div>
+                </div>
+                <div className="font-mono" style={{ fontSize: 10, letterSpacing: '.14em', color: 'var(--ink-4)' }}>
+                  {rows.length}
+                </div>
+              </div>
+              {rows.map(({ slip, groupLabel }) => (
+                <div key={slip.id}>
+                  {groupLabel && (
+                    <div
+                      className="ws-pdf-group"
+                      style={{
+                        marginTop: 10,
+                        fontSize: 10,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        fontWeight: 600,
+                        color: 'var(--ink-3)',
+                      }}
+                    >
+                      ↳ {groupLabel}
+                    </div>
+                  )}
+                  <SlipRow slip={slip} compact={lane === 'office'} />
+                </div>
               ))}
             </section>
-          )}
+          ))}
 
           {/* COLOPHON */}
           <footer
@@ -255,4 +406,3 @@ export default async function WorkSlipsPrintPage({
     </>
   );
 }
-

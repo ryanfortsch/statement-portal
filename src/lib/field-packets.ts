@@ -2183,11 +2183,18 @@ export async function loadOpenSlipsForStops(
   const rows = awake.filter((w) =>
     slipInVisitWindow(w, visitDate, arrivals === null ? null : (arrivals.get(w.property_id) ?? [])),
   );
+  // Owner-waiting items (a purchase or approval the owner has not made)
+  // are nothing an inspector can do in the house, so they sit last on the
+  // stop's list, still visible with their "Waiting on the owner" flag.
+  // Everything else keeps its oldest-first order.
+  const waitingOnOwner = (w: Row) => w.owner_action_required || w.category === 'owner';
   for (const s of stops) {
     const riding = new Set<string>(s.attachedSlips.map((a) => a.id));
     if (s.work_slip_id) riding.add(s.work_slip_id);
     const here = rows.filter((w) => w.property_id === s.property_id && !riding.has(w.id));
-    const slips = here.filter((w) => !taken.has(w.id));
+    const slips = here
+      .filter((w) => !taken.has(w.id))
+      .sort((a, b) => Number(waitingOnOwner(a)) - Number(waitingOnOwner(b)));
     out.set(s.id, { slips, onOtherTrip: here.length - slips.length });
   }
   return out;
