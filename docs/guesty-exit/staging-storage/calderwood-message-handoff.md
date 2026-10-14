@@ -92,3 +92,38 @@ Validation after expiry protection: 1,884 tests passed, including a synthetic
 partial guest-only snapshot that cannot produce a takeover candidate. The test
 uses fictional dates and identities, not the customer's reservation. TypeScript,
 targeted ESLint and diff checks passed before commit.
+
+## Cleaner evidence and delivery path, October 14
+
+Guesty's official guidance explicitly says automated messages to users, contacts
+and cleaners do not display in the Inbox:
+https://help.guesty.com/hc/en-gb/articles/9365081186205-Managing-automated-messages-for-guests-owners-and-team-members
+This explains the guest-panel coverage gap. It does not establish sent, delivered
+or queued status for either cleaner SMS. Recipient confirmation was requested
+from the user; no message was sent to the cleaner. A received-text confirmation
+can corroborate a historical send, but cannot prove the future queue or sender
+stop. Do not repeatedly inspect the guest Inbox for those records.
+
+Source inspection found an existing Helm cleaner SMS path in
+`src/lib/automations.ts` (`deliverCleanerSms`) using `sendMessage` from
+`src/lib/quo.ts` and the operations line from `src/lib/quo-lines.ts`.
+This is an existing implementation to evaluate, not a verified live Calderwood
+connection or a pricing guarantee. No new SMS subscription was purchased.
+
+Before reusing that path for cutover, address or explicitly constrain these gaps:
+- Multiple recipients are sent individually, but only the first provider message
+  ID is retained on the automation result.
+- A partial recipient failure returns a partial note while the aggregate send is
+  marked sent. A whole-message retry could duplicate delivery to successful
+  recipients; no whole-message retry should be inferred from that note.
+- A provider send response is not proof the recipient received the SMS.
+
+Required design: one delivery record per resolved recipient with provider ID,
+accepted/delivered/failed/unknown state and an auditable message identity. Unknown
+outcomes require reconciliation before retry. This needs a scoped schema/worker
+review before implementation; the shared production SMS sender was not modified.
+
+Calderwood retains Guesty ownership until cleaner history/queue disposition and
+replacement delivery are verified. Historical received-text confirmation alone
+does not clear activation. Today's work was documentation/source inspection only;
+no tests were rerun because executable code was unchanged. Diff check passed.
