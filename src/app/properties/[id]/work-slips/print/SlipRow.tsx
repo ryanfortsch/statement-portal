@@ -2,8 +2,21 @@
 
 import { useState, useTransition } from 'react';
 import { updateWorkSlipStatus } from '@/app/work/actions';
-import type { WorkSlipRow } from '@/lib/work-types';
-import { WORK_SLIP_CATEGORY_LABELS } from '@/lib/work-types';
+
+/** What one printed row needs, computed on the server (lib/work-slip-lanes.ts)
+ *  so this island stays dumb: the home's name already stripped from the
+ *  title, the one detail line (synthesized summary or clipped description,
+ *  never a whole pasted review), and the provenance line. */
+export type PrintSlip = {
+  id: string;
+  number: number;
+  title: string;
+  detail: string | null;
+  meta: string;
+  priority: 'low' | 'normal' | 'high';
+  categoryLabel: string | null;
+  done: boolean;
+};
 
 /**
  * One row on the property's work-slip checklist. Two faces:
@@ -23,8 +36,8 @@ import { WORK_SLIP_CATEGORY_LABELS } from '@/lib/work-types';
  * One-way for v1: once you mark a slip done, the tick box locks. Undo
  * is on the slip detail page (/work/[id]).
  */
-export function SlipRow({ slip, number }: { slip: WorkSlipRow; number: number }) {
-  const [done, setDone] = useState(slip.status === 'done');
+export function SlipRow({ slip, compact = false }: { slip: PrintSlip; compact?: boolean }) {
+  const [done, setDone] = useState(slip.done);
   const [isPending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
 
@@ -55,7 +68,7 @@ export function SlipRow({ slip, number }: { slip: WorkSlipRow; number: number })
         display: 'grid',
         gridTemplateColumns: '36px 1fr auto',
         gap: 18,
-        padding: '14px 0',
+        padding: compact ? '9px 0' : '12px 0',
         borderBottom: '1px solid var(--rule)',
         alignItems: 'flex-start',
         opacity: done ? 0.5 : 1,
@@ -106,7 +119,7 @@ export function SlipRow({ slip, number }: { slip: WorkSlipRow; number: number })
             className="font-mono"
             style={{ fontSize: 10, letterSpacing: '.06em', color: 'var(--ink-4)' }}
           >
-            {String(number).padStart(2, '0')}
+            {String(slip.number).padStart(2, '0')}
           </span>
           <span
             style={{
@@ -119,29 +132,21 @@ export function SlipRow({ slip, number }: { slip: WorkSlipRow; number: number })
             {slip.title}
           </span>
         </div>
-        {slip.location && (
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>
-            Location: {slip.location}
-          </div>
-        )}
-        {slip.action_summary && (
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--signal)', fontWeight: 600 }}>
-            {slip.action_summary}
-          </div>
-        )}
-        {slip.description && (
+        {slip.detail && (
           <div
             style={{
-              marginTop: 6,
+              marginTop: 4,
               fontSize: 12,
-              color: 'var(--ink-3)',
+              color: 'var(--ink-2)',
               lineHeight: 1.45,
-              whiteSpace: 'pre-wrap',
             }}
           >
-            {slip.description}
+            {slip.detail}
           </div>
         )}
+        <div style={{ marginTop: 4, fontSize: 10, color: 'var(--ink-4)', letterSpacing: '.03em' }}>
+          {slip.meta}
+        </div>
         {err && (
           <div
             data-no-print
@@ -164,17 +169,19 @@ export function SlipRow({ slip, number }: { slip: WorkSlipRow; number: number })
         >
           {slip.priority}
         </div>
-        <div
-          style={{
-            marginTop: 4,
-            fontSize: 9,
-            letterSpacing: '.14em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-4)',
-          }}
-        >
-          {WORK_SLIP_CATEGORY_LABELS[slip.category] ?? slip.category}
-        </div>
+        {slip.categoryLabel && (
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 9,
+              letterSpacing: '.14em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-4)',
+            }}
+          >
+            {slip.categoryLabel}
+          </div>
+        )}
         <div
           className="font-mono"
           style={{

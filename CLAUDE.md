@@ -59,7 +59,7 @@ you where the weight sits, nothing more.
 ```
 src/
   app/          35 route groups + api/. 136 pages, 65 *actions.ts server-action files
-    api/        120 route handlers, 29 cron routes (28 scheduled in vercel.json)
+    api/        121 route handlers, 30 cron routes (29 scheduled in vercel.json)
   lib/          262 top-level modules (290 including subfolders). The domain logic lives here.
   components/   96 shared components (62 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -68,7 +68,7 @@ supabase/migrations/   256 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**29 cron routes, 28 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**30 cron routes, 29 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -113,6 +113,24 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/onboarding` | Owner intake forms, token-gated, public |
 | `/today` | Full-expansion view of the home For Me feed. Same data |
 | `/search` | Long-form view behind the Cmd+K palette |
+
+**Work slips are filed into lanes, and the lane is never stored.** `src/lib/work-slip-lanes.ts`
+derives it from columns the app already keeps: supply (inventory), this visit (maintenance,
+inspector scope or untriaged), handyman run, licensed pro, owner (category `owner` or the
+`owner_action_required` flag, which wins over everything), office (`rising_tide`, `ad_hoc`,
+and the concierge's desk-work rails under `other`; the concierge's `gear:` and `staycontact:`
+slips ride the visit). The board groups by lane, the per-property print sheet prints one section
+per lane with a synthesized line per row (`slipDetailLine`: the action summary when it says more
+than the title, else the description collapsed and clipped; a pasted review never prints whole),
+and a Field stop lists owner-waiting slips last. `src/lib/organize-work-slips.ts` is the nightly
+pass (`/api/cron/organize-work`, 04:50 UTC, ahead of the field-packets planner; the board's
+Organize button runs it on demand) that reads each NEW slip's language once per home and writes
+only `category`, `run_scope` when untriaged, the owner flag and ask, `action_summary` when empty
+and the description is a pasted source or long, and `organize_group` for slips about the same
+object. It never writes title or description. `organized_at` is the once-only stamp: the sweep is
+`organized_at IS NULL`, and every operator lane edit (category, scope, owner flag) stamps it, so a
+human decision is never re-filed. Concierge-keyed, supplies-check, prep-rule and packet-backing
+slips are skipped; they have their own lanes and lifecycles.
 
 The four messaging surfaces share a client panel (`src/components/ProactiveRemindersPanel.tsx`)
 but keep separate server-action files by audience. That split is deliberate: Next server actions
@@ -777,7 +795,7 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 29 cron routes fail closed without it (verified 2026-09-26: every
+- **Cron**: `CRON_SECRET`. All 30 cron routes fail closed without it (verified 2026-09-26: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`

@@ -316,11 +316,71 @@ export async function updateWorkSlipScope(args: {
       // A cleared scope goes back through AI triage; a set one is the
       // operator's word, so drop the AI's stale note either way.
       run_scope_note: args.run_scope ? `Set by ${session.user.email.split('@')[0]}` : null,
+      // A lane decision by a person: the nightly organize pass never
+      // re-files a slip once organized_at is set (lib/organize-work-slips.ts).
+      ...laneSetBy(session.user.email),
     })
     .eq('id', args.id);
   if (error) return { ok: false, error: error.message };
   revalidatePath('/work');
   revalidatePath(`/work/${args.id}`);
+  return { ok: true };
+}
+
+/** The stamp every human lane edit writes, so the organize pass skips the
+ *  slip from then on and the slip page says who decided. */
+function laneSetBy(email: string): { organized_at: string; organize_note: string } {
+  return { organized_at: new Date().toISOString(), organize_note: `Set by ${email.split('@')[0]}` };
+}
+
+/** Categories a person files by hand. vendor and ad_hoc belong to packet code. */
+const EDITABLE_CATEGORIES: WorkSlipCategory[] = ['maintenance', 'inventory', 'owner', 'rising_tide', 'other'];
+
+/**
+ * Move a slip between lanes. Category is what every surface reads the lane
+ * off (lib/work-slip-lanes.ts), so this is the one lever that moves a slip
+ * on the board, the print sheet and the Field packet at once. Filing under
+ * Owner arms the owner-action rail exactly as createWorkSlip does; leaving
+ * Owner withdraws the ask the same way the Owner-input un-flag does, keeping
+ * owner_last_contacted_at as history of any email sent.
+ */
+export async function updateWorkSlipCategory(args: {
+  id: string;
+  category: WorkSlipCategory;
+  propertyId?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!EDITABLE_CATEGORIES.includes(args.category)) return { ok: false, error: 'Bad category' };
+
+  const { data: current, error: readErr } = await supabase
+    .from('work_slips')
+    .select('category, owner_action_required, owner_action_type')
+    .eq('id', args.id)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: readErr.message };
+  if (!current) return { ok: false, error: 'Work slip not found' };
+  const row = current as { category: WorkSlipCategory; owner_action_required: boolean; owner_action_type: WorkSlipOwnerActionType | null };
+
+  const patch: Record<string, unknown> = { category: args.category, ...laneSetBy(session.user.email) };
+  if (args.category === 'owner') {
+    patch.owner_action_required = true;
+    if (!row.owner_action_type) patch.owner_action_type = 'purchase';
+  } else if (row.category === 'owner' || row.owner_action_required) {
+    patch.owner_action_required = false;
+    patch.owner_action_type = null;
+    patch.owner_action_notes = null;
+    patch.owner_status = 'not_sent';
+  }
+
+  const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath('/work');
+  revalidatePath(`/work/${args.id}`);
+  revalidatePath('/');
+  revalidatePath('/properties');
+  if (args.propertyId) revalidatePath(`/properties/${args.propertyId}`);
   return { ok: true };
 }
 
@@ -348,7 +408,12 @@ export async function updateWorkSlipOwnerAction(args: {
     return { ok: false, error: 'Bad action type' };
   }
 
-  const patch: Record<string, unknown> = { owner_action_required: args.owner_action_required };
+  const patch: Record<string, unknown> = {
+    owner_action_required: args.owner_action_required,
+    // Flagging (or withdrawing) the owner ask is a lane decision by a
+    // person; the organize pass leaves the slip alone from here on.
+    ...laneSetBy(session.user.email),
+  };
   if (args.owner_action_required) {
     if (args.owner_action_type !== undefined) patch.owner_action_type = args.owner_action_type;
     if (args.owner_action_notes !== undefined) {

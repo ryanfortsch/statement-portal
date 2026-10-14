@@ -77,6 +77,10 @@
       "schedule": "40 */6 * * *"
     },
     {
+      "path": "/api/cron/organize-work",
+      "schedule": "50 4 * * *"
+    },
+    {
       "path": "/api/cron/contracts-sweep",
       "schedule": "0 11 * * 1"
     },

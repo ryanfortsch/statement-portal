@@ -15,6 +15,8 @@ import { SlipTitleEditor } from './SlipTitleEditor';
 import { SlipBringListEditor } from './SlipBringListEditor';
 import { SlipClosePanel } from './SlipClosePanel';
 import { SlipOwnerActionEditor } from './SlipOwnerActionEditor';
+import { SlipCategoryEditor } from './SlipCategoryEditor';
+import { LANE_LABELS, slipLane } from '@/lib/work-slip-lanes';
 
 export const dynamic = 'force-dynamic';
 
@@ -268,6 +270,31 @@ export default async function WorkSlipDetailPage({
           </Link>
         </Section>
       )}
+
+      {/* LANE — whose hands this goes to. Category is what the board, the
+          print sheet and the Field packet read the lane off; the nightly
+          organize pass files new slips here once and never touches a slip
+          a person has moved. */}
+      <Section
+        title="Lane"
+        eyebrow={
+          slip.organized_at
+            ? `${LANE_LABELS[slipLane(slip)]} · ${slip.organize_note?.startsWith('Set by') ? slip.organize_note : `organized by Helm ${formatDate(slip.organized_at)}`}`
+            : `${LANE_LABELS[slipLane(slip)]} · not yet organized`
+        }
+      >
+        <SlipCategoryEditor slipId={slip.id} propertyId={slip.property_id} initialCategory={slip.category} />
+        {slip.organize_note && !slip.organize_note.startsWith('Set by') && (
+          <p style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, margin: '12px 0 0' }}>
+            {slip.organize_note}
+          </p>
+        )}
+        {slip.organize_group_label && (
+          <p style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)', margin: '8px 0 0' }}>
+            Grouped with other slips about this: {slip.organize_group_label}
+          </p>
+        )}
+      </Section>
 
       {/* WHO DOES THIS — maintenance-run triage */}
       {slip.category === 'maintenance' && (

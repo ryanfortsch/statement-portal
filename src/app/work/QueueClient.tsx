@@ -29,6 +29,8 @@ import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { operatingDate } from '@/lib/operating-date';
 import { compareWork, workOverdue, workSignals, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { groupSlipsByLane, isSupplySlip, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
+import { organizeWorkNow } from './organize-actions';
 
 type PropertyForPicker = {
   id: string;
@@ -450,6 +452,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
             {!onSlips && <button type="button" onClick={() => setShowTaskModal(true)} style={primaryBtn()}>
               + Task
             </button>}
+            {onSlips && <OrganizeButton />}
             {onSlips && <button type="button" onClick={() => setShowSlipModal(true)} style={primaryBtn()}>
               + Work Slip
             </button>}
@@ -720,21 +723,9 @@ function Pill({
   );
 }
 
-/**
- * Inventory vs. work. Three ways a slip counts as inventory:
- *   1. category 'inventory' — picked on the New Work Slip form.
- *   2. from_supply_key — auto-created by the inspection Supplies Check.
- *   3. legacy 'rising_tide' titled "Restock: …" — pre-dates the
- *      inventory category, kept so old hand-entered restocks still land
- *      on the supplies side of the board instead of among the repairs.
- */
-function isSupplySlip(s: WorkSlipRow): boolean {
-  return (
-    s.category === 'inventory' ||
-    !!s.from_supply_key ||
-    (s.category === 'rising_tide' && /^restock:\s/i.test(s.title))
-  );
-}
+// isSupplySlip lives in lib/work-slip-lanes.ts, next to the lane rule the
+// print sheet and the organize pass share, so the board can never disagree
+// with paper about what counts as a restock.
 
 function supplyChipLabel(s: WorkSlipRow): string {
   if (s.from_supply_key) return suppliesLabel(s.from_supply_key);
@@ -760,6 +751,20 @@ function SupplyChip({ label, title }: { label: string; title?: string }) {
       {label}
     </span>
   );
+}
+
+function laneColor(lane: WorkLane): string {
+  switch (lane) {
+    case 'supply':
+      return 'var(--tide-deep)';
+    case 'owner':
+    case 'pro':
+      return 'var(--signal)';
+    case 'office':
+      return 'var(--ink-4)';
+    default:
+      return 'var(--ink-3)';
+  }
 }
 
 function SlipGroupLabel({ text, color }: { text: string; color: string }) {
@@ -814,7 +819,10 @@ function PropertyGroup({
   const summary = [signals.overdue && `${signals.overdue} overdue`, signals.blocked && `${signals.blocked} blocked`, signals.dueToday && `${signals.dueToday} due today`, !signals.overdue && !signals.blocked && !signals.dueToday && highCount && `${highCount} high priority`, signals.unclaimed && `${signals.unclaimed} unassigned`].filter(Boolean).join(' · ');
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
   const supplySlips = slips.filter(isSupplySlip);
-  const workSlips = slips.filter((s) => !isSupplySlip(s));
+  // Lanes: restock, this visit, handyman run, pro, owner, office. The rule
+  // is shared with the print sheet (lib/work-slip-lanes.ts), so what the
+  // screen groups is what the paper groups.
+  const laneGroups = groupSlipsByLane(slips);
   // The same supply can be flagged low at two inspections before anyone
   // shops — one chip on the glance line, not two.
   const supplyNames = [...new Set(supplySlips.map(supplyChipLabel))];
@@ -1029,39 +1037,30 @@ function PropertyGroup({
 
       {expanded && (
         <div id={`work-items-${propId}`} style={{ paddingBottom: 12 }}>
-          {/* Inventory first, then work, with group labels whenever the
-              property has restocks — keeps a shopping run and a repair
-              visit from reading as one undifferentiated list. The
-              labels print too: the paper checklist gets the same
-              restock-vs-work split as the screen. */}
-          {supplySlips.length > 0 && (
-            <SlipGroupLabel text={`Needs restock · ${supplySlips.length}`} color="var(--tide-deep)" />
-          )}
-          {supplySlips.map((s) => (
-            <WorkSlipRowItem
-              key={s.id}
-              slip={s}
-              bulkPending={bulkPending}
-              isSupply
-              selected={selectedIds.has(s.id)}
-              onToggleSelect={onToggleSelect}
-              commentCount={commentCounts[s.id] ?? 0}
-              reporterName={s.reported_by_contractor_id ? reporterNames[s.reported_by_contractor_id] ?? 'a field inspector' : undefined}
-            />
-          ))}
-          {supplySlips.length > 0 && workSlips.length > 0 && (
-            <SlipGroupLabel text={`Work · ${workSlips.length}`} color="var(--ink-4)" />
-          )}
-          {workSlips.map((s) => (
-            <WorkSlipRowItem
-              key={s.id}
-              slip={s}
-              bulkPending={bulkPending}
-              selected={selectedIds.has(s.id)}
-              onToggleSelect={onToggleSelect}
-              commentCount={commentCounts[s.id] ?? 0}
-              reporterName={s.reported_by_contractor_id ? reporterNames[s.reported_by_contractor_id] ?? 'a field inspector' : undefined}
-            />
+          {/* One group per lane, in walk order: restock, this visit,
+              handyman run, pro, owner, office. A label appears whenever
+              there is more than one lane, or the only lane is not the
+              routine visit (a home holding nothing but owner purchases
+              should say so). Clustered slips sit adjacent inside a lane. */}
+          {laneGroups.map(({ lane, slips: laneSlips }) => (
+            <div key={lane}>
+              {(laneGroups.length > 1 || lane !== 'visit') && (
+                <SlipGroupLabel text={`${LANE_LABELS[lane]} · ${laneSlips.length}`} color={laneColor(lane)} />
+              )}
+              {laneSlips.map((s) => (
+                <WorkSlipRowItem
+                  key={s.id}
+                  slip={s}
+                  propertyName={propName}
+                  bulkPending={bulkPending}
+                  isSupply={lane === 'supply'}
+                  selected={selectedIds.has(s.id)}
+                  onToggleSelect={onToggleSelect}
+                  commentCount={commentCounts[s.id] ?? 0}
+                  reporterName={s.reported_by_contractor_id ? reporterNames[s.reported_by_contractor_id] ?? 'a field inspector' : undefined}
+                />
+              ))}
+            </div>
           ))}
         </div>
       )}
@@ -1071,6 +1070,7 @@ function PropertyGroup({
 
 function WorkSlipRowItem({
   slip,
+  propertyName,
   selected,
   onToggleSelect,
   bulkPending = false,
@@ -1079,6 +1079,8 @@ function WorkSlipRowItem({
   isSupply = false,
 }: {
   slip: WorkSlipRow;
+  /** The group's home, so "73 Rocky Neck: Fix the door" reads as "Fix the door". */
+  propertyName?: string;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   bulkPending?: boolean;
@@ -1086,6 +1088,7 @@ function WorkSlipRowItem({
   reporterName?: string;
   isSupply?: boolean;
 }) {
+  const detail = isSupply ? null : slipDetailLine(slip, propertyName, 200);
   const [isPending, startTransition] = useTransition();
   const softRefresh = useSoftRefresh();
   // Optimistic removal: the row disappears the moment ✓ Done is clicked,
@@ -1159,14 +1162,17 @@ function WorkSlipRowItem({
         }}
       >
         <div style={{ flex: '1 1 180px', minWidth: 0 }}>
-          <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slip.title}</div>
+          <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slipDisplayTitle(slip.title, propertyName)}</div>
           {doneError && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: 'var(--negative)' }}>{doneError}</div>}
           {/* The detail is what you triage on — surface it right on the row
               (one clamped line, full text on hover) so you don't have to
-              open the slip just to see what it's about. Assignment info
+              open the slip just to see what it's about. The line is the
+              synthesized action summary when there is one, else the
+              description collapsed (lib/work-slip-lanes.ts slipDetailLine),
+              so a pasted review never fills the row. Assignment info
               stays, demoted to the meta line below. Supply/restock rows
               skip it: their auto-generated description is boilerplate. */}
-          {!isSupply && (slip.action_summary || slip.description) && (
+          {detail && (
             <div
               style={{
                 marginTop: 3,
@@ -1180,7 +1186,7 @@ function WorkSlipRowItem({
               }}
               title={slip.action_summary || slip.description || undefined}
             >
-              {slip.action_summary || slip.description}
+              {detail}
             </div>
           )}
           <div style={{ marginTop: 3, fontSize: 11, color: isOverdue ? 'var(--negative)' : 'var(--ink-4)', letterSpacing: '.06em' }}>
@@ -1212,10 +1218,31 @@ function WorkSlipRowItem({
         ) : (
           slip.priority === 'high' && <span className="rt-no-print" style={pillTinyStyle('var(--negative)')}>High</span>
         )}
+        {/* Waiting on the owner: the ask (purchase, approval...) rides the
+            pill so the row says what the owner email will ask for. */}
+        {slip.owner_action_required && (
+          <span
+            className="rt-no-print"
+            title={slip.owner_action_notes || 'Flagged for owner input'}
+            style={pillTinyStyle('var(--signal)')}
+          >
+            owner{slip.owner_action_type ? ` · ${slip.owner_action_type}` : ''}
+          </span>
+        )}
+        {/* Clustered with other slips about the same thing (organize pass). */}
+        {slip.organize_group_label && (
+          <span
+            className="rt-no-print"
+            title={`Grouped with other slips about this: ${slip.organize_group_label}`}
+            style={pillTinyStyle('var(--ink-4)')}
+          >
+            {slip.organize_group_label}
+          </span>
+        )}
         {/* Who the AI-triaged fix belongs to: a handyman run or a licensed
             vendor. Inspector-scope stays quiet — that's the default fate of
             most slips (picked up on a routine stop as a ride-along). */}
-        {slip.category === 'maintenance' && (slip.run_scope === 'handyman' || slip.run_scope === 'pro') && (
+        {!slip.owner_action_required && slip.category === 'maintenance' && (slip.run_scope === 'handyman' || slip.run_scope === 'pro') && (
           <span
             className="rt-no-print"
             title={slip.run_scope_note || undefined}
@@ -1974,6 +2001,71 @@ function primaryBtn(): React.CSSProperties {
     fontWeight: 600,
     cursor: 'pointer',
   };
+}
+
+/** Run the organize pass now instead of waiting for the night. The action
+ *  answers at once with how many slips the pass has not seen; the model
+ *  calls run after the response, so the note tells the operator to check
+ *  back rather than spinning on a minutes-long pass. */
+function OrganizeButton() {
+  const softRefresh = useSoftRefresh();
+  const [pending, startTransition] = useTransition();
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const lock = useRef(false);
+  useUnsavedWorkGuard(pending);
+
+  function run() {
+    if (lock.current) return;
+    lock.current = true;
+    setNote('');
+    setError('');
+    startTransition(async () => {
+      try {
+        const res = await organizeWorkNow();
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setNote(
+          res.pending === 0
+            ? 'Every open slip is already organized.'
+            : `Organizing ${res.pending} new slip${res.pending === 1 ? '' : 's'} in the background. Check back in a few minutes.`,
+        );
+        softRefresh();
+      } catch {
+        setError('Could not confirm the organize pass. Refresh the board before retrying.');
+      } finally {
+        lock.current = false;
+      }
+    });
+  }
+
+  return (
+    <span className="rt-no-print" style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+      {note && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{note}</span>}
+      {error && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{error}</span>}
+      <button
+        type="button"
+        onClick={run}
+        disabled={pending}
+        title="File new slips into lanes (this visit, handyman, pro, owner, office) and synthesize pasted reviews. Runs nightly on its own."
+        style={{
+          background: 'none',
+          border: '1px solid var(--rule)',
+          color: 'var(--ink-3)',
+          padding: '8px 14px',
+          fontSize: 11,
+          letterSpacing: '.14em',
+          textTransform: 'uppercase',
+          cursor: pending ? 'wait' : 'pointer',
+          opacity: pending ? 0.6 : 1,
+        }}
+      >
+        {pending ? 'Organizing…' : 'Organize'}
+      </button>
+    </span>
+  );
 }
 
 function pillTinyStyle(color: string): React.CSSProperties {

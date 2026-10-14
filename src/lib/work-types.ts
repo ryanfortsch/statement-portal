@@ -85,6 +85,14 @@ export type WorkSlipRow = {
    *  ("guestmsg:<conversation_id>:<guest_message_id>"). One slip per
    *  reported issue, ever -- dismissed stays dismissed. */
   from_guest_message_key: string | null;
+  /** Provenance of the three other auto-filed rails: a Guesty review
+   *  (reviews-to-slips), a cleaner's Quo text (quo ingest), or a triaged
+   *  email (gmail ingest). Each has its own partial unique index; here they
+   *  tell a surface where the slip came from (lib/work-slip-lanes.ts
+   *  slipSourceLabel) and the organize pass which descriptions are pasted. */
+  from_review_id: string | null;
+  from_quo_message_id: string | null;
+  from_gmail_message_id: string | null;
   /** AI triage: who should do the work (see RunScope). NULL = not yet
    *  classified; the maintenance-run planner fills it in. */
   run_scope: RunScope | null;
@@ -92,6 +100,17 @@ export type WorkSlipRow = {
   /** AI on-site estimate in minutes, feeding the run planner's
    *  "substantive enough" gate. */
   effort_minutes: number | null;
+  /** The nightly organize pass (lib/organize-work-slips.ts) files each NEW
+   *  slip into a lane once by writing category / run_scope / owner_action_*,
+   *  then stamps this. NULL = not yet seen. Operator lane edits stamp it too,
+   *  so a human decision is never re-filed. organize_note is the one line of
+   *  why; organize_group / _label cluster slips about the same object (the
+   *  same door, one owner shopping list) so the board and print keep them
+   *  together. The lane itself is derived, never stored: lib/work-slip-lanes.ts. */
+  organized_at: string | null;
+  organize_note: string | null;
+  organize_group: string | null;
+  organize_group_label: string | null;
   created_by_email: string;
   closed_by_email: string | null;
   created_at: string;

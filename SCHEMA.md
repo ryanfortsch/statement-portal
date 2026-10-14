@@ -409,6 +409,11 @@ live in `property_access` and per-stay `guest_access_codes`.
 
 - `work_slips` + `tasks`: the Work module. Slips are property-scoped;
   tasks span properties or are corporate. Both have priority + claimer.
+  `organized_at` / `organize_note` / `organize_group` / `organize_group_label`
+  belong to the nightly organize pass (`lib/organize-work-slips.ts`): the
+  once-only stamp, the one line of why, and the cluster key for slips about
+  the same object. The lane itself is derived, never stored
+  (`lib/work-slip-lanes.ts`).
 - `work_slip_comments` + `task_comments`: append-only thread.
 - `inspections` + `inspection_items` + `inspection_results` +
   `inspection_notes`: a single inspection run with per-item scoring.
