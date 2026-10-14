@@ -32,6 +32,7 @@ import { PeriodNotesCard } from '@/components/PeriodNotesCard';
 import { BankDepositReview } from '@/components/BankDepositReview';
 import { CleaningEventCredit } from '@/components/CleaningEventCredit';
 import { ReceiptCapture, ReceiptRowActions } from '@/components/ReceiptCapture';
+import { HandoffFileQueue } from '@/components/HandoffFileQueue';
 
 /* ─── Types ─── */
 type Reservation = {
@@ -2050,6 +2051,12 @@ function PropertyCard({
               </div>
             </div>
           )}
+
+          {/* The field handoff: what the operations manager sent for this
+              home and month. Filed through the same /api/receipts path as the
+              button below, or noted on the period, never written straight to
+              the statement. Renders nothing when there is nothing waiting. */}
+          <HandoffFileQueue propertyId={prop.property_id} propertyName={prop.property_name} month={month} onFiled={onRefresh} />
 
           {/* Receipt capture -- photograph a Home Depot run (or drag the
               photo in) and bill it to this month's Repairs & Maintenance.

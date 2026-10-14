@@ -12,6 +12,9 @@ import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { loadMeetingCards } from '@/lib/meetings';
 import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
+import { roleForEmail } from '@/lib/helm-access';
+import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
+import { loadHandoffItems } from '@/lib/close-handoff-db';
 import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
 import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
 
@@ -97,7 +100,7 @@ export async function ForMeFeed() {
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
-    loadQueueCards(),
+    loadQueueCards(email),
     loadPaymentLinkCards(),
     loadMeetingCards(),
     // Owner blocks nobody has answered "clean after?" for. No clear
@@ -857,13 +860,44 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  * table, unconfigured Field env, network) so the rest of the feed is never
  * touched, matching how the other loaders here fail.
  */
-async function loadQueueCards(): Promise<QueueCard[]> {
-  const [creative, packets, statements] = await Promise.all([
+async function loadQueueCards(email: string): Promise<QueueCard[]> {
+  const [creative, packets, statements, handoff] = await Promise.all([
     loadCreativeQueue(),
     loadPacketQueue(),
     loadStatementQueue(),
+    loadCloseHandoffQueue(email),
   ]);
-  return [creative, ...packets, statements].filter((c): c is QueueCard => !!c);
+  return [creative, ...packets, statements, handoff].filter((c): c is QueueCard => !!c);
+}
+
+/**
+ * The month-close handoff, read from each end. Staff see their deadline:
+ * items still open for a month inside the nag window (a week before the
+ * due date through the close). Owners see what waits on them: items the
+ * field has sent, plus anything left open once the month is over.
+ */
+async function loadCloseHandoffQueue(email: string): Promise<QueueCard | null> {
+  try {
+    const today = todayET();
+    const months = handoffMonths(today);
+    const items = await loadHandoffItems({ months, statuses: ['open', 'sent'] });
+    if (items.length === 0) return null;
+    const cur = today.slice(0, 7);
+    if (roleForEmail(email) === 'owner') {
+      const toFile = items.filter((i) => i.status === 'sent' || i.month < cur);
+      if (toFile.length === 0) return null;
+      const m = toFile.map((i) => i.month).sort()[0];
+      const n = toFile.filter((i) => i.month === m).length;
+      return { id: 'queue-close-handoff', href: `/fieldwork/close?month=${m}`, text: `Close handoff: ${n} field item${n === 1 ? '' : 's'} to file for ${monthName(m)}` };
+    }
+    const open = items.filter((i) => i.status === 'open' && inNagWindow(i.month, today));
+    if (open.length === 0) return null;
+    const m = open.map((i) => i.month).sort()[0];
+    const n = open.filter((i) => i.month === m).length;
+    return { id: 'queue-close-handoff', href: `/fieldwork/close?month=${m}`, text: `Close handoff: ${n} item${n === 1 ? '' : 's'} not sent for ${monthName(m)}, ${dueWording(m, today)}` };
+  } catch {
+    return null;
+  }
 }
 
 /**

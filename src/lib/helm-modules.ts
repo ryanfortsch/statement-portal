@@ -267,6 +267,22 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'field',
   },
+  // The month-close handoff: the field data (repair costs, card charges by
+  // home, cleaning issues) the operations manager sends three days before
+  // the statement close, filed into statements by an owner from the
+  // statement card. Open to staff on purpose: nothing on it moves money.
+  {
+    id: 'close-handoff',
+    href: '/fieldwork/close',
+    number: '03e',
+    title: 'Close handoff',
+    description: 'Field data for the monthly statement close: repair costs, card charges by home and cleaning issues, added through the month and sent three days before the close. Owners file each item into the statement.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'field',
+  },
   {
     id: 'work',
     href: '/work',
