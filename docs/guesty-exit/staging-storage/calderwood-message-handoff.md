@@ -151,3 +151,38 @@ must never be classified as authoritative rejection. Reconciliation events must
 be tied to the exact attempt; do not infer retry safety from stale error records.
 Production integration also needs current booking/hold/expiry checks and frozen
 content revisions. No existing shared sender or database schema was modified.
+
+## Durable single-host rehearsal storage
+
+`src/lib/calderwood-rehearsal/cleaner-delivery-store.ts` persists the synthetic
+per-recipient ledger as a validated event history. The recipient list and message
+identity are frozen at initialization. Every read replays validated events rather
+than trusting a separately stored status projection. Unknown fields, invalid
+states, duplicate event identities and inconsistent versions are rejected.
+
+Writers hold an exclusive filesystem lock and compare the expected version.
+Updates use a private temporary file, file sync, atomic rename and directory
+sync. Initialization uses atomic create-without-overwrite. Missing/corrupt state
+never becomes a fresh retryable ledger. A process dying with the lock leaves it
+for explicit recovery; the store does not steal locks or infer that a send failed.
+A save error after an uncertain commit requires rereading and reconciling before
+any further action. Stable event IDs make an identical record replay idempotent;
+reusing one ID for different content is an error. Store results never authorize
+network sends.
+
+Seven added tests demonstrate fresh-process readback, death after committed claim,
+competing processes, lock abandonment, missing/corrupt records, malformed/stale
+writes, and partial delivery across reload. Temporary fixtures contain fictional
+identities and are removed after tests. No SMS API is invoked.
+
+Validation: full suite 1,897 passed; TypeScript, targeted ESLint and diff checks
+passed. Continued from `8147799d`; remote main observed before this step was
+`01fe43445c38bec31135e4313dc757e454b06b9c`.
+
+This is durable only on a persistent local filesystem with the documented
+single-host locking semantics. It is not a Render/Vercel shared database adapter,
+and tests do not prove power-loss behavior on every filesystem. Do not deploy it
+onto ephemeral disk or use it across hosts. Next integration requires a shared
+transactional store, atomic claims, authenticated receipt reconciliation and the
+booking/hold/expiry checks already identified above. No production migration,
+worker change or live delivery was performed.
