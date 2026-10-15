@@ -25,15 +25,69 @@ export type BriefSlip = Pick<
     >
   >;
 
+/** One bullet of the brief: whose hands it is in, and the clause. */
+export type BriefItem = { lead: string; text: string };
+
 export type WorkBriefRow = {
   property_id: string;
   headline: string;
+  /** The bullets joined as text, for any reader that wants a paragraph. */
   brief: string;
+  items: BriefItem[];
   slip_fingerprint: string;
   slip_count: number;
   model: string | null;
   generated_at: string;
 };
+
+const ITEM_MAX = 7;
+const ITEM_TEXT_MAX = 200;
+const LEAD_MAX = 24;
+
+/** The order the sheet reads in. A lead the model invents (a trade name)
+ *  sorts with the pro trades, after Urgent and before the handyman run. */
+const LEAD_RANK: Array<[RegExp, number]> = [
+  [/^urgent/i, 0],
+  [/^handyman/i, 2],
+  [/^(this|next) visit/i, 3],
+  [/^bring/i, 4],
+  [/^owner/i, 5],
+  [/^office/i, 6],
+];
+function leadRank(lead: string): number {
+  for (const [re, rank] of LEAD_RANK) if (re.test(lead)) return rank;
+  return 1;
+}
+
+/** Trim, cap, dedupe and order what the model returned. Empty leads or
+ *  texts are dropped; the order is the sheet's, not the model's. */
+export function normalizeBriefItems(raw: Array<{ lead?: unknown; text?: unknown }> | null | undefined): BriefItem[] {
+  const seen = new Set<string>();
+  const out: BriefItem[] = [];
+  for (const r of raw ?? []) {
+    const lead = String(r?.lead ?? '').replace(/\s+/g, ' ').trim().replace(/[.:;,\s]+$/, '').slice(0, LEAD_MAX);
+    const text = String(r?.text ?? '').replace(/\s+/g, ' ').trim().replace(/\s+$/, '').slice(0, ITEM_TEXT_MAX);
+    if (!lead || !text) continue;
+    const key = `${lead.toLowerCase()}|${text.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ lead: lead.charAt(0).toUpperCase() + lead.slice(1), text });
+  }
+  return out
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => leadRank(a.item.lead) - leadRank(b.item.lead) || a.i - b.i)
+    .map(({ item }) => item)
+    .slice(0, ITEM_MAX);
+}
+
+/** The bullets as one paragraph: "Plumber: kitchen sink leak. Bring: ..." */
+export function briefText(items: BriefItem[]): string {
+  return items.map((i) => `${i.lead}: ${i.text.replace(/[.\s]+$/, '')}.`).join(' ');
+}
+
+export function briefWordCount(items: BriefItem[]): number {
+  return items.reduce((n, i) => n + i.text.trim().split(/\s+/).filter(Boolean).length, 0);
+}
 
 /** FNV-1a over a string, hex. A stale-check, not a security hash: no
  *  imports, so this module stays client-safe. */

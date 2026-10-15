@@ -88,16 +88,42 @@ export function OpenWorkSection({
         </div>
       </div>
 
-      {/* THE BRIEF */}
-      {brief?.brief && slips.length > 0 && (
+      {/* THE BRIEF: bullets, each a lead (whose hands) and one clause. A
+          brief written before bullets existed still shows as a paragraph. */}
+      {brief && (brief.items?.length > 0 || brief.brief) && slips.length > 0 && (
         <div style={{ marginBottom: 18 }}>
-          <p
-            className="font-serif"
-            style={{ fontSize: 16, lineHeight: 1.55, color: 'var(--ink-2)', maxWidth: 780, margin: 0 }}
-          >
-            {brief.brief}
-          </p>
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+          {brief.items?.length > 0 ? (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxWidth: 820 }}>
+              {brief.items.map((item, i) => (
+                <li
+                  key={`${item.lead}-${i}`}
+                  style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '5px 0', borderBottom: i < brief.items.length - 1 ? '1px dotted var(--rule-soft)' : 'none' }}
+                >
+                  <span
+                    style={{
+                      flex: '0 0 112px',
+                      fontSize: 10,
+                      letterSpacing: '.16em',
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      color: /^urgent/i.test(item.lead) ? 'var(--negative)' : /^(owner|office)/i.test(item.lead) ? 'var(--signal)' : /^bring/i.test(item.lead) ? 'var(--tide-deep)' : 'var(--ink-3)',
+                      paddingTop: 2,
+                    }}
+                  >
+                    {item.lead}
+                  </span>
+                  <span className="font-serif" style={{ fontSize: 15, lineHeight: 1.45, color: 'var(--ink)' }}>
+                    {item.text}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="font-serif" style={{ fontSize: 16, lineHeight: 1.55, color: 'var(--ink-2)', maxWidth: 780, margin: 0 }}>
+              {brief.brief}
+            </p>
+          )}
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
             Brief as of {formatBriefDate(brief.generated_at)}
             {stale ? ' · the list has changed since; it rewrites tonight' : ''}
           </div>

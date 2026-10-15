@@ -293,28 +293,53 @@ export default async function WorkSlipsPrintPage({
               {property.address || property.title || property.city}
               {property.owner_last && ` · ${property.owner_last}`}
             </p>
-            {/* The brief leads: the paragraph a seasoned operations manager
-                would write about this home (lib/work-briefs.ts). The old
-                one-line count stands in when no brief has been written yet. */}
-            <p
-              className={brief?.brief && slips.length > 0 ? 'font-serif' : undefined}
-              style={{
-                marginTop: 18,
-                fontSize: brief?.brief && slips.length > 0 ? 15 : 14,
-                color: 'var(--ink-2)',
-                lineHeight: 1.55,
-                fontStyle: brief?.brief && slips.length > 0 ? 'normal' : 'italic',
-                maxWidth: 600,
-              }}
-            >
-              {slips.length === 0
-                ? 'No open work slips. Nothing to bring.'
-                : brief?.brief
-                  ? brief.brief
-                  : visitCount > 0
-                    ? `${visitCount} ${visitCount === 1 ? 'item' : 'items'} for this visit${waitingCount > 0 ? `, ${waitingCount} waiting on someone else` : ''}.`
-                    : `Nothing for a routine visit. ${waitingCount} ${waitingCount === 1 ? 'item is' : 'items are'} waiting on someone else.`}
-            </p>
+            {/* The brief leads: the bullets a seasoned operations manager
+                would write about this home (lib/work-briefs.ts), each a
+                lead and one clause. The old one-line count stands in when
+                no brief has been written yet. */}
+            {slips.length > 0 && brief && brief.items?.length > 0 ? (
+              <ul style={{ listStyle: 'none', margin: '18px 0 0', padding: 0, maxWidth: 620 }}>
+                {brief.items.map((item, i) => (
+                  <li key={`${item.lead}-${i}`} className="ws-pdf-row" style={{ display: 'flex', gap: 12, alignItems: 'baseline', padding: '4px 0' }}>
+                    <span
+                      style={{
+                        flex: '0 0 104px',
+                        fontSize: 9,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        fontWeight: 700,
+                        color: /^urgent/i.test(item.lead) ? 'var(--negative)' : /^(owner|office)/i.test(item.lead) ? 'var(--signal)' : 'var(--ink-3)',
+                      }}
+                    >
+                      {item.lead}
+                    </span>
+                    <span className="font-serif" style={{ fontSize: 14, lineHeight: 1.45, color: 'var(--ink)' }}>
+                      {item.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p
+                className={brief?.brief && slips.length > 0 ? 'font-serif' : undefined}
+                style={{
+                  marginTop: 18,
+                  fontSize: brief?.brief && slips.length > 0 ? 15 : 14,
+                  color: 'var(--ink-2)',
+                  lineHeight: 1.55,
+                  fontStyle: brief?.brief && slips.length > 0 ? 'normal' : 'italic',
+                  maxWidth: 600,
+                }}
+              >
+                {slips.length === 0
+                  ? 'No open work slips. Nothing to bring.'
+                  : brief?.brief
+                    ? brief.brief
+                    : visitCount > 0
+                      ? `${visitCount} ${visitCount === 1 ? 'item' : 'items'} for this visit${waitingCount > 0 ? `, ${waitingCount} waiting on someone else` : ''}.`
+                      : `Nothing for a routine visit. ${waitingCount} ${waitingCount === 1 ? 'item is' : 'items are'} waiting on someone else.`}
+              </p>
+            )}
             {summaryBits.length > 1 && (
               <p style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
                 {summaryBits.join(' · ')}

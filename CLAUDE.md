@@ -133,8 +133,9 @@ human decision is never re-filed. Concierge-keyed, supplies-check, prep-rule and
 slips are skipped; they have their own lanes and lifecycles.
 
 **Every home also carries a brief** (`property_work_briefs`, `src/lib/work-briefs.ts`): a one-line
-headline for the Work board's home header and a short paragraph that leads the property page's
-Open Work section and the print sheet, written by the model from the open slips grouped by lane
+headline for the Work board's home header and three to seven bullets (`items`, each a lead naming
+whose hands it is in and one clause) that lead the property page's Open Work section and the
+print sheet, written by the model from the open slips grouped by lane
 (what is blocking, what needs a pro, what a handyman run covers, what the next visit knocks out,
 what to bring, what the owner owes, what is for the office; never a guest's name). It is rewritten
 only when the slip set changes (`briefFingerprint` in `work-brief-rules.ts`), so the text is stable
