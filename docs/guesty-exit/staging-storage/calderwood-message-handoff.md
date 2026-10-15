@@ -186,3 +186,50 @@ onto ephemeral disk or use it across hosts. Next integration requires a shared
 transactional store, atomic claims, authenticated receipt reconciliation and the
 booking/hold/expiry checks already identified above. No production migration,
 worker change or live delivery was performed.
+
+## Shared database rehearsal storage, October 15
+
+`cleaner-delivery-db.ts` now uses the existing isolated staging Supabase project
+`jgkblfozftcvymvwhhii`. It accepts explicit server credentials and that exact URL;
+there is no production fallback. It reads and validates the full event history,
+then submits an append with the expected version. A lost/invalid response never
+causes an automatic retry. The shared validation/replay kernel was extracted to
+`cleaner-delivery-history.ts`; local-file behavior remains unchanged.
+
+`cleaner-delivery.sql` installs one fixed fictional fixture in the private
+`helm_cleaner_rehearsal` schema. The service role can call only the two narrow
+read/append functions, not access the table directly. Anonymous and ordinary
+signed-in clients cannot call either function. Row locking serializes competing
+appends; version mismatch rejects the stale writer. SQL validates immutable
+identity, append-only history, event shapes and unique record IDs. Full delivery
+lifecycle validation remains in the trusted TypeScript adapter; this SQL is not a
+standalone production queue or a receipt-authentication boundary.
+
+The SQL was applied through the existing isolated staging project's editor.
+Hosted verification, under the service role, committed a fictional claim and a
+fictional delivered receipt, rejected a stale claim, and independently read back
+version 2 with two events. The two records are `HELMTEST-db-claim-a` and
+`HELMTEST-db-receipt-a` for `HELMTEST-cleaner-a`; the second fictional recipient
+has no attempt. Anonymous access, signed-in write access and direct service-role
+schema access all returned false. `public.automation_sends` remained absent.
+These are synthetic records, not observed cleaner SMS deliveries.
+
+`scripts/verify-cleaner-delivery-db.mjs` exercised the same SQL in a temporary
+loopback PostgreSQL database with two actual connections. It confirmed that the
+second writer waited on the first writer's row lock and was rejected after the
+first committed. It also verified rollback, immutable history, duplicate
+rejection, safe setup reapplication, restricted privileges, and persistence
+across a PostgreSQL restart. The restart test was local, not a hosted outage test.
+Run it with the absolute entry path of an externally installed `embedded-postgres`
+package; it uses no application environment or hosted credentials and removes its
+own temporary database afterward. No dependency was added to the application.
+
+Validation: full suite 1,901 passed; TypeScript, targeted ESLint and diff checks
+passed. Continued from `9cbbb607`; remote main observed before this step was
+`f95f175e8d0d20efe6583cf4b824ba520aeccbde`.
+
+The database adapter still returns `canSend: false`. No real phone numbers,
+message bodies, SMS transport, worker activation, Guesty changes, or paid signup
+were introduced. Next work is the worker/receipt rehearsal using this shared
+store, including authenticated receipt reconciliation and current booking,
+hold, ownership and expiry checks before any future live integration.
