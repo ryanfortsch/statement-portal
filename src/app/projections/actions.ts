@@ -16,6 +16,7 @@ import type {
   Owner,
   ProjectionRow,
   ReadinessState,
+  WithdrawnSignature,
 } from '@/lib/projections-types';
 import { deriveLegacyFromOwners } from '@/lib/projections-types';
 import type { HomeGuideOverrides } from '@/lib/properties';
@@ -35,6 +36,15 @@ import {
   fetchContractPdf,
 } from '@/lib/contract-email';
 import { archiveContractToDrive, archiveProposalToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
+import {
+  changedContractTerms,
+  contractTermsDigest,
+  contractTermsLocked,
+  CONTRACT_LOCKED_MESSAGE,
+  type ContractTermsSource,
+} from '@/lib/contract-terms';
+import { sealContractCopy, executedContractPdf } from '@/lib/contract-seal';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { renderProjectionPdf } from '@/lib/projection-pdf';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
 import { sendReadinessReviewEmail } from '@/lib/readiness-email';
@@ -73,6 +83,22 @@ function parseOwners(fd: FormData): Owner[] {
     });
   }
   return owners;
+}
+
+/** The columns the contract renders from (see ContractTermsSource). */
+const CONTRACT_TERM_COLUMNS =
+  'prospect_full_legal, prospect_name, property_address, property_city, property_type, ' +
+  'mgmt_fee_pct, initial_deposit, min_account_balance, min_availability_days, ' +
+  'sale_notification_days, reputation_fee, term_start, term_end, contract_overrides, custom_clauses';
+
+/** True once the owner has signed; the contract's terms are then locked. */
+async function isContractSigned(id: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('projections')
+    .select('contract_signed_at')
+    .eq('id', id)
+    .maybeSingle();
+  return !!data && contractTermsLocked(data as { contract_signed_at: string | null });
 }
 
 /** 32-hex-char random token for the public onboarding link. */
@@ -399,6 +425,24 @@ export async function updateProjection(id: string, formData: FormData) {
 
   const basePayload = buildPayload(formData);
 
+  // A signed contract's terms are locked: the contract re-renders from
+  // this row, so a changed term would sit under the owner's signature.
+  // Everything else on the form (owner phone and email, the deck's
+  // numbers) still saves. A refused save changes nothing and lands back
+  // on the page naming the terms it held, rather than throwing, which
+  // production would show as a bare error digest.
+  const { data: current } = await supabase
+    .from('projections')
+    .select(`contract_signed_at, ${CONTRACT_TERM_COLUMNS}`)
+    .eq('id', id)
+    .maybeSingle();
+  const before = current as unknown as ContractTermsSource | null;
+  const termChanges = before ? changedContractTerms(before, { ...before, ...basePayload }) : [];
+  const termsLockedRedirect = `/prospects/${id}?terms_locked=${encodeURIComponent(termChanges.join(', '))}`;
+  if (termChanges.length > 0 && contractTermsLocked(current as { contract_signed_at: string | null })) {
+    redirect(termsLockedRedirect);
+  }
+
   // Drive-time resolution: avoid the Nominatim+OSRM round-trip on every
   // minor edit. The form's `drive_time_minutes` field defaults to '' when
   // the column was never populated, so a routine save would otherwise
@@ -438,15 +482,23 @@ export async function updateProjection(id: string, formData: FormData) {
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase
-    .from('projections')
-    .update(payload)
-    .eq('id', id);
+  // A save that changes terms only lands while the contract is unsigned,
+  // so an owner signing between the read above and this write keeps the
+  // terms they saw.
+  let write = supabase.from('projections').update(payload).eq('id', id);
+  if (termChanges.length > 0) write = write.is('contract_signed_at', null);
+  const { data: saved, error } = await write.select('id');
 
   if (error) throw new Error(error.message);
+  if (termChanges.length > 0 && (!saved || saved.length === 0)) redirect(termsLockedRedirect);
 
   revalidatePath('/properties');
   revalidatePath(`/prospects/${id}`);
+  // On a signed contract the page may still carry an earlier refusal's
+  // ?terms_locked= notice; land on the bare URL so a good save clears it.
+  if (current && contractTermsLocked(current as { contract_signed_at: string | null })) {
+    redirect(`/prospects/${id}`);
+  }
 }
 
 export async function deleteProjection(id: string) {
@@ -475,6 +527,7 @@ export async function resetContractOverrides(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (await isContractSigned(id)) return { ok: false, error: CONTRACT_LOCKED_MESSAGE };
 
   const { error } = await supabase
     .from('projections')
@@ -483,7 +536,8 @@ export async function resetContractOverrides(
       custom_clauses: null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', id);
+    .eq('id', id)
+    .is('contract_signed_at', null);
   if (error) return { ok: false, error: error.message };
 
   revalidatePath('/properties');
@@ -1024,7 +1078,15 @@ export async function promoteToProperty(projectionId: string) {
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       const origin = await getRequestOrigin();
       if (origin) {
-        const pdf = await fetchContractPdf({ projectionId, origin, token: projRow.onboarding_token as string | null });
+        const pdf = await executedContractPdf({
+          projection: {
+            id: projectionId,
+            onboarding_token: projRow.onboarding_token as string | null,
+            contract_executed_pdf_path: projRow.contract_executed_pdf_path as string | null | undefined,
+            contract_executed_pdf_sha256: projRow.contract_executed_pdf_sha256 as string | null | undefined,
+          },
+          origin,
+        });
         const blob = await put(`property-docs/${propertyId}/contract-${propertyId}.pdf`, pdf, {
           access: 'public',
           addRandomSuffix: true,
@@ -1137,12 +1199,21 @@ export async function submitContractSignature(formData: FormData) {
   // Pull the projection. Skip if already signed (idempotent).
   const { data: existing, error: lookupErr } = await supabase
     .from('projections')
-    .select('id, contract_signed_at')
+    .select(`id, contract_signed_at, ${CONTRACT_TERM_COLUMNS}`)
     .eq('onboarding_token', token)
     .maybeSingle();
   if (lookupErr || !existing) throw new Error(lookupErr?.message || 'Contract not found');
   if (existing.contract_signed_at) {
     redirect(`/contract/${token}/signed`);
+  }
+
+  // The form carries a fingerprint of the terms it showed. If staff
+  // changed them while the owner was reading, the owner reviews the
+  // current version instead of signing under terms they never saw. A
+  // form without one (a page served before this check) is let through.
+  const shownDigest = String(formData.get('terms_digest') || '');
+  if (shownDigest && shownDigest !== contractTermsDigest(existing as unknown as ContractTermsSource)) {
+    redirect(`/contract/${token}?changed=1#signatures`);
   }
 
   // Audit fields. Forwarded-for first hop is the originating client IP on
@@ -1178,6 +1249,29 @@ export async function submitContractSignature(formData: FormData) {
   if (fullProjection) {
     const origin = await getRequestOrigin();
     if (origin) {
+      // Render the owner-signed PDF once, seal it, and attach the same
+      // bytes to the owner's email: the copy the owner holds is the one
+      // whose fingerprint Helm keeps and the executed certificate prints.
+      // Best-effort like the email; the signature above already stands.
+      let signedPdf: Buffer | null = null;
+      try {
+        signedPdf = await fetchContractPdf({ projectionId: existing.id, origin, token });
+      } catch (err) {
+        console.error(
+          '[submitContractSignature] owner-signed PDF render failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      if (signedPdf) {
+        const seal = await sealContractCopy({ projectionId: existing.id, kind: 'signed', pdf: signedPdf });
+        if (seal) {
+          const { error: sealErr } = await supabase
+            .from('projections')
+            .update({ contract_signed_pdf_path: seal.path, contract_signed_pdf_sha256: seal.sha256 })
+            .eq('id', existing.id);
+          if (sealErr) console.error('[submitContractSignature] seal stamp failed:', sealErr.message);
+        }
+      }
       // Two parallel sends: the owner gets their signed copy, and
       // staff (allie@ + dotti@) get a separate "you have a
       // countersign to do" alert. The staff alert is what closes
@@ -1188,6 +1282,7 @@ export async function submitContractSignature(formData: FormData) {
         sendOwnerSignedEmail({
           projection: fullProjection as ProjectionRow,
           origin,
+          pdf: signedPdf ?? undefined,
         }),
         sendCountersignNotification({
           projection: fullProjection as ProjectionRow,
@@ -1214,17 +1309,19 @@ export async function submitContractSignature(formData: FormData) {
 }
 
 /**
- * Staff-only: Allie countersigns a contract that the owner has already
- * signed. Fully executes the contract and sends the doubly-signed PDF
- * to the owner with a welcome note. CC's allie@ for record-keeping.
+ * Owner-only: a Rising Tide owner (usually Allie) countersigns a contract
+ * the property owner has already signed. Fully executes the contract,
+ * records who countersigned, seals the executed PDF and sends it to the
+ * owner with a welcome note. CC's allie@ for record-keeping.
  *
  * Idempotent: re-invocations after countersign return without
  * overwriting. The owner-signed prerequisite is enforced — you can't
  * countersign a contract whose owner hasn't signed yet.
  */
 export async function countersignContract(formData: FormData): Promise<void> {
-  const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
+  // Countersigning binds Rising Tide STR, LLC, and the certificate names
+  // whoever does it, so it takes an owner login and records which one.
+  const countersignerEmail = await requireOwnerEmail();
 
   const id = String(formData.get('id') || '').trim();
   if (!id) throw new Error('Missing projection id');
@@ -1242,11 +1339,24 @@ export async function countersignContract(formData: FormData): Promise<void> {
     return;
   }
 
-  const { error: updateErr } = await supabase
+  // Guarded on the signature read above: a withdraw or a re-sign in
+  // between leaves nothing to countersign, and a double click cannot
+  // stamp twice.
+  const { data: stamped, error: updateErr } = await supabase
     .from('projections')
-    .update({ contract_countersigned_at: new Date().toISOString() })
-    .eq('id', id);
+    .update({
+      contract_countersigned_at: new Date().toISOString(),
+      contract_countersigned_by: countersignerEmail,
+    })
+    .eq('id', id)
+    .eq('contract_signed_at', existing.contract_signed_at)
+    .is('contract_countersigned_at', null)
+    .select('id');
   if (updateErr) throw new Error(updateErr.message);
+  if (!stamped || stamped.length === 0) {
+    revalidatePath(`/prospects/${id}`);
+    return;
+  }
 
   // Post-countersign side effects: email the executed PDF to the owner
   // AND archive it to the Rising Tide Drive. Both are best-effort —
@@ -1276,6 +1386,19 @@ export async function countersignContract(formData: FormData): Promise<void> {
           '[countersignContract] executed PDF render failed:',
           err instanceof Error ? err.message : String(err),
         );
+      }
+
+      // 0. Seal the executed PDF: the same bytes go to the owner and to
+      //    Drive below, and Helm keeps them with their fingerprint.
+      if (pdf) {
+        const seal = await sealContractCopy({ projectionId: id, kind: 'executed', pdf });
+        if (seal) {
+          const { error: sealErr } = await supabase
+            .from('projections')
+            .update({ contract_executed_pdf_path: seal.path, contract_executed_pdf_sha256: seal.sha256 })
+            .eq('id', id);
+          if (sealErr) console.error('[countersignContract] seal stamp failed:', sealErr.message);
+        }
       }
 
       // 1. Email the executed contract to the owner (CC Allie).
@@ -1372,6 +1495,87 @@ export async function countersignContract(formData: FormData): Promise<void> {
   if (existing.onboarding_token) {
     revalidatePath(`/contract/${existing.onboarding_token}`);
   }
+  revalidatePath(`/prospects/${id}`);
+}
+
+/**
+ * Owner-only: take back the owner's signature so the terms can change,
+ * before countersign. The contract's terms are locked while a signature
+ * is on file (updateProjection, the redline actions); this is the way
+ * through. The signature's audit fields and its sealed copy move into
+ * contract_signature_history, nothing is deleted from the bucket, and the
+ * owner signs again at the same /contract/<token> link once the terms are
+ * settled. After countersign the contract is executed; changing it is a
+ * renewal, not this.
+ */
+export async function withdrawOwnerSignature(formData: FormData): Promise<void> {
+  const email = await requireOwnerEmail();
+  const id = String(formData.get('id') || '').trim();
+  if (!id) throw new Error('Missing projection id');
+
+  const { data, error: lookupErr } = await supabase
+    .from('projections')
+    .select(
+      'id, onboarding_token, contract_signed_at, contract_signed_name, contract_signed_ip, ' +
+        'contract_signed_user_agent, contract_signed_pdf_path, contract_signed_pdf_sha256, ' +
+        'contract_owner_email_sent_at, contract_countersigned_at, contract_signature_history',
+    )
+    .eq('id', id)
+    .maybeSingle();
+  if (lookupErr || !data) throw new Error(lookupErr?.message || 'Projection not found');
+  const row = data as unknown as Pick<
+    ProjectionRow,
+    | 'id'
+    | 'onboarding_token'
+    | 'contract_signed_at'
+    | 'contract_signed_name'
+    | 'contract_signed_ip'
+    | 'contract_signed_user_agent'
+    | 'contract_signed_pdf_path'
+    | 'contract_signed_pdf_sha256'
+    | 'contract_owner_email_sent_at'
+    | 'contract_countersigned_at'
+    | 'contract_signature_history'
+  >;
+  if (row.contract_countersigned_at) {
+    throw new Error('This contract is fully executed. Start a renewal to change its terms.');
+  }
+  if (!row.contract_signed_at) {
+    revalidatePath(`/prospects/${id}`);
+    return;
+  }
+
+  const withdrawn: WithdrawnSignature = {
+    signed_name: row.contract_signed_name,
+    signed_at: row.contract_signed_at,
+    signed_ip: row.contract_signed_ip,
+    signed_user_agent: row.contract_signed_user_agent,
+    signed_pdf_path: row.contract_signed_pdf_path ?? null,
+    signed_pdf_sha256: row.contract_signed_pdf_sha256 ?? null,
+    owner_email_sent_at: row.contract_owner_email_sent_at,
+    withdrawn_at: new Date().toISOString(),
+    withdrawn_by: email,
+  };
+  const { error } = await supabase
+    .from('projections')
+    .update({
+      contract_signature_history: [...(row.contract_signature_history ?? []), withdrawn],
+      contract_signed_at: null,
+      contract_signed_name: null,
+      contract_signed_ip: null,
+      contract_signed_user_agent: null,
+      contract_signed_pdf_path: null,
+      contract_signed_pdf_sha256: null,
+      contract_owner_email_sent_at: null,
+    })
+    .eq('id', id)
+    .eq('contract_signed_at', row.contract_signed_at)
+    .is('contract_countersigned_at', null);
+  if (error) throw new Error(error.message);
+
+  console.log(JSON.stringify({ event: 'contract_signature_withdrawn', projection_id: id, ...withdrawn }));
+
+  if (row.onboarding_token) revalidatePath(`/contract/${row.onboarding_token}`);
   revalidatePath(`/prospects/${id}`);
 }
 
@@ -1867,6 +2071,7 @@ export async function proposeContractRedlines(
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!data) return { ok: false, error: 'Prospect not found.' };
+  if (contractTermsLocked(data as ProjectionRow)) return { ok: false, error: CONTRACT_LOCKED_MESSAGE };
 
   try {
     const edits = await interpretContractRedlines({
@@ -1938,6 +2143,7 @@ export async function applyContractRedlines(
     .maybeSingle();
   if (fetchErr) return { ok: false, error: fetchErr.message };
   if (!data) return { ok: false, error: 'Prospect not found.' };
+  if (contractTermsLocked(data as ProjectionRow)) return { ok: false, error: CONTRACT_LOCKED_MESSAGE };
 
   const { fieldUpdates, newContractOverrides } = applyEditsToProjection({
     projection: data as ProjectionRow,
@@ -1971,11 +2177,16 @@ export async function applyContractRedlines(
     }),
   );
 
-  const { error: updateErr } = await supabase
+  // The is-null filter closes the window between the read above and
+  // this write: an owner who signs mid-apply keeps the terms they saw.
+  const { data: applied, error: updateErr } = await supabase
     .from('projections')
     .update(payload)
-    .eq('id', projectionId);
+    .eq('id', projectionId)
+    .is('contract_signed_at', null)
+    .select('id');
   if (updateErr) return { ok: false, error: updateErr.message };
+  if (!applied || applied.length === 0) return { ok: false, error: CONTRACT_LOCKED_MESSAGE };
 
   revalidatePath(`/prospects/${projectionId}`);
   revalidatePath(`/projections/${projectionId}/contract`);

@@ -96,20 +96,28 @@ function firstName(name: string | null | undefined): string {
 export async function sendOwnerSignedEmail(args: {
   projection: ProjectionRow;
   origin: string;
+  /** Pre-fetched owner-signed PDF. submitContractSignature renders once
+   *  and passes the same buffer it sealed, so the owner's attachment is
+   *  byte-for-byte the copy whose fingerprint Helm keeps. */
+  pdf?: Buffer;
 }): Promise<{ ok: boolean; reason?: string }> {
   const { projection, origin } = args;
   const to = projection.prospect_email;
   if (!to) return { ok: false, reason: 'no prospect_email on projection' };
 
   let pdf: Buffer;
-  try {
-    pdf = await fetchContractPdf({ projectionId: projection.id, origin, token: projection.onboarding_token });
-  } catch (err) {
-    console.error(
-      `[contract-email] PDF fetch failed (owner-signed) for ${projection.id} at origin ${origin}:`,
-      err instanceof Error ? err.message : String(err),
-    );
-    return { ok: false, reason: 'pdf fetch failed' };
+  if (args.pdf) {
+    pdf = args.pdf;
+  } else {
+    try {
+      pdf = await fetchContractPdf({ projectionId: projection.id, origin, token: projection.onboarding_token });
+    } catch (err) {
+      console.error(
+        `[contract-email] PDF fetch failed (owner-signed) for ${projection.id} at origin ${origin}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      return { ok: false, reason: 'pdf fetch failed' };
+    }
   }
 
   const filename = projectionPdfFilename(projection.property_address, 'contract');
@@ -145,8 +153,8 @@ export async function sendOwnerSignedEmail(args: {
 }
 
 /**
- * Allie just countersigned. Send the fully-executed contract to the
- * owner with a welcome note.
+ * The contract was just countersigned. Send the fully-executed contract
+ * to the owner with a welcome note.
  */
 export async function sendExecutedEmail(args: {
   projection: ProjectionRow;

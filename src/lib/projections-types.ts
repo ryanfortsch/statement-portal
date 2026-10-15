@@ -144,6 +144,21 @@ export type ProjectionRow = {
   // Set after countersign uploads the PDF to the Rising Tide shared
   // drive (Helm Records / Contracts / <year>/). Null until archived.
   contract_drive_url: string | null;
+  // Sealed copies (src/lib/contract-seal.ts): the exact PDF bytes emailed
+  // to the owner at signing and at countersign, kept in the private
+  // contract-records bucket with their SHA-256. A re-render is not the
+  // record; these are. Null on contracts signed before 2026-10-15, or
+  // when the render failed at signing.
+  contract_signed_pdf_path?: string | null;
+  contract_signed_pdf_sha256?: string | null;
+  contract_executed_pdf_path?: string | null;
+  contract_executed_pdf_sha256?: string | null;
+  // Email of the owner session that countersigned. Null = before
+  // 2026-10-15, rendered as Allie (see countersignerName).
+  contract_countersigned_by?: string | null;
+  // Owner signatures withdrawn so the terms could change (newest last).
+  // Each entry keeps the signature's audit fields and its sealed copy.
+  contract_signature_history?: WithdrawnSignature[] | null;
   // Onboarding-submitted notification idempotency. Stamped once after
   // the staff-alert email fires; skipped on re-submissions of the
   // same form.
@@ -231,6 +246,19 @@ export type CustomClause = {
  * full_legal is optional — defaults to "first_name last_name" when blank.
  * email is the Gmail-sync key; phone is for contact records.
  */
+/** One entry of projections.contract_signature_history. */
+export type WithdrawnSignature = {
+  signed_name: string | null;
+  signed_at: string;
+  signed_ip: string | null;
+  signed_user_agent: string | null;
+  signed_pdf_path: string | null;
+  signed_pdf_sha256: string | null;
+  owner_email_sent_at: string | null;
+  withdrawn_at: string;
+  withdrawn_by: string;
+};
+
 export type Owner = {
   first_name: string;
   last_name: string;

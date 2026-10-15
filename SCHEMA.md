@@ -443,7 +443,14 @@ live in `property_access` and per-stay `guest_access_codes`.
 - `projections`: prospect funnel. One row per prospect. Each generates
   the projection deck, the partnership guide, and the management
   contract from the same shared inputs. Read by `/projections` (now
-  framed in nav as "Prospects").
+  framed in nav as "Prospects"). The contract is re-rendered from this
+  row on every view, so the row is NOT the record of what was signed:
+  `contract_signed_pdf_*` and `contract_executed_pdf_*` point at the
+  sealed PDFs (exact bytes emailed, with SHA-256) in the private
+  `contract-records` storage bucket, `contract_countersigned_by` is the
+  owner login that countersigned (null before 2026-10-15 = Allie), and
+  `contract_signature_history` holds owner signatures withdrawn so the
+  terms could change. See `src/lib/contract-seal.ts`.
 
 ---
 

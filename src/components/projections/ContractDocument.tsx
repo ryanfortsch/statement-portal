@@ -12,6 +12,7 @@ import {
   describeOverrideFailure,
   type ContractOverride,
 } from '@/lib/contract-overrides';
+import { buildTemplateVars, countersignerName, type TemplateVars } from '@/lib/contract-terms';
 
 /**
  * Rising Tide management contract — data-driven renderer.
@@ -54,10 +55,15 @@ export function ContractDocument({
 
   const vars = buildTemplateVars(projection);
   const ownerName = vars.ownerName;
+  const signedName = projection.contract_signed_name || null;
+  const signedAt = projection.contract_signed_at;
+
   // Pinned to America/New_York — server renders in UTC on Vercel, and
   // a late-night save would otherwise roll the "issued" date forward
-  // by a day for Eastern-tz users.
-  const issuedDate = new Date().toLocaleDateString('en-US', {
+  // by a day for Eastern-tz users. Once signed, the cover keeps the
+  // date the owner saw when they signed, so a later re-render reads
+  // the same as the sealed copy instead of carrying today's date.
+  const issuedDate = (signedAt ? new Date(signedAt) : new Date()).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
@@ -69,19 +75,20 @@ export function ContractDocument({
   // that party SIGNED — not the contract's effective term_start date.
   // Standard e-signature convention: date next to signature = moment
   // the signer executed. (term_start lives in the Term section body.)
-  const signedName = projection.contract_signed_name || null;
-  const signedAt = projection.contract_signed_at;
   const ownerSignedDate = signedAt
-    ? new Date(signedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    ? new Date(signedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })
     : null;
-  // Countersignature (Allie). The PM signature row renders her name
-  // only after she has explicitly countersigned from the projection
-  // detail page. PM signature date = countersign moment.
+  // Countersignature. The PM row names whoever countersigned from the
+  // prospect page (contract_countersigned_by); contracts countersigned
+  // before that column existed keep Allie, who signed them. PM
+  // signature date = countersign moment.
   const countersignedAt = projection.contract_countersigned_at;
-  const pmSignedName = countersignedAt ? "Allie O'Brien" : null;
+  const pmName = countersignerName(projection.contract_countersigned_by);
+  const pmSignedName = countersignedAt ? pmName : null;
   const pmSignedDate = countersignedAt
-    ? new Date(countersignedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    ? new Date(countersignedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })
     : null;
+  const signedCopySha = projection.contract_signed_pdf_sha256;
 
   // Legacy custom_clauses fallback: ONLY when the new overrides path is
   // unused AND there's pre-overrides clause data on the row. New work
@@ -190,7 +197,7 @@ export function ContractDocument({
             box below was confusing — it looked like the contract was
             already prepared for someone else's signature. After
             submit, the grid renders with the typed signature. */}
-        <section className="rt-doc-page rt-c-sig-page">
+        <section id="signatures" className="rt-doc-page rt-c-sig-page">
           <SectionTitle title="Signatures" />
           <p className="rt-c-sig-lede">
             By signing below, the Parties acknowledge that they have read, understood, and agree to be bound by the terms of this Management Contract.
@@ -207,7 +214,7 @@ export function ContractDocument({
               />
               <SignerBlock
                 eyebrow="Property Manager"
-                printedName="Allie O'Brien, Rising Tide STR, LLC"
+                printedName={`${pmName}, Rising Tide STR, LLC`}
                 signedName={pmSignedName}
                 dateValue={pmSignedDate}
               />
@@ -224,7 +231,7 @@ export function ContractDocument({
                   Completion, not the contract itself. */}
               {countersignedAt && (
                 <>
-                  {' '}Countersigned by <strong>Allie O&rsquo;Brien</strong> on{' '}
+                  {' '}Countersigned by <strong>{pmName}</strong> on{' '}
                   {new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}.
                 </>
               )}
@@ -294,6 +301,12 @@ export function ContractDocument({
                       <div className="rt-c-cert-v">{parseUserAgent(projection.contract_signed_user_agent)}</div>
                     </>
                   )}
+                  {signedCopySha && (
+                    <>
+                      <div className="rt-c-cert-k">Signed copy</div>
+                      <div className="rt-c-cert-v rt-c-cert-mono rt-c-cert-hash">SHA-256 {signedCopySha}</div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -306,19 +319,30 @@ export function ContractDocument({
                   </div>
                   <div className="rt-c-cert-kv">
                     <div className="rt-c-cert-k">Signed by</div>
-                    <div className="rt-c-cert-v"><strong>Allie O&rsquo;Brien</strong>, Rising Tide STR, LLC</div>
+                    <div className="rt-c-cert-v"><strong>{pmName}</strong>, Rising Tide STR, LLC</div>
                     <div className="rt-c-cert-k">Timestamp</div>
                     <div className="rt-c-cert-v">{new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'long', timeZone: 'America/New_York' })}</div>
                     <div className="rt-c-cert-k">Source</div>
-                    <div className="rt-c-cert-v">Rising Tide STR (authenticated session)</div>
+                    <div className="rt-c-cert-v">
+                      {projection.contract_countersigned_by
+                        ? <>Helm, signed in as <span className="rt-c-cert-mono">{projection.contract_countersigned_by}</span></>
+                        : 'Rising Tide STR (authenticated session)'}
+                    </div>
                   </div>
                 </div>
               )}
             </div>
 
+            {/* Say only what is kept. This line once claimed a "document
+                hash" that nothing computed or stored; the fingerprint row
+                above now prints only when a sealed copy exists. */}
             <p className="rt-c-cert-foot">
-              Certificate generated by Rising Tide STR. The full audit record (signature events, IP, user-agent, document hash) is retained in Rising Tide&rsquo;s system of record at{' '}
-              <span className="rt-c-cert-mono">risingtidestr.com</span>. This page travels with the contract PDF as proof of execution.
+              Certificate generated by Rising Tide STR. Rising Tide&rsquo;s system of record at{' '}
+              <span className="rt-c-cert-mono">risingtidestr.com</span> keeps each signature event above with its time, IP address and device
+              {signedCopySha
+                ? <>, and a sealed copy of the contract as the Owner signed it. That copy was emailed to the Owner at signing; its SHA-256 fingerprint is printed above, so any copy can be checked against it.</>
+                : '.'}{' '}
+              This page travels with the contract PDF as proof of execution.
             </p>
           </section>
         )}
@@ -475,32 +499,6 @@ function escapeRegex(s: string): string {
 
 // ─── Template engine ────────────────────────────────────────────────────────
 
-type TemplateVars = ReturnType<typeof buildTemplateVars>;
-
-function buildTemplateVars(p: ProjectionRow) {
-  const ownerName = p.prospect_full_legal || p.prospect_name || '';
-  const propertyAddress = `${p.property_address}${p.property_city ? `, ${p.property_city}` : ''}`;
-  return {
-    ownerName,
-    propertyAddress,
-    propertyType: p.property_type || 'House',
-    // Null-guarded: a redline can remove any of these terms. Null
-    // becomes null here so interpolate() renders "—" instead of
-    // "null days" / "$NaN". mgmtPct is guarded defensively even though
-    // mgmt_fee_pct stays non-null.
-    mgmtPct: p.mgmt_fee_pct != null ? fmtPct(p.mgmt_fee_pct) : null,
-    deposit: p.initial_deposit != null ? fmtMoney(p.initial_deposit) : null,
-    minBalance: p.min_account_balance != null ? fmtMoney(p.min_account_balance) : null,
-    minDays: p.min_availability_days != null ? `${p.min_availability_days} days` : null,
-    saleDays: p.sale_notification_days != null ? `${p.sale_notification_days} days` : null,
-    repFee: p.reputation_fee != null ? fmtMoney(p.reputation_fee) : null,
-    termStartShort: p.term_start ? formatDateShort(p.term_start) : null,
-    termEndShort: p.term_end ? formatDateShort(p.term_end) : null,
-    termStartLong: p.term_start ? formatDateNarrative(p.term_start) : null,
-    termEndLong: p.term_end ? formatDateNarrative(p.term_end) : null,
-  };
-}
-
 /** Interpolate a template into a plain string (for KV values + previews). */
 function interpolate(template: string, vars: TemplateVars): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
@@ -597,23 +595,6 @@ function DocFooter({ pageNum }: { pageNum: number }) {
       <span>{pageNum}</span>
     </footer>
   );
-}
-
-// ─── Formatters ─────────────────────────────────────────────────────────────
-
-function formatDateShort(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  return `${m}/${d}/${y}`;
-}
-function formatDateNarrative(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-}
-function fmtMoney(n: number): string {
-  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-}
-function fmtPct(p: number): string {
-  return `${Math.round(p * 100)}%`;
 }
 
 // Suppress an unused-import warning for ContractSectionContent (carried for typing only).
@@ -1116,6 +1097,7 @@ const contractCss = `
     font-family: var(--font-mono), monospace;
     font-size: 11px;
   }
+  .rt-c-cert-hash { word-break: break-all; }
   .rt-c-cert-event {
     margin-top: 14px;
     padding-top: 14px;

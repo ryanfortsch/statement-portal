@@ -170,3 +170,39 @@ export function CountersignButton() {
     </button>
   );
 }
+
+/**
+ * "Withdraw signature" on the prospect page's Signing panel. Takes back a
+ * signed-but-not-countersigned owner signature so the locked terms can
+ * change. Confirms first: the owner then has to sign again.
+ */
+export function WithdrawSignatureButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      onClick={(e) => {
+        if (!window.confirm(
+          'Withdraw the owner’s signature so the contract terms can change?\n\n' +
+          'Their signature and its sealed copy stay on record. They will need to sign again at the same link, so tell them what changed.',
+        )) e.preventDefault();
+      }}
+      style={{
+        background: 'transparent',
+        color: 'var(--ink-3)',
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        padding: '8px 14px',
+        border: '1px solid var(--rule)',
+        cursor: pending ? 'wait' : 'pointer',
+        whiteSpace: 'nowrap',
+        opacity: pending ? 0.6 : 1,
+      }}
+    >
+      {pending ? 'Withdrawing…' : 'Withdraw signature'}
+    </button>
+  );
+}

@@ -143,6 +143,18 @@ organize pass and before the field-packets planner, and after the board's Organi
 ledger under the brief is dense on purpose: the shopping list is one chip line, office items one
 line, clustered slips one header, and a row carries no "Unclaimed" or OPEN pill.
 
+**A signed management contract's terms are locked** (`src/lib/contract-terms.ts`, since
+2026-10-15). The contract is not a stored document: `/contract/<token>`, the prospect page and
+every PDF re-render it from the `projections` row. So once `contract_signed_at` is set, every
+writer of a rendered term refuses (the prospect form, the three redline actions); the lock compares
+the same `buildTemplateVars` the renderer uses, so it guards exactly what the owner signed. The way
+through is **Withdraw signature** (owners only, before countersign), which keeps the old signature
+in `contract_signature_history`. Each signature also seals the PDF it emailed, with its SHA-256,
+in the private `contract-records` bucket (`src/lib/contract-seal.ts`); the executed certificate
+prints the owner-signed copy's fingerprint. Countersigning takes an owner login and records it
+in `contract_countersigned_by`. A new writer of contract terms must check the lock;
+`contract-terms.test.ts` reads the source for each one.
+
 The four messaging surfaces share a client panel (`src/components/ProactiveRemindersPanel.tsx`)
 but keep separate server-action files by audience. That split is deliberate: Next server actions
 are per-route.

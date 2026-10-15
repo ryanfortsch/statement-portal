@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { fetchContractPdf } from '@/lib/contract-email';
+import { executedContractPdf } from '@/lib/contract-seal';
 import { archiveContractToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
 
 /**
@@ -55,19 +55,22 @@ export async function POST(request: NextRequest) {
     const sb = getSupabase();
     const { data: proj } = await sb
       .from('projections')
-      .select('id, property_address, prospect_name, onboarding_token, contract_signed_at, contract_countersigned_at, contract_drive_url')
+      .select('id, property_address, prospect_name, onboarding_token, contract_signed_at, contract_countersigned_at, contract_drive_url, contract_executed_pdf_path, contract_executed_pdf_sha256')
       .eq('id', projectionId)
       .maybeSingle();
     if (!proj) {
       return NextResponse.json({ ok: false, error: 'projection not found' }, { status: 404 });
     }
     const projection = proj as {
+      id: string;
       property_address: string | null;
       prospect_name: string | null;
       onboarding_token: string | null;
       contract_signed_at: string | null;
       contract_countersigned_at: string | null;
       contract_drive_url: string | null;
+      contract_executed_pdf_path: string | null;
+      contract_executed_pdf_sha256: string | null;
     };
     // Only archive fully-executed contracts (owner-signed AND countersigned),
     // matching the inline countersign path that produces the "Executed" PDF.
@@ -87,7 +90,9 @@ export async function POST(request: NextRequest) {
       .trim();
 
     const origin = request.nextUrl.origin;
-    const pdf = await fetchContractPdf({ projectionId, origin, token: projection.onboarding_token });
+    // The sealed executed copy when there is one, so Drive holds the same
+    // bytes the owner was emailed; older contracts re-render.
+    const pdf = await executedContractPdf({ projection, origin });
 
     const archive = await archiveContractToDrive({ pdf, filename, year });
     if (!archive.ok || !archive.url) {
