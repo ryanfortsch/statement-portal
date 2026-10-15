@@ -182,6 +182,9 @@ test('the sweep skips every slip another rail owns and never revisits one', () =
   // write itself re-checks the stamp so a human edit mid-run stands.
   assert.match(src, /packetBackedSlipIds\(/);
   assert.match(src, /\.update\(patch\)\s*\.eq\('id', slip\.id\)\s*\.is\('organized_at', null\)/);
+  // A context slip may join a cluster, but only its group fields move and
+  // only when it has no group yet.
+  assert.match(src, /update\(\{ organize_group: group\.key, organize_group_label: group\.label \}\)\s*\.eq\('id', g\.slip_id\)\s*\.is\('organize_group', null\)/);
   // Title and description are never written by the pass.
   const rules = readFileSync(new URL('../organize-work-slips-rules.ts', import.meta.url), 'utf8');
   const writes = rules.slice(rules.indexOf('export function planOrganizeWrites'), rules.indexOf('export type GroupProposal'));

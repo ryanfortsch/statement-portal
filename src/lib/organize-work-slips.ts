@@ -117,6 +117,15 @@ const DecisionSchema = z.object({
       group_label: z.string().describe('Short label for group_key (max 40 characters). Empty string when standalone.'),
     }),
   ),
+  context_groups: z
+    .array(
+      z.object({
+        slip_id: z.string().describe('The id of an ALREADY-ORGANIZED slip from the context list.'),
+        group_key: z.string(),
+        group_label: z.string(),
+      }),
+    )
+    .describe('Already-organized slips that belong in a group with a slip you are organizing now. Group fields only; their lanes are not yours to change. Empty array when none.'),
 });
 
 const SYSTEM_PROMPT = `You organize open work slips for Rising Tide STR, a vacation-rental manager on Cape Ann, MA. The slips at one home are a mix: field inspectors flag things after visits, guests report problems in reviews and messages, inspections open issues, the office files notes. Your job is to say whose hands each slip goes to, so the printed checklist for a visit carries only the visit's work. You never rewrite a slip; you file it.
@@ -137,10 +146,11 @@ Rules:
 - A slip that mixes an owner purchase with a fix goes by its blocking step: if nothing can happen until the owner buys or approves, it is owner.
 - summary: when the description is a pasted review, message or email, or is long, write ONE imperative line (max 140 characters) that says exactly what to do and keeps the specifics: which room or fixture, what the guest or inspector said that matters, a date or a contractor's name when it changes the job. Never a guest's name: the line prints on a sheet a contractor carries. Say "a guest" or "the Oct 11 review". Leave summary empty when the title and description already say it in one short line. Never restate the title.
 - note: one short line (max 120 characters) on why this lane, naming the deciding detail. No guest names here either.
-- group: when two or more slips at this home are plainly about the same object or system (the same door's lock and handle, the same shower's temperature and pressure, one shopping list, a recycling bin asked for twice), give them the same group_key (kebab-case, derived from the object, stable across runs) and the same short group_label. Reuse a key from the already-organized list when a new slip belongs with it. Never group by room or by lane alone. Leave both empty for standalone slips.
+- group: when two or more slips at this home are plainly about the same object or system (the same door's lock and handle, the same shower's temperature and pressure, one shopping list, a recycling bin asked for twice), give them the same group_key (kebab-case, derived from the object, stable across runs) and the same short group_label. Reuse a key from the already-organized list when a new slip belongs with it; when an already-organized slip has no group yet and belongs with a new one, list it under context_groups with the same key (its id is in the context list). Never group by room or by lane alone. Leave both empty for standalone slips.
 - Return exactly one decision per slip_id in the "To organize" list, no more, no fewer.`;
 
 type Decision = z.infer<typeof DecisionSchema>['decisions'][number];
+type ContextGroup = z.infer<typeof DecisionSchema>['context_groups'][number];
 
 function ageDays(iso: string): number {
   return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
@@ -178,7 +188,7 @@ function describeSlip(slip: OrganizeSlip, property: OrganizeProperty, onRun: boo
 function contextLine(slip: OrganizeSlip, property: OrganizeProperty): string {
   const lane = slipLane(slip);
   const group = slip.organize_group ? ` [group ${slip.organize_group} "${slip.organize_group_label ?? ''}"]` : '';
-  return `- [${lane}]${group} ${clip(slipDisplayTitle(slip.title, property.name), 120)} (${slip.priority}, ${slip.status})`;
+  return `- id=${slip.id} [${lane}]${group} ${clip(slipDisplayTitle(slip.title, property.name), 120)} (${slip.priority}, ${slip.status})`;
 }
 
 async function decideForProperty(
@@ -186,7 +196,7 @@ async function decideForProperty(
   toOrganize: OrganizeSlip[],
   context: OrganizeSlip[],
   onRun: Set<string>,
-): Promise<Decision[]> {
+): Promise<{ decisions: Decision[]; contextGroups: ContextGroup[] }> {
   const { object } = await generateObject({
     model: MODEL,
     schema: DecisionSchema,
@@ -202,7 +212,11 @@ To organize (one decision each):
 ${toOrganize.map((s) => describeSlip(s, property, onRun.has(s.id))).join('\n\n---\n\n')}`,
   });
   const valid = new Set(toOrganize.map((s) => s.id));
-  return object.decisions.filter((d) => valid.has(d.slip_id));
+  const contextIds = new Set(context.map((s) => s.id));
+  return {
+    decisions: object.decisions.filter((d) => valid.has(d.slip_id)),
+    contextGroups: (object.context_groups ?? []).filter((g) => contextIds.has(g.slip_id)),
+  };
 }
 
 // ─── orchestration ─────────────────────────────────────────────────────
@@ -341,8 +355,9 @@ export async function organizeOpenWorkSlips(
     const context = (ctxRows ?? []) as unknown as OrganizeSlip[];
 
     let decisions: Decision[];
+    let contextGroups: ContextGroup[];
     try {
-      decisions = await decideForProperty(property, slips, context, backed);
+      ({ decisions, contextGroups } = await decideForProperty(property, slips, context, backed));
     } catch (err) {
       result.errors.push(`${property.name}: ${err instanceof Error ? err.message : String(err)}`);
       result.remaining += slips.length;
@@ -350,10 +365,33 @@ export async function organizeOpenWorkSlips(
     }
 
     const byId = new Map(slips.map((s) => [s.id, s]));
+    // A context slip with no group yet may be pulled into a cluster with a
+    // new slip (the second "Kitchen sink leak" at 17 Beach was a concierge-
+    // keyed slip the pass only reads, so the pair could never form).
+    const contextById = new Map(context.map((s) => [s.id, s]));
+    const groupable = contextGroups.filter((g) => !contextById.get(g.slip_id)?.organize_group);
     const groups = resolveGroups(
-      decisions.map((d) => ({ slipId: d.slip_id, key: d.group_key, label: d.group_label })),
+      [
+        ...decisions.map((d) => ({ slipId: d.slip_id, key: d.group_key, label: d.group_label })),
+        ...groupable.map((g) => ({ slipId: g.slip_id, key: g.group_key, label: g.group_label })),
+      ],
       context,
     );
+    if (!opts.dryRun) {
+      for (const g of groupable) {
+        const group = groups.get(g.slip_id);
+        if (!group) continue;
+        // Group fields only, and only onto a slip that has none: never the
+        // lane, never the stamp, so a keyed or human-filed slip stays as is.
+        const { data: written } = await supabase
+          .from('work_slips')
+          .update({ organize_group: group.key, organize_group_label: group.label })
+          .eq('id', g.slip_id)
+          .is('organize_group', null)
+          .select('id');
+        if (written && written.length > 0) result.grouped += 1;
+      }
+    }
     const nowIso = new Date().toISOString();
     const seen = new Set<string>();
     for (const d of decisions) {
