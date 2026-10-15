@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect, notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { cleanLinkToken } from '@/lib/link-token';
 import { getPropertyAccess } from '@/lib/property-access';
 import type { ProjectionRow, OnboardingData } from '@/lib/projections-types';
 import type { HelmPropertyRow } from '@/lib/properties';
@@ -186,7 +187,13 @@ function onboardingDataFromProperty(p: HelmPropertyRow): OnboardingData {
 }
 
 export default async function OnboardingFormPage({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = await params;
+  const { token: rawToken } = await params;
+  // The link is pasted by hand into the owner's email, and a mail client
+  // glues whatever follows it onto the URL ("<token>–"). Recover the token
+  // and land the owner on the clean path instead of a not-found page.
+  const token = cleanLinkToken(rawToken);
+  if (!token) notFound();
+  if (token !== rawToken) redirect(`/onboarding/${token}`);
   const target = await getOnboardingTarget(token);
   if (!target) notFound();
 
