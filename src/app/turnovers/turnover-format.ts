@@ -193,3 +193,15 @@ export function lifecycleOf(t: Turnover, nowMs: number, todayStr: string): Lifec
 function cleanedConfirmed(src: string | null): boolean {
   return src === 'quo' || src === 'manual' || src === 'auto_quiet';
 }
+
+/** Whether the collapsed row credits a planned staff walk (the assignee's
+ *  name, or "Planned Oct 16") in place of the Start button. An ASSIGNED walk
+ *  reads as its person all the way through the prep window, the viewer's own
+ *  included, the same way a claimed Field packet never yields to Start. Only
+ *  an UNASSIGNED plan returns to Start once the window is live: the date has
+ *  served its purpose and whoever is looking at the board will walk it. Start
+ *  for a credited walk lives in the expanded row. */
+export function creditsPlannedWalk(plan: Turnover['plan'], due: boolean): boolean {
+  if (!plan?.planned_for_date) return false;
+  return !!plan.assigned_to_email?.trim() || !due;
+}

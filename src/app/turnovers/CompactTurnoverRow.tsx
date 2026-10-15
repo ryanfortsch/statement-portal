@@ -11,6 +11,7 @@ import { PlanButton } from './PlanButton';
 import { startInspection } from '../inspections/actions';
 import { markTurnoverComplete, unmarkTurnoverComplete } from './turnover-actions';
 import {
+  creditsPlannedWalk,
   fieldChipLabel,
   fieldChipColor,
   formatDateShort,
@@ -112,6 +113,11 @@ export function CompactTurnoverRow({
   const due =
     lc.active !== null ||
     Date.parse(`${t.checkIn.slice(0, 10)}T16:00:00`) - now < 36 * 3_600_000;
+
+  // The collapsed action is a planned walk's byline, so the row's own Start
+  // has to live in the expansion or the assignee could not begin their walk.
+  const bylineWalk =
+    !isDone && !t.inspection && !(t.fieldPacket && t.fieldPacket.status !== 'draft') && creditsPlannedWalk(t.plan, due);
 
   return (
     <div
@@ -247,6 +253,12 @@ export function CompactTurnoverRow({
           />
           {!isDone && (
             <div className="rt-tn-affordances">
+              {bylineWalk && (
+                <form action={startInspection} style={{ margin: 0 }}>
+                  <input type="hidden" name="property_id" value={t.propertyId} />
+                  <SubmitButton label="Start" busyLabel="Starting…" className="rt-tn-start" />
+                </form>
+              )}
               {!t.inspection && (
                 <PlanButton
                   guestyReservationId={t.reservationId}
@@ -401,22 +413,12 @@ function PrimaryAction({
     return <FieldCredit fp={t.fieldPacket} />;
   }
   // A planned staff walk: the assignee's name is the collapsed indicator,
-  // in the same byline register as a Field claim — every delegated-or-
+  // in the same byline register as a Field claim, so every delegated-or-
   // planned walk reads as a person. Tapping the name opens the plan editor.
-  //
-  // Day-of (`due`), what returns to START depends on who owns the walk:
-  //  - UNASSIGNED plan: the date has served its purpose — the operator
-  //    looking at the board is the one who'll walk it, so show the action.
-  //  - Assigned to SOMEONE ELSE: the assignment is still the state that
-  //    matters (same as a claimed Field packet never yielding to START) —
-  //    Dotti planning Ryan onto a walk should read "Ryan" all the way
-  //    through the prep window, not decay into an unowned Start.
-  //  - Assigned to THE VIEWER: it's your walk and it's due — you need the
-  //    button, not your own name.
-  const assignedToOther =
-    !!t.plan?.assigned_to_email &&
-    t.plan.assigned_to_email.trim().toLowerCase() !== myEmail.trim().toLowerCase();
-  if (t.plan?.planned_for_date && (!due || assignedToOther)) {
+  // An assigned walk keeps its name day-of, YOURS included (Ryan, 10/15:
+  // a self-assigned walk should say so like Delaney's do, not read as an
+  // unowned Start). The assignee's Start sits in the expanded row.
+  if (t.plan?.planned_for_date && creditsPlannedWalk(t.plan, due)) {
     return (
       <PlanButton
         variant="byline"
