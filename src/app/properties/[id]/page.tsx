@@ -17,7 +17,8 @@ import { getPropertyAccess } from '@/lib/property-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
-import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle } from '@/lib/work-slip-lanes';
+import { loadWorkBrief, type WorkBriefRow } from '@/lib/work-briefs';
+import { OpenWorkSection } from './OpenWorkSection';
 import { displayNameForEmail } from '@/lib/team';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
@@ -31,7 +32,6 @@ import { PropertyBackfillButton } from './PropertyBackfillButton';
 import { PropertyTabs, TabSection } from './PropertyTabs';
 import { DocumentsPanel } from './DocumentsPanel';
 import { GuestCodesPanel } from './GuestCodesPanel';
-import { MarkSlipDoneButton } from './MarkSlipDoneButton';
 import { QuickCapture } from './QuickCapture';
 import { getPropertyDocuments } from '@/lib/property-documents';
 import { startContractRenewal } from '@/app/projections/actions';
@@ -361,6 +361,15 @@ async function getOpenWorkSlips(propertyId: string): Promise<WorkSlipRow[]> {
   }
 }
 
+async function getWorkBrief(propertyId: string): Promise<WorkBriefRow | null> {
+  if (!isHelmConfigured) return null;
+  try {
+    return await loadWorkBrief(supabase, propertyId);
+  } catch {
+    return null;
+  }
+}
+
 async function getRecentStatements(propertyId: string): Promise<HelmStatementRow[]> {
   if (!isHelmConfigured) return [];
   try {
@@ -433,7 +442,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage] = await Promise.all([
+  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage, workBrief] = await Promise.all([
     getRecentStatements(p.id),
     getPropertyFlags(p.id),
     getRecentInspections(p.id),
@@ -474,6 +483,7 @@ export default async function PropertyDetailPage({
     // bounded to 3s and null on any failure so the page never waits on the
     // Mac Mini. Feeds the "Guest messaging knows this home" onboarding item.
     getFleetCoverage().then((r) => (r.ok ? r.data : null)).catch(() => null),
+    getWorkBrief(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
   // Owner money on this page (the fee, bank digits, owner emails, payouts,
@@ -977,158 +987,8 @@ export default async function PropertyDetailPage({
         </section>
       )}
 
-      {/* OPEN WORK SLIPS */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
-        <div className="flex items-baseline justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
-          <h2
-            className="font-serif"
-            style={{
-              fontSize: 22,
-              fontWeight: 400,
-              letterSpacing: '-0.01em',
-              color: 'var(--ink)',
-              margin: 0,
-            }}
-          >
-            Open Work
-          </h2>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-            <span className="eyebrow">
-              {openSlips.length} {openSlips.length === 1 ? 'slip' : 'slips'}
-              {(() => {
-                const ownerCount = openSlips.filter((s) => s.owner_action_required).length;
-                return ownerCount > 0 ? ` · ${ownerCount} owner action` : '';
-              })()}
-            </span>
-            <PropertyAddSlipButton propertyId={p.id} propertyName={p.name} myEmail={myEmail} />
-            <PropertyDraftOwnerEmailButton
-              propertyId={p.id}
-              disabled={openSlips.filter((s) => s.owner_action_required).length === 0}
-            />
-            {openSlips.length > 0 && (
-              <Link
-                href={`/properties/${p.id}/work-slips/print`}
-                style={{
-                  fontSize: 11,
-                  letterSpacing: '.18em',
-                  textTransform: 'uppercase',
-                  color: 'var(--ink)',
-                  textDecoration: 'none',
-                  border: '1px solid var(--ink)',
-                  padding: '8px 14px',
-                  fontWeight: 600,
-                }}
-              >
-                Print →
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {openSlips.length === 0 ? (
-          <div
-            style={{
-              borderTop: '1px solid var(--ink)',
-              padding: '20px 0',
-              color: 'var(--ink-4)',
-              fontSize: 12,
-            }}
-          >
-            No open work for this property.
-          </div>
-        ) : (
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {/* The same lanes as the Work board and the print sheet
-                (lib/work-slip-lanes.ts): restock, this visit, handyman run,
-                pro, owner, office. A lane label shows whenever more than
-                one lane is present, or the only lane is not the routine
-                visit. Clustered slips sit adjacent inside a lane. */}
-            {(() => {
-              const lanes = groupSlipsByLane(openSlips);
-              return lanes.map(({ lane, slips: laneSlips }) => (
-                <Fragment key={lane}>
-                  {(lanes.length > 1 || lane !== 'visit') && (
-                    <div
-                      style={{
-                        padding: '12px 0 2px 22px',
-                        fontSize: 10,
-                        letterSpacing: '.16em',
-                        textTransform: 'uppercase',
-                        fontWeight: 700,
-                        color: lane === 'owner' || lane === 'pro' ? 'var(--signal)' : lane === 'supply' ? 'var(--tide-deep)' : 'var(--ink-3)',
-                      }}
-                    >
-                      {LANE_LABELS[lane]} · {laneSlips.length}
-                    </div>
-                  )}
-                  {laneSlips.map((s) => {
-                    const detail = lane === 'supply' ? null : slipDetailLine(s, p.name, 170);
-                    return (
-                      <div
-                        key={s.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 14,
-                          padding: '14px 0',
-                          borderBottom: '1px solid var(--rule)',
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            flexShrink: 0,
-                            background:
-                              s.priority === 'high' ? 'var(--negative)' :
-                              s.priority === 'normal' ? 'var(--ink-3)' :
-                              'var(--ink-4)',
-                          }}
-                        />
-                        <Link
-                          href={`/work/${s.id}`}
-                          style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}
-                        >
-                          <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slipDisplayTitle(s.title, p.name)}</div>
-                          {detail && (
-                            <div
-                              style={{
-                                marginTop: 3,
-                                fontSize: 12,
-                                color: 'var(--ink-3)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                              title={s.action_summary || s.description || undefined}
-                            >
-                              {detail}
-                            </div>
-                          )}
-                          <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
-                            {s.assigned_to_label || (s.assigned_to_email ? displayNameForEmail(s.assigned_to_email) : 'Unclaimed')}
-                            {s.location ? ` · ${s.location}` : ''}
-                            {s.scheduled_date ? ` · scheduled ${s.scheduled_date}` : ''}
-                            {s.organize_group_label ? ` · with: ${s.organize_group_label}` : ''}
-                          </div>
-                        </Link>
-                        {s.owner_action_required && (
-                          <span style={pillStyle('var(--signal)')}>
-                            Owner{s.owner_action_type ? ` · ${s.owner_action_type}` : ''}
-                          </span>
-                        )}
-                        <span style={pillStyle('var(--ink-3)')}>{s.status.replace('_', ' ')}</span>
-                        <MarkSlipDoneButton slipId={s.id} propertyId={p.id} />
-                      </div>
-                    );
-                  })}
-                </Fragment>
-              ));
-            })()}
-          </div>
-        )}
-      </section>
+      {/* OPEN WORK SLIPS: the brief, then the ledger by lane */}
+      <OpenWorkSection property={{ id: p.id, name: p.name }} slips={openSlips} brief={workBrief} myEmail={myEmail} />
 
       {/* ACTIVITY FEED */}
       <CollapsibleSection title="Activity" summary="recent · full log on its own page">

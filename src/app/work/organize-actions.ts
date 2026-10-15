@@ -5,6 +5,7 @@ import { after } from 'next/server';
 import { auth } from '@/auth';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
 import { countUnorganizedSlips, organizeOpenWorkSlips } from '@/lib/organize-work-slips';
+import { refreshWorkBriefs } from '@/lib/work-briefs';
 
 /** Organize on demand from the Work board.
  *
@@ -19,16 +20,20 @@ export async function organizeWorkNow(): Promise<{ ok: true; pending: number } |
   if (!isServiceConfigured) return { ok: false, error: 'Helm database is not configured' };
   try {
     const pending = await countUnorganizedSlips(supabaseAdmin);
-    if (pending > 0) {
-      after(async () => {
-        try {
+    // Briefs are rewritten for every home whose slip set moved, whether or
+    // not any slip needed organizing: closing three slips changes the brief.
+    after(async () => {
+      try {
+        if (pending > 0) {
           const res = await organizeOpenWorkSlips(supabaseAdmin, { maxProperties: 30 });
           if (res.errors.length) console.warn('[organizeWorkNow] errors', res.errors);
-        } catch (err) {
-          console.error('[organizeWorkNow] background pass failed', err);
         }
-      });
-    }
+        const briefs = await refreshWorkBriefs(supabaseAdmin, { maxProperties: 30 });
+        if (briefs.errors.length) console.warn('[organizeWorkNow] brief errors', briefs.errors);
+      } catch (err) {
+        console.error('[organizeWorkNow] background pass failed', err);
+      }
+    });
     revalidatePath('/work');
     return { ok: true, pending };
   } catch (err) {

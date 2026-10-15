@@ -24,6 +24,7 @@
  */
 
 import type { WorkSlipRow } from './work-types';
+import { suppliesLabel } from './inspection-supplies.ts';
 
 export type WorkLane = 'supply' | 'visit' | 'handyman' | 'pro' | 'owner' | 'office';
 
@@ -68,6 +69,15 @@ export function isSupplySlip(s: LaneSlip): boolean {
     !!s.from_supply_key ||
     (s.category === 'rising_tide' && /^restock:\s/i.test(s.title))
   );
+}
+
+/** What a supply row is called on a chip or a shopping line: the supplies
+ *  check's own label when it filed the slip, else the title with any
+ *  "Restock:" and home-name prefixes removed. */
+export function supplyChipLabel(s: Pick<WorkSlipRow, 'title'> & { from_supply_key?: string | null }, propertyName?: string | null): string {
+  if (s.from_supply_key) return suppliesLabel(s.from_supply_key);
+  const bare = slipDisplayTitle(s.title, propertyName).replace(/^restock:\s*/i, '').trim();
+  return bare || s.title;
 }
 
 export function slipLane(s: LaneSlip): WorkLane {

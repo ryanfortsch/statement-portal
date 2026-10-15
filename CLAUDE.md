@@ -59,7 +59,7 @@ you where the weight sits, nothing more.
 ```
 src/
   app/          35 route groups + api/. 136 pages, 65 *actions.ts server-action files
-    api/        121 route handlers, 30 cron routes (29 scheduled in vercel.json)
+    api/        122 route handlers, 31 cron routes (30 scheduled in vercel.json)
   lib/          262 top-level modules (290 including subfolders). The domain logic lives here.
   components/   96 shared components (62 at the top level, the rest in subfolders)
   proxy.ts      Next 16 middleware. THE auth gate. Read this before adding any public route.
@@ -68,7 +68,7 @@ supabase/migrations/   256 migrations
 scripts/               parity harnesses and one-off tools (see Testing below)
 ```
 
-**30 cron routes, 29 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
+**31 cron routes, 30 schedules, and that is correct.** `/api/cron/reviews-to-slips` is a manual
 and backfill trigger on purpose; the recurring work runs at the end of `/api/cron/sync-guesty`.
 Do not "fix" it by adding a schedule.
 
@@ -131,6 +131,17 @@ object. It never writes title or description. `organized_at` is the once-only st
 `organized_at IS NULL`, and every operator lane edit (category, scope, owner flag) stamps it, so a
 human decision is never re-filed. Concierge-keyed, supplies-check, prep-rule and packet-backing
 slips are skipped; they have their own lanes and lifecycles.
+
+**Every home also carries a brief** (`property_work_briefs`, `src/lib/work-briefs.ts`): a one-line
+headline for the Work board's home header and a short paragraph that leads the property page's
+Open Work section and the print sheet, written by the model from the open slips grouped by lane
+(what is blocking, what needs a pro, what a handyman run covers, what the next visit knocks out,
+what to bring, what the owner owes, what is for the office; never a guest's name). It is rewritten
+only when the slip set changes (`briefFingerprint` in `work-brief-rules.ts`), so the text is stable
+and the model runs only for homes that moved: `/api/cron/work-briefs` at 05:05 UTC, after the
+organize pass and before the field-packets planner, and after the board's Organize button. The
+ledger under the brief is dense on purpose: the shopping list is one chip line, office items one
+line, clustered slips one header, and a row carries no "Unclaimed" or OPEN pill.
 
 The four messaging surfaces share a client panel (`src/components/ProactiveRemindersPanel.tsx`)
 but keep separate server-action files by audience. That split is deliberate: Next server actions
@@ -795,7 +806,7 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 
 - **Core**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Auth**: `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_SECRET`, `AUTH_URL`, `AUTH_COOKIE_DOMAIN`
-- **Cron**: `CRON_SECRET`. All 30 cron routes fail closed without it (verified 2026-09-26: every
+- **Cron**: `CRON_SECRET`. All 31 cron routes fail closed without it (verified 2026-09-26: every
   one calls `authorizeCron`).
 - **Guesty**: `GUESTY_CLIENT_ID`, `GUESTY_CLIENT_SECRET`
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`

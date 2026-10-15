@@ -23,13 +23,12 @@ import {
 import { TeamPicker } from '@/components/TeamPicker';
 import { PhotoUploader } from '@/components/PhotoUploader';
 import { displayNameForEmail } from '@/lib/team';
-import { suppliesLabel } from '@/lib/inspection-supplies';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { operatingDate } from '@/lib/operating-date';
 import { compareWork, workOverdue, workSignals, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { groupSlipsByLane, isSupplySlip, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
+import { groupSlipsByLane, isSupplySlip, LANE_LABELS, slipDetailLine, slipDisplayTitle, supplyChipLabel, type WorkLane } from '@/lib/work-slip-lanes';
 import { organizeWorkNow } from './organize-actions';
 
 type PropertyForPicker = {
@@ -50,6 +49,8 @@ type Props = {
   taskCommentCounts: Record<string, number>;
   /** contractor id -> name, for slips a field inspector flagged post-visit. */
   reporterNames: Record<string, string>;
+  /** property id -> the nightly brief's one-line headline (lib/work-briefs.ts). */
+  briefHeadlines?: Record<string, string>;
 };
 
 type FilterId = 'all' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
@@ -91,7 +92,7 @@ function sameSet(a: Set<string>, b: Set<string>): boolean {
 const INITIAL_PROPERTY_LIMIT = 5;
 const INITIAL_TASK_LIMIT = 5;
 
-export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts, reporterNames }: Props) {
+export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmail, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines = {} }: Props) {
   const router = useRouter();
   const softRefresh = useSoftRefresh();
   const pathname = usePathname();
@@ -506,6 +507,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                   onToggleSelect={toggleSlip}
                   commentCounts={slipCommentCounts}
                   reporterNames={reporterNames}
+                  headline={briefHeadlines[propId]}
                   onAddSlip={() => {
                     setSlipPrefillProperty(propId);
                     setShowSlipModal(true);
@@ -727,11 +729,6 @@ function Pill({
 // print sheet and the organize pass share, so the board can never disagree
 // with paper about what counts as a restock.
 
-function supplyChipLabel(s: WorkSlipRow): string {
-  if (s.from_supply_key) return suppliesLabel(s.from_supply_key);
-  return s.title.replace(/^restock:\s*/i, '').trim() || s.title;
-}
-
 /** Names shown on the glance line before collapsing into "+N". */
 const GLANCE_SUPPLY_LIMIT = 2;
 
@@ -795,11 +792,14 @@ function PropertyGroup({
   bulkPending = false,
   commentCounts,
   reporterNames,
+  headline,
   onAddSlip,
 }: {
   propId: string;
   property: PropertyForPicker | null;
   slips: WorkSlipRow[];
+  /** The nightly brief's one line for this home, under the signals. */
+  headline?: string;
   myEmail: string;
   /** Expansion is owned by QueueClient (mirrored to ?open=) so it survives
    *  navigating into a slip and back. Default collapsed: with 8+ properties
@@ -825,7 +825,7 @@ function PropertyGroup({
   const laneGroups = groupSlipsByLane(slips);
   // The same supply can be flagged low at two inspections before anyone
   // shops — one chip on the glance line, not two.
-  const supplyNames = [...new Set(supplySlips.map(supplyChipLabel))];
+  const supplyNames = [...new Set(supplySlips.map((s) => supplyChipLabel(s, property?.name)))];
   const propName = property?.name ?? 'Unknown property';
   const propertyId = property?.id ?? null;
 
@@ -879,6 +879,13 @@ function PropertyGroup({
             </span>
           </button>
           {summary && <div style={{ fontSize: 12, marginTop: 5, color: signals.overdue || signals.blocked ? 'var(--signal)' : 'var(--ink-3)' }}>{summary}</div>}
+          {/* The brief's headline: what the work at this home IS, in one
+              line, so a collapsed home reads as more than a count. */}
+          {headline && (
+            <div style={{ fontSize: 12, marginTop: 4, color: 'var(--ink-2)', fontStyle: 'italic', maxWidth: 720, lineHeight: 1.4 }}>
+              {headline}
+            </div>
+          )}
           {/* Supply details appear with the expanded property. Open restock
               slips drive these chips, so completing one clears its chip. */}
           {expanded && supplyNames.length > 0 && (

@@ -415,6 +415,11 @@ live in `property_access` and per-stay `guest_access_codes`.
   once-only stamp, the one line of why, and the cluster key for slips about
   the same object. The lane itself is derived, never stored
   (`lib/work-slip-lanes.ts`).
+- `property_work_briefs`: one row per home, the nightly brief over its open
+  slips (`headline`, `brief`, `slip_fingerprint`, `slip_count`,
+  `generated_at`). Service role only. Written by `/api/cron/work-briefs`
+  (`lib/work-briefs.ts`), read by the property page, the print sheet and
+  the Work board.
 - `work_slip_comments` + `task_comments`: append-only thread.
 - `inspections` + `inspection_items` + `inspection_results` +
   `inspection_notes`: a single inspection run with per-item scoring.
