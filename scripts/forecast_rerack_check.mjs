@@ -120,11 +120,12 @@ for (const [year, rolled] of [[2026, 0], [2027, 3], [2028, 6]]) {
         fail(`${tag} marketing is ${m.cc_detail.marketing}, expected ${wantMkt} (post-cut, Furnished Finder in August and September)`);
       }
     }
-    // Measured at 9.1% of the variable spend on 2026 through September
-    // (repairs over supplies: about 10%). Was 5% against the
-    // outfitting-inflated supplies figure.
-    if (m.cc_detail.repairs <= 0 || m.cc_detail.repairs > m.cc_detail.supplies * 0.12) {
-      fail(`${tag} repairs ${m.cc_detail.repairs.toFixed(0)} against supplies ${m.cc_detail.supplies.toFixed(0)}: measured share is about 9%`);
+    // Measured at 12% of the variable spend on 2026 through September once
+    // the Amazon item detail took outfitting out of the supplies base
+    // (repairs over supplies: about 14%). Was 5% against the
+    // outfitting-inflated figure and 9% against the card-level refit.
+    if (m.cc_detail.repairs <= 0 || m.cc_detail.repairs > m.cc_detail.supplies * 0.16) {
+      fail(`${tag} repairs ${m.cc_detail.repairs.toFixed(0)} against supplies ${m.cc_detail.supplies.toFixed(0)}: measured share is about 12%`);
     }
   }
 }

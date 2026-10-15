@@ -1039,14 +1039,14 @@ const sections2026: AssumptionSection[] = [
     items: [
       { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Closed months (ACT) carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at the run rate the closed statements of the home prove: its latest full month, or its whole record (first ramp month dropped once there are three), whichever is larger, once it has two closed months. Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table.' },
       { label: 'Prospects', value: 'The live /prospects pipeline. Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
-      { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $2,150 outfitting charge in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
+      { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $3,000 outfitting charge in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
       { label: 'Operating windows', value: '4 Brier Neck ran June to August 2026 and is not renewed (notice given 2026-08-31). 73 Rocky Neck is off from November 2026 and 79 Main after 21 October 2026. 16 Waterman runs May to October every year. A closed month projects no revenue, and the card and the bench count only the homes operating that month.' },
     ],
   },
   {
     heading: 'Recurring monthly (projected months; ACT months show the bank)',
     items: [
-      { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7. Variable: guest supplies and small repairs at $4,070 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 9% of it. The rate was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below) and the run rate is fitted without the linen orders. Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. Projected months itemise the card by these terms; ACT months read the card\'s own categories.' },
+      { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7 and the Amazon Business export of October 15. Variable: guest supplies and small repairs at $2,950 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 12% of it. The rate is measured item by item: $1,805 of Amazon consumables per home per year, about $1,000 of replacement durables, and the non-Amazon stores. It was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below). Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. Projected months itemise the card by these terms; ACT months read the card\'s own categories.' },
       { label: 'Software', value: '$2,700/mo flat in projected months, the September 2026 stack with no API usage in it: Guesty $1,323 (per listing, up from $973 in January), PriceLabs $246, the Claude seats, OpenAI, Seam, Quo, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure: $3,420 in July and $3,804 in August on Anthropic API credits the operator ruled a one-off, then $2,952 in September with that reload stream stopped. The nine-month 2026 mean is $2,598; the constant was $2,300 until 2026-10-15.' },
       { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
@@ -1060,7 +1060,7 @@ const sections2026: AssumptionSection[] = [
       { label: 'Mar 2026', value: 'Phillips commercial insurance, $5,264 paid 03/02. One lump; $0 every other month.' },
       { label: 'Apr 2026', value: 'MS Consultants accounting, $4,443 paid 04/15. A one-off by operator ruling; $0 forward.' },
       { label: 'Bookkeeper', value: 'MH Partners $1,000/mo through April 2026 and a final $1,800 wrap-up in May. $0 after.' },
-      { label: 'Onboarding', value: '$2,150 per new home, once, in the month a slider home starts: the linen order (Fix Linens billed $23,719 across the eleven 2026 onboardings). Furnishings bought on Amazon and at HomeGoods for a new home cannot be told from restocks and stay in the card rate. Prospects carry no cost until they become a property. Whether an owner should fund outfitting instead is an open decision; this is what the card shows Rising Tide paying today.' },
+      { label: 'Onboarding', value: '$3,000 per new home, once, in the month a slider home starts: the linen order ($2,156; Fix Linens billed $23,719 across the eleven 2026 onboardings) plus about $850 of Amazon durables (towels, bedclothes, rugs, a Schlage lock, dispensers, a dryer, a coffee maker), measured item by item on the Amazon Business export. Prospects carry no cost until they become a property. Whether an owner should fund outfitting instead is an open decision; this is what the card shows Rising Tide paying today.' },
     ],
   },
   {
@@ -1084,7 +1084,7 @@ const sections2027: AssumptionSection[] = [
   {
     heading: 'Recurring monthly',
     items: [
-      { label: 'Corporate card', value: 'Same two-part model as 2026: $4,070 per live home per year on the turnover curve (repairs 9% of it), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225 at the post-cut level measured on the card, Furnished Finder $199 in August and again in September). Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. Outfitting is the separate Onboarding charge, not part of the rate.' },
+      { label: 'Corporate card', value: 'Same two-part model as 2026: $2,950 per live home per year on the turnover curve (repairs 12% of it; the rate is Amazon consumables plus replacements, measured item by item), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225 at the post-cut level measured on the card, Furnished Finder $199 in August and again in September). Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. Outfitting is the separate Onboarding charge, not part of the rate.' },
       { label: 'Software', value: '$2,700/mo flat, the September 2026 stack with no API usage in it, carried forward. No cuts are assumed: none has shown up in the card data yet, and Guesty bills per listing.' },
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
@@ -1096,7 +1096,7 @@ const sections2027: AssumptionSection[] = [
     heading: 'Periodic and wind-down',
     items: [
       { label: 'Mar 2027', value: 'Phillips insurance renewal, $5,264 lump, same as 2026. $0 every other month.' },
-      { label: 'Onboarding', value: '$2,150 per slider home in its start month (the linen order). Homes rolled forward from the 2026 slider were outfitted in 2026 and carry none.' },
+      { label: 'Onboarding', value: '$3,000 per slider home in its start month (linens plus the Amazon durables). Homes rolled forward from the 2026 slider were outfitted in 2026 and carry none.' },
       { label: 'Bookkeeper', value: '$0. The engagement ended May 2026.' },
       { label: 'Accounting', value: '$0. MS Consultants was a one-off.' },
     ],
@@ -1122,7 +1122,7 @@ const sections2028: AssumptionSection[] = [
   {
     heading: 'Recurring monthly',
     items: [
-      { label: 'Corporate card', value: 'Same two-part model: $4,070 per live home per year on the turnover curve (repairs 9% of it), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225, Furnished Finder $199 in August and September). Scales with the homes operating each month. Outfitting is the separate Onboarding charge.' },
+      { label: 'Corporate card', value: 'Same two-part model: $2,950 per live home per year on the turnover curve (repairs 12% of it), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225, Furnished Finder $199 in August and September). Scales with the homes operating each month. Outfitting is the separate Onboarding charge.' },
       { label: 'Software', value: '$2,700/mo flat, the September 2026 stack carried forward. No cuts are assumed.' },
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
@@ -1134,7 +1134,7 @@ const sections2028: AssumptionSection[] = [
     heading: 'Periodic',
     items: [
       { label: 'Mar 2028', value: 'Phillips insurance renewal, $5,264 lump. $0 every other month.' },
-      { label: 'Onboarding', value: '$2,150 per slider home in its start month. Rolled-forward homes carry none.' },
+      { label: 'Onboarding', value: '$3,000 per slider home in its start month. Rolled-forward homes carry none.' },
       { label: 'Bookkeeper and accounting', value: '$0.' },
     ],
   },
@@ -1629,7 +1629,7 @@ function ForecastTable({
         <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         <DataRow
           label="New"
-          info="Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp, less the $2,150 outfitting charge on the Onboarding line in the month each starts. From the next year they roll into the Properties row at the fleet's projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth."
+          info="Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp, less the $3,000 outfitting charge on the Onboarding line in the month each starts. From the next year they roll into the Properties row at the fleet's projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth."
           values={monthly.map((r) => r.rev_new)}
           fy={totals.rev_new}
           highlight
@@ -1694,7 +1694,7 @@ function ForecastTable({
         <SubsectionRow label="Periodic & wind-down" />
         <DataRow
           label="Onboarding"
-          info="Outfitting a new home, charged once in the month a slider home starts: $2,150, the linen order. Fix Linens billed the card $23,719 across the eleven 2026 onboardings, $2,156 each, and the supplies left over once the per-home run rate is taken out say the same ($2,065 each). Furnishings bought on Amazon and at HomeGoods for a new home cannot be told from restocks, so they stay in the Guest supplies rate. The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. ACT months carry it inside Guest supplies, where the card put it. It was $0 until 2026-10-15, which is why the summer read as a supplies run rate."
+          info="Outfitting a new home, charged once in the month a slider home starts: $3,000. The linen order is $2,156 (Fix Linens billed $23,719 across the eleven 2026 onboardings) and the Amazon durables bought for a new home beyond a settled home's replacement trickle are about $850: towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer, a coffee maker, shelving, measured item by item on the Amazon Business export of 2026-10-15. The supplies left over once the per-home run rate is taken out say the same ($3,020 each). The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. ACT months carry it inside Guest supplies, where the card put it. It was $0 until 2026-10-15, which is why the summer read as a supplies run rate."
           values={monthly.map((r) => r.exp_onboard_presigned + r.exp_onboard_new)}
           fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned + r.exp_onboard_new, 0)}
         />
