@@ -4,6 +4,8 @@ import { Section } from './Section';
 import { WorkFollowupsContent } from './WorkFollowups';
 import { getInboxHealth, listWorkFollowups } from '@/lib/stay-concierge';
 import { inboxStatus } from '@/lib/inbox-status';
+import { SubmitButton } from './SubmitButton';
+import { releaseHeldPitch } from '@/app/messaging/inbox-health-actions';
 
 const labels: Record<string, string> = {
   ok: 'Checked', checking: 'Checking', partial: 'Incomplete check',
@@ -53,6 +55,23 @@ export async function InboxHealth({ diagnostics = false }: { diagnostics?: boole
     {diagnostics && health && health.unmatched_count > 0 && <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>
       {health.unmatched_count} recent direct emails could not be matched to guest correspondence. They remain in Gmail; their contents are not imported into Helm.
     </p>}
+    {(health?.held?.length ?? 0) > 0 && <div style={{ marginTop: 14 }}>
+      <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)' }}>
+        Held as pitches, no draft written (past 7 days). If one is a real guest, release it and a draft appears in the queue within a couple of minutes.
+      </p>
+      <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, lineHeight: 1.7 }}>
+        {health!.held!.map(item => <li key={item.source_id}>
+          <strong>{item.sender || 'Unknown sender'}</strong>
+          {item.subject && <> · {item.subject}</>}
+          <span style={{ color: 'var(--ink-3)' }}> · {when(item.held_at)}</span>
+          {' · '}<a target="_blank" rel="noreferrer" href={`https://mail.google.com/mail/u/0/#all/${encodeURIComponent(item.source_id)}`} style={{ textDecoration: 'underline' }}>Open email</a>
+          <form action={releaseHeldPitch} style={{ display: 'inline', marginLeft: 8 }}>
+            <input type="hidden" name="source_id" value={item.source_id} />
+            <SubmitButton label="Not a pitch, draft it" busyLabel="Releasing" spinnerTone="ink" className="rt-inline-action" />
+          </form>
+        </li>)}
+      </ul>
+    </div>}
     <WorkFollowupsContent result={followups} />
     {!diagnostics && <p style={{ margin: '12px 0 0' }}><Link href="/messaging/status" className="rt-inline-action">Delivery &amp; sync details →</Link></p>}
   </>;
