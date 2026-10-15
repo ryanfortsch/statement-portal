@@ -369,15 +369,12 @@ export default async function WorkSlipsPrintPage({
                   </div>
                 </div>
               )}
+              {/* Office items are for the office, not for whoever carries
+                  this sheet, and a concierge title can name a guest. A
+                  count is all the sheet says; the property page lists them. */}
               {lane === 'office' && (
-                <div style={{ padding: '10px 0 12px', borderBottom: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-                  {rows.map(({ slip }, i) => (
-                    <span key={slip.id}>
-                      {i > 0 ? ' · ' : ''}
-                      {slip.title}
-                      <span className="font-mono" style={{ fontSize: 9, color: 'var(--ink-4)', letterSpacing: '.04em' }}> /work/{slip.id.slice(0, 8)}</span>
-                    </span>
-                  ))}
+                <div style={{ padding: '10px 0 12px', borderBottom: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+                  {rows.length} office {rows.length === 1 ? 'item' : 'items'} on the property page, not on this sheet.
                 </div>
               )}
               {lane !== 'supply' && lane !== 'office' && rows.map(({ slip, groupLabel }) => (

@@ -105,5 +105,12 @@ test("the brief never reads a concierge gear or stay-note slip's text, only its 
   const lib = readFileSync(new URL('../work-briefs.ts', import.meta.url), 'utf8');
   assert.match(lib, /namesAGuest\(s\)\s*\?\s*null/);
   assert.match(lib, /key\.startsWith\('gear:'\) \|\| key\.startsWith\('staycontact:'\)/);
+  // The two rails whose titles name the guest are read as generic lines.
+  assert.match(lib, /key\.startsWith\('prerelease-paylink:'\)/);
+  assert.match(lib, /key\.startsWith\('ffhold:'\)/);
+  // The print sheet never prints an office item's title.
+  const sheet = readFileSync(new URL('../../app/properties/[id]/work-slips/print/page.tsx', import.meta.url), 'utf8');
+  const office = sheet.slice(sheet.indexOf("lane === 'office' && ("), sheet.indexOf("lane !== 'supply' && lane !== 'office'"));
+  assert.doesNotMatch(office, /slip\.title/);
 });
 

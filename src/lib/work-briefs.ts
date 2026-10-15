@@ -118,10 +118,21 @@ function namesAGuest(s: BriefSlipRow): boolean {
   return key.startsWith('gear:') || key.startsWith('staycontact:');
 }
 
+/** Two concierge rails name the guest in the TITLE itself (a 2027
+ *  pre-release payment link, a far-future inquiry). The model reads a
+ *  generic line for those instead; the slip page keeps the particulars. */
+function genericTitle(s: BriefSlipRow): string | null {
+  const key = s.from_guest_request_key ?? '';
+  if (key.startsWith('prerelease-paylink:')) return 'Send a 2027 pre-release payment link to a guest (office)';
+  if (key.startsWith('ffhold:')) return 'Follow up a far-future inquiry when the calendar opens (office)';
+  return null;
+}
+
 function briefLine(s: BriefSlipRow, propertyName: string): string {
   const parts: string[] = [];
-  const title = slipDisplayTitle(s.title, propertyName);
-  const detail = namesAGuest(s)
+  const generic = genericTitle(s);
+  const title = generic ?? slipDisplayTitle(s.title, propertyName);
+  const detail = generic || namesAGuest(s)
     ? null
     : slipDetailLine({ title: s.title, action_summary: s.action_summary, description: s.description }, propertyName, 220);
   parts.push(detail ? `${title}: ${detail}` : title);
