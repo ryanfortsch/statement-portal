@@ -11,8 +11,10 @@ import {
   slipDetailLine,
   slipDisplayTitle,
   slipSourceLabel,
+  supplyChipLabel,
   type WorkLane,
 } from '@/lib/work-slip-lanes';
+import { loadWorkBrief, type WorkBriefRow } from '@/lib/work-briefs';
 import { PrintButton } from './PrintButton';
 import { SlipRow, type PrintSlip } from './SlipRow';
 
@@ -24,6 +26,7 @@ type Search = { auto?: string };
 async function getData(id: string): Promise<{
   property: HelmPropertyRow;
   slips: WorkSlipRow[];
+  brief: WorkBriefRow | null;
 } | null> {
   const { data: property } = await supabase
     .from('properties')
@@ -43,9 +46,11 @@ async function getData(id: string): Promise<{
     // (groupSlipsByLane); the read just needs a stable base order.
     .order('created_at', { ascending: true });
 
+  const brief = await loadWorkBrief(supabase, id).catch(() => null);
   return {
     property: property as HelmPropertyRow,
     slips: (slipsData ?? []) as WorkSlipRow[],
+    brief,
   };
 }
 
@@ -106,7 +111,7 @@ export default async function WorkSlipsPrintPage({
   const data = await getData(id);
   if (!data) notFound();
 
-  const { property, slips } = data;
+  const { property, slips, brief } = data;
   const todayIso = new Date().toISOString().slice(0, 10);
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -288,21 +293,27 @@ export default async function WorkSlipsPrintPage({
               {property.address || property.title || property.city}
               {property.owner_last && ` · ${property.owner_last}`}
             </p>
+            {/* The brief leads: the paragraph a seasoned operations manager
+                would write about this home (lib/work-briefs.ts). The old
+                one-line count stands in when no brief has been written yet. */}
             <p
+              className={brief?.brief && slips.length > 0 ? 'font-serif' : undefined}
               style={{
                 marginTop: 18,
-                fontSize: 14,
+                fontSize: brief?.brief && slips.length > 0 ? 15 : 14,
                 color: 'var(--ink-2)',
                 lineHeight: 1.55,
-                fontStyle: 'italic',
-                maxWidth: 520,
+                fontStyle: brief?.brief && slips.length > 0 ? 'normal' : 'italic',
+                maxWidth: 600,
               }}
             >
               {slips.length === 0
                 ? 'No open work slips. Nothing to bring.'
-                : visitCount > 0
-                  ? `${visitCount} ${visitCount === 1 ? 'item' : 'items'} for this visit${waitingCount > 0 ? `, ${waitingCount} waiting on someone else` : ''}.`
-                  : `Nothing for a routine visit. ${waitingCount} ${waitingCount === 1 ? 'item is' : 'items are'} waiting on someone else.`}
+                : brief?.brief
+                  ? brief.brief
+                  : visitCount > 0
+                    ? `${visitCount} ${visitCount === 1 ? 'item' : 'items'} for this visit${waitingCount > 0 ? `, ${waitingCount} waiting on someone else` : ''}.`
+                    : `Nothing for a routine visit. ${waitingCount} ${waitingCount === 1 ? 'item is' : 'items are'} waiting on someone else.`}
             </p>
             {summaryBits.length > 1 && (
               <p style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
@@ -346,7 +357,30 @@ export default async function WorkSlipsPrintPage({
                   {rows.length}
                 </div>
               </div>
-              {rows.map(({ slip, groupLabel }) => (
+              {lane === 'supply' && (
+                <div className="ws-pdf-row" style={{ display: 'grid', gridTemplateColumns: '36px 1fr', gap: 18, padding: '12px 0', borderBottom: '1px solid var(--rule)' }}>
+                  <span aria-hidden style={{ width: 28, height: 28, marginTop: 2, border: '1.5px solid var(--ink)', display: 'block' }} />
+                  <div style={{ fontSize: 14, color: 'var(--ink)', lineHeight: 1.5 }}>
+                    <span style={{ fontWeight: 500 }}>Bring: </span>
+                    {lanes
+                      .find((l) => l.lane === 'supply')!
+                      .slips.map((s) => `${supplyChipLabel(s, property.name)}${s.priority === 'high' ? ' (high)' : ''}`)
+                      .join(', ')}
+                  </div>
+                </div>
+              )}
+              {lane === 'office' && (
+                <div style={{ padding: '10px 0 12px', borderBottom: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+                  {rows.map(({ slip }, i) => (
+                    <span key={slip.id}>
+                      {i > 0 ? ' · ' : ''}
+                      {slip.title}
+                      <span className="font-mono" style={{ fontSize: 9, color: 'var(--ink-4)', letterSpacing: '.04em' }}> /work/{slip.id.slice(0, 8)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {lane !== 'supply' && lane !== 'office' && rows.map(({ slip, groupLabel }) => (
                 <div key={slip.id}>
                   {groupLabel && (
                     <div
@@ -363,7 +397,7 @@ export default async function WorkSlipsPrintPage({
                       ↳ {groupLabel}
                     </div>
                   )}
-                  <SlipRow slip={slip} compact={lane === 'office'} />
+                  <SlipRow slip={slip} />
                 </div>
               ))}
             </section>

@@ -5,6 +5,7 @@ import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb } from '@/lib/field-db';
 import type { WorkSlipRow, TaskRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
+import { loadWorkBriefHeadlines } from '@/lib/work-briefs';
 import { QueueClient } from './QueueClient';
 
 export const dynamic = 'force-dynamic';
@@ -25,9 +26,10 @@ async function getData(): Promise<{
   slipCommentCounts: Record<string, number>;
   taskCommentCounts: Record<string, number>;
   reporterNames: Record<string, string>;
+  briefHeadlines: Record<string, string>;
 }> {
   const todayIso = operatingDate();
-  const [{ data: ws }, { data: snz }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }] = await Promise.all([
+  const [{ data: ws }, { data: snz }, { data: tk }, { data: ps }, { data: slipComments }, { data: taskComments }, briefHeadlines] = await Promise.all([
     supabase
       .from('work_slips')
       .select('*')
@@ -59,6 +61,9 @@ async function getData(): Promise<{
     // to a database view.
     supabase.from('work_slip_comments').select('work_slip_id'),
     supabase.from('task_comments').select('task_id'),
+    // The nightly brief's headline per home (best-effort: a missing table
+    // or a read error leaves the header as it was).
+    loadWorkBriefHeadlines(supabase).catch(() => ({} as Record<string, string>)),
   ]);
 
   const slipCommentCounts: Record<string, number> = {};
@@ -96,12 +101,13 @@ async function getData(): Promise<{
     slipCommentCounts,
     taskCommentCounts,
     reporterNames,
+    briefHeadlines,
   };
 }
 
 export default async function WorkQueuePage() {
   const session = await auth();
-  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames } = await getData();
+  const { workSlips, snoozedSlips, tasks, properties, slipCommentCounts, taskCommentCounts, reporterNames, briefHeadlines } = await getData();
   const myEmail = session?.user?.email ?? '';
 
   return (
@@ -115,6 +121,7 @@ export default async function WorkQueuePage() {
         slipCommentCounts={slipCommentCounts}
         taskCommentCounts={taskCommentCounts}
         reporterNames={reporterNames}
+        briefHeadlines={briefHeadlines}
       />
 
       <HelmFooter module="Work Queue" right="Source: Helm" />

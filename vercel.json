@@ -81,6 +81,10 @@
       "schedule": "50 4 * * *"
     },
     {
+      "path": "/api/cron/work-briefs",
+      "schedule": "5 5 * * *"
+    },
+    {
       "path": "/api/cron/contracts-sweep",
       "schedule": "0 11 * * 1"
     },
