@@ -141,6 +141,9 @@ test('the board, the print sheet and the Field stop list all read the shared lan
   const sheet = readFileSync(new URL('../../app/properties/[id]/work-slips/print/page.tsx', import.meta.url), 'utf8');
   assert.match(sheet, /groupSlipsByLane\(/);
   assert.match(sheet, /slipDetailLine\(/);
+  const propertyPage = readFileSync(new URL('../../app/properties/[id]/page.tsx', import.meta.url), 'utf8');
+  assert.match(propertyPage, /groupSlipsByLane\(openSlips\)/);
+  assert.match(propertyPage, /slipDisplayTitle\(s\.title, p\.name\)/);
   const packets = readFileSync(new URL('../field-packets.ts', import.meta.url), 'utf8');
   const fn = packets.slice(packets.indexOf('export async function loadOpenSlipsForStops'));
   const body = fn.slice(0, fn.indexOf('\n}\n'));

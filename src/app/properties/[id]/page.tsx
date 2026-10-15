@@ -17,6 +17,7 @@ import { getPropertyAccess } from '@/lib/property-access';
 import type { HelmPropertyRow } from '@/lib/properties';
 import type { WorkSlipRow } from '@/lib/work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
+import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle } from '@/lib/work-slip-lanes';
 import { displayNameForEmail } from '@/lib/team';
 import { PropertyDraftOwnerEmailButton } from './PropertyDraftOwnerEmailButton';
 import { PropertyAddSlipButton } from './PropertyAddSlipButton';
@@ -348,9 +349,11 @@ async function getOpenWorkSlips(propertyId: string): Promise<WorkSlipRow[]> {
       .eq('property_id', propertyId)
       .in('status', ACTIVE_WORK_SLIP_STATUSES)
       .or(`snoozed_until.is.null,snoozed_until.lte.${todayIso}`)
-      .order('priority', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(20);
+      // Lane order, priority and clustering are applied in memory by
+      // groupSlipsByLane; the read just needs a stable base order. The old
+      // cap of 20 silently hid a third of 73 Rocky Neck's list.
+      .order('created_at', { ascending: true })
+      .limit(80);
     if (error) throw error;
     return (data ?? []) as WorkSlipRow[];
   } catch {
@@ -1035,47 +1038,94 @@ export default async function PropertyDetailPage({
           </div>
         ) : (
           <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {openSlips.map((s) => (
-              <div
-                key={s.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
-                  padding: '14px 0',
-                  borderBottom: '1px solid var(--rule)',
-                }}
-              >
-                <span
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    flexShrink: 0,
-                    background:
-                      s.priority === 'high' ? 'var(--negative)' :
-                      s.priority === 'normal' ? 'var(--ink-3)' :
-                      'var(--ink-4)',
-                  }}
-                />
-                <Link
-                  href={`/work/${s.id}`}
-                  style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}
-                >
-                  <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.title}</div>
-                  <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
-                    {s.assigned_to_label || (s.assigned_to_email ? displayNameForEmail(s.assigned_to_email) : 'Unclaimed')}
-                    {s.location ? ` · ${s.location}` : ''}
-                    {s.scheduled_date ? ` · scheduled ${s.scheduled_date}` : ''}
-                  </div>
-                </Link>
-                {s.owner_action_required && (
-                  <span style={pillStyle('var(--signal)')}>Owner</span>
-                )}
-                <span style={pillStyle('var(--ink-3)')}>{s.status.replace('_', ' ')}</span>
-                <MarkSlipDoneButton slipId={s.id} propertyId={p.id} />
-              </div>
-            ))}
+            {/* The same lanes as the Work board and the print sheet
+                (lib/work-slip-lanes.ts): restock, this visit, handyman run,
+                pro, owner, office. A lane label shows whenever more than
+                one lane is present, or the only lane is not the routine
+                visit. Clustered slips sit adjacent inside a lane. */}
+            {(() => {
+              const lanes = groupSlipsByLane(openSlips);
+              return lanes.map(({ lane, slips: laneSlips }) => (
+                <Fragment key={lane}>
+                  {(lanes.length > 1 || lane !== 'visit') && (
+                    <div
+                      style={{
+                        padding: '12px 0 2px 22px',
+                        fontSize: 10,
+                        letterSpacing: '.16em',
+                        textTransform: 'uppercase',
+                        fontWeight: 700,
+                        color: lane === 'owner' || lane === 'pro' ? 'var(--signal)' : lane === 'supply' ? 'var(--tide-deep)' : 'var(--ink-3)',
+                      }}
+                    >
+                      {LANE_LABELS[lane]} · {laneSlips.length}
+                    </div>
+                  )}
+                  {laneSlips.map((s) => {
+                    const detail = lane === 'supply' ? null : slipDetailLine(s, p.name, 170);
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 14,
+                          padding: '14px 0',
+                          borderBottom: '1px solid var(--rule)',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            flexShrink: 0,
+                            background:
+                              s.priority === 'high' ? 'var(--negative)' :
+                              s.priority === 'normal' ? 'var(--ink-3)' :
+                              'var(--ink-4)',
+                          }}
+                        />
+                        <Link
+                          href={`/work/${s.id}`}
+                          style={{ flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}
+                        >
+                          <div style={{ fontSize: 14, color: 'var(--ink)' }}>{slipDisplayTitle(s.title, p.name)}</div>
+                          {detail && (
+                            <div
+                              style={{
+                                marginTop: 3,
+                                fontSize: 12,
+                                color: 'var(--ink-3)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={s.action_summary || s.description || undefined}
+                            >
+                              {detail}
+                            </div>
+                          )}
+                          <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
+                            {s.assigned_to_label || (s.assigned_to_email ? displayNameForEmail(s.assigned_to_email) : 'Unclaimed')}
+                            {s.location ? ` · ${s.location}` : ''}
+                            {s.scheduled_date ? ` · scheduled ${s.scheduled_date}` : ''}
+                            {s.organize_group_label ? ` · with: ${s.organize_group_label}` : ''}
+                          </div>
+                        </Link>
+                        {s.owner_action_required && (
+                          <span style={pillStyle('var(--signal)')}>
+                            Owner{s.owner_action_type ? ` · ${s.owner_action_type}` : ''}
+                          </span>
+                        )}
+                        <span style={pillStyle('var(--ink-3)')}>{s.status.replace('_', ' ')}</span>
+                        <MarkSlipDoneButton slipId={s.id} propertyId={p.id} />
+                      </div>
+                    );
+                  })}
+                </Fragment>
+              ));
+            })()}
           </div>
         )}
       </section>
