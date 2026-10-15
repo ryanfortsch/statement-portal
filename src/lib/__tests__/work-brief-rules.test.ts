@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ageDays, ageWords, briefFingerprint, briefIsStale, trimHeadline } from '../work-brief-rules.ts';
+import { ageDays, ageWords, briefFingerprint, briefIsStale, briefText, briefWordCount, normalizeBriefItems, trimHeadline } from '../work-brief-rules.ts';
 import { supplyChipLabel } from '../work-slip-lanes.ts';
 import { suppliesLabel } from '../inspection-supplies.ts';
 
@@ -68,10 +68,11 @@ test('the property page, the print sheet and the board all carry the brief', () 
   const section = readFileSync(new URL('../../app/properties/[id]/OpenWorkSection.tsx', import.meta.url), 'utf8');
   assert.match(section, /groupSlipsByLane\(slips\)/);
   assert.match(section, /briefIsStale\(brief, slips\)/);
+  assert.match(section, /brief\.items\.map\(/);
   assert.doesNotMatch(section, /Unclaimed/);
   const sheet = readFileSync(new URL('../../app/properties/[id]/work-slips/print/page.tsx', import.meta.url), 'utf8');
   assert.match(sheet, /loadWorkBrief\(supabase, id\)/);
-  assert.match(sheet, /brief\.brief/);
+  assert.match(sheet, /brief\.items\.map\(/);
   const board = readFileSync(new URL('../../app/work/page.tsx', import.meta.url), 'utf8');
   assert.match(board, /loadWorkBriefHeadlines\(supabase\)/);
   // The nightly route exists and rewrites only homes whose slip set moved.
@@ -112,5 +113,37 @@ test("the brief never reads a concierge gear or stay-note slip's text, only its 
   const sheet = readFileSync(new URL('../../app/properties/[id]/work-slips/print/page.tsx', import.meta.url), 'utf8');
   const office = sheet.slice(sheet.indexOf("lane === 'office' && ("), sheet.indexOf("lane !== 'supply' && lane !== 'office'"));
   assert.doesNotMatch(office, /slip\.title/);
+});
+
+test('brief bullets come out in sheet order, capitalized, deduped and capped, whatever the model sent', () => {
+  const items = normalizeBriefItems([
+    { lead: 'bring', text: 'toilet paper, coffee pods, a plunger' },
+    { lead: 'Office', text: 'send the receipt to the arriving guest' },
+    { lead: 'handyman run', text: 'downstairs bathroom blind; guest-house counter separating' },
+    { lead: 'Plumber:', text: 'kitchen sink leak, inspect under the sink first.' },
+    { lead: 'Urgent', text: 'back deck door will not lock' },
+    { lead: 'Bring', text: 'Toilet paper, coffee pods, a plunger' },
+    { lead: '', text: 'dropped' },
+    { lead: 'This visit', text: '' },
+    { lead: 'Owner', text: 'recycling bin, bedside lamp' },
+    { lead: 'Window pro', text: 'four second-floor windows' },
+    { lead: 'This visit', text: 'coat hook, propane tank, plus three smaller fixes' },
+  ]);
+  // Eight distinct leads in, seven out: the cap drops from the end of the
+  // sheet order (Office), never the urgent item.
+  assert.deepEqual(
+    items.map((i) => i.lead),
+    ['Urgent', 'Plumber', 'Window pro', 'Handyman run', 'This visit', 'Bring', 'Owner'],
+  );
+  assert.equal(items[1].text, 'kitchen sink leak, inspect under the sink first.');
+  assert.equal(items.length, 7);
+  // A lead the vocabulary does not know is read as a trade and sorts with them.
+  assert.deepEqual(
+    normalizeBriefItems([{ lead: 'Bring', text: 'pods' }, { lead: 'Glazier', text: 'the cracked storm window' }]).map((i) => i.lead),
+    ['Glazier', 'Bring'],
+  );
+  assert.equal(briefWordCount(items.slice(0, 1)), 6);
+  assert.equal(briefText(items.slice(0, 2)), 'Urgent: back deck door will not lock. Plumber: kitchen sink leak, inspect under the sink first.');
+  assert.deepEqual(normalizeBriefItems(null), []);
 });
 

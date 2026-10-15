@@ -26,7 +26,16 @@ import { selectAllPaged, type PageResult } from './paged-select';
 import type { WorkSlipRow } from './work-types';
 import { ACTIVE_WORK_SLIP_STATUSES } from './work-types';
 import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, supplyChipLabel } from './work-slip-lanes';
-import { ageWords, briefFingerprint, trimHeadline, type WorkBriefRow } from './work-brief-rules';
+import {
+  ageWords,
+  briefFingerprint,
+  briefText,
+  briefWordCount,
+  normalizeBriefItems,
+  trimHeadline,
+  type BriefItem,
+  type WorkBriefRow,
+} from './work-brief-rules';
 
 export type { WorkBriefRow } from './work-brief-rules';
 
@@ -94,21 +103,28 @@ const BriefSchema = z.object({
   headline: z
     .string()
     .describe('One line under 90 characters, no trailing period: the three or four things that matter most at this home.'),
-  brief: z
-    .string()
-    .describe('One paragraph, two to five plain sentences, under 110 words. No bullets, headings, markdown or em dashes.'),
+  items: z
+    .array(
+      z.object({
+        lead: z
+          .string()
+          .describe('One to three words naming whose hands this is in: a trade ("Plumber", "Electrician", "Window pro", "HVAC tech"), "Urgent", "Handyman run", "This visit", "Bring", "Owner", or "Office".'),
+        text: z.string().describe('One clause under 22 words: the specifics that change the job. No trailing period.'),
+      }),
+    )
+    .describe('Three to seven bullets in sheet order: Urgent, pro trades, Handyman run, This visit, Bring, Owner, Office. Skip empty lanes.'),
 });
 
 const SYSTEM_PROMPT = `You write the brief at the top of a home's work sheet for Rising Tide STR, a vacation-rental manager on Cape Ann, MA. The reader is the operator deciding what to do about this home this week, or the field inspector about to walk it. Write like a seasoned operations manager: plain declarative sentences, specific, no filler, no hedging.
 
 Order: whatever is blocking or urgent first (safety, security, a leak, anything that hits the next guest), then what needs a licensed pro, what a handyman run should cover, what the next routine visit knocks out, what to bring, what is waiting on the owner, and what is for the office. Skip a lane that is empty. Fold clustered slips into one item.
 
-This is a brief, not an inventory. Do not enumerate every slip: name what matters (the urgent item, the pro jobs, the owner's items, the two or three biggest handyman jobs) and roll the rest up by count, for example "plus six smaller fixes on the next routine visit". The ledger under the brief lists everything; you do not have to.
+This is a brief, not an inventory. Do not enumerate every slip: name what matters (the urgent item, the pro jobs, the owner's items, the two or three biggest handyman jobs) and roll the rest up by count, for example "plus six smaller fixes". The ledger under the brief lists everything; you do not have to.
 
-Name rooms, fixtures, dates and contractor names when the slips give them. Never a guest's name, even when a slip's own text uses one: write "a guest", "the arriving guest" or "the Oct 11 review". Do not give day counts; mention age only for one item past 60 days, in words ("the kitchen sprayer has waited since July"). Do not restate counts the sheet already shows.
+Name rooms, fixtures, dates and contractor names when the slips give them. Never a guest's name, even when a slip's own text uses one: write "a guest", "the arriving guest" or "the Oct 11 review". Do not give day counts; mention age only for one item past 60 days, in words ("has waited since July"). Do not restate counts the sheet already shows.
 
 headline: one line under 90 characters, no trailing period, for example "Plumber for the kitchen sink; handyman for the blind and the guest-house counter; bring TP and pods".
-brief: one paragraph, two to four sentences, under 90 words even for a long list. No bullets, no headings, no markdown, no em dashes.`;
+items: three to seven bullets, each a lead and one clause. The lead names whose hands it is in: the trade for a licensed pro ("Plumber", "Electrician", "Window pro", "HVAC tech"), "Urgent" for a safety, security or leak item that outranks everything, "Handyman run", "This visit", "Bring", "Owner", "Office". One bullet per lead, except one per trade. Order: Urgent, pro trades, Handyman run, This visit, Bring, Owner, Office; skip empty lanes. The text is under 22 words, plain words, specifics kept, the small stuff rolled up by count. Under 100 words across all bullets. No markdown, no em dashes, no trailing periods.`;
 
 /** The concierge's guest-gear and stay-note slips carry the guest's name in
  *  their own text by design. The model reads only their titles, which do
@@ -170,35 +186,31 @@ ${sections.join('\n\n')}`;
 }
 
 /** Past this, the brief has become the list it was meant to replace: one
- *  more call cuts it rather than clipping prose mid-sentence. */
+ *  more call cuts it rather than clipping clauses. */
 const BRIEF_MAX_WORDS = 110;
 
-const wordCount = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
-
-async function writeBrief(propertyName: string, risingTideOwned: boolean, slips: BriefSlipRow[]): Promise<{ headline: string; brief: string }> {
+async function writeBrief(propertyName: string, risingTideOwned: boolean, slips: BriefSlipRow[]): Promise<{ headline: string; items: BriefItem[] }> {
   const prompt = buildPrompt(propertyName, risingTideOwned, slips);
-  const first = await generateObject({ model: MODEL, schema: BriefSchema, maxOutputTokens: 800, system: SYSTEM_PROMPT, prompt });
-  let { headline, brief } = first.object;
-  if (wordCount(brief) > BRIEF_MAX_WORDS) {
+  const first = await generateObject({ model: MODEL, schema: BriefSchema, maxOutputTokens: 900, system: SYSTEM_PROMPT, prompt });
+  let headline = first.object.headline;
+  let items = normalizeBriefItems(first.object.items);
+  if (briefWordCount(items) > BRIEF_MAX_WORDS) {
     const second = await generateObject({
       model: MODEL,
       schema: BriefSchema,
-      maxOutputTokens: 800,
+      maxOutputTokens: 900,
       system: SYSTEM_PROMPT,
       prompt: `${prompt}
 
-Your previous draft ran to ${wordCount(brief)} words:
-"${brief}"
+Your previous draft ran to ${briefWordCount(items)} words across the bullets:
+${items.map((i) => `- ${i.lead}: ${i.text}`).join('\n')}
 
-Cut it to under 90 words. Keep the urgent item, the pro jobs, the owner's items and the biggest handyman jobs by name; roll everything else up by count. Keep the headline unless it names something you dropped.`,
+Cut it to under 90 words and at most six bullets. Keep the urgent item, the pro jobs, the owner's items and the biggest handyman jobs by name; roll everything else up by count. Keep the headline unless it names something you dropped.`,
     });
     headline = second.object.headline;
-    brief = second.object.brief;
+    items = normalizeBriefItems(second.object.items);
   }
-  return {
-    headline: trimHeadline(headline),
-    brief: brief.replace(/\s+/g, ' ').trim().slice(0, 1200),
-  };
+  return { headline: trimHeadline(headline), items };
 }
 
 /**
@@ -260,6 +272,7 @@ export async function refreshWorkBriefs(
         property_id: property.id,
         headline: '',
         brief: '',
+        items: [],
         slip_fingerprint: fingerprint,
         slip_count: 0,
         model: null,
@@ -284,7 +297,8 @@ export async function refreshWorkBriefs(
       const { error } = await supabase.from('property_work_briefs').upsert({
         property_id: property.id,
         headline: text.headline,
-        brief: text.brief,
+        items: text.items,
+        brief: briefText(text.items),
         slip_fingerprint: fingerprint,
         slip_count: list.length,
         model: MODEL,
