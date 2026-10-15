@@ -15,13 +15,14 @@ import {
   cancelScheduleApproval,
   editApproval,
   explainError,
+  isStaleConflict,
   type StayConciergeError,
   type FollowupOptions,
   listApprovals,
   markMaintenanceDismissed,
 } from '@/lib/stay-concierge';
 
-// `stale: true` means the card moved on under the operator: a 409 from the
+// `stale: true` means the card moved on under the operator: an `already_*` 409 from the
 // service (coaching superseded it, or it was already resolved elsewhere). The
 // queue treats this as "refresh to the latest version" rather than a hard,
 // red error. This is the fix for an approve landing on a card that a just-
@@ -37,7 +38,8 @@ function mapResult(result: ClientResult): ActionResult {
     revalidatePath('/messaging');
     return { ok: true };
   }
-  const stale = result.error.kind === 'http' && result.error.status === 409;
+  // Only a card that moved on is stale; a refusal keeps the card and says why.
+  const stale = isStaleConflict(result.error);
   return { ok: false, error: explainError(result.error), stale };
 }
 
