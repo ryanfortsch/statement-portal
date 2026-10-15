@@ -4,7 +4,10 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHmac } from 'node:crypto';
+import { createCleanerDeliveryDb } from '../src/lib/calderwood-rehearsal/cleaner-delivery-db.ts';
+import { runCleanerDeliveryRehearsal, createCleanerDeliverySimulator } from '../src/lib/calderwood-rehearsal/cleaner-delivery-worker.ts';
+import { reconcileCleanerDeliveryReceipt } from '../src/lib/calderwood-rehearsal/cleaner-delivery-receipts.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 assert.ok(process.argv[2] && isAbsolute(process.argv[2]));
 const { default: EmbeddedPostgres } = await import(pathToFileURL(process.argv[2]).href);
@@ -64,6 +67,42 @@ try {
  await pg.stop(); running=false; await pg.start(); running=true;
  const fresh=await connect(); await fresh.query('set role service_role'); assert.deepEqual(await read(fresh),two);
  console.log('PASS: committed claim and provider receipt survive database restart');
+ // Exercise the actual Supabase adapter and worker against this local SQL store.
+ // Only the HTTP boundary is replaced; no hosted project or SMS API is contacted.
+ const localStore = client => createCleanerDeliveryDb('https://jgkblfozftcvymvwhhii.supabase.co', 'synthetic', async (url, init) => {
+  assert.equal(init?.method, 'POST');
+  if(String(url)==='https://jgkblfozftcvymvwhhii.supabase.co/rest/v1/rpc/helm_pilot_cleaner_delivery_read') return Response.json(await read(client));
+  assert.equal(String(url),'https://jgkblfozftcvymvwhhii.supabase.co/rest/v1/rpc/helm_pilot_cleaner_delivery_append');
+  const args=JSON.parse(String(init.body));
+  return Response.json(await append(client,args.expected_version,args.next_history));
+ });
+ const now=Date.parse('2030-01-10T14:00:00Z');
+ const plan={messageId:'HELMTEST-cleaner-message',recipientId:'HELMTEST-cleaner-b',attemptId:'HELMTEST-worker-b',
+  bookingRevision:'fixture-v1',contentRevision:'template-v1',fireAt:now,expiresAt:now+60000};
+ const readContext=async()=>({messageId:plan.messageId,bookingRevision:plan.bookingRevision,contentRevision:plan.contentRevision,
+  status:'confirmed',held:false,owner:'helm',previousSenderStopped:true,observedAt:now-1000,validUntil:now+60000});
+ const options={plan,simulation:createCleanerDeliverySimulator(),readContext,now:()=>now};
+ const store=localStore(fresh);
+ const accepted=await runCleanerDeliveryRehearsal({store,...options});
+ assert.equal(accepted.status,'accepted'); assert.equal(accepted.canSend,false);
+ assert.equal(accepted.summary.allDelivered,false);
+ const provider=(await store.read()).ledger.recipients[1].attempts[0].providerId;
+ const body={id:'HELMTEST-worker-receipt-b',type:'message.delivered',data:{object:{id:provider,
+  phoneNumberId:'HELMTEST-ops-line',direction:'outgoing',status:'delivered',to:['HELMTEST-cleaner-b']}}};
+ const key=randomBytes(32).toString('base64');
+ const receiptInput={rawBody:JSON.stringify(body),testSigningKey:key,now,
+  signature:`hmac;1;${now};${createHmac('sha256',Buffer.from(key,'base64')).update(`${now}.${JSON.stringify(body)}`).digest('base64')}`};
+ const deliveredResult=await reconcileCleanerDeliveryReceipt({store,...receiptInput});
+ assert.equal(deliveredResult.status,'recorded'); assert.equal(deliveredResult.summary.allDelivered,true);
+ assert.equal(deliveredResult.canSend,false); assert.equal((await store.read()).version,5);
+ for(const c of clients) await c.end(); clients.length=0;
+ await pg.stop(); running=false; await pg.start(); running=true;
+ const resumed=await connect(); await resumed.query('set role service_role'); const resumedStore=localStore(resumed);
+ assert.equal((await runCleanerDeliveryRehearsal({store:resumedStore,...options})).status,'delivered');
+ assert.equal((await reconcileCleanerDeliveryReceipt({store:resumedStore,...receiptInput})).status,'duplicate');
+ assert.equal((await resumedStore.read()).version,5);
+ console.log('PASS: worker -> committed acceptance -> signed receipt -> database restart -> no replay');
+
 } finally {
  for(const c of clients) await c.end().catch(()=>{});
  if(running) await pg.stop();

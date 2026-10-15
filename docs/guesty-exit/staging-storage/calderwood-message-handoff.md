@@ -233,3 +233,57 @@ message bodies, SMS transport, worker activation, Guesty changes, or paid signup
 were introduced. Next work is the worker/receipt rehearsal using this shared
 store, including authenticated receipt reconciliation and current booking,
 hold, ownership and expiry checks before any future live integration.
+
+## Worker and signed receipt rehearsal, October 15
+
+Continued from `c6920be3` on `codex/channex-staging-pilot`. Current remote main was
+verified as `82d6a376a0f76fda3dc86afc029433df6af96293`; this checkpoint remains on
+the isolated pilot branch.
+
+`cleaner-delivery-worker.ts` connects the database adapter to an explicitly
+synthetic dispatch interface. Only a newly committed claim may invoke the
+simulator. It checks the booking/content revisions, confirmed status, hold,
+owner, previous-sender stop, evidence validity and send window before claiming
+and again immediately before dispatch. A failed second read leaves an unresolved
+claim; a verified block records that dispatch did not occur. Neither case causes
+an automatic retry. Already accepted/delivered, uncertain and rejected attempts
+all suppress automatic dispatch. Provider exceptions and malformed replies become
+unknown, while database errors propagate for readback/reconciliation.
+
+`cleaner-delivery-receipts.ts` checks Quo-shaped HMAC signatures with an explicit
+test signing key and a five-minute signature window. The format was checked
+against [Quo webhook documentation](https://support.quo.com/core-concepts/integrations/webhooks). Only fixed
+fictional outgoing deliveries on `HELMTEST-ops-line` are accepted. A receipt must
+match the provider ID already saved on exactly one attempt and the same frozen
+recipient. An event ID cannot be reused for another recipient. Message bodies,
+phone numbers and raw webhook payloads are never written to this ledger.
+Acceptance remains distinct from delivery; each recipient keeps its own status.
+
+Fourteen new synthetic tests cover separate recipients, competing workers,
+pre/post-claim context checks, interrupted claims, provider timeouts, uncertain
+commits, signature tampering/age, mismatched receipts, concurrent duplicate
+receipts, malformed responses and early receipt replay. The PostgreSQL verifier
+now also runs the actual worker and database adapter through local SQL, commits
+acceptance and a signed fictional receipt, restarts PostgreSQL, and proves the
+worker suppresses replay and the duplicate receipt adds no event. The test replaces
+the HTTP boundary with local SQL calls; it does not invoke the hosted RPC gateway.
+
+Limitations before live integration: this is not an activated Render worker or a
+public webhook route. It uses supplied fictional dispatch context, not an atomic
+production booking/hold transaction. A receipt arriving before the provider ID is
+saved returns `unmatched-provider`; it must be retained in a durable receipt inbox
+and replayed later, not acknowledged and discarded. If the provider ID was lost
+entirely, explicit reconciliation is required; recipient-only matching is unsafe.
+The existing production Quo webhook and sender are unchanged. No real SMS,
+production migration, new subscription or Guesty switch occurred.
+
+Validation for this worker checkpoint: 1,915 application tests passed;
+`npx tsc --noEmit --incremental false`, targeted ESLint, `git diff --check`, and
+the real PostgreSQL worker/restart verifier passed. Changed files:
+
+- `src/lib/calderwood-rehearsal/cleaner-delivery-worker.ts`
+- `src/lib/calderwood-rehearsal/cleaner-delivery-receipts.ts`
+- `src/lib/__tests__/calderwood-cleaner-delivery-worker.test.ts`
+- `scripts/verify-cleaner-delivery-db.mjs`
+- `SCHEMA.md`
+- this handoff document

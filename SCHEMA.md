@@ -444,3 +444,15 @@ modify the ordinary public Helm automation tables. Public service-only RPCs
 message. The authenticated preview route uses only explicit staging credentials.
 This fixture proves persistence and compare-and-swap behavior, not full hosted
 Helm schema parity or guest delivery. Setup preserves existing state and history.
+
+## Isolated cleaner delivery rehearsal
+
+Only project `jgkblfozftcvymvwhhii` uses schema `helm_cleaner_rehearsal`.
+Its `delivery` table holds one fixed fictional message, a frozen pair of recipient
+IDs, a version and append-only event history. It has no phone numbers, message
+bodies or transport. Public service-only RPCs `helm_pilot_cleaner_delivery_read`
+and `helm_pilot_cleaner_delivery_append` provide read and versioned append access;
+ordinary signed-in and anonymous clients have none. Setup is in
+`docs/guesty-exit/staging-storage/cleaner-delivery.sql`. The TypeScript adapter
+validates the full delivery lifecycle before appending. This is separate from
+`public.automation_sends` and has no durable inbox for unmatched receipts yet.
