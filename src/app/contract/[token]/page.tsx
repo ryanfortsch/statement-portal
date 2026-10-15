@@ -5,6 +5,7 @@ import type { ProjectionRow } from '@/lib/projections-types';
 import { ContractDocument } from '@/components/projections/ContractDocument';
 import { submitContractSignature } from '@/app/projections/actions';
 import { SignSubmitButton, ScrollToSignButton } from '@/components/projections/SigningButtons';
+import { contractTermsDigest } from '@/lib/contract-terms';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +29,17 @@ async function getProspect(token: string): Promise<ProjectionRow | null> {
   return (data as ProjectionRow | null) ?? null;
 }
 
-export default async function ContractSignPage({ params }: { params: Promise<{ token: string }> }) {
+export default async function ContractSignPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ changed?: string }>;
+}) {
   const { token } = await params;
+  // Set when a signature was refused because the terms changed while the
+  // owner had the page open (submitContractSignature's digest check).
+  const { changed } = await searchParams;
   const projection = await getProspect(token);
   if (!projection) notFound();
 
@@ -38,7 +48,12 @@ export default async function ContractSignPage({ params }: { params: Promise<{ t
   // If signed, render the contract with the signature in place — no form.
   // If unsigned, render the contract + a signing form below it.
   const signingForm = projection.contract_signed_at ? null : (
-    <SignForm token={token} prefillName={ownerName} />
+    <SignForm
+      token={token}
+      prefillName={ownerName}
+      termsDigest={contractTermsDigest(projection)}
+      termsChanged={changed === '1'}
+    />
   );
 
   return (
@@ -52,12 +67,29 @@ export default async function ContractSignPage({ params }: { params: Promise<{ t
   );
 }
 
-function SignForm({ token, prefillName }: { token: string; prefillName: string }) {
+function SignForm({
+  token,
+  prefillName,
+  termsDigest,
+  termsChanged,
+}: {
+  token: string;
+  prefillName: string;
+  termsDigest: string;
+  termsChanged: boolean;
+}) {
   return (
     <>
       <style>{signFormCss}</style>
       <form action={submitContractSignature} className="rt-sign-form">
         <input type="hidden" name="token" value={token} />
+        <input type="hidden" name="terms_digest" value={termsDigest} />
+        {termsChanged && (
+          <p className="rt-sign-changed" role="alert">
+            This contract was updated while you had it open, so your signature was not recorded. The current
+            terms are shown above. Please review them, then sign below.
+          </p>
+        )}
         <div className="rt-sign-eyebrow">Step 3 &middot; Sign &amp; Submit</div>
         <h2 className="rt-sign-h">Ready to sign?</h2>
         <p className="rt-sign-lead">
@@ -125,6 +157,17 @@ const signFormCss = `
     color: var(--ink-3);
     margin: 0 0 28px;
     max-width: 600px;
+  }
+
+  .rt-sign-changed {
+    margin: 0 0 22px;
+    padding: 12px 16px;
+    max-width: 600px;
+    border-left: 3px solid var(--signal);
+    background: var(--paper-2);
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink);
   }
 
   .rt-sign-check {

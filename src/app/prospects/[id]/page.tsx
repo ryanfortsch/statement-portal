@@ -11,7 +11,9 @@ import { DeleteProspectButton } from '@/components/projections/DeleteProspectBut
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { InactivePanel } from '@/components/projections/ProspectInactiveControls';
 import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
-import { CopyLinkButton, CountersignButton } from '@/components/projections/SigningButtons';
+import { CopyLinkButton, CountersignButton, WithdrawSignatureButton } from '@/components/projections/SigningButtons';
+import { countersignerName } from '@/lib/contract-terms';
+import { displayNameForEmail } from '@/lib/team';
 import {
   Pipeline,
   Stage,
@@ -39,6 +41,7 @@ import {
   toggleMonthlyBreakdown,
   promoteToProperty,
   countersignContract,
+  withdrawOwnerSignature,
   markOnboardingDone,
   unmarkOnboardingDone,
   markContractDone,
@@ -99,8 +102,17 @@ async function getProspectTexts(phone: string): Promise<ProspectText[]> {
   return out;
 }
 
-export default async function ProjectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProjectionDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ terms_locked?: string }>;
+}) {
   const { id } = await params;
+  // Set by updateProjection when a save tried to change a signed
+  // contract's terms: the labels of the terms it held back.
+  const { terms_locked: termsLockedNotice } = await searchParams;
   const projection = await getProjection(id);
   if (!projection) notFound();
 
@@ -450,6 +462,29 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
             </span>
           </summary>
           <div style={{ paddingTop: 18 }}>
+            {projection.contract_signed_at && (
+              <p
+                role={termsLockedNotice ? 'alert' : undefined}
+                style={{
+                  margin: '0 0 18px',
+                  padding: '10px 14px',
+                  fontSize: 12,
+                  lineHeight: 1.55,
+                  maxWidth: 680,
+                  border: `1px solid ${termsLockedNotice ? 'var(--negative)' : 'var(--rule)'}`,
+                  background: 'var(--paper-2)',
+                  color: 'var(--ink)',
+                }}
+              >
+                {termsLockedNotice && (
+                  <><strong>Not saved.</strong> These would have changed the signed contract: {termsLockedNotice}.{' '}</>
+                )}
+                The owner signed on {fmtTouchDate(projection.contract_signed_at)}, so the contract terms are locked: the
+                owner&rsquo;s name, the address, the fee, deposit and balance, availability, sale notice, term dates and
+                clauses. Everything else here still saves. To change a term, withdraw the signature in the Signing panel
+                above; the owner then signs again at the same link.
+              </p>
+            )}
             {/* The `key` is set to projection.updated_at so the form fully
                 remounts whenever the row's updated_at advances (after Save or
                 applyContractRedlines). Without that, the form inputs use
@@ -519,7 +554,12 @@ export default async function ProjectionDetailPage({ params }: { params: Promise
                 The contract reverts to the standard template. <strong>Prospect record, inputs,
                 signing token, and onboarding intake stay intact.</strong>
               </p>
-              <ResetContractButton projectionId={id} hasOverrides={hasContractEdits} />
+              {projection.contract_signed_at && (
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 480, fontStyle: 'italic' }}>
+                  Locked while the owner&rsquo;s signature is on file.
+                </p>
+              )}
+              <ResetContractButton projectionId={id} hasOverrides={hasContractEdits && !projection.contract_signed_at} />
             </div>
 
             <div style={{ flex: '1 1 320px', minWidth: 280 }}>
@@ -689,9 +729,15 @@ function GuideAndContractStageBody({
             : 'no deposit'}
         </div>
         <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
-        <RedlinesDisclosure>
-          <ContractRedlinesPanel projection={projection} />
-        </RedlinesDisclosure>
+        {projection.contract_signed_at ? (
+          <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
+            Redlines are closed: the owner has signed these terms. Withdraw the signature below to reopen them.
+          </p>
+        ) : (
+          <RedlinesDisclosure>
+            <ContractRedlinesPanel projection={projection} />
+          </RedlinesDisclosure>
+        )}
       </SubDeliverable>
 
       {/* Signing sub-deliverable - folded in from what used to be a
@@ -807,7 +853,7 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
       )}
       {countersignedAt && (
         <p style={{ marginTop: 0, marginBottom: 12, fontSize: 12, color: 'var(--ink)', lineHeight: 1.55, maxWidth: 720 }}>
-          Countersigned by <strong>Allie O&rsquo;Brien</strong> on {new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}. Fully executed.
+          Countersigned by <strong>{countersignerName(projection.contract_countersigned_by)}</strong> on {new Date(countersignedAt).toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/New_York' })}. Fully executed.
           {executedEmailSentAt && (
             <>
               {' '}<span style={{ color: 'var(--ink-3)' }}>(executed copy emailed to owner {fmtTouchDate(executedEmailSentAt)})</span>
@@ -815,6 +861,16 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
           )}
         </p>
       )}
+      {signedAt && !countersignedAt && (
+        <form action={withdrawOwnerSignature} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 12px', maxWidth: 720 }}>
+          <input type="hidden" name="id" value={projection.id} />
+          <WithdrawSignatureButton />
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', fontStyle: 'italic' }}>
+            The terms are locked while this signature is on file. Withdraw it to change them; the owner signs again at the same link.
+          </span>
+        </form>
+      )}
+      <SealedCopies projection={projection} />
       <LinkRow link={link} />
       {/* Once the owner has signed, surface a download for the signed
           PDF directly here (otherwise staff have to dig through the
@@ -872,6 +928,54 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
 }
 
 /**
+ * The sealed copies Helm kept at each signature (src/lib/contract-seal.ts),
+ * with their fingerprints, plus any signatures withdrawn for changes. A
+ * signature with no sealed copy says why rather than staying silent.
+ */
+function SealedCopies({ projection }: { projection: ProjectionRow }) {
+  const history = projection.contract_signature_history ?? [];
+  const copies: { label: string; copy: 'signed' | 'executed'; sha: string }[] = [];
+  if (projection.contract_signed_pdf_sha256) {
+    copies.push({ label: 'Owner-signed copy', copy: 'signed', sha: projection.contract_signed_pdf_sha256 });
+  }
+  if (projection.contract_executed_pdf_sha256) {
+    copies.push({ label: 'Executed copy', copy: 'executed', sha: projection.contract_executed_pdf_sha256 });
+  }
+  const missingSigned = !!projection.contract_signed_at && !projection.contract_signed_pdf_sha256;
+  if (copies.length === 0 && !missingSigned && history.length === 0) return null;
+  const linkStyle: React.CSSProperties = { color: 'var(--signal)', textDecoration: 'none', fontWeight: 600 };
+  const shaStyle: React.CSSProperties = { fontFamily: 'var(--font-mono), monospace', fontSize: 11, color: 'var(--ink-3)', wordBreak: 'break-all' };
+  return (
+    <div style={{ margin: '0 0 12px', maxWidth: 720, fontSize: 12, lineHeight: 1.6 }}>
+      {copies.map((c) => (
+        <div key={c.copy}>
+          <a href={`/api/contracts/sealed?id=${projection.id}&copy=${c.copy}`} style={linkStyle}>↓ {c.label}</a>{' '}
+          <span style={shaStyle}>SHA-256 {c.sha}</span>
+        </div>
+      ))}
+      {missingSigned && (
+        <div style={{ color: 'var(--ink-3)', fontStyle: 'italic' }}>
+          {projection.contract_signed_at! < '2026-10-15'
+            ? 'No sealed copy: signed before Helm kept them. The emailed PDF and the Drive copy are the record.'
+            : 'No sealed copy: the PDF did not render when the owner signed. Check the copy emailed to the owner.'}
+        </div>
+      )}
+      {history.map((h, i) => (
+        <div key={h.withdrawn_at} style={{ color: 'var(--ink-3)' }}>
+          Signed by {h.signed_name ?? 'the owner'} {fmtTouchDate(h.signed_at)}, withdrawn by{' '}
+          {displayNameForEmail(h.withdrawn_by)} {fmtTouchDate(h.withdrawn_at)}.
+          {h.signed_pdf_sha256 && (
+            <>
+              {' '}<a href={`/api/contracts/sealed?id=${projection.id}&copy=withdrawn&n=${i}`} style={linkStyle}>↓ That copy</a>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Countersign action UI. A single form-button that POSTs to
  * countersignContract. Server action does the auth check, stamps
  * contract_countersigned_at, renders the fully-executed PDF, and
@@ -892,7 +996,7 @@ function CountersignRow({ projectionId }: { projectionId: string }) {
         background: 'var(--paper-2)',
       }}>
         <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 460 }}>
-          The owner has signed. Click to add Allie&rsquo;s countersignature and email the owner the fully executed contract (you&rsquo;ll be CC&rsquo;d). The send takes ~10 seconds while the PDF re-renders with both signatures.
+          The owner has signed. Countersign for Rising Tide and email the owner the fully executed contract (Allie is CC&rsquo;d). The contract and its certificate name you as the signer. The send takes ~10 seconds while the PDF renders with both signatures.
         </div>
         <CountersignButton />
       </div>
@@ -1092,6 +1196,16 @@ function ActivityLog({ projection }: { projection: ProjectionRow }) {
   if (projection.contract_signed_at) {
     const who = projection.contract_signed_name ?? 'Owner';
     events.push({ at: projection.contract_signed_at, label: `${who} signed the contract` });
+  }
+  for (const h of projection.contract_signature_history ?? []) {
+    events.push({ at: h.signed_at, label: `${h.signed_name ?? 'Owner'} signed the contract` });
+    events.push({ at: h.withdrawn_at, label: `${displayNameForEmail(h.withdrawn_by)} withdrew that signature to change the terms` });
+  }
+  if (projection.contract_countersigned_at) {
+    events.push({
+      at: projection.contract_countersigned_at,
+      label: `${countersignerName(projection.contract_countersigned_by)} countersigned the contract`,
+    });
   }
   if (projection.contract_marked_done_at) {
     events.push({ at: projection.contract_marked_done_at, label: 'Contract marked complete by staff' });

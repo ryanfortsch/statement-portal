@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { authorizeCron } from '@/lib/cron-auth';
-import { fetchContractPdf } from '@/lib/contract-email';
+import { executedContractPdf } from '@/lib/contract-seal';
 import {
   archiveContractToDrive,
   isDriveArchiveConfigured,
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   try {
     const { data } = await supabase
       .from('projections')
-      .select('id, property_address, prospect_name, onboarding_token, contract_countersigned_at, contract_drive_url')
+      .select('id, property_address, prospect_name, onboarding_token, contract_countersigned_at, contract_drive_url, contract_executed_pdf_path, contract_executed_pdf_sha256')
       .not('contract_countersigned_at', 'is', null)
       .is('contract_drive_url', null)
       .limit(MAX_ARCHIVES_PER_RUN);
@@ -71,6 +71,8 @@ export async function GET(request: NextRequest) {
       prospect_name: string | null;
       onboarding_token: string | null;
       contract_countersigned_at: string;
+      contract_executed_pdf_path: string | null;
+      contract_executed_pdf_sha256: string | null;
     }>;
     const origin = request.nextUrl.origin;
     for (const proj of rows) {
@@ -79,7 +81,7 @@ export async function GET(request: NextRequest) {
         const filename = `${proj.property_address ?? 'Contract'} - ${proj.prospect_name ?? 'Owner'} - Executed ${dateStr}.pdf`
           .replace(/[\\/:*?"<>|]/g, '')
           .trim();
-        const pdf = await fetchContractPdf({ projectionId: proj.id, origin, token: proj.onboarding_token });
+        const pdf = await executedContractPdf({ projection: proj, origin });
         const archive = await archiveContractToDrive({ pdf, filename, year: dateStr.slice(0, 4) });
         if (archive.ok && archive.url) {
           await supabase.from('projections').update({ contract_drive_url: archive.url }).eq('id', proj.id);
