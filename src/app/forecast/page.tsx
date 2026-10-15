@@ -148,12 +148,27 @@ function CoverSheet() {
  * Banner that surfaces when bank-derived actuals are more than 30 days
  * old — points at the Cost Analysis tab where an upload refreshes them
  * for both pages.
+ *
+ * Two exports feed the actuals and they lag differently. The card export
+ * usually runs later than the operating-account one, and the latest
+ * transaction overall says nothing about the other file: on 2026-10-15 the
+ * card ran to October 7 while the operating account stopped on August 25,
+ * so September read as a card-only month (its operating lines projected,
+ * see calcYear). The banner names whichever file is behind.
  */
-function StaleDataBanner({ latestDate }: { latestDate: string }) {
+function StaleDataBanner({
+  latestDate,
+  operatingLatestDate,
+}: {
+  latestDate: string;
+  operatingLatestDate: string | null;
+}) {
   const today = new Date();
-  const exportDate = new Date(latestDate);
-  const daysSince = Math.floor((today.getTime() - exportDate.getTime()) / (1000 * 60 * 60 * 24));
-  if (daysSince <= 30) return null;
+  const daysOld = (d: string) => Math.floor((today.getTime() - new Date(d).getTime()) / (1000 * 60 * 60 * 24));
+  const daysSince = daysOld(latestDate);
+  const operatingDays = operatingLatestDate ? daysOld(operatingLatestDate) : null;
+  const operatingBehind = operatingDays != null && operatingDays > 30 && operatingLatestDate !== latestDate;
+  if (daysSince <= 30 && !operatingBehind) return null;
   return (
     <section
       className="max-w-[1100px] mx-auto px-10"
@@ -187,8 +202,20 @@ function StaleDataBanner({ latestDate }: { latestDate: string }) {
           Action needed
         </span>
         <span>
-          Bank actuals are <strong>{daysSince} days old</strong> (most recent transaction:{' '}
-          {latestDate}). Drop a fresh Chase corporate card or operating CSV (or XLSX) in the{' '}
+          {daysSince > 30 ? (
+            <>
+              Bank actuals are <strong>{daysSince} days old</strong> (most recent transaction:{' '}
+              {latestDate}).{' '}
+            </>
+          ) : null}
+          {operatingBehind ? (
+            <>
+              The operating account (Chase ...5130) export runs only to <strong>{operatingLatestDate}</strong>
+              , {operatingDays} days ago. A month the card export covers but this one does not reads the card
+              and projects rent, the bench, payroll and bank fees (the ACT* columns).{' '}
+            </>
+          ) : null}
+          Drop a fresh Chase corporate card or operating CSV (or XLSX) in the{' '}
           <a href="/cost-analysis" style={{ color: 'var(--signal)', textDecoration: 'underline' }}>
             Cost Analysis
           </a>{' '}
@@ -346,6 +373,7 @@ export default async function ForecastPage() {
   const bankActualsThrough2026 =
     hasDbActuals ? dbActuals2026.throughMonth : ACTUALS_2026_THROUGH_MONTH;
   const staleBannerDate = dbActuals2026.latestTxnDate ?? ACTUALS_WINDOW.rangeEnd;
+  const staleOperatingDate = hasDbActuals ? dbActuals2026.operatingLatestTxnDate : null;
 
   return (
     <div
@@ -356,7 +384,7 @@ export default async function ForecastPage() {
       <FinancialsTabs current="forecast" />
 
       <CoverSheet />
-      <StaleDataBanner latestDate={staleBannerDate} />
+      <StaleDataBanner latestDate={staleBannerDate} operatingLatestDate={staleOperatingDate} />
 
 
       <ForecastClient

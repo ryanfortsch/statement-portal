@@ -13,9 +13,15 @@
  *
  *   2. The 1099 contractor line must reproduce the observed bench cost in
  *      the window it was calibrated on: $8,288/mo across 2026-07-01 to
- *      2026-08-25 ($15,248 over 56 days), and hand the field work to the
- *      dated salary line from 2026-11-01 (one hire, on a date, never on a
- *      headcount).
+ *      2026-08-25 ($15,248 over 56 days) out of the operating account, plus
+ *      the two Lightshed listing shoots the card paid inside that window
+ *      ($830, $451/mo), and hand the field work to the dated salary line
+ *      from 2026-11-01 (one hire, on a date, never on a headcount).
+ *
+ *   2d. Outfitting is a one-time charge in a slider home's start month
+ *      (ONBOARDING_COST, 2026-10-15), never on a rolled-forward home, and a
+ *      card-only ACT month (operating export not yet uploaded) projects its
+ *      operating lines instead of reading them as $0.
  *
  *   3. The operating-account categorizer must route the bench to
  *      Contractors and must NOT book a bounced deposit as a bank fee. The
@@ -36,7 +42,10 @@ import {
 import {
   calcYear,
   payrollCost,
+  photoCost,
+  contractorCost,
   CONTRACTOR_CREATIVE_MONTHLY,
+  CONTRACTOR_PHOTO_MONTHLY,
   CONTRACTOR_FIELD_PROP_COUNT,
   CONTRACTOR_MISC_MONTHLY,
   ccOperatingDetail,
@@ -46,6 +55,11 @@ import {
   CC_TELECOM_MONTHLY,
   CC_MARKETING_POST_CUT_MONTHLY,
   CC_LISTING_ANNUAL,
+  CC_LISTING_MONTHS,
+  ONBOARDING_COST,
+  OFFICE_RENT_MONTHLY,
+  BANK_FEES_MONTHLY,
+  SEASON,
 } from '../src/lib/forecast-model.ts';
 import { CC_DETAIL_KEYS, routeCardRow, sumCardDetail } from '../src/lib/forecast-card-detail.ts';
 import { opensIn } from '../src/lib/forecast-operating-windows.ts';
@@ -101,13 +115,16 @@ for (const [year, rolled] of [[2026, 0], [2027, 3], [2028, 6]]) {
     }
     if (m.cc_detail.telecom !== CC_TELECOM_MONTHLY) fail(`${tag} telecom is ${m.cc_detail.telecom}`);
     if (year >= 2027 || m.month >= 6) {
-      const wantMkt = CC_MARKETING_POST_CUT_MONTHLY + (m.month === 8 ? CC_LISTING_ANNUAL : 0);
+      const wantMkt = CC_MARKETING_POST_CUT_MONTHLY + (CC_LISTING_MONTHS.includes(m.month) ? CC_LISTING_ANNUAL : 0);
       if (Math.abs(m.cc_detail.marketing - wantMkt) > 0.01) {
-        fail(`${tag} marketing is ${m.cc_detail.marketing}, expected ${wantMkt} (post-cut, Furnished Finder in August)`);
+        fail(`${tag} marketing is ${m.cc_detail.marketing}, expected ${wantMkt} (post-cut, Furnished Finder in August and September)`);
       }
     }
-    if (m.cc_detail.repairs <= 0 || m.cc_detail.repairs > m.cc_detail.supplies * 0.1) {
-      fail(`${tag} repairs ${m.cc_detail.repairs.toFixed(0)} against supplies ${m.cc_detail.supplies.toFixed(0)}: measured share is about 5%`);
+    // Measured at 9.1% of the variable spend on 2026 through September
+    // (repairs over supplies: about 10%). Was 5% against the
+    // outfitting-inflated supplies figure.
+    if (m.cc_detail.repairs <= 0 || m.cc_detail.repairs > m.cc_detail.supplies * 0.12) {
+      fail(`${tag} repairs ${m.cc_detail.repairs.toFixed(0)} against supplies ${m.cc_detail.supplies.toFixed(0)}: measured share is about 9%`);
     }
   }
 }
@@ -164,6 +181,11 @@ const ROUTE_CASES = [
   // The dumpster is projected on the Office line, so a measured month
   // carries it there too, not in Travel & other.
   ['Rent & office', 'REPUBLIC SERVICES TRASH', 'office'],
+  // The one contractor paid on the card rides the bench line it is
+  // projected on; the landscapers are work on a home.
+  ['Contractors', 'LIGHTSHED PHOTOGRAPHY', 'contractors'],
+  ['Repairs & upkeep', 'WOLF HILL LANDSCAPING &', 'repairs'],
+  ['Repairs & upkeep', 'IN *SP PROPERTIES', 'repairs'],
 ];
 for (const [category, description, want] of ROUTE_CASES) {
   const got = routeCardRow(category, description.toUpperCase());
@@ -189,7 +211,10 @@ for (const [raw, want] of [
 // numNew = 0: the bench was measured against the REAL fleet, so the slider's
 // hypothetical additions must not be in the denominator.
 const y26 = calcYear(0, 2026);
-const OBSERVED = 8288; // $15,248 over 56 days, 2026-07-01 .. 2026-08-25
+// $15,248 over 56 days out of the operating account, 2026-07-01 .. 2026-08-25,
+// plus the two Lightshed shoots the card paid inside the window (07-31 and
+// 08-10, $830): the photography line was added to the bench on 2026-10-15.
+const OBSERVED = 8288 + Math.round((830 / 56) * (365 / 12));
 // Asserted as the pair's mean, not per month: the calibration window spans a
 // fleet that went 15 properties in July to 17 in August, so the two months
 // legitimately differ while their average is what was measured.
@@ -211,7 +236,9 @@ for (const mo of [1, 2, 3, 4, 5, 6]) {
 // October, and the salary line starts in November, dated, never count-driven.
 for (const mo of [11, 12]) {
   const m = y26.monthly[mo - 1];
-  const benchOnly = CONTRACTOR_CREATIVE_MONTHLY * (m.active_count / CONTRACTOR_FIELD_PROP_COUNT) + CONTRACTOR_MISC_MONTHLY;
+  const benchOnly =
+    (CONTRACTOR_CREATIVE_MONTHLY + CONTRACTOR_PHOTO_MONTHLY) * (m.active_count / CONTRACTOR_FIELD_PROP_COUNT) +
+    CONTRACTOR_MISC_MONTHLY;
   if (Math.abs(m.exp_contractors - benchOnly) > 1e-6) fail(`2026-${mo} bench ${m.exp_contractors.toFixed(0)} still carries field labor; expected creative + misc ${benchOnly.toFixed(0)}`);
   if (Math.abs(m.exp_payroll - payrollCost(2026, mo)) > 1e-9 || m.exp_payroll <= 0) fail(`2026-${mo} salary line ${m.exp_payroll.toFixed(2)} is not payrollCost()`);
 }
@@ -225,15 +252,25 @@ if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow
 /* -- invariant 2b: people scale linearly, so an added home never loses --- */
 // The old count-triggered second hire made whichever home landed on 20 read
 // as a loss (six new in 2027 netted $8,625 LESS than five). With people on
-// the bench alone, each added home must add more revenue than cost.
+// the bench alone, each added home must add more revenue than cost over
+// its first two seasons. Two, not one: since 2026-10-15 a new home pays its
+// $2,150 outfitting up front, so a home started in November earns one
+// shoulder month against a full linen order and is a small, real loss in
+// that year. The step artifact this guards against would show up as a fall
+// across the pair; a late start paying for itself the next year does not.
 {
   const run = (n) => calcYear(n, 2027, undefined, undefined, undefined, undefined, 0, undefined, undefined, opensIn);
-  let prev = run(0);
+  const next = (n) => calcYear(0, 2028, undefined, undefined, undefined, undefined, n, undefined, undefined, opensIn);
+  let prev = run(0).totals.net_business + next(0).totals.net_business;
   for (let n = 1; n <= 8; n++) {
-    const cur = run(n);
-    if (cur.totals.net_business <= prev.totals.net_business) {
-      fail(`2027 net falls from ${Math.round(prev.totals.net_business)} to ${Math.round(cur.totals.net_business)} going from ${n - 1} to ${n} new homes`);
+    const cur = run(n).totals.net_business + next(n).totals.net_business;
+    if (cur <= prev) {
+      fail(`2027+2028 net falls from ${Math.round(prev)} to ${Math.round(cur)} going from ${n - 1} to ${n} new homes`);
     }
+    // Within the year the in-year loss on a late start is bounded by the
+    // outfitting charge: the home never costs more than its own linens.
+    const inYear = run(n).totals.net_business - run(n - 1).totals.net_business;
+    if (inYear < -ONBOARDING_COST) fail(`2027 in-year net falls by ${Math.round(-inYear)} on new home ${n}, more than the ${ONBOARDING_COST} outfitting charge`);
     prev = cur;
   }
   // From 2027 the people line is the flat salary plus the creative and misc
@@ -243,9 +280,55 @@ if (y26.monthly.some((m) => 'exp_hire' in m)) fail('exp_hire is back on MonthRow
   const full = run(0);
   for (const m of full.monthly) {
     if (Math.abs(m.exp_payroll - payrollCost(2027, m.month)) > 1e-9) fail(`2027-${m.month} salary line ${m.exp_payroll.toFixed(2)} is not payrollCost()`);
-    const benchCeiling = CONTRACTOR_CREATIVE_MONTHLY * (m.active_count / CONTRACTOR_FIELD_PROP_COUNT) + CONTRACTOR_MISC_MONTHLY;
-    if (m.exp_contractors > benchCeiling + 1e-6 || m.exp_contractors < CONTRACTOR_MISC_MONTHLY) fail(`2027-${m.month} bench ${m.exp_contractors.toFixed(0)} should be creative + misc only (field labor is on payroll); ceiling ${benchCeiling.toFixed(0)}`);
+    const benchCeiling =
+      (CONTRACTOR_CREATIVE_MONTHLY + CONTRACTOR_PHOTO_MONTHLY) * (m.active_count / CONTRACTOR_FIELD_PROP_COUNT) +
+      CONTRACTOR_MISC_MONTHLY;
+    if (m.exp_contractors > benchCeiling + 1e-6 || m.exp_contractors < CONTRACTOR_MISC_MONTHLY) fail(`2027-${m.month} bench ${m.exp_contractors.toFixed(0)} should be creative + photography + misc only (field labor is on payroll); ceiling ${benchCeiling.toFixed(0)}`);
   }
+}
+
+/* -- invariant 2d: outfitting is charged once, and a card-only month projects its operating lines -- */
+{
+  // One slider home in 2027 starts in March (NEW_ORDER_2027[0]): the charge
+  // lands there and nowhere else, and a home rolled forward from 2026 (the
+  // 2028 synthetics) carries none.
+  const one = calcYear(1, 2027, undefined, undefined, undefined, undefined, 0, undefined, undefined, opensIn);
+  for (const m of one.monthly) {
+    const want = m.month === 3 ? ONBOARDING_COST : 0;
+    if (m.exp_onboard_new !== want) fail(`2027-${m.month} onboarding ${m.exp_onboard_new}, expected ${want}`);
+  }
+  const rolled = calcYear(0, 2028, undefined, undefined, undefined, undefined, 3, undefined, undefined, opensIn);
+  if (rolled.monthly.some((m) => m.exp_onboard_new !== 0 || m.exp_onboard_presigned !== 0)) fail('a rolled-forward home must not be outfitted again');
+  if (ONBOARDING_COST <= 0) fail('ONBOARDING_COST must be a real charge since 2026-10-15');
+
+  // September 2026 as it first arrived: card detail to October 7, operating
+  // export to August 25. Rent, the operating bench, payroll and bank fees
+  // are the model's terms; the card's dumpster and Lightshed charges are
+  // added to them, not replaced by them.
+  const cardOnly = {
+    month: '2026-09', revenue: 40000,
+    exp_office: 471, exp_software: 2952, exp_debt: 0, exp_insurance: 0, exp_accounting: 0, exp_bank: 0,
+    exp_cc_ops: 5503, exp_contractors: 757, exp_payroll: 0, exp_onboard_presigned: 0, exp_onboard_new: 0,
+    cc_detail: { supplies: 2892, repairs: 1037, vehicle_insurance: 518.56, travel_other: 365.47, marketing: 577, telecom: 112.97 },
+    operating_covered: false,
+  };
+  const covered = { ...cardOnly, month: '2026-08', exp_office: 1221, exp_contractors: 11188, operating_covered: true };
+  const acts = [];
+  acts[7] = covered;
+  acts[8] = cardOnly;
+  const r = calcYear(0, 2026, acts, 9, undefined, undefined, 0, undefined, undefined, opensIn);
+  const aug = r.monthly[7];
+  const sep = r.monthly[8];
+  if (!aug.is_actual || aug.actual_card_only) fail('a covered ACT month must not be flagged card-only');
+  if (aug.exp_office !== 1221 || aug.exp_contractors !== 11188) fail('a covered ACT month must read its operating lines as given');
+  if (!sep.is_actual || !sep.actual_card_only) fail('a card-only ACT month must be flagged');
+  if (Math.abs(sep.exp_office - (471 + OFFICE_RENT_MONTHLY)) > 1e-6) fail(`card-only month office ${sep.exp_office}: expected the card's dumpster plus projected rent`);
+  const opCount = sep.active_count - 1; // 4 Brier Neck is offline from September
+  const wantBench = 757 + contractorCost(2026, 9, opCount, SEASON.CA[8]) - photoCost(2026, 9, opCount);
+  if (Math.abs(sep.exp_contractors - wantBench) > 1e-6) fail(`card-only month bench ${sep.exp_contractors.toFixed(2)}: expected Lightshed plus the projected operating bench ${wantBench.toFixed(2)}`);
+  if (sep.exp_payroll !== payrollCost(2026, 9) || sep.exp_bank !== BANK_FEES_MONTHLY || sep.exp_debt !== 0 || sep.exp_accounting !== 0) fail('card-only month must project payroll, bank fees, bookkeeper and accounting');
+  if (sep.exp_software !== 2952 || sep.exp_cc_ops !== 5503) fail('card-only month must keep the card lines as measured');
+  if (Math.abs(renderedTotal(sep) - sep.exp_total) > 0.01) fail('card-only ACT month rows do not foot to exp_total');
 }
 
 /* -- invariant 2c: the cost roster comes from the registry --------------- */
@@ -319,6 +402,11 @@ const CARD_CASES = [
   ['GUESTY', -1200.00, 'Software'],
   ['SEAM IOT API', -179.00, 'Software'],
   ['MIDJOURNEY INC.', -63.75, 'Software'],
+  // September 2026's new vendors: the photographer is a contractor, the
+  // landscapers are repairs, and neither is Other any more.
+  ['LIGHTSHED PHOTOGRAPHY', -415.00, 'Contractors'],
+  ['WOLF HILL LANDSCAPING &amp;', -302.76, 'Repairs & upkeep'],
+  ['IN *SP PROPERTIES', -367.00, 'Repairs & upkeep'],
 ];
 for (const [description, amount, want] of CARD_CASES) {
   const got = categorizeOverhead({ account: 'card', description, amount, chaseCategory: 'Professional Services' });
@@ -373,6 +461,6 @@ if (!has('2026-07', (r) => r.category === CARD_PROXY_CATEGORY)) fail('2026-07 lo
 if (!has('2026-07', (r) => r.category === 'Contractors')) fail('resolveCardSpendSource dropped a non-card row');
 
 console.log(failures === 0
-  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed $8,288/mo bench then hands the field work to the dated salary line in November 2026 (2027 net still rises with every added home), the cost roster comes from the registry (RT-owned off, activation month honored, a new home costs from day one), the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
+  ? 'PASS - expense rows foot to exp_total across 2026/2027/2028, every projected month itemises the card to the cent with vehicle insurance at the $519 run rate, a measured ACT month reads its own card categories and a proxied one falls back to the split, GEICO stays on the vehicle row while Arbella goes to Insurance, the contractor line reproduces the observed bench (operating account plus the card-paid photographer) then hands the field work to the dated salary line in November 2026 (2027+2028 net still rises with every added home, which now pays its outfitting up front), a card-only ACT month projects its operating lines instead of reading $0, the cost roster comes from the registry (RT-owned off, activation month honored, a new home costs from day one), the operating categorizer routes all 13 reference rows correctly, VRBO is a pass-through while Furnished Finder stays a real cost, and the card-payment proxy fills gap and partial-card months without ever double-counting complete card detail.'
   : `\n${failures} failure(s).`);
 process.exit(failures === 0 ? 0 : 1);

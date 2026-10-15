@@ -318,6 +318,14 @@ export type MonthlyActual = {
    * through a card payoff; the UI then falls back to a proportional split.
    */
   cc_detail?: CardDetail | null;
+  /**
+   * False when the operating-account (...5130) export has not reached this
+   * month at all: every figure above is then card-sourced, and calcYear
+   * projects the operating lines (rent, the bench, payroll, the bookkeeper,
+   * bank fees) instead of reading them as $0. Absent, as on the hardcoded
+   * rows, means the month is covered by both accounts.
+   */
+  operating_covered?: boolean;
 };
 
 export const ACTUALS_2026: MonthlyActual[] = [

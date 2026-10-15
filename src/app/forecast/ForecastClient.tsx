@@ -1039,18 +1039,18 @@ const sections2026: AssumptionSection[] = [
     items: [
       { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Closed months (ACT) carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at the run rate the closed statements of the home prove: its latest full month, or its whole record (first ramp month dropped once there are three), whichever is larger, once it has two closed months. Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table.' },
       { label: 'Prospects', value: 'The live /prospects pipeline. Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
-      { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. From 2027 they roll forward at the fleet average fee per earning home.' },
+      { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $2,150 outfitting charge in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
       { label: 'Operating windows', value: '4 Brier Neck ran June to August 2026 and is not renewed (notice given 2026-08-31). 73 Rocky Neck is off from November 2026 and 79 Main after 21 October 2026. 16 Waterman runs May to October every year. A closed month projects no revenue, and the card and the bench count only the homes operating that month.' },
     ],
   },
   {
     heading: 'Recurring monthly (projected months; ACT months show the bank)',
     items: [
-      { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through September 1. Variable: guest supplies and small repairs at $8,360 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%. Fixed: GEICO $519, AT&T $114, travel $175, admin $110, marketing $680 through May 2026 and $175 from June (the step-down is measured on the card, not assumed), and the $199 Furnished Finder renewal each August. The six Recurring rows are a fixed-ratio split of that card total, so no row equals its named constant.' },
-      { label: 'Software', value: '$2,300/mo flat in projected months, the 2026 year-to-date average of the corporate card software category (Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools). ACT months show the real card figure: $3,420 in July and $3,804 in August, on Anthropic API credits the operator ruled a one-off.' },
-      { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $193/mo for the Republic Services dumpster through November 2026. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
+      { label: 'Corporate card', value: 'Two parts, calibrated on 2026 card detail through October 7. Variable: guest supplies and small repairs at $4,070 per live home per year, on the Cape Ann turnover curve pulled one month earlier (a home is stocked before its guests arrive) and damped to 60%, with repairs at 9% of it. The rate was $8,360 until 2026-10-15, fitted with the summer outfitting orders left in; September, the first month after the onboarding wave, came in at a quarter of what that rate projected, so outfitting is now its own one-time charge (Onboarding, below) and the run rate is fitted without the linen orders. Fixed: GEICO $519, AT&T $114, travel $175, the rest of Other $185 (the van, card interest, the hiring run), marketing $680 through May 2026 and $225 from June (the step-down is measured on the card, not assumed), and two $199 Furnished Finder listings, one renewing in August and one in September. Projected months itemise the card by these terms; ACT months read the card\'s own categories.' },
+      { label: 'Software', value: '$2,700/mo flat in projected months, the September 2026 stack with no API usage in it: Guesty $1,323 (per listing, up from $973 in January), PriceLabs $246, the Claude seats, OpenAI, Seam, Quo, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure: $3,420 in July and $3,804 in August on Anthropic API credits the operator ruled a one-off, then $2,952 in September with that reload stream stopped. The nine-month 2026 mean is $2,598; the constant was $2,300 until 2026-10-15.' },
+      { label: 'Office', value: '$750/mo rent at 85 Eastern Ave from March 2026 when the lease began, plus $471/mo for the Republic Services dumpster through November 2026, the rate Republic has billed monthly since August. The dumpster was cancelled effective 2026-11-30 (notice sent 2026-10-05), so December is rent only.' },
       { label: 'Bank fees', value: '$10/mo. Real fee rows total $75 across 24 months; the old $100 figure counted bounced deposits, which are a wash, not a cost.' },
-      { label: 'Contractors', value: 'The 1099 bench, paid direct from the operating account. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Creative work (Cooper) $1,300/mo per 16 homes, scaled to the live fleet, from July 2026. Everyone else $250/mo blended. The whole bench ran $8,288/mo over July 1 to August 25, 2026.' },
+      { label: 'Contractors', value: 'The 1099 bench. Field labor (Delaney Jordan) at $33,700 a year per 16 homes, on Cape Ann seasonality and scaled to the live fleet, July to October 2026; from November it is her salary instead. Creative work (Cooper) $1,300/mo per 16 homes from July 2026 and listing photography (Lightshed, paid on the card) $1,000/mo per 16 homes from August 2026, both scaled to the live fleet. Everyone else $250/mo blended. The operating-account bench ran $8,288/mo over July 1 to August 25, 2026, plus two Lightshed shoots in the same window.' },
       { label: 'Operations manager', value: 'Delaney Jordan on W-2 from 2026-11-01 at $65,000 a year: about $6,226 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder pending the Wister quote, the $55 Gusto fee, the $50 phone allowance), flat. Mileage and summer overtime are not projected. The count-triggered hires in the old plan stay dropped (2026-09-06): this one is a date, not a threshold.' },
     ],
   },
@@ -1060,7 +1060,7 @@ const sections2026: AssumptionSection[] = [
       { label: 'Mar 2026', value: 'Phillips commercial insurance, $5,264 paid 03/02. One lump; $0 every other month.' },
       { label: 'Apr 2026', value: 'MS Consultants accounting, $4,443 paid 04/15. A one-off by operator ruling; $0 forward.' },
       { label: 'Bookkeeper', value: 'MH Partners $1,000/mo through April 2026 and a final $1,800 wrap-up in May. $0 after.' },
-      { label: 'Onboarding', value: 'No separate onboarding charge. Setup supplies already sit in the card line.' },
+      { label: 'Onboarding', value: '$2,150 per new home, once, in the month a slider home starts: the linen order (Fix Linens billed $23,719 across the eleven 2026 onboardings). Furnishings bought on Amazon and at HomeGoods for a new home cannot be told from restocks and stay in the card rate. Prospects carry no cost until they become a property. Whether an owner should fund outfitting instead is an open decision; this is what the card shows Rising Tide paying today.' },
     ],
   },
   {
@@ -1084,11 +1084,11 @@ const sections2027: AssumptionSection[] = [
   {
     heading: 'Recurring monthly',
     items: [
-      { label: 'Corporate card', value: 'Same two-part model as 2026: $8,360 per live home per year on the turnover curve, plus the fixed floor (GEICO $519, AT&T $114, travel $175, admin $110, marketing $175 at the post-cut level measured on the card, Furnished Finder $199 in August). Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. The six Recurring rows are a fixed-ratio split of the card total, so no row equals its named constant.' },
-      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed: none showed up in the 2026 card data, and July and August 2026 ran $3,420 and $3,804.' },
+      { label: 'Corporate card', value: 'Same two-part model as 2026: $4,070 per live home per year on the turnover curve (repairs 9% of it), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225 at the post-cut level measured on the card, Furnished Finder $199 in August and again in September). Scales with the homes operating each month: the fourteen, plus rollovers, plus new ones as they start. Outfitting is the separate Onboarding charge, not part of the rate.' },
+      { label: 'Software', value: '$2,700/mo flat, the September 2026 stack with no API usage in it, carried forward. No cuts are assumed: none has shown up in the card data yet, and Guesty bills per listing.' },
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
-      { label: 'Contractors', value: 'Creative $1,300/mo per 16 homes, scaled to the live count, plus $250/mo for everyone else. Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
+      { label: 'Contractors', value: 'Creative $1,300/mo and listing photography $1,000/mo, each per 16 homes and scaled to the live count, plus $250/mo for everyone else. Field labor is no longer on the bench: since November 2026 it is the operations manager\'s salary.' },
       { label: 'Operations manager', value: '$65,000 a year, about $6,226 a month all-in (salary, 9% payroll taxes, a 4% workers comp placeholder, the $55 Gusto fee, the $50 phone allowance), flat all year. The count-triggered hires were dropped 2026-09-06 because a step made whichever home landed on 20 read as a loss; this one is dated, and the bench still scales with the fleet.' },
     ],
   },
@@ -1096,6 +1096,7 @@ const sections2027: AssumptionSection[] = [
     heading: 'Periodic and wind-down',
     items: [
       { label: 'Mar 2027', value: 'Phillips insurance renewal, $5,264 lump, same as 2026. $0 every other month.' },
+      { label: 'Onboarding', value: '$2,150 per slider home in its start month (the linen order). Homes rolled forward from the 2026 slider were outfitted in 2026 and carry none.' },
       { label: 'Bookkeeper', value: '$0. The engagement ended May 2026.' },
       { label: 'Accounting', value: '$0. MS Consultants was a one-off.' },
     ],
@@ -1121,11 +1122,11 @@ const sections2028: AssumptionSection[] = [
   {
     heading: 'Recurring monthly',
     items: [
-      { label: 'Corporate card', value: 'Same two-part model: $8,360 per live home per year on the turnover curve, plus the fixed floor (GEICO $519, AT&T $114, travel $175, admin $110, marketing $175, Furnished Finder $199 in August). Scales with the homes operating each month. The six Recurring rows are a fixed-ratio split of the card total.' },
-      { label: 'Software', value: '$2,300/mo flat, carried forward from the 2026 year-to-date average of the corporate card software category. No cuts are assumed.' },
+      { label: 'Corporate card', value: 'Same two-part model: $4,070 per live home per year on the turnover curve (repairs 9% of it), plus the fixed floor (GEICO $519, AT&T $114, travel $175, the rest of Other $185, marketing $225, Furnished Finder $199 in August and September). Scales with the homes operating each month. Outfitting is the separate Onboarding charge.' },
+      { label: 'Software', value: '$2,700/mo flat, the September 2026 stack carried forward. No cuts are assumed.' },
       { label: 'Office', value: '$750/mo rent, full year. The Republic Services dumpster ended 2026-11-30 and is not projected.' },
       { label: 'Bank fees', value: '$10/mo.' },
-      { label: 'Contractors', value: 'Creative $1,300/mo per 16 homes, scaled to the live count, plus $250/mo for everyone else. Field labor is the operations manager\'s salary, not the bench.' },
+      { label: 'Contractors', value: 'Creative $1,300/mo and listing photography $1,000/mo, each per 16 homes and scaled to the live count, plus $250/mo for everyone else. Field labor is the operations manager\'s salary, not the bench.' },
       { label: 'Operations manager', value: '$65,000 a year, about $6,226 a month all-in, flat all year (dated hire 2026-11-01; no count-triggered hires, decided 2026-09-06).' },
     ],
   },
@@ -1133,6 +1134,7 @@ const sections2028: AssumptionSection[] = [
     heading: 'Periodic',
     items: [
       { label: 'Mar 2028', value: 'Phillips insurance renewal, $5,264 lump. $0 every other month.' },
+      { label: 'Onboarding', value: '$2,150 per slider home in its start month. Rolled-forward homes carry none.' },
       { label: 'Bookkeeper and accounting', value: '$0.' },
     ],
   },
@@ -1605,7 +1607,18 @@ function ForecastTable({
         <tr>
           <Th first>&nbsp;</Th>
           {MONTH_LABELS.map((m, i) => (
-            <Th key={m} actual={monthly[i]?.is_actual}>{m}</Th>
+            <Th
+              key={m}
+              actual={monthly[i]?.is_actual}
+              partial={monthly[i]?.actual_card_only}
+              title={
+                monthly[i]?.actual_card_only
+                  ? 'Card actual. The operating account export has not reached this month, so rent, the contractor bench, payroll, the bookkeeper and bank fees are the model\'s own terms for it. Upload the Chase ...5130 export on Cost Analysis to replace them.'
+                  : undefined
+              }
+            >
+              {m}
+            </Th>
           ))}
           <Th totals>FY</Th>
         </tr>
@@ -1616,7 +1629,7 @@ function ForecastTable({
         <DataRow label={presignedLabel} info={presignedInfo} values={monthly.map((r) => r.rev_presigned)} fy={totals.rev_presigned} />
         <DataRow
           label="New"
-          info="Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp. From the next year they roll into the Properties row at the fleet's projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth."
+          info="Hypothetical new contracts added via the slider above. $25K/yr on Cape Ann seasonality in their first season, which is a ramp, less the $2,150 outfitting charge on the Onboarding line in the month each starts. From the next year they roll into the Properties row at the fleet's projected average fee per earning home (never below $25K), so an added home is worth what the average home already run is worth."
           values={monthly.map((r) => r.rev_new)}
           fy={totals.rev_new}
           highlight
@@ -1647,13 +1660,13 @@ function ForecastTable({
         })}
         <DataRow
           label="Office"
-          info="$750/mo rent at 85 Eastern Ave plus $193/mo for the Republic Services dumpster through November 2026, the mean since service began: $165 a month April to June 2026, then $471 on 2026-08-14 with no July charge. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. ACT months read the landlord ACHs from the operating account plus any Republic Services charge on the card."
+          info="$750/mo rent at 85 Eastern Ave plus $471/mo for the Republic Services dumpster through November 2026: $165 a month April to June 2026, nothing in July, then $471 on 2026-08-14 and again on 2026-09-14, so $471 is the rate the last two months project. Lease started March 2026. The dumpster was cancelled effective 2026-11-30, so from December 2026 the line projects rent only. ACT months read the landlord ACHs from the operating account plus any Republic Services charge on the card."
           values={monthly.map((r) => r.exp_office)}
           fy={monthly.reduce((a, r) => a + r.exp_office, 0)}
         />
         <DataRow
           label="Software"
-          info="Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,420 Jul, $3,804 Aug 2026). Projected months carry a flat $2,300/mo, the 2026 year-to-date average. The subscription cuts an earlier version of this model assumed never showed up in the card data; Anthropic has been the fastest-growing line."
+          info="Software subscriptions on the corporate card: Guesty, Anthropic, PriceLabs, OpenAI, Seam, Quo, QuickBooks, Adobe, AirDNA, Squarespace, Vercel, Supabase and the smaller tools. ACT months show the real card figure ($2,740 Apr, $2,314 May, $1,272 Jun, $3,420 Jul, $3,804 Aug, $2,952 Sep 2026). Projected months carry a flat $2,700/mo, the September 2026 stack with no API usage in it; Guesty bills per listing and has grown from $973 to $1,323 this year. The subscription cuts an earlier version of this model assumed never showed up in the card data."
           values={monthly.map((r) => r.exp_software)}
           fy={monthly.reduce((a, r) => a + r.exp_software, 0)}
         />
@@ -1667,7 +1680,7 @@ function ForecastTable({
         <SubsectionRow label="People" />
         <DataRow
           label="Contractors"
-          info="The 1099 bench, paid straight out of Chase ...5130 by Zelle and the Chase payroll rail. Delaney Jordan's field labor ran per job from 2026-07-07, clustered on checkout days, so it rode the seasonality curve and scaled with the fleet; it ends in October 2026, when she joins payroll (the row below). Cooper's creative work is $1,300/mo per 16 homes from 2026-07-29, scaled to the live fleet. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The bench ran $8,288/mo across July and August 2026."
+          info="The 1099 bench. Delaney Jordan's field labor ran per job from 2026-07-07 out of Chase ...5130 by Zelle, clustered on checkout days, so it rode the seasonality curve and scaled with the fleet; it ends in October 2026, when she joins payroll (the row below). Cooper's creative work is $1,300/mo per 16 homes from 2026-07-29 on the Chase payroll rail, and Lightshed's listing photography $1,000/mo per 16 homes from August 2026 on the card, both scaled to the live fleet. Nicole Whitten, Ian Drometer and one-off trades blend to $250/mo. The operating-account bench ran $8,288/mo across July and August 2026. In an ACT* month (operating export not yet uploaded) this row is the model's term plus what the card paid."
           values={monthly.map((r) => r.exp_contractors)}
           fy={monthly.reduce((a, r) => a + r.exp_contractors, 0)}
         />
@@ -1679,6 +1692,12 @@ function ForecastTable({
         />
 
         <SubsectionRow label="Periodic & wind-down" />
+        <DataRow
+          label="Onboarding"
+          info="Outfitting a new home, charged once in the month a slider home starts: $2,150, the linen order. Fix Linens billed the card $23,719 across the eleven 2026 onboardings, $2,156 each, and the supplies left over once the per-home run rate is taken out say the same ($2,065 each). Furnishings bought on Amazon and at HomeGoods for a new home cannot be told from restocks, so they stay in the Guest supplies rate. The card shows what Rising Tide paid; whether an owner should fund outfitting instead is an open decision. ACT months carry it inside Guest supplies, where the card put it. It was $0 until 2026-10-15, which is why the summer read as a supplies run rate."
+          values={monthly.map((r) => r.exp_onboard_presigned + r.exp_onboard_new)}
+          fy={monthly.reduce((a, r) => a + r.exp_onboard_presigned + r.exp_onboard_new, 0)}
+        />
         <DataRow
           label="Bookkeeper"
           info="MH Partners outside bookkeeper. ~$1,000/mo Jan-Apr 2026, $1,800 final wrap-up payment in May, then $0 — engagement ends."
@@ -1713,12 +1732,15 @@ function Th({
   first,
   totals,
   actual,
+  partial,
   title,
 }: {
   children: React.ReactNode;
   first?: boolean;
   totals?: boolean;
   actual?: boolean;
+  /** An ACT month whose operating lines are projected (card export only). */
+  partial?: boolean;
   title?: string;
 }) {
   return (
@@ -1749,7 +1771,7 @@ function Th({
               color: 'var(--signal-soft)',
             }}
           >
-            ACT
+            {partial ? 'ACT*' : 'ACT'}
           </span>
         )}
       </div>

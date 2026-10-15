@@ -99,7 +99,13 @@ const VENDOR_RULES: Rule[] = [
   { category: 'Pass-through', matches: ['VRBO', 'HOMEAWAY', 'EXPEDIA'] },
   { category: 'Listing platforms', matches: ['FURNISHED FINDER', 'FURNISHEDFINDER'] },
   { category: 'Guest supplies', matches: ['AMAZON', 'AMZN', 'FIX LINENS', 'FIXLINENS', 'WALMART', 'TARGET', 'COSTCO', 'BED BATH', 'WAYFAIR', 'HOMEGOODS', 'IKEA', 'BJS', "BJ'S", 'CRATE&', 'CRATE &', 'CB2', 'POTTERY BARN', 'POTTERYBARN', 'WILLIAMS SONOMA', 'JOSSMAIN', 'JOSS & MAIN', 'WEBSTAURANT', 'AMENITIES', 'HOME DECOR GROUP', 'MARSHALLS'] },
-  { category: 'Repairs & upkeep', matches: ['HOME DEPOT', 'HOMEDEPOT', 'LOWES', "LOWE'S", 'ACE HARDWARE', 'HARDWARE', 'TRUE VALUE', 'SHERWIN', 'FERGUSON', 'ROCKY', 'GRAINGER', 'PAONE', 'DASH DRAINS', 'BUILDING CENTER', 'MECHANICAL', 'DROMETER', 'PLUMBING', 'ELECTRIC', 'WALLACEHOME', 'WALLACE HOME'] },
+  // Wolf Hill (the Gloucester garden center and landscaper) and SP Properties
+  // (grounds and handyman work, billed through an Intuit invoice as
+  // "IN *SP PROPERTIES") first appeared in September 2026. Both are work on
+  // a home, so they ride the Repairs row; until they were named they fell
+  // through to Other and the forecast's Travel & other row read $850 of
+  // yard work.
+  { category: 'Repairs & upkeep', matches: ['HOME DEPOT', 'HOMEDEPOT', 'LOWES', "LOWE'S", 'ACE HARDWARE', 'HARDWARE', 'TRUE VALUE', 'SHERWIN', 'FERGUSON', 'ROCKY', 'GRAINGER', 'PAONE', 'DASH DRAINS', 'BUILDING CENTER', 'MECHANICAL', 'DROMETER', 'PLUMBING', 'ELECTRIC', 'WALLACEHOME', 'WALLACE HOME', 'WOLF HILL', 'SP PROPERTIES'] },
   { category: 'Insurance', matches: ['PHILLIPS', 'INSURANCE', 'INSUR', 'GEICO', 'PROGRESSIVE', 'STATE FARM', 'LIBERTY MUT', 'TRAVELERS', 'HARTFORD'] },
   { category: 'Health benefits', matches: ['COMMONWEALTH HEA', 'BLUE CROSS', 'BLUECROSS', 'BCBS', 'HARVARD PILGRIM', 'TUFTS HEALTH', 'UNITEDHEALTH', 'AETNA', 'CIGNA'] },
   { category: 'Rent & office', matches: ['85EASTERN', 'EASTERN LANDLORD', 'EASTERNLANDLORD', 'LANDLORD', 'STAPLES', 'OFFICE DEPOT', 'DUMPSTER', 'WASTE MGMT', 'WASTE MANAGEMENT', 'REPUBLIC SERVICES'] },
@@ -112,7 +118,13 @@ const VENDOR_RULES: Rule[] = [
   // 'DELANEY' stays here for the Zelle history (field labor, 2026-07-07 to
   // 2026-10-31). From 2026-11-01 she is on payroll, and EMPLOYEE_PAYEES below
   // claims her name BEFORE this list runs, so a dated row never reaches it.
-  { category: 'Contractors', matches: ['DELANEY', 'COOPER', 'BASIC ONLINE PAYROLL', 'MAGGIE BUTLER', 'NICOLE WHITTEN', 'MARK BELL', 'OWEN BRILL', 'MORGAN DENHART', 'IAN DROMETER', 'LUKE WALLACE', 'SANDY MAID', 'ONYX INFRASTRUCTURE', 'TOMER', 'MORRIS HOME SERVICES'] },
+  //
+  // Lightshed Photography is the one contractor paid on the CARD: listing
+  // shoots at $342 to $415, five of them between 2026-07-31 and 2026-09-30.
+  // It is creative work like Cooper's and the forecast projects it on the
+  // Contractors line (CONTRACTOR_PHOTO_MONTHLY); as 'Other' it sat in
+  // Travel & other, which read $757 of photography in September 2026.
+  { category: 'Contractors', matches: ['DELANEY', 'COOPER', 'BASIC ONLINE PAYROLL', 'MAGGIE BUTLER', 'NICOLE WHITTEN', 'MARK BELL', 'OWEN BRILL', 'MORGAN DENHART', 'IAN DROMETER', 'LUKE WALLACE', 'SANDY MAID', 'ONYX INFRASTRUCTURE', 'TOMER', 'MORRIS HOME SERVICES', 'LIGHTSHED'] },
   // Gusto debits read "ORIG CO NAME:GUSTO ... CO ENTRY DESCR:NET|TAX|FEE". All
   // three are the payroll line: NET is the direct deposit, TAX the withheld
   // and employer taxes, FEE the platform subscription. ADP is word-bounded
@@ -413,6 +425,17 @@ const CANONICAL_VENDORS: { name: string; match: string[] }[] = [
   { name: 'Tailscale', match: ['TAILSCALE'] },
   { name: 'Resend', match: ['RESEND'] },
   { name: 'Pond5', match: ['POND5'] },
+  // Vendors that reached the card in the second half of 2026. Indeed and
+  // Checkr are the operations-manager hire (job ads billed monthly on the
+  // 2nd, one background check); Honda North and Wagners are the van.
+  { name: 'Lightshed Photography', match: ['LIGHTSHED'] },
+  { name: 'Wolf Hill Landscaping', match: ['WOLF HILL'] },
+  { name: 'SP Properties', match: ['SP PROPERTIES'] },
+  { name: 'Wagners Detailing', match: ['WAGNERS DETAILING'] },
+  { name: 'Indeed (job ads)', match: ['INDEED'] },
+  { name: 'Checkr (background checks)', match: ['CHECKR'] },
+  { name: 'Wayfair', match: ['WAYFAIR'] },
+  { name: 'Honda North', match: ['HONDA NORTH'] },
 ];
 
 function titleCase(s: string): string {
