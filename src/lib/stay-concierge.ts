@@ -1450,6 +1450,23 @@ export async function coachApproval(id: string, feedback: string) {
   });
 }
 
+/**
+ * A 409 means one of two things, and the queue must treat them differently.
+ *
+ * `already_<status>` is the card moving on under the operator (coaching
+ * superseded it, another tab sent it): refresh to the latest version.
+ *
+ * Anything else is the service REFUSING the action on a card that is still
+ * pending: the review guard ("Review message blocked: ..."), a channel
+ * violation. Treated as stale, the queue refreshed, the card came back
+ * unchanged, and the button read "Sending" forever with no reason shown
+ * (Jane / 19 Rackliffe review request, 2026-10-15: two refused approves,
+ * five minutes of spinner).
+ */
+export function isStaleConflict(error: StayConciergeError): boolean {
+  return error.kind === 'http' && error.status === 409 && error.detail.startsWith('already_');
+}
+
 export function explainError(error: StayConciergeError): string {
   if (error.kind === 'unconfigured') {
     return 'Stay Concierge service is not configured. Set STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY in the environment.';
@@ -1458,7 +1475,10 @@ export function explainError(error: StayConciergeError): string {
     return 'Messaging service is unreachable (it may be restarting). Try again in a moment.';
   if (error.status === 401) return 'Stay Concierge rejected the dashboard key.';
   if (error.status === 404) return 'That approval no longer exists.';
-  if (error.status === 409) return `That approval is no longer pending (${error.detail}).`;
+  if (error.status === 409) {
+    if (isStaleConflict(error)) return `That approval is no longer pending (${error.detail}).`;
+    return `Not sent: ${error.detail}`;
+  }
   if (error.status === 400 && error.detail === 'send_at_too_far') {
     return 'That date is too far out. Pick one within the next 30 days.';
   }
