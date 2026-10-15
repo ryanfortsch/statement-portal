@@ -31,6 +31,7 @@ import {
   CONTRACTOR_CREATIVE_MONTHLY,
   CONTRACTOR_FIELD_PROP_COUNT,
   CONTRACTOR_MISC_MONTHLY,
+  CONTRACTOR_PHOTO_MONTHLY,
   PAYROLL_PLATFORM_MONTHLY,
   PHONE_ALLOWANCE_MONTHLY,
   SALARY_ANNUAL,
@@ -133,7 +134,9 @@ describe('the forecast carries the salary on its own line', () => {
 
   test('the per-job field line ends the month she joins payroll; creative and misc carry on', () => {
     const fleet = CONTRACTOR_FIELD_PROP_COUNT;
-    const benchOnly = CONTRACTOR_CREATIVE_MONTHLY + CONTRACTOR_MISC_MONTHLY;
+    // Creative, the card-paid photographer (on the bench since 2026-10-15)
+    // and the misc blend: everything but the field line.
+    const benchOnly = CONTRACTOR_CREATIVE_MONTHLY + CONTRACTOR_PHOTO_MONTHLY + CONTRACTOR_MISC_MONTHLY;
     // October 2026 still pays field labor on the seasonality curve.
     assert.ok(contractorCost(2026, 10, fleet, SEASON.CA[9]) > benchOnly);
     // November does not, in any year after.

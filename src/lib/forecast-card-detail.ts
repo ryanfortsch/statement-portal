@@ -15,14 +15,17 @@
  * solely through the operating account's card payoff, which has no
  * category detail to offer.
  *
- * Three card categories never reach these buckets. Software has its own row
+ * Four card categories never reach these buckets. Software has its own row
  * (#1459), a non-vehicle insurance premium on the card is a one-time hit
  * that belongs on the Insurance line beside Phillips, not in the monthly
- * run rate, and Republic Services (the office dumpster, filed as Rent &
- * office) rides the Office line beside the rent. The projection carries the
- * dumpster through November 2026 (service ends 2026-11-30); the route is
- * not dated, so the final invoice and any later Republic charge still land
- * on the Office line and an ACT month reads what the card paid.
+ * run rate, Republic Services (the office dumpster, filed as Rent &
+ * office) rides the Office line beside the rent, and a contractor paid on
+ * the card (Lightshed Photography, the listing shoots) rides the
+ * Contractors line with the rest of the bench, where the projection carries
+ * it. The projection carries the dumpster through November 2026 (service
+ * ends 2026-11-30); the route is not dated, so the final invoice and any
+ * later Republic charge still land on the Office line and an ACT month
+ * reads what the card paid.
  *
  * Deliberately dependency-free so `scripts/forecast_rerack_check.mjs` can
  * import it on its own.
@@ -106,7 +109,7 @@ export function isTelecom(descUpper: string): boolean {
  * Where a card-shaped overhead row lands: its own row (software, a one-time
  * insurance premium) or one of the six Recurring buckets.
  */
-export type CardRoute = 'software' | 'insurance' | 'office' | CardDetailKey;
+export type CardRoute = 'software' | 'insurance' | 'office' | 'contractors' | CardDetailKey;
 
 export function routeCardRow(category: string, descUpper: string): CardRoute {
   switch (category) {
@@ -114,6 +117,13 @@ export function routeCardRow(category: string, descUpper: string): CardRoute {
       return 'software';
     case 'Insurance':
       return isVehicleInsurance(descUpper) ? 'vehicle_insurance' : 'insurance';
+    case 'Contractors':
+      // Lightshed Photography: listing shoots paid on the card, the one
+      // contractor that does not come out of the operating account. The
+      // bench line projects it (CONTRACTOR_PHOTO_MONTHLY), so an ACT month
+      // carries it there too. Until 2026-10-15 it was filed as Other and
+      // read as Travel & other.
+      return 'contractors';
     case 'Rent & office':
       // Republic Services, the office dumpster, bills the card. The Office
       // line projects it (DUMPSTER_MONTHLY beside the rent) through November

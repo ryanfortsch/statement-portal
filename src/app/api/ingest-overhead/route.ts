@@ -233,7 +233,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // file -- e.g. a charge that now categorizes to "dropped" because its
       // vendor was newly flagged personal. Without this, re-ingest can only
       // re-label rows, never remove them, so the totals would stay inflated.
-      const stale = preExisting.filter(k => !currentKeys.has(k));
+      //
+      // The file's FIRST day is left alone. An export can begin part way
+      // through a day (the 2026-10-08 card export opened on July 31 with
+      // three of that day's four charges), and a boundary-day row the file
+      // happens not to carry is a real charge, not a stale one. The
+      // dedupe_key carries the txn_date as its second segment.
+      const stale = preExisting.filter(k => !currentKeys.has(k) && k.split('|')[1] !== minDate);
       for (let i = 0; i < stale.length; i += 100) {
         const slice = stale.slice(i, i + 100);
         const { error: delErr } = await supabase.from('overhead_expenses').delete().in('dedupe_key', slice);

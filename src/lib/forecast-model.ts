@@ -186,13 +186,29 @@ export const SEASON: Record<SeasonType, number[]> = {
 };
 
 /**
- * Onboarding cost per contract. Set to $0: the supplies and inventory
- * bought to set up a new unit are already captured in the Guest supplies
- * & inventory line — that trailing-12-month figure includes onboarding
- * purchases, and the extrapolation carries them forward. Charging a
- * separate per-contract amount would double-count.
+ * Outfitting a new home, charged once in the month a slider home starts.
+ *
+ * $2,150 is the linen order. Fix Linens billed the card $23,719 across the
+ * eleven 2026 onboardings (January to September, $2,156 each), and the same
+ * figure falls out the other way: supplies net of the per-home run rate
+ * fitted below (CC_SUPPLY_ANNUAL_PER_PROP) leave $22,719 unexplained over
+ * the same months, $2,065 per onboarding. Furnishings and kitchen kit bought
+ * on Amazon and at HomeGoods for a new home cannot be told from a restock
+ * on the card, so they stay inside the per-home rate, which is therefore a
+ * little high as a pure consumables figure. The card only shows what
+ * Rising Tide paid; whether an owner should fund outfitting instead is an
+ * open policy decision (card review, 2026-09-02), and until it changes this
+ * is the cost the company actually carries.
+ *
+ * It was $0 until 2026-10-15, on the argument that the trailing per-home
+ * supplies figure already included onboarding purchases. It did, which is
+ * exactly why that figure was double the run rate: the first clean month
+ * after the summer onboarding wave (September 2026, $181 per home) came in
+ * at a quarter of what the smeared rate projected. Prospects from the
+ * pipeline carry no onboarding charge until they become a property, as
+ * they carry no other cost either.
  */
-export const ONBOARDING_COST = 0;
+export const ONBOARDING_COST = 2150;
 
 /* --------------------------------------------------------------------- */
 /* Recurring monthly expenses, calibrated to Chase ...5130 actuals       */
@@ -207,12 +223,13 @@ export const OFFICE_RENT_MONTHLY = 750;
  * opened. Then $165 on 04-30, 05-27 and 06-14, no July charge, and $471 on
  * 2026-08-14: $966 over the five months since service began, $193/mo.
  *
- * The August charge does not say what it covers. Read as July and August
- * together it is a raised rate of about $235; read as a quarter it is $157.
- * The mean since service began is the figure carried for the months the
- * service still runs. It was $50 flat until 2026-09-06, a number no bank row
- * had ever shown, while the real charges read as Travel & other because a
- * card row filed under Rent & office had no route to the Office line.
+ * September settled what the August charge meant: Republic billed $471
+ * again on 2026-09-14, a month to the day after the first one, so $471 is
+ * the monthly rate for the service as it now stands and that is what the
+ * two remaining months project. It was $193 (the mean since service began)
+ * from 2026-09-06 to 2026-10-15, and $50 flat before that, a number no bank
+ * row had ever shown, while the real charges read as Travel & other because
+ * a card row filed under Rent & office had no route to the Office line.
  * routeCardRow sends them here now, so ACT months and projected months
  * describe the same shape.
  *
@@ -224,7 +241,7 @@ export const OFFICE_RENT_MONTHLY = 750;
  * after, still files under Rent & office and rides the Office line, so an
  * ACT month reads what the card actually paid.
  */
-export const DUMPSTER_MONTHLY = 193;
+export const DUMPSTER_MONTHLY = 471;
 /** The last month the dumpster is projected: service ends 2026-11-30. */
 export const DUMPSTER_LAST_YEAR = 2026;
 export const DUMPSTER_LAST_MONTH = 11;
@@ -257,15 +274,26 @@ export const OFFICE_START_MONTH = 3;
  *
  *   Jun 2026  $1,272     Jul 2026  $3,420     Aug 2026  $3,804
  *
- * July and August ran above this constant on Anthropic API credits alone:
- * $1,081 and $1,589 of prepaid reloads for the guest-messaging responder,
- * against under $300 in any earlier month. The operator ruled those two
- * months a one-off on 2026-09-02, so the constant is NOT raised. The steady
- * stack without API usage (Guesty about $1,200 and drifting up per listing,
- * PriceLabs $220, Claude seats $234, everything else about $550) comes to
- * roughly $2,200, which this figure already covers.
+ * July and August ran above the old $2,300 constant on Anthropic API credits
+ * alone: $1,081 and $1,589 of prepaid reloads for the guest-messaging
+ * responder, against under $300 in any earlier month. The operator ruled
+ * those two months a one-off on 2026-09-02 and the constant was held, on
+ * the condition that it be reopened if the reloads reached a third month.
+ *
+ * September 2026 (card detail to 2026-10-07) settled it at $2,952. The $11
+ * reload stream did stop on August 25 and both Claude Pro seats are gone,
+ * but the stack itself moved up: Guesty $1,323 (it was $973 in January and
+ * bills per listing), PriceLabs $246, one Claude Max seat at $212.50 plus
+ * five Anthropic charges of $95.63 to $106.25 that read as smaller seats or
+ * $90 to $100 reloads, OpenAI $120 (ChatGPT went from $21 to $99, then
+ * $148 on 2026-10-02), Seam $120, Quo $77, Adobe $69 on two plans, AirDNA
+ * $68, and a second Zoom plan at $18 beside the annual one. The stack with
+ * no usage at all is about $2,700, and that is the constant: the nine-month
+ * 2026 mean is $2,598 and the Guesty line alone grows with every listing.
+ * The way back down is the cancel list in the card review, not a lower
+ * constant.
  */
-export const SOFTWARE_MONTHLY = 2300;
+export const SOFTWARE_MONTHLY = 2700;
 
 export function softwareCost(_year: number, _month: number): number {
   return SOFTWARE_MONTHLY;
@@ -341,24 +369,40 @@ export const BANK_FEES_MONTHLY = 10;
  * is consumables bought per property per turnover and the rest is
  * subscriptions that never move.
  *
- * VARIABLE: guest supplies and small repairs. Amazon, Fix Linens, Target,
- * hardware. Per live property per month in 2026:
+ * VARIABLE: guest supplies and small repairs. Amazon, Target, HomeGoods,
+ * hardware, and the restock part of the Fix Linens orders. Per live property
+ * per month in 2026, with the Fix Linens outfitting orders taken out (they
+ * are the onboarding charge, ONBOARDING_COST above):
  *
- *     Feb $236   Apr $872   May $858   Jun $1,492   Jul $1,009   Aug $729
+ *     Jan $207  Feb $225  Mar $0    Apr $637  May $268
+ *     Jun $742  Jul $609  Aug $452  Sep $181
  *
  * Least-squares against the Cape Ann curve pulled one month earlier and damped
- * to 60% amplitude gives $8,360 per property per year at R2 0.593. The
- * one-month lead is not a fitting trick: a house is stocked the month BEFORE
- * its guests arrive. The damping is, and it is there because six data points
- * from a year in which the fleet went from six properties to seventeen cannot
- * carry the full amplitude of a curve fitted to something else.
+ * to 60% amplitude gives $4,070 per property per year (R2 0.43; the
+ * all-in series fits $6,927 and the four months with no onboarding at all
+ * fit $2,213). The one-month lead is not a fitting trick: a house is stocked
+ * the month BEFORE its guests arrive. The damping is, and it is there because
+ * nine data points from a year in which the fleet went from six properties
+ * to seventeen cannot carry the full amplitude of a curve fitted to
+ * something else.
+ *
+ * RERACKED 2026-10-15. The figure was $8,360 from 2026-09-02, fitted to
+ * February through August with the linen orders left in. September 2026,
+ * the first month after the summer onboarding wave, came in at $2,892 for
+ * sixteen homes against the $11,900 that rate projected: the summer was
+ * eleven outfittings, not a run rate. The whole of 2025 spent $35,939 on
+ * supplies for the fleet of the time, which the old rate would have put at
+ * $50,000 for six homes. The remaining softness runs the other way: Amazon
+ * and HomeGoods orders for a new home cannot be told from restocks, so the
+ * recurring rate still carries some outfitting and reads high as a pure
+ * consumables figure (the off-season months say about $2,200).
  *
  * Two shapes fit better on paper and were rejected. The revenue curve at a
- * one-month lead reaches R2 0.701 but puts September above August, an artifact
- * of Gloucester's own September/October inversion. The raw occupancy curve is
- * physically tidier and fits worse, at R2 0.157.
+ * one-month lead puts September above August, an artifact of Gloucester's
+ * own September/October inversion. The raw occupancy curve is physically
+ * tidier and fits worse.
  */
-export const CC_SUPPLY_ANNUAL_PER_PROP = 8360;
+export const CC_SUPPLY_ANNUAL_PER_PROP = 4070;
 
 /** Cape Ann turnovers, pulled one month earlier and damped to 60%. */
 const CC_SUPPLY_RAW = SEASON.CA.map((_, i) => 0.6 * SEASON.CA[(i + 1) % 12] + 0.4 / 12);
@@ -374,27 +418,45 @@ export const CC_TELECOM_MONTHLY = 114;
  * understates the line three-fold.
  */
 export const CC_TRAVEL_MONTHLY = 175;
-/** The residual Other bucket once the identifiable lines are pulled out. */
-export const CC_ADMIN_MONTHLY = 110;
 /**
- * Furnished Finder, once a year. VRBO is deliberately NOT here: it is a
- * channel commission already netted out of rental revenue, categorised
- * 'Pass-through', and counted in no expense total.
+ * The residual Other bucket once the identifiable lines are pulled out:
+ * the van (Honda North service, Wagners detailing, the car wash), the
+ * card's own interest charges, the hiring run (Indeed job ads billed on the
+ * 2nd of each month, one Checkr background check) and the odd one-off.
+ * Measured on the 2026 card with Lightshed moved to the Contractors line
+ * and the landscapers to Repairs: $380, $668, $0, $50, $352, $212, $364,
+ * $610, $578 for January to September, $357 a month, which with the $175
+ * travel figure is what this line carries. It was $110 until 2026-10-15.
+ */
+export const CC_ADMIN_MONTHLY = 185;
+/**
+ * Furnished Finder, $199 a year per listing. Two listings now: the card
+ * carried one on 2026-08-11 and a second on 2026-09-30, so the projection
+ * renews one in August and one in September. VRBO is deliberately NOT here:
+ * it is a channel commission already netted out of rental revenue,
+ * categorised 'Pass-through', and counted in no expense total.
  */
 export const CC_LISTING_ANNUAL = 199;
-export const CC_LISTING_MONTH = 8;
+export const CC_LISTING_MONTHS: readonly number[] = [8, 9];
+
+/** The Furnished Finder renewals that land in a month. */
+export function listingCost(month: number): number {
+  return CC_LISTING_MONTHS.includes(month) ? CC_LISTING_ANNUAL : 0;
+}
 
 /**
  * Marketing, and the cut that really did happen.
  *
- * $173 / $526 / $1,111 / $757 / $832 for January to May, then $333, $33, $164
- * for June, July and August. The model originally claimed this cut and #1382
+ * $173 / $526 / $1,111 / $757 / $832 for January to May, then $333, $33, $164,
+ * $378 for June to September. The model originally claimed this cut and #1382
  * removed it as unverifiable, because card detail stopped on 2026-06-06. The
  * statement now covers those months and the cut is plainly there. It is a step
- * down to roughly $175, not the drop to zero the first version assumed.
+ * down to roughly $225 (the June to September mean, a $10-a-day Meta campaign
+ * plus Seaside Graphics print and the Eagle Tribune), not the drop to zero
+ * the first version assumed. It was carried at $175 until 2026-10-15.
  */
 export const CC_MARKETING_MONTHLY = 680;
-export const CC_MARKETING_POST_CUT_MONTHLY = 175;
+export const CC_MARKETING_POST_CUT_MONTHLY = 225;
 export const CC_MARKETING_CUT_MONTH = 6;
 
 export function marketingCost(year: number, month: number): number {
@@ -409,14 +471,16 @@ export const CC_FIXED_MONTHLY =
   CC_VEHICLE_INSURANCE_MONTHLY + CC_TELECOM_MONTHLY + CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY;
 
 /**
- * Of the per-property variable spend, the slice that is hardware, plumbing
- * and propane rather than linens and consumables. Measured on the 2026 card
- * and operating rows through August: $3,142 of Repairs & upkeep against
- * $58,298 of Guest supplies, 5.1%. An earlier itemisation put this at 20%,
- * which is how the Repairs row came to claim $1,660 a month the card never
- * showed.
+ * Of the per-property variable spend, the slice that is hardware, plumbing,
+ * propane and yard work rather than linens and consumables. Measured on the
+ * 2026 card through September, with Wolf Hill and SP Properties filed as
+ * repairs: $3,813 of Repairs & upkeep against $38,177 of recurring supplies
+ * (the per-home rate times the fleet, outfitting excluded), 9.1% of the
+ * variable spend. It read 5% against the outfitting-inflated supplies
+ * figure until 2026-10-15; an earlier itemisation put it at 20%, which is
+ * how the Repairs row came to claim $1,660 a month the card never showed.
  */
-export const CC_REPAIRS_SHARE = 0.05;
+export const CC_REPAIRS_SHARE = 0.09;
 
 /**
  * The card for one month, itemised the same way the ACT months are.
@@ -432,7 +496,8 @@ export const CC_REPAIRS_SHARE = 0.05;
  * term is fully elastic by construction and the fixed term is not elastic
  * at all, so the blended figure falls out of the mix instead of being
  * asserted. Same shape as contractorCost, which already rides a curve and
- * scales with the fleet.
+ * scales with the fleet. Outfitting a new home is NOT in here: it is the
+ * one-time ONBOARDING_COST in the month a slider home starts.
  */
 export function ccOperatingDetail(
   activePropCount: number,
@@ -446,7 +511,7 @@ export function ccOperatingDetail(
     repairs: variable * CC_REPAIRS_SHARE,
     vehicle_insurance: CC_VEHICLE_INSURANCE_MONTHLY,
     travel_other: CC_TRAVEL_MONTHLY + CC_ADMIN_MONTHLY,
-    marketing: marketingCost(year, month) + (month === CC_LISTING_MONTH ? CC_LISTING_ANNUAL : 0),
+    marketing: marketingCost(year, month) + listingCost(month),
     telecom: CC_TELECOM_MONTHLY,
   };
 }
@@ -484,14 +549,14 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
   {
     key: 'supplies',
     label: 'Guest supplies & inventory',
-    monthly: 7940,
-    info: 'Amazon, Fix Linens, Target, HomeGoods. The dominant card line and the seasonal one: $236 per property in February against $1,492 in June. Bought the month before the guests arrive, which is why it leads the turnover curve. ACT months show the real card figure.',
+    monthly: 5500,
+    info: 'Amazon, Target, HomeGoods, Wayfair and the restock part of Fix Linens. The dominant card line and the seasonal one: $207 per home in January against $742 in June 2026, outfitting excluded. Projected at $4,070 per live home per year on the turnover curve pulled a month early, because a house is stocked before its guests arrive. The summer 2026 peak ($16,925 in June) was eleven outfittings, which the Onboarding line now carries separately; September, the first clean month after the wave, read $2,892 for sixteen homes. ACT months show the real card figure.',
   },
   {
     key: 'repairs',
     label: 'Repairs & upkeep',
-    monthly: 420,
-    info: 'Hardware stores, plumbing, propane and small contractor charges on the card. About 5% of the variable card spend, measured on 2026: $3,142 against $58,298 of supplies through August. Rides the same per-property seasonal curve as supplies.',
+    monthly: 540,
+    info: 'Hardware stores, plumbing, propane, yard work (Wolf Hill, SP Properties) and small contractor charges on the card. About 9% of the variable card spend, measured on 2026 through September: $3,813 against $38,177 of recurring supplies. Rides the same per-property seasonal curve as supplies.',
   },
   {
     key: 'vehicle_insurance',
@@ -502,14 +567,14 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
   {
     key: 'travel_other',
     label: 'Travel & other',
-    monthly: 285,
-    info: 'Flights, car rental, fuel, meals, the card\'s own interest charges, and the small remainder the categorizer could not name. Projected at $285/mo, averaged across the whole card record rather than 2026 alone, because one month (November 2025, $3,600) carries most of a year.',
+    monthly: 360,
+    info: 'Flights, car rental, rideshares, the van (service, detailing), the card\'s own interest charges, the hiring run (Indeed, Checkr) and the small remainder the categorizer could not name. Projected at $360/mo: $175 of travel averaged across the whole card record, because one month (November 2025, $3,600) carries most of a year, plus $185 of the rest, the 2026 mean through September once photography moved to Contractors and yard work to Repairs.',
   },
   {
     key: 'marketing',
     label: 'Marketing & advertising',
-    monthly: 175,
-    info: 'Facebook and Meta, plus occasional print, plus the $199 Furnished Finder listing each August. Ran $680/mo through May, then stepped down to roughly $175 from June. The cut is real and measured, not assumed.',
+    monthly: 225,
+    info: 'Facebook and Meta, plus Seaside Graphics print and the Eagle Tribune, plus the $199 Furnished Finder listings (one renews in August, a second in September). Ran $680/mo through May 2026, then stepped down to roughly $225 from June ($333, $33, $164, $378 for June to September). The cut is real and measured, not assumed.',
   },
   {
     key: 'telecom',
@@ -567,6 +632,26 @@ export const CONTRACTOR_CREATIVE_MONTHLY = 1300;
 export const CONTRACTOR_CREATIVE_START_MONTH_2026 = 7;
 
 /**
+ * Listing photography (Lightshed Photography), the one contractor paid on
+ * the card rather than out of the operating account. Five shoots at $342 to
+ * $415 between 2026-07-31 and 2026-09-30, $2,002 over August and September:
+ * $1,000/mo at the 16-home calibration fleet, scaled to the live count like
+ * the creative line, from August 2026. It was filed as Other and sat in the
+ * card's Travel & other row until 2026-10-15. The operating-account bench
+ * calibration below ($8,288/mo) was measured without it, so the harness
+ * adds the two shoots inside that window back in when it checks the sum.
+ */
+export const CONTRACTOR_PHOTO_MONTHLY = 1000;
+export const CONTRACTOR_PHOTO_START_MONTH_2026 = 8;
+
+/** The photography part of the bench for a month: the card-paid contractor. */
+export function photoCost(year: number, month: number, activeCount: number): number {
+  const start = year === 2026 ? CONTRACTOR_PHOTO_START_MONTH_2026 : 1;
+  if (month < start) return 0;
+  return CONTRACTOR_PHOTO_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT);
+}
+
+/**
  * Everyone else on the 1099 bench, Nicole Whitten, Ian Drometer, handymen,
  * one-off trades. Lumpy but persistent across the whole 24-month file:
  * ~$250/mo blended. Nicole alone took $2,400 on 2026-08-11, so single
@@ -604,7 +689,7 @@ export function contractorCost(
       ? CONTRACTOR_CREATIVE_MONTHLY * (activeCount / CONTRACTOR_FIELD_PROP_COUNT)
       : 0;
   const misc = CONTRACTOR_MISC_MONTHLY;
-  return field + creative + misc;
+  return field + creative + misc + photoCost(year, month, activeCount);
 }
 
 /* --------------------------------------------------------------------- */
@@ -680,13 +765,18 @@ export function dumpsterCost(year: number, month: number): number {
   return hasDumpster(year, month) ? DUMPSTER_MONTHLY : 0;
 }
 
+/** Rent alone for a month: the operating-account half of the Office line. */
+export function rentCost(month: number, startMonth: number): number {
+  return month < startMonth ? 0 : OFFICE_RENT_MONTHLY;
+}
+
 /**
  * Office cost for a month: rent from the lease start, plus the dumpster
  * while Republic Services is still under contract (through 2026-11).
  */
 export function officeCost(year: number, month: number, startMonth: number): number {
   if (month < startMonth) return 0;
-  return OFFICE_RENT_MONTHLY + dumpsterCost(year, month);
+  return rentCost(month, startMonth) + dumpsterCost(year, month);
 }
 
 /**
@@ -855,6 +945,14 @@ export type MonthRow = {
    * month with a complete record) rather than the model's projection.
    */
   is_actual: boolean;
+  /**
+   * True for an ACT month the operating-account export has not reached:
+   * the card lines are measured and the operating lines (rent, the bench,
+   * payroll, the bookkeeper, bank fees) are the model's own terms for the
+   * month. The table badges such a column so a reader knows which half is
+   * the bank.
+   */
+  actual_card_only: boolean;
 
   /** Count of properties active and producing this month. */
   active_count: number;
@@ -893,6 +991,8 @@ export type ActualsByMonth = ReadonlyArray<{
   exp_onboard_new: number;
   /** Card itemisation; absent or null when the month has no category detail. */
   cc_detail?: CardDetail | null;
+  /** False when the operating export has not reached the month; see forecast-actuals.ts. */
+  operating_covered?: boolean;
 }>;
 
 /**
@@ -977,18 +1077,6 @@ export function calcYear(
     // ─── Past month: use bank-derived actuals ──────────────────────────
     if (m <= useActualsThrough && actuals && actuals[m - 1]) {
       const a = actuals[m - 1];
-      const exp_total =
-        a.exp_office +
-        a.exp_software +
-        a.exp_debt +
-        a.exp_insurance +
-        a.exp_accounting +
-        a.exp_bank +
-        a.exp_cc_ops +
-        a.exp_contractors +
-        a.exp_payroll +
-        a.exp_onboard_presigned +
-        a.exp_onboard_new;
       // Active count for actuals month: derived from config so it matches
       // the rest of the table; useful for diagnostics even when expense
       // values are frozen from the bank.
@@ -996,27 +1084,69 @@ export function calcYear(
       for (const p of config.current) if (m >= p.start) activeForActual += 1;
       for (const p of config.presigned) if (m >= p.start) activeForActual += 1;
 
+      // A month the operating-account export has not reached carries only
+      // what the card paid. Reading its rent, bench and payroll as $0 would
+      // make the month look better than any real month could, so those
+      // lines take the model's own terms for the month, exactly as a
+      // forward month would, on the homes operating in it. Every measured
+      // figure on such a month is card-sourced (that is what uncovered
+      // means), so the card's dumpster, Arbella and Lightshed charges are
+      // added to the projected rent, Phillips and operating bench rather
+      // than replacing them.
+      const cardOnly = a.operating_covered === false;
+      let opCount = activeForActual;
+      if (cardOnly && openIn) {
+        for (const p of config.current) {
+          if (m >= p.start && p.id && !openIn(p.id, year, m)) opCount -= 1;
+        }
+      }
+      const exp_office = cardOnly ? a.exp_office + rentCost(m, config.officeStartMonth) : a.exp_office;
+      const exp_debt = cardOnly ? bookkeeperCost(m, config.bookkeeperLastMonth) : a.exp_debt;
+      const exp_insurance = cardOnly
+        ? a.exp_insurance + (m === INSURANCE_MONTH ? INSURANCE_ANNUAL : 0)
+        : a.exp_insurance;
+      const exp_accounting = cardOnly ? accountingCost(year, m) : a.exp_accounting;
+      const exp_bank = cardOnly ? BANK_FEES_MONTHLY : a.exp_bank;
+      const exp_contractors = cardOnly
+        ? a.exp_contractors + contractorCost(year, m, opCount, SEASON.CA[m - 1]) - photoCost(year, m, opCount)
+        : a.exp_contractors;
+      const exp_payroll = cardOnly ? payrollCost(year, m) : a.exp_payroll;
+
+      const exp_total =
+        exp_office +
+        a.exp_software +
+        exp_debt +
+        exp_insurance +
+        exp_accounting +
+        exp_bank +
+        a.exp_cc_ops +
+        exp_contractors +
+        exp_payroll +
+        a.exp_onboard_presigned +
+        a.exp_onboard_new;
+
       monthly.push({
         month: m,
         rev_current: a.revenue, // attribute everything to current portfolio
         rev_presigned: 0,
         rev_new: 0,
         rev_total: a.revenue,
-        exp_office: a.exp_office,
+        exp_office,
         exp_software: a.exp_software,
-        exp_debt: a.exp_debt,
-        exp_insurance: a.exp_insurance,
-        exp_accounting: a.exp_accounting,
-        exp_bank: a.exp_bank,
+        exp_debt,
+        exp_insurance,
+        exp_accounting,
+        exp_bank,
         exp_cc_ops: a.exp_cc_ops,
         cc_detail: a.cc_detail ?? null,
-        exp_contractors: a.exp_contractors,
-        exp_payroll: a.exp_payroll,
+        exp_contractors,
+        exp_payroll,
         exp_onboard_presigned: a.exp_onboard_presigned,
         exp_onboard_new: a.exp_onboard_new,
         exp_total,
         net_business: a.revenue - exp_total,
         is_actual: true,
+        actual_card_only: cardOnly,
         active_count: activeForActual,
       });
       continue;
@@ -1166,6 +1296,7 @@ export function calcYear(
       exp_total,
       net_business,
       is_actual: isStatementActual,
+      actual_card_only: false,
       active_count: activeCount,
     });
   }

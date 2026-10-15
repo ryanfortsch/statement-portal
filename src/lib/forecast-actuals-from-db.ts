@@ -23,7 +23,10 @@
  *                   is projected on the Office line beside the rent through
  *                   November 2026, so the ACT month carries it there too;
  *                   the service ends 2026-11-30 and the final invoice still
- *                   lands here); exp_cc_ops for
+ *                   lands here); exp_contractors for a Contractors row
+ *                   (Lightshed Photography, the listing shoots, the one
+ *                   contractor paid on the card; the bench line projects it
+ *                   through CONTRACTOR_PHOTO_MONTHLY); exp_cc_ops for
  *                   everything else,
  *                   itemised into `cc_detail` by routeCardRow so the six
  *                   Recurring rows read what the card actually carried.
@@ -121,6 +124,14 @@ export type DbActuals = {
    * — drives the staleness banner. null when the table is empty.
    */
   latestTxnDate: string | null;
+  /**
+   * Most recent operating-account (...5130) transaction date, any year. The
+   * card export usually runs later than this one, and a month the operating
+   * export has not reached is returned with `operating_covered: false` so
+   * the model projects its operating lines rather than reading $0. null
+   * when there are no operating rows.
+   */
+  operatingLatestTxnDate: string | null;
 };
 
 function round2(n: number): number {
@@ -156,7 +167,7 @@ export async function getActualsFromDb(
   year: number,
   revenueByMonth: Record<string, number>,
 ): Promise<DbActuals> {
-  const empty: DbActuals = { actuals: [], throughMonth: 0, latestTxnDate: null };
+  const empty: DbActuals = { actuals: [], throughMonth: 0, latestTxnDate: null, operatingLatestTxnDate: null };
   if (!supabaseUrl || !supabaseKey) return empty;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -210,7 +221,41 @@ export async function getActualsFromDb(
       /* leave null — every month then falls back to the payoff proxy */
     }
 
-    if (rows.length === 0) return { ...empty, latestTxnDate };
+    // How far the OPERATING export runs. A month it has not reached holds
+    // no rent, no bench, no payroll: not because none was paid, but because
+    // the file stops before it. Such a month is flagged rather than read as
+    // $0 (September 2026 was the first: card detail to October 7, operating
+    // to August 25).
+    let operatingMaxTxnDate: string | null = null;
+    try {
+      const { data: latestOp } = await supabase
+        .from('overhead_expenses')
+        .select('txn_date')
+        .eq('account', 'operating')
+        .not('txn_date', 'is', null)
+        .order('txn_date', { ascending: false })
+        .limit(1);
+      operatingMaxTxnDate = (latestOp?.[0]?.txn_date as string | undefined) ?? null;
+    } catch {
+      /* leave null — every month then reads as uncovered unless it has rows */
+    }
+
+    if (rows.length === 0) return { ...empty, latestTxnDate, operatingLatestTxnDate: operatingMaxTxnDate };
+
+    // Months the operating export has reached: any month with an operating
+    // row (a payoff proxy counts, it proves the file got there), or any
+    // month whose last day the export runs past. A month with SOME operating
+    // rows is treated as covered even if the export stops mid-month, which
+    // is how August 2026 (export to the 25th) has always read.
+    const operatingMonths = new Set<string>();
+    for (const r of rows) if (r.account === 'operating' && r.month) operatingMonths.add(r.month);
+    const operatingCovered = (ym: string): boolean => {
+      if (operatingMonths.has(ym)) return true;
+      if (!operatingMaxTxnDate) return false;
+      const [y, mm] = ym.split('-').map(Number);
+      const monthEnd = new Date(Date.UTC(y, mm, 0)).toISOString().slice(0, 10);
+      return operatingMaxTxnDate >= monthEnd;
+    };
 
     // Exactly one source of card spend per month: complete card detail where
     // it exists, the operating account's card payoff everywhere else. Never
@@ -243,6 +288,7 @@ export async function getActualsFromDb(
         if (route === 'software') ma.exp_software += amt;
         else if (route === 'insurance') ma.exp_insurance += amt;
         else if (route === 'office') ma.exp_office += amt;
+        else if (route === 'contractors') ma.exp_contractors += amt;
         else {
           ma.exp_cc_ops += amt;
           detail[route] += amt;
@@ -339,6 +385,7 @@ export async function getActualsFromDb(
       dense[m - 1] = {
         ...ma,
         cc_detail,
+        operating_covered: operatingCovered(ym),
         revenue: round2(revenue),
         exp_office: round2(ma.exp_office),
         exp_software: round2(ma.exp_software),
@@ -366,7 +413,7 @@ export async function getActualsFromDb(
       if (isComplete) throughMonth = m;
     }
 
-    return { actuals, throughMonth, latestTxnDate };
+    return { actuals, throughMonth, latestTxnDate, operatingLatestTxnDate: operatingMaxTxnDate };
   } catch (err) {
     console.error('[forecast-actuals-from-db] threw:', err);
     return empty;
