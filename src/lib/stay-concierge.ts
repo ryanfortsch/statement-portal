@@ -1662,10 +1662,21 @@ export type InboxHealthResponse = {
   unresolved: { channel: string; source_id: string; status: string; detail: string; updated_at: number }[];
   unresolved_count: number;
   unmatched_count: number;
+  /** Guest-inbox email held as a pitch in the past 7 days (public inbox only).
+   *  Optional: an older concierge build does not send it. */
+  held?: { source_id: string; held_at: number; sender: string; subject: string }[];
 };
 
 export function getInboxHealth() {
   return request<InboxHealthResponse>('/api/inbox-health');
+}
+
+/** A held pitch was a real person: the concierge drafts it on its next email check. */
+export function releaseHeldEmail(sourceId: string, actor?: string) {
+  return request<{ status: string; id: string }>(
+    `/api/inbox-health/held/${encodeURIComponent(sourceId)}/release`,
+    { method: 'POST', actor },
+  );
 }
 
 /** Search uses approval records only; avoid expensive work/visit enrichment for every result. */

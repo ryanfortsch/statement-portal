@@ -50,3 +50,17 @@ test('unconfirmed work stays visible but ordinary waiting is not a failure', () 
   assert.equal(result.summary, 'Work sync pending');
   assert.equal(result.attention, false);
 });
+
+test('held pitches are a quiet count, never an inbox task', () => {
+  const held = [{ source_id: 'a', held_at: now, sender: 'Carla Houston <c@hotmail.com>', subject: 'Re: ?' },
+                { source_id: 'b', held_at: now, sender: 'Hostaway', subject: 'Checking In Early With You' }];
+  const result = inboxStatus(health({ held }), emptyWork, now);
+  assert.equal(result.summary, '2 pitches held this week');
+  assert.equal(result.attention, false);
+  assert.equal(inboxStatus(health({ held: [held[0]] }), emptyWork, now).summary, '1 pitch held this week');
+});
+
+test('an older concierge without the held field still reads cleanly', () => {
+  const result = inboxStatus(health(), emptyWork, now);
+  assert.equal(result.summary, '');
+});

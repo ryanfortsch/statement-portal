@@ -24,6 +24,10 @@ export function inboxStatus(health: InboxHealthResponse | null, work: WorkData |
     if (channel.status === 'failed') parts.push(`${channel.label} check failed`);
     if (channel.status === 'stale') parts.push(`${channel.label} check overdue`);
   }
+  // Held pitches are information, not a task: listed so a misjudged guest can
+  // be released, never counted toward attention.
+  const held = health?.held?.length ?? 0;
+  if (held) parts.push(count(held, 'pitch held this week', 'pitches held this week'));
   if (!work) parts.push('Work status unavailable');
   else if (work.owner_items.length || work.delivery_items.length) parts.push('Work sync pending');
   const workFailed = work?.owner_items.some(item => item.state === 'retrying' || !!item.error)
