@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { cleanLinkToken } from '@/lib/link-token';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { ContractDocument } from '@/components/projections/ContractDocument';
 import { submitContractSignature } from '@/app/projections/actions';
@@ -36,7 +37,13 @@ export default async function ContractSignPage({
   params: Promise<{ token: string }>;
   searchParams: Promise<{ changed?: string }>;
 }) {
-  const { token } = await params;
+  const { token: rawToken } = await params;
+  // The link is pasted by hand into the owner's email, and a mail client
+  // glues whatever follows it onto the URL ("<token>–"). Recover the token
+  // and land the owner on the clean path instead of a not-found page.
+  const token = cleanLinkToken(rawToken);
+  if (!token) notFound();
+  if (token !== rawToken) redirect(`/contract/${token}`);
   // Set when a signature was refused because the terms changed while the
   // owner had the page open (submitContractSignature's digest check).
   const { changed } = await searchParams;
