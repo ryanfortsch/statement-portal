@@ -188,27 +188,31 @@ export const SEASON: Record<SeasonType, number[]> = {
 /**
  * Outfitting a new home, charged once in the month a slider home starts.
  *
- * $2,150 is the linen order. Fix Linens billed the card $23,719 across the
- * eleven 2026 onboardings (January to September, $2,156 each), and the same
- * figure falls out the other way: supplies net of the per-home run rate
- * fitted below (CC_SUPPLY_ANNUAL_PER_PROP) leave $22,719 unexplained over
- * the same months, $2,065 per onboarding. Furnishings and kitchen kit bought
- * on Amazon and at HomeGoods for a new home cannot be told from a restock
- * on the card, so they stay inside the per-home rate, which is therefore a
- * little high as a pure consumables figure. The card only shows what
- * Rising Tide paid; whether an owner should fund outfitting instead is an
- * open policy decision (card review, 2026-09-02), and until it changes this
- * is the cost the company actually carries.
+ * $3,000 per home: the linen order plus the durables. Fix Linens billed the
+ * card $23,719 across the eleven 2026 onboardings (January to September,
+ * $2,156 each). The Amazon Business export of 2026-10-15 (505 line items,
+ * October 2025 to October 2026, each carrying its UNSPSC class) sorts the
+ * Amazon side into consumables and durables, and the durables bought beyond
+ * the replacement trickle a settled home runs are the rest of outfitting:
+ * towels, bedclothes, rugs, a Schlage lock, soap dispensers, a hair dryer,
+ * a coffee maker, shelving, about $850 per onboarding. Supplies net of the
+ * per-home run rate below leave $33,222 unexplained over the same months,
+ * $3,020 per onboarding, so the two readings agree. The card only shows
+ * what Rising Tide paid; whether an owner should fund outfitting instead is
+ * an open policy decision (card review, 2026-09-02), and until it changes
+ * this is the cost the company actually carries.
  *
  * It was $0 until 2026-10-15, on the argument that the trailing per-home
  * supplies figure already included onboarding purchases. It did, which is
  * exactly why that figure was double the run rate: the first clean month
  * after the summer onboarding wave (September 2026, $181 per home) came in
- * at a quarter of what the smeared rate projected. Prospects from the
- * pipeline carry no onboarding charge until they become a property, as
- * they carry no other cost either.
+ * at a quarter of what the smeared rate projected. It was $2,150 (linens
+ * alone, the only outfitting the card could tell from a restock) until the
+ * Amazon item detail arrived the same day. Prospects from the pipeline
+ * carry no onboarding charge until they become a property, as they carry
+ * no other cost either.
  */
-export const ONBOARDING_COST = 2150;
+export const ONBOARDING_COST = 3000;
 
 /* --------------------------------------------------------------------- */
 /* Recurring monthly expenses, calibrated to Chase ...5130 actuals       */
@@ -369,40 +373,46 @@ export const BANK_FEES_MONTHLY = 10;
  * is consumables bought per property per turnover and the rest is
  * subscriptions that never move.
  *
- * VARIABLE: guest supplies and small repairs. Amazon, Target, HomeGoods,
- * hardware, and the restock part of the Fix Linens orders. Per live property
- * per month in 2026, with the Fix Linens outfitting orders taken out (they
- * are the onboarding charge, ONBOARDING_COST above):
+ * VARIABLE: guest supplies and small repairs. What a settled home consumes
+ * and replaces: Amazon consumables, the replacement durables, Target and
+ * HomeGoods. Measured at the item level on the Amazon Business export of
+ * 2026-10-15 (505 line items, October 2025 to October 2026, each with its
+ * UNSPSC class; Amazon is 95% of the card's supplies spend and the Business
+ * account is 91% of the card's Amazon). Amazon consumables (cleaning and
+ * dishwasher products, paper, the EO bath refills, coffee pods, trash bags,
+ * sponges, batteries) per live home per month in 2026:
  *
- *     Jan $207  Feb $225  Mar $0    Apr $637  May $268
- *     Jun $742  Jul $609  Aug $452  Sep $181
+ *     Jan $88   Feb $108  Mar $0    Apr $166  May $197
+ *     Jun $233  Jul $345  Aug $229  Sep $79
  *
  * Least-squares against the Cape Ann curve pulled one month earlier and damped
- * to 60% amplitude gives $4,070 per property per year (R2 0.43; the
- * all-in series fits $6,927 and the four months with no onboarding at all
- * fit $2,213). The one-month lead is not a fitting trick: a house is stocked
- * the month BEFORE its guests arrive. The damping is, and it is there because
- * nine data points from a year in which the fleet went from six properties
- * to seventeen cannot carry the full amplitude of a curve fitted to
- * something else.
+ * to 60% amplitude gives $1,805 per home per year (the flat mean says $1,800,
+ * so the curve is not doing the work). The months with no onboarding in them
+ * also show about $1,000 a year per home of replacement durables (towels,
+ * dryers, dispensers; $89 a home a month across January to April and
+ * September), and the non-Amazon stores add about $56. The recurring rate is
+ * the sum, $2,950; the Amazon durables bought beyond that trickle are the
+ * onboarding charge above, and the two tile the year's $60,896 of supplies
+ * within half a percent. The one-month lead is not a fitting trick: a house
+ * is stocked the month BEFORE its guests arrive.
  *
- * RERACKED 2026-10-15. The figure was $8,360 from 2026-09-02, fitted to
- * February through August with the linen orders left in. September 2026,
- * the first month after the summer onboarding wave, came in at $2,892 for
- * sixteen homes against the $11,900 that rate projected: the summer was
- * eleven outfittings, not a run rate. The whole of 2025 spent $35,939 on
- * supplies for the fleet of the time, which the old rate would have put at
- * $50,000 for six homes. The remaining softness runs the other way: Amazon
- * and HomeGoods orders for a new home cannot be told from restocks, so the
- * recurring rate still carries some outfitting and reads high as a pure
- * consumables figure (the off-season months say about $2,200).
+ * RERACKED 2026-10-15, twice. The figure was $8,360 from 2026-09-02, fitted
+ * to February through August with every onboarding of the year inside it.
+ * September 2026, the first month after the summer wave, came in at $2,892
+ * for sixteen homes against the $11,900 that rate projected: the summer was
+ * eleven outfittings, not a run rate. A card-level refit with the Fix Linens
+ * orders removed gave $4,070 the same morning; the Amazon item detail that
+ * afternoon showed that figure still carried the summer's towels, rugs,
+ * locks and kitchen kit, and settled it here. The whole of 2025 spent
+ * $35,939 on supplies for the fleet of the time, which the old rate would
+ * have put at $50,000 for six homes.
  *
  * Two shapes fit better on paper and were rejected. The revenue curve at a
  * one-month lead puts September above August, an artifact of Gloucester's
  * own September/October inversion. The raw occupancy curve is physically
  * tidier and fits worse.
  */
-export const CC_SUPPLY_ANNUAL_PER_PROP = 4070;
+export const CC_SUPPLY_ANNUAL_PER_PROP = 2950;
 
 /** Cape Ann turnovers, pulled one month earlier and damped to 60%. */
 const CC_SUPPLY_RAW = SEASON.CA.map((_, i) => 0.6 * SEASON.CA[(i + 1) % 12] + 0.4 / 12);
@@ -472,15 +482,16 @@ export const CC_FIXED_MONTHLY =
 
 /**
  * Of the per-property variable spend, the slice that is hardware, plumbing,
- * propane and yard work rather than linens and consumables. Measured on the
- * 2026 card through September, with Wolf Hill and SP Properties filed as
- * repairs: $3,813 of Repairs & upkeep against $38,177 of recurring supplies
- * (the per-home rate times the fleet, outfitting excluded), 9.1% of the
- * variable spend. It read 5% against the outfitting-inflated supplies
- * figure until 2026-10-15; an earlier itemisation put it at 20%, which is
- * how the Repairs row came to claim $1,660 a month the card never showed.
+ * propane and yard work rather than consumables and replacements. Measured
+ * on the 2026 card through September, with Wolf Hill and SP Properties filed
+ * as repairs: $3,813 of Repairs & upkeep against $27,674 of recurring
+ * supplies (the per-home rate times the fleet, outfitting excluded), 12% of
+ * the variable spend. It read 5% against the outfitting-inflated supplies
+ * figure until 2026-10-15 and 9% against the card-level refit the same
+ * morning; an earlier itemisation put it at 20%, which is how the Repairs
+ * row came to claim $1,660 a month the card never showed.
  */
-export const CC_REPAIRS_SHARE = 0.09;
+export const CC_REPAIRS_SHARE = 0.12;
 
 /**
  * The card for one month, itemised the same way the ACT months are.
@@ -549,14 +560,14 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
   {
     key: 'supplies',
     label: 'Guest supplies & inventory',
-    monthly: 5500,
-    info: 'Amazon, Target, HomeGoods, Wayfair and the restock part of Fix Linens. The dominant card line and the seasonal one: $207 per home in January against $742 in June 2026, outfitting excluded. Projected at $4,070 per live home per year on the turnover curve pulled a month early, because a house is stocked before its guests arrive. The summer 2026 peak ($16,925 in June) was eleven outfittings, which the Onboarding line now carries separately; September, the first clean month after the wave, read $2,892 for sixteen homes. ACT months show the real card figure.',
+    monthly: 4000,
+    info: 'What a settled home consumes and replaces: Amazon consumables (cleaning and dishwasher products, paper, bath refills, coffee pods, trash bags), replacement towels and small durables, Target and HomeGoods. Projected at $2,950 per live home per year on the turnover curve pulled a month early, because a house is stocked before its guests arrive: $1,805 of consumables measured item by item on the Amazon Business export of 2026-10-15, about $1,000 of replacements, and the non-Amazon stores. The summer 2026 peak ($16,925 in June) was eleven outfittings, which the Onboarding line carries; September, the first clean month after the wave, read $2,892 for sixteen homes. ACT months show the real card figure.',
   },
   {
     key: 'repairs',
     label: 'Repairs & upkeep',
-    monthly: 540,
-    info: 'Hardware stores, plumbing, propane, yard work (Wolf Hill, SP Properties) and small contractor charges on the card. About 9% of the variable card spend, measured on 2026 through September: $3,813 against $38,177 of recurring supplies. Rides the same per-property seasonal curve as supplies.',
+    monthly: 550,
+    info: 'Hardware stores, plumbing, propane, yard work (Wolf Hill, SP Properties) and small contractor charges on the card. About 12% of the variable card spend, measured on 2026 through September: $3,813 against $27,674 of recurring supplies. Rides the same per-property seasonal curve as supplies.',
   },
   {
     key: 'vehicle_insurance',
