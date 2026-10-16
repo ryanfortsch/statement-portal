@@ -760,3 +760,60 @@ need reconciliation. The confirmation event clock and cleaner history remain
 unverified. Channex production access, PriceLabs delivery and contract exit
 requirements are unchanged. No service, subscription, recipient or live sender
 was added or modified.
+
+
+### Confirmation event and guest-message evidence, October 16
+
+Supersedes the confirmation-time unknown above. The supported
+[V3 reservation detail endpoint](https://open-api-docs.guesty.com/reference/reservationsopenapicontroller_getreservationsbyids)
+returns the reservation's `confirmedAt` event. Guesty's
+[reservation field guide](https://open-api-docs.guesty.com/docs/how-to-search-for-reservations)
+defines this as the booking's confirmation time in Guesty. The preview now uses
+that event plus the existing 30-minute offset. Creation dates, booking dates and
+channel metadata are never substituted.
+
+The server reader accepts only the fixed listing and up to 12 confirmed stays
+already returned by scoped search, in GET batches of at most ten IDs. Each
+response must bind to the exact requested ID, status, sole stay, listing and
+dates. Missing, malformed or future timestamps remain unknown. Raw detail,
+guest information, financial fields and credentials never leave the reader.
+Request failures withhold confirmation calculations while preserving the
+independently verified local clocks and calendar review. Confirmation evidence
+does not depend on arrival/departure clock evidence.
+
+A bounded live read at `2026-10-16T16:55:23.944Z` returned valid confirmation
+timestamps and explicit local clocks for all six confirmed stays. All 36 review
+rows were calculable, zero were unverified and zero were sendable. Existing
+3 PM key codes, 9 AM arrival-day cleaner reminders and 11 AM checkout reminders
+were retained. The older local-clock API dependency remains unresolved for
+production; this V3 confirmation read does not replace that separate dependency.
+
+For the sampled October 15-19 stay, Guesty's visible History panel showed:
+
+- Reservation Confirmed: completed September 8 at 9:04 PM.
+- Check-in Instructions: completed October 14 at 4:04 PM.
+- Key Code: completed October 15 at 3:03 PM.
+
+The confirmation event plus 30 minutes calculated September 8 at 9:03 PM,
+adjacent to the minute displayed for the completed message. Minute-resolution
+UI evidence cannot establish an exact delivery delay. The Scheduled panel
+showed the checkout reminder for October 18 at 11 AM, expiring October 25 at
+11 AM. Both the overall guest-automation switch and that reminder's switch
+were enabled when read; no switch was changed. This establishes one sampled
+future reminder's enabled state, not every workflow's holds or queue coverage.
+Cleaner SMS history remains unknown because this guest-message panel does not
+cover it. No historical message was replayed or marked sent by Helm.
+
+Validation: all 1,965 tests passed, including seven new synthetic confirmation
+cases for strict timestamps, bounded batches, privacy exclusion, no fallback,
+exact record binding, authorization, failure recovery and no send permission.
+Nonincremental TypeScript, targeted ESLint and diff checks passed. Hosted
+acceptance is recorded in draft PR #1714 after deployment.
+
+Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, previous commit
+`04622745`; remote main verified as
+`ba392ef0e0cd1a73aa0372e70a14b0715a421640`. Changed files: confirmation reader and
+focused tests, timing normalization, guarded loader, comparison page/panel and
+this document. Existing contract notes remain excluded. Guesty remains the live
+sender. No recipient, service, subscription, automation or production setting
+was changed.

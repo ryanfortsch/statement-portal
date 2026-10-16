@@ -7,17 +7,18 @@ const displayTime = new Intl.DateTimeFormat('en-US', {
 const format = (at: string | null) => at ? displayTime.format(new Date(at)) : 'Unverified';
 const basis = (value: string | null) => !value ? 'unverified' : value.startsWith('listing.') ? 'listing default' : 'reservation time';
 
-export default function MessageTimingReview({ reservations, observedAt, localClockError }: {
-  reservations: Awaited<ReturnType<typeof readCalderwoodGuesty>>['reservations']; observedAt: string; localClockError: boolean;
+export default function MessageTimingReview({ reservations, observedAt, localClockError, confirmationError }: {
+  reservations: Awaited<ReturnType<typeof readCalderwoodGuesty>>['reservations']; observedAt: string; localClockError: boolean; confirmationError: boolean;
 }) {
   const confirmed = reservations.filter(r => r.status === 'confirmed').sort((a, b) => a.start.localeCompare(b.start));
   return <section aria-labelledby="message-timing-review" className="space-y-4 rounded-lg border bg-white p-5">
     <div><h2 id="message-timing-review" className="text-lg font-semibold">Message timing review</h2>
-      <p className="mt-1 text-sm text-slate-600">{confirmed.length} confirmed stays · New York time · {confirmed.filter(r => r.timing.clockVerified).length} with local clock evidence.</p></div>
-    <p className="text-sm">Guesty remains the sender. These calculations use its explicit local arrival and departure fields and your existing workflow offsets. They are previews, not confirmed queue entries.</p>
+      <p className="mt-1 text-sm text-slate-600">{confirmed.length} confirmed stays · New York time · {confirmed.filter(r => r.timing.clockVerified).length} with local clock evidence · {confirmed.filter(r => r.timing.confirmation).length} with confirmation timestamps.</p></div>
+    <p className="text-sm">Guesty remains the sender. These calculations use its local arrival/departure fields, reservation confirmation timestamps, and your existing workflow offsets. They are previews, not confirmed queue entries.</p>
     <aside className="rounded-lg bg-amber-50 p-3 text-sm text-amber-950"><strong>Timing source:</strong> Guesty’s search timestamps disagree with its local clock fields. The local fields match the sampled booking’s visible 4 PM arrival and 11 AM departure. This preview temporarily uses Guesty’s older reservation API. A supported production timing source still needs validation before migration.</aside>
     {localClockError && <p role="status" className="text-sm text-amber-900">Local clock verification could not complete. Times remain withheld. The review supports up to 12 confirmed stays; try a narrower window if needed.</p>}
-    <p className="text-sm text-slate-600">Confirmation time is not supplied by this read. Missing or inconsistent timing stays unverified, with no assumed 4 PM arrival or 11 AM departure. Past times are shown for review only.</p>
+    {confirmationError && <p role="status" className="text-sm text-amber-900">Confirmation timestamps could not be verified. Those calculations remain withheld; the local arrival/departure review is preserved.</p>}
+    <p className="text-sm text-slate-600">Confirmation calculations use Guesty’s reservation confirmation event, not the date a record was created. Missing or inconsistent timing stays unverified. A calculated time does not prove a message was sent; past messages must not be replayed automatically.</p>
     {confirmed.length === 0 && <p className="text-sm">No confirmed stays were returned in this window. Other reservation statuses remain in the booking review.</p>}
     <div className="divide-y rounded-lg border">{confirmed.map(reservation => {
       const rows = reviewCalderwoodMessageTiming(reservation, new Date(observedAt));
@@ -28,6 +29,7 @@ export default function MessageTimingReview({ reservations, observedAt, localClo
         {reservation.timing.localEvidence && <p className="mt-3 text-xs text-slate-600">Arrival source: {basis(reservation.timing.localEvidence.arrivalBasis)} · Departure source: {basis(reservation.timing.localEvidence.departureBasis)}.
           {reservation.timing.localEvidence.disagreesWithSearch && <> Search feed comparison: {format(reservation.timing.localEvidence.searchArrivalAt)} arrival / {format(reservation.timing.localEvidence.searchDepartureAt)} departure. These search timestamps are not used for the calculations.</>}
         </p>}
+        <p className="mt-2 text-xs text-slate-600">Reservation confirmed: {format(reservation.timing.confirmation?.at ?? null)}. {reservation.timing.confirmation ? 'Source: Guesty reservation confirmation event.' : 'No creation date or channel timestamp substituted.'}</p>
         {reservation.timing.issues.length > 0 && <ul className="mt-3 list-disc pl-5 text-sm text-amber-900">{reservation.timing.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
         <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm">
           <thead><tr>{['Message', 'Calculated time for review', 'Evidence still needed'].map(label => <th className="pb-2 pr-4" scope="col" key={label}>{label}</th>)}</tr></thead>

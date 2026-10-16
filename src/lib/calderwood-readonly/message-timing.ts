@@ -19,6 +19,7 @@ function instant(value: unknown): number | null {
 }
 export type CalderwoodTiming = {
   arrivalAt: string | null; departureAt: string | null; issues: string[]; clockVerified: boolean;
+  confirmation?: { source: 'guesty-v3-confirmedAt'; at: string } | null;
   localEvidence?: {
     source: 'guesty-legacy-local-fields'; arrivalBasis: string | null; departureBasis: string | null;
     searchArrivalAt: string | null; searchDepartureAt: string | null; disagreesWithSearch: boolean;
@@ -108,10 +109,15 @@ function minutesBefore(at: string | null, minutes: number) {
 }
 export function reviewCalderwoodMessageTiming(reservation: { status: string; timing: CalderwoodTiming }, now: Date) {
   if (!Number.isFinite(now.getTime())) throw Error('Valid timing review time required');
-  // No inferred confirmation instant from createdAt, bookingDate or channel timestamps.
+  // This separate evidence comes from the reservation's confirmedAt, never creation/channel dates.
+  const confirmedAt = reservation.status === 'confirmed' && reservation.timing.confirmation?.source === 'guesty-v3-confirmedAt'
+    ? reservation.timing.confirmation.at : null;
+  const confirmationMs = confirmedAt ? Date.parse(confirmedAt) : NaN;
+  const confirmationTime = Number.isFinite(confirmationMs) && confirmationMs <= now.getTime()
+    ? new Date(confirmationMs + 30 * 60000).toISOString() : null;
   const timing = reservation.status === 'confirmed' && reservation.timing.clockVerified ? reservation.timing : { arrivalAt: null, departureAt: null };
   const rows = [
-    { key: 'confirmation', label: 'Reservation confirmation', audience: 'Guest', at: null, offset: '30 minutes after confirmation' },
+    { key: 'confirmation', label: 'Reservation confirmation', audience: 'Guest', at: confirmationTime, offset: '30 minutes after confirmation' },
     { key: 'pre_arrival', label: 'Check-in instructions', audience: 'Guest', at: daysBefore(timing.arrivalAt, 1), offset: '1 day before arrival' },
     { key: 'key_code', label: 'Key code', audience: 'Guest', at: minutesBefore(timing.arrivalAt, 60), offset: '60 minutes before arrival' },
     { key: 'pre_checkout', label: 'Checkout reminder', audience: 'Guest', at: daysBefore(timing.departureAt, 1), offset: '1 day before departure' },
