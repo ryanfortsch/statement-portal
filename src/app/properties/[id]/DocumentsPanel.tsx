@@ -33,6 +33,7 @@ export function DocumentsPanel({
   const [error, setError] = useState<string | null>(null);
   const [uncertain, setUncertain] = useState(false);
   const [uploaded, setUploaded] = useState(false);
+  const [adding, setAdding] = useState(false);
   const softRefresh = useSoftRefresh();
   useUnsavedWorkGuard(dirty || pending || uncertain);
 
@@ -62,7 +63,7 @@ export function DocumentsPanel({
         const result = await uploadPropertyDocument(propertyId, { error: null }, data);
         if (result.error) { setError(result.error); return; }
         formRef.current?.reset();
-        setDirty(false); setUploaded(true);
+        setDirty(false); setUploaded(true); setAdding(false);
         softRefresh();
       } catch {
         setUncertain(true);
@@ -79,85 +80,120 @@ export function DocumentsPanel({
   // Body-only: the page wraps this in a CollapsibleSection ("Documents"),
   // which owns the section chrome — rendering a second h2 here would
   // double-head the fold.
+  //
+  // The upload form sits behind "+ Add document": a tab with one filed
+  // contract is one row, not a three-field form above a row. It opens on
+  // its own when nothing is filed yet (there is nothing else to show) and
+  // stays open while an upload is dirty, in flight, uncertain or failed,
+  // so the operator's file and details are never folded away under them.
+  const busy = dirty || pending || uncertain || !!error;
+  const formOpen = adding || documents.length === 0 || busy;
   return (
     <div>
-      {/* Upload form */}
-      <form
-        ref={formRef}
-        onSubmit={upload}
-        onChange={changed}
-        style={{
-          paddingTop: 4,
-          marginBottom: 28,
-        }}
-      >
-        <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 14 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 240px' }}>
-          <span className="eyebrow" style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600 }}>Label</span>
-          <input
-            name="label"
-            type="text"
-            placeholder="e.g. 2026 STR insurance policy"
-            style={inputStyle}
-          />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '0 0 160px' }}>
-          <span className="eyebrow" style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600 }}>Category</span>
-          <select name="category" defaultValue="insurance" style={inputStyle}>
-            {DOCUMENT_CATEGORIES.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
-          </select>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 220px' }}>
-          <span className="eyebrow" style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600 }}>File</span>
-          <input
-            name="file"
-            type="file"
-            required
-            accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt"
-            style={{ fontSize: 12, color: 'var(--ink-3)' }}
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={pending}
-          style={{
-            fontSize: 11,
-            letterSpacing: '.16em',
-            textTransform: 'uppercase',
-            color: 'var(--paper)',
-            background: 'var(--ink)',
-            border: '1px solid var(--ink)',
-            padding: '10px 18px',
-            fontWeight: 600,
-            cursor: pending ? 'wait' : 'pointer',
-            opacity: pending ? 0.7 : 1,
-          }}
-        >
-          {pending ? 'Uploading…' : 'Upload'}
-        </button>
-        {(dirty || uncertain) && <button type="button" onClick={reset} disabled={pending}>Discard upload</button>}
-        </fieldset>
-      </form>
-
-      {uploaded && <p role="status">Document uploaded.</p>}
-      {error && (
-        <div
-          role="alert"
-          style={{
-            marginTop: -14,
-            marginBottom: 24,
-            padding: '12px 16px',
-            borderLeft: '3px solid var(--negative)',
-            background: 'var(--paper-2)',
-            fontSize: 13,
-            color: 'var(--negative)',
-            lineHeight: 1.5,
-          }}
-        >
-          {error}{uncertain && <> <a href={`/properties/${propertyId}?tab=documents`} target="_blank" rel="noopener noreferrer">View saved documents</a></>}
+      {documents.length > 0 && !busy && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: formOpen ? 10 : 2 }}>
+          <button
+            type="button"
+            onClick={() => setAdding((v) => !v)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              fontWeight: 500,
+              color: 'var(--ink-3)',
+              cursor: 'pointer',
+            }}
+          >
+            {adding ? 'Cancel' : '+ Add document'}
+          </button>
         </div>
+      )}
+
+      {formOpen && (
+        <>
+        {/* Upload form */}
+        <form
+          ref={formRef}
+          onSubmit={upload}
+          onChange={changed}
+          style={{
+            paddingTop: 2,
+            marginBottom: 18,
+          }}
+        >
+          <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 14 }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 240px' }}>
+            <span className="eyebrow" style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600 }}>Label</span>
+            <input
+              name="label"
+              type="text"
+              placeholder="e.g. 2026 STR insurance policy"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '0 0 160px' }}>
+            <span className="eyebrow" style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600 }}>Category</span>
+            <select name="category" defaultValue="insurance" style={inputStyle}>
+              {DOCUMENT_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '1 1 220px' }}>
+            <span className="eyebrow" style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 600 }}>File</span>
+            <input
+              name="file"
+              type="file"
+              required
+              accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,.doc,.docx,.xls,.xlsx,.csv,.txt"
+              style={{ fontSize: 12, color: 'var(--ink-3)' }}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={pending}
+            style={{
+              fontSize: 11,
+              letterSpacing: '.16em',
+              textTransform: 'uppercase',
+              color: 'var(--paper)',
+              background: 'var(--ink)',
+              border: '1px solid var(--ink)',
+              padding: '10px 18px',
+              fontWeight: 600,
+              cursor: pending ? 'wait' : 'pointer',
+              opacity: pending ? 0.7 : 1,
+            }}
+          >
+            {pending ? 'Uploading…' : 'Upload'}
+          </button>
+          {(dirty || uncertain) && <button type="button" onClick={reset} disabled={pending}>Discard upload</button>}
+          </fieldset>
+        </form>
+
+        {uploaded && <p role="status">Document uploaded.</p>}
+        {error && (
+          <div
+            role="alert"
+            style={{
+              marginTop: -6,
+              marginBottom: 18,
+              padding: '12px 16px',
+              borderLeft: '3px solid var(--negative)',
+              background: 'var(--paper-2)',
+              fontSize: 13,
+              color: 'var(--negative)',
+              lineHeight: 1.5,
+            }}
+          >
+            {error}{uncertain && <> <a href={`/properties/${propertyId}?tab=documents`} target="_blank" rel="noopener noreferrer">View saved documents</a></>}
+          </div>
+        )}
+
+        </>
       )}
 
       {/* List */}
@@ -177,7 +213,7 @@ export function DocumentsPanel({
                 gridTemplateColumns: '1fr auto auto auto',
                 gap: 18,
                 alignItems: 'baseline',
-                padding: '16px 0',
+                padding: '11px 0',
                 borderBottom: '1px solid var(--rule)',
               }}
             >
@@ -186,7 +222,7 @@ export function DocumentsPanel({
                   href={d.file_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ fontSize: 15, color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                  style={{ fontSize: 14, color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 3 }}
                 >
                   {d.label}
                 </a>
