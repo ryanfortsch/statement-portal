@@ -604,6 +604,21 @@ function SmartForecastPanel({
                     floor
                   </span>
                 )}
+                {p.annualBasis === 'unit' && (
+                  <span
+                    title="A unit of a home already in this table. It sells the same nights as the whole house, so it projects only its own bookings rather than the portfolio average."
+                    style={{
+                      marginLeft: 6,
+                      fontSize: 8.5,
+                      letterSpacing: '.12em',
+                      textTransform: 'uppercase',
+                      color: 'var(--ink-4)',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    unit
+                  </span>
+                )}
               </td>
               <td style={cellStyle({ color: 'var(--signal)', fontWeight: 600 })}>
                 {p.property.mgmtFeePct != null ? `${p.property.mgmtFeePct}%` : '—'}
@@ -1037,7 +1052,7 @@ const sections2026: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Closed months (ACT) carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at the run rate the closed statements of the home prove: its latest full month, or its whole record (first ramp month dropped once there are three), whichever is larger, once it has two closed months. Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table.' },
+      { label: 'Properties', value: 'Seventeen homes filed 2026 statements and make up the Properties row. Closed months (ACT) carry the real management fee from those statements from April 2026; January to March carry the bank sweep from Chase ...5130, because the Statements module began in April. Forward months come from the smart forecast: the bookings already in Guesty for each home, pace-corrected against the capture rate Rising Tide itself achieved on the closed months of 2026, blended with the annual gross of the home spread over the Gloucester revenue curve. That annual gross is floored at the run rate the closed statements of the home prove: its latest full month, or its whole record (first ramp month dropped once there are three), whichever is larger, once it has two closed months. Each month is held at no less than what is already booked, and the pacing scale-up is capped at 2.5x. Rows the floor lifts carry a floor tag in the per-property table. A unit of a home already in the table (17 Beach\'s front unit and guest house, split off on 2026-09-28) sells the same nights as the whole house, so it projects only its own bookings, never the portfolio average; such rows carry a unit tag.' },
       { label: 'Prospects', value: 'The live /prospects pipeline. Each deck projects a year-one fee; it enters month by month, weighted by close likelihood.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality (4.3% of the year in each of Jan to May and Nov to Dec, 10% in Jun, Sep and Oct, 20% in Jul and Aug), from the month the slider starts them. Default 3, in Jul, Sep and Nov. Each carries the $3,000 outfitting charge in its start month, so a home added late in the year is a small loss in that year and earns its keep the next. From 2027 they roll forward at the fleet average fee per earning home.' },
       { label: 'Operating windows', value: '4 Brier Neck ran June to August 2026 and is not renewed (notice given 2026-08-31). 73 Rocky Neck is off from November 2026 and 79 Main after 21 October 2026. 16 Waterman runs May to October every year. A closed month projects no revenue, and the card and the bench count only the homes operating that month.' },
@@ -1075,7 +1090,7 @@ const sections2027: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Active (Jan 1)', value: 'Every active managed home in Helm\'s registry drives the cost lines (card and bench), minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year; 16 Waterman is open May to October and counts only in those months. A home costs from the month it is activated, so 4 Middle Road is on the cost lines from day one rather than from its first closed statement. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today). Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
+      { label: 'Active (Jan 1)', value: 'Every active managed home in Helm\'s registry drives the cost lines (card and bench), minus 4 Brier Neck, 73 Rocky Neck and 79 Main, which the operating windows have offline for the whole year; 16 Waterman is open May to October and counts only in those months. A home costs from the month it is activated, so 4 Middle Road is on the cost lines from day one rather than from its first closed statement. The revenue row is every active managed home in Helm with its operating window applied, so a home with no bookings or statements yet rides the portfolio-average gross (4 Middle Road today), except a unit of a home already in the table (17 Beach\'s front unit and guest house), which sells the whole house\'s nights and projects only its own bookings. Plus every home added on the 2026 slider, rolled forward as a full-year Cape Ann contract at the fleet average fee per earning home for 2027 (the mean of the per-property totals in the smart table, about $32K today), never below $25K.' },
       { label: 'Revenue per home', value: 'The smart forecast, almost entirely its annual-times-seasonality part: the annual gross of each home (its forward pace, floored at its closed-statement run rate) spread over the Gloucester revenue curve, times its fee percent. Bookings already placed for 2027 blend in where they exist.' },
       { label: 'Prospects', value: 'The live /prospects pipeline. Each open deck contributes a full year at its projected fee times its close likelihood (50% when none is entered), and adds no cost until it becomes a property.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality from the month the slider starts them. Default 3, in Mar, Jun and Sep. They roll into 2028 at the fleet average fee.' },
@@ -1113,7 +1128,7 @@ const sections2028: AssumptionSection[] = [
   {
     heading: 'Revenue',
     items: [
-      { label: 'Active (Jan 1)', value: 'The same active managed homes drive the cost lines and the revenue row, each with its operating window applied. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
+      { label: 'Active (Jan 1)', value: 'The same active managed homes drive the cost lines and the revenue row, each with its operating window applied; a unit of a home already in the table projects only its own bookings. Plus everything added on the 2026 and 2027 sliders, all rolled forward as full-year Cape Ann contracts at the fleet average fee per earning home for 2028, never below $25K. Homes offline before 2028 stay out.' },
       { label: 'Revenue per home', value: 'The smart forecast on its annual-times-seasonality part alone: the annual gross of each home, floored at its closed-statement run rate, spread over the Gloucester revenue curve, times its fee percent. Bookings placed for 2028 blend in where they exist; none are on the books today.' },
       { label: 'Prospects', value: 'The live /prospects pipeline: each open deck a full year at its projected fee times its close likelihood, no cost until it becomes a property.' },
       { label: 'New mandates', value: '$25K/yr each in their first season on Cape Ann seasonality. Default 3, in Mar, Jun and Sep.' },
