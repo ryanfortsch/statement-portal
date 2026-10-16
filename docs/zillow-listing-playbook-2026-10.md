@@ -11,9 +11,9 @@ through Ryan's logged-in session on 2026-10-16.
 |---|---|---|---|---|
 | 1 | 17 Beach guest house | $2,500 incl. utilities, Tuesday Jan 5 to Apr 30, January prorated. The whole house is booked through Dec 27 and those stays include the guest house; New Year's week stays sellable through Jan 4 | Nolans' written yes, Ryan's fee call | List Oct 17 to 20 |
 | 1 | 17 Beach main house | $5,000, Tuesday Jan 5 to Apr 30, January prorated. Same whole-house bookings through Dec 27 | same | List Oct 17 to 20; short-term calendars stay open through Jan 4 |
-| 2 | 84 Thatcher $3,700, 225 Washington $3,400, 20 Hammond $3,400, the Marina $2,900 incl., 4 Middle $3,700, 20 Enon $3,600, 3 Locust $3,700 | Nov 1 to Apr 30 | each owner's yes (3 Locust is ours) | Owner notes go Oct 17; list each home the day its owner answers |
+| 2 | 3 Locust $3,700 (Tue Dec 1), 20 Hammond $3,400 (Tue Nov 10), 84 Thatcher $3,700 (Tue Jan 5), 225 Washington $3,400 (Jan 5), the Marina $2,900 incl. (Jan 5), 4 Middle $3,700 (Jan 5), 20 Enon $3,600 (Jan 5) | start on the first Tuesday after the home's last booked checkout, Thanksgiving, Christmas and New Year's stays left in place, all ending Apr 30 | each owner's yes (3 Locust is ours) | Kits with the dates: the Wave 2 Listing Kits page. Owner notes go Oct 17; list each home the day its owner answers |
 | Owner-listed | 7 Sumac ($7,500 from Jan 1), 36 Granite ($3,250 from Nov 1) | theirs | a call this week | Align dates, block Helm's calendar the day they sign, offer to run the lease under Rising Tide |
-| Washes | 73 Rocky Neck at $3,500, 3 South at $3,800 | Nov 1 to Apr 30 | owner wants certainty over the forecast | List only at that number; otherwise keep short-term |
+| Washes | 73 Rocky Neck at $3,500 (Tue Dec 1), 3 South at $3,800 (Tue Dec 8) | to Apr 30 | owner wants certainty over the forecast | List only at that number; otherwise keep short-term |
 | Keep short-term | 3 Windward, 19 Rackliffe, 21 Horton, 53 Rocky Neck upstairs | | | Not listed. Revisit Dec 1 |
 | Closed by the owner | 16 Waterman, 79 Main | $3,800 / $2,200 incl. | owner wants the winter income | Ask once; list if yes |
 
