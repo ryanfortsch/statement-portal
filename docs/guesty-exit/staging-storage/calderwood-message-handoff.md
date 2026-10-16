@@ -534,3 +534,56 @@ Channex access/costs, dynamic PriceLabs propagation, real channel delivery,
 access-code provisioning, outage operations and contract exit remain separate
 live-cutover gates. Do not register a live provider against this protected,
 fictional-only preview endpoint.
+
+
+## Full-year booking and guest-message review, October 16
+
+Continued the owned pilot branch from `0952c5f4`; base remains `a148b0e6`.
+Remote main was verified as `f2b1ce6f1687f389a6c0d55cf8d8cf7b6c18a8cd`.
+The unrelated local contract notes in `calderwood-cutover-readiness.md` were
+preserved and excluded from this batch.
+
+A fresh read through the existing staff-only preview reviewed October 16, 2026
+through October 16, 2027, exclusive. Completed at `2026-10-16T13:39:56.893Z`:
+
+- Nine reservation records: six confirmed, two canceled, one inquiry.
+- All 365 Guesty calendar nights returned, zero missing, zero diagnostic issues.
+  Twenty-three nights reported reservation blocks. One also had advance notice.
+  No manual, owner or imported-calendar holds were reported in this response.
+  That is a snapshot observation, not a guarantee about independent channels.
+- One non-confirmed record shares dates with a confirmed stay. Cancellation must
+  never release another booking's occupancy simply because its dates match.
+- Posted minimum stays vary from one to four nights. PriceLabs remains the
+  user's dynamic rule source; this read does not prove PriceLabs delivery or
+  establish Channex arrival/through-stay semantics.
+- All 365 Channex test nights returned with stop-sell verified. All differed from
+  the live calendar, as expected for the existing closed placeholder setup.
+
+The current stay's Guest auto messages panel was independently reviewed around
+13:52 UTC. History showed completed confirmation, check-in instructions and key
+code messages. The instructions and key code were sent a few minutes after the
+existing 4 PM/day-before and 3 PM/arrival-day schedules. One enabled checkout
+reminder remained scheduled at 11 AM on the day before departure, with an
+explicit source expiry. This corroborates progression of the four guest
+workflows since the October 13 review; it does not prove recipient delivery,
+cleaner SMS history/queue completeness, or a stopped Guesty sender. No message
+body, recipient, access code or booking identity is retained here or in tests.
+No automation switch or setting was changed.
+
+The existing read-only comparison page now defaults to the full 365-day window
+and shows a compact booking/hold summary before the nightly tables. It counts
+unique occupied nights, flags overlapping confirmed records and non-confirmed
+records sharing dates, preserves raw provider source/status labels, and shows
+missing calendar evidence as unverified. Manual/owner/imported holds count once
+per night even when several reasons apply; all reported reasons remain visible.
+Posted minimum ranges describe the current response only. The summary does not
+persist data, update inventory, infer available nights, or authorize a sender.
+
+Changed implementation: `src/lib/calderwood-readonly/review-summary.ts`,
+`src/app/channels/staging/calderwood/page.tsx`, and the seven synthetic tests in
+`src/lib/__tests__/calderwood-review-summary.test.ts`.
+Validation: all 1,943 tests passed; nonincremental TypeScript, targeted ESLint
+and diff checks passed. No database, worker, provider, paid-service or production
+configuration change is part of this batch. Cleaner history/queue disposition,
+manual message holds and sender ownership still require authoritative evidence
+before controlled dispatch. Do not treat the calendar summary as that evidence.

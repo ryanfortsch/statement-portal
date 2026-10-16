@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
+import { summarizeCalderwoodReview } from '@/lib/calderwood-readonly/review-summary';
 import { notFound, redirect } from 'next/navigation';
 import { getGuestyToken } from '@/lib/guesty-client';
 import { calderwoodReadAllowed, loadCalderwoodRead } from '@/lib/calderwood-readonly/access';
@@ -13,7 +14,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   if (!calderwoodReadAllowed(session.user.email, env)) notFound();
   const params = await searchParams;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  const defaultEnd = new Date(Date.parse(today + 'T00:00:00Z') + 90 * 86400000).toISOString().slice(0, 10);
+  const defaultEnd = new Date(Date.parse(today + 'T00:00:00Z') + 365 * 86400000).toISOString().slice(0, 10);
   const from = typeof params.from === 'string' ? params.from : today;
   const to = typeof params.to === 'string' ? params.to : defaultEnd;
   let result: Awaited<ReturnType<typeof loadCalderwoodRead>> | null = null;
@@ -22,6 +23,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
     try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: true }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
     catch (e) { error = e instanceof Error ? e.message : 'Snapshot unavailable'; }
   }
+  const summary = result ? summarizeCalderwoodReview(result) : null;
   return <main className="mx-auto max-w-6xl space-y-6 p-6">
     <Link href="/channels/staging" className="text-sm underline">Back to staging workspace</Link>
     <header><p className="text-sm text-slate-500">Migration review · Read only</p><h1 className="text-2xl font-semibold">65 Calderwood</h1>
@@ -36,6 +38,28 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
     {error && <p role="alert" className="rounded border border-red-300 p-4 text-sm">{error}</p>}
     {result?.calendarError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Reservations loaded, but the calendar read failed. Pricing and block coverage remain unverified.</p>}
     {result?.stagingError && <p role="alert" className="rounded border border-amber-300 p-4 text-sm">Channex staging could not be verified. Its mapping, channel isolation, key access or calendar response needs review. Guesty results remain visible.</p>}
+    {summary && result && <section aria-labelledby="review-summary" className="space-y-4 rounded-lg border bg-white p-5">
+      <div><h2 id="review-summary" className="text-lg font-semibold">Booking and hold review</h2>
+        <p className="mt-1 text-sm text-slate-600">{from} to {to} (checkout excluded) · {summary.nightsRequested} nights · Read completed {new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(result.finishedAt))} New York time</p></div>
+      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {[['Confirmed stays', summary.reservations.confirmed], ['Nights in confirmed stays', summary.reservations.occupiedNights], ['Manual / owner / imported holds', summary.calendar ? `${summary.calendar.independentHoldNights} nights reported` : 'Unverified'], ['Calendar nights needing review', summary.calendar ? summary.calendar.issueNights + summary.calendar.missingNights : 'Unverified']].map(([label, value]) => <div key={label} className="rounded-lg bg-slate-50 p-3"><dt className="text-xs text-slate-600">{label}</dt><dd className="mt-1 text-lg font-semibold">{value}</dd></div>)}
+      </dl>
+      <p className="text-sm">{summary.reservations.total} records: {summary.reservations.statuses.map(s => `${s.count} ${s.status}`).join(' · ') || 'none returned'}.</p>
+      {summary.reservations.overlappingConfirmedNights > 0 && <p role="alert" className="rounded bg-amber-50 p-3 text-sm text-amber-950">{summary.reservations.overlappingConfirmedNights} nights have more than one confirmed record. Resolve booking identity before migration.</p>}
+      {summary.reservations.nonConfirmedSharingDates > 0 && <p className="rounded bg-amber-50 p-3 text-sm text-amber-950">{summary.reservations.nonConfirmedSharingDates} non-confirmed records share dates with confirmed stays. Keep the confirmed stay blocked; a cancellation or inquiry on the same dates does not release its nights.</p>}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2 text-sm"><h3 className="font-semibold">Calendar coverage</h3>
+          {summary.calendar ? <><p>{summary.calendar.returnedNights} of {summary.nightsRequested} nights returned · {summary.calendar.missingNights} missing · {summary.calendar.unknownBlockNights} with unknown block evidence.</p>
+            <p>Reported block reasons: {summary.calendar.reasons.map(r => `${r.reason}: ${r.nights}`).join(' · ') || 'none'}. A night can have multiple reasons.</p>
+            <p>{summary.calendar.minimums ? `Posted minimum stays range from ${summary.calendar.minimums.lowest} to ${summary.calendar.minimums.highest} nights across ${summary.calendar.minimums.knownNights} returned nights.` : 'Posted minimum stays are unverified.'} PriceLabs remains the source of dynamic rules; this snapshot does not prove delivery from PriceLabs or freeze those rules.</p></> : <p>Calendar evidence is unavailable. Booking counts alone cannot establish holds or availability.</p>}
+        </div>
+        <div className="space-y-2 text-sm"><h3 className="font-semibold">Sources reported by Guesty</h3>
+          <table className="w-full text-left"><thead><tr><th scope="col" className="pb-2">Source label</th><th scope="col" className="pb-2">Confirmed</th><th scope="col" className="pb-2">Other statuses</th></tr></thead><tbody>{summary.reservations.sources.map(s => <tr key={s.source} className="border-t"><th scope="row" className="py-1 font-normal">{s.source}</th><td>{s.confirmed}</td><td>{s.other}</td></tr>)}</tbody></table>
+          <p className="text-xs text-slate-500">Labels are preserved as returned. This does not verify a channel connection or decide how existing reservations will be serviced.</p>
+        </div>
+      </div>
+      <aside className="border-t pt-3 text-sm text-slate-700"><strong>Still needed before switching:</strong> current sent-message history, pending queues, manual send holds, and the handoff from Guesty. These calendar reads cannot verify them. Cleaner SMS history is not covered by Guesty’s guest-message panel. Live channel delivery and pricing need separate verification.</aside>
+    </section>}
     {result?.proposal && <section className="space-y-3 rounded-lg border border-slate-300 bg-white p-4">
       <h2 className="text-lg font-semibold">Proposed staging update</h2>
       <p className="text-sm">{result.proposal.rows.length} nights reviewed · {result.proposal.rows.filter(r => r.candidate).length} complete candidate nights · {result.proposal.status === 'incomplete' ? 'Incomplete evidence' : 'Awaiting restriction review'}</p>
