@@ -360,3 +360,94 @@ any live cutover. This remains a fixed synthetic fixture with `canSend: false`;
 there is no public webhook route, Render activation, real recipient, paid signup,
 production migration, or Guesty change. The old direct receipt helper remains
 only for existing fixture compatibility; new ingestion should use the inbox.
+
+
+## Receipt endpoint and scheduled processing batch, October 15
+
+Continued from `3d1d7759` on `codex/channex-staging-pilot`. Current remote main was
+verified as `b407531f7b0fedde82abec90bdcfae03100cbd4d`. This checkpoint implements
+and locally verifies the next batch; it does not push, deploy, register a real
+provider webhook, or activate a hosted process.
+
+`POST /api/webhooks/cleaner-rehearsal` uses the existing self-authenticating
+webhook namespace, so `src/proxy.ts` is unchanged. It is unavailable outside the
+exact pilot preview branch and isolated database configuration. It verifies the
+existing synthetic HMAC format in `x-helm-rehearsal-signature`, with an explicit
+test key that cannot fall back to the live Quo key. Only the two fictional
+recipients and rehearsal line are supported. This is a test endpoint, not a
+registered Quo production webhook.
+
+A request body is limited to 64 KiB of actual bytes and five seconds to read.
+Oversized, invalid, slow, aborted, unauthenticated and non-fictional requests
+cannot save a receipt. A 200 response means the normalized evidence was durably
+saved or confirmed as an identical duplicate; it does not mean a message was
+sent or delivered. An uncertain save returns 503 with Retry-After, allowing
+explicit redelivery to confirm a possibly committed receipt. Responses and logs
+exclude provider payloads, arbitrary exception text, credentials and contacts.
+
+The existing `scripts/channex-shared-worker.mts` has an optional receipt loop;
+no additional service or cron subscription is required by this design. Each cycle
+processes at most 25 inbox rows, with a 20-second abort deadline and five-second
+RPC deadlines. Pages run serially. A remaining cursor runs after five seconds;
+the end of a sweep returns to zero after one minute so earlier unmatched receipts
+are reconsidered. Failures reset the cursor and back off from one to fifteen
+minutes. A shutdown aborts outstanding fetches/waits. A lost process starts from
+zero and the durable deduplication prevents another delivery event. This loop
+only reconciles evidence; it never calls a message sender. Cycle logs report
+aggregate counts and success/failure. They are not a durable alerting system.
+
+Activation configuration, to be applied only to the isolated preview/worker:
+
+| Setting | Preview receipt endpoint | Existing staging worker |
+| --- | --- | --- |
+| `CHANNEX_CLEANER_RECEIPTS_ENABLED` | `true` | `true` |
+| `CHANNEX_STAGING_DB_PROJECT_REF` | `jgkblfozftcvymvwhhii` | same |
+| `CHANNEX_STAGING_DB_URL` | `https://jgkblfozftcvymvwhhii.supabase.co` | same |
+| `CHANNEX_STAGING_DB_SERVICE_KEY` | explicit staging service key | same |
+| `CHANNEX_STAGING_ENABLED` | `true` | existing worker configuration |
+| `VERCEL_ENV` / `VERCEL_GIT_COMMIT_REF` | `preview` / `codex/channex-staging-pilot` | `VERCEL_ENV` must be absent |
+| `CHANNEX_WORKER_MODE` | not used | `isolated-staging` |
+| `CHANNEX_CLEANER_RECEIPT_TEST_SIGNING_KEY` | fresh canonical base64 key, at least 32 random bytes | not needed |
+
+Keep the test signing key only in the preview environment and the trusted
+synthetic sender. Do not reuse provider secrets or print it. The existing
+`CHANNEX_WORKER_ONCE=yes` runs one receipt page for a controlled smoke check.
+Disabling `CHANNEX_CLEANER_RECEIPTS_ENABLED` closes intake and omits the receipt
+loop on the next deployment/process start; stored receipts and history remain.
+The endpoint's deployment-protection requirements still need checking before any
+external synthetic sender can reach the hosted preview. No bypass token is
+embedded or protection setting changed here.
+
+Validation: 1,936 application tests passed, TypeScript and targeted ESLint passed.
+Eleven new tests cover environment/authentication failures, body bounds and
+cancellation, acknowledgement timing, duplicate confirmation, uncertain writes,
+RPC cancellation, sequential paging, restart cursor behavior, backoff, one-shot
+execution and shutdown. The real PostgreSQL verifier now serves the handler over
+loopback HTTP: a simulated lost storage reply returned 503 after the commit;
+signed redelivery returned a duplicate acknowledgement and kept one pending
+receipt. That receipt survived database restart and later replayed once. The
+verifier also ran a scheduled page against the real local database, and all prior
+rollback/concurrency/privilege/restart checks passed. The HTTP server bypasses
+Next.js only for this injected local database harness; it exercises the actual
+handler and adapter code without hosted credentials. A separate loopback Next.js
+server compiled the actual route and proxy with synthetic auth and intake
+disabled: POST returned 404, and unsupported GET returned 405. No session or
+hosted database was used. `git diff --check` passed.
+
+Changed files:
+
+- `src/app/api/webhooks/cleaner-rehearsal/route.ts`
+- `src/lib/calderwood-rehearsal/cleaner-receipt-runtime.ts`
+- `src/lib/calderwood-rehearsal/cleaner-receipt-http.ts`
+- `src/lib/calderwood-rehearsal/cleaner-receipt-scheduler.ts`
+- `src/lib/__tests__/calderwood-cleaner-receipt-service.test.ts`
+- `scripts/channex-shared-worker.mts`
+- `scripts/verify-cleaner-receipt-inbox.mjs`
+- `SCHEMA.md`
+- this handoff document
+
+Remaining: deploy/configure this code on the existing isolated preview/worker and
+verify a hosted signed request plus scheduled replay. Current booking, hold,
+ownership and existing Guesty-send reconciliation still precede any real cleaner
+message or Calderwood cutover. No hosted settings, Guesty connections, paid
+subscriptions, or production data were changed in this batch.

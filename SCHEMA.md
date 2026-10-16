@@ -466,4 +466,7 @@ keyset reads and atomic delivery-history/receipt completion. All direct table
 access is revoked from application roles. Signature verification happens in the
 trusted TypeScript ingestion helper before storage; the database does not
 authenticate raw provider payloads. Unmatched receipts remain pending for later
-sweeps. No public receipt endpoint or live message transport is activated.
+sweeps. `/api/webhooks/cleaner-rehearsal` now implements signed synthetic intake,
+closed unless its explicit preview configuration is enabled. The existing staging
+worker has an optional bounded receipt drain. Neither was activated by this code
+checkpoint; there is no live message transport.

@@ -4,6 +4,10 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createServer } from 'node:http';
+import { Readable } from 'node:stream';
+import { handleCleanerReceipt } from '../src/lib/calderwood-rehearsal/cleaner-receipt-http.ts';
+import { runCleanerReceiptScheduler } from '../src/lib/calderwood-rehearsal/cleaner-receipt-scheduler.ts';
 import { createHmac, randomBytes } from 'node:crypto';
 import { createCleanerDeliveryDb } from '../src/lib/calderwood-rehearsal/cleaner-delivery-db.ts';
 import { createCleanerReceiptInboxDb, ingestCleanerDeliveryReceipt, drainCleanerReceiptInbox } from '../src/lib/calderwood-rehearsal/cleaner-receipt-inbox.ts';
@@ -15,7 +19,7 @@ const root = await mkdtemp(join(tmpdir(), 'helm-cleaner-inbox-'));
 const pg = new EmbeddedPostgres({ databaseDir: join(root, 'data'), port: 55442, user: 'postgres',
  password: randomBytes(24).toString('hex'), persistent: true,
  postgresFlags: ['-h', '127.0.0.1', '-k', root], onLog: () => {}, onError: () => {} });
-const clients = []; let running = false;
+const clients = []; let running = false, httpServer;
 const connect = async (service = false) => { const c = pg.getPgClient(); await c.connect(); clients.push(c);
  await c.query("set statement_timeout='8s'; set lock_timeout='6s'"); if (service) await c.query('set role service_role'); return c; };
 const restart = async () => { for (const c of clients) await c.end(); clients.length=0;
@@ -59,7 +63,27 @@ try {
  let owner=await connect(); await owner.query('create role anon; create role authenticated; create role service_role;');
  await owner.query(sql); await owner.query(inboxSql);
  let a=await connect(true), b=await connect(true), sa=stores(a), sb=stores(b);
- assert.equal((await ingestCleanerDeliveryReceipt({inbox:sa.inbox,...signed()})).status,'stored');
+ const env={CHANNEX_CLEANER_RECEIPTS_ENABLED:'true',CHANNEX_STAGING_ENABLED:'true',VERCEL_ENV:'preview',
+ VERCEL_GIT_COMMIT_REF:'codex/channex-staging-pilot',CHANNEX_STAGING_DB_PROJECT_REF:'jgkblfozftcvymvwhhii',
+ CHANNEX_STAGING_DB_URL:'https://jgkblfozftcvymvwhhii.supabase.co',CHANNEX_CLEANER_RECEIPT_TEST_SIGNING_KEY:key};
+ let loseReply=true;
+ httpServer=createServer(async(req,res)=>{
+  try {
+   const request=new Request('http://127.0.0.1/api/webhooks/cleaner-rehearsal',{method:req.method,headers:req.headers,
+    body:Readable.toWeb(req),duplex:'half'});
+   const response=await handleCleanerReceipt(request,{env,now:()=>now,save:async receipt=>{
+    const saved=await sa.inbox.enqueue(receipt); if(loseReply){loseReply=false;throw Error('simulated lost storage response');} return saved;
+   }});
+   res.writeHead(response.status,Object.fromEntries(response.headers));res.end(await response.text());
+  }catch{res.writeHead(500);res.end();}
+ });
+ await new Promise((resolve,reject)=>{httpServer.once('error',reject);httpServer.listen(0,'127.0.0.1',resolve);});
+ const send=()=>fetch(`http://127.0.0.1:${httpServer.address().port}/api/webhooks/cleaner-rehearsal`,{method:'POST',body:signed().rawBody,
+  headers:{'content-type':'application/json','x-helm-rehearsal-signature':signed().signature}});
+ const unconfirmed=await send();assert.equal(unconfirmed.status,503);await unconfirmed.json();
+ assert.equal((await sa.inbox.pending()).length,1);
+ const redelivery=await send();assert.equal(redelivery.status,200);assert.equal((await redelivery.json()).status,'duplicate');
+ console.log('PASS: real loopback HTTP refuses ACK after an uncertain save; signed redelivery confirms the persisted duplicate');
  assert.equal((await drainCleanerReceiptInbox(sa)).unmatched,1); assert.equal((await sa.delivery.read()).version,0);
  const stored=(await owner.query('select receipt from helm_cleaner_rehearsal.receipt_inbox')).rows;
  assert.deepEqual(stored,[{receipt:normalized()}]);
@@ -90,7 +114,10 @@ try {
  await assert.rejects(a.query('select public.helm_pilot_cleaner_receipt_apply($1,$2,$3)',[extra.id,history.version,bad]));
  assert.equal((await sa.inbox.pending()).length,1); assert.equal((await sa.delivery.read()).version,history.version);
  assert.equal((await a.query('select public.helm_pilot_cleaner_receipt_apply($1,$2,$3) as status',[extra.id,0,bad])).rows[0].status,'stale');
- assert.equal((await drainCleanerReceiptInbox(sa)).applied,1);
+ const cycles=[];
+ const scheduled=await runCleanerReceiptScheduler({signal:new AbortController().signal,once:true,log:entry=>cycles.push(entry),
+ drainPage:async cursor=>drainCleanerReceiptInbox({...sa,afterSequence:cursor,limit:25})});
+ assert.equal(scheduled.failed,false);assert.equal(cycles[0].applied,1);
  await owner.query(inboxSql);
  await assert.rejects(a.query('select * from helm_cleaner_rehearsal.receipt_inbox'),/permission denied/);
  const privilege=(await owner.query(`select has_function_privilege('anon','public.helm_pilot_cleaner_receipt_enqueue(jsonb)','execute') as anon,
@@ -104,6 +131,7 @@ try {
  assert.equal((await ingestCleanerDeliveryReceipt({inbox:sa.inbox,...signed()})).status,'duplicate');
  console.log('PASS: atomic match validation, setup reapply, restricted access and restart without replay');
 } finally {
+ if(httpServer)await new Promise(resolve=>httpServer.close(resolve));
  for(const c of clients) await c.end().catch(()=>{});
  if(running) await pg.stop();
  await rm(root,{recursive:true,force:true});
