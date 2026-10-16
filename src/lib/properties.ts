@@ -244,6 +244,21 @@ export const PROPERTIES: Record<string, Property> = {
     fee_pct: 18, bank_last4: '1232', listing_match: '3 windward',
     tax_cert_id: null,
   },
+  // Seeded 2026-10-16 from the Helm properties row. Signed 2026-10-15 as
+  // John R Erickson / 47 Atlantic LLC at 22%, term 2026-10-28 to
+  // 2027-12-31; handoff at the house 2026-10-26, first guest 2026-10-29 on
+  // the owner's own Airbnb booking, moved onto our listing. No Guesty
+  // listing, bank account or Stripe key yet: fill bank_last4 here and on
+  // the row once the Chase account opens. The tax cert the intake form
+  // landed (PIT-17079881-002) was a personal income tax account id, not a
+  // Room Occupancy certificate, and was cleared; backfill the real one.
+  '47_atlantic': {
+    id: '47_atlantic', name: '47 Atlantic', address: '47 Atlantic Road', city: 'Gloucester, MA',
+    owner_last: 'Erickson', owner_full: 'John Erickson, 47 Atlantic LLC', owner_greeting: 'John',
+    owner_emails: ['jre@amg.com'],
+    fee_pct: 22, bank_last4: null, listing_match: '47 atlantic',
+    tax_cert_id: null,
+  },
 };
 
 // 65 Calderwood Ln and 3246 NE 27th Ave are Ryan's personal properties and
