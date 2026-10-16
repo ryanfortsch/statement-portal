@@ -17,7 +17,7 @@ function instant(value: unknown): number | null {
   const at = Date.parse(value);
   return Number.isFinite(at) ? at : null;
 }
-export type CalderwoodTiming = { arrivalAt: string | null; departureAt: string | null; issues: string[] };
+export type CalderwoodTiming = { arrivalAt: string | null; departureAt: string | null; issues: string[]; clockVerified: boolean };
 
 /** Top-level and sole stay segment must independently agree, including the local stay date. */
 export function normalizeCalderwoodTiming(input: {
@@ -40,6 +40,9 @@ export function normalizeCalderwoodTiming(input: {
   return {
     arrivalAt: read(input.arrival, input.stayArrival, input.start, 'Arrival'),
     departureAt: read(input.departure, input.stayDeparture, input.end, 'Departure'), issues,
+    // Matching fields do not establish timezone semantics. The live search feed
+    // disagrees with Guesty's visible automation clock; independent evidence is required.
+    clockVerified: false,
   };
 }
 
@@ -61,7 +64,7 @@ function minutesBefore(at: string | null, minutes: number) {
 export function reviewCalderwoodMessageTiming(reservation: { status: string; timing: CalderwoodTiming }, now: Date) {
   if (!Number.isFinite(now.getTime())) throw Error('Valid timing review time required');
   // No inferred confirmation instant from createdAt, bookingDate or channel timestamps.
-  const timing = reservation.status === 'confirmed' ? reservation.timing : { arrivalAt: null, departureAt: null };
+  const timing = reservation.status === 'confirmed' && reservation.timing.clockVerified ? reservation.timing : { arrivalAt: null, departureAt: null };
   const rows = [
     { key: 'confirmation', label: 'Reservation confirmation', audience: 'Guest', at: null, offset: '30 minutes after confirmation' },
     { key: 'pre_arrival', label: 'Check-in instructions', audience: 'Guest', at: daysBefore(timing.arrivalAt, 1), offset: '1 day before arrival' },

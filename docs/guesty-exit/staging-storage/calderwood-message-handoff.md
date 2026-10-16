@@ -670,3 +670,34 @@ The existing reader test now checks that missing timing is explicit.
 
 Validation: 1,950 tests passed, nonincremental TypeScript passed, targeted ESLint
 and diff checks passed. Hosted verification is recorded separately after build.
+
+
+### Hosted finding: source clock discrepancy
+
+Build `bf4f300c` reached Ready in preview deployment
+`dpl_GzEE2SSSxTQrbsKLTvuXo1dYFRXj`. The fresh read at
+`2026-10-16T14:54:40.683Z` returned timing for all six confirmed stays. However,
+the sampled current stay's timestamps interpreted according to the API's UTC
+schema produced noon arrival and 7 AM departure in New York. The Guesty UI
+instructions independently showed 4 PM arrival and 11 AM departure, consistent
+with the existing workflow evidence. Winter stays also exhibited a five-hour
+difference from the listing defaults. The cause is not established.
+
+The follow-up explicitly marks the API clock unverified and withholds all live
+message-time proposals. The screen labels converted timestamps as API
+interpretations and explains the mismatch. No offset correction, assumed local
+clock, or default time is substituted. Merely agreeing with the stay segment
+is insufficient evidence: both fields may carry the same upstream ambiguity.
+An additional regression ensures an unverified clock produces six unverified
+rows and no send permission. The pure arithmetic tests use explicitly verified
+fictional clocks; no live record receives that status.
+
+Next implementation work is an independent, minimal reservation-time read and
+comparison with the visible Guesty schedule. Resolve the source semantics before
+feeding any timing into the handoff or dispatch worker. The replacement workflow
+remains closed to live sends. Production Channex access, source queue/history
+and pricing delivery remain separate unresolved requirements.
+
+Follow-up validation: all 1,951 tests passed; nonincremental TypeScript, targeted
+ESLint and diff checks passed. The discrepancy is exposed in the protected
+preview only; Guesty still controls all actual message delivery.

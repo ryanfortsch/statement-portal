@@ -8,11 +8,11 @@ const input = {
   start: '2027-01-15', end: '2027-01-18',
 };
 const now = new Date('2027-01-01T00:00:00Z');
-const review = (i = input, date = now, status = 'confirmed') => reviewCalderwoodMessageTiming({ status, timing: normalizeCalderwoodTiming(i) }, date);
+const review = (i = input, date = now, status = 'confirmed') => reviewCalderwoodMessageTiming({ status, timing: { ...normalizeCalderwoodTiming(i), clockVerified: true } }, date);
 const get = (rows: ReturnType<typeof review>, key: string) => rows.find(row => row.key === key)!;
 
 test('normalization checks both source timestamps and local date without inventing defaults', () => {
-  assert.deepEqual(normalizeCalderwoodTiming(input), { arrivalAt: '2027-01-15T21:00:00.000Z', departureAt: '2027-01-18T16:00:00.000Z', issues: [] });
+  assert.deepEqual(normalizeCalderwoodTiming(input), { arrivalAt: '2027-01-15T21:00:00.000Z', departureAt: '2027-01-18T16:00:00.000Z', issues: [], clockVerified: false });
   for (const arrival of [null, undefined, 16, '16:00', '2027-01-15T21:00:00', '2027-02-30T21:00:00Z', '2027-01-15T21:00:15Z', '2027-01-15T21:00:00.100Z']) {
     const result = normalizeCalderwoodTiming({ ...input, arrival });
     assert.equal(result.arrivalAt, null);
@@ -85,4 +85,14 @@ test('GET reader keeps timing from the existing response and discards private ex
   assert.deepEqual(result.reservations[0].timing, normalizeCalderwoodTiming(input));
   assert.equal(JSON.stringify(result).includes('PRIVATE'), false);
   assert.equal(get(reviewCalderwoodMessageTiming(result.reservations[0], now), 'confirmation').at, null);
+});
+
+
+test('matching API timestamps cannot verify their own clock or produce a live message schedule', () => {
+  const timing = normalizeCalderwoodTiming(input);
+  assert.equal(timing.clockVerified, false);
+  const rows = reviewCalderwoodMessageTiming({ status: 'confirmed', timing }, now);
+  assert.equal(rows.length, 6);
+  assert.ok(rows.every(row => row.at === null && row.canSend === false));
+  assert.ok(rows.every(row => row.review === 'Timing unverified'));
 });
