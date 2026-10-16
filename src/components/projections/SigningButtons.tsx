@@ -172,6 +172,41 @@ export function CountersignButton() {
 }
 
 /**
+ * "Send to owner" / "Resend" beside a sealed copy on the prospect page's
+ * Signing panel (sendContractCopy). A first send is the ink button: the
+ * copy never reached the owner and should. A resend is quieter and
+ * confirms first, so a stray click does not put a second copy in the
+ * owner's inbox.
+ */
+export function SendCopyButton({ resend }: { resend: boolean }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      onClick={(e) => {
+        if (resend && !window.confirm('Email this copy to the owner again?')) e.preventDefault();
+      }}
+      style={{
+        background: resend ? 'transparent' : 'var(--ink)',
+        color: resend ? 'var(--ink-3)' : 'var(--paper)',
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        padding: '8px 14px',
+        border: resend ? '1px solid var(--rule)' : '1px solid var(--ink)',
+        cursor: pending ? 'wait' : 'pointer',
+        whiteSpace: 'nowrap',
+        opacity: pending ? 0.6 : 1,
+      }}
+    >
+      {pending ? 'Sending…' : resend ? 'Resend' : 'Send to owner'}
+    </button>
+  );
+}
+
+/**
  * "Withdraw signature" on the prospect page's Signing panel. Takes back a
  * signed-but-not-countersigned owner signature so the locked terms can
  * change. Confirms first: the owner then has to sign again.
