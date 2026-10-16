@@ -85,6 +85,13 @@ import {
 } from './forecast-shared-inventory';
 
 export type { AnnualBasis } from './forecast-shared-inventory';
+import {
+  isOffSeasonMonth,
+  offSeasonFactor,
+  previousMonth,
+  realizedForShoulder,
+  shoulderMonthFor,
+} from './forecast-off-season';
 
 /**
  * Ceiling on the pacing scale-up.
@@ -191,6 +198,16 @@ export type SmartPropertyForecast = {
   };
   /** The annual gross Part B spreads across the year. */
   annualGross: number;
+  /**
+   * The share of the market curve this home's off-season carries, read
+   * from its shoulder month (forecast-off-season.ts): 1 when the home runs
+   * at or above the curve or nothing is known, below 1 when its October (or
+   * whichever shoulder month) is under what the curve expected of it. Part
+   * B in every month outside June to September is scaled by it.
+   */
+  offSeasonFactor: number;
+  /** The YYYY-MM the factor was read from, or null when none applied. */
+  offSeasonMonth: string | null;
   /**
    * 'pacing' when the property's own forward bookings set it, 'statements'
    * when its closed statements floored it higher, 'portfolio' when it had no
@@ -335,12 +352,17 @@ export async function getBookedByPropertyByMonth(
     return { bookedByPropMonth: new Map(), properties: [] };
   }
 
-  // Window: from start of first forward month to end of last forward month.
+  // Window: from the start of the month BEFORE the first forward month to
+  // the end of the last forward month. The month just finished is kept so
+  // the off-season factor (forecast-off-season.ts) can read a complete
+  // shoulder month during the first half of the next one; it is never a
+  // forward month and nothing projects for it.
   const firstMonth = forwardMonthList[0];
+  const priorMonth = previousMonth(firstMonth);
   const lastMonth = forwardMonthList[forwardMonthList.length - 1];
-  const [fy, fm] = firstMonth.split('-').map((s) => parseInt(s, 10));
+  const [py, pm] = priorMonth.split('-').map((s) => parseInt(s, 10));
   const [ly, lm] = lastMonth.split('-').map((s) => parseInt(s, 10));
-  const windowStart = ymd(new Date(fy, fm - 1, 1));
+  const windowStart = ymd(new Date(py, pm - 1, 1));
   // exclusive upper bound = first day of month-after-last
   const windowEndExclusive = ymd(new Date(ly, lm, 1));
 
@@ -447,7 +469,7 @@ export async function getBookedByPropertyByMonth(
       const nightsInMonth = nightsBetween(ymd(overlapStart), ymd(overlapEnd));
       if (nightsInMonth > 0) {
         const ym = `${cy}-${String(cm + 1).padStart(2, '0')}`;
-        if (forwardMonthList.includes(ym)) {
+        if (ym === priorMonth || forwardMonthList.includes(ym)) {
           let propMap = bookedByPropMonth.get(r.property_id);
           if (!propMap) {
             propMap = new Map();
@@ -592,6 +614,18 @@ export function computeSmartForecast(
   const today = new Date();
   const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 
+  // The off-season is read from the shoulder month: the current month from
+  // its 15th (bookings plus the pace-up on the days still ahead), the month
+  // just finished before that (its final bookings, kept in the map by the
+  // loader). Null in summer, which teaches nothing about the off-season.
+  const shoulder = shoulderMonthFor(today);
+  const shoulderRemaining = (() => {
+    if (!shoulder || !shoulder.current) return 0;
+    const [y, m] = shoulder.month.split('-').map((s) => parseInt(s, 10));
+    const dim = daysInMonth(y, m);
+    return Math.max(0, Math.min(1, (dim - today.getDate() + 1) / dim));
+  })();
+
   // ── Pass 2 — blend Part A and Part B per property × month ───────────
   const propsForecast: SmartPropertyForecast[] = mgmtProps.map((p) => {
     const propBooked = bookedByPropMonth.get(p.id) ?? new Map();
@@ -623,6 +657,22 @@ export function computeSmartForecast(
       ? `${activated.getFullYear()}-${String(activated.getMonth() + 1).padStart(2, '0')}`
       : null;
 
+    // This home's own off-season: what its shoulder month is on course to
+    // do against what the curve expected of it. Part B outside June to
+    // September carries that share. A home activated after the shoulder
+    // month began, or closed in it, learns nothing.
+    let offFactor = 1;
+    let offMonth: string | null = null;
+    if (shoulder && annualGross > 0 && !(activatedYM != null && shoulder.month < activatedYM) && isOperating(p.id, shoulder.month)) {
+      const cell = propBooked.get(shoulder.month);
+      const booked = cell?.revenue ?? 0;
+      const realized = realizedForShoulder({ booked, paceA: partA.get(shoulder.month) ?? null, remaining: shoulderRemaining });
+      const [, sm] = shoulder.month.split('-').map((s) => parseInt(s, 10));
+      const expected = annualGross * (revenueShare[sm - 1] ?? 0) * operatingFactor(p.id, shoulder.month);
+      offFactor = offSeasonFactor(realized, expected);
+      offMonth = shoulder.month;
+    }
+
     const monthly: SmartPropertyMonth[] = forwardMonthList.map((ym) => {
       const preActivation = activatedYM != null && ym < activatedYM;
 
@@ -645,7 +695,9 @@ export function computeSmartForecast(
       let projectedGross: number;
       {
         const a = partA.get(ym) ?? null;
-        const partB = annualGross * (revenueShare[monthIdx] ?? 0);
+        // Outside June to September the curve's share is scaled to what this
+        // home's own shoulder month showed (offFactor, 1 when unknown).
+        const partB = annualGross * (revenueShare[monthIdx] ?? 0) * (isOffSeasonMonth(ym) ? offFactor : 1);
         // 50/50 when the month has bookings; 100% Part B when it doesn't.
         projectedGross = a != null ? 0.5 * a + 0.5 * partB : partB;
 
@@ -724,7 +776,7 @@ export function computeSmartForecast(
       }),
       { bookedRevenue: 0, projectedGross: 0, projectedMgmtFee: 0 }
     );
-    return { property: p, monthly, totals, annualGross, annualBasis };
+    return { property: p, monthly, totals, annualGross, annualBasis, offSeasonFactor: offFactor, offSeasonMonth: offMonth };
   });
 
   const totals = propsForecast.reduce(
