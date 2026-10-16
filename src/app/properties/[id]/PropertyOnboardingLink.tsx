@@ -173,11 +173,14 @@ export function PropertyOnboardingLink({
   };
 
   return (
-    <div style={{ marginTop: 24, paddingTop: 18, borderTop: '1px dotted var(--rule)' }}>
-      <div className="eyebrow" style={{ marginBottom: 10 }}>Owner onboarding intake</div>
+    <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px dotted var(--rule)' }}>
+      {/* One row: the eyebrow leads, then the link controls, then the invite
+          button, then the one line of status or hint. It used to be three
+          stacked rows with a paragraph beside the first button. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, rowGap: 8, flexWrap: 'wrap' }}>
+        <span className="eyebrow" style={{ marginRight: 4 }}>Owner onboarding intake</span>
 
-      {!token ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        {!token ? (
           <button
             type="button"
             onClick={onGenerate}
@@ -186,21 +189,15 @@ export function PropertyOnboardingLink({
           >
             {pending ? 'Generating…' : 'Generate onboarding link'}
           </button>
-          <span style={{ fontSize: 12, color: 'var(--ink-3)', maxWidth: 480, lineHeight: 1.55 }}>
-            Creates a unique public form URL the owner can fill in. Their answers
-            land back on this property record.
-          </span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        ) : (
+          <>
             <input
               id={`onboarding-url-${propertyId}`}
               readOnly
               value={`/onboarding/${token}`}
               onFocus={(e) => e.currentTarget.select()}
               className="font-mono"
-              style={{ fontSize: 12, color: 'var(--ink)', background: 'var(--paper-2)', border: '1px solid var(--rule)', padding: '8px 12px', minWidth: 280, flex: 1, outline: 'none' }}
+              style={{ fontSize: 12, color: 'var(--ink)', background: 'var(--paper-2)', border: '1px solid var(--rule)', padding: '8px 12px', flex: '1 1 240px', minWidth: 0, outline: 'none' }}
             />
             <button type="button" onClick={onCopy} style={{ ...uppercaseBtn, color: 'var(--ink)', background: 'transparent', border: '1px solid var(--rule)' }}>
               {copied ? 'Copied ✓' : 'Copy link'}
@@ -213,16 +210,11 @@ export function PropertyOnboardingLink({
             >
               Preview ↗
             </a>
-          </div>
-          <span style={{ fontSize: 12, color: submittedAt ? 'var(--positive)' : 'var(--ink-4)', letterSpacing: '.04em' }}>
-            {statusLine}
-          </span>
-        </div>
-      )}
+          </>
+        )}
 
-      {/* Draft the invite email to the owner (opens a preview, then creates a
-          Gmail draft the operator reviews and sends). */}
-      <div style={{ marginTop: 14, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Draft the invite email to the owner (opens a preview, then creates a
+            Gmail draft the operator reviews and sends). */}
         <button
           type="button"
           onClick={onOpenPreview}
@@ -238,8 +230,18 @@ export function PropertyOnboardingLink({
         >
           {preparing ? 'Preparing…' : '✉ Draft email to owner'}
         </button>
+
+        {token ? (
+          <span style={{ fontSize: 12, color: submittedAt ? 'var(--positive)' : 'var(--ink-4)', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>
+            {statusLine}
+          </span>
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+            A public form the owner fills in; the answers land on this record.
+          </span>
+        )}
         {!hasOwnerEmail && (
-          <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Add an owner email above to enable.</span>
+          <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>Add an owner email above to enable the invite.</span>
         )}
       </div>
 

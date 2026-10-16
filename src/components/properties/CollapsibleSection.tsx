@@ -76,7 +76,9 @@ export function CollapsibleSection({
   return (
     <>
       <style>{css}</style>
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+      {/* 18px, not 36: six of these stack per tab, and with most of them
+          closed the old gap read as a page of air between headlines. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 18, width: '100%' }}>
         {/* The hairline rule lives on this wrapper (not the <details>) so
             the headerAction can sit beside the <details> as a sibling flex
             item on the same header row. It cannot go inside <summary>:
@@ -99,7 +101,7 @@ export function CollapsibleSection({
           >
             <summary
               style={{
-                padding: '14px 0 12px',
+                padding: '12px 0 10px',
                 display: 'flex',
                 alignItems: 'baseline',
                 justifyContent: 'space-between',
@@ -156,7 +158,7 @@ export function CollapsibleSection({
                 </span>
               </span>
             </summary>
-            <div style={{ paddingTop: 6, paddingBottom: 22 }}>{children}</div>
+            <div style={{ paddingTop: 4, paddingBottom: 16 }}>{children}</div>
           </details>
           {headerAction != null && (
             <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'baseline' }}>
