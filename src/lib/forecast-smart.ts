@@ -60,10 +60,12 @@
  * and capped at 2.5x. It projected the homes onboarded in June to August to
  * earn less next August than the August they had just closed while still
  * ramping. So the annual gross is now floored at what the property's own
- * closed statements imply (forecast-statement-floor.ts): the latest closed
- * full month annualized on its share, or the whole closed record, whichever
- * is larger, and only once a property has two closed full months. A floor
- * only raises; with no statements the model runs exactly as before.
+ * closed statements imply (forecast-statement-floor.ts): while a home is
+ * still ramping (two or three closed full months), the larger of its latest
+ * closed full month annualized on its share and its whole closed record;
+ * from four closed full months, the whole record alone, so one strong month
+ * cannot set the year (2026-10-15). A floor only raises; with no statements
+ * the model runs exactly as before.
  */
 
 import { supabaseAdmin as supabase } from './supabase-admin';

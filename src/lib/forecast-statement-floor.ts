@@ -27,13 +27,16 @@
  * the floor bites slightly less often than it would on one basis, never
  * more. Netting the pace down is a change to the pacing model, not to this.
  *
- * The floor is the larger of two readings of the closed months:
+ * The floor is one of two readings of the closed months:
  *
  *   run rate      the LATEST closed full month annualized on its own share.
  *                 This is the reading that answers "they were still ramping":
  *                 the latest month is the best evidence of where a property
  *                 has got to, and earlier ramp months are not averaged in.
- *                 By design it can rest on one month.
+ *                 By design it can rest on one month, which is why it is
+ *                 only applied while a home is still ramping: with fewer
+ *                 than RECORD_ONLY_AT_MONTHS closed full months the floor is
+ *                 the larger of the two readings.
  *   whole record  every closed full month annualized together, minus the
  *                 property's first closed month once there are three or
  *                 more. A first month is never full evidence: onboardings
@@ -41,7 +44,15 @@
  *                 April 2026, so the original six file a thin April. This
  *                 reading keeps the summer's information once the latest
  *                 month is a shoulder month, so the floor does not decay
- *                 through autumn.
+ *                 through autumn. Once a home has RECORD_ONLY_AT_MONTHS
+ *                 closed full months it is no longer ramping and this
+ *                 reading stands alone: a single strong month can no longer
+ *                 set the year. Decided 2026-10-15, when 17 Beach's September
+ *                 ($34,042 at the curve's 9.5% share) annualized to $358,560
+ *                 against $268,330 on its whole summer, a third above the
+ *                 home's own curve, and projected $14,177 of gross for a
+ *                 January with nothing booked. The same rule had lifted
+ *                 20 Enon, 21 Horton, 3 South, 30 Woodward and 79 Main.
  *
  * Guards, each of which only ever withholds a floor:
  *
@@ -61,6 +72,13 @@
  */
 
 export const MIN_STATEMENT_MONTHS = 2;
+
+/**
+ * Closed full months at which a home stops counting as ramping: from here
+ * the whole-record reading is the floor and the latest month's own
+ * annualization is reported but no longer applied.
+ */
+export const RECORD_ONLY_AT_MONTHS = 4;
 
 export type StatementFloorInput = {
   /** YYYY-MM -> the gross the fee was billed on for that closed month. */
@@ -131,8 +149,11 @@ export function statementFloor(input: StatementFloorInput): StatementFloor {
   const recordAnnual = shares > 0 ? gross / shares : 0;
   const latest = months[months.length - 1];
   const latestAnnual = (grossByMonth.get(latest) ?? 0) / share(latest);
+  // Ramping (two or three months): the latest month may carry. Settled
+  // (four or more): the record alone, so one strong month cannot set the year.
+  const annual = months.length >= RECORD_ONLY_AT_MONTHS ? recordAnnual : Math.max(recordAnnual, latestAnnual);
   return {
-    annual: Math.max(recordAnnual, latestAnnual),
+    annual,
     months,
     latestAnnual,
     recordAnnual,

@@ -8,7 +8,7 @@
  *
  * Run: node --experimental-strip-types scripts/forecast_statement_floor_check.mjs
  */
-import { statementFloor, MIN_STATEMENT_MONTHS } from '../src/lib/forecast-statement-floor.ts';
+import { statementFloor, MIN_STATEMENT_MONTHS, RECORD_ONLY_AT_MONTHS } from '../src/lib/forecast-statement-floor.ts';
 
 let failures = 0;
 const fail = (m) => { failures++; console.log(`FAIL  ${m}`); };
@@ -19,6 +19,47 @@ const SHARE = [4.0, 4.6, 5.2, 5.9, 7.2, 10.6, 15.5, 15.7, 9.5, 11.8, 5.4, 4.7].m
 const M = (o) => new Map(Object.entries(o));
 
 if (MIN_STATEMENT_MONTHS !== 2) fail(`MIN_STATEMENT_MONTHS is ${MIN_STATEMENT_MONTHS}, the docblock promises 2`);
+if (RECORD_ONLY_AT_MONTHS !== 4) fail(`RECORD_ONLY_AT_MONTHS is ${RECORD_ONLY_AT_MONTHS}, decided as 4 on 2026-10-15`);
+
+/* 17 Beach, six closed months, a September a third above its own curve: the
+   latest-month reading ($358,560) must no longer set the year; the record
+   ($268,330) stands. Decided 2026-10-15. */
+{
+  const f = statementFloor({
+    grossByMonth: M({ '2026-04': 919, '2026-05': 11615, '2026-06': 20716, '2026-07': 55326, '2026-08': 35272, '2026-09': 34042 }),
+    revenueShare: SHARE,
+  });
+  const latest = 34042 / SHARE[8];
+  const record = (11615 + 20716 + 55326 + 35272 + 34042) / (SHARE[4] + SHARE[5] + SHARE[6] + SHARE[7] + SHARE[8]);
+  if (!near(f.latestAnnual, latest)) fail(`17 Beach latest ${f.latestAnnual.toFixed(0)} != ${latest.toFixed(0)} (still reported)`);
+  if (!near(f.recordAnnual, record)) fail(`17 Beach record ${f.recordAnnual.toFixed(0)} != ${record.toFixed(0)}`);
+  if (!near(f.annual, record)) fail(`17 Beach floor must be the record once it has ${RECORD_ONLY_AT_MONTHS}+ months, got ${f.annual.toFixed(0)} (latest ${latest.toFixed(0)})`);
+  if (f.annual > 300000) fail(`17 Beach floor ${f.annual.toFixed(0)} still rests on September`);
+}
+
+/* Three closed months is still ramping: a strong latest month carries
+   (84 Thatcher with July, August and a strong September). */
+{
+  const f = statementFloor({
+    grossByMonth: M({ '2026-07': 9796, '2026-08': 32532, '2026-09': 40000 }),
+    revenueShare: SHARE,
+    activatedAt: '2026-06-15T00:00:00+00:00',
+  });
+  const latest = 40000 / SHARE[8];
+  if (!near(f.annual, latest)) fail(`three months is ramping: the latest reading must carry, got ${f.annual.toFixed(0)} vs ${latest.toFixed(0)}`);
+}
+
+/* At four months the record takes over even when the latest reading is larger. */
+{
+  const f = statementFloor({
+    grossByMonth: M({ '2026-06': 4000, '2026-07': 20000, '2026-08': 30000, '2026-09': 20000 }),
+    revenueShare: SHARE,
+  });
+  const latest = 20000 / SHARE[8];
+  const record = (20000 + 30000 + 20000) / (SHARE[6] + SHARE[7] + SHARE[8]);
+  if (!(latest > record)) fail('fixture: the latest reading was meant to exceed the record');
+  if (!near(f.annual, record)) fail(`four months is settled: the record must stand, got ${f.annual.toFixed(0)} vs ${record.toFixed(0)}`);
+}
 
 /* 84 Thatcher: activated 2026-06-15, July was a ramp month, August was not.
    32,532 is the billed fee base (8,132.94 / 25%), which is what the loader
@@ -123,5 +164,5 @@ if (MIN_STATEMENT_MONTHS !== 2) fail(`MIN_STATEMENT_MONTHS is ${MIN_STATEMENT_MO
   if (f.annual !== 0) fail(`a lone positive month next to zeros must not floor, got ${f.annual}`);
 }
 
-if (failures === 0) console.log('OK    statement floor: run rate or whole record (first month dropped), two-month minimum, full months only, empty record is inert');
+if (failures === 0) console.log('OK    statement floor: run rate while ramping (two or three months), the whole record (first month dropped) from four, two-month minimum, full months only, empty record is inert');
 process.exit(failures ? 1 : 0);
