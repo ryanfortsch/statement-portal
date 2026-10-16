@@ -451,3 +451,86 @@ verify a hosted signed request plus scheduled replay. Current booking, hold,
 ownership and existing Guesty-send reconciliation still precede any real cleaner
 message or Calderwood cutover. No hosted settings, Guesty connections, paid
 subscriptions, or production data were changed in this batch.
+
+
+## Hosted receipt activation, October 15
+
+User authorized deploying and verifying the existing isolated preview and Render
+worker. Branch `codex/channex-staging-pilot`, base `a148b0e6`; remote main was
+verified as `f2b1ce6f1687f389a6c0d55cf8d8cf7b6c18a8cd`. Code source deployed to both
+services is `ce3106bcf2677795373c6240444e3a15e86d7bd9`, following `099f2f22`.
+The packaging correction adds `src/lib/calderwood-rehearsal` to the worker image;
+without it the new static imports could not resolve. Existing full-app manifests
+and worker dependencies were unchanged.
+
+Deployment evidence:
+
+- Vercel preview `dpl_241hkEozkz1vHC1WVcF4EGb5y3VJ`, Ready:
+  https://rising-tide-statements-e4na5m9mg-rising-tide-fc584d5d.vercel.app
+  The existing pilot branch alias points to this deployment.
+- Render service `srv-db05t2id0e5s73a7r8gg`, deployment
+  `dep-db8no18n74is73c5jslg`, live October 15 at 9:21 PM America/New_York:
+  https://dashboard.render.com/worker/srv-db05t2id0e5s73a7r8gg/deploys/dep-db8no18n74is73c5jslg
+  This replaces prior worker source `a14214e128e1b2f7e62dd4c693ce2134a04fd4a0`.
+- The worker's real Node 24 container installed ten packages and reported zero
+  known dependency vulnerabilities at build time. Startup produced a successful
+  receipt cycle and successful front/back message scans; booking sync reported
+  `published: 0`.
+
+Configured only two new preview variables, scoped to this Git branch:
+`CHANNEX_CLEANER_RECEIPTS_ENABLED=true` and a fresh test-only
+`CHANNEX_CLEANER_RECEIPT_TEST_SIGNING_KEY`. The trusted local test sender retains
+its key in the ignored `.channex-staging/cleaner-receipt-signing-key` file with
+mode 0600. No key or signature is in this document, source control, or logs.
+The existing worker gained `CHANNEX_CLEANER_RECEIPTS_ENABLED=true` and
+`CHANNEX_STAGING_DB_PROJECT_REF=jgkblfozftcvymvwhhii`; existing credentials and
+DB URL were retained. Its compiled-in staging mode and exact database guards
+passed at startup. The signing key is not installed on the worker.
+
+Hosted acceptance:
+
+1. Direct unauthenticated HTTP returned Vercel deployment protection's 401.
+   Protection was retained. Requests through the authenticated `vercel curl`
+   CLI reached the route, which independently rejected an unsigned receipt
+   with 401 `Receipt authentication rejected`.
+2. The read-only private-schema baseline was version 5, five events, no pending
+   receipts, and no row/event for `HELMTEST-hosted-http-20261015`.
+3. A fresh HMAC-signed fictional `message.delivered` receipt for existing provider
+   `HELMTEST-hosted-provider-b` and recipient `HELMTEST-cleaner-b` returned
+   200 `{"status":"stored","canSend":false}`. Identical redelivery returned
+   200 `{"status":"duplicate","canSend":false}`.
+4. At `2026-10-16T01:25:30.853Z` the running worker logged `scanned: 1`,
+   `applied: 1`, zero failures/unmatched/stale and cursor zero. No manual drain
+   was invoked.
+5. A fresh read-only query confirmed ledger version 6, six events, exactly one
+   test receipt row, applied version 6, exactly one corresponding history event,
+   and zero pending receipts. Anonymous enqueue permission remained false.
+   The next scheduled cycle at `01:26:31.057Z` applied zero additional events.
+
+The existing provider attempt was already marked delivered by prior rehearsal
+work. This test adds a distinct evidence event and proves signed HTTP ingestion,
+durable deduplication and automatic matching/application. It does not represent
+a new SMS, a real provider callback, or a new recipient delivery. No phone
+numbers, message bodies, real channel connection or sender were used.
+
+Validation for the packaging commit: all 1,936 application tests passed;
+`npx tsc --noEmit --incremental false` and `git diff --check` passed. A clean
+local directory assembled from the Dockerfile COPY instructions installed only
+the worker lockfile dependencies and resolved every import, then correctly
+stopped at the missing explicit staging-mode guard without credentials. Docker
+is unavailable locally; the actual Render build subsequently passed. This final
+handoff/SCHEMA update is documentation-only and does not require another test run.
+Screenshot proof: `/tmp/calderwood-hosted-receipt-worker-verified.png`.
+
+No new paid service or subscription was added. Guesty remains connected, and
+no live guest/cleaner message, main merge, or production deployment occurred.
+Automatic approval review declined revealing a masked Render value; that read
+was abandoned. Startup guard validation established the target without exposing
+or replacing existing credentials, so no deployment work remained blocked.
+
+Next: complete the current-booking/hold/ownership and existing Guesty-send
+reconciliation needed before any controlled cleaner dispatch. Production
+Channex access/costs, dynamic PriceLabs propagation, real channel delivery,
+access-code provisioning, outage operations and contract exit remain separate
+live-cutover gates. Do not register a live provider against this protected,
+fictional-only preview endpoint.
