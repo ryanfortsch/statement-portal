@@ -455,4 +455,15 @@ and `helm_pilot_cleaner_delivery_append` provide read and versioned append acces
 ordinary signed-in and anonymous clients have none. Setup is in
 `docs/guesty-exit/staging-storage/cleaner-delivery.sql`. The TypeScript adapter
 validates the full delivery lifecycle before appending. This is separate from
-`public.automation_sends` and has no durable inbox for unmatched receipts yet.
+`public.automation_sends`.
+
+The same private schema's `receipt_inbox` stores a sequence, unique receipt ID,
+normalized fictional receipt IDs, received time and nullable applied version.
+Setup is in `docs/guesty-exit/staging-storage/cleaner-receipts.sql`. Service-only
+RPCs `helm_pilot_cleaner_receipt_enqueue`, `helm_pilot_cleaner_receipt_pending`
+and `helm_pilot_cleaner_receipt_apply` provide deduplicated ingestion, bounded
+keyset reads and atomic delivery-history/receipt completion. All direct table
+access is revoked from application roles. Signature verification happens in the
+trusted TypeScript ingestion helper before storage; the database does not
+authenticate raw provider payloads. Unmatched receipts remain pending for later
+sweeps. No public receipt endpoint or live message transport is activated.

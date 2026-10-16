@@ -287,3 +287,76 @@ the real PostgreSQL worker/restart verifier passed. Changed files:
 - `scripts/verify-cleaner-delivery-db.mjs`
 - `SCHEMA.md`
 - this handoff document
+
+
+## Batched durable receipt milestone, October 15
+
+The user requested multiple steps per milestone rather than stopping after each
+small change. This batch covers durable early-receipt ingestion, atomic replay,
+duplicate handling, restart recovery, and isolated hosted verification.
+Continued from `8a6c58fe3123dd8e842b5505e691bc1f923ac74f` on
+`codex/channex-staging-pilot`; current remote main was verified as
+`75dfcb09c9781af8ca6351e9fe017d912e37d3e7`. No main update or branch push occurred.
+
+`cleaner-receipt-inbox.ts` verifies a synthetic signature and awaits durable
+storage before returning `canAcknowledge: true`. Only receipt, provider and
+recipient IDs persist. An uncertain write cannot be acknowledged or automatically
+retried. Explicit provider redelivery may safely confirm an identical duplicate;
+reusing an ID with different content is rejected.
+
+A bounded drain reads each receipt against the validated delivery history. An
+unknown provider ID stays pending; a unique provider/recipient match produces a
+delivery event. The SQL apply function locks the receipt and ledger, verifies the
+saved attempt, and commits the delivery event and receipt completion together.
+Competing drains cannot append twice. Receipts previously reconciled by the old
+direct helper can have their inbox completion repaired without adding an event.
+Callers must resume the returned page cursor until zero, then start a new sweep;
+this lets later pages progress even when earlier receipts are still unmatched.
+Stale versions remain pending; contradictory evidence or uncertain responses stop
+that sweep for readback/reconciliation. The table map and permissions are in
+`SCHEMA.md`.
+
+Hosted verification used only fixed fictional IDs in the existing isolated
+`Helm Channex Staging` project (`jgkblfozftcvymvwhhii`). The tested
+`cleaner-receipts.sql` was applied through its SQL editor. Receipt
+`HELMTEST-hosted-inbox-b` was committed first; a separate read showed one pending
+receipt and unchanged delivery version 2. A service-role transaction then saved
+recipient B's fictional claim and acceptance, applied the receipt, and verified
+that a second application returned `duplicate`. Independent readback showed
+version 5, receipt state `delivered`, applied version 5, zero pending receipts,
+no anonymous enqueue access, and no `public.automation_sends` table. Recipient A's
+original two records were preserved. Evidence screenshot:
+`/tmp/calderwood-receipt-batch-verified.png` (temporary local file).
+
+The hosted smoke invoked SQL functions directly; it did not run the TypeScript
+worker through the hosted HTTP RPC gateway. The local real-PostgreSQL verifier
+runs the actual TypeScript adapters, signature verifier, worker and inbox drain
+with the HTTP boundary mapped to local SQL. It proved early receipt persistence
+across restart, transaction rollback of both delivery and completion, concurrent
+drains, duplicate/conflict handling, old-event repair, mismatch rejection,
+restricted privileges, safe setup reapplication and restart without replay.
+The original delivery-worker PostgreSQL verifier also passed after the refactor.
+Neither restart test simulates a hosted outage.
+
+Validation: 1,925 application tests passed; TypeScript, targeted ESLint and
+`git diff --check` passed. The two real PostgreSQL verifiers passed. Run the new
+verifier with an absolute entry path to an externally installed
+`embedded-postgres` package; it creates and removes its own loopback database
+and uses no application environment or hosted credentials.
+
+Changed files in this batch:
+
+- `src/lib/calderwood-rehearsal/cleaner-delivery-receipts.ts`
+- `src/lib/calderwood-rehearsal/cleaner-receipt-inbox.ts`
+- `src/lib/__tests__/calderwood-cleaner-receipt-inbox.test.ts`
+- `scripts/verify-cleaner-receipt-inbox.mjs`
+- `docs/guesty-exit/staging-storage/cleaner-receipts.sql`
+- `SCHEMA.md`
+- this handoff document
+
+Remaining integration work: an authenticated staging HTTP boundary and bounded
+worker scheduling, followed by current booking/hold/ownership integration before
+any live cutover. This remains a fixed synthetic fixture with `canSend: false`;
+there is no public webhook route, Render activation, real recipient, paid signup,
+production migration, or Guesty change. The old direct receipt helper remains
+only for existing fixture compatibility; new ingestion should use the inbox.
