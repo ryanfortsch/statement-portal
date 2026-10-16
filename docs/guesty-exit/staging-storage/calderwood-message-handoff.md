@@ -701,3 +701,62 @@ and pricing delivery remain separate unresolved requirements.
 Follow-up validation: all 1,951 tests passed; nonincremental TypeScript, targeted
 ESLint and diff checks passed. The discrepancy is exposed in the protected
 preview only; Guesty still controls all actual message delivery.
+
+
+### Local clock reconciliation, October 16
+
+Supersedes the blanket timing-withholding checkpoint above for records whose
+explicit local fields pass the new scoped read. V3 retrieve `stay.eta`/`stay.etd`
+were checked against V3 search for the current Calderwood stay. Both carry the
+same clock discrepancy; the second V3 endpoint is not independent verification.
+No V3 timestamp is offset or reinterpreted as a local clock.
+
+Guesty's [legacy reservation reference](https://open-api-docs.guesty.com/reference/reservationsv2get)
+explicitly documents `plannedArrival` and `plannedDeparture`, with listing
+defaults used when overrides are absent. A field-projected GET of these local
+clocks, the listing timezone and identity/date/status fields returned 16:00 and
+11:00 in America/New_York for the sampled stay. Guesty's visible scheduled-message
+panel independently showed the checkout reminder at 11 AM the prior day.
+
+`local-clock-reader.ts` is a temporary preview-only dependency on that deprecated
+endpoint. It accepts only the fixed Calderwood listing and at most 12 confirmed
+reservations already returned by the scoped search. Exact ID, listing, dates and
+status must still match. It requests only the listed fields, permits GET only,
+rejects redirects, uses five-second timeouts and never returns raw responses.
+Any failed request or binding mismatch discards the entire local enrichment; the
+original unverified snapshot and calendar review remain available. Invalid
+overrides never fall back to defaults. Missing defaults, wrong zones and DST
+gaps/folds leave the affected timing unknown.
+
+The explicit local date and clock are converted with New York timezone rules.
+The six existing workflow offsets are then calculated for review; confirmation
+time still remains unknown. Every row retains `canSend: false`. Nothing feeds
+the dispatch worker, creates a queue entry, changes a hold or takes sender
+ownership. The UI reports the source and shows the disagreement with V3.
+
+A bounded live read completed at 2026-10-16T15:15:24.539Z: all six confirmed stays
+had usable local clocks, all six disagreed with V3, and none had local timing
+issues. The 30 calculable review rows preserved 3 PM key-code messages, 9 AM
+arrival-day cleaner reminders and 11 AM checkout reminders. Six confirmation
+rows remained unverified; zero rows were sendable. These are calculations, not
+proof of actual queued/sent messages. Customer records were not saved.
+
+Validation: 1,958 tests passed, including seven new synthetic cases for local
+clock resolution, overrides/defaults, DST, exact scope, private-field exclusion,
+bounded reads and failure fallback. Nonincremental TypeScript, targeted ESLint
+and diff checks passed. Hosted acceptance is recorded in draft PR #1714 after
+deployment.
+
+Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, previous commit
+`360d4a77`; current remote main verified as
+`4143026cd288494a737e31d448d82cbb707648de`. Files changed: the local clock reader,
+message timing normalization, guarded access loader, comparison page/panel,
+focused tests and this document. Existing contract notes remain excluded.
+
+Remaining: a supported production timing source must be validated before any
+migration; this legacy API preview is not that dependency decision. Current
+workflow applicability, holds, sent/queued disposition and sender drain still
+need reconciliation. The confirmation event clock and cleaner history remain
+unverified. Channex production access, PriceLabs delivery and contract exit
+requirements are unchanged. No service, subscription, recipient or live sender
+was added or modified.

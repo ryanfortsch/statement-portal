@@ -21,7 +21,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
   let result: Awaited<ReturnType<typeof loadCalderwoodRead>> | null = null;
   let error = '';
   if (params.load === '1') {
-    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: true }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
+    try { result = await loadCalderwoodRead({ email: session.user.email, env, from, to, includeCalendar: true, includeLocalClocks: true }, { token: getGuestyToken, stagingKey: () => process.env.CHANNEX_STAGING_API_KEY ?? '' }); }
     catch (e) { error = e instanceof Error ? e.message : 'Snapshot unavailable'; }
   }
   const summary = result ? summarizeCalderwoodReview(result) : null;
@@ -61,7 +61,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
       </div>
       <aside className="border-t pt-3 text-sm text-slate-700"><strong>Still needed before switching:</strong> current sent-message history, pending queues, manual send holds, and the handoff from Guesty. These calendar reads cannot verify them. Cleaner SMS history is not covered by Guesty’s guest-message panel. Live channel delivery and pricing need separate verification.</aside>
     </section>}
-    {result && <MessageTimingReview reservations={result.reservations} observedAt={result.finishedAt} />}
+    {result && <MessageTimingReview reservations={result.reservations} observedAt={result.finishedAt} localClockError={result.localClockError} />}
     {result?.proposal && <section className="space-y-3 rounded-lg border border-slate-300 bg-white p-4">
       <h2 className="text-lg font-semibold">Proposed staging update</h2>
       <p className="text-sm">{result.proposal.rows.length} nights reviewed · {result.proposal.rows.filter(r => r.candidate).length} complete candidate nights · {result.proposal.status === 'incomplete' ? 'Incomplete evidence' : 'Awaiting restriction review'}</p>

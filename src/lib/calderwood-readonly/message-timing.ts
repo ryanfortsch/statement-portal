@@ -17,9 +17,15 @@ function instant(value: unknown): number | null {
   const at = Date.parse(value);
   return Number.isFinite(at) ? at : null;
 }
-export type CalderwoodTiming = { arrivalAt: string | null; departureAt: string | null; issues: string[]; clockVerified: boolean };
+export type CalderwoodTiming = {
+  arrivalAt: string | null; departureAt: string | null; issues: string[]; clockVerified: boolean;
+  localEvidence?: {
+    source: 'guesty-legacy-local-fields'; arrivalBasis: string | null; departureBasis: string | null;
+    searchArrivalAt: string | null; searchDepartureAt: string | null; disagreesWithSearch: boolean;
+  };
+};
 
-/** Top-level and sole stay segment must independently agree, including the local stay date. */
+/** Top-level and sole stay segment must agree, including the local stay date. */
 export function normalizeCalderwoodTiming(input: {
   arrival: unknown; departure: unknown; stayArrival: unknown; stayDeparture: unknown;
   start: string; end: string;
@@ -46,17 +52,56 @@ export function normalizeCalderwoodTiming(input: {
   };
 }
 
+/** Explicit local clocks, never a timezone correction to the ambiguous V3 timestamps.
+ * Caller must bind the projected response to the exact reservation, listing, dates and status.
+ * The legacy endpoint is a temporary preview dependency, not a production scheduling source.
+ */
+export function normalizeCalderwoodLocalTiming(input: {
+  start: string; end: string; timezone: unknown; plannedArrival: unknown; plannedDeparture: unknown;
+  defaultArrival: unknown; defaultDeparture: unknown;
+}, search: CalderwoodTiming): CalderwoodTiming {
+  const issues: string[] = [];
+  if (input.timezone !== zone) return { ...search, clockVerified: false, localEvidence: undefined, issues: ['Listing timezone is missing or differs from New York; local timing withheld.'] };
+  function read(date: string, override: unknown, fallback: unknown, label: string, overrideField: string, defaultField: string) {
+    const clock = override == null ? fallback : override;
+    const basis = override == null ? defaultField : overrideField;
+    const day = Date.parse(date + 'T00:00:00Z');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(day) || new Date(day).toISOString().slice(0, 10) !== date
+      || typeof clock !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(clock)) {
+      issues.push(`${label} local time is missing or invalid; no default invented.`);
+      return { at: null, basis: null };
+    }
+    const at = uniqueLocalInstant(date, clock);
+    if (!at) issues.push(`${label} local time is ambiguous or nonexistent during a daylight-saving change.`);
+    return { at, basis: at ? basis : null };
+  }
+  const arrival = read(input.start, input.plannedArrival, input.defaultArrival, 'Arrival', 'plannedArrival', 'listing.defaultCheckInTime');
+  const departure = read(input.end, input.plannedDeparture, input.defaultDeparture, 'Departure', 'plannedDeparture', 'listing.defaultCheckOutTime');
+  return {
+    arrivalAt: arrival.at, departureAt: departure.at, issues, clockVerified: !!(arrival.at || departure.at),
+    localEvidence: { source: 'guesty-legacy-local-fields', arrivalBasis: arrival.basis, departureBasis: departure.basis,
+      searchArrivalAt: search.arrivalAt, searchDepartureAt: search.departureAt,
+      disagreesWithSearch: !!((arrival.at && search.arrivalAt && arrival.at !== search.arrivalAt)
+        || (departure.at && search.departureAt && departure.at !== search.departureAt)),
+    },
+  };
+}
+
+function uniqueLocalInstant(date: string, clock: string): string | null {
+  const proposed = zonedTimeToMs(date, clock, zone);
+  const matches = (ms: number) => {
+    const p = localParts(ms);
+    return p.date === date && p.clock === clock;
+  };
+  if (!matches(proposed) || matches(proposed - 3600000) || matches(proposed + 3600000)) return null;
+  return new Date(proposed).toISOString();
+}
+
 /** Calendar-day offsets preserve the local clock across DST; ambiguous/missing clocks stay unknown. */
 function daysBefore(at: string | null, days: number): string | null {
   if (!at) return null;
   const source = localParts(Date.parse(at)), date = addDays(source.date, -days);
-  const proposed = zonedTimeToMs(date, source.clock, zone);
-  const matches = (ms: number) => {
-    const p = localParts(ms);
-    return p.date === date && p.clock === source.clock;
-  };
-  if (!matches(proposed) || matches(proposed - 3600000) || matches(proposed + 3600000)) return null;
-  return new Date(proposed).toISOString();
+  return uniqueLocalInstant(date, source.clock);
 }
 function minutesBefore(at: string | null, minutes: number) {
   return at ? new Date(Date.parse(at) - minutes * 60000).toISOString() : null;
