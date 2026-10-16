@@ -9,8 +9,8 @@ through Ryan's logged-in session on 2026-10-16.
 
 | Wave | Homes | Rent, term | Gate | When |
 |---|---|---|---|---|
-| 1 | 17 Beach guest house | $2,500 incl. utilities, Jan 2 to Apr 30. The whole house is booked through Dec 28 and those stays include the guest house | Nolans' written yes, Ryan's fee call | List Oct 17 to 20 |
-| 1 | 17 Beach main house | $5,000, Jan 2 to Apr 30. Same whole-house bookings through Dec 28 | same | List Oct 17 to 20; short-term calendars stay open through Dec 31 |
+| 1 | 17 Beach guest house | $2,500 incl. utilities, Tuesday Jan 5 to Apr 30, January prorated. The whole house is booked through Dec 27 and those stays include the guest house; New Year's week stays sellable through Jan 4 | Nolans' written yes, Ryan's fee call | List Oct 17 to 20 |
+| 1 | 17 Beach main house | $5,000, Tuesday Jan 5 to Apr 30, January prorated. Same whole-house bookings through Dec 27 | same | List Oct 17 to 20; short-term calendars stay open through Jan 4 |
 | 2 | 84 Thatcher $3,700, 225 Washington $3,400, 20 Hammond $3,400, the Marina $2,900 incl., 4 Middle $3,700, 20 Enon $3,600, 3 Locust $3,700 | Nov 1 to Apr 30 | each owner's yes (3 Locust is ours) | Owner notes go Oct 17; list each home the day its owner answers |
 | Owner-listed | 7 Sumac ($7,500 from Jan 1), 36 Granite ($3,250 from Nov 1) | theirs | a call this week | Align dates, block Helm's calendar the day they sign, offer to run the lease under Rising Tide |
 | Washes | 73 Rocky Neck at $3,500, 3 South at $3,800 | Nov 1 to Apr 30 | owner wants certainty over the forecast | List only at that number; otherwise keep short-term |
@@ -193,7 +193,7 @@ certificate in the file.
 
 ## 9. Furnished Finder alongside
 
-List the guest house (for January 2) and the Marina on Furnished Finder the same week ($199
+List the guest house (for January 5) and the Marina on Furnished Finder the same week ($199
 a year per listing, no commission, the landlord sets utilities-included rents). Same rent, same term,
 same photos, the description's first sentence says "Addison Gilbert Hospital 8 minutes,
 Beverly Hospital 25". Add any house still unlet on November 1. Furnished Finder tenants arrive
@@ -205,8 +205,8 @@ Keep this table current until there is a Helm page for it. Review it every Monda
 
 | Home | Rent, term | Listed | Premium | Leads | Showings | Applications | Signed | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 17 Beach guest house | $2,500 incl., Jan 2 to Apr 30 | | | | | | | whole-house stays through Dec 28 |
-| 17 Beach main house | $5,000, Jan 2 to Apr 30 | | | | | | | whole-house stays through Dec 28 |
+| 17 Beach guest house | $2,500 incl., Jan 5 to Apr 30 | | | | | | | whole-house stays through Dec 27 |
+| 17 Beach main house | $5,000, Jan 5 to Apr 30 | | | | | | | whole-house stays through Dec 27 |
 | 84 Thatcher | $3,700, Nov 1 to Apr 30 | | | | | | | owner yes pending |
 | 225 Washington | $3,400 | | | | | | | owner yes pending |
 | 20 Hammond | $3,400 | | | | | | | owner yes pending |
@@ -235,8 +235,9 @@ Keep this table current until there is a Helm page for it. Review it every Monda
 > Here is the winter plan for the two units, with the numbers behind it.
 >
 > Through New Year's nothing changes: the whole house is booked for Thanksgiving and
-> Christmas week, and those stays include the guest house. From January 2 through April 30,
-> the months with nothing booked, both units go on the furnished monthly market.
+> Christmas week, those stays include the guest house, and New Year's week stays on the
+> short-term calendar. From Tuesday January 5 through April 30, the months with nothing
+> booked, both units go on the furnished monthly market, with January prorated.
 >
 > The guest house at $2,500 a month with utilities included. On Zillow, one-bedroom winter
 > rentals in Gloucester ask $1,500 to $3,000; a renovated suite with its own entrance, laundry
@@ -296,8 +297,8 @@ KB does not support a parking number.
 | Beds / baths | 1 / 1.5 |
 | Rent | $2,500 a month, utilities included (electric capped at $150 a month in the lease) |
 | Deposit | $0; first and last at signing |
-| Term | Fixed, Jan 2 to Apr 30, 2027; three-month minimum at $2,750 |
-| Available | Jan 2, 2027 |
+| Term | Fixed, Tuesday Jan 5 to Friday Apr 30, 2027, January prorated; three-month minimum at $2,750 |
+| Available | Jan 5, 2027 |
 | Furnished | Yes |
 | Pets | per the Nolans |
 | Laundry | In unit (stacked washer and dryer) |
@@ -309,7 +310,7 @@ KB does not support a parking number.
 Description:
 
 > Furnished one-bedroom guest house four minutes' walk from Good Harbor Beach, available
-> January 2 through April 30, $2,500 a month with utilities included. First and last month's
+> January 5 through April 30, $2,500 a month with utilities included. First and last month's
 > rent at signing, no security deposit. No occupancy tax on a month-plus lease.
 >
 > Private entrance through an enclosed, heated porch that looks onto the woods behind the
@@ -334,8 +335,8 @@ Description:
 | Beds / baths | 5 / 3.5 (four bedrooms plus a third-floor bunk room) |
 | Rent | $5,000 a month, Jan 2 to Apr 30. Tenant pays heat and electric; water, sewer and internet included |
 | Deposit | $0; first and last at signing |
-| Term | Fixed, Jan 2 to Apr 30, 2027 |
-| Available | Jan 2, 2027 |
+| Term | Fixed, Tuesday Jan 5 to Friday Apr 30, 2027, January prorated |
+| Available | Jan 5, 2027 |
 | Furnished | Yes |
 | Pets | per the Nolans |
 | Laundry | Two laundry rooms, in unit |
@@ -346,7 +347,7 @@ Description:
 
 Description:
 
-> Furnished five-bedroom house four minutes' walk from Good Harbor Beach, available January 2
+> Furnished five-bedroom house four minutes' walk from Good Harbor Beach, available January 5
 > through April 30 at $5,000 a month. Tenant pays heat and electric; water, sewer and internet
 > included. First and last month's rent at
 > signing, no security deposit. No occupancy tax on a month-plus lease.
