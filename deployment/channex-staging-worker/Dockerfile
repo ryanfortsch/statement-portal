@@ -3,6 +3,7 @@ WORKDIR /app
 COPY deployment/channex-staging-worker/package.json deployment/channex-staging-worker/package-lock.json ./
 RUN npm ci --ignore-scripts --omit=dev
 COPY src/lib/channex-staging ./src/lib/channex-staging
+COPY src/lib/calderwood-rehearsal ./src/lib/calderwood-rehearsal
 COPY scripts/channex-shared-worker.mts ./scripts/channex-shared-worker.mts
 COPY scripts/channex-inventory-rehearsal.mts ./scripts/channex-inventory-rehearsal.mts
 USER node
