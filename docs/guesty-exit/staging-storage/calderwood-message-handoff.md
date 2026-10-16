@@ -551,7 +551,7 @@ through October 16, 2027, exclusive. Completed at `2026-10-16T13:39:56.893Z`:
   Twenty-three nights reported reservation blocks. One also had advance notice.
   No manual, owner or imported-calendar holds were reported in this response.
   That is a snapshot observation, not a guarantee about independent channels.
-- One non-confirmed record shares dates with a confirmed stay. Cancellation must
+- Three non-confirmed records overlap confirmed stay dates. Cancellation must
   never release another booking's occupancy simply because its dates match.
 - Posted minimum stays vary from one to four nights. PriceLabs remains the
   user's dynamic rule source; this read does not prove PriceLabs delivery or
@@ -587,3 +587,16 @@ and diff checks passed. No database, worker, provider, paid-service or productio
 configuration change is part of this batch. Cleaner history/queue disposition,
 manual message holds and sender ownership still require authoritative evidence
 before controlled dispatch. Do not treat the calendar summary as that evidence.
+
+Hosted preview acceptance: code `889df3fc` reached Ready in Vercel deployment
+`dpl_J4XwkZKNzvzpfspDBmkjY9U7yWGV`:
+https://rising-tide-statements-omzgpl3sp-rising-tide-fc584d5d.vercel.app
+The existing pilot alias points to it. An initial refresh reported a source-read
+failure and withheld the summary. One explicit retry succeeded around 13:57 UTC;
+the deployed summary showed six confirmed stays, 23 occupied nights, three
+non-confirmed records overlapping confirmed dates, full 365-night coverage,
+zero diagnostic issues, and posted minimums ranging from one to four nights.
+The failure cause was not established; it was not treated as an empty calendar.
+Visual proof: `/tmp/calderwood-booking-hold-review-verified.png`.
+This acceptance checkpoint changes documentation only; the application code and
+its completed tests are unchanged.
