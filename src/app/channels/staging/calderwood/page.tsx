@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import MessageTimingReview from './MessageTimingReview';
 import { auth } from '@/auth';
 import { summarizeCalderwoodReview } from '@/lib/calderwood-readonly/review-summary';
 import { notFound, redirect } from 'next/navigation';
@@ -60,6 +61,7 @@ export default async function CalderwoodPage({ searchParams }: { searchParams: P
       </div>
       <aside className="border-t pt-3 text-sm text-slate-700"><strong>Still needed before switching:</strong> current sent-message history, pending queues, manual send holds, and the handoff from Guesty. These calendar reads cannot verify them. Cleaner SMS history is not covered by Guesty’s guest-message panel. Live channel delivery and pricing need separate verification.</aside>
     </section>}
+    {result && <MessageTimingReview reservations={result.reservations} observedAt={result.finishedAt} />}
     {result?.proposal && <section className="space-y-3 rounded-lg border border-slate-300 bg-white p-4">
       <h2 className="text-lg font-semibold">Proposed staging update</h2>
       <p className="text-sm">{result.proposal.rows.length} nights reviewed · {result.proposal.rows.filter(r => r.candidate).length} complete candidate nights · {result.proposal.status === 'incomplete' ? 'Incomplete evidence' : 'Awaiting restriction review'}</p>

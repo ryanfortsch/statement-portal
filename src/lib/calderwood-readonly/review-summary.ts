@@ -1,7 +1,8 @@
 import { calendarDates } from './calendar.ts';
 import type { loadCalderwoodRead } from './access.ts';
 
-type Snapshot = Pick<Awaited<ReturnType<typeof loadCalderwoodRead>>, 'window' | 'reservations' | 'calendar'>;
+type Read = Awaited<ReturnType<typeof loadCalderwoodRead>>;
+type Snapshot = Pick<Read, 'window' | 'calendar'> & { reservations: Omit<Read['reservations'][number], 'timing'>[] };
 const independentHolds = new Set(['Manual hold', 'Owner stay', 'Imported calendar']);
 
 /** Aggregate the existing normalized read only. Never infer available inventory or message ownership. */

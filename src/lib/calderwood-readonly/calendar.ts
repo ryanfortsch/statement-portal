@@ -61,7 +61,7 @@ export async function readCalderwoodCalendar(token: string, window: { from: stri
   } catch { throw Error('Guesty calendar read failed; details withheld'); }
 }
 /** Diagnostic only: snapshots are sequential, not atomic or proof of channel delivery. */
-export function compareCalendar(calendar: ReturnType<typeof normalizeCalendar>, reservations: Awaited<ReturnType<typeof readCalderwoodGuesty>>['reservations']) {
+export function compareCalendar(calendar: ReturnType<typeof normalizeCalendar>, reservations: Omit<Awaited<ReturnType<typeof readCalderwoodGuesty>>['reservations'][number], 'timing'>[]) {
   return calendar.days.map(day => {
     const covering = reservations.filter(r => r.start <= day.date && r.end > day.date);
     const confirmed = covering.filter(r => r.status === 'confirmed');

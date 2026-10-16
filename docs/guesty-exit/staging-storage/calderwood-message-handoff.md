@@ -600,3 +600,73 @@ The failure cause was not established; it was not treated as an empty calendar.
 Visual proof: `/tmp/calderwood-booking-hold-review-verified.png`.
 This acceptance checkpoint changes documentation only; the application code and
 its completed tests are unchanged.
+
+
+## Reservation timing and a concrete sender-stop path, October 16
+
+Continued from `e78bf535`; branch `codex/channex-staging-pilot`, original base
+`a148b0e6`. Remote main observed this turn was
+`29c7ab75ff0d194a887759d9166d78ebf3868568`. Existing contract notes remain excluded.
+
+The comparison page now reviews the six known message offsets per confirmed
+stay using planned arrival/departure timestamps already present in the existing
+Guesty search response. No additional API requests, database writes or provider
+subscriptions are needed. Both top-level and sole-stay timestamps must agree and
+convert to the matching New York stay date. Missing, inconsistent, malformed or
+sub-minute values stay unverified; listing defaults are never silently inserted.
+Calendar-day offsets preserve local clocks through DST and withhold ambiguous or
+nonexistent target clocks. Minute offsets retain the source instant.
+
+The source is the current [Guesty Search Reservations reference](https://open-api-docs.guesty.com/reference/reservationsopenapicontroller_searchreservations),
+including its published response schema: `checkIn` and `checkOut` represent
+planned arrival/departure, and the single stay repeats them. The search response
+does not provide an authoritative workflow-confirmation time. `createdAt`,
+`bookingDate` and channel timestamps are not substituted for it. No deprecated
+reservation endpoint or broad detail read was added.
+
+These are proposed times, not actual scheduled messages. The page makes that
+distinction explicit and never infers sent state, empty queues, removed holds,
+workflow applicability, expiry, valid access codes or transferred ownership.
+All proposals carry `canSend: false`. The existing handoff function still
+requires complete authoritative evidence; this work does not relax it.
+
+### Operational path to prepare before any switch
+
+Guesty's [automation management guidance](https://help.guesty.com/hc/en-gb/articles/9365081186205-Managing-automated-messages-for-guests-owners-and-team-members)
+says deactivating a workflow removes its unsent messages from matching
+reservations, with a delay before the change registers. Its
+[Activity Log guidance](https://help.guesty.com/hc/en-gb/articles/15223598912925-Searching-for-message-automations-and-viewing-changes)
+describes configuration-change history. That log is not a delivery ledger.
+These sources provide a future stop mechanism to verify; neither proves an
+actual stop or that an in-flight message was drained.
+
+1. Inventory every applicable Calderwood workflow, including global staff and
+   booking-change workflows, source filters, recipients, holds and expiry. The
+   six reviewed offsets are not a complete inventory of all account automations.
+2. Prepare a per-reservation/message handoff worksheet. Preserve verified sent
+   messages; leave unknown cleaner history explicitly unknown. Assign manual
+   coverage for unknown obligations instead of automatically replaying them.
+   A manual plan is an operational exception, not fabricated complete evidence.
+3. For a separately authorized cutover, scope any Guesty stop to Calderwood and
+   verify deactivation has finished. Use a window without imminent sends and
+   reconcile in-flight/uncertain attempts. Elapsed time, a toggle, an empty guest
+   Inbox or an Airbnb disconnect alone does not establish `senderStoppedAt`.
+4. Refresh reservation timing/status, holds, recipients and source applicability,
+   then separately review future replacement obligations. Previously unknown
+   messages stay out of automated takeover. Any eventual manual or automated
+   dispatch must be recorded under one owner so it cannot later be replayed.
+
+No Guesty automation was disabled, no message was sent, and no cutover or
+production settings were changed. Historical cleaner delivery and future queue
+coverage remain unresolved. This path avoids treating the guest Inbox as a
+cleaner-message log or asking the user to check the same unavailable screen.
+
+Implementation: `src/lib/calderwood-readonly/message-timing.ts`, the existing
+reader and calendar/summary input types, the new `MessageTimingReview.tsx` panel,
+and its insertion on the protected Calderwood comparison page. Seven synthetic
+tests cover timestamp validation, private-field exclusion, altered times,
+DST transitions, missing evidence, non-confirmed stays and past/due messages.
+The existing reader test now checks that missing timing is explicit.
+
+Validation: 1,950 tests passed, nonincremental TypeScript passed, targeted ESLint
+and diff checks passed. Hosted verification is recorded separately after build.

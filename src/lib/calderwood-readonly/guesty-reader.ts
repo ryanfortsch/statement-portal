@@ -1,4 +1,5 @@
 /** Explicit-token, GET-only snapshot. Never imports production auth, database or writers. */
+import { normalizeCalderwoodTiming } from './message-timing.ts';
 export const CALDERWOOD = Object.freeze({ guestyListingId: '66797ba7f51d72001388bc29', airbnbListingId: '895455360892927934', channexMapping: null });
 type Row = Record<string, unknown>;
 type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
@@ -24,7 +25,9 @@ function normalize(value: unknown) {
   if (stay.listingId !== CALDERWOOD.guestyListingId || stay.parentListingId) throw Error('Reservation outside Calderwood');
   const start = date(stay.checkInDateLocalized), end = date(stay.checkOutDateLocalized);
   if (start >= end || date(r.checkInDateLocalized) !== start || date(r.checkOutDateLocalized) !== end) throw Error('Inconsistent reservation dates');
-  return { id: r.reservationId, listingId: CALDERWOOD.guestyListingId, start, end, status: label(r.status), source: label(r.source) };
+  return { id: r.reservationId, listingId: CALDERWOOD.guestyListingId, start, end, status: label(r.status), source: label(r.source),
+    timing: normalizeCalderwoodTiming({ arrival: r.checkIn, departure: r.checkOut, stayArrival: stay.checkIn, stayDeparture: stay.checkOut, start, end }),
+  };
 }
 export async function readCalderwoodGuesty(token: string, window: { from: string; to: string }, fetcher: Fetcher = fetch) {
   if (typeof globalThis.window !== 'undefined' || !token.trim() || /[\r\n]/.test(token)) throw Error('Explicit server-side Guesty token required');

@@ -16,9 +16,11 @@ test('fixed scoped GET retains only minimal snapshot fields and cannot become in
     assert.ok(!url.includes('test-token'));
     return response([row()]);
   });
-  assert.deepEqual(Object.keys(result.reservations[0]), ['id', 'listingId', 'start', 'end', 'status', 'source']);
+  assert.deepEqual(Object.keys(result.reservations[0]), ['id', 'listingId', 'start', 'end', 'status', 'source', 'timing']);
   assert.equal(result.baselineComplete, false); assert.equal(result.inventoryAuthority, false);
   assert.equal(CALDERWOOD.channexMapping, null);
+  assert.equal(result.reservations[0].timing.arrivalAt, null);
+  assert.equal(result.reservations[0].timing.issues.length, 2);
 });
 test('reads all bounded pages and detects duplicate or malformed continuation', async () => {
   const first = Array.from({ length: 100 }, (_, i) => row((i + 1).toString(16).padStart(24, '0')));
