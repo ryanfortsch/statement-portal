@@ -11,8 +11,15 @@ import { DeleteProspectButton } from '@/components/projections/DeleteProspectBut
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { InactivePanel } from '@/components/projections/ProspectInactiveControls';
 import { CloseLikelihoodWidget } from '@/components/projections/CloseLikelihoodWidget';
-import { CopyLinkButton, CountersignButton, WithdrawSignatureButton } from '@/components/projections/SigningButtons';
+import { CopyLinkButton, CountersignButton, SendCopyButton, WithdrawSignatureButton } from '@/components/projections/SigningButtons';
 import { countersignerName } from '@/lib/contract-terms';
+import {
+  CONTRACT_COPY_COLUMNS,
+  NO_OWNER_EMAIL_WARNING,
+  contractCopyStatuses,
+  isContractCopyKind,
+  ownerEmailOnRecord,
+} from '@/lib/contract-copy-email';
 import { displayNameForEmail } from '@/lib/team';
 import {
   Pipeline,
@@ -42,6 +49,8 @@ import {
   promoteToProperty,
   countersignContract,
   withdrawOwnerSignature,
+  sendContractCopy,
+  setProspectEmail,
   markOnboardingDone,
   unmarkOnboardingDone,
   markContractDone,
@@ -107,12 +116,28 @@ export default async function ProjectionDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ terms_locked?: string }>;
+  searchParams: Promise<{
+    terms_locked?: string;
+    copy_sent?: string;
+    copy_failed?: string;
+    copy_reason?: string;
+    owner_email?: string;
+  }>;
 }) {
   const { id } = await params;
   // Set by updateProjection when a save tried to change a signed
   // contract's terms: the labels of the terms it held back.
-  const { terms_locked: termsLockedNotice } = await searchParams;
+  const sp = await searchParams;
+  const termsLockedNotice = sp.terms_locked;
+  // Set by sendContractCopy and setProspectEmail on their way back to the
+  // page: which copy went (or did not, and why), and whether the owner
+  // email saved. Rendered in the Signing panel.
+  const signingNotice: SigningNotice = {
+    copySent: sp.copy_sent,
+    copyFailed: sp.copy_failed,
+    copyReason: sp.copy_reason,
+    ownerEmail: sp.owner_email,
+  };
   const projection = await getProjection(id);
   if (!projection) notFound();
 
@@ -392,6 +417,7 @@ export default async function ProjectionDetailPage({
               projectionId={id}
               markContractDone={markContract}
               unmarkContractDone={unmarkContract}
+              signingNotice={signingNotice}
             />
           </Stage>
 
@@ -702,11 +728,13 @@ function GuideAndContractStageBody({
   projectionId,
   markContractDone,
   unmarkContractDone,
+  signingNotice,
 }: {
   projection: ProjectionRow;
   projectionId: string;
   markContractDone: () => Promise<void>;
   unmarkContractDone: () => Promise<void>;
+  signingNotice: SigningNotice;
 }) {
   const termRange = projection.term_start && projection.term_end
     ? `Term ${fmtTouchDate(projection.term_start)} → ${fmtTouchDate(projection.term_end)}`
@@ -748,7 +776,7 @@ function GuideAndContractStageBody({
           block below is hidden (countersigned), so the stage card
           doesn't trail off with a stray separator. */}
       <SubDeliverable label="Signing" isLast={countersigned}>
-        <SignedStageBody projection={projection} />
+        <SignedStageBody projection={projection} notice={signingNotice} />
       </SubDeliverable>
 
       {/* Manual completion — only when the contract hasn't been
@@ -819,7 +847,15 @@ function SubDeliverable({
   );
 }
 
-function SignedStageBody({ projection }: { projection: ProjectionRow }) {
+/** What sendContractCopy and setProspectEmail report back through the URL. */
+type SigningNotice = {
+  copySent?: string;
+  copyFailed?: string;
+  copyReason?: string;
+  ownerEmail?: string;
+};
+
+function SignedStageBody({ projection, notice }: { projection: ProjectionRow; notice: SigningNotice }) {
   const signedAt = projection.contract_signed_at;
   const signedName = projection.contract_signed_name;
   const countersignedAt = projection.contract_countersigned_at;
@@ -870,7 +906,9 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
           </span>
         </form>
       )}
+      <CopyNoticeLine projection={projection} notice={notice} />
       <SealedCopies projection={projection} />
+      <OwnerEmailRow projection={projection} notice={notice.ownerEmail} />
       <LinkRow link={link} />
       {/* Once the owner has signed, surface a download for the signed
           PDF directly here (otherwise staff have to dig through the
@@ -928,19 +966,41 @@ function SignedStageBody({ projection }: { projection: ProjectionRow }) {
 }
 
 /**
+ * The outcome of the last Send to owner / Resend, carried back through the
+ * URL by sendContractCopy. One line, then gone on the next navigation.
+ */
+function CopyNoticeLine({ projection, notice }: { projection: ProjectionRow; notice: SigningNotice }) {
+  if (!notice.copySent && !notice.copyFailed) return null;
+  const kind = notice.copySent ?? notice.copyFailed;
+  const label = isContractCopyKind(kind) ? CONTRACT_COPY_COLUMNS[kind].label : 'Copy';
+  const base: React.CSSProperties = { margin: '0 0 12px', maxWidth: 720, fontSize: 12, lineHeight: 1.55, fontWeight: 600 };
+  if (notice.copySent) {
+    return (
+      <p role="status" style={{ ...base, color: 'var(--positive)' }}>
+        {label} emailed to {ownerEmailOnRecord(projection) ?? 'the owner'}.
+      </p>
+    );
+  }
+  return (
+    <p role="alert" style={{ ...base, color: 'var(--negative)' }}>
+      {label} not sent: {notice.copyReason || 'the send failed'}.
+    </p>
+  );
+}
+
+/**
  * The sealed copies Helm kept at each signature (src/lib/contract-seal.ts),
- * with their fingerprints, plus any signatures withdrawn for changes. A
- * signature with no sealed copy says why rather than staying silent.
+ * with their fingerprints and whether each reached the owner, plus any
+ * signatures withdrawn for changes. A signature with no sealed copy says
+ * why rather than staying silent, and so does a copy that never emailed:
+ * the signing and countersign actions skip the send when the row has no
+ * owner email, and nothing used to show it. Send to owner / Resend attach
+ * the sealed bytes (sendContractCopy).
  */
 function SealedCopies({ projection }: { projection: ProjectionRow }) {
   const history = projection.contract_signature_history ?? [];
-  const copies: { label: string; copy: 'signed' | 'executed'; sha: string }[] = [];
-  if (projection.contract_signed_pdf_sha256) {
-    copies.push({ label: 'Owner-signed copy', copy: 'signed', sha: projection.contract_signed_pdf_sha256 });
-  }
-  if (projection.contract_executed_pdf_sha256) {
-    copies.push({ label: 'Executed copy', copy: 'executed', sha: projection.contract_executed_pdf_sha256 });
-  }
+  const copies = contractCopyStatuses(projection);
+  const ownerEmail = ownerEmailOnRecord(projection);
   const missingSigned = !!projection.contract_signed_at && !projection.contract_signed_pdf_sha256;
   if (copies.length === 0 && !missingSigned && history.length === 0) return null;
   const linkStyle: React.CSSProperties = { color: 'var(--signal)', textDecoration: 'none', fontWeight: 600 };
@@ -948,9 +1008,23 @@ function SealedCopies({ projection }: { projection: ProjectionRow }) {
   return (
     <div style={{ margin: '0 0 12px', maxWidth: 720, fontSize: 12, lineHeight: 1.6 }}>
       {copies.map((c) => (
-        <div key={c.copy}>
-          <a href={`/api/contracts/sealed?id=${projection.id}&copy=${c.copy}`} style={linkStyle}>↓ {c.label}</a>{' '}
-          <span style={shaStyle}>SHA-256 {c.sha}</span>
+        <div key={c.kind} style={{ marginBottom: 8 }}>
+          <a href={`/api/contracts/sealed?id=${projection.id}&copy=${c.kind}`} style={linkStyle}>↓ {c.label}</a>{' '}
+          <span style={shaStyle}>SHA-256 {c.sha256}</span>
+          <form action={sendContractCopy} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+            <input type="hidden" name="id" value={projection.id} />
+            <input type="hidden" name="copy" value={c.kind} />
+            {c.emailedAt ? (
+              <span style={{ color: 'var(--ink-3)' }}>Emailed to the owner {fmtTouchDate(c.emailedAt)}.</span>
+            ) : (
+              <span style={{ color: 'var(--negative)', fontWeight: 600 }}>Not emailed to the owner.</span>
+            )}
+            {ownerEmail ? (
+              <SendCopyButton resend={!!c.emailedAt} />
+            ) : (
+              <span style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>Save the owner&rsquo;s email below to send it.</span>
+            )}
+          </form>
         </div>
       ))}
       {missingSigned && (
@@ -971,6 +1045,68 @@ function SealedCopies({ projection }: { projection: ProjectionRow }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * The owner's email, where the signed and executed copies go, with the
+ * warning that there is none. Sits above the sign link so the gap shows
+ * before the link is handed to an owner, not after the countersign. The
+ * editor writes prospect_email alone (setProspectEmail): not a contract
+ * term, so it saves on a signed contract without touching the lock.
+ */
+function OwnerEmailRow({ projection, notice }: { projection: ProjectionRow; notice?: string }) {
+  const email = ownerEmailOnRecord(projection);
+  return (
+    <div style={{ margin: '0 0 12px', maxWidth: 720, fontSize: 12, lineHeight: 1.6 }}>
+      {!email && (
+        <p role="alert" style={{ margin: '0 0 8px', color: 'var(--negative)', fontWeight: 600 }}>
+          {NO_OWNER_EMAIL_WARNING}
+        </p>
+      )}
+      {notice === 'saved' && (
+        <p role="status" style={{ margin: '0 0 8px', color: 'var(--positive)', fontWeight: 600 }}>Owner email saved.</p>
+      )}
+      {notice === 'invalid' && (
+        <p role="alert" style={{ margin: '0 0 8px', color: 'var(--negative)', fontWeight: 600 }}>
+          That is not an email address. Nothing was saved.
+        </p>
+      )}
+      <form
+        key={email ?? 'none'}
+        action={setProspectEmail}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
+      >
+        <input type="hidden" name="id" value={projection.id} />
+        <label htmlFor="owner-email" style={{ color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>Owner email</label>
+        <input
+          id="owner-email"
+          type="email"
+          name="email"
+          required
+          defaultValue={email ?? ''}
+          placeholder="owner@example.com"
+          style={{
+            flex: '1 1 220px',
+            maxWidth: 320,
+            background: 'var(--paper)',
+            border: `1px solid ${email ? 'var(--rule)' : 'var(--negative)'}`,
+            padding: '7px 10px',
+            fontSize: 12,
+            color: 'var(--ink)',
+          }}
+        />
+        <SubmitButton
+          label={email ? 'Update' : 'Save email'}
+          busyLabel="Saving…"
+          spinnerTone="ink"
+          style={{ ...ghostButtonStyle, fontSize: 10, padding: '7px 12px' }}
+        />
+        {email && (
+          <span style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}>The signed and executed copies email here.</span>
+        )}
+      </form>
     </div>
   );
 }

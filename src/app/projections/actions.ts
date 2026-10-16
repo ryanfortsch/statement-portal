@@ -43,7 +43,14 @@ import {
   CONTRACT_LOCKED_MESSAGE,
   type ContractTermsSource,
 } from '@/lib/contract-terms';
-import { sealContractCopy, executedContractPdf } from '@/lib/contract-seal';
+import { sealContractCopy, executedContractPdf, readSealedCopy, sha256Hex } from '@/lib/contract-seal';
+import {
+  contractCopyStatus,
+  isContractCopyKind,
+  ownerEmailOnRecord,
+  ownersWithEmail,
+  parseOwnerEmail,
+} from '@/lib/contract-copy-email';
 import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { renderProjectionPdf } from '@/lib/projection-pdf';
 import { sendOnboardingSubmittedEmail } from '@/lib/onboarding-email';
@@ -1577,6 +1584,102 @@ export async function withdrawOwnerSignature(formData: FormData): Promise<void> 
 
   if (row.onboarding_token) revalidatePath(`/contract/${row.onboarding_token}`);
   revalidatePath(`/prospects/${id}`);
+}
+
+/**
+ * Owner-only: email a sealed contract copy to the owner, or email it again.
+ *
+ * Both signature actions above email the copy they seal and only
+ * console.warn when the send is skipped, which with no prospect_email on
+ * the row is every time (47 Atlantic, 2026-10-15: signed, countersigned,
+ * sealed, archived, neither email sent). The prospect page reads the two
+ * *_email_sent_at stamps (src/lib/contract-copy-email.ts) and offers this
+ * for a copy that never went out or needs to go again. The attachment is
+ * the sealed PDF itself, re-hashed first the way the download route does
+ * it: the owner receives the bytes whose fingerprint the certificate
+ * prints, never a re-render. Lands back on the page with ?copy_sent= or
+ * ?copy_failed= so the outcome is on screen rather than in a log.
+ */
+export async function sendContractCopy(formData: FormData): Promise<void> {
+  await requireOwnerEmail();
+
+  const id = String(formData.get('id') || '').trim();
+  if (!id) throw new Error('Missing projection id');
+  const kind = formData.get('copy');
+  if (!isContractCopyKind(kind)) throw new Error('copy must be signed or executed');
+
+  const failed: (reason: string) => never = (reason) =>
+    redirect(`/prospects/${id}?copy_failed=${kind}&copy_reason=${encodeURIComponent(reason)}`);
+
+  const { data, error: lookupErr } = await supabase.from('projections').select('*').eq('id', id).maybeSingle();
+  if (lookupErr || !data) throw new Error(lookupErr?.message || 'Prospect not found');
+  const projection = data as ProjectionRow;
+
+  const copy = contractCopyStatus(projection, kind);
+  if (!copy) failed('no sealed copy on file');
+  const to = ownerEmailOnRecord(projection);
+  if (!to) failed('no owner email on record');
+
+  const pdf = await readSealedCopy(copy.path);
+  if (!pdf) failed('the sealed copy could not be read');
+  if (sha256Hex(pdf) !== copy.sha256) {
+    console.error(`[sendContractCopy] fingerprint mismatch on ${copy.path} for projection ${id}`);
+    failed('the stored copy no longer matches its fingerprint, so it was not sent');
+  }
+
+  const origin = await getRequestOrigin();
+  const args = { projection: { ...projection, prospect_email: to }, origin, pdf };
+  const result = kind === 'signed' ? await sendOwnerSignedEmail(args) : await sendExecutedEmail(args);
+  if (!result.ok) {
+    console.warn(`[sendContractCopy] ${kind} copy not sent for ${id}:`, result.reason);
+    failed(result.reason ?? 'the send failed');
+  }
+
+  const { error: stampErr } = await supabase
+    .from('projections')
+    .update({ [copy.sentAtColumn]: new Date().toISOString() })
+    .eq('id', id);
+  if (stampErr) console.error('[sendContractCopy] sent stamp failed:', stampErr.message);
+
+  revalidatePath(`/prospects/${id}`);
+  redirect(`/prospects/${id}?copy_sent=${kind}`);
+}
+
+/**
+ * Set the owner's email on a prospect from the Signing panel. The contract
+ * copies email to prospect_email, which is not a contract term (the lock in
+ * contract-terms.ts reads the names, the address, the money, the dates and
+ * the clauses), so this writes on a signed or executed contract too. The
+ * first named owner card gets the same address, because the form derives
+ * prospect_email from that card on every save and would otherwise put the
+ * old value back.
+ */
+export async function setProspectEmail(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const id = String(formData.get('id') || '').trim();
+  if (!id) throw new Error('Missing projection id');
+  const email = parseOwnerEmail(formData.get('email'));
+  if (!email) redirect(`/prospects/${id}?owner_email=invalid`);
+
+  const { data, error: lookupErr } = await supabase.from('projections').select('owners').eq('id', id).maybeSingle();
+  if (lookupErr || !data) throw new Error(lookupErr?.message || 'Prospect not found');
+  const owners = ownersWithEmail((data as { owners: Owner[] | null }).owners, email);
+
+  const { error } = await supabase
+    .from('projections')
+    .update({
+      prospect_email: email,
+      ...(owners ? { owners } : {}),
+      // The form remounts on updated_at, so its owner card shows the address.
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/prospects/${id}`);
+  redirect(`/prospects/${id}?owner_email=saved`);
 }
 
 /**
