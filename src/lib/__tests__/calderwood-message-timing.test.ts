@@ -44,9 +44,10 @@ test('changed arrival/departure and local dates update every affected proposal',
   assert.equal(get(review(late), 'pre_arrival').at, '2027-01-15T02:00:00.000Z');
 });
 
-test('calendar-day offsets preserve local clocks through DST and withhold nonexistent/ambiguous times', () => {
+test('day offsets withhold competing DST clocks and nonexistent or ambiguous local times', () => {
   const spring = { ...input, arrival: '2027-03-15T20:00:00Z', stayArrival: '2027-03-15T20:00:00Z', start: '2027-03-15', departure: '2027-03-18T15:00:00Z', stayDeparture: '2027-03-18T15:00:00Z', end: '2027-03-18' };
-  assert.equal(get(review(spring), 'cleaner_reminder').at, '2027-03-05T21:00:00.000Z');
+  assert.equal(get(review(spring), 'cleaner_reminder').at, null);
+  assert.deepEqual(get(review(spring), 'cleaner_reminder').dayOffsetConflict, { calendarAt: '2027-03-05T21:00:00.000Z', elapsedAt: '2027-03-05T20:00:00.000Z' });
   const gap = { ...spring, arrival: '2027-03-15T06:30:00Z', stayArrival: '2027-03-15T06:30:00Z' };
   assert.equal(get(review(gap), 'pre_arrival').at, null);
   assert.equal(get(review(gap), 'key_code').at, '2027-03-15T05:30:00.000Z');
@@ -95,4 +96,33 @@ test('matching API timestamps cannot verify their own clock or produce a live me
   assert.equal(rows.length, 6);
   assert.ok(rows.every(row => row.at === null && row.canSend === false));
   assert.ok(rows.every(row => row.review === 'Timing unverified'));
+});
+
+
+test('fall checkout offset exposes the one-hour disagreement without changing other reminders', () => {
+  const fall = { ...input, arrival: '2027-11-04T20:00:00Z', stayArrival: '2027-11-04T20:00:00Z', start: '2027-11-04', departure: '2027-11-07T16:00:00Z', stayDeparture: '2027-11-07T16:00:00Z', end: '2027-11-07' };
+  const rows = review(fall), checkout = get(rows, 'pre_checkout');
+  assert.equal(checkout.at, null);
+  assert.deepEqual(checkout.dayOffsetConflict, { calendarAt: '2027-11-06T15:00:00.000Z', elapsedAt: '2027-11-06T16:00:00.000Z' });
+  assert.match(checkout.review, /verify Guesty queued time/);
+  assert.equal(get(rows, 'key_code').at, '2027-11-04T19:00:00.000Z');
+  assert.equal(get(rows, 'cleaner_arrival').at, '2027-11-04T13:00:00.000Z');
+  assert.equal(rows.filter(r => r.dayOffsetConflict).length, 1);
+  assert.ok(rows.every(r => !r.canSend));
+});
+
+test('spring checkout offset reverses the candidate clocks; neither becomes a send time', () => {
+  const spring = { ...input, arrival: '2027-03-12T21:00:00Z', stayArrival: '2027-03-12T21:00:00Z', start: '2027-03-12', departure: '2027-03-14T15:00:00Z', stayDeparture: '2027-03-14T15:00:00Z', end: '2027-03-14' };
+  const checkout = get(review(spring), 'pre_checkout');
+  assert.equal(checkout.at, null);
+  assert.deepEqual(checkout.dayOffsetConflict, { calendarAt: '2027-03-13T16:00:00.000Z', elapsedAt: '2027-03-13T15:00:00.000Z' });
+  assert.equal(checkout.canSend, false);
+});
+
+test('unverified and canceled stays expose no DST candidates or inferred queue state', () => {
+  const timing = { arrivalAt: '2027-11-08T21:00:00Z', departureAt: '2027-11-10T16:00:00Z', issues: [] };
+  for (const [status, clockVerified] of [['confirmed', false], ['canceled', true]] as const) {
+    const rows = reviewCalderwoodMessageTiming({ status, timing: { ...timing, clockVerified } }, now);
+    assert.ok(rows.every(r => r.at === null && !r.dayOffsetConflict && !r.canSend));
+  }
 });

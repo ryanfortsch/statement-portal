@@ -817,3 +817,73 @@ focused tests, timing normalization, guarded loader, comparison page/panel and
 this document. Existing contract notes remain excluded. Guesty remains the live
 sender. No recipient, service, subscription, automation or production setting
 was changed.
+
+
+### Full guest-queue review and DST discrepancy, October 16
+
+Supersedes the preceding claim that all 36 calculated times were settled. A
+read-only UI review covered all six current/future stays in the Calderwood
+cleaner report. The four recurring guest messages per stay account for 24
+observed entries: eight displayed Completed and sixteen scheduled. All six
+master switches and all sixteen queued row switches were enabled. Schedule and
+expiry times were read without changing switches, sending messages or saving
+workflow settings. Completed is Guesty's displayed status, not a read receipt.
+
+The private local handoff worksheet is
+`/tmp/calderwood-message-handoff-worksheet.html`. It contains no guest names,
+reservation IDs, contact details, message bodies or credentials. Completed rows
+are marked do-not-replay; pending rows retain Guesty ownership. The twelve
+cleaner-message obligations remain unknown. The worksheet is an observation,
+not durable sender authority, and must be refreshed before cutover.
+
+The stay departing on the autumn clock-change date has its checkout reminder
+queued at noon the prior day; the earlier preview calculated 11 AM. The observed
+queue agrees with subtracting 24 elapsed hours, while the preview preserved the
+same local clock on the previous calendar date. One observation does not
+establish a universal Guesty rule or prove how cleaner reminders behave.
+
+The preview now compares both interpretations for day-based offsets. If they
+differ, including a missing/ambiguous target local clock, it withholds `at`,
+shows both candidate times and requires queue reconciliation. This affects both
+one-day and ten-day offsets. Verified minute-based offsets and confirmation
+calculations are unchanged. There is no saved override, queue import, live
+sender change, or inference of delivered/unsent state. The separate synthetic
+handoff/dispatch model still cannot consume this preview as sender authority.
+
+#### Broader workflow inventory
+
+Filtering Message automation to 65 Calderwood returned seven workflows. Adding
+Status Active returned six; the sample guest workflow disappeared. These six
+active workflows contain twenty configured message templates:
+
+| Workflow | Trigger | Templates | Visible scope |
+| --- | --- | ---: | --- |
+| Calderwood Messaging | Booking confirmation | 4 | Calderwood; all sources except three exclusions |
+| Cleaning updates - Luana | Booking confirmation | 2 | Calderwood; all sources |
+| Copy of STAFF Booking Change CT | Booking alteration | 1 | Bridgeport; all sources |
+| DIRECT BOOKING | Booking confirmation | 8 | All properties; restricted sources |
+| Rental Agreement | Booking confirmation | 1 | All properties; source detail not established |
+| STAFF messages ONLY | Booking confirmation | 4 | All properties; all sources |
+
+The alteration workflow showed “TEST Change to Stay”, “At alteration”, and User
+via SMS. Its name does not establish test-only behavior: it appears under the
+Active filter. Global/source-conditioned workflows need their conditions,
+recipients and outstanding obligations reconciled before migration. Twenty
+templates does not mean twenty pending messages per reservation. The original
+six recurring offsets are therefore not the complete migration inventory.
+No workflow was activated, deactivated, edited or saved. A staff-workflow editor
+was opened for inspection and left via list navigation without saving.
+
+Validation: all 1,968 tests passed; nonincremental TypeScript, targeted ESLint
+and diff checks passed. Synthetic coverage includes both DST directions,
+missing/ambiguous local times, unchanged minute offsets and withholding all
+candidates for canceled or unverified stays. Hosted acceptance is recorded in
+PR #1714. No additional provider request or paid service was added by this fix.
+
+Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
+`3b245d5b`; remote main observed as
+`b0c9e8b4b353bf2f345cb5ecc2d0adfab3293d6c`. Changes are limited to
+`message-timing.ts`, its focused tests, `MessageTimingReview.tsx` and this
+document. Existing contract notes remain excluded. Production Channex access,
+pricing delivery, the supported arrival/departure source, cleaner history and
+contract exit remain separate requirements.

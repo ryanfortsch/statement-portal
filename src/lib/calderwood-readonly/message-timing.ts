@@ -98,11 +98,18 @@ function uniqueLocalInstant(date: string, clock: string): string | null {
   return new Date(proposed).toISOString();
 }
 
-/** Calendar-day offsets preserve the local clock across DST; ambiguous/missing clocks stay unknown. */
-function daysBefore(at: string | null, days: number): string | null {
-  if (!at) return null;
-  const source = localParts(Date.parse(at)), date = addDays(source.date, -days);
-  return uniqueLocalInstant(date, source.clock);
+/** Guesty's observed queue can use elapsed hours across DST. Do not infer a
+ * universal rule from one workflow: expose both candidates and withhold the time.
+ */
+function daysBefore(at: string | null, days: number) {
+  const ms = instant(at);
+  if (ms === null) return { at: null, dayOffsetConflict: null };
+  const source = localParts(ms), date = addDays(source.date, -days);
+  const calendarAt = uniqueLocalInstant(date, source.clock);
+  const elapsedAt = new Date(ms - days * 24 * 60 * 60000).toISOString();
+  return calendarAt === elapsedAt
+    ? { at: calendarAt, dayOffsetConflict: null }
+    : { at: null, dayOffsetConflict: { calendarAt, elapsedAt } };
 }
 function minutesBefore(at: string | null, minutes: number) {
   return at ? new Date(Date.parse(at) - minutes * 60000).toISOString() : null;
@@ -118,14 +125,16 @@ export function reviewCalderwoodMessageTiming(reservation: { status: string; tim
   const timing = reservation.status === 'confirmed' && reservation.timing.clockVerified ? reservation.timing : { arrivalAt: null, departureAt: null };
   const rows = [
     { key: 'confirmation', label: 'Reservation confirmation', audience: 'Guest', at: confirmationTime, offset: '30 minutes after confirmation' },
-    { key: 'pre_arrival', label: 'Check-in instructions', audience: 'Guest', at: daysBefore(timing.arrivalAt, 1), offset: '1 day before arrival' },
+    { key: 'pre_arrival', label: 'Check-in instructions', audience: 'Guest', ...daysBefore(timing.arrivalAt, 1), offset: '1 day before arrival' },
     { key: 'key_code', label: 'Key code', audience: 'Guest', at: minutesBefore(timing.arrivalAt, 60), offset: '60 minutes before arrival' },
-    { key: 'pre_checkout', label: 'Checkout reminder', audience: 'Guest', at: daysBefore(timing.departureAt, 1), offset: '1 day before departure' },
-    { key: 'cleaner_reminder', label: 'Cleaner advance reminder', audience: 'Cleaner', at: daysBefore(timing.arrivalAt, 10), offset: '10 days before arrival' },
+    { key: 'pre_checkout', label: 'Checkout reminder', audience: 'Guest', ...daysBefore(timing.departureAt, 1), offset: '1 day before departure' },
+    { key: 'cleaner_reminder', label: 'Cleaner advance reminder', audience: 'Cleaner', ...daysBefore(timing.arrivalAt, 10), offset: '10 days before arrival' },
     { key: 'cleaner_arrival', label: 'Cleaner arrival-day reminder', audience: 'Cleaner', at: minutesBefore(timing.arrivalAt, 420), offset: '7 hours before arrival' },
   ];
   return rows.map(row => ({ ...row, canSend: false as const,
-    review: !row.at ? 'Timing unverified'
+    dayOffsetConflict: 'dayOffsetConflict' in row ? row.dayOffsetConflict : null,
+    review: 'dayOffsetConflict' in row && row.dayOffsetConflict ? 'Daylight-saving offset differs; verify Guesty queued time'
+      : !row.at ? 'Timing unverified'
       : Date.parse(row.at) <= now.getTime() ? 'Past or due time; verify history, never replay automatically'
       : 'Future time; verify queue and holds',
   }));
