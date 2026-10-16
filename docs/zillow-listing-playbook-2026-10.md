@@ -10,7 +10,7 @@ through Ryan's logged-in session on 2026-10-16.
 | Wave | Homes | Rent, term | Gate | When |
 |---|---|---|---|---|
 | 1 | 17 Beach guest house | $2,500 incl. utilities, Jan 2 to Apr 30. The whole house is booked through Dec 28 and those stays include the guest house | Nolans' written yes, Ryan's fee call | List Oct 17 to 20 |
-| 1 | 17 Beach main house | $5,000, Jan 2 to Apr 30; the listing also offers Nov 1 at $5,400 | same | List Oct 17 to 20; short-term calendars stay open through Dec 31 |
+| 1 | 17 Beach main house | $5,000, Jan 2 to Apr 30. Same whole-house bookings through Dec 28 | same | List Oct 17 to 20; short-term calendars stay open through Dec 31 |
 | 2 | 84 Thatcher $3,700, 225 Washington $3,400, 20 Hammond $3,400, the Marina $2,900 incl., 4 Middle $3,700, 20 Enon $3,600, 3 Locust $3,700 | Nov 1 to Apr 30 | each owner's yes (3 Locust is ours) | Owner notes go Oct 17; list each home the day its owner answers |
 | Owner-listed | 7 Sumac ($7,500 from Jan 1), 36 Granite ($3,250 from Nov 1) | theirs | a call this week | Align dates, block Helm's calendar the day they sign, offer to run the lease under Rising Tide |
 | Washes | 73 Rocky Neck at $3,500, 3 South at $3,800 | Nov 1 to Apr 30 | owner wants certainty over the forecast | List only at that number; otherwise keep short-term |
@@ -206,7 +206,7 @@ Keep this table current until there is a Helm page for it. Review it every Monda
 | Home | Rent, term | Listed | Premium | Leads | Showings | Applications | Signed | Notes |
 |---|---|---|---|---|---|---|---|---|
 | 17 Beach guest house | $2,500 incl., Jan 2 to Apr 30 | | | | | | | whole-house stays through Dec 28 |
-| 17 Beach main house | $5,000, Jan 2 to Apr 30 (Nov 1 at $5,400 offered) | | | | | | | |
+| 17 Beach main house | $5,000, Jan 2 to Apr 30 | | | | | | | whole-house stays through Dec 28 |
 | 84 Thatcher | $3,700, Nov 1 to Apr 30 | | | | | | | owner yes pending |
 | 225 Washington | $3,400 | | | | | | | owner yes pending |
 | 20 Hammond | $3,400 | | | | | | | owner yes pending |
@@ -332,10 +332,10 @@ Description:
 | Unit | Main House |
 | Property type | House |
 | Beds / baths | 5 / 3.5 (four bedrooms plus a third-floor bunk room) |
-| Rent | $5,000 a month for Jan 2 to Apr 30; $5,400 a month for a Nov 1 to Apr 30 term. Tenant pays heat and electric; water, sewer and internet included |
+| Rent | $5,000 a month, Jan 2 to Apr 30. Tenant pays heat and electric; water, sewer and internet included |
 | Deposit | $0; first and last at signing |
-| Term | Fixed, Jan 2 to Apr 30, 2027 (or Nov 1, 2026 to Apr 30, 2027) |
-| Available | Jan 2, 2027 (Nov 1 on request) |
+| Term | Fixed, Jan 2 to Apr 30, 2027 |
+| Available | Jan 2, 2027 |
 | Furnished | Yes |
 | Pets | per the Nolans |
 | Laundry | Two laundry rooms, in unit |
@@ -347,8 +347,8 @@ Description:
 Description:
 
 > Furnished five-bedroom house four minutes' walk from Good Harbor Beach, available January 2
-> through April 30 at $5,000 a month (a November 1 start is available at $5,400). Tenant pays
-> heat and electric; water, sewer and internet included. First and last month's rent at
+> through April 30 at $5,000 a month. Tenant pays heat and electric; water, sewer and internet
+> included. First and last month's rent at
 > signing, no security deposit. No occupancy tax on a month-plus lease.
 >
 > Four bedrooms plus a third-floor bunk room, three and a half baths, two laundry rooms. King
