@@ -75,6 +75,14 @@ import {
 } from './forecast-occupancy';
 import { isOperating, operatingFactor } from './forecast-operating-windows';
 import { statementFloor } from './forecast-statement-floor';
+import {
+  annualBasisFor,
+  paceAnnualFor,
+  sharedInventoryMap,
+  type AnnualBasis,
+} from './forecast-shared-inventory';
+
+export type { AnnualBasis } from './forecast-shared-inventory';
 
 /**
  * Ceiling on the pacing scale-up.
@@ -133,6 +141,17 @@ export type SmartProperty = {
   mgmtFeePct: number | null;
   isRtOwned: boolean;
   activatedAt: string | null;
+  /**
+   * The whole-house home this one is a unit of: a 'unit' member of a
+   * listing_links group whose 'whole' member is also an active managed home
+   * (17 Beach's front unit and guest house, split 2026-09-28). The three
+   * listings sell one pool of nights, so a unit never takes the
+   * portfolio-average annual gross on top of the whole house's projection
+   * and adds no capacity to the portfolio pacing denominator: it projects
+   * its own bookings and, once it has closed statements, its own floor.
+   * null for every other home.
+   */
+  sharesInventoryWith: string | null;
 };
 
 export type SmartMonthInputs = {
@@ -160,9 +179,6 @@ export type SmartPropertyMonth = {
   operating: boolean;
 };
 
-/** Where a property's annual gross came from. */
-export type AnnualBasis = 'pacing' | 'statements' | 'portfolio';
-
 export type SmartPropertyForecast = {
   property: SmartProperty;
   monthly: SmartPropertyMonth[];
@@ -176,7 +192,9 @@ export type SmartPropertyForecast = {
   /**
    * 'pacing' when the property's own forward bookings set it, 'statements'
    * when its closed statements floored it higher, 'portfolio' when it had no
-   * forward bookings and took the portfolio average.
+   * forward bookings and took the portfolio average, 'unit' when it is a unit
+   * of a home already in the table and had nothing of its own (it projects
+   * $0 rather than the portfolio average; see forecast-shared-inventory.ts).
    */
   annualBasis: AnnualBasis;
 };
@@ -345,7 +363,29 @@ export async function getBookedByPropertyByMonth(
     mgmtFeePct: p.is_rising_tide_owned ? null : Number(p.management_fee_pct ?? 0),
     isRtOwned: !!p.is_rising_tide_owned,
     activatedAt: p.activated_at,
+    sharesInventoryWith: null,
   }));
+
+  // Units of a home already in the forecast (a listing_links 'unit' whose
+  // group's 'whole' member is an active managed home) sell that home's
+  // nights. Marked here so computeSmartForecast keeps them off the
+  // portfolio-average fallback and out of the capacity denominator. A failed
+  // read leaves every home independent, which is how the table read before
+  // 2026-10-15 and projects a split home three times over, so it is logged
+  // rather than passed over in silence.
+  try {
+    const { data: links, error: linksErr } = await supabase
+      .from('listing_links')
+      .select('group_key, role, property_id, active');
+    if (linksErr) throw new Error(linksErr.message);
+    const shared = sharedInventoryMap(links ?? [], new Set(properties.map((p) => p.id)));
+    for (const p of properties) p.sharesInventoryWith = shared.get(p.id) ?? null;
+  } catch (err) {
+    console.error(
+      '[forecast-smart] listing_links read failed; units will project as independent homes:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 
   // Reservations that overlap any forward month.
   //
@@ -459,11 +499,18 @@ export function computeSmartForecast(
       if (p.activatedAt && p.activatedAt.slice(0, 10) > monthStart) continue;
       const factor = operatingFactor(p.id, ym);
       if (factor <= 0) continue;
+      const cell = bookedByPropMonth.get(p.id)?.get(ym);
+      // A unit of a home already counted sells that home's nights: its
+      // bookings are sold nights of the shared capacity, but it brings no
+      // capacity of its own, or an empty unit drags portfolio pacing down.
+      if (p.sharesInventoryWith) {
+        if (cell) portfolioNightsBooked += cell.nights;
+        continue;
+      }
       // Fractional on the month a property goes offline partway through:
       // its closed days are not bookable, so they must not inflate the
       // denominator and drag portfolio pacing down.
       activePropsThisMonth += factor;
-      const cell = bookedByPropMonth.get(p.id)?.get(ym);
       if (cell) portfolioNightsBooked += cell.nights;
     }
     const portfolioNightsPossible = days * activePropsThisMonth;
@@ -548,7 +595,10 @@ export function computeSmartForecast(
     const propBooked = bookedByPropMonth.get(p.id) ?? new Map();
     const partA = partAByProp.get(p.id) ?? new Map<string, number>();
     const ownAnnual = annualByProp.get(p.id) ?? 0;
-    const paceAnnual = ownAnnual > 0 ? ownAnnual : fallbackAnnual;
+    // A unit of a home already in the table takes no portfolio average: the
+    // whole house's projection is that address's projection.
+    const sharesInventory = p.sharesInventoryWith != null;
+    const paceAnnual = paceAnnualFor(ownAnnual, fallbackAnnual, sharesInventory);
     // Hold the forward pace to what the closed statements already proved.
     // The floor only raises: a property pacing toward a bigger year keeps it.
     const floor = statementFloor({
@@ -558,8 +608,12 @@ export function computeSmartForecast(
       operatingFactor: (ym) => operatingFactor(p.id, ym),
     });
     const annualGross = Math.max(paceAnnual, floor.annual);
-    const annualBasis: AnnualBasis =
-      floor.annual > paceAnnual ? 'statements' : ownAnnual > 0 ? 'pacing' : 'portfolio';
+    const annualBasis: AnnualBasis = annualBasisFor({
+      floorAnnual: floor.annual,
+      paceAnnual,
+      ownAnnual,
+      sharesInventory,
+    });
     const feeFraction = (p.mgmtFeePct ?? 0) / 100;
 
     const activated = p.activatedAt ? new Date(p.activatedAt) : null;
