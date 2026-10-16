@@ -9,7 +9,7 @@ through Ryan's logged-in session on 2026-10-16.
 
 | Wave | Homes | Rent, term | Gate | When |
 |---|---|---|---|---|
-| 1 | 17 Beach guest house | $2,500 incl. utilities, Nov 1 to Apr 30 | Nolans' written yes, Ryan's fee call | List Oct 17 to 20 |
+| 1 | 17 Beach guest house | $2,500 incl. utilities, Jan 2 to Apr 30. The whole house is booked through Dec 28 and those stays include the guest house | Nolans' written yes, Ryan's fee call | List Oct 17 to 20 |
 | 1 | 17 Beach main house | $5,000, Jan 2 to Apr 30; the listing also offers Nov 1 at $5,400 | same | List Oct 17 to 20; short-term calendars stay open through Dec 31 |
 | 2 | 84 Thatcher $3,700, 225 Washington $3,400, 20 Hammond $3,400, the Marina $2,900 incl., 4 Middle $3,700, 20 Enon $3,600, 3 Locust $3,700 | Nov 1 to Apr 30 | each owner's yes (3 Locust is ours) | Owner notes go Oct 17; list each home the day its owner answers |
 | Owner-listed | 7 Sumac ($7,500 from Jan 1), 36 Granite ($3,250 from Nov 1) | theirs | a call this week | Align dates, block Helm's calendar the day they sign, offer to run the lease under Rising Tide |
@@ -193,8 +193,8 @@ certificate in the file.
 
 ## 9. Furnished Finder alongside
 
-List the guest house and the Marina on Furnished Finder the same week ($199 a year per
-listing, no commission, the landlord sets utilities-included rents). Same rent, same term,
+List the guest house (for January 2) and the Marina on Furnished Finder the same week ($199
+a year per listing, no commission, the landlord sets utilities-included rents). Same rent, same term,
 same photos, the description's first sentence says "Addison Gilbert Hospital 8 minutes,
 Beverly Hospital 25". Add any house still unlet on November 1. Furnished Finder tenants arrive
 with a contract end date, which is the exit the screening wants.
@@ -205,7 +205,7 @@ Keep this table current until there is a Helm page for it. Review it every Monda
 
 | Home | Rent, term | Listed | Premium | Leads | Showings | Applications | Signed | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 17 Beach guest house | $2,500 incl., Nov 1 to Apr 30 | | | | | | | |
+| 17 Beach guest house | $2,500 incl., Jan 2 to Apr 30 | | | | | | | whole-house stays through Dec 28 |
 | 17 Beach main house | $5,000, Jan 2 to Apr 30 (Nov 1 at $5,400 offered) | | | | | | | |
 | 84 Thatcher | $3,700, Nov 1 to Apr 30 | | | | | | | owner yes pending |
 | 225 Washington | $3,400 | | | | | | | owner yes pending |
@@ -234,20 +234,21 @@ Keep this table current until there is a Helm page for it. Review it every Monda
 >
 > Here is the winter plan for the two units, with the numbers behind it.
 >
-> The guest house goes on the furnished monthly market from November 1 through April 30 at
-> $2,500 a month with utilities included. On Zillow, one-bedroom winter rentals in Gloucester
-> ask $1,500 to $3,000; a renovated suite with its own entrance, laundry and porch four minutes
-> from Good Harbor sits at the top of that range. As a short-term rental the guest house's
-> winter is worth about $1,450 a month after cleanings, so the lease is the better use by
-> about $1,000 a month.
+> Through New Year's nothing changes: the whole house is booked for Thanksgiving and
+> Christmas week, and those stays include the guest house. From January 2 through April 30,
+> the months with nothing booked, both units go on the furnished monthly market.
 >
-> The main house stays on Airbnb, VRBO and Stay Cape Ann through New Year's, where it has
-> bookings and holiday demand, and is offered furnished from January 2 through April 30 at
-> $5,000 a month with the tenant paying heat and electric. Four-bedroom winter houses in
-> Gloucester ask $3,200 to $4,600; five bedrooms, three and a half baths and this year's
-> renovation carry it above that. Our forecast for the main house as a short-term rental over
-> those four months is about the same money, but nothing is booked after December 28 today,
-> and the lease is signed money with no turnovers.
+> The guest house at $2,500 a month with utilities included. On Zillow, one-bedroom winter
+> rentals in Gloucester ask $1,500 to $3,000; a renovated suite with its own entrance, laundry
+> and porch four minutes from Good Harbor sits at the top of that range. As a short-term rental
+> the guest house's winter is worth about $1,450 a month after cleanings, so the lease is the
+> better use by about $1,000 a month.
+>
+> The main house at $5,000 a month with the tenant paying heat and electric. Four-bedroom
+> winter houses in Gloucester ask $3,200 to $4,600; five bedrooms, three and a half baths and
+> this year's renovation carry it above that. Our forecast for the main house as a short-term
+> rental over those four months is about the same money, but nothing is booked after
+> December 28 today, and the lease is signed money with no turnovers.
 >
 > Tenants sign a fixed-term lease that ends April 30 with no renewal, pay first and last at
 > signing, carry renter's insurance, and are screened through Zillow (income, credit,
@@ -295,8 +296,8 @@ KB does not support a parking number.
 | Beds / baths | 1 / 1.5 |
 | Rent | $2,500 a month, utilities included (electric capped at $150 a month in the lease) |
 | Deposit | $0; first and last at signing |
-| Term | Fixed, Nov 1, 2026 to Apr 30, 2027; three-month minimum at $2,750 |
-| Available | Nov 1, 2026 |
+| Term | Fixed, Jan 2 to Apr 30, 2027; three-month minimum at $2,750 |
+| Available | Jan 2, 2027 |
 | Furnished | Yes |
 | Pets | per the Nolans |
 | Laundry | In unit (stacked washer and dryer) |
@@ -308,7 +309,7 @@ KB does not support a parking number.
 Description:
 
 > Furnished one-bedroom guest house four minutes' walk from Good Harbor Beach, available
-> November 1 through April 30, $2,500 a month with utilities included. First and last month's
+> January 2 through April 30, $2,500 a month with utilities included. First and last month's
 > rent at signing, no security deposit. No occupancy tax on a month-plus lease.
 >
 > Private entrance through an enclosed, heated porch that looks onto the woods behind the

@@ -34,9 +34,10 @@ books for this winter. Property-level totals only; no guest appears here.
   month for November through April or $5,000 for January through April; guest house
   (1 bedroom, 1.5 baths) $2,500 with utilities included. The guest house is a clear lease
   (its winter as a one-bedroom short-term rental is worth about $1,450 a month). The main
-  house is a wash on paper against Helm's forecast, so the recommendation is: lease the guest
-  house now, keep the main house short-term through New Year's, and lease it January 2 to
-  April 30 at $5,000 or better.
+  house is a wash on paper against Helm's forecast. The whole house is booked for Thanksgiving
+  and Christmas week and those stays include the guest house, so the plan is: holidays stay
+  short-term, then both units lease January 2 to April 30, the guest house at $2,500 and the
+  main house at $5,000 or better.
 - **Susan's reviews question has a mechanical answer.** Statement reviews come from the
   booking platforms through Guesty. Stay Cape Ann direct guests (four of her five September
   stays) are never asked for a review anywhere, and the two new Airbnb unit listings are off
@@ -180,7 +181,7 @@ revenue. "Booked" is confirmed Guesty revenue with checkout in that window as of
 | Home | Beds / baths | Tier | List rent | Floor | Forecast STR Nov to Apr | Booked | Worth as STR per month | Call |
 |---|---|---|---|---|---|---|---|---|
 | 17 Beach main house | 4 + bunk / 3.5 | $3,700 / $4,000 / $4,600 (4BR) | $5,400, or $5,000 Jan to Apr | $4,800 | $42,600 (85% of the whole house's $50,100) | $9,345 (whole house, Nov to Dec) | $6,000 | wash; lease Jan to Apr at $5,000+ |
-| 17 Beach guest house | 1 / 1.5 | $1,900 / $2,000 / $3,022 | $2,500 incl. utilities | $2,200 | about $9,500 (AirDNA one-bedroom tier) | $0 | $1,450 | lease |
+| 17 Beach guest house | 1 / 1.5 | $1,900 / $2,000 / $3,022 | $2,500 incl. utilities | $2,200 | about $9,500 (AirDNA one-bedroom tier) | inside the whole-house stays through Dec 28 | $1,450 | lease, Jan 2 to Apr 30 |
 | 7 Sumac | 5 + cottage / 3.5 | no 5BR tier; owner asks $7,500 | $5,800 to the owner's $7,500 | $5,000 | $32,050 | $5,517 | $4,150 | lease; owner already listed it |
 | 3 Windward | 4 / 3 | $3,700 / $4,000 / $4,600 | $4,800 | $4,200 | $52,100 | $11,235 | $7,850 | keep STR |
 | 19 Rackliffe | 4 / 2.5 | same | $4,300 | $3,800 | $46,100 | $11,600 | $5,950 | keep STR |
@@ -205,14 +206,15 @@ What the two sides say together:
 - The four strongest homes (3 Windward, 19 Rackliffe, 21 Horton, 53 Rocky Neck upstairs) are
   worth $4,800 to $7,850 a month as short-term rentals by Helm's forecast, and no Zillow tenant
   pays that for a three- or four-bedroom. Keep them short-term.
-- The ten lease homes together: Zillow rents at list total $35,600 a month, $213,600 for the
-  six months. Helm's forecast for the same ten as short-term rentals is $223,700 gross, which
-  nets to about $166,900 once cleanings and heat come out. The lease is worth about $47,000
-  more to the owners across those ten, and it is certain money against a projection with
-  nothing booked after December.
-- The three washes come down to the owner. At 17 Beach the main house's forecast ($42,600)
-  and a six-month lease ($32,400) plus the guest house ($15,000) are the same $47,000. A lease
-  signed in October is a sure $47,000; the forecast is a curve with $9,345 booked.
+- The ten lease homes together: Zillow rents at list total $35,600 a month, $208,600 for the
+  winter (the 17 Beach guest house counted January to April). Helm's forecast for the same
+  ten as short-term rentals is $223,700 gross, which nets to about $166,900 once cleanings
+  and heat come out. The lease is worth about $42,000 more to the owners across those ten,
+  and it is certain money against a projection with nothing booked after December.
+- The three washes come down to the owner. At 17 Beach, Helm's forecast for the whole house
+  from January 2 to April 30 is about $32,300; a lease of both units for those four months is
+  $30,000, and the holidays stay short-term either way. A lease signed in October is a sure
+  $30,000; the forecast is a curve with nothing booked in those months.
 - Two owners have already decided: 7 Sumac and 36 Granite are on Zillow today. Both still show
   short-term availability in Helm, so a winter tenant and a winter guest can be sold the same
   nights until someone blocks the calendar.
@@ -256,32 +258,37 @@ house 85% of that, $42,600, less cleanings (9%) and heat ($450 a month): worth a
 month. So the main house is a wash: the six-month lease at $5,400 is $32,400 against a
 forecast net of about $36,000, and the forecast has nothing booked after December 28.
 
-**Three ways to run the winter** (gross before fee; heat on the main house is the tenant's
-under a lease):
+**The constraint that sets the dates.** The whole house is already booked through
+December 28 (an early-November Airbnb stay, Thanksgiving on VRBO, Christmas week on Airbnb,
+$9,345 together), and a whole-house stay includes the guest house. So neither unit can take a
+November tenant. January 2 is the first day both are free, and nothing is booked from there
+to the end of April.
 
-| Plan | Guest house | Main house | Winter gross |
+**Two ways to run January to April** (gross before fee; heat on the main house is the
+tenant's under a lease):
+
+| Plan | Guest house | Main house | Jan 2 to Apr 30 gross |
 |---|---|---|---|
-| A. Lease both, Nov 1 to Apr 30 | $2,500 x 6 = $15,000 | $5,400 x 6 = $32,400 | $47,400 |
-| B. Lease the guest house; main house short-term through New Year's, then leased Jan 2 to Apr 30 | $15,000 | Nov to Dec forecast $17,800 ($9,345 booked), then $5,000 x 4 = $20,000 | about $52,800 |
-| C. Both short-term | about $9,500 | forecast $42,600 | about $52,100, of which $9,345 is booked |
+| A. Lease both, Jan 2 to Apr 30 | $2,500 x 4 = $10,000 | $5,000 x 4 = $20,000 | $30,000, signed |
+| B. Both short-term | about $6,300 (AirDNA one-bedroom tier, four months) | forecast $27,500 (85% of the whole house's $32,300) | about $33,800, nothing booked |
 
-Plan B is the recommendation. It takes the two months where the main house has real bookings
-and holiday demand as short-term, puts a tenant in for the four months where nothing is booked
-and the forecast is only a curve, and nets more than A because the holidays are worth more as
-nights than as rent. The guest house is a lease in every plan. If a strong six-month tenant
-appears before the holidays book, take A for the main house too; the money is the same and the
-work is less.
+Plan A is the recommendation. The whole-house holidays stay short-term as booked, and the
+four empty months go to tenants at the same money the forecast projects, signed in October
+instead of hoped for in February, with no turnovers. If a tenant wants the guest house for a
+full six months and the Nolans would rather have that than the holiday stays, the November
+and December whole-house bookings would have to be moved, which is theirs to decide and not
+recommended.
 
 Mechanics, in order:
 
 1. Ryan confirms the fee treatment on lease income (section 7) and whether the guest house's
    meters can be read separately (they share the house's, so the lease includes utilities).
 2. List the guest house on Zillow and Furnished Finder this week: $2,500, utilities included,
-   available November 1, term through April 30, "Short term lease available" ticked, no pets
+   available January 2, term through April 30, "Short term lease available" ticked, no pets
    unless the Nolans say otherwise.
-3. List the main house on Zillow at $5,000 for January 2 to April 30, and in the same listing
-   say a November start at $5,400 is available. Leave the Airbnb, VRBO and Stay Cape Ann
-   calendars open through December 31. Block them the day a lease signs.
+3. List the main house on Zillow at $5,000 for January 2 to April 30. Leave the Airbnb, VRBO
+   and Stay Cape Ann calendars open through December 31 for the holiday stays already booked
+   and any that land around them. Block January 2 onward the day a lease signs.
 4. In Helm, set a rental period on each unit for the lease months so the forecast and pacing
    stop projecting short-term nights there (`property_rental_periods`, on the property page).
    Do the same for 7 Sumac and 36 Granite the day their owners' tenants sign.
@@ -373,12 +380,11 @@ should settle the fee line in section 7 first, since the plan below commits to l
 >
 > Two good questions.
 >
-> **The two units this winter.** Now that the main house and the guest house have their own
-> listings, the plan for the off-season is to put the guest house on the furnished monthly
-> market from November through April at about $2,500 a month with utilities included, and to
-> keep the main house on Airbnb, VRBO and Stay Cape Ann through the holidays, then lease it
-> furnished from early January through April at about $5,000 a month with the tenant paying
-> heat and electric. We list on Zillow and on Furnished Finder, the site traveling nurses use
+> **The two units this winter.** Through New Year's nothing changes: the whole house is
+> booked for Thanksgiving and Christmas week, and those stays include the guest house. From
+> early January through April, the months with nothing booked, both units go on the furnished
+> monthly market: the guest house at about $2,500 a month with utilities included, and the main
+> house at about $5,000 a month with the tenant paying heat and electric. We list on Zillow and on Furnished Finder, the site traveling nurses use
 > (Addison Gilbert is a steady source of three-month tenants), with fixed end dates so both
 > spaces are back on the short-term calendar for May. Month-plus rentals carry no occupancy
 > tax and no turnover cleanings, and the winter months are the ones where the short-term
