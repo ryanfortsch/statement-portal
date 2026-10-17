@@ -54,7 +54,7 @@ export function OpenWorkSection({
   const stale = brief ? briefIsStale(brief, slips) : false;
 
   return (
-    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
+    <section id="open-work" className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 36, width: '100%' }}>
       <div className="flex items-baseline justify-between flex-wrap" style={{ marginBottom: 14, gap: 12 }}>
         <h2
           className="font-serif"

@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { SaveQueue } from '../src/lib/save-queue.ts';
 import { readInspectionDrafts } from '../src/lib/inspection-drafts.ts';
 import { availableCount, claimDeployReload, isStaleDeployError } from '../src/lib/recovery.ts';
+import { operatingDate } from '../src/lib/operating-date.ts';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -147,6 +148,7 @@ async function dashboard({ dbError = null, reviewError = false } = {}) {
     'next/link': { default: link, __esModule: true }, '@/lib/recovery': { availableCount },
     '@/lib/supabase-admin': { supabaseAdmin: { from: () => chain }, isServiceConfigured: true },
     '@/lib/helm-access-server': { isOwnerSession: async () => true },
+    '@/lib/operating-date': { operatingDate },
     '@/components/Stat': { Stat }, '@/components/RetryDashboard': { RetryDashboard: () => React.createElement('button', null, 'Retry unavailable data') },
     '@/lib/revenue-date-range': { computeDateRange: () => ({ rangeStart: '', rangeEnd: '' }) },
     '@/lib/revenue-snapshot': { computeRevenueSnapshot: async () => ({ portfolio: { totalPayout: 0 } }) },

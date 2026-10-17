@@ -10,6 +10,7 @@ import { ACTIVE_WORK_SLIP_STATUSES } from '@/lib/work-types';
 import PropertiesMap from './PropertiesMap';
 import { PropertiesTabBar } from './PropertiesTabBar';
 import { isOwnerSession } from '@/lib/helm-access-server';
+import { operatingDate } from '@/lib/operating-date';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 60;
@@ -42,7 +43,7 @@ async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: 
 async function getWorkCountsByProperty(): Promise<Record<string, WorkCounts>> {
   if (!isHelmConfigured) return {};
   try {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = operatingDate();
     const { data, error } = await supabase
       .from('work_slips')
       .select('property_id, owner_action_required')

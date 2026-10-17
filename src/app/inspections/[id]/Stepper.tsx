@@ -539,6 +539,7 @@ export function Stepper({
         <TopBar
           markedCount={markedCount}
           total={total}
+          exitHref={exitHref}
           onExit={exitStepper}
           onAddSlip={() => setShowWorkSlipModal(true)}
         />
@@ -791,6 +792,7 @@ export function Stepper({
         markedCount={markedCount}
         total={total}
         currentIdx={activeIdx}
+        exitHref={exitHref}
         onExit={exitStepper}
         onAddSlip={() => setShowWorkSlipModal(true)}
       />
@@ -1248,12 +1250,16 @@ function TopBar({
   markedCount,
   total,
   currentIdx,
+  exitHref,
   onExit,
   onAddSlip,
 }: {
   markedCount: number;
   total: number;
   currentIdx?: number;
+  /** Where Exit goes. The anchor carries it too, so open-in-new-tab and a
+   *  tap before hydration land on the same page the onClick would. */
+  exitHref: string;
   onExit: () => void;
   /**
    * Optional: when provided, the top bar shows a "+ Slip" affordance so
@@ -1275,7 +1281,7 @@ function TopBar({
     >
       <div className="max-w-[760px] mx-auto px-6 sm:px-10 flex items-center justify-between" style={{ padding: '12px 24px', gap: 12 }}>
         <Link
-          href="/inspections"
+          href={exitHref}
           onClick={(e) => {
             e.preventDefault();
             onExit();

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { ProjectionRow } from '@/lib/projections-types';
+import type { HelmPropertyRow } from '@/lib/properties';
 import { ArchiveOnboardingTrigger } from './ArchiveOnboardingTrigger';
 
 export const dynamic = 'force-dynamic';
@@ -16,24 +17,66 @@ export const metadata: Metadata = {
   },
 };
 
-async function getProspect(token: string): Promise<ProjectionRow | null> {
+/** Who just submitted: a prospect (projections) or the owner of a home we
+ *  already manage (properties). Both intake flows end on this URL. */
+type ThanksTarget = {
+  kind: 'projection' | 'property';
+  id: string;
+  greetingName: string;
+  propertyAddress: string;
+  submittedAt: string | null;
+  driveUrl: string | null;
+};
+
+async function getTarget(token: string): Promise<ThanksTarget | null> {
   if (!/^[a-f0-9]{32}$/.test(token)) return null;
-  const { data } = await supabase
+  const { data: prospect } = await supabase
     .from('projections')
     .select('*')
     .eq('onboarding_token', token)
     .maybeSingle();
-  return (data as ProjectionRow | null) ?? null;
+  if (prospect) {
+    const p = prospect as ProjectionRow;
+    return {
+      kind: 'projection',
+      id: p.id,
+      greetingName: p.prospect_first_names || p.prospect_first_name || 'there',
+      propertyAddress: p.property_address,
+      submittedAt: p.onboarding_submitted_at,
+      driveUrl: p.onboarding_drive_url,
+    };
+  }
+
+  // The form page and submitOnboarding's property branch both send a
+  // managed-property owner here, so the lookup has to cover properties too;
+  // reading projections alone landed those owners on Not Found.
+  const { data: property } = await supabase
+    .from('properties')
+    .select('id, address, city, owner_greeting, owner_full, onboarding_submitted_at')
+    .eq('onboarding_token', token)
+    .maybeSingle();
+  if (property) {
+    const row = property as Pick<HelmPropertyRow, 'id' | 'address' | 'city' | 'owner_greeting' | 'owner_full' | 'onboarding_submitted_at'>;
+    return {
+      kind: 'property',
+      id: row.id,
+      greetingName: row.owner_greeting || row.owner_full || 'there',
+      propertyAddress: [row.address, row.city].filter(Boolean).join(', '),
+      submittedAt: row.onboarding_submitted_at,
+      driveUrl: null,
+    };
+  }
+  return null;
 }
 
 export default async function OnboardingThanksPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const prospect = await getProspect(token);
-  if (!prospect) notFound();
+  const target = await getTarget(token);
+  if (!target) notFound();
 
-  const greetingName = prospect.prospect_first_names || prospect.prospect_first_name || 'there';
-  const submitted = prospect.onboarding_submitted_at
-    ? new Date(prospect.onboarding_submitted_at).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  const greetingName = target.greetingName;
+  const submitted = target.submittedAt
+    ? new Date(target.submittedAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     : null;
 
   return (
@@ -41,12 +84,13 @@ export default async function OnboardingThanksPage({ params }: { params: Promise
       <style>{thanksCss}</style>
       {/* Silent: archives the submitted intake to Drive in the
           background. Renders nothing. Only fires for submitted,
-          not-yet-archived intakes. */}
-      {prospect.onboarding_submitted_at && (
+          not-yet-archived prospect intakes; the archive route reads
+          projections, so a managed property's intake is not archived here. */}
+      {target.kind === 'projection' && target.submittedAt && (
         <ArchiveOnboardingTrigger
-          projectionId={prospect.id}
+          projectionId={target.id}
           token={token}
-          alreadyArchived={!!prospect.onboarding_drive_url}
+          alreadyArchived={!!target.driveUrl}
         />
       )}
       <div className="rt-thanks-page">
@@ -64,7 +108,7 @@ export default async function OnboardingThanksPage({ params }: { params: Promise
           {submitted && <p className="rt-th-stamp">Received {submitted}</p>}
           <div className="rt-th-rule" />
           <p>
-            We&rsquo;ve got everything we need from you for now. Allie will reach out within a couple of business days with the next steps for getting <strong>{prospect.property_address}</strong> live.
+            We&rsquo;ve got everything we need from you for now. Allie will reach out within a couple of business days with the next steps for getting <strong>{target.propertyAddress}</strong> live.
           </p>
           <p>
             If you forgot something or need to update an answer, just reply to the email Allie sent or call directly.

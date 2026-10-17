@@ -597,7 +597,7 @@ export async function bundleMaintenanceAndSend(formData: FormData): Promise<void
   if (packetId) {
     await fieldDb().from('packet_events').insert({ packet_id: packetId, actor_email: email, event_type: 'published' });
     notifyContractorsOfPacket(packetId).catch(() => {});
-    redirect('/fieldwork/packets?sent=1');
+    redirect('/fieldwork/packets?trade=maintenance&sent=1');
   }
   redirect('/fieldwork/packets/maintenance?sent=0');
 }

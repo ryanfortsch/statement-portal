@@ -146,7 +146,7 @@ export async function sendStartTimeEmail(
   packet: { id: string; title: string; visit_date: string },
   timeLabel: string | null,
 ): Promise<boolean> {
-  const link = `${fieldBaseUrl()}/field/packet/${packet.id}`;
+  const link = packetLink(contractor.portal_token, packet.id);
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">${timeLabel ? `You can start from ${timeLabel}` : 'Start window cleared'}</h1>
     <p>${timeLabel

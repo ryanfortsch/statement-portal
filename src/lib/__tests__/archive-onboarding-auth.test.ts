@@ -203,7 +203,9 @@ test('bad request bodies do not reach the database', async () => {
 test('the thank-you page carries its validated token into the archive POST body', () => {
   const page = readFileSync(new URL('../../app/onboarding/[token]/thanks/page.tsx', import.meta.url), 'utf8');
   const trigger = readFileSync(new URL('../../app/onboarding/[token]/thanks/ArchiveOnboardingTrigger.tsx', import.meta.url), 'utf8');
-  assert.match(page, /<ArchiveOnboardingTrigger\s+projectionId=\{prospect\.id\}\s+token=\{token\}/);
+  // Only a prospect's intake is archived here (the route reads projections);
+  // a managed property's owner lands on the same page without the trigger.
+  assert.match(page, /target\.kind === 'projection' && target\.submittedAt && \(\s*<ArchiveOnboardingTrigger\s+projectionId=\{target\.id\}\s+token=\{token\}/);
   assert.match(trigger, /body:\s*JSON\.stringify\(\{ projectionId, token \}\)/);
   assert.match(trigger, /fetch\('\/api\/archive-onboarding',/);
 });
