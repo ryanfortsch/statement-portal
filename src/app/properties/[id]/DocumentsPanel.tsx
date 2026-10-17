@@ -174,7 +174,6 @@ export function DocumentsPanel({
           </fieldset>
         </form>
 
-        {uploaded && <p role="status">Document uploaded.</p>}
         {error && (
           <div
             role="alert"
@@ -195,6 +194,9 @@ export function DocumentsPanel({
 
         </>
       )}
+
+      {/* The confirmation outlives the form, which folds once the upload lands. */}
+      {uploaded && <p role="status">Document uploaded.</p>}
 
       {/* List */}
       {documents.length === 0 ? (
