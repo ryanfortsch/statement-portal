@@ -14,7 +14,7 @@ import { UndoButton } from './UndoButton';
 
 const STATUS_LABELS: Record<string, string> = {
   approved: 'Sent',
-  rejected: 'Rejected',
+  rejected: 'Handled',
   // Covers both "she replied in Guesty" (poller-captured) and "she replied
   // from the Helm thread composer" (which resolves pending drafts the same way).
   manual_sent: 'Replied manually',

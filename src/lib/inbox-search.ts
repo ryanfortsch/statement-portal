@@ -18,7 +18,10 @@ export function approvalSearchStatus(row: SearchableApproval, active: boolean): 
   if (row.status === 'scheduled') return { status: 'Scheduled', filter: 'scheduled' };
   if (row.status === 'sending') return { status: 'Sending', filter: 'scheduled' };
   if (row.status === 'pending') return { status: row.draft?.trim() ? 'Draft ready' : 'Needs review', filter: 'review' };
-  const handled: Record<string, string> = { approved: 'Sent', manual_sent: 'Marked handled', rejected: 'Skipped', no_reply_needed: 'No reply needed', courtesy_ack: 'No reply needed', marked_handled: 'Handled' };
+  // Handled is the one word for a card closed without a reply (the toast, the
+  // Decided recently ledger and the thread chip say the same); rejected is
+  // the retired Reject verb's status and reads the same way.
+  const handled: Record<string, string> = { approved: 'Sent', manual_sent: 'Handled', rejected: 'Handled', no_reply_needed: 'No reply needed', courtesy_ack: 'No reply needed', marked_handled: 'Handled' };
   if (handled[row.status]) return { status: handled[row.status], filter: 'handled' };
   const other: Record<string, string> = { superseded: 'Replaced', auto_rejected_stale: 'Expired draft', expired: 'Expired draft', failed: 'Failed' };
   return { status: other[row.status] || 'Status unavailable', filter: active || row.status === 'failed' ? 'review' : 'all' };

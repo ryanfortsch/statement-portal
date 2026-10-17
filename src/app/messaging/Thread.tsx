@@ -56,10 +56,12 @@ function handledLabel(m: ThreadMessage): string {
   switch (m.approval_status) {
     case 'approved':
       return 'replied via Helm';
+    // Handled, the same word as the toast, the ledger and search: manual_sent
+    // covers both a reply made elsewhere and a Mark handled with no reply, so
+    // "you replied in Guesty" was wrong half the time.
     case 'manual_sent':
-      return 'you replied in Guesty';
     case 'rejected':
-      return 'no reply needed';
+      return 'handled';
     case 'auto_rejected_stale':
       return 'draft expired';
   }

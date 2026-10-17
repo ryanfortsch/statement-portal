@@ -29,7 +29,6 @@ import {
 } from '@/lib/schedule-time';
 import {
   approveDraft,
-  rejectDraft,
   coachDraft,
   markHandled,
   redraftDraft,
@@ -76,6 +75,12 @@ const PAGE_REFRESH_MS = 60_000;
 // the 141 real bypasses in the last 30 days actually were, not invented: the
 // rollup reads these back against which guard suppressed an auto-send, so a
 // long menu would fragment the counts into uselessness.
+//
+// Since 2026-10-17 this drawer is the ONE door for "no reply". The Reject verb
+// is retired on every queue: it read as "reject this wording" and meant the
+// guest was never answered (a 65 Calderwood lead went unanswered that way in
+// September), and it was the same decision as "Not worth a reply" through a
+// second door that recorded nothing.
 const NO_REPLY_REASONS = ['Already answered', 'Guest said thanks', 'Not worth a reply'] as const;
 
 // Muted bronze for the queued (scheduled) state. Reused from the proactive
@@ -141,8 +146,8 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
     softRefresh();
   }, [refresh, softRefresh]);
 
-  // The last reject / mark-handled made from this page, for the undo toast.
-  // Latest wins; the toast clears itself.
+  // The last Mark handled made from this page, for the undo toast. Latest
+  // wins; the toast clears itself.
   const [lastDecision, setLastDecision] = useState<Decision | null>(null);
   const closeToast = useCallback(() => setLastDecision(null), []);
 
@@ -200,7 +205,6 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
 // in-progress right up until router.refresh remounts the card.
 type PendingAction =
   | 'approve'
-  | 'reject'
   | 'mark-handled'
   | 'coach'
   | 'schedule'
@@ -224,7 +228,7 @@ function ApprovalCard({
    *  when the lookup degraded. */
   quotes?: CardQuoteBlock;
   onResolved: (notice?: string) => void;
-  /** A reversible decision landed (reject / mark handled): offer undo. */
+  /** Mark handled landed: offer undo. */
   onDecided: (d: Decision) => void;
   /** Coaching accepted upstream: watch closely for the rewritten card. */
   onRegenerating: (id: string) => void;
@@ -420,6 +424,8 @@ function ApprovalCard({
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
   const kind = proactiveKind(approval.guesty_message_id, approval.topic);
   const badge = proactiveBadge(kind);
+  // A proactive card has no guest message, so "Guest said thanks" cannot apply.
+  const noReplyReasons = kind ? NO_REPLY_REASONS.filter((r) => r !== 'Guest said thanks') : NO_REPLY_REASONS;
 
   // Add-on charge riding on this card (Tesla charger, pet fee...). The SMS
   // leg needs both a minted link and a phone; without either the block
@@ -433,7 +439,7 @@ function ApprovalCard({
   const [createHandoff, setCreateHandoff] = useState(true);
   const [cleanerChoice, setCleanerChoice] = useState<{ action: 'skip' | 'draft' | 'send'; token: string }>({ action: 'draft', token: '' });
   const cleanerAction = cleanerChoice.action === 'send' && cleanerChoice.token !== handoff?.preview_token ? 'draft' : cleanerChoice.action;
-  const recordedHandoffStatus: Record<string, string> = { approved: 'Sent', sending: 'Sending', scheduled: 'Scheduled', rejected: 'Skipped', superseded: 'Replaced' };
+  const recordedHandoffStatus: Record<string, string> = { approved: 'Sent', sending: 'Sending', scheduled: 'Scheduled', rejected: 'Handled', superseded: 'Replaced' };
   const handoffStatus = handoff?.create_error ? 'Needs review'
     : recordedHandoffStatus[handoff?.note_status || ''] || (handoff?.audience === 'cleaner'
       ? { send: 'Send after reply', draft: 'Draft for approval', skip: 'Skip note' }[cleanerAction]
@@ -499,22 +505,6 @@ function ApprovalCard({
     });
   };
 
-  const handleReject = () => {
-    setError(null);
-    setPendingAction('reject');
-    startTransition(async () => {
-      const res = await rejectDraft(approval.id);
-      if (!res.ok) {
-        if (res.stale) { onResolved(); return; }
-        setError(res.error);
-        setPendingAction(null);
-        return;
-      }
-      onDecided({ id: approval.id, action: 'rejected', guest: guestLabel, property: propertyLabel });
-      onResolved();
-    });
-  };
-
   /** Re-run the draft against today's data. For when the draft is stale
    *  rather than wrong: the system has learned something since it was
    *  written (a price it can now compute, a knowledge base it can now load)
@@ -559,7 +549,7 @@ function ApprovalCard({
         setPendingAction(null);
         return;
       }
-      onDecided({ id: approval.id, action: 'manual_sent', guest: guestLabel, property: propertyLabel });
+      onDecided({ id: approval.id, guest: guestLabel, property: propertyLabel });
       onResolved();
     });
   };
@@ -1473,13 +1463,11 @@ function ApprovalCard({
               Mark sent
             </SecondaryButton>
             <SecondaryButton
-              onClick={handleReject}
+              onClick={toggleHandled}
               disabled={busy}
-              loading={pendingAction === 'reject'}
-              loadingLabel="Dismissing"
-              title="Skip this trash reminder. Drops the card."
+              title="Nothing to send. Clears the card without sending; Undo for 12 hours."
             >
-              Dismiss
+              {showHandled ? 'Cancel' : 'Mark handled'}
             </SecondaryButton>
           </>
         ) : inquiryWithoutDraft ? (
@@ -1591,10 +1579,11 @@ function ApprovalCard({
             >
               {showCoach ? 'Cancel coaching' : 'Coach the AI'}
             </SecondaryButton>
-            {/* The two ways of closing a card WITHOUT sending are text, not
-                boxes, and sit apart from the send controls: one dark button,
-                one outlined, then the quiet exits. Four equal boxes read as
-                four equal choices, which they are not. */}
+            {/* Closing a card WITHOUT sending is text, not a box, and sits
+                apart from the send controls: one dark button, one outlined,
+                then the quiet exits. Equal boxes read as equal choices, which
+                they are not. Mark handled is the one door for "no reply"; the
+                drawer it opens asks why. */}
             <details className="rt-message-options">
               <summary>More actions</summary>
               <div className="rt-message-options-body">
@@ -1612,18 +1601,9 @@ function ApprovalCard({
                 disabled={busy}
                 loading={pendingAction === 'mark-handled'}
                 loadingLabel="Marking"
-                title="Already replied in Guesty, by phone, or otherwise. Clears the queue without sending."
+                title="You replied elsewhere, or no reply is needed. Clears the card without sending. Undo for 12 hours."
               >
                 {showHandled ? 'Cancel' : 'Mark handled'}
-              </QuietButton>
-              <QuietButton
-                onClick={handleReject}
-                disabled={busy}
-                loading={pendingAction === 'reject'}
-                loadingLabel="Rejecting"
-                title="This guest message doesn't need a reply. Drops the draft."
-              >
-                Reject
               </QuietButton>
               {isPrereleaseRequest && showMore && (
                 <button
@@ -1721,7 +1701,7 @@ function ApprovalCard({
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
               Or nothing was needed
             </span>
-            {NO_REPLY_REASONS.map((reason) => (
+            {noReplyReasons.map((reason) => (
               <button
                 key={reason}
                 type="button"
@@ -2297,7 +2277,7 @@ function SecondaryButton({
   );
 }
 
-/** Text-only tertiary action (Mark handled, Reject): styled by .rt-quiet-btn
+/** Text-only tertiary action (Redraft, Mark handled): styled by .rt-quiet-btn
  *  in globals.css so it gets a real hover state. Same loading contract as
  *  the boxed buttons. */
 function QuietButton({

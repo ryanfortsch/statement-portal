@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The undo that appears the moment a card is rejected or marked handled:
+ * The undo that appears the moment a card is marked handled:
  * one line pinned to the bottom of the viewport with "Undo", the way mail
  * clients do it. Before this (2026-09-21) the only way back was a boxed
  * "Decided recently" list that sat full-width ABOVE the queue, so the first
@@ -19,15 +19,13 @@ import { undoDecision } from './actions';
 
 export type Decision = {
   id: string;
-  action: 'rejected' | 'manual_sent';
   guest: string;
   property: string;
 };
 
-const LABEL: Record<Decision['action'], string> = {
-  rejected: 'Rejected',
-  manual_sent: 'Marked handled',
-};
+/** The one word for a card closed without a reply. The same word prints in
+ *  Decided recently, in search results and on the thread. */
+const LABEL = 'Handled';
 
 const AUTO_HIDE_MS = 15_000;
 const AFTER_UNDO_MS = 2_500;
@@ -117,7 +115,7 @@ function Toast({
           <>Back in the queue.</>
         ) : (
           <>
-            <span style={{ opacity: 0.7 }}>{LABEL[decision.action]} · </span>
+            <span style={{ opacity: 0.7 }}>{LABEL} · </span>
             <span style={{ fontWeight: 500 }}>{decision.guest}</span>
             <span style={{ opacity: 0.7 }}> · {decision.property}</span>
             {error && (

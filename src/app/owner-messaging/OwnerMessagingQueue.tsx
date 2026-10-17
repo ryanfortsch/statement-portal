@@ -12,7 +12,6 @@ import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { OwnerApproval } from '@/lib/stay-concierge';
 import {
   approveOwnerDraft,
-  rejectOwnerDraft,
   markOwnerHandled,
   coachOwnerDraft,
   scheduleOwnerDraft,
@@ -101,7 +100,6 @@ export function OwnerMessagingQueue({ initialPending }: Props) {
 
 type PendingAction =
   | 'approve'
-  | 'reject'
   | 'mark-handled'
   | 'coach'
   | 'schedule'
@@ -252,7 +250,6 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
   // Edits were persisted at schedule time, so Send now fires the stored draft.
   const doSendNow = () => run('send-now', () => approveOwnerDraft(approval.id, undefined, { fileActions }));
   const doCancelSchedule = () => run('cancel-schedule', () => cancelOwnerSchedule(approval.id));
-  const doReject = () => run('reject', () => rejectOwnerDraft(approval.id));
   const doHandled = () => run('mark-handled', () => markOwnerHandled(approval.id, fileActions));
   const doCoach = () => {
     // Collapse the drawer immediately so the in-flight status line below
@@ -278,12 +275,14 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
     });
   };
 
-  // Card-scoped keyboard shortcuts. Typing inside a textarea never fires an
-  // action, with one exception: Cmd/Ctrl+Enter from the draft field is the
-  // "done editing, send it" gesture.
+  // Card-scoped keys. Cmd/Ctrl+Enter from the draft field is the "done
+  // editing, send it" gesture; Escape closes the coach drawer or drops focus.
+  // The single-key shortcuts (a, c, h, r) are gone (2026-10-17): nothing on
+  // screen named them, no other queue had them, and a bare r on a focused
+  // card dropped an owner reply with no confirm.
   const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     // A queued card's only actions are the explicit Send now / Cancel send
-    // buttons; single-key shortcuts firing a send here would be a footgun.
+    // buttons; a key firing a send here would be a footgun.
     if (isScheduled) return;
     const inTextarea = (e.target as HTMLElement)?.tagName === 'TEXTAREA';
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -292,20 +291,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
       return;
     }
     if (inTextarea || busy) return;
-    const k = e.key.toLowerCase();
-    if (k === 'a') {
-      e.preventDefault();
-      doApprove();
-    } else if (k === 'c') {
-      e.preventDefault();
-      toggleCoach();
-    } else if (k === 'h') {
-      e.preventDefault();
-      doHandled();
-    } else if (k === 'r') {
-      e.preventDefault();
-      doReject();
-    } else if (e.key === 'Escape') {
+    if (e.key === 'Escape') {
       if (showCoach) {
         setShowCoach(false);
         setFeedback('');
@@ -471,11 +457,11 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
           )}
           <footer className="rt-message-actions" style={{ display: 'flex', gap: 10 }}>
             <SecondaryButton
-              onClick={doReject}
+              onClick={doHandled}
               disabled={busy}
-              title="A reaction, not a message. Clears it from the queue."
+              title="A reaction, not a message. Clears it from the queue without sending."
             >
-              {pendingAction === 'reject' ? 'Dismissing…' : 'Dismiss'}
+              {pendingAction === 'mark-handled' ? 'Marking…' : 'Mark handled'}
             </SecondaryButton>
           </footer>
         </>
@@ -597,16 +583,9 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                 <SecondaryButton
                   onClick={doHandled}
                   disabled={busy}
-                  title="Already replied to the owner directly. Clears the queue without sending."
+                  title="You replied elsewhere, or no reply is needed. Clears the card without sending; ticked follow-up work still files."
                 >
-                  {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
-                </SecondaryButton>
-                <SecondaryButton
-                  onClick={doReject}
-                  disabled={busy}
-                  title="This owner message doesn't need a reply. Drops the draft."
-                >
-                  {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
+                  {pendingAction === 'mark-handled' ? 'Marking…' : 'Mark handled'}
                 </SecondaryButton>
               </div>
             </details>

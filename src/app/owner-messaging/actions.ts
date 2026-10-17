@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import {
   approveOwnerApproval,
-  rejectOwnerApproval,
   markHandledOwnerApproval,
   coachOwnerApproval,
   scheduleOwnerApproval,
@@ -32,15 +31,6 @@ export async function approveOwnerDraft(
   // AI draft as-is; a string => send that instead. fileActions false means
   // the operator unticked the proposed slips and cleaner notes.
   const res = await approveOwnerApproval(id, finalText, opts);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/owner-messaging');
-  return { ok: true };
-}
-
-export async function rejectOwnerDraft(id: string): Promise<ActionResult> {
-  const sess = await requireSession();
-  if (!sess.ok) return sess;
-  const res = await rejectOwnerApproval(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/owner-messaging');
   return { ok: true };

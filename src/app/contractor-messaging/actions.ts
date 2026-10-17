@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import {
   approveContractorApproval,
-  rejectContractorApproval,
   markHandledContractorApproval,
   coachContractorApproval,
   scheduleContractorApproval,
@@ -31,15 +30,6 @@ export async function approveContractorDraft(
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const res = await approveContractorApproval(id, opts);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/contractor-messaging');
-  return { ok: true };
-}
-
-export async function rejectContractorDraft(id: string): Promise<ActionResult> {
-  const sess = await requireSession();
-  if (!sess.ok) return sess;
-  const res = await rejectContractorApproval(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/contractor-messaging');
   return { ok: true };

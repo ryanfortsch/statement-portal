@@ -76,7 +76,7 @@ export function workStatus(status: string, assignee: string): string {
 }
 export function noteStatus(note: FollowupNote): string {
   if (note.error) return 'Needs review';
-  return ({approved: 'Sent', pending: 'Draft awaiting approval', proposed: 'Proposed', scheduled: 'Scheduled', sending: 'Sending', rejected: 'Skipped', skipped: 'Skipped', superseded: 'Replaced', manual_sent: 'Marked handled', failed: 'Failed', unavailable: 'Status unavailable'} as Record<string,string>)[note.status] || 'Status unknown';
+  return ({approved: 'Sent', pending: 'Draft awaiting approval', proposed: 'Proposed', scheduled: 'Scheduled', sending: 'Sending', rejected: 'Handled', skipped: 'Skipped', superseded: 'Replaced', manual_sent: 'Handled', failed: 'Failed', unavailable: 'Status unavailable'} as Record<string,string>)[note.status] || 'Status unknown';
 }
 export const NOTE_ROUTES = {guest: '/messaging', owner: '/owner-messaging', cleaner: '/cleaner-messaging', contractor: '/contractor-messaging'};
 

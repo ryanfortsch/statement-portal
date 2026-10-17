@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import {
   approveCleanerApproval,
-  rejectCleanerApproval,
   markHandledCleanerApproval,
   coachCleanerApproval,
   scheduleCleanerApproval,
@@ -31,15 +30,6 @@ export async function approveCleanerDraft(
   const sess = await requireSession();
   if (!sess.ok) return sess;
   const res = await approveCleanerApproval(id, opts);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/cleaner-messaging');
-  return { ok: true };
-}
-
-export async function rejectCleanerDraft(id: string): Promise<ActionResult> {
-  const sess = await requireSession();
-  if (!sess.ok) return sess;
-  const res = await rejectCleanerApproval(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
   revalidatePath('/cleaner-messaging');
   return { ok: true };
