@@ -105,8 +105,8 @@ export async function sendApprovedEmail(
       ? `<p style="border-left:3px solid #c85a3a;padding:10px 14px;background:#faf3ec;"><strong>Plus a ${dollars(bonus)} bonus</strong>${escReason ? ` for ${escReason}` : ''}. ${packet.totalCents ? `Total queued: <strong>${dollars(packet.totalCents)}</strong>.` : ''}</p>`
       : '';
   const html = shell(`
-    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Approved — payment queued</h1>
-    <p>Nice work — <strong>${packet.title}</strong> passed review. Your payment is queued; you'll get a receipt the moment it's sent.</p>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Approved, payment queued</h1>
+    <p>Nice work: <strong>${packet.title}</strong> passed review. Your payment is queued; you'll get a receipt the moment it's sent.</p>
     ${bonusLine}
     ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
   `);
@@ -115,7 +115,7 @@ export async function sendApprovedEmail(
     subject: `Approved: ${packet.title}`,
     fromName: FROM_NAME,
     html,
-    text: `${packet.title} was approved — your payment is queued.`,
+    text: `${packet.title} was approved; your payment is queued.`,
   });
 }
 
@@ -126,7 +126,7 @@ export async function sendReassignedEmail(
 ): Promise<boolean> {
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">A packet came off your plate</h1>
-    <p><strong>${packet.title}</strong> was released back to the team, so you're no longer on it. No worries — more work is always posting.</p>
+    <p><strong>${packet.title}</strong> was released back to the team, so you're no longer on it. No worries, more work is always posting.</p>
     ${btn(`${fieldBaseUrl()}/field/${contractor.portal_token}`, 'See open work')}
   `);
   return sendTransactionalViaResend({
@@ -176,7 +176,7 @@ export async function sendEstimateRaisedEmail(
   const escReason = (reason ?? '').trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Your pay went up on ${packet.title}</h1>
-    <p>Good news — we raised the estimate on <strong>${packet.title}</strong> from ${dollars(oldCents)} to <strong>${dollars(packet.posted_price_cents)}</strong>${escReason ? ` — ${escReason}` : ''}. Same job, more pay; nothing else changes, still confirmed after your visit.</p>
+    <p>Good news: we raised the estimate on <strong>${packet.title}</strong> from ${dollars(oldCents)} to <strong>${dollars(packet.posted_price_cents)}</strong>${escReason ? ` (${escReason})` : ''}. Same job, more pay; nothing else changes, still confirmed after your visit.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({
@@ -185,7 +185,7 @@ export async function sendEstimateRaisedEmail(
     fromName: FROM_NAME,
     cc: operationsEmails(),
     html,
-    text: `Good news — we raised your pay on ${packet.title} from ${dollars(oldCents)} to ${dollars(packet.posted_price_cents)}${reason && reason.trim() ? ` — ${reason.trim()}` : ''}. ${link}`,
+    text: `Good news: we raised your pay on ${packet.title} from ${dollars(oldCents)} to ${dollars(packet.posted_price_cents)}${reason && reason.trim() ? ` (${reason.trim()})` : ''}. ${link}`,
   });
 }
 
@@ -223,7 +223,7 @@ export async function sendTripStopRemovedEmail(
   const esc = stopLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">A stop was removed from ${packet.title}</h1>
-    <p>We took <strong>${esc}</strong> off your trip — you can skip it. Your estimated pay is now <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the updated route.</p>
+    <p>We took <strong>${esc}</strong> off your trip, so you can skip it. Your estimated pay is now <strong>${dollars(packet.posted_price_cents)}</strong>, confirmed after your visit. Open the packet for the updated route.</p>
     ${btn(link, 'View packet')}
   `);
   return sendTransactionalViaResend({
@@ -232,7 +232,7 @@ export async function sendTripStopRemovedEmail(
     fromName: FROM_NAME,
     cc: operationsEmails(),
     html,
-    text: `We removed ${stopLabel} from your trip — skip it. New estimated pay ${dollars(packet.posted_price_cents)}. ${link}`,
+    text: `We removed ${stopLabel} from your trip; skip it. New estimated pay ${dollars(packet.posted_price_cents)}. ${link}`,
   });
 }
 
@@ -246,7 +246,7 @@ export async function sendClaimConfirmation(
   const link = packetLink(contractor.portal_token, packet.id);
   const headline = opts.assigned ? `We booked you for ${packet.title}` : `You claimed ${packet.title}`;
   const lede = opts.assigned
-    ? "This one's assigned to you — nothing to claim, it's already on your board. You're booked for"
+    ? "This one's assigned to you: nothing to claim, it's already on your board. You're booked for"
     : "You're booked for";
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 14px;">${headline}</h1>
@@ -272,7 +272,7 @@ export async function sendContractorOnboardedEmail(contractor: ContractorRow): P
   `);
   return sendTransactionalViaResend({
     ...officeNotice(),
-    subject: `Field: ${contractor.full_name} signed up — needs background check`,
+    subject: `Field: ${contractor.full_name} signed up, needs background check`,
     fromName: FROM_NAME,
     html,
     text: `${contractor.full_name} finished setup. Run their background check and mark it cleared on the roster (claiming is gated on it), and collect their W-9.`,
@@ -312,7 +312,7 @@ export async function sendPaidEmail(
   // and let the caller add a note (e.g. "the view bonus follows in ~2 weeks").
   const escNote = (opts.note ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const noteLine = escNote ? `<p style="border-left:3px solid #c85a3a;padding:10px 14px;background:#faf3ec;">${escNote}</p>` : '';
-  const tail = opts.creative ? '' : ' Thanks for the great work — more packets are always posting.';
+  const tail = opts.creative ? '' : ' Thanks for the great work; more packets are always posting.';
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">You've been paid</h1>
     <p>Rising Tide just recorded <strong>${dollars(amountCents)}</strong> paid to you${via} for completed work.${tail}</p>
@@ -322,7 +322,7 @@ export async function sendPaidEmail(
   `);
   return sendTransactionalViaResend({
     to: contractor.email,
-    subject: `Payment recorded — ${dollars(amountCents)}`,
+    subject: `Payment recorded: ${dollars(amountCents)}`,
     fromName: FROM_NAME,
     html,
     text: `Rising Tide recorded ${dollars(amountCents)} paid to you${opts.method ? ` via ${opts.method}` : ''}${opts.reference ? ` (ref ${opts.reference})` : ''}.${opts.note ? ' ' + opts.note : ''}`,
@@ -416,7 +416,7 @@ export async function notifyContractorsOfPacket(packetId: string): Promise<numbe
     }
     const link = `${fieldBaseUrl()}/field/${c.portal_token}`;
     const to = c.phone.startsWith('+') ? c.phone : `+1${normalizePhone(c.phone)}`;
-    const content = `Rising Tide Field: new work near you — ${headline}, ${when} · est. ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
+    const content = `Rising Tide Field: new work near you: ${headline}, ${when} · est. ${dollars(packet.posted_price_cents)}. Claim it: ${link}`;
     try {
       await sendMessage({ from, to, content });
       sent++;
@@ -513,7 +513,7 @@ export async function remindClaimedVisitsToday(): Promise<number> {
     if (!cc?.phone) continue;
     const to = cc.phone.startsWith('+') ? cc.phone : `+1${normalizePhone(cc.phone)}`;
     try {
-      await sendMessage({ from, to, content: `Rising Tide Field: your visit is today — ${p.title}. ${packetLink(cc.portal_token, p.id)}` });
+      await sendMessage({ from, to, content: `Rising Tide Field: your visit is today: ${p.title}. ${packetLink(cc.portal_token, p.id)}` });
       sent++;
     } catch {
       // swallow per-contractor send errors
@@ -582,7 +582,7 @@ export async function sendOfficeFieldDigest(): Promise<boolean> {
 
   const line = (n: number, label: string) => (n > 0 ? `<li><strong>${n}</strong> ${label}</li>` : '');
   const html = shell(`
-    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:22px;margin:0 0 12px;">Field — today</h1>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:22px;margin:0 0 12px;">Field · today</h1>
     <ul style="padding-left:18px;margin:0 0 8px;">
       ${line(atRisk, 'claimed but not started (at risk)')}
       ${line(outToday, 'out today')}
@@ -635,12 +635,12 @@ export async function sendCreativeCountsDue(): Promise<boolean> {
     .map((d) => {
       const when = d.locksOn === today ? 'count closes today' : `count closed ${fmt(d.locksOn)}`;
       const ig = d.postUrl ? ` &middot; <a href="${d.postUrl}" style="color:#4e7c9e;">IG post</a>` : '';
-      return `<li style="margin:0 0 8px;"><strong>${esc(d.shoot)}</strong> — ${esc(d.reel)}: ${when}. <a href="${fieldBaseUrl()}/operations/creative/${d.shootId}" style="color:#4e7c9e;">Read + lock views</a>${ig}</li>`;
+      return `<li style="margin:0 0 8px;"><strong>${esc(d.shoot)}</strong> · ${esc(d.reel)}: ${when}. <a href="${fieldBaseUrl()}/operations/creative/${d.shootId}" style="color:#4e7c9e;">Read + lock views</a>${ig}</li>`;
     })
     .join('');
   const html = shell(`
     <h1 style="font-family:Georgia,serif;font-weight:400;font-size:22px;margin:0 0 12px;">View counts to lock</h1>
-    <p style="font-size:14px;margin:0 0 12px;">Open the post, note the play count, and lock it on the shoot page — that releases the bonus (or closes it under the rung) and the shoot can settle.</p>
+    <p style="font-size:14px;margin:0 0 12px;">Open the post, note the play count, and lock it on the shoot page; that releases the bonus (or closes it under the rung) and the shoot can settle.</p>
     <ul style="padding-left:18px;margin:0 0 8px;">${rows}</ul>
     ${btn(`${fieldBaseUrl()}/operations/creative`, 'Open the creative board')}
   `);
@@ -649,7 +649,7 @@ export async function sendCreativeCountsDue(): Promise<boolean> {
     subject: `Creative: ${due.length} view count${due.length === 1 ? '' : 's'} to lock`,
     fromName: FROM_NAME,
     html,
-    text: due.map((d) => `${d.shoot} — ${d.reel}: ${d.locksOn === today ? 'count closes today' : `count closed ${d.locksOn}`}${d.postUrl ? ` (${d.postUrl})` : ''}`).join('\n'),
+    text: due.map((d) => `${d.shoot} · ${d.reel}: ${d.locksOn === today ? 'count closes today' : `count closed ${d.locksOn}`}${d.postUrl ? ` (${d.postUrl})` : ''}`).join('\n'),
   });
 }
 
@@ -799,7 +799,7 @@ export async function sendShootBrief(
     ? `<p style="font-size:12px;color:#7a8a90;margin:6px 0 0;">We re-check the home's calendar the morning of and text you the all-clear.</p>`
     : '';
   const html = shell(`
-    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Your shoot brief — ${when}</h1>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:24px;margin:0 0 14px;">Your shoot brief: ${when}</h1>
     <p>Hi ${esc(first)}, <strong>${esc(shoot.title)}</strong>${esc(at)} is on for ${when}. Your brief has ${propertyName ? 'the address, where to park, your door code, and the hours you have' : 'the plan for the day and what to deliver'}.</p>
     ${btn(link, 'Open the shoot brief')}
     ${homeLine}
@@ -807,7 +807,7 @@ export async function sendShootBrief(
   const emailed = contractor.email
     ? await sendTransactionalViaResend({
         to: contractor.email,
-        subject: `Shoot brief: ${shoot.title} — ${when}`,
+        subject: `Shoot brief: ${shoot.title}, ${when}`,
         fromName: FROM_NAME,
         html,
         text: `${shoot.title}${at} is on for ${when}. Your brief: ${link}`,

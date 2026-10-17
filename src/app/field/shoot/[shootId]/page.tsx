@@ -95,7 +95,7 @@ export default async function ShootBriefPage({
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '28px 20px 60px' }}>
         {preview && (
           <div style={{ fontSize: 12, color: 'var(--signal)', border: '1px solid var(--signal)', borderRadius: 8, padding: '6px 12px', marginBottom: 14 }}>
-            Office preview — this is what {detail.contractorName.split(' ')[0]} sees.
+            Office preview: this is what {detail.contractorName.split(' ')[0]} sees.
           </div>
         )}
         <Link href="/field" style={{ fontSize: 12, color: 'var(--ink-4)', textDecoration: 'none' }}>← Your portal</Link>
@@ -230,7 +230,7 @@ export default async function ShootBriefPage({
         </Section>
 
         <div style={{ marginTop: 30, borderTop: '1px solid var(--rule)', paddingTop: 14, fontSize: 12, color: 'var(--ink-4)' }}>
-          Rising Tide · Field — questions about the day? Call or text the office.
+          Rising Tide · Field. Questions about the day? Call or text the office.
         </div>
       </div>
     </div>

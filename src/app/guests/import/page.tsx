@@ -14,7 +14,7 @@ export default function GuestImportPage() {
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot;Guests&middot; Import</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Guests &middot; Import</div>
         <h1 className="font-serif" style={{
           fontSize: 44,
           lineHeight: 1.05,
@@ -104,7 +104,7 @@ export default function GuestImportPage() {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot;Guests&middot; Import</span>
+          <span>Rising Tide &middot; Guests &middot; Import</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             Squarespace → Helm
           </span>

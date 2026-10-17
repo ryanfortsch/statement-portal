@@ -51,7 +51,7 @@ export async function setAutomationsEnabledAction(propertyId: string, enabled: b
  * "14 messages planned" over a ledger with nothing scheduled.
  */
 function planReport(p: PlanSummary | undefined): string {
-  if (!p) return 'Planning runs on the next cron pass';
+  if (!p) return 'Planning runs on the next automatic pass';
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const resumed = p.resumed > 0 ? ` (${p.resumed} picked back up from the pause)` : '';
   return `${plural(p.queued, 'message')} scheduled across ${plural(p.bookings, 'stay')} in the window${resumed}`;

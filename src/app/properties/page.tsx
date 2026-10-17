@@ -18,7 +18,7 @@ type WorkCounts = { total: number; ownerAction: number };
 
 async function getProperties(): Promise<{ properties: HelmPropertyRow[]; error: string | null }> {
   if (!isHelmConfigured) {
-    return { properties: [], error: 'Helm Supabase env vars are not set.' };
+    return { properties: [], error: 'Ask Ryan: this page is not set up.' };
   }
   try {
     const { data, error } = await supabase
@@ -381,8 +381,7 @@ function EmptyBlock() {
     <div style={{ borderTop: '1px solid var(--ink)', padding: '40px 0', textAlign: 'center' }}>
       <p style={{ color: 'var(--ink-3)', marginBottom: 8 }}>No properties found.</p>
       <p style={{ color: 'var(--ink-4)', fontSize: 12 }}>
-        Run the migration at <code className="font-mono">supabase/migrations/20260430_create_properties.sql</code> in
-        Helm&apos;s Supabase SQL Editor to seed the table.
+        Ask Ryan: the property registry is not set up yet.
       </p>
     </div>
   );

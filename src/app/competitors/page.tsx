@@ -28,7 +28,7 @@ export default async function CompetitorsIndex() {
         eyebrow="Helm · Competitors"
         title="Who else manages"
         emphasis="Cape Ann."
-        description={`${competitors.length} competitor${competitors.length === 1 ? '' : 's'} tracked, ${totalListings} listings, ${totalSleeps.toLocaleString()} guest beds. Helm-native — refreshed by snapshot.`}
+        description={`${competitors.length} competitor${competitors.length === 1 ? '' : 's'} tracked, ${totalListings} listings, ${totalSleeps.toLocaleString()} guest beds. Refreshed by snapshot.`}
       />
 
       <section
@@ -50,7 +50,7 @@ export default async function CompetitorsIndex() {
             lineHeight: 1.6,
           }}
         >
-          Phase 1 is inventory only — bedroom counts, bathrooms, sleeps, towns, and pet policy. Phase 2 will add nightly availability and ADR sampling so we can benchmark pricing per market segment. Add a competitor by dropping a new file under <code className="font-mono" style={{ fontSize: 11 }}>src/lib/competitors/</code> and registering it in the index.
+          Inventory only: bedroom counts, bathrooms, sleeps, towns, and pet policy. Ask Ryan to add a competitor.
         </p>
       </section>
 

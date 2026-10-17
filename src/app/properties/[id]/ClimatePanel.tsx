@@ -82,8 +82,8 @@ export function ClimatePanel({
 
       {thermostats.length === 0 && (
         <div style={noteStyle}>
-          No Seam thermostats found. Connect the Ecobee in the Seam console and set{' '}
-          <code>SEAM_API_KEY</code> in Vercel, then reload this page to map it.
+          No Seam thermostats found. Connect the Ecobee in the Seam console, then reload this page
+          to map it. If Seam is not connected to Helm yet, ask Ryan.
         </div>
       )}
 

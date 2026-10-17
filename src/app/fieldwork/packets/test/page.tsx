@@ -26,7 +26,7 @@ export default async function FieldTestPage() {
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead />
         <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 56 }}>
-          <p style={{ color: 'var(--ink-3)' }}>Set SUPABASE_SERVICE_ROLE_KEY to enable the Field module.</p>
+          <p style={{ color: 'var(--ink-3)' }}>Ask Ryan: the Field module is not set up.</p>
         </section>
       </div>
     );

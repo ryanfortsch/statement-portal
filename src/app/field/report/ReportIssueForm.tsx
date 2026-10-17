@@ -163,7 +163,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
             <option value="" disabled>Choose a home you visited</option>
             {visits.map((v) => (
               <option key={v.propertyId} value={v.propertyId} style={{ color: 'var(--ink)' }}>
-                {v.propertyName}{v.city ? ` · ${v.city}` : ''} — {v.agoLabel}
+                {v.propertyName}{v.city ? ` · ${v.city}` : ''} · {v.agoLabel}
               </option>
             ))}
           </select>
@@ -239,7 +239,7 @@ export function ReportIssueForm({ visits, windowHours }: { visits: VisitOption[]
           and never reached pay (Delaney's $27.60 TP holders, Aug 23). */}
       <div>
         <span style={label}>
-          Receipt total $ <span style={optional}>(optional — if you bought something for the house, this is added to your payout)</span>
+          Receipt total $ <span style={optional}>(optional; if you bought something for the house, this is added to your payout)</span>
         </span>
         <input
           name="expense_dollars"

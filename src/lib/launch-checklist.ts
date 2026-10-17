@@ -289,7 +289,7 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
   {
     key: 'code_roster_entry',
     phase: 'integrations',
-    title: 'Listed in Helm\'s code roster (src/lib/properties.ts)',
+    title: 'Listed in Helm\'s roster',
     required: true,
     who: 'systems',
     description:

@@ -197,7 +197,7 @@ export default async function BookEntityPage({ params }: { params: Promise<{ ent
             background: 'var(--paper-2)',
             fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5,
           }}>
-            <strong style={{ color: 'var(--signal)' }}>Setup pending.</strong> Run <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>supabase-schema-books.sql</code> in the Supabase SQL editor to create the ledger tables. The account list below is the static seed from <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>src/lib/books.ts</code>; upload won&apos;t work until the migration runs.
+            <strong style={{ color: 'var(--signal)' }}>Setup pending.</strong> The ledger tables are not set up yet, so uploads will not work. The account list below is the standing seed.
           </div>
         </section>
       )}

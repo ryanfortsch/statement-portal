@@ -33,7 +33,7 @@ export function TrafficLineChart({ data }: { data: TrafficPoint[] }) {
           border: '1px dashed var(--rule)',
         }}
       >
-        No data yet — first cron run is 5am UTC
+        No data yet. The first sync runs overnight.
       </div>
     );
   }

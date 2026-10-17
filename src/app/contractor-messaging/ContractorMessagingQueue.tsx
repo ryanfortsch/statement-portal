@@ -97,7 +97,7 @@ export function ContractorMessagingQueue({ initialPending, properties, context }
       title={title}
       right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
       empty={approvals.length === 0}
-      emptyMessage="No contractor drafts waiting. Texts from Delaney show up here automatically."
+      emptyMessage="No contractor drafts waiting. Texts from contractors on the 24/7 line show up here automatically."
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {ordered.map((approval, index) => (

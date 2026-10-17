@@ -88,7 +88,7 @@ export default async function GuestContactsPage({
             gridTemplateColumns: 'repeat(4, 1fr)',
           }}
         >
-          <Stat label="Subscribers" value={stats.configured ? String(stats.subscribers) : '—'} sub={stats.configured ? 'opted in' : 'configure env vars'} />
+          <Stat label="Subscribers" value={stats.configured ? String(stats.subscribers) : '—'} sub={stats.configured ? 'opted in' : 'not set up'} />
           <Stat label="Total Contacts" value={stats.configured ? String(stats.totalContacts) : '—'} sub={stats.unsubscribed > 0 ? `${stats.unsubscribed} unsubscribed` : ''} />
           <Stat label="Last 30 Days" value={String(stats.recentSignups)} sub="new signups" />
           <Stat label="Bounced" value={String(stats.bounced)} sub={stats.bounced > 0 ? 'needs cleanup' : 'clean list'} accent={stats.bounced > 0} last />
@@ -231,18 +231,12 @@ export default async function GuestContactsPage({
         </div>
 
         {!stats.configured ? (
-          <EmptyBlock body="Helm Supabase env vars are not set." />
+          <EmptyBlock body="Ask Ryan: this page is not set up." />
         ) : contacts.length === 0 ? (
           stats.totalContacts === 0 ? (
             <EmptyBlock
               body="No contacts yet."
-              hint={
-                <>
-                  Run the migration at{' '}
-                  <code className="font-mono">supabase/migrations/20260504_create_audience.sql</code>{' '}
-                  in Helm&apos;s Supabase SQL Editor, then import your Squarespace export.
-                </>
-              }
+              hint="Import your Squarespace export to start the list."
             />
           ) : (
             <EmptyBlock body="No contacts match this filter." />

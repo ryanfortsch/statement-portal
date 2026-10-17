@@ -283,7 +283,7 @@ function renderBlock(block: Block, key: string): React.ReactNode {
               key={`${key}-${idx}`}
               style={{ display: 'flex', gap: 12, alignItems: 'baseline', marginBottom: 8 }}
             >
-              <span style={{ color: 'var(--tide)', flexShrink: 0, fontSize: 15, lineHeight: 1.65 }}>—</span>
+              <span style={{ color: 'var(--tide)', flexShrink: 0, fontSize: 15, lineHeight: 1.65 }}>•</span>
               <span style={{ fontSize: 15, lineHeight: 1.65, color: 'var(--ink)' }}>
                 {renderMultiline(item, `${key}-${idx}`)}
               </span>

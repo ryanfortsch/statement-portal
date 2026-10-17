@@ -375,7 +375,7 @@ export async function ScheduleDigestCard({
     return (
       <Section id="schedule-digest" title="Cleaner schedule digest" eyebrow="Daily · day before">
         <div style={{ borderTop: '1px solid var(--ink)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <span>No digest drafted yet. The cron drafts tomorrow&rsquo;s every afternoon, or draft it now.</span>
+          <span>No digest drafted yet. Tomorrow&rsquo;s is drafted each afternoon, or draft it now.</span>
           <form action={ensureTomorrowDraft}>
             <SubmitButton
               label="Draft tomorrow's digest"
@@ -778,7 +778,7 @@ export async function ScheduleDigestCard({
                   style={{ fontSize: 12, padding: '8px 14px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
                 />
                 <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                  The cron drafts it at 2 PM. This does the same thing now and moves the card to tomorrow.
+                  Helm drafts it each afternoon. This does the same thing now and moves the card to tomorrow.
                 </span>
               </form>
             )}

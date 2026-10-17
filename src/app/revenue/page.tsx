@@ -121,7 +121,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
         <HelmMasthead />
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <div className="eyebrow">Revenue</div>
-          <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Configure Supabase env vars to load revenue data.</p>
+          <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Helm is not connected to its database.</p>
         </section>
       </div>
     );

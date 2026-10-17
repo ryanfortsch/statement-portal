@@ -273,7 +273,7 @@ function EmptyState() {
   return (
     <div style={{ borderTop: '1px solid var(--ink)', padding: '40px 0', textAlign: 'center' }}>
       <p style={{ color: 'var(--ink-3)', marginBottom: 8, fontSize: 14 }}>No bookings match these filters.</p>
-      <p style={{ color: 'var(--ink-4)', fontSize: 12 }}>If you just wired a feed, run a sync from the dashboard or wait for the half-hour cron.</p>
+      <p style={{ color: 'var(--ink-4)', fontSize: 12 }}>If you just wired a feed, run a sync from the dashboard or wait for the next automatic sync.</p>
     </div>
   );
 }

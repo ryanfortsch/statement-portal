@@ -87,7 +87,7 @@ export async function createDraftFromBrief(formData: FormData): Promise<void> {
   } catch (err) {
     console.error('[campaigns/createDraftFromBrief] AI generation failed', err);
     throw new Error(
-      'Draft generation failed. Check AI Gateway credentials (AI_GATEWAY_API_KEY) in Vercel env. ' +
+      'Draft generation failed. Ask Ryan: the AI connection is not set up. ' +
       (err instanceof Error ? err.message : ''),
     );
   }
@@ -250,7 +250,7 @@ export async function sendCampaignTest(formData: FormData): Promise<void> {
   });
 
   if (!ok) {
-    throw new Error('Test send failed. Check that RESEND_API_KEY and RESEND_FROM_EMAIL are set in env.');
+    throw new Error('Test send failed. Ask Ryan: email sending is not set up.');
   }
 
   await supabase.from('audience_events').insert({

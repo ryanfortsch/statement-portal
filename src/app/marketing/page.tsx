@@ -412,10 +412,9 @@ function ConfigError() {
       <MarketingTabs current="marketing" />
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 80, width: '100%' }}>
         <div className="eyebrow">Helm &middot; Marketing</div>
-        <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, marginTop: 12 }}>Not configured.</h1>
+        <h1 className="font-serif" style={{ fontSize: 36, fontWeight: 300, marginTop: 12 }}>Not set up.</h1>
         <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Set <code>NEXT_PUBLIC_SUPABASE_URL</code> and <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in
-          Vercel env to populate this page.
+          Ask Ryan: this page is not set up.
         </p>
       </section>
     </div>

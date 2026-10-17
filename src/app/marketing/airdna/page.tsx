@@ -484,7 +484,7 @@ export default function AirDnaPage() {
             {files.length > 0 && (
               <div style={{ marginTop: 24 }}>
                 <h3 style={{ fontFamily: "var(--font-fraunces), serif", fontSize: 18, marginBottom: 12 }}>
-                  Preview &mdash; {totalParsedRows} row{totalParsedRows === 1 ? "" : "s"} across {files.length} file
+                  Preview: {totalParsedRows} row{totalParsedRows === 1 ? "" : "s"} across {files.length} file
                   {files.length === 1 ? "" : "s"}
                 </h3>
 
@@ -506,7 +506,7 @@ export default function AirDnaPage() {
                     fontWeight: 600,
                   }}
                 >
-                  {submitting ? "Saving..." : "Save to database"}
+                  {submitting ? "Saving..." : "Save"}
                 </button>
               </div>
             )}

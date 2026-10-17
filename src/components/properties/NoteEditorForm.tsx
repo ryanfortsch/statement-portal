@@ -24,7 +24,7 @@ export function NoteEditorForm({
 }) {
   return (
     <RetainedPropertyForm action={action} submitLabel={submitLabel} buttonStyle={primaryButtonStyle} cancelHref={`/properties/${propertyId}?tab=facts`} style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <Field label="Title" required hint="The headline. One line. Used as the card title in the Property Notes accordion.">
+      <Field label="Title" required hint="The headline. One line. It is the card title under Notes on the property page.">
         <input
           name="title"
           type="text"

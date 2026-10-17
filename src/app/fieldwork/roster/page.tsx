@@ -94,7 +94,7 @@ export default async function ContractorsPage({
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead />
         <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 56 }}>
-          <p style={{ color: 'var(--ink-3)' }}>Set SUPABASE_SERVICE_ROLE_KEY to enable the Field module.</p>
+          <p style={{ color: 'var(--ink-3)' }}>Ask Ryan: the Field module is not set up.</p>
         </section>
       </div>
     );
@@ -208,7 +208,7 @@ export default async function ContractorsPage({
         )}
 
         <details style={{ marginBottom: 26 }}>
-          <summary style={foldSummary}>+ Invite {trade === 'creative' ? 'a contributor' : `a ${meta.singular}`} ▾</summary>
+          <summary style={foldSummary}>+ Invite {trade === 'creative' ? 'a contributor' : `${/^[aeiou]/i.test(meta.singular) ? 'an' : 'a'} ${meta.singular}`} ▾</summary>
           <p style={{ fontSize: 12.5, color: 'var(--ink-4)', margin: '8px 0 10px', lineHeight: 1.5 }}>
             We email them a personal portal link. They set up their account (W-9 + agreement) before they can{' '}
             {trade === 'creative' ? 'take on paid assets' : 'claim paid work'}.

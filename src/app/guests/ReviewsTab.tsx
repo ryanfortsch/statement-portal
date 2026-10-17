@@ -184,7 +184,7 @@ export async function ReviewsTab({ params }: { params: ReviewsTabParams }) {
         </div>
 
         {!isHelmConfigured ? (
-          <EmptyBlock body="Helm Supabase env vars are not set." />
+          <EmptyBlock body="Ask Ryan: this page is not set up." />
         ) : reviews.length === 0 ? (
           <EmptyBlock body="No reviews match these filters." />
         ) : (

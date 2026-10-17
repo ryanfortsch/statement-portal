@@ -218,7 +218,7 @@ export function StopAttachments({
           <div key={a.attachmentId}>
             + {a.title}
             {a.completedAt ? <span style={{ color: 'var(--positive)' }}> · done</span> : null}
-            {a.officeNote ? <span style={{ color: 'var(--ink-4)' }}> — {a.officeNote}</span> : null}
+            {a.officeNote ? <span style={{ color: 'var(--ink-4)' }}> · {a.officeNote}</span> : null}
           </div>
         ))}
         {instructions && <div style={{ marginTop: 4 }}><span style={{ color: 'var(--ink-4)' }}>Note: </span>{instructions}</div>}

@@ -367,7 +367,7 @@ export function ScaLaunchClient(props: Props) {
           <Field label="Guesty listing ID" error={errOf('guestyListingId')} hint="The ID of the listing in Guesty. Becomes /stays/<id>.">
             <input style={inputStyle} value={form.guestyListingId} onChange={(e) => set('guestyListingId', e.target.value)} placeholder="67a1355216416a00122e976f" />
           </Field>
-          <Field label="Stripe account key" error={errOf('stripeAccountKey')} hint="Identifies this property's own Stripe account. Used for the env var names below.">
+          <Field label="Stripe account key" error={errOf('stripeAccountKey')} hint="Identifies this property's own Stripe account and names its keys below.">
             <input style={{ ...inputStyle, ...mono }} value={form.stripeAccountKey} onChange={(e) => set('stripeAccountKey', e.target.value.toUpperCase())} placeholder="36_GRANITE" />
           </Field>
           <Field label="Public listing name" error={errOf('publicName')} hint="Guest-facing title.">
@@ -628,9 +628,9 @@ export function ScaLaunchClient(props: Props) {
         </p>
 
         <div style={{ marginTop: 14, border: '1px solid var(--rule)', padding: 16 }}>
-          <span style={labelStyle}>Vercel env vars (stay-cape-ann project)</span>
+          <span style={labelStyle}>Keys to set on the booking site (stay-cape-ann, Production and Preview)</span>
           <CopyLine text={env.publishable} suffix=" = pk_live_… (this property's publishable key)" />
-          <CopyLine text={env.secret} suffix=" = sk_live_… or rk_live_… (secret/restricted key — Helm never sees this)" />
+          <CopyLine text={env.secret} suffix=" = sk_live_… or rk_live_… (secret or restricted key; Helm never sees this)" />
           <CopyLine text={env.webhookSecret} suffix=" = whsec_… (from the webhook below)" />
         </div>
 
@@ -683,7 +683,7 @@ export function ScaLaunchClient(props: Props) {
         </div>
         <p style={hintStyle}>
           Verify reads the public booking page and checks whether a card field renders (no secret involved). Before
-          go-live it probes the preview, so include <strong>Preview</strong> scope on the env vars, or re-verify against
+          go-live it probes the preview, so set the keys for <strong>Preview</strong> as well, or re-verify against
           production after go-live.
         </p>
       </section>

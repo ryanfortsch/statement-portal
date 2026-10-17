@@ -122,7 +122,7 @@ function NotConfigured() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <HelmHero eyebrow="Helm · Channels" title="The service role key" emphasis="is not set." description="Channels reads RLS-locked tables through the service role. Set SUPABASE_SERVICE_ROLE_KEY and reload." />
+      <HelmHero eyebrow="Helm · Channels" title="Channels is" emphasis="not set up." description="Ask Ryan: this module is not connected yet." />
       <HelmFooter module="Channels" right="Source: Helm" />
     </div>
   );
@@ -147,9 +147,7 @@ function DbSetupBlock() {
           The channels tables did not answer
         </h2>
         <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
-          Apply <code className="font-mono" style={{ background: 'var(--paper-2)', padding: '1px 6px' }}>supabase/migrations/20260507b_create_channels.sql</code> and{' '}
-          <code className="font-mono" style={{ background: 'var(--paper-2)', padding: '1px 6px' }}>20260926200000_helm_pms_plumbing.sql</code> with{' '}
-          <code className="font-mono" style={{ background: 'var(--paper-2)', padding: '1px 6px' }}>supabase db query --linked --file</code>, then reload.
+          Ask Ryan: the channels tables are not set up yet. Reload once they are.
         </p>
       </div>
     </section>

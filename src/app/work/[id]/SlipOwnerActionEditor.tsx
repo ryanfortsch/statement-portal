@@ -226,7 +226,7 @@ export function SlipOwnerActionEditor({
         <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, marginBottom: 0 }}>
           {type
             ? TYPE_OPTIONS.find((o) => o.value === type)?.hint
-            : 'Optional — labels the item in the owner email.'}
+            : 'Optional. Labels the item in the owner email.'}
         </p>
       </div>
 
@@ -296,7 +296,7 @@ export function SlipOwnerActionEditor({
           </button>
           <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
             {status === 'sent' && ownerLastContactedAt
-              ? `Asked ${formatDate(ownerLastContactedAt)} — awaiting reply. Drafting again re-bundles.`
+              ? `Asked ${formatDate(ownerLastContactedAt)} , awaiting reply. Drafting again re-bundles.`
               : 'Bundles every flagged item at this property into one Gmail draft.'}
           </span>
         </div>
@@ -323,11 +323,11 @@ export function SlipOwnerActionEditor({
           </div>
           <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, marginBottom: 0 }}>
             {status === 'approved'
-              ? 'Approved — drops off the daily brief.'
+              ? 'Approved. Drops off the daily brief.'
               : status === 'declined'
-                ? 'Declined — dismiss the slip if the work is off.'
+                ? 'Declined. Dismiss the slip if the work is off.'
                 : status === 'questions'
-                  ? 'Owner has questions — reply, then update this.'
+                  ? 'Owner has questions. Reply, then update this.'
                   : 'Log the reply from your inbox or a call.'}
           </p>
         </div>

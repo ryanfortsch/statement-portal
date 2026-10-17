@@ -155,7 +155,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <div className="eyebrow">Turnovers</div>
           <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>
-            Configure Supabase env vars to load turnovers.
+            Ask Ryan: this page is not set up.
           </p>
         </section>
       </div>
