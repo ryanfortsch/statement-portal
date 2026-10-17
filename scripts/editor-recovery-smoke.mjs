@@ -80,7 +80,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
   window.open=(...args)=>{window.opened.push(args);return null;};
   window.fetch=(url,options)=>{
     if(url!=='/api/work/draft-owner-email')throw Error('Unexpected request '+url);
-    return save('email',JSON.parse(options.body)).then(r=>({ok:r.ok,status:r.status||200,json:async()=>r.data||{draft_url:'https://mail.google.com/mail/u/0/#drafts/synthetic'}}));
+    return save('email',JSON.parse(options.body)).then(r=>({ok:r.ok,status:r.status||200,json:async()=>r.data||{draft_url:'https://mail.google.com/mail/u/0/#drafts/synthetic',mailbox:'staff@example.test'}}));
   };
   const contact={id:'synthetic-contact',type:'other',name:'Synthetic contact',emails:[],phone:null,organization:null,notes:'Contact note',tags:[],linked_property_ids:[],created_by_email:me,created_at:now,updated_at:now};
   const touches=['a','b','other','inbound'].map(id=>({id,contact_id:contact.id,touched_at:now,channel:'call',summary:'Activity '+id,notes:null,by_email:id==='other'?'other@example.test':me,direction:id==='inbound'?'inbound':'outbound',gmail_message_id:null,quo_message_id:null,quo_call_id:null,created_at:now}));

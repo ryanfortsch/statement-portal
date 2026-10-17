@@ -112,6 +112,7 @@ try{
     input.dispatchEvent(new Event('input',{bubbles:true}));
   },value);
   const field=section=>page.$eval('#'+section+' textarea',input=>input.value);
+  const blur=section=>page.$eval('#'+section+' textarea',input=>input.dispatchEvent(new FocusEvent('focusout',{bubbles:true})));
   const waitText=text=>page.waitForFunction(text=>document.body.textContent.includes(text),{},text);
   const waitCalls=n=>page.waitForFunction(n=>window.calls.length===n,{},n);
   const guard=()=>page.evaluate(()=>window.guarded());
@@ -186,31 +187,41 @@ try{
   assert.deepEqual(await bodies(),[]);await click('comments','Cancel');await waitClean();
   pass('deleting the final comment does not collapse the composer or hide an unfinished draft');
 
-  for(const [mode,initialStatus,label] of [['done','open','Mark Done'],['dismissed','scheduled','Dismiss'],['notes','done','Save Notes']]){
+  // The notes box saves itself (a pause in typing, or leaving the box); Mark
+  // Done and Dismiss save it in the same round trip. A failed save stands
+  // down until the next keystroke or blur, so every retry here is the
+  // operator's move. The 'notes' mode drives the autosave by blur.
+  for(const [mode,initialStatus,label] of [['done','open','Mark Done'],['dismissed','scheduled','Dismiss'],['notes','done',null]]){
+    const name=label??'Notes autosave';
+    const trigger=async()=>{
+      if(label){await page.$$eval('#close button',(buttons,label)=>{const button=buttons.find(b=>b.textContent===label);button.click();button.click();},label);}
+      else{await blur('close');await blur('close');}
+    };
     await reset('?status='+initialStatus);await edit('close','  Replaced washer.\nTested faucet.  ');
     assert.equal(await guard(),true);assert.equal(await beforeUnload(),true);
-    await page.$$eval('#close button',(buttons,label)=>{
-      const button=buttons.find(b=>b.textContent===label);button.click();button.click();
-    },label);await waitCalls(1);
-    assert.equal(await page.$$eval('#close textarea,#close button',elements=>elements.every(e=>e.matches(':disabled'))),true);
+    await trigger();await waitCalls(1);
+    // A close locks the box; a notes save leaves it typable mid-sentence.
+    assert.equal(await page.$$eval('#close button',buttons=>buttons.every(b=>b.matches(':disabled'))),true);
+    assert.equal(await page.$eval('#close textarea',t=>t.disabled),mode!=='notes');
     const expected={id:'synthetic-slip',resolution_notes:'  Replaced washer.\nTested faucet.  ',...(mode==='notes'?{}:{status:mode,propertyId:'synthetic-home'})};
     assert.deepEqual(await page.evaluate(()=>window.calls[0].args),expected);
     await finish(0,{ok:false,error:'Synthetic close failure'});await waitText('Synthetic close failure');await ready('close');
     assert.equal(await field('close'),'  Replaced washer.\nTested faucet.  ');assert.equal(await guard(),true);
     assert.equal(await page.evaluate(()=>window.refreshes),0);
-    pass(label+' retains notes after returned failure and blocks duplicate or competing controls');
+    pass(name+' retains notes after returned failure and blocks duplicate or competing controls');
 
-    await click('close',label);await waitCalls(2);await finish(1,null,true);
+    await trigger();await waitCalls(2);await finish(1,null,true);
     await waitText('Could not confirm the change.');await ready('close');
     assert.equal(await field('close'),'  Replaced washer.\nTested faucet.  ');
     assert.deepEqual(await page.$eval('#close a',a=>({href:a.getAttribute('href'),target:a.target})),{href:'/work/synthetic-slip',target:'_blank'});
     assert.equal(await page.evaluate(()=>window.calls.length),2);
-    await click('close',label);await waitCalls(3);await finish(2);await waitClean();
+    await trigger();await waitCalls(3);await finish(2);await waitClean();
     assert.equal(await page.evaluate(()=>window.refreshes),1);
     await waitText('Reopen');
     if(mode==='dismissed')await waitText('Dismissed: closed without work.');
+    if(mode==='notes')await waitText('Notes saved.');
     assert.equal(await page.$$eval('#close button',buttons=>buttons.some(b=>b.textContent==='Save Notes')),false);
-    pass(label+' recovers from a lost response and marks notes saved only after confirmed retry');
+    pass(name+' recovers from a lost response and marks notes saved only after confirmed retry');
   }
 
   await reset('?status=done');await edit('close','Unsaved notes before reopen');await click('close','Reopen');await waitCalls(1);
