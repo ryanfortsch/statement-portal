@@ -19,7 +19,8 @@ import { FieldAvatar } from '@/components/FieldAvatar';
 import { publishPacket, unpublishPacket, cancelPacket, setPacketPrice, setPacketBonus, approvePacket, finalizePacketPayout, markPacketPaid, releasePacket, requestChanges, removeStop, assignPacket, setPacketVisitDate, setPacketStartTime, setPacketCompleteBy, raisePacketEstimate, addPacketStop, syncPacketWindows, submitPacketForContractor, orderStopsByCleaningTime, homeReceiptOnPacket, unhomeReceiptFromPacket } from '../actions';
 import { StopList } from './StopList';
 import { canClaim, fmtVisitTime, parseTrade, navTrade, type ContractorRow } from '@/lib/field-types';
-import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus } from '@/lib/field-packet-status';
+import { isLiveStatus, isAttachableStatus, isAssignableStatus, isWorkingStatus, stopStatusLabel, packetEventLabel } from '@/lib/field-packet-status';
+import { PacketStatusStrip } from '../PacketStatusStrip';
 import { loadPaymentSummaries } from '@/lib/field-pay';
 import { loadOpenReceipts, loadPacketReceipts } from '@/lib/field-receipts';
 import { isOwnerSession } from '@/lib/helm-access-server';
@@ -277,7 +278,14 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)' }}>{officeAssigned ? 'assigned' : packet.status}</div>
+            {/* The pipeline, lit at this packet's step: the same words as the
+                board row that linked here, never the stored value. */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <PacketStatusStrip status={packet.status} paidAt={packet.paid_at} size="md" />
+            </div>
+            {officeAssigned && (
+              <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 3 }}>assigned by the office</div>
+            )}
             <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }}>{dollars(effectiveBaseCents(packet))}</div>
             <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>
               {isPayoutFinal(packet) ? 'Final' : 'Estimated'}
@@ -985,10 +993,10 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               <div style={{ textAlign: 'right', fontSize: 12 }}>
                 {s.inspection_id ? (
                   <Link href={`/inspections/${s.inspection_id}/summary`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>
-                    {s.status === 'complete' ? 'View inspection →' : 'In progress →'}
+                    {s.status === 'complete' ? 'View inspection →' : s.status === 'in_progress' ? 'On site →' : 'Open inspection →'}
                   </Link>
                 ) : (
-                  <span style={{ color: 'var(--ink-4)' }}>{s.status}</span>
+                  <span style={{ color: 'var(--ink-4)' }}>{stopStatusLabel(s.status)}</span>
                 )}
                 {attachEditable && packet.stop_count > 1 && s.status === 'pending' && !s.started_at && (
                   <form action={removeStop} style={{ marginTop: 4 }}>
@@ -1010,7 +1018,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             <div style={{ marginTop: 8 }}>
               {events.map((e, i) => (
                 <div key={i} style={{ fontSize: 12, color: 'var(--ink-3)', padding: '3px 0' }}>
-                  {e.event_type.replace(/_/g, ' ')}
+                  {packetEventLabel(e.event_type)}
                   {e.actor_email ? ` · ${e.actor_email}` : ''}
                   {' · '}
                   {new Date(e.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}

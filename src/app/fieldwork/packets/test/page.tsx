@@ -4,7 +4,8 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { loadFieldTestState, type FieldTestPacket } from '@/lib/field-test';
-import { dollars } from '@/lib/field-types';
+import { dollars, parseTrade, TRADE_META } from '@/lib/field-types';
+import { packetStatusLabel } from '@/lib/field-packet-status';
 import { CopyCode } from '@/app/field/CopyCode';
 import { seedFieldTestAction, resetFieldTestAction } from './actions';
 
@@ -87,7 +88,7 @@ export default async function FieldTestPage() {
                 <div key={c.id} style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', marginBottom: 10, background: 'var(--paper-2, #fff)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                     <span className="font-serif" style={{ fontSize: 16 }}>{c.full_name}</span>
-                    <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px' }}>{c.trade}</span>
+                    <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 7px' }}>{TRADE_META[parseTrade(c.trade)].singular}</span>
                     <span style={{ fontSize: 12, color: c.onboarded ? 'var(--positive)' : 'var(--signal)' }}>
                       {c.onboarded ? 'onboarded ✓ can claim' : 'not onboarded — open the link to walk W-9 + agreement'}
                     </span>
@@ -142,11 +143,11 @@ function PacketRow({ p }: { p: FieldTestPacket }) {
       <div style={{ flex: 1, minWidth: 200 }}>
         <div className="font-serif" style={{ fontSize: 15 }}>{p.title}</div>
         <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 2 }}>
-          {p.trade} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'} · {dollars(p.posted_price_cents)} · {p.visit_date}
+          {TRADE_META[parseTrade(p.trade)].singular} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'} · {dollars(p.posted_price_cents)} · {p.visit_date}
         </div>
       </div>
       <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, color: STATE_TINT[p.status] ?? 'var(--ink-4)', whiteSpace: 'nowrap' }}>
-        {p.status.replace('_', ' ')}
+        {packetStatusLabel(p.status)}
       </span>
       <Link href={`/fieldwork/packets/${p.id}`} style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none' }}>Operator view →</Link>
       <Link href={`/field/packet/${p.id}`} target="_blank" style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none' }}>Contractor view ↗</Link>

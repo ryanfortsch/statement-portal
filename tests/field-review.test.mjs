@@ -18,6 +18,8 @@ function load(path, mocks = {}) {
 }
 const types = load('../src/lib/field-types.ts');
 const statuses = load('../src/lib/field-packet-status.ts');
+// The real strip renders in the harness: the board's status words come from it.
+const strip = load('../src/app/fieldwork/packets/PacketStatusStrip.tsx', { '@/lib/field-packet-status': statuses });
 const blank = () => null;
 const packet = (id, trade = 'inspection', status = 'submitted') => ({ id, title: `Packet ${id}`, trade, status, visit_date: '2026-09-29', submitted_at: '2026-09-29T12:00:00Z', awarded_contractor_id: 'worker', stop_count: 1 });
 
@@ -47,7 +49,7 @@ async function board(review, trade = 'inspection', focus, packets) {
     '@/lib/field-packets': { loadPackets: async () => packets ?? [...submitted, packet('working', 'inspection', 'published')], loadInspectionCalendar: async () => ({ days: [], rows: [], missingProps: [] }), loadOfficeAssignedPacketIds: async () => new Set() },
     '@/lib/field-types': types, '@/lib/field-packet-status': statuses,
     '@/components/FieldAvatar': { FieldAvatar: blank }, '@/components/SubmitButton': { SubmitButton: blank },
-    './InspectionCalendar': { InspectionCalendar: () => React.createElement('div', null, 'CALENDAR') }, './SentFlash': { SentFlash: blank }, './actions': {},
+    './InspectionCalendar': { InspectionCalendar: () => React.createElement('div', null, 'CALENDAR') }, './SentFlash': { SentFlash: blank }, './actions': {}, './PacketStatusStrip': strip,
   });
   return renderToStaticMarkup(await Board({ searchParams: Promise.resolve({ trade, focus }) }));
 }
@@ -58,9 +60,12 @@ test('inspector landing exposes both trades above calendar, with named review li
   assert.match(html, /Handymen/); assert.match(html, /Sample Contractor/);
   assert.match(html, /aria-label="Review Packet maintenance"/);
   assert.ok(html.indexOf('Review Packet maintenance') < html.indexOf('CALENDAR'));
-  const work = html.slice(html.indexOf('Out to contractors'));
+  const work = html.slice(html.indexOf('Live ·'));
   assert.doesNotMatch(work, /Packet inspection|Packet maintenance/);
   assert.match(work, /Packet working/);
+  // The row carries the pipeline strip lit at Open (the stored status is 'published').
+  assert.match(work, /aria-label="Open, step 2 of 7: Draft · Open · Claimed · On site · Submitted · Approved · Paid"/);
+  assert.doesNotMatch(work, /published|unclaimed/);
 });
 
 test('handyman landing preserves the all-trade queue', async () => {
@@ -81,7 +86,7 @@ test('trade badge destinations show only the matching submitted packets, includi
   assert.match(inspectors, /Needs review · 2/);
   assert.match(inspectors, /Review Packet inspector/);
   assert.match(inspectors, /Review Packet legacy/);
-  assert.doesNotMatch(inspectors, /Review Packet handyman|CALENDAR|Out to contractors/);
+  assert.doesNotMatch(inspectors, /Review Packet handyman|CALENDAR|Live ·/);
   const handymen = await board(rows, 'maintenance', 'review');
   assert.match(handymen, /Needs review · 1/);
   assert.match(handymen, /Review Packet handyman/);
@@ -91,7 +96,7 @@ test('trade badge destinations show only the matching submitted packets, includi
 test('field summary links filter to the exact packets counted and hide unrelated history', async () => {
   const active = (id, status, date) => ({ ...packet(id, 'inspection', status), submitted_at: null, visit_date: date });
   const packets = [active('late', 'claimed', '2026-09-29'), active('today', 'in_progress', '2026-09-30'), active('soon', 'published', '2026-10-01'), active('later', 'published', '2026-10-10'), active('old-draft', 'draft', '2026-09-29'), active('new-draft', 'draft', '2026-10-01'), active('history', 'approved', '2026-09-29')];
-  for (const [focus, id, heading] of [['late','late','Late visits'], ['today','today','Visits today'], ['unclaimed','soon','Unassigned soon'], ['drafts','old-draft','Visits to reschedule']]) {
+  for (const [focus, id, heading] of [['late','late','Late visits'], ['today','today','Visits today'], ['unclaimed','soon','Open, visit within 2 days'], ['drafts','old-draft','Visits to reschedule']]) {
     const html = await board([], 'inspection', focus, packets);
     assert.match(html, new RegExp(heading + ' · 1'));
     assert.match(html, new RegExp('Packet ' + id));
