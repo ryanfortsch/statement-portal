@@ -8,7 +8,7 @@ import { getContractorPayStats, getContractorReliability, loadApplications } fro
 import { getContractorRatings, TIER_RANK, type RatingTier } from '@/lib/field-ratings';
 import { loadW9Summaries } from '@/lib/field-w9';
 import { loadPaymentSummaries } from '@/lib/field-pay';
-import { dollars, parseTrade, isEmployee, TRADE_META, type ContractorRow } from '@/lib/field-types';
+import { dollars, parseTrade, navTrade, isEmployee, TRADE_META, type ContractorRow } from '@/lib/field-types';
 import { getVendor1099Report } from '@/lib/vendor-1099';
 import { loadRateCards, type RateCard } from '@/lib/creative-rates';
 import { isOwnerSession } from '@/lib/helm-access-server';
@@ -84,7 +84,9 @@ export default async function ContractorsPage({
 }: {
   searchParams: Promise<{ trade?: string }>;
 }) {
-  const trade = parseTrade((await searchParams).trade);
+  // A trade with no tab (cleaning) is clamped to Inspectors, the way the
+  // packet page clamps it, so the strip always has a lit tab.
+  const trade = navTrade(parseTrade((await searchParams).trade));
   const meta = TRADE_META[trade];
   // Pay, W-9 and the contractor-admin buttons are owner controls. The
   // actions refuse a staff session; the cards hide them for one too.

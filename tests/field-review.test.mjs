@@ -54,12 +54,16 @@ async function board(review, trade = 'inspection', focus, packets) {
   return renderToStaticMarkup(await Board({ searchParams: Promise.resolve({ trade, focus }) }));
 }
 
-test('inspector landing exposes both trades above calendar, with named review links and no duplicate submitted rows', async () => {
+test('inspector landing lists its own queue above the calendar, with the other trade a link away and no duplicate submitted rows', async () => {
   const html = await board([packet('inspection'), packet('maintenance', 'maintenance')]);
-  assert.match(html, /Needs review · 2/);
-  assert.match(html, /Handymen/); assert.match(html, /Sample Contractor/);
-  assert.match(html, /aria-label="Review Packet maintenance"/);
-  assert.ok(html.indexOf('Review Packet maintenance') < html.indexOf('CALENDAR'));
+  // Scoped to the lit trade, so the count is the row-1 pill's number.
+  assert.match(html, /Needs review · 1/);
+  assert.match(html, /Sample Contractor/);
+  assert.match(html, /aria-label="Review Packet inspection"/);
+  assert.doesNotMatch(html, /Review Packet maintenance/);
+  assert.match(html, /1 in other trades:/);
+  assert.match(html, /href="\/fieldwork\/packets\?trade=maintenance&amp;focus=review#needs-review"[^>]*>Handymen · 1 →/);
+  assert.ok(html.indexOf('Review Packet inspection') < html.indexOf('CALENDAR'));
   const work = html.slice(html.indexOf('Live ·'));
   assert.doesNotMatch(work, /Packet inspection|Packet maintenance/);
   assert.match(work, /Packet working/);
@@ -68,15 +72,25 @@ test('inspector landing exposes both trades above calendar, with named review li
   assert.doesNotMatch(work, /published|unclaimed/);
 });
 
-test('handyman landing preserves the all-trade queue', async () => {
+test('handyman landing shows the handyman queue, with the inspectors a link away', async () => {
   const html = await board([packet('inspection'), packet('maintenance', 'maintenance')], 'maintenance');
-  assert.match(html, /Review Packet inspection/); assert.match(html, /Review Packet maintenance/);
+  assert.match(html, /Needs review · 1/);
+  assert.match(html, /Review Packet maintenance/); assert.doesNotMatch(html, /Review Packet inspection/);
+  assert.match(html, /1 in other trades:/);
+  assert.match(html, /trade=inspection&amp;focus=review#needs-review"[^>]*>Inspectors · 1 →/);
+});
+
+test('a queue that is empty here but not elsewhere still points at the other trade', async () => {
+  const html = await board([packet('maintenance', 'maintenance')]);
+  assert.match(html, /Needs review · 0/);
+  assert.match(html, /No inspector packets awaiting approval/);
+  assert.match(html, /1 in other trades:/);
 });
 
 test('failed queue stays visible; an empty default queue is quiet and a filtered queue explains its empty state', async () => {
   const failed = await board(null); assert.match(failed, /Couldn’t load/); assert.match(failed, /Retry unavailable data/); assert.doesNotMatch(failed, /No packets awaiting|Needs review · 0/);
   const empty = await board([]); assert.doesNotMatch(empty, /Needs review|No packets awaiting approval/);
-  const focused = await board([], 'inspection', 'review'); assert.match(focused, /Needs review · 0/); assert.match(focused, /No packets awaiting approval/);
+  const focused = await board([], 'inspection', 'review'); assert.match(focused, /Needs review · 0/); assert.match(focused, /No inspector packets awaiting approval/);
 });
 
 

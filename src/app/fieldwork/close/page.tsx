@@ -4,7 +4,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { roleForEmail } from '@/lib/helm-access';
 import { fieldDb } from '@/lib/field-db';
-import { parseTrade } from '@/lib/field-types';
+import { parseTrade, navTrade } from '@/lib/field-types';
 import { PROPERTIES } from '@/lib/properties';
 import { todayET } from '@/lib/team-recipients';
 import { handoffMonths, isMonth, type HandoffItem } from '@/lib/close-handoff';
@@ -43,7 +43,7 @@ export default async function CloseHandoffPage({
   searchParams: Promise<{ trade?: string; month?: string }>;
 }) {
   const sp = await searchParams;
-  const trade = parseTrade(sp.trade);
+  const trade = navTrade(parseTrade(sp.trade));
   const session = await auth();
   const email = session?.user?.email ?? '';
   const owner = roleForEmail(email) === 'owner';
