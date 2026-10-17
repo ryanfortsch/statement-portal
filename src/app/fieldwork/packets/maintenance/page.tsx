@@ -38,7 +38,7 @@ export default async function MaintenancePage({
         </p>
         {sp.sent === '0' && (
           <div style={{ marginBottom: 18, border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>
-            Couldn&apos;t bundle that — pick a day and at least one open job, then try again.
+            Couldn&apos;t bundle that. Pick a day and at least one open job, then try again.
           </div>
         )}
         {slips.length === 0 ? (

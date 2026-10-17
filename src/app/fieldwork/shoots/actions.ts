@@ -364,12 +364,12 @@ export async function resendShootBrief(formData: FormData): Promise<void> {
   const sent = await notifyShootBrief(shoot.id, shoot.contractor_id, shoot.title, shoot.shoot_date, shoot.property_id).catch(() => ({ emailed: false, texted: false }));
   const note =
     sent.emailed && sent.texted
-      ? 'ok:brief sent — email and text'
+      ? 'ok:brief sent, email and text'
       : sent.emailed
         ? 'ok:brief emailed (no text went out)'
         : sent.texted
           ? 'ok:brief texted (no email went out)'
-          : 'err:brief did NOT send — nothing went out (check their contact info)';
+          : 'err:brief did NOT send; nothing went out (check their contact info)';
   revalidatePath(`/fieldwork/shoots/${shootId}`);
   redirect(`/fieldwork/shoots/${shootId}?brief=${encodeURIComponent(note)}`);
 }
