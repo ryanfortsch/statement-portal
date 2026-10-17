@@ -951,3 +951,109 @@ Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
 `MessageTimingReview.tsx`, and this document. Existing contract notes remain
 excluded. This closes the missing template timing/source inventory, not the
 pending queue, recipient, attachment or cutover requirements.
+
+
+### Portal and attachment compatibility review, October 17
+
+Read-only inspection completed the prior attachment retrieval and identified the
+portal functions linked from DIRECT BOOKING. The protected review page now records
+these dependencies alongside the workflow inventory. No recipient, configuration,
+message, portal field or payment setting was changed. Editors were exited with
+Cancel or navigation; no Save or Done control was used.
+
+**Stay Collections guest app**
+
+The existing `{{guest_app::stay_collections}}` variable refers to a portal with
+reservation information, a check-in form and additional information enabled.
+First name, last name, email and phone number are all enabled and required in the
+check-in form. No signature or document-upload item appeared in the inspected
+form. Payment-info collection and the guidebook are off.
+
+Additional information is set to **After Check-in form submitted**. All five
+General information categories are selected: WiFi, address, house manual, trash
+pick-up instructions and parking instructions. All ten Check-in and check-out
+categories are selected: door code, lock code, entry instructions, additional
+entry instructions, entry photo, luggage storage, checkout instructions,
+departure instructions, Guesty locks manager and key code. All nine House rules
+categories are selected: child, pets, smoking, parties/events, quiet hours,
+additional rules, safety instructions, safety devices and property info. The two
+custom check-in/check-out fields are not selected.
+
+These are category selections, not proof that Calderwood has populated values or
+that a guest can see a particular code. The editor explicitly labels its preview
+as example content. No guest form submissions or access credentials were read.
+The portal gate is independent of the 3 PM code message: reconcile populated
+access fields, guest-visible timing and manual holds before replacing the link.
+Do not assume a message hold also hides an existing portal code. Preserve the
+user's normal 3 PM message and 3:30-4 PM guest guidance.
+
+GuestVerify and Upsells are checked under **Only for properties covered by
+Add-ons**. This does not establish Calderwood enrollment, usage or billing. No
+new provider or paid add-on was activated or selected for the replacement.
+
+**Existing agreement attachment**
+
+The Website-only Rental Agreement template has a directly attached
+`Rental Agreement 2025.pdf`, scheduled one hour after booking confirmation. Its
+message-level conditions panel has no extra conditions configured. The PDF was
+downloaded unchanged from the UI-linked asset, rendered and visually inspected:
+one page, 55,951 bytes, zero AcroForm fields. SHA-256:
+`c677d2fbc304dffc85f7161a1bdaac87384c5a41ec1ec55f7a67c5cf5cf36c16`.
+The private review copy is `/tmp/calderwood-guesty-rental-agreement-2025.pdf`;
+the source asset URL and document are not committed.
+
+The document describes acceptance through payment rather than a signing form.
+It includes a security-deposit preauthorization and release window, among other
+payment/cancellation terms. Document wording does not prove those payment
+operations occur, and inspection is not approval of the terms or version. Keep
+an unchanged attachment path distinct from a new e-signing process. No contract
+was accepted, sent, rewritten or treated as a payment instruction.
+
+Existing code provides reusable email infrastructure in
+`src/lib/agreement-email.ts`, but `src/lib/agreement-base.ts` and
+`src/app/agreement/[token]/page.tsx` generate terms and collect a signature.
+`src/app/guests/agreements/actions.ts` also has its own defaults. Reusing that
+workflow without review would change the current attachment-based process.
+The reviewed branch has no replacement for this Guesty portal variable.
+
+**Implementation sequence**
+
+1. Model portal completion separately from code-release eligibility. Preserve
+   required contact fields and reservation-scoped access; do not substitute a
+   public guide page for gated property/access information.
+2. Bind source conditions and exact staff/cleaner recipients to verified evidence.
+   A fresh workflow editor still did not expose the staff/cleaner timeline cards,
+   so message titles remain insufficient recipient proof.
+3. Preserve Website agreement attachment delivery as its own obligation, with
+   approved content/version and recorded outcome. Use existing email transport
+   only after the destination and attachment are verified; do not silently opt
+   guests into a new signing or deposit flow.
+4. Reconcile pending obligations, revisions and sender ownership before enabling
+   any new sender or replacing portal links. Template counts and configuration
+   selections are not delivery evidence.
+
+Guesty's official [automated-message guide](https://help.guesty.com/hc/en-gb/articles/9365081186205-Managing-automated-messages-for-guests-owners-and-team-members)
+states that only the first booking alteration triggers an alteration message.
+Keep that limitation in the migration comparison; do not assume the active
+alteration template provides an alert for every later revision. Actual recipient
+and prior-send evidence are still required.
+
+Hosted acceptance of the preceding inventory completed at deployment
+`dpl_EzRbyruhMDyfmFRm32bmPLvRwa34` (Ready). The authenticated branch preview showed
+six workflows, twenty templates and the direct-booking source/timing details.
+Screenshot: `/tmp/calderwood-workflow-coverage.png`. This supersedes the prior
+queued-deployment note. Hosted acceptance for the new dependency text is recorded
+in draft PR #1714, separately from this prior deployment.
+
+Validation: all 1,968 tests passed in 240 suites on Node 25.9.0, with zero
+failures. Nonincremental TypeScript, targeted ESLint and diff checks passed.
+Referenced source paths were verified. No new tests mirror this static review
+text; no data fetch or sending capability was added.
+
+Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
+`ade3dfae`; remote main verified as
+`9bb2cf41f256211575f8e4d8c204f8c56d765b37`. This batch changes
+`MessageWorkflowCoverage.tsx` and this document. Existing contract notes remain
+excluded. Staff/cleaner binding and history, populated portal access fields,
+agreement approval/payment behavior, production channel access and pricing
+propagation remain unresolved. No live cutover is implied.

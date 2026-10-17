@@ -25,14 +25,14 @@ const workflows = [
     scope: 'All properties. Website, Manual and Direct - stay cape ann only.',
     delivery: 'Guest by SMS and email, with a separate message for each delivery method.',
     schedule: 'Both methods: at confirmation; 1 day before arrival; 1 hour before arrival; 1 day before departure.',
-    coverage: 'Outside the timing preview. These confirmations have no 30-minute offset. Portal links and both delivery methods need replacement coverage.',
+    coverage: 'Outside the timing preview. These confirmations have no 30-minute offset. The linked Stay Collections portal requires a contact form and gated property information; both delivery methods also need replacement coverage.',
   },
   {
     name: 'Rental Agreement', count: 1,
     scope: 'All properties. Website only.',
     delivery: 'Guest by email.',
-    schedule: '1 hour after confirmation. The message references Rental Agreement 2025.pdf.',
-    coverage: 'Outside the timing preview. The current approved attachment and its delivery need verification.',
+    schedule: '1 hour after confirmation. The message attaches Rental Agreement 2025.pdf.',
+    coverage: 'Outside the timing preview. The one-page attachment was inspected. Current approval, unchanged attachment delivery and any payment obligations still need verification.',
   },
   {
     name: 'STAFF messages ONLY', count: 4,
@@ -60,6 +60,28 @@ export default function MessageWorkflowCoverage() {
         </div>)}
       </dl>
     </details>)}</div>
+    <details className="rounded-lg border p-4">
+      <summary className="cursor-pointer text-sm font-medium">Guest portal and agreement dependencies</summary>
+      <p className="mt-3 text-sm text-slate-600">Reviewed from the existing Stay Collections app and agreement email on October 17. Configuration shows what is enabled, not what a particular guest has received.</p>
+      <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="font-medium">Required check-in form</dt>
+          <dd className="mt-1 text-slate-600">First name, last name, email and phone number are required. Reservation information is enabled. The payment-info form and guidebook are off.</dd>
+        </div>
+        <div>
+          <dt className="font-medium">Property information and access</dt>
+          <dd className="mt-1 text-slate-600">Additional information unlocks after form submission. Selected categories include WiFi, house rules and access-code fields. Actual populated values and guest visibility still need checking against the 3 PM code message and any manual hold.</dd>
+        </div>
+        <div>
+          <dt className="font-medium">Separate agreement email</dt>
+          <dd className="mt-1 text-slate-600">Website bookings are configured to receive the PDF attachment one hour after confirmation. The inspected PDF has no signing fields. Helm’s existing signing flow is a different process; replacing the attachment with it requires a separate decision.</dd>
+        </div>
+        <div>
+          <dt className="font-medium">Costs and payment dependencies</dt>
+          <dd className="mt-1 text-slate-600">GuestVerify and Upsells are selected only for properties covered by those add-ons. Calderwood’s coverage and charges are unverified. A deposit described in the agreement does not prove a payment hold was created.</dd>
+        </div>
+      </dl>
+    </details>
     <p className="text-xs text-slate-500">All day-based offsets still require daylight-saving queue checks. No workflow, recipient, attachment, schedule or send permission is changed here.</p>
   </section>;
 }
