@@ -190,7 +190,9 @@ export default async function ContractorsPage({
             ? owner
               ? 'Everyone who shoots for us: standing, pay to date, W-9. To send someone to a home, use Shoots & pay.'
               : 'Everyone who shoots for us. To send someone to a home, ask Ryan or Dotti.'
-            : `Everyone on the ${meta.label.toLowerCase()} roster: standing, reliability, pay to date, W-9.`}
+            : owner
+              ? `Everyone on the ${meta.label.toLowerCase()} roster: standing, reliability, pay to date, W-9.`
+              : `Everyone on the ${meta.label.toLowerCase()} roster: standing and reliability.`}
         </p>
 
         {/* The rate card and the invite form fold away: both are set-up
@@ -411,10 +413,12 @@ function ContractorCard({
           <span aria-hidden style={{ fontSize: 11, color: 'var(--ink-4)' }}>&#9662;</span>
         </div>
       </div>
-      {/* Vital signs while collapsed: the four numbers worth scanning. */}
+      {/* Vital signs while collapsed: the four numbers worth scanning. Pay
+          is owner money (CLAUDE.md: contractor pay and tax details), so a
+          staff login sees the standing and reliability numbers only. */}
       <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        {earned && ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
-        {earned && ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
+        {owner && earned && ps!.owedCents > 0 && <span style={{ color: 'var(--signal)', fontWeight: 600 }}>{dollars(ps!.owedCents)} owed</span>}
+        {owner && earned && ps!.paidCents > 0 && <span style={{ color: 'var(--positive)' }}>{dollars(ps!.paidCents)} paid</span>}
         {!earned && <span>No approved work</span>}
         {rating && rating.count > 0 && (
           <span>&#9733; {rating.rated && rating.avg != null ? rating.avg.toFixed(2) : '\u2014'} <span style={{ color: 'var(--ink-4)' }}>({rating.count})</span></span>
@@ -426,8 +430,10 @@ function ContractorCard({
       </summary>
 
       <div style={{ padding: '0 18px 16px' }}>
-      {/* Metric ribbon */}
+      {/* Metric ribbon. Earnings and Books YTD are owner money and render
+          for owners only; staff keep reviews and reliability. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginTop: 14 }}>
+        {owner && (
         <Stat label="Earnings">
           {earned ? (
             <>
@@ -458,6 +464,7 @@ function ContractorCard({
             <span style={{ color: 'var(--ink-4)' }}>No approved work</span>
           )}
         </Stat>
+        )}
 
         <Stat label="Guest reviews">
           {rating && rating.count > 0 ? (
@@ -497,6 +504,7 @@ function ContractorCard({
           </Stat>
         )}
 
+        {owner && (
         <Stat label="Books YTD">
           <span>{dollars(booksCents)}{books?.over ? ' · 1099' : ''}</span>
           <div style={{ fontSize: 11, marginTop: 2 }}>
@@ -513,25 +521,29 @@ function ContractorCard({
             )}
           </div>
         </Stat>
+        )}
       </div>
 
       {/* Creative only: the talent's rate card (standard or custom). */}
       {rate && <TalentRateStrip c={c} card={rate.card} isCustom={rate.isCustom} />}
 
-      {/* Quiet compliance + access strip */}
+      {/* Quiet compliance + access strip. The W-9 summary (legal name, tax
+          classification, TIN last four, home address), the payment method
+          and the pay-versus-books gap are owner money; staff see the
+          background-check and access lines only. */}
       <div style={{ marginTop: 13, paddingTop: 12, borderTop: '1px solid var(--rule)', fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.7 }}>
-        {w9 && (
+        {owner && w9 && (
           <div>
             <span style={{ color: 'var(--ink-3)' }}>{w9.legalName}</span>{w9.businessName ? ` (${w9.businessName})` : ''} · {w9.taxClassification} · {w9.tinType.toUpperCase()} ••••{w9.tinLast4 ?? '????'}{owner ? <> · <RevealW9 contractorId={c.id} /></> : null} · {w9.address}
           </div>
         )}
-        {pm && (
+        {owner && pm && (
           <div>
             Pays via {pm.method}{pm.hint ? ` · ${pm.hint}` : ''}
             {owner && pm.hasDetails && pm.method === 'Direct deposit (ACH)' ? <> · <RevealPay contractorId={c.id} /></> : null}
           </div>
         )}
-        {Math.abs(gap) > 5000 && (
+        {owner && Math.abs(gap) > 5000 && (
           <div style={{ color: 'var(--signal)' }}>
             Field {dollars(ps!.paidCents)} vs books {dollars(booksCents)} · gap {dollars(Math.abs(gap))}
           </div>

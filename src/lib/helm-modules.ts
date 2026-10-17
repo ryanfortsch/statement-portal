@@ -582,6 +582,8 @@ export const HELM_MODULES: HelmModule[] = [
     hidden: true,
     group: 'money',
     section: 'financials',
+    // The company ledger, payroll and contractor pay print here: owner money.
+    access: 'owner',
   },
   // Guests is now a TAB inside Marketing (see MarketingTabs). Hidden from the
   // nav lists so it doesn't duplicate the Marketing entry; GuestsTabBar still

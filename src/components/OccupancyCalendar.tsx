@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { CalendarCellTooltip } from '@/app/turnovers/CalendarCellTooltip';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { channelAccent } from '@/lib/channel-style';
 import type { CalendarData } from '@/lib/operations';
 
@@ -43,7 +44,10 @@ function blockFill(): string {
   return `repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink-4) 34%, var(--paper)) 0 3px, transparent 3px 7px)`;
 }
 
-export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
+export async function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
+  // The hover card's Payout line is owner money. Redacted here, on the
+  // server, so the figure never reaches a staff browser at all.
+  const owner = await isOwnerSession();
   return (
     <div>
       {/* Channel legend: decodes the bar tint on each stay. One quiet row —
@@ -87,12 +91,12 @@ export function OccupancyCalendar({ calendar }: { calendar: CalendarData }) {
           Owner / hold
         </span>
       </div>
-      <CalendarGrid calendar={calendar} />
+      <CalendarGrid calendar={calendar} owner={owner} />
     </div>
   );
 }
 
-function CalendarGrid({ calendar }: { calendar: CalendarData }) {
+function CalendarGrid({ calendar, owner }: { calendar: CalendarData; owner: boolean }) {
   const { days, rows, today } = calendar;
 
   if (rows.length === 0) {
@@ -241,6 +245,7 @@ function CalendarGrid({ calendar }: { calendar: CalendarData }) {
             rowHeight={rowHeight}
             isLastRow={isLastRow}
             rowGridStyle={rowGridStyle}
+            owner={owner}
           />
         );
       })}
@@ -254,12 +259,15 @@ function PropertyCalendarRow({
   rowHeight,
   isLastRow,
   rowGridStyle,
+  owner,
 }: {
   row: CalendarData['rows'][number];
   today: string;
   rowHeight: number;
   isLastRow: boolean;
   rowGridStyle: CSSProperties;
+  /** Owner session: the hover card may carry the stay's payout. */
+  owner: boolean;
 }) {
   const rowBorder = isLastRow ? 'none' : '1px solid var(--rule-soft)';
   return (
@@ -590,7 +598,7 @@ function PropertyCalendarRow({
           checkIn: r.check_in,
           checkOut: r.check_out,
           nights: r.nights,
-          hostPayout: r.host_payout,
+          hostPayout: owner ? r.host_payout : null,
           confirmationCode: r.confirmation_code,
           guestArrivedAt: r.guestArrivedAt,
           isBlock: isBlockRes(r),
