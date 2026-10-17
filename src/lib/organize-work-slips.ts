@@ -256,12 +256,23 @@ async function packetBackedSlipIds(supabase: SupabaseClient): Promise<Set<string
   return new Set(rows.map((r) => r.work_slip_id).filter((v): v is string => !!v));
 }
 
-/** How many active slips the pass has not seen yet (the board's button
- *  reports this before kicking the pass off in the background). */
+/** How many active slips the pass has not seen yet. The board's button
+ *  reports this before kicking the pass off in the background, then polls
+ *  it down to zero to say what the pass did, so it must count exactly what
+ *  the pass will file: a setup packet's own slip (rising_tide, backed by a
+ *  packet stop) is never re-laned and is not counted as waiting either. */
 export async function countUnorganizedSlips(supabase: SupabaseClient): Promise<number> {
-  const { count, error } = await applyEligibleFilters(supabase, 'id', true);
-  if (error) throw new Error(`organize count failed: ${error.message}`);
-  return count ?? 0;
+  const rows = await selectAllPaged<{ id: string; category: string }>(
+    (from, to) =>
+      applyEligibleFilters(supabase, 'id, category', false)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to) as unknown as PromiseLike<PageResult<{ id: string; category: string }>>,
+    { label: 'organize count' },
+  );
+  if (rows.length === 0) return 0;
+  const backed = await packetBackedSlipIds(supabase).catch(() => new Set<string>());
+  return rows.filter((s) => !(backed.has(s.id) && s.category === 'rising_tide')).length;
 }
 
 export type OrganizePreview = {

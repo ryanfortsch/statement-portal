@@ -40,3 +40,18 @@ export async function organizeWorkNow(): Promise<{ ok: true; pending: number } |
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/** How many slips the background pass still has to file. The board's
+ *  Organize button polls this after a click until it reaches zero (or the
+ *  pass's budget is spent) and then says what was done, instead of asking
+ *  the operator to check back. */
+export async function organizePendingCount(): Promise<{ ok: true; pending: number } | { ok: false; error: string }> {
+  const session = await auth();
+  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
+  if (!isServiceConfigured) return { ok: false, error: 'Helm database is not configured' };
+  try {
+    return { ok: true, pending: await countUnorganizedSlips(supabaseAdmin) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}

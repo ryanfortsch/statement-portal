@@ -552,7 +552,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
                     <div style={{ fontSize: 14, color: 'var(--ink)' }}>{s.title}</div>
                     <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
                       {s.property_name}
-                      {s.assigned_to_email ? ` · ${displayNameForEmail(s.assigned_to_email)}` : ' · Unclaimed'}
+                      {s.assigned_to_email ? ` · ${displayNameForEmail(s.assigned_to_email)}` : ' · Unassigned'}
                       {s.location ? ` · ${s.location}` : ''}
                     </div>
                   </div>
