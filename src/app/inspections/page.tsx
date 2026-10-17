@@ -1,13 +1,16 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { TurnoverTabs } from '@/components/TurnoverTabs';
-import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
-import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { CAPE_ANN_REGION } from '@/lib/property-scope';
 import { startInspection } from './actions';
-import { DeleteInspectionButton } from './DeleteInspectionButton';
+
+/** The list shows the viewer's region, the same gate the start form uses:
+ *  a null region reads as Cape Ann (lib/property-scope.ts). PostgREST filter
+ *  on the embedded properties row. */
+const REGION_FILTER = `region.is.null,region.eq.${CAPE_ANN_REGION}`;
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +58,8 @@ async function getRecentInspections(page: number): Promise<{ rows: RecentInspect
   // without a second query. range() is inclusive on both ends.
   const { data } = await supabase
     .from('inspections')
-    .select('id, property_id, inspector_name, started_at, completed_at, total_items, pass_count, issue_count, na_count, properties!inner(name, title)')
+    .select('id, property_id, inspector_name, started_at, completed_at, total_items, pass_count, issue_count, na_count, properties!inner(name, title, region)')
+    .or(REGION_FILTER, { referencedTable: 'properties' })
     .order('started_at', { ascending: false })
     .range(offset, offset + PAGE_SIZE);
   const hasOlder = (data ?? []).length > PAGE_SIZE;
@@ -91,7 +95,8 @@ async function getRecentInspections(page: number): Promise<{ rows: RecentInspect
 async function getInspectionCount(): Promise<number> {
   const { count } = await supabase
     .from('inspections')
-    .select('id', { count: 'exact', head: true });
+    .select('id, properties!inner(region)', { count: 'exact', head: true })
+    .or(REGION_FILTER, { referencedTable: 'properties' });
   return count ?? 0;
 }
 
@@ -100,7 +105,6 @@ export default async function InspectionsPage({
 }: {
   searchParams: Promise<{ page?: string }>;
 }) {
-  const session = await auth();
   const params = await searchParams;
   const page = Math.max(1, parseInt(params.page ?? '1', 10) || 1);
   const [properties, { rows: recents, hasOlder }, totalCount] = await Promise.all([
@@ -109,27 +113,21 @@ export default async function InspectionsPage({
     getInspectionCount(),
   ]);
 
-  const firstName = session?.user?.name?.split(' ')[0] || session?.user?.email?.split('@')[0] || 'inspector';
-
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
       <TurnoverTabs current="inspections" />
 
-      <HelmHero
-        eyebrow="Helm · Inspections"
-        title="Walk a property,"
-        emphasis="start a checklist."
-        description={`Hi ${firstName}. Pick a property and Helm walks you through its checklist, room by room. Mark each Pass, Issue, or N/A; add notes where it matters.`}
-      />
-
-      {/* START FORM */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
+      {/* The page is the form: the tab's name, a home, Start. The greeting
+          and the paragraph that stood here described a fixed checklist the
+          decks stopped being; the stepper explains itself card by card. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 56, width: '100%' }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Inspections</div>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
           <form action={startInspection} className="flex items-end gap-4 flex-wrap">
             <div style={{ flex: 1, minWidth: 280 }}>
               <label htmlFor="property_id" className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>
-                Property
+                Walk a home
               </label>
               <select
                 id="property_id"
@@ -154,7 +152,7 @@ export default async function InspectionsPage({
                   backgroundSize: '18px',
                 }}
               >
-                <option value="" disabled>Choose a property…</option>
+                <option value="" disabled>Choose a home…</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -176,7 +174,7 @@ export default async function InspectionsPage({
                 cursor: 'pointer',
               }}
             >
-              Begin Inspection →
+              Start
             </button>
           </form>
         </div>
@@ -260,10 +258,10 @@ function RecentRow({ inspection: r }: { inspection: RecentInspection }) {
     : 'var(--ink-4)';
 
   return (
-    // Row = a tap-to-open Link plus a sibling Delete control. They can't
-    // nest (a <button> inside an <a> is invalid + double-fires), so the
-    // border lives on this flex wrapper and the grid inside the Link drops
-    // its own. Mobile CSS targets `.rt-inspections-recent-row a > div`.
+    // Row = a tap-to-open Link. Delete lives on the summary page's header,
+    // where the operator is looking at the walk being deleted, not beside
+    // every row of the index. Mobile CSS targets
+    // `.rt-inspections-recent-row a > div`.
     <div
       className="rt-inspections-recent-row"
       style={{ display: 'flex', alignItems: 'stretch', borderBottom: '1px solid var(--rule)' }}
@@ -306,12 +304,6 @@ function RecentRow({ inspection: r }: { inspection: RecentInspection }) {
           </span>
         </div>
       </Link>
-      <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
-        <DeleteInspectionButton
-          inspectionId={r.id}
-          label={`${r.property_name} · ${formatDateShort(r.started_at)}`}
-        />
-      </div>
     </div>
   );
 }
