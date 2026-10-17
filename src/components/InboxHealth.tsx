@@ -4,6 +4,8 @@ import { Section } from './Section';
 import { WorkFollowupsContent } from './WorkFollowups';
 import { getInboxHealth, listWorkFollowups } from '@/lib/stay-concierge';
 import { isOwnerSession } from '@/lib/helm-access-server';
+import { auth } from '@/auth';
+import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
 import { inboxStatus } from '@/lib/inbox-status';
 import { SubmitButton } from './SubmitButton';
 import { releaseHeldPitch } from '@/app/messaging/inbox-health-actions';
@@ -22,13 +24,20 @@ function when(timestamp: number | null) {
 }
 
 async function loadStatus() {
-  const [result, followups, owner] = await Promise.all([getInboxHealth(), listWorkFollowups(), isOwnerSession()]);
-  return { result, followups, owner, checkedAt: Date.now() / 1000 };
+  const [result, followups, owner, session] = await Promise.all([getInboxHealth(), listWorkFollowups(), isOwnerSession(), auth()]);
+  return { result, followups, owner, email: session?.user?.email ?? '', checkedAt: Date.now() / 1000 };
 }
 
 export async function InboxHealth({ diagnostics = false }: { diagnostics?: boolean }) {
-  const { result, followups, owner, checkedAt } = await loadStatus();
+  const { result, followups, owner, email, checkedAt } = await loadStatus();
   const health = result.ok ? result.data : null;
+  // The emails behind a delayed import or a held pitch sit in the concierge's
+  // own Gmail account, which the concierge names (asked of Gmail, never
+  // assumed). The link carries that mailbox and renders only for the session
+  // that owns it; everyone else sees the sender, subject and timing with
+  // nothing clickable. No mailbox known means no link for anyone.
+  const mailbox = health?.mailbox ?? null;
+  const canOpen = canOpenMailbox(email, mailbox);
   const status = inboxStatus(health, followups.ok ? followups.data : null, checkedAt);
   if (!diagnostics && !status.summary) return null;
   const imports = diagnostics ? health?.unresolved ?? [] : status.imports;
@@ -48,7 +57,7 @@ export async function InboxHealth({ diagnostics = false }: { diagnostics?: boole
       {imports.map(item => <li key={`${item.channel}:${item.source_id}`}>
         <strong>{item.status === 'processing' && !diagnostics ? 'Import delayed' : importLabels[item.status] || 'Import unconfirmed'}</strong>
         {item.detail && <> · {item.detail}</>}
-        {item.channel === 'email' && <> · <a target="_blank" rel="noreferrer" href={`https://mail.google.com/mail/u/0/#all/${encodeURIComponent(item.source_id)}`} style={{ textDecoration: 'underline' }}>Open email</a></>}
+        {item.channel === 'email' && canOpen && <> · <a target="_blank" rel="noreferrer" href={gmailUrl(mailbox, `all/${encodeURIComponent(item.source_id)}`)} style={{ textDecoration: 'underline' }}>Open email</a></>}
         {item.channel !== 'email' && <span style={{ color: 'var(--ink-3)' }}> · Source {item.source_id}</span>}
       </li>)}
     </ul>}
@@ -65,7 +74,7 @@ export async function InboxHealth({ diagnostics = false }: { diagnostics?: boole
           <strong>{item.sender || 'Unknown sender'}</strong>
           {item.subject && <> · {item.subject}</>}
           <span style={{ color: 'var(--ink-3)' }}> · {when(item.held_at)}</span>
-          {' · '}<a target="_blank" rel="noreferrer" href={`https://mail.google.com/mail/u/0/#all/${encodeURIComponent(item.source_id)}`} style={{ textDecoration: 'underline' }}>Open email</a>
+          {canOpen && <> · <a target="_blank" rel="noreferrer" href={gmailUrl(mailbox, `all/${encodeURIComponent(item.source_id)}`)} style={{ textDecoration: 'underline' }}>Open email</a></>}
           <form action={releaseHeldPitch} style={{ display: 'inline', marginLeft: 8 }}>
             <input type="hidden" name="source_id" value={item.source_id} />
             <SubmitButton label="Not a pitch, draft it" busyLabel="Releasing" spinnerTone="ink" className="rt-inline-action" />
