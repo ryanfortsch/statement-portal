@@ -10,7 +10,9 @@ import {
   type TaskStatus,
 } from '@/lib/work-types';
 import { updateTask, deleteTask, addTaskComment, deleteTaskComment } from '../../actions';
+import { BackToBoardLink } from '../../[id]/BackToBoardLink';
 import { TeamPicker } from '@/components/TeamPicker';
+import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 
@@ -154,18 +156,9 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
 
   return (
     <div className="max-w-[860px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%', flex: 1 }}>
-      <Link
-        href="/work"
-        style={{
-          fontSize: 11,
-          letterSpacing: '.18em',
-          textTransform: 'uppercase',
-          color: 'var(--ink-3)',
-          textDecoration: 'none',
-        }}
-      >
-        ← All Work
-      </Link>
+      {/* Back to the board as it was left, on the Tasks tab, the same way a
+          slip's back link restores its view. */}
+      <BackToBoardLink fallbackHref="/work?tab=tasks" tab="tasks" />
 
       <fieldset disabled={submitting || deleting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       {/* HERO */}
@@ -307,7 +300,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
               >
                 <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
                   <span style={{ fontSize: 11, letterSpacing: '.08em', color: 'var(--ink-3)' }}>
-                    {c.author_email || 'You'} &middot; {formatTimestamp(c.created_at)}
+                    <span style={{ fontWeight: 600 }}>{c.author_email ? displayNameForEmail(c.author_email) : 'You'}</span> &middot; {formatTimestamp(c.created_at)}
                   </span>
                   {c.author_email === myEmail && <button
                     type="button"
@@ -356,7 +349,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
             </button>
           </div>
           {commentError && <p role="alert" style={{ color: 'var(--negative)', fontSize: 12 }}>{commentError} <a href={`/work/tasks/${task.id}`} target="_blank" rel="noopener noreferrer">View saved comments</a></p>}
-          {commentBody && <button type="button" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }} style={{ fontSize: 12 }}>Discard comment draft</button>}
+          {commentBody && <button type="button" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }} style={{ ...ghostBtn(), marginTop: 8 }}>Discard comment draft</button>}
         </div>
       </Section>
 
@@ -399,7 +392,7 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         <div className="flex items-center gap-3">
           {savedAt && !dirty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Saved {savedAt}</span>}
           {dirty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Unsaved changes</span>}
-          <Link href="/work" style={ghostBtn()}>Cancel</Link>
+          <Link href="/work?tab=tasks" style={ghostBtn()}>Cancel</Link>
           <button type="button" onClick={save} disabled={submitting || deleting} style={primaryBtn()}>
             {submitting ? 'Saving…' : 'Save changes'}
           </button>

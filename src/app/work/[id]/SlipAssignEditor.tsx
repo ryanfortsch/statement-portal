@@ -5,6 +5,7 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { updateWorkSlipAssignment } from '../actions';
+import { smallGhostButton } from './slip-controls';
 
 type Props = {
   slipId: string;
@@ -64,9 +65,9 @@ export function SlipAssignEditor({ slipId, initialAssignedToEmail, myEmail }: Pr
         <div role={err ? 'alert' : 'status'} style={{ marginTop: 4, fontSize: 11, color: err ? 'var(--negative)' : 'var(--ink-4)' }}>
           {err ? `${targetLabel}: ${err} Showing the last confirmed assignment.` : `Saving assignment: ${targetLabel}…`}
           {err && attempt && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              <button type="button" disabled={pending} onClick={() => handleChange(attempt.email)}>Retry assignment</button>
-              <button type="button" disabled={pending} onClick={() => { setAttempt(null); setErr(null); }}>Dismiss</button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button type="button" disabled={pending} onClick={() => handleChange(attempt.email)} style={smallGhostButton}>Retry assignment</button>
+              <button type="button" disabled={pending} onClick={() => { setAttempt(null); setErr(null); }} style={smallGhostButton}>Dismiss</button>
             </div>
           )}
         </div>

@@ -299,7 +299,7 @@ export default async function WorkSlipDetailPage({
 
       {/* WHO DOES THIS — maintenance-run triage */}
       {slip.category === 'maintenance' && (
-        <Section title="Who does this" eyebrow="Run triage">
+        <Section title="Who does this" eyebrow={slip.run_scope ? 'Decided' : 'Not decided yet'}>
           <SlipScopeEditor
             slipId={slip.id}
             initialScope={slip.run_scope ?? null}
