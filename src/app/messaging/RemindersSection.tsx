@@ -372,7 +372,7 @@ function CreateForm({
         <div className="eyebrow" style={{ color: 'var(--ink-4)' }}>
           New proactive message
         </div>
-        {/* Mode toggle — the "slightly different UI" per mode */}
+        {/* Mode toggle: the "slightly different UI" per mode */}
         <div style={{ display: 'inline-flex', border: '1px solid var(--ink)' }} role="tablist">
           {(['recurring', 'once'] as Mode[]).map((m) => {
             const active = mode === m;
@@ -469,7 +469,7 @@ function CreateForm({
             type="button"
             onClick={handlePolish}
             disabled={isPending || polishing || !body.trim()}
-            title="Rewrite your note in our voice using the property's knowledge base — the same engine that drafts guest replies."
+            title="Rewrite your note in our voice using the property's knowledge base, the same engine that drafts guest replies."
             style={{
               fontSize: 10,
               letterSpacing: '0.12em',

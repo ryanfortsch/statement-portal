@@ -564,7 +564,7 @@ function CleanerApprovalCard({
             id={`cleaner-coach-${approval.id}`}
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
-            placeholder="Say what's wrong with the Portuguese draft. You can write in English — the AI will regenerate in PT."
+            placeholder="Say what's wrong with the Portuguese draft. You can write in English; the AI regenerates in Portuguese."
             rows={3}
             style={{
               width: '100%',

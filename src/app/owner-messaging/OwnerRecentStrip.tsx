@@ -55,6 +55,7 @@ export function OwnerRecentStrip({ initialRecent }: Props) {
           return (
             <li
               key={row.id}
+              className="rt-msg-recent-row"
               style={{
                 borderBottom: '1px solid var(--rule)',
                 padding: '12px 0',

@@ -1091,6 +1091,19 @@ td:has(.rt-info-icon:focus-within) {
     grid-column: 1 / -1;
     white-space: normal !important;
   }
+  /* Last 24 hours ledgers (guest and owner): the fixed four-column row
+     folds to name + status, the text on its own line, the time under it. */
+  .rt-msg-recent-row {
+    grid-template-columns: 1fr auto !important;
+    row-gap: 4px;
+  }
+  .rt-msg-recent-row > :nth-child(2) {
+    grid-column: 1 / -1;
+    white-space: normal !important;
+  }
+  .rt-msg-recent-row > :nth-child(3) {
+    text-align: left !important;
+  }
   .rt-undo-toast {
     left: 16px !important;
     right: 16px !important;
@@ -1136,7 +1149,6 @@ td:has(.rt-info-icon:focus-within) {
   .rt-section-tabs a { min-height: 44px; }
   .rt-message-card { padding: 14px !important; }
   .rt-message-actions { gap: 8px !important; }
-  .rt-message-options { flex-basis: 100%; margin-left: 0; border-top: 1px solid var(--rule); }
   .rt-message-options-body .rt-quiet-btn { min-height: 44px; }
   .rt-section-actions { gap: 8px !important; }
   .rt-mobile-menu-trigger { min-height: 44px; }

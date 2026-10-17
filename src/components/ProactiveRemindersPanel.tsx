@@ -450,7 +450,7 @@ function CreateForm({
         <div className="eyebrow" style={{ color: 'var(--ink-4)' }}>
           New proactive message
         </div>
-        {/* Mode toggle — the "slightly different UI" per mode */}
+        {/* Mode toggle: the "slightly different UI" per mode */}
         <div style={{ display: 'inline-flex', border: '1px solid var(--ink)' }} role="tablist">
           {(['recurring', 'once'] as Mode[]).map((m) => {
             const active = mode === m;
