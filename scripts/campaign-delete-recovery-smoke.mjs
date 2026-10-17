@@ -22,7 +22,9 @@ export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({
 export const createDraftFromBrief=data=>save('brief',Object.fromEntries(data));export const createDraftCampaign=data=>save('blank',Object.fromEntries(data));
 export const deleteInspection=id=>save('inspection',{id});export const deleteEntry=data=>save('playbook',Object.fromEntries(data));
 `);
-await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser';`);
+// DeleteInspectionButton leaves the summary page after a delete (#1839), so the
+// next/navigation alias carries a router whose push counts as a navigation.
+await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/dist/client/components/unstable-rethrow.browser';export const useRouter=()=>({push:()=>{window.navs++;},replace:()=>{window.navs++;},refresh:()=>{window.refreshes++;},back:()=>{}});`);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>{window.refreshes++;};');
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({href,children,...props}){return <a {...props} href={href}>{children}</a>}`));
 await writeFile(join(scratch,'entry.js'),compile(`

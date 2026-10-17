@@ -48,6 +48,10 @@ export function SlipClosePanel({
   const notesDirty = notes.trim() !== savedNotes.trim();
   // True once an autosave has landed and nothing has been typed since.
   const [notesSaved, setNotesSaved] = useState(false);
+  // After a failed save the timer stands down until the next keystroke or
+  // blur, so a server that keeps refusing is asked again on the operator's
+  // move, not every second.
+  const [autosaveHeld, setAutosaveHeld] = useState(false);
 
   useUnsavedWorkGuard(notesDirty || saving !== null);
 
@@ -58,12 +62,12 @@ export function SlipClosePanel({
   // save() without re-arming the timer on every render.
   const saveRef = useRef<(mode: SaveMode) => Promise<void>>(async () => {});
   useEffect(() => {
-    if (!notesDirty || saving !== null) return;
+    if (!notesDirty || saving !== null || autosaveHeld) return;
     const timer = setTimeout(() => {
       void saveRef.current('notes');
     }, NOTES_AUTOSAVE_MS);
     return () => clearTimeout(timer);
-  }, [notes, notesDirty, saving]);
+  }, [notes, notesDirty, saving, autosaveHeld]);
 
   // Close (done or dismissed) saves whatever is in the notes box in the
   // same round trip; the server stamps completed_at / closed_at.
@@ -84,6 +88,7 @@ export function SlipClosePanel({
           });
       if (!res.ok) {
         setErr(res.error);
+        setAutosaveHeld(true);
         return;
       }
       if (mode !== 'notes') setStatus(mode);
@@ -93,6 +98,7 @@ export function SlipClosePanel({
       softRefresh();
     } catch {
       setUncertain(true);
+      setAutosaveHeld(true);
       setErr('Could not confirm the change. Your notes are still here. Check the work slip before trying again.');
     } finally {
       inFlight.current = false;
@@ -115,6 +121,7 @@ export function SlipClosePanel({
         onChange={(e) => {
           setNotes(e.target.value);
           setNotesSaved(false);
+          setAutosaveHeld(false);
         }}
         onBlur={() => {
           if (notesDirty && saving === null) void save('notes');

@@ -212,7 +212,7 @@ try{
   await reset();await click('scope','Inspector');await waitCalls(1);await finish(0,null,true);
   await waitText('Could not confirm the routing change.');await ready('scope');assert.deepEqual(await scopes(),['Inspector']);
   await waitText('Original routing note');await click('scope','Retry routing');await waitCalls(2);await finish(1);await waitClean();
-  assert.deepEqual(await scopes(),[]);await waitText('Not triaged yet.');
+  assert.deepEqual(await scopes(),[]);await waitText('Not decided yet.');
   assert.deepEqual(await page.evaluate(()=>window.calls.map(c=>c.args.run_scope)),[null,null]);
   assert.equal(await page.$eval('#scope',s=>s.textContent.includes('Original routing note')),false);
   pass('clearing routing retries null without toggling back and clears its stale note only on success');
