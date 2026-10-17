@@ -3,7 +3,7 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
-import { parseTrade } from '@/lib/field-types';
+import { parseTrade, navTrade } from '@/lib/field-types';
 import {
   byCategory,
   categoryLabel,
@@ -76,7 +76,7 @@ export default async function TradesPage({
   searchParams: Promise<{ trade?: string; cat?: string; q?: string }>;
 }) {
   const sp = await searchParams;
-  const trade = parseTrade(sp.trade);
+  const trade = navTrade(parseTrade(sp.trade));
   const cat = sp.cat ?? '';
   const q = (sp.q ?? '').trim().toLowerCase();
 

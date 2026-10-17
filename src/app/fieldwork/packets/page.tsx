@@ -9,7 +9,7 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
-import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, canClaim, type ContractorRow, type PacketRow } from '@/lib/field-types';
+import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, navTrade, canClaim, type ContractorRow, type ContractorTrade, type PacketRow } from '@/lib/field-types';
 import { isLiveStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { PacketStatusStrip } from './PacketStatusStrip';
 import { FieldAvatar } from '@/components/FieldAvatar';
@@ -122,7 +122,9 @@ export default async function PacketsBoard({
   const owner = await isOwnerSession();
   const from = sp.from || todayStr();
   const to = sp.to || plusDays(14);
-  const trade = parseTrade(sp.trade);
+  // A trade with no tab (cleaning) is clamped to Inspectors, the way the
+  // packet page clamps it, so the strip always has a lit tab.
+  const trade = navTrade(parseTrade(sp.trade));
   const focus = ['late', 'today', 'unclaimed', 'drafts', 'review'].includes(sp.focus ?? '') ? sp.focus : 'all';
   const focusHref = (next: string) => {
     const query = new URLSearchParams({ trade, from, to });
@@ -188,7 +190,17 @@ export default async function PacketsBoard({
   // new date, a Record, or a Dismiss - so it belongs in the brief, not just the
   // Drafts list below.
   const expiredDrafts = drafts.filter((p) => daysUntilET(p.visit_date) < 0);
-  const visibleReviews = reviewPackets === null ? null : focus === 'review' ? reviewPackets.filter(p => parseTrade(p.trade) === trade) : reviewPackets;
+  // Needs review is scoped to the lit trade, so its count is the number on
+  // the row-1 pill. The other trades' submitted packets are one line below
+  // it, a link each, instead of a second list that disagreed with the pill.
+  const visibleReviews = reviewPackets === null ? null : reviewPackets.filter((p) => parseTrade(p.trade) === trade);
+  const elsewhereByTrade: Partial<Record<ContractorTrade, number>> = {};
+  for (const p of reviewPackets ?? []) {
+    const t = parseTrade(p.trade);
+    if (t !== trade) elsewhereByTrade[t] = (elsewhereByTrade[t] ?? 0) + 1;
+  }
+  const reviewsElsewhere = Object.entries(elsewhereByTrade) as Array<[ContractorTrade, number]>;
+  const elsewhereCount = reviewsElsewhere.reduce((a, [, n]) => a + n, 0);
   const focusedPackets = focus === 'late' ? atRiskPackets : focus === 'today' ? outToday : focus === 'unclaimed' ? unclaimedSoon : null;
   const visibleLive = focusedPackets ?? (focus === 'all' ? live : []);
   const visibleDrafts = focus === 'drafts' ? expiredDrafts : focus === 'all' ? drafts : [];
@@ -230,13 +242,13 @@ export default async function PacketsBoard({
           ].filter(item => item.count > 0 || item.id === focus).map(item => <Link key={item.id} href={focusHref(item.id)} aria-current={focus === item.id ? 'page' : undefined}>{item.label} · {item.count}</Link>)}
         </nav>
         <div id="field-results" style={{ scrollMarginTop: 88 }} />
-        {(focus === 'all' || focus === 'review') && (visibleReviews === null || focus === 'review' || !!visibleReviews?.length) && <section id="needs-review" aria-labelledby="review-heading" style={{ marginTop: 24, scrollMarginTop: 88 }}>
+        {(focus === 'all' || focus === 'review') && (visibleReviews === null || focus === 'review' || !!visibleReviews?.length || elsewhereCount > 0) && <section id="needs-review" aria-labelledby="review-heading" style={{ marginTop: 24, scrollMarginTop: 88 }}>
           <h2 id="review-heading" style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 8 }}>
             Needs review{visibleReviews ? ` · ${visibleReviews.length}` : ''}
           </h2>
-          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted packets awaiting your approval{focus === 'review' ? '' : ' · all trades'}</p>
+          <p style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12 }}>Submitted packets awaiting {owner ? 'your' : "Ryan's"} approval</p>
           {visibleReviews === null ? <div role="status">Couldn’t load packets awaiting review. <RetryDashboard /></div>
-            : visibleReviews.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No packets awaiting approval.</p>
+            : visibleReviews.length === 0 ? <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>No {TRADE_META[trade].singular} packets awaiting approval.</p>
             : <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden' }}>
               {visibleReviews.map(p => <div key={p.id} style={{ padding: '14px 18px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
@@ -248,6 +260,19 @@ export default async function PacketsBoard({
                 <Link href={`/fieldwork/packets/${p.id}`} aria-label={`Review ${p.title}`} style={{ ...btnDark, textDecoration: 'none' }}>Review</Link>
               </div>)}
             </div>}
+          {elsewhereCount > 0 && (
+            <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10 }}>
+              {elsewhereCount} in other trades:{' '}
+              {reviewsElsewhere.map(([t, n], i) => (
+                <span key={t}>
+                  {i > 0 ? ' · ' : ''}
+                  <Link href={`/fieldwork/packets?trade=${t}&focus=review#needs-review`} style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}>
+                    {TRADE_META[t].label} · {n} →
+                  </Link>
+                </span>
+              ))}
+            </p>
+          )}
         </section>}
 
         {trade === 'inspection' && focus === 'all' && (
@@ -344,7 +369,7 @@ export default async function PacketsBoard({
           </details>
         )}
       </section>
-      <HelmFooter module="Field" right="Inspection packets" />
+      <HelmFooter module="Field" right={`${TRADE_META[trade].singular.charAt(0).toUpperCase()}${TRADE_META[trade].singular.slice(1)} packets`} />
     </div>
   );
 }

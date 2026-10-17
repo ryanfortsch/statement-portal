@@ -5,7 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured } from '@/lib/field-db';
 import { fieldBaseUrl } from '@/lib/field-notify';
 import { loadApplications, type ContractorApplication } from '@/lib/field-packets';
-import { parseTrade, TRADE_META } from '@/lib/field-types';
+import { parseTrade, navTrade, TRADE_META } from '@/lib/field-types';
 import { CopyCode } from '@/app/field/CopyCode';
 import { SubmitButton } from '@/components/SubmitButton';
 import { inviteApplicant, declineApplicant, reopenApplicant, screenApplicants } from './actions';
@@ -62,7 +62,9 @@ export default async function ApplicantsPage({
 }: {
   searchParams: Promise<{ trade?: string }>;
 }) {
-  const trade = parseTrade((await searchParams).trade);
+  // A trade with no tab (cleaning) is clamped to Inspectors, the way the
+  // packet page clamps it, so the strip always has a lit tab.
+  const trade = navTrade(parseTrade((await searchParams).trade));
   const meta = TRADE_META[trade];
   // Staff screen and shortlist; inviting, declining and reopening an
   // applicant are owner calls (the actions refuse a staff session too).

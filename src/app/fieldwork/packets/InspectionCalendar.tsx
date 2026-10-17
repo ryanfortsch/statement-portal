@@ -150,7 +150,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
   if (rows.length === 0) {
     return (
       <p style={{ color: 'var(--ink-3)', fontSize: 14, marginTop: 24 }}>
-        No inspections need covering in this window. Widen the dates above.
+        No inspections need covering over the next two weeks.
       </p>
     );
   }
@@ -171,7 +171,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
                 key={d}
                 type="button"
                 onClick={() => selectColumn(d)}
-                title="Plan a visit this day: selects every property open"
+                title="Pick this day: selects the largest group of nearby homes open to inspect, ready to bundle"
                 style={{
                   textAlign: 'center',
                   padding: '8px 2px',
