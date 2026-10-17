@@ -7,6 +7,8 @@ import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import { isCapeAnnOps } from '@/lib/property-scope';
 import { AutoRefresh } from '../revenue/AutoRefresh';
+import { SubmitButton } from '@/components/SubmitButton';
+import { startInspection } from '../inspections/actions';
 import { CalendarMonthSelect } from './CalendarMonthSelect';
 import { PropertyFilterSelect } from './PropertyFilterSelect';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
@@ -310,7 +312,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
                       <strong style={{ fontSize: 30, fontWeight: 500, color: 'var(--ink)' }}>
                         {inspectionsLeft}
                       </strong>{' '}
-                      turnover{inspectionsLeft === 1 ? '' : 's'} pending
+                      turnover{inspectionsLeft === 1 ? '' : 's'} open
                     </>
                   );
                   const linkStyle = {
@@ -349,7 +351,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
               </>
             ) : (
               <>
-                <span style={{ fontSize: 30, fontWeight: 500, color: 'var(--positive)' }}>All marked ready</span>
+                <span style={{ fontSize: 30, fontWeight: 500, color: 'var(--positive)' }}>All done</span>
                 <span style={{ fontSize: 14, color: 'var(--ink-3)', marginLeft: 12 }}>
                   {data.totalCount} check-in{data.totalCount === 1 ? '' : 's'}
                   {range === 'today' ? ' today' : ` · next ${RANGE_LABEL[range].toLowerCase()}`}
@@ -418,23 +420,25 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
                 below — it doubles as the legend. Each count is an anchor to
                 the first row in that stage (plain <a> for native fragment
                 scroll, same reason as the header link). */}
+            {/* The strip says exactly what the rail's active node says
+                (TurnoverRail.tsx), so one word names one state. */}
             {cleaningNow > 0 && (
-              <StageCount hue={STAGE_HUES[2]} label="cleaning now" n={cleaningNow} target={firsts.cleaning} />
+              <StageCount hue={STAGE_HUES[2]} label="Cleaning" n={cleaningNow} target={firsts.cleaning} />
             )}
             {awaitingCleaner > 0 && (
-              <StageCount hue={STAGE_HUES[1]} label="awaiting cleaner" n={awaitingCleaner} target={firsts.awaiting} />
+              <StageCount hue={STAGE_HUES[1]} label="Awaiting cleaner" n={awaitingCleaner} target={firsts.awaiting} />
             )}
             {inspectingNow > 0 && (
-              <StageCount hue={STAGE_HUES[4]} label="inspecting now" n={inspectingNow} target={firsts.inspecting} />
+              <StageCount hue={STAGE_HUES[4]} label="Inspecting" n={inspectingNow} target={firsts.inspecting} />
             )}
             {needsInspection > 0 && (
-              <StageCount hue={STAGE_HUES[4]} label="clean · needs inspection" n={needsInspection} target={firsts.needsInspection} />
+              <StageCount hue={STAGE_HUES[4]} label="Needs inspection" n={needsInspection} target={firsts.needsInspection} />
             )}
           </div>
         )}
 
         <div
-          className="flex items-center justify-between"
+          className="flex items-center justify-end"
           style={{
             marginTop: 8,
             fontSize: 10,
@@ -445,44 +449,9 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
             flexWrap: 'wrap',
           }}
         >
-          {/* Inspections has no menu module of its own — this is the
-              entry point. Links to /inspections, the start form (pick a
-              property, begin) + recent-inspections list. Per-turnover
-              "Start Inspection" buttons in the list below cover the
-              scoped case; this covers ad-hoc walks and re-inspections. */}
-          <Link
-            href="/inspections"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              color: 'var(--ink)',
-              textDecoration: 'none',
-              border: '1px solid var(--rule)',
-              padding: '5px 11px',
-              fontWeight: 600,
-              letterSpacing: '0.12em',
-            }}
-          >
-            <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 1 }}>+</span>
-            Start inspection
-          </Link>
-          <Link
-            href="/fieldwork/packets"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              color: 'var(--ink)',
-              textDecoration: 'none',
-              border: '1px solid var(--rule)',
-              padding: '5px 11px',
-              fontWeight: 600,
-              letterSpacing: '0.12em',
-            }}
-          >
-            Field packets
-          </Link>
+          {/* The two header links that sat here are gone: a walk with no
+              check-in behind it starts from "Walk a home now" at the foot of
+              the list, and Field has its own masthead tab. */}
           <AutoRefresh shouldRefresh={isStale} initialLabel={initialFooter} />
         </div>
       </section>
@@ -506,6 +475,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         ) : (
           <TurnoverList turnovers={data.turnovers} myEmail={myEmail} grouped={range !== 'today'} />
         )}
+        <WalkHomeNow properties={propertyOptions} />
       </section>
 
       {/* OCCUPANCY CALENDAR */}
@@ -835,10 +805,60 @@ function TurnoverList({
 
 function ReadyTurnovers({ turnovers, myEmail }: { turnovers: Turnover[]; myEmail: string }) {
   if (!turnovers.length) return null;
+  // "Done" is the row's own word for this state (its readout and its Mark
+  // done verb), so the fold that holds them says the same.
   return <details style={{ marginTop: 18 }}>
-    <summary style={{ cursor: 'pointer', minHeight: 44, padding: '12px 0', fontSize: 13, color: 'var(--ink-3)' }}>Ready homes · {turnovers.length}</summary>
+    <summary style={{ cursor: 'pointer', minHeight: 44, padding: '12px 0', fontSize: 13, color: 'var(--ink-3)' }}>Done · {turnovers.length}</summary>
     {turnovers.map(t => <CompactTurnoverRow key={`${t.propertyId}-${t.reservationId}`} t={t} myEmail={myEmail} />)}
   </details>;
+}
+
+/**
+ * An ad-hoc walk with no check-in behind it (a re-inspection, a look at an
+ * empty home). Sits under the list, where the eye lands after the rows,
+ * instead of a second Start in the header; the same startInspection the
+ * rows post to.
+ */
+function WalkHomeNow({ properties }: { properties: { value: string; label: string }[] }) {
+  if (properties.length === 0) return null;
+  return (
+    <form
+      action={startInspection}
+      className="flex items-center gap-3 flex-wrap"
+      style={{ marginTop: 28, paddingTop: 16, borderTop: '1px solid var(--rule)' }}
+    >
+      <label htmlFor="walk-home-now" className="eyebrow">Walk a home now</label>
+      <select
+        id="walk-home-now"
+        name="property_id"
+        required
+        defaultValue=""
+        style={{
+          font: 'inherit',
+          fontSize: 13,
+          color: 'var(--ink)',
+          background: 'transparent',
+          border: '1px solid var(--rule)',
+          padding: '8px 32px 8px 12px',
+          minHeight: 40,
+          minWidth: 220,
+          outline: 'none',
+          cursor: 'pointer',
+          appearance: 'none',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'right 10px center',
+          backgroundSize: '16px',
+        }}
+      >
+        <option value="" disabled>Choose a home…</option>
+        {properties.map((p) => (
+          <option key={p.value} value={p.value}>{p.label}</option>
+        ))}
+      </select>
+      <SubmitButton label="Start" busyLabel="Starting…" className="rt-tn-start" />
+    </form>
+  );
 }
 
 /** Editorial day divider for the datebook list: a small letterspaced eyebrow
