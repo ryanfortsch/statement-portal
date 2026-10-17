@@ -244,7 +244,7 @@ export function PropertyMasthead({
         <State label="Last walked">
           {lastInspectionAt ? (
             <Link
-              href={`/properties/${propertyId}?tab=owner`}
+              href={`/properties/${propertyId}?tab=now`}
               style={{ color: 'inherit', textDecoration: 'none' }}
             >
               {fmtDay(lastInspectionAt.slice(0, 10))}
@@ -261,7 +261,7 @@ export function PropertyMasthead({
         <State label="Open work">
           {openSlipCount > 0 ? (
             <Link
-              href={`/properties/${propertyId}/work-slips`}
+              href={`/properties/${propertyId}?tab=now#open-work`}
               style={{ color: 'var(--signal)', textDecoration: 'none' }}
             >
               {openSlipCount} {openSlipCount === 1 ? 'slip' : 'slips'} →

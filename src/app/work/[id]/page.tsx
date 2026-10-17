@@ -17,6 +17,7 @@ import { SlipClosePanel } from './SlipClosePanel';
 import { SlipOwnerActionEditor } from './SlipOwnerActionEditor';
 import { SlipCategoryEditor } from './SlipCategoryEditor';
 import { LANE_LABELS, slipLane } from '@/lib/work-slip-lanes';
+import { operatingDate } from '@/lib/operating-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -122,7 +123,7 @@ export default async function WorkSlipDetailPage({
   // Cold-load back target: open this property's group on the board. A
   // snoozed slip's group only renders under the Snoozed pill, so carry
   // that filter too or the anchor would point at nothing.
-  const isSnoozed = !!slip.snoozed_until && slip.snoozed_until > new Date().toISOString().slice(0, 10);
+  const isSnoozed = !!slip.snoozed_until && slip.snoozed_until > operatingDate();
   const backFallbackHref = `/work?open=${slip.property_id}${isSnoozed ? '&filter=snoozed' : ''}#prop-${slip.property_id}`;
 
   const hasPhotos = (slip.photo_urls ?? []).length > 0;

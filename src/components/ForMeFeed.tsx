@@ -12,6 +12,7 @@ import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { loadMeetingCards } from '@/lib/meetings';
 import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
+import { operatingDate } from '@/lib/operating-date';
 import { roleForEmail, roleMayOpen } from '@/lib/helm-access';
 import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
 import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
@@ -420,7 +421,7 @@ async function loadPropertyNames(): Promise<Map<string, string>> {
 type WorkFilter = { kind: 'assigned'; email: string } | { kind: 'unassigned' };
 
 async function fetchWork(filter: WorkFilter, propertyNames: Map<string, string>): Promise<MyWork[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = operatingDate();
 
   let slipQ = supabase
     .from('work_slips')
@@ -684,7 +685,7 @@ function prettyScope(scope: string): string {
  */
 function formatDueDate(iso: string): string {
   const due = new Date(`${iso.slice(0, 10)}T00:00:00`);
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = operatingDate();
   const today = new Date(`${todayIso}T00:00:00`);
   const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
   if (days === 0) return 'today';
@@ -788,7 +789,7 @@ function InboundItem({ touch: t }: { touch: BriefInboundTouch }) {
 async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
   if (!email) return [];
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = operatingDate();
     const { data } = await supabase
       .from('inspection_plans')
       .select('id, property_id, planned_for_date, checkin_date, notes, properties!inner(id, name)')
@@ -847,7 +848,7 @@ function MeetingFeedRow({ meeting: m }: { meeting: MeetingCard }) {
 }
 
 function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = operatingDate();
   const isToday = walk.plannedFor === today;
   const isPast = !!walk.plannedFor && walk.plannedFor < today;
   const dotColor = isPast ? 'var(--negative)' : isToday ? 'var(--signal)' : 'var(--tide-deep)';

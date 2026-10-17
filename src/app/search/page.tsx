@@ -9,6 +9,7 @@ import type { ContactRow } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import { displayNameForEmail } from '@/lib/team';
 import { categoryLabel, excerptFor, type PlaybookEntryRow } from '@/lib/playbook';
+import { operatingDate } from '@/lib/operating-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,7 +69,7 @@ async function search(q: string): Promise<SearchResults> {
   const propertyMap = new Map<string, string>(
     ((propMapRes.data ?? []) as Array<{ id: string; name: string }>).map((p) => [p.id, p.name])
   );
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = operatingDate();
 
   return {
     properties: (propRes.data ?? []) as HelmPropertyRow[],

@@ -6,6 +6,7 @@ import { setInspectionPlan, deleteInspectionPlan } from './plan-actions';
 import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail, getTeamMember } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { operatingDate } from '@/lib/operating-date';
 
 type Props = {
   guestyReservationId: string;
@@ -381,7 +382,9 @@ export function PlanButton({
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  // The Eastern operating date: after 8 PM ET the UTC date is already
+  // tomorrow, which defaulted a walk past its own check-in (max={checkInDate}).
+  return operatingDate();
 }
 
 function defaultPlannedFor(checkInDate: string): string {

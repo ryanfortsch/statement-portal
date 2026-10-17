@@ -20,6 +20,7 @@ import { CleaningsStrip } from '@/components/CleaningsStrip';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { ConciergeAlerts } from '@/components/ConciergeAlerts';
 import { isOwnerSession } from '@/lib/helm-access-server';
+import { operatingDate } from '@/lib/operating-date';
 
 export const dynamic = 'force-dynamic';
 // Today's signals read live from Supabase per request, so don't cache.
@@ -156,7 +157,7 @@ async function getOperationalStats(ops: HomeOps) {
     };
   }
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = operatingDate();
 
     const [
       slipResult,

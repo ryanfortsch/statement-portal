@@ -15,6 +15,7 @@ import {
   type WorkLane,
 } from '@/lib/work-slip-lanes';
 import { loadWorkBrief, type WorkBriefRow } from '@/lib/work-briefs';
+import { operatingDate } from '@/lib/operating-date';
 import { PrintButton } from './PrintButton';
 import { SlipRow, type PrintSlip } from './SlipRow';
 
@@ -35,7 +36,7 @@ async function getData(id: string): Promise<{
     .maybeSingle();
   if (!property) return null;
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = operatingDate();
   const { data: slipsData } = await supabase
     .from('work_slips')
     .select('*')
@@ -112,7 +113,7 @@ export default async function WorkSlipsPrintPage({
   if (!data) notFound();
 
   const { property, slips, brief } = data;
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = operatingDate();
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',

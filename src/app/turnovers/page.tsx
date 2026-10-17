@@ -11,6 +11,7 @@ import { CalendarMonthSelect } from './CalendarMonthSelect';
 import { PropertyFilterSelect } from './PropertyFilterSelect';
 import { CompactTurnoverRow } from './CompactTurnoverRow';
 import { lifecycleOf, STAGE_HUES } from './turnover-format';
+import { operatingDate } from '@/lib/operating-date';
 import { loadPacketStatusByBooking } from '@/lib/field-packets';
 import {
   loadOperationsData,
@@ -647,7 +648,7 @@ function flightRank(t: Turnover): number {
   // keyed on enteredAt, which is null forever on a lockless home). A cleaner
   // physically in floats to the very top, then anything due-and-awaiting (a
   // monitored "awaiting cleaner" OR a lockless "needs clean"), then the rest.
-  const lc = lifecycleOf(t, Date.now(), new Date().toISOString().slice(0, 10));
+  const lc = lifecycleOf(t, Date.now(), operatingDate());
   if (lc.active === 'cleaning') return 0;
   if (lc.active === 'in' || lc.active === 'clean') return 1;
   return 2;
@@ -675,7 +676,7 @@ function computeStageCounts(pending: Turnover[]): {
   firsts: StageFirsts;
 } {
   const now = Date.now();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = operatingDate();
   let cleaningNow = 0;
   let awaitingCleaner = 0;
   let needsInspection = 0;
