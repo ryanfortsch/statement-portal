@@ -22,7 +22,12 @@ const FORCE_RELOAD_MS = 30000;
 
 /**
  * House submit button for server-action forms: visibly disables and shows a
- * spinner + busy label while the action runs. Generalized from the field
+ * spinner + busy label while the action runs.
+ *
+ * `confirm`: a sentence that states the EFFECT of an irreversible or
+ * outward-facing action ("pulls the door codes", "re-texts the roster"). The
+ * click asks first and cancels the submit on no. Keep it to what the action
+ * does; the button label already says what it is. Generalized from the field
  * portal's PendingButton (src/app/field/packet/[packetId]/PendingButton.tsx,
  * now a re-export of this) after the 2026-07-07 feedback that mutating
  * buttons across Helm gave no signal while multi-second actions ran.
@@ -53,6 +58,7 @@ export function SubmitButton({
   formAction,
   name,
   value,
+  confirm: confirmText,
 }: {
   label: React.ReactNode;
   busyLabel: string;
@@ -63,6 +69,7 @@ export function SubmitButton({
   formAction?: React.ComponentProps<'button'>['formAction'];
   name?: string;
   value?: string;
+  confirm?: string;
 }) {
   const status = useFormStatus();
   // In a multi-button form, only the button whose formAction is in flight
@@ -104,6 +111,7 @@ export function SubmitButton({
       value={value}
       disabled={disabled || lockout}
       aria-busy={busy || undefined}
+      onClick={confirmText ? (e) => { if (!window.confirm(confirmText)) e.preventDefault(); } : undefined}
       className={className}
       style={{
         ...s,

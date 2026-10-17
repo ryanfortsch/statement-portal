@@ -304,7 +304,7 @@ export default async function PacketsBoard({
               {focus === 'drafts' ? 'Visits to reschedule' : 'Drafts'} · {visibleDrafts.length}
             </h2>
             <div style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 8 }}>
-              Saved but not published yet. Publish to send to inspectors, or dismiss.
+              Saved but not published yet. Publish sends it to the roster.
             </div>
             <div style={{ border: '1px dashed var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {visibleDrafts.map((p) => (
@@ -374,6 +374,16 @@ export default async function PacketsBoard({
   );
 }
 
+/** What Release does, in the words of its effect: the claim goes back on the
+ *  board and the roster is texted again, unless the visit day has passed, in
+ *  which case the packet lands in Drafts to re-date (releasePacket). */
+function releaseConfirm(name: string | null, visitPassed: boolean): string {
+  const whose = name ? `${name.split(' ')[0]}'s claim` : 'this claim';
+  return visitPassed
+    ? `Release ${whose}? The visit day has passed, so the packet lands in Drafts to re-date. Nobody is texted.`
+    : `Release ${whose}? The packet goes back on the board and the roster is texted again.`;
+}
+
 function DraftRow({ p }: { p: PacketRow }) {
   // A past-dated draft (the nightly sweep's expired listing, or a saved draft
   // whose day slipped by) can't be published as-is; publishPacket refuses past
@@ -399,9 +409,11 @@ function DraftRow({ p }: { p: PacketRow }) {
           <SubmitButton label="Publish" busyLabel="Publishing…" style={btnDark} />
         </form>
       )}
-      <form action={cancelPacket} style={{ margin: 0 }} title="Dismiss this suggestion">
+      {/* A draft was never published, so there are no codes to pull and
+          nobody to tell: deleting it is only final. */}
+      <form action={cancelPacket} style={{ margin: 0 }}>
         <input type="hidden" name="packet_id" value={p.id} />
-        <SubmitButton label="Dismiss" busyLabel="Dismissing…" style={btnGhost} spinnerTone="ink" />
+        <SubmitButton label="Delete draft" busyLabel="Deleting…" style={btnGhost} spinnerTone="ink" confirm="Delete this draft? It cannot be undone." />
       </form>
     </div>
   );
@@ -465,9 +477,9 @@ function LiveRow({ p, who, dim, assigned = false, owner = false }: { p: PacketRo
         </div>
       </div>
       {p.status === 'claimed' && (
-        <form action={releasePacket} style={{ margin: 0 }} title="Release back to the open marketplace and re-notify inspectors">
+        <form action={releasePacket} style={{ margin: 0 }}>
           <input type="hidden" name="packet_id" value={p.id} />
-          <SubmitButton label="Release" busyLabel="Releasing…" style={btnGhost} spinnerTone="ink" />
+          <SubmitButton label="Release" busyLabel="Releasing…" style={btnGhost} spinnerTone="ink" confirm={releaseConfirm(who?.name ?? null, daysUntilET(p.visit_date) < 0)} />
         </form>
       )}
       {/* Approve and Mark paid are owner controls; the actions refuse a

@@ -884,22 +884,44 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <PendingButton label="Sync windows" busyLabel="Syncing…" style={quietCtl} spinnerTone="ink" />
                 </form>
               )}
+              {/* Each of these changes what a contractor sees or can do, so
+                  the click says what it does before it does it. */}
               {packet.status === 'published' && (
                 <form action={unpublishPacket} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton label="Unpublish" busyLabel="Unpublishing…" style={quietCtl} spinnerTone="ink" />
+                  <PendingButton label="Unpublish" busyLabel="Unpublishing…" style={quietCtl} spinnerTone="ink" confirm="Unpublish this packet? It leaves the contractors' boards and goes back to a draft. Nobody is texted." />
                 </form>
               )}
               {packet.status === 'claimed' && (
-                <form action={releasePacket} style={{ margin: 0 }} title="Release back to the open marketplace and re-notify inspectors">
+                <form action={releasePacket} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton label="Release claim" busyLabel="Releasing…" style={quietCtl} spinnerTone="ink" />
+                  <PendingButton
+                    label="Release claim"
+                    busyLabel="Releasing…"
+                    style={quietCtl}
+                    spinnerTone="ink"
+                    confirm={
+                      packet.visit_date < todayET()
+                        ? `Release ${inspectorFirst}'s claim? The visit day has passed, so the packet lands in Drafts to re-date. Nobody is texted.`
+                        : `Release ${inspectorFirst}'s claim? The packet goes back on the board and the roster is texted again.`
+                    }
+                  />
                 </form>
               )}
               {packet.status !== 'submitted' && (
                 <form action={cancelPacket} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
-                  <PendingButton label="Cancel packet" busyLabel="Cancelling…" style={{ ...quietCtl, color: 'var(--signal)' }} spinnerTone="ink" />
+                  <PendingButton
+                    label="Cancel packet"
+                    busyLabel="Cancelling…"
+                    style={{ ...quietCtl, color: 'var(--signal)' }}
+                    spinnerTone="ink"
+                    confirm={
+                      isWorkingStatus(packet.status)
+                        ? `Cancel this packet? It comes off ${inspectorFirst}'s board and the door codes are pulled. This cannot be undone.`
+                        : 'Cancel this packet? It comes off the board. This cannot be undone.'
+                    }
+                  />
                 </form>
               )}
             </div>
