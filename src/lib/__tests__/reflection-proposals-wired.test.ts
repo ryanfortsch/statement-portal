@@ -20,7 +20,8 @@
  * and silently: an import, a `<ReflectionSection />` in the page tree, an
  * actor header, a scope default. Losing any one of them puts the report back
  * in the drawer, and nothing else would go red. So this reads the source and
- * asserts each link is still attached.
+ * asserts each link is still attached. The reader moved from the Inbox to
+ * the Quality lens (/messaging/quality) on 2026-10-17; the chain is the same.
  *
  * Run: npm test
  */
@@ -61,15 +62,15 @@ describe('the reflection report has a reader', () => {
     );
   });
 
-  test('/messaging actually renders the section', () => {
-    const page = read('src/app/messaging/page.tsx');
+  test('/messaging/quality actually renders the section', () => {
+    const page = read('src/app/messaging/quality/page.tsx');
     assert.ok(
-      page.includes("from './ReflectionProposals'"),
-      '/messaging no longer imports the proposals card',
+      page.includes("from '../ReflectionProposals'"),
+      '/messaging/quality no longer imports the proposals card',
     );
     assert.ok(
       page.includes('listReflectionProposals'),
-      '/messaging no longer fetches the proposals',
+      '/messaging/quality no longer fetches the proposals',
     );
     assert.ok(
       page.includes('<ReflectionSection />'),

@@ -11,9 +11,9 @@ import { Section } from '@/components/Section';
  * var(--rule) border) and uses the same var(--paper-2) tone HelmLoading's
  * Block uses, so the swap to real content shifts as little as possible.
  */
-export function QueueSkeleton() {
+export function QueueSkeleton({ title = 'Pending' }: { title?: string } = {}) {
   return (
-    <Section title="Pending" eyebrow="loading…">
+    <Section title={title} eyebrow="loading…">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {Array.from({ length: 3 }).map((_, i) => (
           <div

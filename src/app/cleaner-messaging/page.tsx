@@ -9,18 +9,17 @@ import { MessagingTabs } from '@/components/MessagingTabs';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { QueueSkeleton } from '@/components/QueueSkeleton';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
+import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import {
   isStayConciergeConfigured,
   listCleanerApprovals,
   listRecentCleanerApprovals,
-  listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { CleanerMessagingQueue } from './CleanerMessagingQueue';
 import { ScheduleDigestCard } from './ScheduleDigestCard';
 import { OwnerHoldQuestionsCard } from './OwnerHoldQuestionsCard';
-import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
 import {
   fetchProactiveReminders,
   fetchProactiveTargets,
@@ -125,22 +124,9 @@ async function QueueSection() {
   );
 }
 
-// Mid boundary: property facts cleaners shared (the cleaner-sourced slice of
-// the same extractor feeding /owner-messaging), ready to file to the property.
-async function ProposedUpdatesSection() {
-  const [proposed, properties] = await Promise.all([
-    listProposedPropertyUpdates('cleaner'),
-    loadProperties(),
-  ]);
-  return (
-    <ProposedPropertyUpdatesCard
-      initial={proposed.ok ? proposed.data.updates : []}
-      initialError={proposed.ok ? null : explainError(proposed.error)}
-      properties={properties}
-      source="cleaner"
-    />
-  );
-}
+// The facts cleaners share ("Proposed property updates") are filed from the
+// Quality lens (/messaging/quality) since 2026-10-17; this page keeps the
+// one-line count.
 
 // "Owner block: clean after?" Above everything, because it is a question
 // with a date on it and the operator asked to see it loudly. Helm-native,
@@ -209,9 +195,7 @@ export default function CleanerMessagingPage({
         <QueueSection />
       </Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="cleaners" /></Suspense>
-      <Suspense fallback={null}>
-        <ProposedUpdatesSection />
-      </Suspense>
+      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
     </Shell>
   );
 }

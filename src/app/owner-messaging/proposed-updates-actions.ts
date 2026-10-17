@@ -152,6 +152,8 @@ export async function applyProposedUpdate(
   // /owner-messaging, cleaner-sourced on /cleaner-messaging, contractor-sourced
   // on /contractor-messaging) through the same actions, so revalidate all
   // three; the extra ones are no-ops.
+  revalidatePath('/messaging/quality');
+  revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
   revalidatePath('/cleaner-messaging');
   revalidatePath('/contractor-messaging');
@@ -166,6 +168,8 @@ export async function dismissProposedUpdate(candidateId: string): Promise<Dismis
   if (!(await requireEmail())) return { ok: false, error: 'Not signed in.' };
   const res = await dismissProposedPropertyUpdate(candidateId);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
+  revalidatePath('/messaging/quality');
+  revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
   revalidatePath('/cleaner-messaging');
   revalidatePath('/contractor-messaging');
@@ -228,6 +232,7 @@ export async function fileTriagedGroup(
     ? 'Filed, but could not clear it from the queue. If it reappears, dismiss it rather than filing again.'
     : undefined;
 
+  revalidatePath('/messaging/quality');
   revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
   revalidatePath('/cleaner-messaging');
@@ -267,6 +272,7 @@ export async function dismissTriagedGroup(candidateIds: string[]): Promise<Dismi
   if (failed === candidateIds.length) {
     return { ok: false, error: 'Could not dismiss. The service may be unreachable.' };
   }
+  revalidatePath('/messaging/quality');
   revalidatePath('/messaging');
   revalidatePath('/owner-messaging');
   revalidatePath('/cleaner-messaging');

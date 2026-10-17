@@ -44,11 +44,13 @@ export function ProposedPropertyUpdatesCard({ initial, initialError, properties,
 
   return (
     <Section
-      title="Proposed property updates"
+      title="Property facts to file"
       eyebrow={
         source === 'guest'
-          ? 'Facts from your own replies, ready to file to the property'
-          : `Facts ${source}s shared, ready to file to the property`
+          ? 'From your own replies'
+          : source === 'owner'
+            ? "From owners' messages"
+            : `From ${source}s' texts`
       }
       paddingTop={36}
       right={right}
