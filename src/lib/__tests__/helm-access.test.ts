@@ -459,6 +459,7 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
     'src/app/statements/page.tsx',
     'src/lib/use-owner-email-draft.ts',
     'src/app/properties/[id]/PropertyOnboardingLink.tsx',
+    'src/components/InboxHealth.tsx',
   ];
   for (const file of GMAIL_SURFACES) {
     test(`${file} builds no /u/0/ link`, () => {
@@ -506,6 +507,20 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
     const statements = read('src/app/statements/page.tsx');
     assert.ok(statements.includes('{canOpenMailbox(sessionEmail, draftResult.mailbox) ? ('));
     assert.ok(statements.includes('{bulkDraftResult.drafted > 0 && canOpenMailbox(sessionEmail, draftMailbox) && ('));
+  });
+
+  test('Delivery & sync opens an email in the concierge mailbox for its owner only', () => {
+    // The emails behind a delayed import or a held pitch live in the
+    // concierge's Gmail account, a token Helm cannot ask, so the concierge
+    // names the mailbox on /api/inbox-health and Helm never assumes it.
+    const health = read('src/components/InboxHealth.tsx');
+    assert.ok(health.includes('const mailbox = health?.mailbox ?? null;'), 'the mailbox comes from the concierge');
+    assert.ok(health.includes('const canOpen = canOpenMailbox(email, mailbox);'), 'the session is compared to the concierge mailbox');
+    const link = 'href={gmailUrl(mailbox, `all/${encodeURIComponent(item.source_id)}`)}';
+    assert.equal(health.split(link).length - 1, 2, 'both Open email links carry the concierge mailbox');
+    assert.ok(health.includes(`{item.channel === 'email' && canOpen && <> · <a target="_blank" rel="noreferrer" ${link}`), 'a delayed import links only for the mailbox owner');
+    assert.ok(health.includes(`{canOpen && <> · <a target="_blank" rel="noreferrer" ${link}`), 'a held pitch links only for the mailbox owner');
+    assert.ok(read('src/lib/stay-concierge.ts').includes('  mailbox?: string | null;\n};\n\nexport function getInboxHealth() {'), 'the inbox-health response type carries the mailbox');
   });
 });
 

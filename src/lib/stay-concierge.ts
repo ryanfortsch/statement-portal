@@ -1685,6 +1685,12 @@ export type InboxHealthResponse = {
   /** Guest-inbox email held as a pitch in the past 7 days (public inbox only).
    *  Optional: an older concierge build does not send it. */
   held?: { source_id: string; held_at: number; sender: string; subject: string }[];
+  /** The Gmail account every email source_id lives in, as Gmail named it to
+   *  the concierge (users/me/profile), so a Delivery & sync link can carry
+   *  the mailbox and render for its owner only (`gmail-links.ts`).
+   *  Optional: an older concierge build does not send it, and null until the
+   *  concierge has asked; either way no link is offered to anyone. */
+  mailbox?: string | null;
 };
 
 export function getInboxHealth() {
