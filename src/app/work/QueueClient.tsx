@@ -10,7 +10,10 @@ import {
   type WorkSlipPriority,
   type TaskScope,
   type TaskPriority,
+  DEFAULT_WORK_SLIP_CATEGORY,
+  WORK_SLIP_CATEGORY_HINTS,
   WORK_SLIP_CATEGORY_LABELS,
+  WORK_SLIP_PICKER_CATEGORIES,
 } from '@/lib/work-types';
 import {
   createWorkSlip,
@@ -1443,7 +1446,10 @@ function WorkSlipModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  const [category, setCategory] = useState<WorkSlipCategory>('rising_tide');
+  // Maintenance: a plain repair is what gets filed from the board. The
+  // server's own default agrees (actions.ts createWorkSlip), so a slip filed
+  // without opening "+ Details" lands in the visit lane, not under Office.
+  const [category, setCategory] = useState<WorkSlipCategory>(DEFAULT_WORK_SLIP_CATEGORY);
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
   const [scheduledDate, setScheduledDate] = useState('');
   // Assignee defaults to Unassigned — creator identity is captured
@@ -1480,7 +1486,7 @@ function WorkSlipModal({
   const showMore =
     moreOpen ||
     !!location.trim() ||
-    category !== 'rising_tide' ||
+    category !== DEFAULT_WORK_SLIP_CATEGORY ||
     priority !== 'normal' ||
     !!scheduledDate ||
     assignedToEmail !== null;
@@ -1587,15 +1593,14 @@ function WorkSlipModal({
                     onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
                     style={selectStyle()}
                   >
-                    {/* vendor and ad_hoc stay out of the picker: zero slips
-                        have ever been hand-filed under either (ad_hoc is set
-                        programmatically by packet creation). */}
-                    {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][])
-                      .filter(([v]) => v !== 'vendor' && v !== 'ad_hoc')
-                      .map(([v, l]) => (
-                        <option key={v} value={v}>{l}</option>
-                      ))}
+                    {/* The five hand-filed categories, printed as their lane
+                        words (lib/work-types.ts). vendor and ad_hoc are set
+                        by packet code and never offered. */}
+                    {WORK_SLIP_PICKER_CATEGORIES.map((v) => (
+                      <option key={v} value={v}>{WORK_SLIP_CATEGORY_LABELS[v]}</option>
+                    ))}
                   </select>
+                  <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.4 }}>{WORK_SLIP_CATEGORY_HINTS[category]}</div>
                 </Field>
               </div>
               <div style={{ flex: 1 }}>

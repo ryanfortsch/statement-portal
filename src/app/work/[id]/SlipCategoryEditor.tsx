@@ -1,7 +1,12 @@
 'use client';
 
 import { useRef, useState, useTransition } from 'react';
-import type { WorkSlipCategory } from '@/lib/work-types';
+import {
+  WORK_SLIP_CATEGORY_HINTS,
+  WORK_SLIP_CATEGORY_LABELS,
+  WORK_SLIP_PICKER_CATEGORIES,
+  type WorkSlipCategory,
+} from '@/lib/work-types';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { updateWorkSlipCategory } from '../actions';
@@ -12,16 +17,13 @@ type Props = {
   initialCategory: WorkSlipCategory;
 };
 
-/** The categories a person files by hand. vendor and ad_hoc stay in the
- *  enum for packet code but are never offered here (same as the create
- *  modals). */
-const OPTIONS: { value: WorkSlipCategory; label: string; hint: string }[] = [
-  { value: 'maintenance', label: 'Maintenance', hint: 'a fix in the house; who does it is the triage below' },
-  { value: 'inventory', label: 'Supply', hint: 'restock or a Rising Tide purchase' },
-  { value: 'owner', label: 'Owner', hint: 'the owner buys, approves or decides first' },
-  { value: 'rising_tide', label: 'Office', hint: 'desk work, nothing to do in the house' },
-  { value: 'other', label: 'Other', hint: 'none of the above' },
-];
+/** The same five words, in the same order, as the create modals: one
+ *  vocabulary for the category (lib/work-types.ts). */
+const OPTIONS: { value: WorkSlipCategory; label: string; hint: string }[] = WORK_SLIP_PICKER_CATEGORIES.map((value) => ({
+  value,
+  label: WORK_SLIP_CATEGORY_LABELS[value],
+  hint: WORK_SLIP_CATEGORY_HINTS[value],
+}));
 
 /**
  * Operator override for the lane. Category is what the board, the print

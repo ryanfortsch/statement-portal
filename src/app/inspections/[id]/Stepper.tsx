@@ -18,6 +18,7 @@ import type {
   WorkSlipCategory,
   WorkSlipPriority,
 } from '@/lib/inspections-types';
+import { WORK_SLIP_CATEGORY_LABELS, WORK_SLIP_PICKER_CATEGORIES } from '@/lib/work-types';
 import { PhotoUploader, PhotoThumbs, useClearPhotoDraft, usePhotoDraftCleaner } from '@/components/PhotoUploader';
 import { compressImage } from '@/lib/image-compress';
 import { SaveQueue } from '@/lib/save-queue';
@@ -1888,12 +1889,11 @@ function WorkSlipModal({
                 onChange={(e) => setCategory(e.target.value as WorkSlipCategory)}
                 style={modalSelectStyle()}
               >
-                <option value="maintenance">Maintenance</option>
-                <option value="inventory">Inventory</option>
-                <option value="owner">Owner</option>
-                <option value="vendor">Vendor</option>
-                <option value="rising_tide">Rising Tide</option>
-                <option value="other">Other</option>
+                {/* The same five lane words as every other slip picker
+                    (lib/work-types.ts); vendor is never hand-filed. */}
+                {WORK_SLIP_PICKER_CATEGORIES.map((v) => (
+                  <option key={v} value={v}>{WORK_SLIP_CATEGORY_LABELS[v]}</option>
+                ))}
               </select>
             </div>
             <div>
