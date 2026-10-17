@@ -331,10 +331,11 @@ export function stripeKeyFixUrl(error: string): string {
 
 /** Plain words for a paid-check failure. */
 export function explainPaidCheckError(error: string): string {
+  // Setup, not something the operator can fix from here.
   if (/checkout_session_read|Checkout Sessions Read/i.test(error)) {
-    return "the property's Stripe key needs Checkout Sessions read";
+    return 'payment links are not fully set up for this home. Ask Ryan';
   }
-  if (/^no Stripe key/i.test(error)) return 'Helm has no Stripe key for this property';
+  if (/^no Stripe key/i.test(error)) return 'payment links are not set up for this home. Ask Ryan';
   return `Stripe refused the check (${(error || '').slice(0, 80)})`;
 }
 

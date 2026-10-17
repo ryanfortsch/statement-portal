@@ -114,13 +114,6 @@ export function ProactiveRemindersPanel({ audience, actions }: Props) {
     }
   };
 
-  const whoBlurb =
-    audience === 'cleaner'
-      ? 'Send the cleaning managers a message you initiate, on a repeating cadence (a Monday supply check) or as a one-time scheduled note. Type it quick in English and the AI polishes it into Portuguese.'
-      : audience === 'contractor'
-        ? 'Send a contractor a message you initiate, on a repeating cadence (a weekly walkthrough) or as a one-time scheduled note. Type it quick and the AI polishes it into our voice.'
-        : 'Send an owner a message you initiate, on a repeating cadence (a monthly touch-base) or as a one-time scheduled note. Type it quick and the AI polishes it into our voice.';
-
   return (
     <Section
       title="Proactive messages"
@@ -148,29 +141,19 @@ export function ProactiveRemindersPanel({ audience, actions }: Props) {
         </button>
       }
     >
-      {!open && (
-        <div
-          style={{
-            borderTop: '1px solid var(--rule)',
-            padding: '16px 0',
-            fontSize: 13,
-            color: 'var(--ink-3)',
-          }}
-        >
-          {whoBlurb} Click <b>Show</b> to set one up.
-        </div>
-      )}
-      <div hidden={!open}>
-        {scheduled.error && <p role="alert">{scheduled.error}</p>}
-        <button type="button" onClick={loadRecurring} disabled={scheduled.pending}>
-          {scheduled.pending ? 'Loading scheduled messages…' : 'Refresh scheduled messages'}
-        </button>
-        {recipients.error && <p role="alert">{recipients.error}</p>}
-        {(!recipients.loaded || recipients.error) && (
-          <button type="button" onClick={recipients.load} disabled={recipients.pending}>
-            {recipients.pending ? 'Loading recipients…' : 'Retry loading recipients'}
+      <div hidden={!open} style={{ borderTop: '1px solid var(--rule)', paddingTop: 12 }}>
+        {scheduled.error && <p role="alert" style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--signal)' }}>{scheduled.error}</p>}
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 8 }}>
+          <button type="button" className="rt-quiet-btn" onClick={loadRecurring} disabled={scheduled.pending}>
+            {scheduled.pending ? 'Loading scheduled messages…' : 'Refresh scheduled messages'}
           </button>
-        )}
+          {(!recipients.loaded || recipients.error) && (
+            <button type="button" className="rt-quiet-btn" onClick={recipients.load} disabled={recipients.pending}>
+              {recipients.pending ? 'Loading recipients…' : 'Retry loading recipients'}
+            </button>
+          )}
+        </div>
+        {recipients.error && <p role="alert" style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--signal)' }}>{recipients.error}</p>}
         {scheduled.loaded && (
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
           <ActiveList onBusyChange={setEnding} recurring={recurring} actions={actions} onChanged={(id) => { setEndedIds((previous) => new Set(previous).add(id)); loadRecurring(); }} />
@@ -224,8 +207,8 @@ function ActiveList({
 
   return (
     <>
-    {notice && <p role="status">{notice}</p>}
-    {visibleRecurring.length === 0 && <p>Nothing scheduled.</p>}
+    {notice && <p role="status" style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--ink-3)' }}>{notice}</p>}
+    {visibleRecurring.length === 0 && <p style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--ink-4)' }}>Nothing scheduled.</p>}
     <ul style={{ listStyle: 'none', margin: '0 0 28px', padding: 0 }}>
       {visibleRecurring.map((r) => (
         <li
@@ -713,7 +696,7 @@ function CreateForm({
       >
         {isPending ? 'Scheduling…' : mode === 'once' ? 'Schedule message' : 'Create reminder'}
       </button>
-      {dirty && <button type="button" disabled={isPending || polishing} onClick={() => {
+      {dirty && <button type="button" className="rt-quiet-btn" style={{ marginLeft: 14 }} disabled={isPending || polishing} onClick={() => {
         if (action.busy.current || polishBusy.current || !window.confirm('Discard this unsaved message?')) return;
         revision.current++; setContact(''); setLabel(''); setBody(''); setDays(new Set()); setFireDate('');
         setEndDate(''); setEnglish('');

@@ -250,7 +250,7 @@ export async function ForMeFeed() {
           {hasPayments && (
             <div style={{ marginBottom: 36 }}>
               <SectionHeaderLink
-                href="/messaging/send#payment-links"
+                href="/messaging/send?tab=charge#payment-links"
                 title="Payments"
                 eyebrow={paymentsEyebrow(paidLinks.length, overdueLinks.length, keyProblems.length)}
               />
@@ -1201,7 +1201,7 @@ function PaymentKeyProblemRow({ problem }: { problem: PaymentKeyProblem }) {
             </a>
           ) : null}
           <Link
-            href="/messaging/send#payment-links"
+            href="/messaging/send?tab=charge#payment-links"
             style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ink-3)', textDecoration: 'none' }}
           >
             See the links →
@@ -1229,7 +1229,7 @@ function PaymentLinkFeedRow({ card }: { card: PaymentCard }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
           <Link
-            href="/messaging/send#payment-links"
+            href="/messaging/send?tab=charge#payment-links"
             style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', textDecoration: 'none' }}
           >
             {headline}
