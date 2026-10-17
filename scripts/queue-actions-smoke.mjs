@@ -19,6 +19,7 @@ for(const [name,path,extra=''] of [
   ['runs','src/app/work/RunsRail.tsx','\nexport {WorkOrderComposer,RunCard,VendorGroup};'],
   ['picker','src/components/TeamPicker.tsx'],['unsaved','src/lib/unsaved-work.ts'],
   ['work-types','src/lib/work-types.ts'],['supplies','src/lib/inspection-supplies.ts'],['quo-lines','src/lib/quo-lines.ts'],
+  ['work-slip-lanes','src/lib/work-slip-lanes.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')+extra));
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
@@ -27,7 +28,7 @@ export const updateWorkSlipStatus=a=>save('doneSlip',a),updateTaskStatus=a=>save
 export const attachUnknownToContact=a=>save('attach',a),dismissUnknownNumber=a=>save('dismissPhone',a);
 export const acceptContactSuggestion=a=>save('accept',a),dismissContactSuggestion=a=>save('skip',a);
 export const emailWorkOrder=a=>save('draft',a),markRunScheduled=a=>save('schedule',a);
-export const createWorkSlip=a=>save('createSlip',a),createTask=a=>save('createTask',a),createContact=a=>save('createContact',a),addUnknownAsContact=a=>save('promote',a),planRunsNow=a=>save('plan',a),publishRun=a=>save('publish',a);
+export const createWorkSlip=a=>save('createSlip',a),createTask=a=>save('createTask',a),createContact=a=>save('createContact',a),addUnknownAsContact=a=>save('promote',a),planRunsNow=a=>save('plan',a),publishRun=a=>save('publish',a),organizeWorkNow=a=>save('organize',a);
 `);
 await writeFile(join(scratch,'router.js'),`
 export const useRouter=()=>({push:url=>window.navigations.push(url),replace:url=>window.history.replaceState(null,'',url),refresh:()=>window.refreshes++});
@@ -68,7 +69,7 @@ function Fixture(){
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','./runs-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/components/TeamPicker':'picker','@/components/PhotoUploader':'empty','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','@/lib/quo-lines':'quo-lines','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','next/navigation':'router','next/link':'link'};
+const alias={'@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','@/lib/work-slip-lanes':'work-slip-lanes','./organize-actions':'actions','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','./runs-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/components/TeamPicker':'picker','@/components/PhotoUploader':'empty','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','@/lib/quo-lines':'quo-lines','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','next/navigation':'router','next/link':'link'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Queue actions fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic action recovery</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
