@@ -454,9 +454,9 @@ function StatsBody({
           sub={`${stats.first_pass_clean} clean · ${stats.approved_after_coaching} coached`}
         />
         <KpiTile
-          label="Handled in Guesty"
+          label="Replied manually"
           value={stats.manual_sent}
-          sub="you replied directly · captured for learning"
+          sub="you replied elsewhere, or marked handled"
         />
         <KpiTile
           label="Auto-sent"
@@ -469,9 +469,9 @@ function StatsBody({
           sub="times you nudged the AI"
         />
         <KpiTile
-          label="Rejected"
+          label="Handled, no reply"
           value={stats.rejected}
-          sub="no reply needed"
+          sub="before Reject retired on 10/17"
         />
         <KpiTile
           label="Auto-expired"

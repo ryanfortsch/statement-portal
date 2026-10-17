@@ -18,6 +18,7 @@ import {
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { CleanerMessagingQueue } from './CleanerMessagingQueue';
+import { CleanerQueueSummary } from './CleanerQueueSummary';
 import { ScheduleDigestCard } from './ScheduleDigestCard';
 import { OwnerHoldQuestionsCard } from './OwnerHoldQuestionsCard';
 import {
@@ -46,6 +47,10 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Streams in: the shell must still paint with no backend call. */}
       <Suspense fallback={null}>
         <AiStatusBanner />
+      </Suspense>
+      {/* The tab's pill is one number; this row names what it is made of. */}
+      <Suspense fallback={null}>
+        <CleanerQueueSummary />
       </Suspense>
 
       {children}
