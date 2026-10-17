@@ -16,6 +16,7 @@ for(const [name,path] of [
  ['plan','src/app/turnovers/PlanButton.tsx'],['adhoc','src/app/fieldwork/packets/adhoc/AdhocForm.tsx'],['offer','src/app/fieldwork/packets/OfferToPicker.tsx'],
  ['runs','src/app/work/RunsRail.tsx'],['done','src/app/properties/[id]/MarkSlipDoneButton.tsx'],['resolve','src/app/properties/[id]/ResolveFlagButton.tsx'],
  ['contacted','src/app/properties/[id]/MarkContactedButton.tsx'],['summary','src/lib/manual-sync-result.ts'],['unsaved','src/lib/unsaved-work.ts'],
+ ['opdate','src/lib/operating-date.ts'],['gmaillinks','src/lib/gmail-links.ts'],
 ])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 await writeFile(join(scratch,'actions.js'),`
 export const save=(kind,args)=>new Promise((resolve,reject)=>window.calls.push({kind,args,resolve,reject}));
@@ -31,6 +32,8 @@ await writeFile(join(scratch,'router.js'),`export {unstable_rethrow} from 'next/
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>window.refreshes++;');
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react';export default function Link({href,children,prefetch,...props}){return <a {...props} href={href} onClick={e=>e.preventDefault()}>{children}</a>}`));
 await writeFile(join(scratch,'team.js'),`export const displayNameForEmail=e=>e,getTeamMember=()=>null;`);
+// RunsRail reads the signed-in email to decide whether a Gmail draft link opens for this mailbox (#1811); the real module needs a provider and a server.
+await writeFile(join(scratch,'session.js'),`export const useSession=()=>({data:{user:{email:'staff@example.test'}},status:'authenticated'});`);
 // The picker is a separate tested control; exercise this editor's selected value.
 await writeFile(join(scratch,'picker.js'),compile(`import React from 'react';export function TeamPicker({value,onChange}){return <select aria-label="Inspector" value={value??''} onChange={e=>onChange(e.target.value||null)}><option value="">Anyone</option><option value="original@example.test">Original</option><option value="new@example.test">New inspector</option></select>}`));
 await writeFile(join(scratch,'entry.js'),compile(`
@@ -57,16 +60,16 @@ function Fixture(){const [mounted,setMounted]=useState(true),[plan,setPlan]=useS
  </>;
 }createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
-const alias={'./actions':'actions','../actions':'actions','./plan-actions':'actions','./runs-actions':'actions','@/app/work/actions':'actions','@/app/inspections/actions':'actions','@/app/properties/actions':'actions','../OfferToPicker':'offer','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/manual-sync-result':'summary','@/lib/team':'team','@/components/TeamPicker':'picker','next/navigation':'router','next/link':'link'};
+const alias={'./actions':'actions','../actions':'actions','./plan-actions':'actions','./runs-actions':'actions','@/app/work/actions':'actions','@/app/inspections/actions':'actions','@/app/properties/actions':'actions','../OfferToPicker':'offer','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/manual-sync-result':'summary','@/lib/operating-date':'opdate','@/lib/gmail-links':'gmaillinks','@/lib/team':'team','@/components/TeamPicker':'picker','next/navigation':'router','next/link':'link','next-auth/react':'session'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Sync and scheduling fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic sync and scheduling</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
 await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
-const origin='http://127.0.0.1:'+server.address().port;let browser,page,checks=0;
+const origin='http://127.0.0.1:'+server.address().port;let browser,page,checks=0;const errors=[];
 try{
 browser=await puppeteer.launch({executablePath:process.env.CHROME_EXECUTABLE_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':await chromium.executablePath()),headless:true,args:process.platform==='darwin'?['--no-sandbox']:chromium.args});
 page=await browser.newPage();page.setDefaultTimeout(10000);await page.setViewport({width:1250,height:1000});
-const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
+page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith(origin+'/')?r.continue():r.abort());
 const reset=async(mode,extra='')=>{await page.goto(origin+'/?mode='+mode+extra);await page.waitForSelector('#'+(mode==='all'?'sync':mode));};
 const click=(scope,label,twice=false)=>page.$$eval(scope+' button',(bs,label,twice)=>{const b=bs.find(b=>b.textContent.trim()===label||b.getAttribute('aria-label')===label);if(!b)throw Error('Missing button '+label);b.click();if(twice)b.click();},label,twice);
 const edit=(selector,value)=>page.$eval(selector,(e,value)=>{const proto=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(e,value);e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));},value);
@@ -144,9 +147,11 @@ pass('contractor-only choices arm the draft guard and successful job creation st
 await reset('runs');await click('#runs','Plan now',true);await waitCalls(1);assert.equal((await calls())[0].kind,'planRuns');assert.equal(await beforeUnload(),true);await finish(0,{ok:false,error:'Planning denied'});await waitText('Planning denied');await ready('#runs button');
 await click('#runs','Plan now');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm planning');await ready('#runs button');await click('#runs','Plan now');await waitCalls(3);await finish(2,{ok:true,created:2,kept:3,noVacancy:1,classifying:4});await clean();await waitText('2 planned');await waitText('3 unchanged');await waitText('triaging 4');assert.equal(await page.$('#runs [role="alert"]'),null);
 pass('maintenance planning blocks repeat clicks, reports returned and thrown failures, and preserves the real planning summary on success');
-await click('#runs','Publish',true);await waitCalls(4);assert.equal((await calls())[3].args,'packet-a');await finish(3,{ok:false,error:'Packet cannot publish'});await clean();await waitText('Packet cannot publish');await click('#runs','Publish');await waitCalls(5);await finish(4,null,true);await clean();await waitText('Open the packet to check its status');
-await click('#runs','Publish');await waitCalls(6);await finish(5);await clean();await waitText('Published');assert.equal(await page.$$eval('#runs button',bs=>bs.some(b=>b.textContent==='Publish')),false);
-pass('maintenance publication keeps its target on failure and removes Publish only after a confirmed response');
+// Publish takes two taps since #1828: Publish arms an inline Confirm / Cancel; a failed attempt keeps the confirm step with Retry publish.
+await click('#runs','Publish');assert.equal((await calls()).length,3);await waitText('Post this run for a contractor to claim');await click('#runs','Cancel');assert.equal(await page.$$eval('#runs button',bs=>bs.some(b=>b.textContent==='Confirm')),false);
+await click('#runs','Publish');await click('#runs','Confirm',true);await waitCalls(4);assert.equal((await calls())[3].args,'packet-a');await finish(3,{ok:false,error:'Packet cannot publish'});await clean();await waitText('Packet cannot publish');await click('#runs','Retry publish');await waitCalls(5);await finish(4,null,true);await clean();await waitText('Open the packet to check its status');
+await click('#runs','Retry publish');await waitCalls(6);await finish(5);await clean();await waitText('Published');assert.equal(await page.$$eval('#runs button',bs=>bs.some(b=>b.textContent==='Publish'||b.textContent==='Confirm')),false);
+pass('maintenance publication arms on the first tap, cancels cleanly, keeps its target on failure and removes Publish only after a confirmed response');
 
 await reset('shortcuts');await click('#done','Done');assert.equal((await calls()).length,0);await click('#done','Confirm ✓',true);await waitCalls(1);assert.deepEqual((await calls())[0].args,{id:'slip-a',status:'done',propertyId:'home-a'});await finish(0,{ok:false,error:'Completion denied'});await clean();await waitText('Completion denied');await click('#done','Retry');assert.equal((await calls()).length,1);await click('#done','Confirm ✓');await waitCalls(2);await finish(1,null,true);await clean();await waitText('Could not confirm completion');
 await click('#done','Retry');await click('#done','Confirm ✓');await waitCalls(3);await finish(2);await clean();await waitText('Done ✓');assert.equal(await page.$eval('#done button',e=>e.disabled),true);
@@ -168,5 +173,5 @@ await click('#gmail','Sync Replies');await waitCalls(2);await page.evaluate(()=>
 pass('unmount releases pending guards and late responses cause no browser errors');
 
 assert.deepEqual(errors,[]);console.log('All '+checks+' sync and scheduling browser checks passed.');
-}catch(error){if(page)console.error('Synthetic sync/scheduling state:',await page.evaluate(()=>({body:document.body.innerText,calls:window.calls?.map(({kind,args})=>({kind,args})),guarded:window.guarded?.()})));throw error;}
+}catch(error){if(page)console.error('Synthetic sync/scheduling state:',await page.evaluate(()=>({body:document.body.innerText,calls:window.calls?.map(({kind,args})=>({kind,args})),guarded:window.guarded?.()})),'page errors:',errors);throw error;}
 finally{await browser?.close();await new Promise(r=>server.close(r));await rm(scratch,{recursive:true,force:true});}
