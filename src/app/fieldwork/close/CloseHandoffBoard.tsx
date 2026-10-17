@@ -65,7 +65,6 @@ export function CloseHandoffBoard({
   month,
   months,
   today,
-  trade,
   items,
   properties,
   statementHomes,
@@ -75,7 +74,6 @@ export function CloseHandoffBoard({
   month: string;
   months: string[];
   today: string;
-  trade: string;
   items: HandoffItem[];
   properties: { id: string; name: string }[];
   statementHomes: string[];
@@ -170,7 +168,7 @@ export function CloseHandoffBoard({
         {months.map((m) => (
           <Link
             key={m}
-            href={`/fieldwork/close?trade=${trade}&month=${m}`}
+            href={`/fieldwork/close?month=${m}`}
             aria-current={m === month ? 'page' : undefined}
             className="font-serif"
             style={{ fontSize: 20, textDecoration: 'none', color: m === month ? 'var(--ink)' : 'var(--ink-4)', borderBottom: m === month ? '2px solid var(--ink)' : '2px solid transparent', paddingBottom: 2 }}

@@ -22,9 +22,13 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * delivered asset, so its board is Shoots & Pay instead. It rides in the
  * primitive's secondRow slot.
  *
- * Trades is the one lens that isn't scoped by job type: a plumber is a
- * plumber whichever row-1 tab you came from. It still carries ?trade= so
- * leaving it returns you to the job type you were in.
+ * Trades and Close handoff are fleet-wide chores, not a job type's: a
+ * plumber is a plumber whichever row-1 tab you came from, and the month's
+ * repair costs are the month's. They sit off the trade grid: their links
+ * carry no ?trade=, no row-1 tab lights on them, and a row-1 tab clicked
+ * from one of them opens that trade's own board (UI/UX audit, 2026-10-17:
+ * "Handymen > Trades" read as the handymen's vendors, and nothing on the
+ * page changed with the trade).
  *
  * Role-aware: Shoots & Pay is the creative pay ledger, owners only
  * (`/fieldwork/shoots` is in OWNER_PATH_PREFIXES). For a staff login the
@@ -35,6 +39,9 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  */
 
 type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring' | 'trades' | 'close';
+
+/** The lenses that belong to no job type: no ?trade=, no lit row-1 tab. */
+const TRADELESS: ReadonlySet<FieldLens> = new Set<FieldLens>(['trades', 'close']);
 
 const LENS_HREF: Record<FieldLens, string> = {
   packets: '/fieldwork/packets',
@@ -65,7 +72,10 @@ export function FieldTabs({
     lens === 'packets' ? TRADE_META[t].hasPackets : lens === 'shoots' ? hasShoots(t) : true;
   const homeLens = (t: ContractorTrade): FieldLens =>
     TRADE_META[t].hasPackets ? 'packets' : hasShoots(t) ? 'shoots' : 'contractors';
-  const jobHref = (t: ContractorTrade) => `${LENS_HREF[lensExists(current, t) ? current : homeLens(t)]}?trade=${t}`;
+  const tradeless = TRADELESS.has(current);
+  // From a trade-less lens a job-type tab opens that trade's own board.
+  const jobHref = (t: ContractorTrade) =>
+    `${LENS_HREF[!tradeless && lensExists(current, t) ? current : homeLens(t)]}?trade=${t}`;
 
   const lenses = (
     [
@@ -74,15 +84,16 @@ export function FieldTabs({
       { id: 'contractors', label: 'Roster' },
       { id: 'hiring', label: 'Hiring' },
       { id: 'trades', label: 'Trades' },
-      // The month-close handoff: field data for the statement close. Not
-      // scoped by job type either; it carries ?trade= the same way.
+      // The month-close handoff: field data for the statement close. Off
+      // the trade grid, like Trades.
       { id: 'close', label: 'Close handoff' },
     ].filter(Boolean) as { id: FieldLens; label: string }[]
-  ).map((l) => ({ ...l, href: `${LENS_HREF[l.id]}?trade=${trade}` }));
+  ).map((l) => ({ ...l, href: TRADELESS.has(l.id) ? LENS_HREF[l.id] : `${LENS_HREF[l.id]}?trade=${trade}` }));
 
   return (
     <SectionTabs
-      current={trade}
+      // An empty id lights nothing: a trade-less lens has no job type.
+      current={tradeless ? '' : trade}
       tabs={NAV_TRADES.map((t) => ({ id: t, label: TRADE_META[t].label, href: jobHref(t), badgeOutside: true, badge: <NavTabCount kind="fieldPackets" trade={t} href={`/fieldwork/packets?trade=${t}&focus=review#needs-review`} /> }))}
       secondRow={
         <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>

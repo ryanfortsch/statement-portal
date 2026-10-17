@@ -39,14 +39,10 @@ function InlineError({ error }: { error: string }) {
 export function VendorForm({
   vendor,
   properties,
-  trade,
   defaultCategory,
 }: {
   vendor?: TradeVendorRow;
   properties: { id: string; name: string }[];
-  /** The job type the operator is browsing, carried through the save so the
-   *  landing keeps their row-1 tab. */
-  trade: string;
   defaultCategory?: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -93,7 +89,6 @@ export function VendorForm({
     <form ref={formRef} onSubmit={submit} onChange={(e) => setDirty(snapshot(e.currentTarget) !== original.current)} style={{ maxWidth: 620 }}>
       <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       {vendor && <input type="hidden" name="id" value={vendor.id} />}
-      <input type="hidden" name="trade" value={trade} />
 
       <div style={row2}>
         <label style={lbl}>
@@ -213,7 +208,7 @@ export function VendorForm({
       </label>
 
       <InlineError error={error} />
-      {uncertain && <p><a href={`/fieldwork/trades?trade=${encodeURIComponent(trade)}`} target="_blank" rel="noopener noreferrer">View saved vendors</a></p>}
+      {uncertain && <p><a href="/fieldwork/trades" target="_blank" rel="noopener noreferrer">View saved vendors</a></p>}
       <button type="submit" disabled={pending} style={btnDark}>{pending ? 'Saving…' : vendor ? 'Save changes' : 'Add to the directory'}</button>
       {(dirty || uncertain) && <button type="button" disabled={pending} onClick={discard} style={{ marginLeft: 12 }}>Discard changes</button>}
       </fieldset>

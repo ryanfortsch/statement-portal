@@ -247,10 +247,17 @@ export async function setPacketCompleteBy(formData: FormData): Promise<void> {
   revalidatePath('/fieldwork/packets');
 }
 
+export type SetupState = { error: string };
+
 /** Create (and optionally publish) a property-SETUP packet: staging a new home
  *  for photos + outfitting it for operations. Publishing texts the inspection
- *  contractors like any other packet. */
-export async function createSetupPacketAction(formData: FormData): Promise<void> {
+ *  contractors like any other packet.
+ *
+ *  useActionState-shaped, like createAdHocPacketAction: every refusal RETURNS
+ *  a specific inline error so the form stays mounted with everything typed.
+ *  The old void action returned early on a missing property, a future record
+ *  date or a failed create, and the page re-rendered with nothing to say. */
+export async function createSetupPacketAction(_prev: SetupState, formData: FormData): Promise<SetupState> {
   const email = await staffEmail();
   const propertyId = String(formData.get('property_id') || '');
   const visitDate = String(formData.get('visit_date') || '');
@@ -259,7 +266,8 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
   const scope = String(formData.get('scope') || '');
   const mode = String(formData.get('mode') || 'publish');
   const supplyRun = formData.get('supply_run') === 'on';
-  if (!propertyId || !visitDate) return;
+  if (!propertyId) return { error: 'Choose the home.' };
+  if (!visitDate) return { error: 'Pick the setup day.' };
 
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 
@@ -268,7 +276,8 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
   // did it, straight into the approve queue. Never published, never texted.
   const doneBy = String(formData.get('done_by') || '');
   if (mode === 'record') {
-    if (!doneBy || visitDate > today) return;
+    if (!doneBy) return { error: 'Choose who did the work.' };
+    if (visitDate > today) return { error: 'A past setup needs a day that has already happened. Pick today or earlier.' };
     const packetId = await createSetupPacket({
       propertyId,
       visitDate,
@@ -280,7 +289,7 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
       publish: false,
       recordDoneBy: doneBy,
     });
-    if (!packetId) return;
+    if (!packetId) return { error: 'Saving failed and nothing was recorded. Try again, and flag it if it keeps happening.' };
     await fieldDb().from('packet_events').insert({
       packet_id: packetId,
       contractor_id: doneBy,
@@ -330,7 +339,7 @@ export async function createSetupPacketAction(formData: FormData): Promise<void>
     publish,
     offeredTo,
   });
-  if (!packetId) return;
+  if (!packetId) return { error: 'Saving failed and nothing was created. Try again, and flag it if it keeps happening.' };
   if (publish) {
     await fieldDb().from('packet_events').insert({
       packet_id: packetId,
