@@ -1,13 +1,13 @@
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingFooter } from '@/components/MessagingFooter';
 import { MessagingTabs } from '@/components/MessagingTabs';
 import { QueueSkeleton } from '@/components/QueueSkeleton';
 
 /**
  * Route-segment loading UI for /contractor-messaging. Matches the real page
- * shell exactly (masthead + tabs + queue placeholder + footer; the contractor
- * page renders no HelmHero, so neither does its skeleton). No data, no
- * 'use client'.
+ * shell exactly (masthead + tabs + queue placeholder + the messaging footer;
+ * the contractor page renders no HelmHero, so neither does its skeleton). No
+ * data, no 'use client'.
  */
 export default function ContractorMessagingLoading() {
   return (
@@ -22,7 +22,7 @@ export default function ContractorMessagingLoading() {
 
       <div style={{ flex: 1 }} />
 
-      <HelmFooter left="Stay Concierge · contractor drafts via Opus 4.7" />
+      <MessagingFooter />
     </div>
   );
 }

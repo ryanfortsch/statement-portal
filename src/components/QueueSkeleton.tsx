@@ -11,7 +11,10 @@ import { Section } from '@/components/Section';
  * var(--rule) border) and uses the same var(--paper-2) tone HelmLoading's
  * Block uses, so the swap to real content shifts as little as possible.
  */
-export function QueueSkeleton({ title = 'Pending' }: { title?: string } = {}) {
+/** The title matches the live queue's "Needs review (N)" so the swap reads as
+ *  the count arriving, not a section renaming itself; other lenses pass
+ *  their own. */
+export function QueueSkeleton({ title = 'Needs review' }: { title?: string } = {}) {
   return (
     <Section title={title} eyebrow="loading…">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
