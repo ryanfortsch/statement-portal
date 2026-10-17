@@ -11,6 +11,9 @@ import { SectionTabs } from '@/components/SectionTabs';
  * current: pathname derivation would light Reviews (the bare /guests href)
  * on any /guests/* descendant such as /guests/[id] or /guests/campaigns,
  * so each lens page names its own tab instead.
+ *
+ * Role-aware through SectionTabs: Quotes is an owner page (guest pricing is
+ * set by the owners), so the tab drops out for a staff login.
  */
 export function GuestsTabBar({ active }: { active: 'contacts' | 'reviews' | 'agreements' | 'quotes' }) {
   // Reviews is the default lens (bare /guests); the others are click-ins.

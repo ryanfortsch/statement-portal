@@ -1,6 +1,9 @@
+'use client';
+
 import Link from 'next/link';
 import { NavTabCount } from './NavTabCount';
 import { SectionTabs } from './SectionTabs';
+import { useHelmRole } from './useHelmRole';
 import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types';
 
 /**
@@ -22,6 +25,13 @@ import { NAV_TRADES, TRADE_META, type ContractorTrade } from '@/lib/field-types'
  * Trades is the one lens that isn't scoped by job type: a plumber is a
  * plumber whichever row-1 tab you came from. It still carries ?trade= so
  * leaving it returns you to the job type you were in.
+ *
+ * Role-aware: Shoots & Pay is the creative pay ledger, owners only
+ * (`/fieldwork/shoots` is in OWNER_PATH_PREFIXES). For a staff login the
+ * lens is not offered and the Creative tab lands on Roster instead, so no
+ * tab here leads to /not-available. Row 1 goes through SectionTabs, which
+ * applies the same rule to any href it is handed; the lens row is this
+ * strip's own markup, so it asks the role itself.
  */
 
 type FieldLens = 'packets' | 'shoots' | 'contractors' | 'hiring' | 'trades' | 'close';
@@ -42,22 +52,25 @@ export function FieldTabs({
   current: FieldLens;
   trade?: ContractorTrade;
 }) {
+  const owner = useHelmRole() === 'owner';
   // A job-type tab keeps you on the same lens where that lens exists for the
   // target trade; otherwise it lands on that trade's own work board: Packets
   // for the trades that dispatch packets, Shoots & Pay for creative (the
   // planner grid and the pay ledger, which is where creative work is run
   // from). Landing creative on its Roster, as this used to, put the people
-  // list in front of the work every time (Dotti, 2026-09-21).
+  // list in front of the work every time (Dotti, 2026-09-21). Staff cannot
+  // open the pay ledger, so for them creative's home is the Roster after all.
+  const hasShoots = (t: ContractorTrade) => TRADE_META[t].hasShoots && owner;
   const lensExists = (lens: FieldLens, t: ContractorTrade) =>
-    lens === 'packets' ? TRADE_META[t].hasPackets : lens === 'shoots' ? TRADE_META[t].hasShoots : true;
+    lens === 'packets' ? TRADE_META[t].hasPackets : lens === 'shoots' ? hasShoots(t) : true;
   const homeLens = (t: ContractorTrade): FieldLens =>
-    TRADE_META[t].hasPackets ? 'packets' : TRADE_META[t].hasShoots ? 'shoots' : 'contractors';
+    TRADE_META[t].hasPackets ? 'packets' : hasShoots(t) ? 'shoots' : 'contractors';
   const jobHref = (t: ContractorTrade) => `${LENS_HREF[lensExists(current, t) ? current : homeLens(t)]}?trade=${t}`;
 
   const lenses = (
     [
       TRADE_META[trade].hasPackets ? { id: 'packets', label: 'Packets' } : null,
-      TRADE_META[trade].hasShoots ? { id: 'shoots', label: 'Shoots & Pay' } : null,
+      hasShoots(trade) ? { id: 'shoots', label: 'Shoots & Pay' } : null,
       { id: 'contractors', label: 'Roster' },
       { id: 'hiring', label: 'Hiring' },
       { id: 'trades', label: 'Trades' },

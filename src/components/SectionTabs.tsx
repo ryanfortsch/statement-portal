@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, type ReactNode } from 'react';
+import { roleMayOpen } from '@/lib/helm-access';
+import { useHelmRole } from './useHelmRole';
 
 /**
  * The one tab-strip primitive for Helm's section sub-navigation. Every
@@ -10,6 +12,15 @@ import { useEffect, useRef, type ReactNode } from 'react';
  * MarketingTabs, FieldTabs, GuestsTabBar) is a thin wrapper that hands this
  * component its tab array; the markup lives here once so the strips cannot
  * drift apart visually.
+ *
+ * Role-aware: a tab the proxy would bounce never renders. A staff login
+ * sees no Owners tab in Messaging, no Quotes tab in Guests and none of the
+ * Money strip, because each of those hrefs sits behind OWNER_PATH_PREFIXES.
+ * The gate list decides (`roleMayOpen`), not a flag per tab, so a strip
+ * cannot list a tab the proxy turns away. The root layout hands the server
+ * session to SessionProvider, so the role is known on the first paint and
+ * nothing blinks in or out. A strip whose own markup renders links outside
+ * `tabs` (FieldTabs' lens row) has to ask the same question itself.
  *
  * Active tab resolution: an explicit `current` wins when provided (required
  * for ?tab= / ?trade= strips, where the pathname cannot tell tabs apart);
@@ -39,11 +50,13 @@ export function SectionTabs({
 }) {
   const pathname = usePathname();
   const strip = useRef<HTMLElement>(null);
+  const role = useHelmRole();
+  const visible = tabs.filter((t) => roleMayOpen(role, t.href));
 
   let activeId = current;
   if (activeId === undefined) {
     let bestLen = 0;
-    for (const t of tabs) {
+    for (const t of visible) {
       const prefix = t.href.split(/[?#]/)[0];
       if (!prefix) continue;
       const matches = pathname === prefix || pathname.startsWith(prefix + '/');
@@ -64,10 +77,13 @@ export function SectionTabs({
     }
   }, [activeId]);
 
+  // Every tab gated: nothing to navigate, so no empty rule across the page.
+  if (visible.length === 0 && !secondRow) return null;
+
   return (
     <section className="max-w-[1100px] mx-auto px-10 rt-section-tabs" style={{ width: '100%', paddingTop: 20, paddingBottom: 4 }}>
       <nav ref={strip} aria-label="Section navigation" className="flex items-baseline rt-tab-strip" style={{ gap: 28, borderBottom: '1px solid var(--ink)', overflowX: 'auto' }}>
-        {tabs.map((t) => {
+        {visible.map((t) => {
           const isActive = t.id === activeId;
           const label = (
             <Link
