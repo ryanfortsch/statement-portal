@@ -897,29 +897,10 @@ function ApprovalCard({
         <FieldBlock
           label={editing ? 'Editing reply' : inquiryWithoutDraft ? inquiryState!.label : 'Proposed reply'}
           labelTone={editing ? 'var(--ink)' : undefined}
-          action={
-            !isScheduled && !editing ? (
-              <button
-                type="button"
-                onClick={startEdit}
-                disabled={busy}
-                className="eyebrow"
-                style={{
-                  color: 'var(--ink-4)',
-                  background: 'transparent',
-                  border: 'none',
-                  padding: 0,
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                }}
-                title="Edit the reply text yourself (the AI will not rewrite it)"
-              >
-                Edit
-              </button>
-            ) : null
-          }
         >
           {editing ? (
             <div>
+              <EditCoachContract />
               <textarea
                 value={draftText}
                 onChange={(e) => setDraftText(e.target.value)}
@@ -939,9 +920,6 @@ function ApprovalCard({
                   resize: 'vertical',
                 }}
               />
-              <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>
-                You are setting the exact text that sends. The AI will not rewrite this.
-              </p>
               {draftChangedUnderEdit && (
                 <div style={{ marginTop: 10, padding: '8px 10px', border: '1px solid var(--signal)', background: 'var(--paper)' }}>
                   <p style={{ margin: 0, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
@@ -1450,6 +1428,7 @@ function ApprovalCard({
             <PrimaryButton onClick={handleCopy} disabled={busy}>
               {copied ? 'Copied ✓' : 'Copy message'}
             </PrimaryButton>
+            <EditButton editing={editing} onStart={startEdit} onCancel={() => setEditing(false)} disabled={busy} />
             {/* Copy-to-send: she pasted OUR draft verbatim, so the draft IS what
                 the guest got. Capture it rather than asking. Passing the handler
                 bare here would hand the click event through as the payload. */}
@@ -1571,6 +1550,11 @@ function ApprovalCard({
                 )}
               </>
             )}
+            {/* Edit and Coach at one weight: both change the reply, and only
+                the drawer each opens says how they differ (EditCoachContract).
+                Until 2026-10-17 Edit was a 10px eyebrow link on the reply and
+                the difference lived in a placeholder that vanished on typing. */}
+            <EditButton editing={editing} onStart={startEdit} onCancel={() => setEditing(false)} disabled={busy} />
             <SecondaryButton
               onClick={toggleCoach}
               disabled={busy}
@@ -1735,11 +1719,12 @@ function ApprovalCard({
           >
             Coaching note
           </label>
+          <EditCoachContract />
           <textarea
             id={`coach-${approval.id}`}
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
-            placeholder="Say what's wrong with the draft. The AI will rewrite using your guidance and learn from it for next time."
+            placeholder="What should change?"
             rows={3}
             style={{
               width: '100%',
@@ -1776,6 +1761,44 @@ function ApprovalCard({
       <MessageOutcomes value={workOutcomes.remaining} />
     </article>
     </MobileInboxReview>
+  );
+}
+
+/** The two-line contract, printed once in whichever drawer is open. It is
+ *  the only place the difference between the two verbs is stated, so it is
+ *  text on the page, never a placeholder that vanishes on the first
+ *  keystroke. */
+function EditCoachContract() {
+  return (
+    <p style={{ margin: '0 0 8px', fontSize: 12, lineHeight: 1.5, color: 'var(--ink-3)' }}>
+      Edit changes this reply only.
+      <br />
+      Coach rewrites it and teaches the AI.
+    </p>
+  );
+}
+
+/** Edit at Coach's weight. Mirrors Coach's open/cancel toggle so the two
+ *  verbs read as a pair. */
+function EditButton({
+  editing,
+  onStart,
+  onCancel,
+  disabled,
+}: {
+  editing: boolean;
+  onStart: () => void;
+  onCancel: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <SecondaryButton
+      onClick={editing ? onCancel : onStart}
+      disabled={disabled}
+      title="Change the words of this reply yourself. The AI does not learn from it."
+    >
+      {editing ? 'Cancel edit' : 'Edit'}
+    </SecondaryButton>
   );
 }
 
