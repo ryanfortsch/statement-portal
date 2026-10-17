@@ -262,7 +262,7 @@ export default async function CleanerSchedulePage({
                     {r.city ? `, ${r.city}` : ''}
                   </div>
                   <div className="rt-cl-tags">
-                    <span className="rt-cl-tag is-skip">não limpar · cancelado / do not clean</span>
+                    <span className="rt-cl-tag is-skip">não limpar · cancelado</span>
                   </div>
                 </div>
               </li>
@@ -309,9 +309,12 @@ export default async function CleanerSchedulePage({
                       <span className="rt-cl-tag is-sameday">atenção: saída só às {r.time}</span>
                     )}
                     {pickupToday.has(r.propertyId) && (
-                      <span className="rt-cl-tag is-drift">coleta de lixo hoje: recolher as lixeiras · bring the carts in</span>
+                      <span className="rt-cl-tag is-drift">coleta de lixo hoje: recolher as lixeiras</span>
                     )}
-                    {!r.sameDayTurnover && <span className="rt-cl-tag is-quiet">sem entrada no mesmo dia</span>}
+                    {/* No tag for the ordinary case: on this page every tag
+                        means "do something", and a row with nothing to say
+                        says nothing. Tags are Portuguese only (#1641); the
+                        English stays in the brand line. */}
                   </div>
                 </div>
               </li>

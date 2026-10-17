@@ -651,7 +651,9 @@ export default async function InspectionRenderPage({
                 fontStyle: 'italic',
               }}
             >
-              Generated {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              {/* The walk's completion date, not the view date: an archived
+                  PDF and a reprint must carry the same footer. */}
+              Completed {completedDate}
             </span>
           </footer>
         </article>

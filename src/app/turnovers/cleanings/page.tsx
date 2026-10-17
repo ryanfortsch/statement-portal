@@ -4,13 +4,12 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { TurnoverTabs } from '@/components/TurnoverTabs';
 import { Section } from '@/components/Section';
-import { Stat } from '@/components/Stat';
 import { SubmitButton } from '@/components/SubmitButton';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { addDays, formatTime12 } from '@/lib/checkout-schedule';
 import { VENDOR_LABEL } from '@/lib/vendor-schedule';
 import { loadCleaningSchedule } from '@/lib/cleaning-schedule';
-import { ATTENTION_STATUSES, type CleaningDay, type CleaningItem, type CleaningStatus } from '@/lib/cleaning-days';
+import { ATTENTION_STATUSES, type CleaningItem, type CleaningStatus } from '@/lib/cleaning-days';
 import { pullVendorTextsAction } from './actions';
 
 /**
@@ -85,19 +84,6 @@ function fmtStamp(iso: string): string {
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
-}
-
-function dayStat(day: CleaningDay | undefined): { value: string; sub: string } {
-  if (!day) return { value: '—', sub: '' };
-  if (!day.announced) {
-    return {
-      value: '—',
-      sub: day.checkouts > 0 ? `not announced yet · ${plural(day.checkouts, 'checkout', 'checkouts')}` : 'not announced yet',
-    };
-  }
-  const parts = [day.booked === 1 ? 'cleaning booked' : 'cleanings booked'];
-  if (day.attention > 0) parts.push(`${day.attention} to check`);
-  return { value: String(day.booked), sub: parts.join(' · ') };
 }
 
 function CleaningRow({ item }: { item: CleaningItem }) {
@@ -195,20 +181,6 @@ export default async function CleaningsPage({
 
   const sched = await loadCleaningSchedule(supabase, { days: DAYS });
   const { today, horizon, lastAnnouncedAt, days, scheduleError, ingest } = sched;
-  const attentionTotal = days.reduce((s, d) => s + d.attention, 0);
-  // What the "needs a look" count is made of, in the order worth chasing.
-  const breakdown = (() => {
-    const counts = { no_appointment: 0, early: 0, late: 0, no_checkout: 0 };
-    for (const d of days) for (const i of d.items) if (i.status in counts) counts[i.status as keyof typeof counts] += 1;
-    const parts: string[] = [];
-    if (counts.no_appointment > 0) parts.push(`${counts.no_appointment} no cleaner booked`);
-    if (counts.early > 0) parts.push(`${counts.early} before checkout`);
-    if (counts.late > 0) parts.push(`${counts.late} after check-in`);
-    if (counts.no_checkout > 0) parts.push(`${counts.no_checkout} nobody checks out`);
-    return parts.join(' · ');
-  })();
-  const todayStat = dayStat(days[0]);
-  const tomorrowStat = dayStat(days[1]);
 
   const unmatched = ingest?.unmatched ?? [];
 
@@ -218,12 +190,12 @@ export default async function CleaningsPage({
       <TurnoverTabs />
 
       <Section
-        title={`${VENDOR_LABEL} schedule`}
-        eyebrow="A-1 Maintenance & Cleaning"
+        title="Cleanings"
+        eyebrow={`${VENDOR_LABEL}'s bookings`}
         right={
           <form action={pullVendorTextsAction}>
             <SubmitButton
-              label="Pull latest texts"
+              label="Re-read A-1's reminders"
               busyLabel="Reading..."
               spinnerTone="ink"
               style={{
@@ -240,13 +212,10 @@ export default async function CleaningsPage({
         }
         paddingBottom={8}
       >
+        {/* No explainer and no stat strip: the horizon line is the useful
+            part, and the days below say the rest row by row. */}
         <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 680 }}>
-          The crew&rsquo;s own bookings, read from the appointment reminders Jobber texts the Quo line about two days
-          ahead, laid against our checkouts. A house is flagged when a guest leaves and no cleaner is booked, when
-          the cleaner is booked before the guest is out, or, on a same-day turnover, at or after the next
-          guest&rsquo;s check-in. Nothing here is predicted: a day past their last text is marked not announced yet,
-          never empty.
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)' }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>
             {horizon ? (
               <>
                 Announced through <strong style={{ color: 'var(--ink-3)', fontWeight: 600 }}>{fmtShortDay(horizon)}</strong>
@@ -254,7 +223,7 @@ export default async function CleaningsPage({
                 {ingest?.at && <> · texts last read {fmtStamp(ingest.at)}</>}
               </>
             ) : (
-              <>No reminder texts on file yet. Pull the latest texts, or wait for the afternoon sweep.</>
+              <>No reminder texts on file yet. Re-read the reminders, or wait for the afternoon sweep.</>
             )}
           </div>
           {ingest?.error && (
@@ -281,33 +250,6 @@ export default async function CleaningsPage({
           )}
         </div>
       </Section>
-
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 8, paddingBottom: 8 }}>
-        <div
-          className="rt-helm-stat-strip"
-          style={{
-            borderTop: '1px solid var(--ink)',
-            borderBottom: '1px solid var(--ink)',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-          }}
-        >
-          <Stat label="Today" value={todayStat.value} sub={todayStat.sub} />
-          <Stat label="Tomorrow" value={tomorrowStat.value} sub={tomorrowStat.sub} />
-          <Stat
-            label="Announced through"
-            value={horizon ? fmtShortDay(horizon) : '—'}
-            sub={lastAnnouncedAt ? `last text ${fmtStamp(lastAnnouncedAt)}` : 'no texts on file'}
-          />
-          <Stat
-            label="Needs a look"
-            value={String(attentionTotal)}
-            sub={attentionTotal > 0 ? breakdown : 'every announced day agrees'}
-            accent={attentionTotal > 0}
-            last
-          />
-        </div>
-      </section>
 
       {scheduleError && (
         <Section title="Checkout cross-check unavailable" eyebrow="Read failure" paddingTop={8} paddingBottom={8}>
@@ -345,7 +287,7 @@ export default async function CleaningsPage({
       ))}
 
       <div style={{ flex: 1 }} />
-      <HelmFooter left="Turnovers · Cleanings" right="Source: A-1 reminder texts via Quo + Helm checkout schedule" />
+      <HelmFooter left="Turnovers · Cleanings" right={`Source: ${VENDOR_LABEL}'s reminder texts via Quo + Helm checkout schedule`} />
     </div>
   );
 }
