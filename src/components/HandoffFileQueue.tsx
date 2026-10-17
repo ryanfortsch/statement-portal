@@ -22,7 +22,8 @@ import {
  *                     records the receipt id.
  *   Note on period    for a cleaning issue: the text becomes a period note
  *                     through /api/period-notes, and the item is filed.
- *   Set aside         dismissed with a note.
+ *   Set aside         dismissed, with an optional note typed inline (the
+ *                     house pattern, not a browser prompt).
  *
  * This component never writes property_receipts, repair_events or a
  * statement itself. Renders nothing when the month has no live items.
@@ -82,6 +83,9 @@ export function HandoffFileQueue({
   const [expenseDate, setExpenseDate] = useState('');
   const [category, setCategory] = useState<'repairs' | 'supplies' | 'other'>('repairs');
   const [note, setNote] = useState('');
+  // Set aside opens an inline note under the item: which item, and the note.
+  const [asideFor, setAsideFor] = useState<string | null>(null);
+  const [asideNote, setAsideNote] = useState('');
 
   // The live items for this home and month. State is set only from the
   // fetch's callbacks, never in the effect body, and a stale response for a
@@ -178,12 +182,11 @@ export function HandoffFileQueue({
   }
 
   async function setAside(item: HandoffItem) {
-    const why = window.prompt('Set this aside. Why? (optional)');
-    if (why === null) return;
     setBusy(item.id); setError(null);
     try {
-      if (await patch(item, { action: 'dismiss', note: why.trim() || undefined })) {
+      if (await patch(item, { action: 'dismiss', note: asideNote.trim() || undefined })) {
         setItems((prev) => prev.filter((i) => i.id !== item.id));
+        setAsideFor(null); setAsideNote('');
       }
     } finally {
       setBusy(null);
@@ -229,9 +232,28 @@ export function HandoffFileQueue({
                 {item.file_path && <button type="button" onClick={() => view(item)} disabled={busy !== null} style={TINY}>View</button>}
                 {km.money && !isFiling && <button type="button" onClick={() => startFiling(item)} disabled={busy !== null} style={{ ...TINY, color: 'var(--ink)', borderColor: 'var(--ink)' }}>File as receipt</button>}
                 {!km.money && <button type="button" onClick={() => noteOnPeriod(item)} disabled={busy !== null} style={{ ...TINY, color: 'var(--ink)', borderColor: 'var(--ink)' }}>Note on period</button>}
-                <button type="button" onClick={() => setAside(item)} disabled={busy !== null} style={TINY}>Set aside</button>
+                {asideFor !== item.id && (
+                  <button type="button" onClick={() => { setAsideFor(item.id); setAsideNote(''); setFiling(null); setWarnings([]); }} disabled={busy !== null} style={TINY}>Set aside</button>
+                )}
               </span>
             </div>
+
+            {asideFor === item.id && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                <input
+                  value={asideNote}
+                  onChange={(e) => setAsideNote(e.target.value)}
+                  maxLength={300}
+                  placeholder="Why it is set aside (optional)"
+                  autoFocus
+                  style={{ ...FIELD, width: 'auto', flex: '1 1 200px' }}
+                />
+                <button type="button" onClick={() => setAside(item)} disabled={busy !== null} style={{ ...TINY, color: 'var(--ink)', borderColor: 'var(--ink)' }}>
+                  {busy === item.id ? 'Setting aside…' : 'Set aside'}
+                </button>
+                <button type="button" onClick={() => { setAsideFor(null); setAsideNote(''); }} disabled={busy !== null} style={{ ...TINY, border: 'none' }}>Cancel</button>
+              </div>
+            )}
 
             {isFiling && (
               <div style={{ marginTop: 10, padding: 10, border: '1px solid var(--rule)', background: 'var(--paper)' }}>

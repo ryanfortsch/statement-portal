@@ -4,7 +4,6 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { roleForEmail } from '@/lib/helm-access';
 import { fieldDb } from '@/lib/field-db';
-import { PROPERTIES } from '@/lib/properties';
 import { todayET } from '@/lib/team-recipients';
 import { handoffMonths, isMonth, type HandoffItem } from '@/lib/close-handoff';
 import { loadHandoffItems } from '@/lib/close-handoff-db';
@@ -26,14 +25,18 @@ export const dynamic = 'force-dynamic';
 
 type Loaded = { ok: true; items: HandoffItem[] } | { ok: false; error: string };
 
-async function loadProperties(): Promise<{ id: string; name: string }[]> {
+/** The live homes, and whether each gets an owner statement. A home Rising
+ *  Tide owns outright (is_rising_tide_owned, the registry's own flag) has no
+ *  owner to send one to; the code roster PROPERTIES is not the fleet and
+ *  tagged any managed home it did not list. */
+async function loadProperties(): Promise<{ id: string; name: string; ownerStatement: boolean }[]> {
   const { data } = await fieldDb()
     .from('properties')
-    .select('id,name,kind,is_active')
+    .select('id,name,kind,is_active,is_rising_tide_owned')
     .order('name');
-  return ((data ?? []) as { id: string; name: string; kind: string | null; is_active: boolean | null }[])
+  return ((data ?? []) as { id: string; name: string; kind: string | null; is_active: boolean | null; is_rising_tide_owned: boolean | null }[])
     .filter((p) => p.kind !== 'hq' && p.is_active !== false)
-    .map((p) => ({ id: p.id, name: p.name }));
+    .map((p) => ({ id: p.id, name: p.name, ownerStatement: !p.is_rising_tide_owned }));
 }
 
 export default async function CloseHandoffPage({
@@ -65,9 +68,7 @@ export default async function CloseHandoffPage({
         <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 2 }}>Field</div>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Close handoff</div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20, maxWidth: 640 }}>
-          The field data for the monthly statement close, by home: repair costs, card charges, and cleaning issues.
-          Add items as the month goes, then mark the month sent three days before the close. Nothing here changes
-          an owner&apos;s payout; Ryan files each item into the statement.
+          Repair costs, card charges and cleaning issues by home, sent to Ryan before each month&apos;s statement close.
         </p>
 
         {!loaded.ok ? (
@@ -83,8 +84,8 @@ export default async function CloseHandoffPage({
             months={offered}
             today={today}
             items={loaded.items}
-            properties={properties}
-            statementHomes={Object.keys(PROPERTIES)}
+            properties={properties.map((p) => ({ id: p.id, name: p.name }))}
+            statementHomes={properties.filter((p) => p.ownerStatement).map((p) => p.id)}
             owner={owner}
             me={email}
           />

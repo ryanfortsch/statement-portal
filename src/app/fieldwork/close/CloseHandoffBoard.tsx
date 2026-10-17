@@ -84,9 +84,14 @@ export function CloseHandoffBoard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Set aside opens an inline note under the item (the house pattern), not
+  // a browser prompt. The id of the item whose note is open, and the note.
+  const [asideFor, setAsideFor] = useState<string | null>(null);
+  const [asideNote, setAsideNote] = useState('');
 
-  // The add form.
-  const [propertyId, setPropertyId] = useState(properties[0]?.id ?? '');
+  // The add form. The home starts blank: a default of the first home was a
+  // mis-file waiting to happen on a phone.
+  const [propertyId, setPropertyId] = useState('');
   const [kind, setKind] = useState<HandoffKind>('repair');
   const [description, setDescription] = useState('');
   const [vendor, setVendor] = useState('');
@@ -152,8 +157,14 @@ export function CloseHandoffBoard({
   }
 
   async function remove(item: HandoffItem) {
+    if (!window.confirm(`Delete this item? It comes off the handoff for good${item.status === 'sent' ? " and off Ryan's queue" : ''}.`)) return;
     const data = await call(`/api/close-handoff/${item.id}`, { method: 'DELETE' }, item.id);
     if (data) router.refresh();
+  }
+
+  async function setAside(item: HandoffItem) {
+    await act(item, 'dismiss', asideNote.trim() || undefined);
+    setAsideFor(null); setAsideNote('');
   }
 
   async function view(item: HandoffItem) {
@@ -188,6 +199,13 @@ export function CloseHandoffBoard({
               : `${summary.open} not sent · ${summary.sent} with the office · ${summary.filed} filed · ${summary.dismissed} set aside${summary.pendingAmount > 0 ? ` · ${fmtMoney(summary.pendingAmount)} waiting` : ''}`}
             {' '}Send by {fmtDay(due)}; the close starts three days later.
           </div>
+          {/* What happens after Sent, for the person who never sees a
+              statement: the owner-only footer used to be the only place. */}
+          {!owner && summary.sent > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 4 }}>
+              Sent items are with Ryan. He files each into the owner statement, and it turns to Filed here.
+            </div>
+          )}
         </div>
         {summary.open > 0 && (
           <button type="button" onClick={sendMonth} disabled={busy !== null} style={PRIMARY}>
@@ -208,6 +226,7 @@ export function CloseHandoffBoard({
           <label>
             <span style={LABEL}>Home</span>
             <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} style={FIELD} required>
+              <option value="" disabled>Choose the home…</option>
               {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </label>
@@ -244,7 +263,6 @@ export function CloseHandoffBoard({
         </label>
         <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
           <button type="submit" disabled={busy !== null || !propertyId} style={PRIMARY}>{busy === 'add' ? 'Adding…' : 'Add'}</button>
-          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>{meta.hint}</span>
         </div>
       </form>
 
@@ -265,7 +283,8 @@ export function CloseHandoffBoard({
               const mine = item.created_by.toLowerCase() === me.toLowerCase();
               const live = item.status === 'open' || item.status === 'sent';
               return (
-                <div key={item.id} style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--rule-soft, var(--rule))' }}>
+                <div key={item.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--rule-soft, var(--rule))' }}>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13 }}>
                       <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginRight: 8 }}>{km.label}</span>
@@ -287,20 +306,29 @@ export function CloseHandoffBoard({
                     {live && (mine || owner) && item.status === 'open' && <button type="button" onClick={() => act(item, 'sent')} disabled={busy !== null} style={TINY}>Send</button>}
                     {live && (mine || owner) && item.status === 'sent' && <button type="button" onClick={() => act(item, 'reopen')} disabled={busy !== null} style={TINY}>Reopen</button>}
                     {live && (mine || owner) && <button type="button" onClick={() => remove(item)} disabled={busy !== null} style={TINY}>Delete</button>}
-                    {live && owner && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const note = window.prompt('Set this aside. Why? (optional)') ?? undefined;
-                          if (note !== undefined) void act(item, 'dismiss', note.trim() || undefined);
-                        }}
-                        disabled={busy !== null}
-                        style={TINY}
-                      >
+                    {live && owner && asideFor !== item.id && (
+                      <button type="button" onClick={() => { setAsideFor(item.id); setAsideNote(''); }} disabled={busy !== null} style={TINY}>
                         Set aside
                       </button>
                     )}
                   </span>
+                </div>
+                {asideFor === item.id && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                    <input
+                      value={asideNote}
+                      onChange={(e) => setAsideNote(e.target.value)}
+                      maxLength={300}
+                      placeholder="Why it is set aside (optional)"
+                      autoFocus
+                      style={{ ...FIELD, width: 'auto', flex: '1 1 220px' }}
+                    />
+                    <button type="button" onClick={() => void setAside(item)} disabled={busy !== null} style={{ ...TINY, color: 'var(--ink)', borderColor: 'var(--ink)' }}>
+                      {busy === item.id ? 'Setting aside…' : 'Set aside'}
+                    </button>
+                    <button type="button" onClick={() => { setAsideFor(null); setAsideNote(''); }} disabled={busy !== null} style={{ ...TINY, border: 'none' }}>Cancel</button>
+                  </div>
+                )}
                 </div>
               );
             })}
