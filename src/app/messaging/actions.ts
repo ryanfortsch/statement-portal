@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import {
   approveApproval,
-  rejectApproval,
   coachApproval,
   markHandledApproval,
   redraftApproval,
@@ -58,12 +57,6 @@ export async function approveDraft(
   const result = await approveApproval(approvalId, { ...(opts ?? {}), actor: sess.email });
   const mapped = mapResult(result);
   return mapped.ok && result.ok ? { ...mapped, warning: result.data.followup_warning } : mapped;
-}
-
-export async function rejectDraft(approvalId: string): Promise<ActionResult> {
-  const sess = await requireSession();
-  if (!sess.ok) return sess;
-  return mapResult(await rejectApproval(approvalId, sess.email));
 }
 
 /** Re-run the draft against current data. Nothing is sent; the card is

@@ -14,7 +14,6 @@ import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { CleanerApproval } from '@/lib/stay-concierge';
 import {
   approveCleanerDraft,
-  rejectCleanerDraft,
   markCleanerHandled,
   coachCleanerDraft,
   scheduleCleanerDraft,
@@ -105,7 +104,6 @@ export function CleanerMessagingQueue({ initialPending, properties }: Props) {
 
 type PendingAction =
   | 'approve'
-  | 'reject'
   | 'mark-handled'
   | 'coach'
   | 'schedule'
@@ -528,16 +526,9 @@ function CleanerApprovalCard({
                 <SecondaryButton
               onClick={() => run('mark-handled', () => markCleanerHandled(approval.id))}
               disabled={busy}
-              title="Already replied directly. Clears the queue without sending."
+              title="You replied elsewhere, or no reply is needed. Clears the card without sending."
             >
-              {pendingAction === 'mark-handled' ? 'Clearing…' : 'Mark handled'}
-            </SecondaryButton>
-            <SecondaryButton
-              onClick={() => run('reject', () => rejectCleanerDraft(approval.id))}
-              disabled={busy}
-              title="This message doesn't need a reply. Drops the draft."
-            >
-              {pendingAction === 'reject' ? 'Skipping…' : 'Reject'}
+              {pendingAction === 'mark-handled' ? 'Marking…' : 'Mark handled'}
             </SecondaryButton>
               </div>
             </details>

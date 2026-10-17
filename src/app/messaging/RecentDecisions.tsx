@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * "Decided recently": the rejects and mark-handleds from the last hours that
- * can still be reversed. Dotti rejected a 65 Calderwood lead by mistake on
+ * "Decided recently": the cards marked handled in the last hours that can
+ * still be reversed. Dotti rejected a 65 Calderwood lead by mistake on
  * 2026-09-20 and had no way back; the card had simply vanished.
  *
  * 2026-09-21: the immediate undo is now the toast (UndoToast) that appears
@@ -20,9 +20,12 @@ import type { Approval } from '@/lib/stay-concierge';
 import { prettifySlug, guestFirstFromDraft, relativeTimeShort, statusToneColor } from './format';
 import { UndoButton } from './UndoButton';
 
+// One word. A card closed without a reply is Handled whether the service
+// filed it as rejected (the Reject verb, retired 2026-10-17) or manual_sent
+// (Mark handled). The toast, search and the thread say the same.
 const LABELS: Record<string, string> = {
-  rejected: 'Rejected',
-  manual_sent: 'Marked handled',
+  rejected: 'Handled',
+  manual_sent: 'Handled',
 };
 
 const DEFAULT_VISIBLE = 3;

@@ -9,7 +9,7 @@ type Props = { initialRecent: OwnerApproval[] };
 
 const STATUS_LABELS: Record<string, string> = {
   approved: 'Sent',
-  rejected: 'Rejected',
+  rejected: 'Handled',
   manual_sent: 'Sent via Quo',
   superseded: 'Coached & regenerated',
   auto_rejected_stale: 'Auto-pruned (stale)',
