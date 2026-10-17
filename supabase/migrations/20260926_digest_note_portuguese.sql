@@ -16,11 +16,16 @@
 --      the operator was asked to approve was not the string Rosa got.
 --
 -- The note is still stored as typed -- those are her words and the record
--- of what she asked for. The bilingual rendering is stored beside it,
--- derived once when the note is saved, so the card can show the real tail
--- before anyone taps Approve. operator_note_src stamps the exact typed
--- text the pair came from: when it and operator_note disagree, the
--- rendering is stale and gets re-derived before sending.
+-- of what she asked for. Both renderings are stored beside it, derived
+-- once when the note is saved, so the card can show the real tail before
+-- anyone taps Approve. operator_note_src stamps the exact typed text the
+-- pair came from: when it and operator_note disagree, the rendering is
+-- stale and gets re-derived before sending.
+--
+-- ONLY THE PORTUGUESE IS SENT. The English is an operator check on the
+-- translation and stays on the card: "they speak portuguese so we speak to
+-- them in portuguese" (Dotti, same day, reading a digest that carried
+-- both).
 
 ALTER TABLE cleaner_schedule_digests
   ADD COLUMN IF NOT EXISTS operator_note_pt TEXT NOT NULL DEFAULT '',
@@ -32,6 +37,6 @@ COMMENT ON COLUMN cleaner_schedule_digests.operator_note IS
 COMMENT ON COLUMN cleaner_schedule_digests.operator_note_pt IS
   'The instruction in Brazilian Portuguese. This is what the cleaners actually read.';
 COMMENT ON COLUMN cleaner_schedule_digests.operator_note_en IS
-  'The instruction tidied up in English, printed under the Portuguese so the operator can check the translation.';
+  'The instruction read back in English. Shown on the card so the operator can check the translation. NEVER sent.';
 COMMENT ON COLUMN cleaner_schedule_digests.operator_note_src IS
   'The operator_note text the _pt/_en pair was derived from. Differs from operator_note => stale, re-derive before sending.';

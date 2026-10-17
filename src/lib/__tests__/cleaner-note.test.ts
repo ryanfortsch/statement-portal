@@ -5,36 +5,27 @@ import { formatOperatorNote, noteRenderingIsStale, withOperatorNote } from '../c
 
 // ─── the rendered tail ────────────────────────────────────────────────
 
-test('a translated note prints Portuguese first, English underneath', () => {
-  const block = formatOperatorNote(
-    'Podem fazer 3 Locust, 19 Rackliffe e 225 Washington na segunda-feira.',
-    'You can do 3 Locust, 19 Rackliffe and 225 Washington on Monday.',
-  );
-  assert.equal(
-    block,
-    'AVISO / NOTE:\n' +
-      'Podem fazer 3 Locust, 19 Rackliffe e 225 Washington na segunda-feira.\n' +
-      '(You can do 3 Locust, 19 Rackliffe and 225 Washington on Monday.)',
-  );
-});
-
-test('an untranslated note prints once, not twice', () => {
-  // The model was unreachable, so pt and en are both the operator's own
-  // words. Printing them both would read as a stutter on a phone.
-  const raw = 'Leve toalhas extras para 3 Locust';
-  assert.equal(formatOperatorNote(raw, raw), `AVISO / NOTE:\n${raw}`);
-  assert.equal(formatOperatorNote(raw, raw.toUpperCase()), `AVISO / NOTE:\n${raw}`);
+test('what goes out is Portuguese and nothing else', () => {
+  // The crew speaks Portuguese, so we speak Portuguese to them. The
+  // English rendering exists for the operator to check the translation on
+  // the card; putting it in the message too is noise on the phone of
+  // someone who was never going to read it (Dotti, 2026-09-26).
+  const pt = 'Podem fazer 3 Locust, 19 Rackliffe e 225 Washington na segunda-feira.';
+  const block = formatOperatorNote(pt);
+  assert.equal(block, `AVISO:\n${pt}`);
+  assert.ok(!/NOTE/.test(block), 'the heading is Portuguese too');
+  assert.ok(!/You can do/.test(block), 'the English must never reach the crew');
 });
 
 test('no note means no block at all', () => {
   assert.equal(formatOperatorNote(''), '');
   assert.equal(formatOperatorNote(null), '');
-  assert.equal(formatOperatorNote('   ', 'something'), '');
+  assert.equal(formatOperatorNote('   '), '');
 });
 
 test('the block rides after the schedule, separated by a blank line', () => {
   const body = 'Rising Tide - limpezas\nseg, 28 set / Mon, Sep 28';
-  assert.equal(withOperatorNote(body, 'AVISO / NOTE:\nteste'), `${body}\n\nAVISO / NOTE:\nteste`);
+  assert.equal(withOperatorNote(body, 'AVISO:\nteste'), `${body}\n\nAVISO:\nteste`);
   assert.equal(withOperatorNote(body, ''), body);
   assert.equal(withOperatorNote(body, null), body);
 });
