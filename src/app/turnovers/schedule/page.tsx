@@ -44,14 +44,13 @@ import {
   setNoCleanAction,
   applyProposalAction,
   dismissProposalAction,
-  toggleRecipientAction,
   saveRecipientAction,
   saveDefaultTimesAction,
   ensureTomorrowDraft,
-  approveAndSendDigest,
-  sendDigestUpdate,
   skipDigestAction,
+  decideOwnerHoldAction,
 } from './actions';
+import { RecipientToggle } from './RecipientToggle';
 
 /**
  * The checkout-schedule workroom: the operator's view of the same merged
@@ -66,6 +65,11 @@ import {
 export const dynamic = 'force-dynamic';
 
 const DAYS = 7;
+
+/** "Oct 16, 5:02 PM" in Eastern, for a sent digest's eyebrow. */
+function fmtSentAt(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
 
 function fmtDayHead(date: string, today: string): string {
   const base = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(
@@ -104,6 +108,7 @@ const ERR_COPY: Record<string, string> = {
   quo_unconfigured: 'Nothing sent: QUO_API_KEY is not set in this environment.',
   all_failed: 'Nothing sent: Quo rejected every text. Try again.',
   raced: 'That digest was already being sent (another tab or the evening send). This is the fresh state.',
+  bad_hold: 'That owner stay could not be read from the form.',
 };
 
 type Notice = { tone: 'ok' | 'bad'; text: string };
@@ -129,8 +134,17 @@ function digestNotice(p: { err?: string; sent?: string; failed?: string; skipped
 }
 
 /** The page-head outcome for everything that is not a digest or a recipient. */
-function headNotice(p: { err?: string; saved?: string; applied?: string; removed?: string; dismissed?: string; noclean?: string; nocleanSent?: string }): Notice | null {
+function headNotice(p: { err?: string; saved?: string; applied?: string; removed?: string; dismissed?: string; noclean?: string; nocleanSent?: string; ownerhold?: string }): Notice | null {
   if (p.err) return { tone: 'bad', text: ERR_COPY[p.err] ?? `Error: ${p.err}` };
+  if (p.ownerhold) {
+    // decideOwnerHoldAction lands here with back=page.
+    if (p.ownerhold === 'clean') return { tone: 'ok', text: 'Saved: the crew cleans after the owner leaves.' };
+    if (p.ownerhold === 'no_clean') return { tone: 'ok', text: 'Saved: no cleaning after this owner stay. It is off the route.' };
+    if (p.ownerhold === 'no_clean_sent') {
+      return { tone: 'ok', text: "Saved: no cleaning after this owner stay. That day's text already went out: send an update from the cleaner inbox." };
+    }
+    return { tone: 'bad', text: ERR_COPY[p.ownerhold] ?? `Error: ${p.ownerhold}` };
+  }
   if (p.noclean) {
     const what = p.noclean === 'on'
       ? 'Marked no cleaning needed. It is off the route on the cleaner page and in the text.'
@@ -175,9 +189,22 @@ const VERDICT_TONE = {
   bad:  { color: 'var(--signal)', border: '1px solid var(--signal)' },
 } as const;
 
-function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; verdict?: ReturnType<typeof verdictLabel> }) {
+function StayRow({
+  row,
+  today,
+  verdict,
+  holdDecision = null,
+}: {
+  row: ScheduleRow;
+  today: string;
+  verdict?: ReturnType<typeof verdictLabel>;
+  /** The answer on file to "clean after this owner stay?", if any. */
+  holdDecision?: 'clean' | 'no_clean' | null;
+}) {
   const adj = row.adjustment;
   const noClean = row.noClean ?? null;
+  // The chip says the answer; the expansion offers to give or change it.
+  const cleanAfter = row.ownerHold ? (noClean || holdDecision === 'no_clean' ? 'no' : holdDecision === 'clean' ? 'yes' : null) : null;
   return (
     <details
       id={`stay-${row.propertyId}-${row.checkIn}`}
@@ -202,6 +229,7 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
         {row.ownerHold && (
           <span title={`Guesty hold${row.ownerHold.reason ? ` · ${row.ownerHold.reason}` : ''}${row.ownerHold.note ? ` · ${row.ownerHold.note}` : ''}`} style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 3, padding: '2px 7px' }}>
             owner stay{row.ownerHold.note && !/^owner\s*(use|block|stay)$/i.test(row.ownerHold.note.trim()) ? ` · ${row.ownerHold.note}` : ''}
+            {cleanAfter ? ` · clean after: ${cleanAfter}` : ' · clean after?'}
           </span>
         )}
         {noClean && (
@@ -250,6 +278,46 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-4)' }}>adjust ▾</span>
       </summary>
       <div style={{ padding: '4px 0 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {row.ownerHold && (
+          // The owner-hold answer lives on the row it changes (it used to be
+          // answerable only on the cleaner inbox and the home feed). The same
+          // decideOwnerHoldAction those surfaces post to; back=page lands here.
+          <div id={`owner-hold-${row.propertyId}-${row.checkIn}`} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', scrollMarginTop: 100 }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Clean after the owner leaves?</span>
+            {(['clean', 'no_clean'] as const).map((decision) => {
+              const active = cleanAfter === (decision === 'clean' ? 'yes' : 'no');
+              return (
+                <form key={decision} action={decideOwnerHoldAction} style={{ display: 'inline' }}>
+                  <input type="hidden" name="propertyId" value={row.propertyId} />
+                  <input type="hidden" name="stayCheckIn" value={row.checkIn} />
+                  <input type="hidden" name="checkOut" value={row.effectiveCheckOut} />
+                  <input type="hidden" name="decision" value={decision} />
+                  <input type="hidden" name="holdReason" value={row.ownerHold?.reason ?? ''} />
+                  <input type="hidden" name="holdNote" value={row.ownerHold?.note ?? ''} />
+                  <input type="hidden" name="back" value="page" />
+                  <SubmitButton
+                    label={decision === 'clean' ? 'Yes' : 'No'}
+                    busyLabel="..."
+                    spinnerTone={active ? 'paper' : 'ink'}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      padding: '5px 14px',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      background: active ? 'var(--ink)' : 'transparent',
+                      color: active ? 'var(--paper)' : 'var(--ink)',
+                      border: active ? '1px solid var(--ink)' : '1px solid var(--rule)',
+                    }}
+                  />
+                </form>
+              );
+            })}
+            <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+              {cleanAfter === 'no' ? 'Off the route after this stay.' : cleanAfter === 'yes' ? 'The crew cleans after the owner leaves.' : 'Not answered yet.'}
+            </span>
+          </div>
+        )}
         {adj?.evidence && (
           <div style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>&ldquo;{adj.evidence}&rdquo;</div>
         )}
@@ -276,9 +344,6 @@ function StayRow({ row, today, verdict }: { row: ScheduleRow; today: string; ver
             style={{ fontSize: 12, fontWeight: 600, padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
           />
         </form>
-        <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-          Date unchanged = a time-only adjustment. Guesty says {row.baseCheckOut} at {formatTime12(row.defaultTime)}; the schedule shows {row.effectiveCheckOut} at {formatTime12(row.time)}.
-        </div>
         {adj && (
           <form action={removeAdjustmentAction}>
             <input type="hidden" name="id" value={adj.id} />
@@ -465,6 +530,21 @@ export default async function CheckoutSchedulePage({
   const digestByDate = new Map<string, DigestRow>();
   for (const d of (digestsRes.data ?? []) as DigestRow[]) digestByDate.set(d.service_date, d);
   const proposals = (proposalsRes.data ?? []) as CheckoutAdjustment[];
+  // The answer already given to "clean after?" for each owner stay in the
+  // window, so the row's chip can say it and offer to change it. A missing
+  // table (migration not applied) reads as no answers, never as an error.
+  const holdDecisions = new Map<string, 'clean' | 'no_clean'>();
+  try {
+    const { data: decRows } = await supabase
+      .from('owner_hold_decisions')
+      .select('property_id, stay_check_in, decision')
+      .gte('check_out', today);
+    for (const d of (decRows ?? []) as Array<{ property_id: string; stay_check_in: string; decision: string }>) {
+      if (d.decision === 'clean' || d.decision === 'no_clean') holdDecisions.set(`${d.property_id}|${d.stay_check_in}`, d.decision);
+    }
+  } catch {
+    // No answers to show.
+  }
   // Every active managed home, all regions: the recipient form's picker and
   // the region options. The Cape Ann filter below is for the default-times
   // list, which is the Cape Ann crew's, and it stays.
@@ -522,6 +602,7 @@ export default async function CheckoutSchedulePage({
           dismissed: first(sp.dismissed),
           noclean: first(sp.noclean),
           nocleanSent: first(sp.noclean_sent),
+          ownerhold: first(sp.ownerhold),
         }) ??
         digestNotice({ sent: first(sp.sent), failed: first(sp.failed), skipped: first(sp.skipped) });
 
@@ -531,8 +612,7 @@ export default async function CheckoutSchedulePage({
       <TurnoverTabs />
 
       <Section
-        title="Cleaner checkout schedule"
-        eyebrow="One source of truth"
+        title="Schedule"
         right={
           enabledRecipient ? (
             <a
@@ -547,12 +627,9 @@ export default async function CheckoutSchedulePage({
         }
         paddingBottom={8}
       >
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6, maxWidth: 680 }}>
-          Guesty bookings merged with everything Helm knows on top: late checkouts agreed in guest messaging, extensions
-          that have not landed in Guesty yet, and your own adjustments. What you see here is exactly what Rosa&rsquo;s
-          page and the daily digest text show.
-          <NoticeLine notice={pageNotice} style={{ marginTop: 8 }} />
-        </div>
+        {/* No explainer: the days below are the thing. The outcome of the
+            last action is the only line that earns the spot. */}
+        <NoticeLine notice={pageNotice} />
       </Section>
 
       {proposals.length > 0 && (
@@ -607,7 +684,7 @@ export default async function CheckoutSchedulePage({
             eyebrow={
               digest
                 ? digest.status === 'sent'
-                  ? `Digest sent${digest.sent_at ? '' : ''}`
+                  ? `Digest sent${digest.sent_at ? ` · ${fmtSentAt(digest.sent_at)}` : ''}`
                   : digest.status === 'pending'
                     ? 'Digest waiting for approval'
                     : `Digest ${digest.status}`
@@ -620,7 +697,7 @@ export default async function CheckoutSchedulePage({
                 </Link>
               ) : digest && digest.status === 'sent' ? (
                 <Link href={`/turnovers/schedule?digest=${day.date}#digest-${CAPE_ANN_REGION}`} style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
-                  {digestDate === day.date ? 'Shown below' : 'Open this text, send an update →'}
+                  {digestDate === day.date ? 'Shown below' : 'Open this text →'}
                 </Link>
               ) : undefined
             }
@@ -636,10 +713,16 @@ export default async function CheckoutSchedulePage({
                   row={row}
                   today={today}
                   verdict={verdictLabel(vendorByDate.get(day.date)?.byRow.get(`${row.propertyId}|${row.checkIn}`))}
+                  holdDecision={holdDecisions.get(`${row.propertyId}|${row.checkIn}`) ?? null}
                 />
               ))}
               {(day.skipped ?? []).map((row) => (
-                <StayRow key={`skip-${row.propertyId}|${row.checkIn}`} row={row} today={today} />
+                <StayRow
+                  key={`skip-${row.propertyId}|${row.checkIn}`}
+                  row={row}
+                  today={today}
+                  holdDecision={holdDecisions.get(`${row.propertyId}|${row.checkIn}`) ?? null}
+                />
               ))}
               {(vendorByDate.get(day.date)?.orphans ?? []).map((o) => (
                 <div
@@ -662,7 +745,7 @@ export default async function CheckoutSchedulePage({
         );
       })}
 
-      {regionCards.map(({ region, digest, serviceDate, preview }) => {
+      {regionCards.map(({ region, digest, preview }) => {
         const status = digest?.status ?? null;
         const pending = status === 'pending';
         const sent = status === 'sent';
@@ -682,6 +765,10 @@ export default async function CheckoutSchedulePage({
                 <Link href="/cleaner-messaging#schedule-digest" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
                   Edit and approve on the cleaner inbox →
                 </Link>
+              ) : region === CAPE_ANN_REGION && sent ? (
+                <Link href="/cleaner-messaging#schedule-digest" style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                  Send an update on the cleaner inbox →
+                </Link>
               ) : undefined
             }
             paddingTop={8}
@@ -690,13 +777,8 @@ export default async function CheckoutSchedulePage({
             <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
               {region === noticeRegion && <NoticeLine notice={regionNotice} />}
               <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-                {enabledHere.length === 0 ? (
+                {enabledHere.length === 0 && (
                   <span>No enabled recipient in {regionLabel(region)}. Nothing can be sent here until one is added below.</span>
-                ) : (
-                  <span>
-                    Each recipient below gets their own text, composed live for {fmtDayHead(serviceDate, today)} from the homes in
-                    their scope, in their language, with their own live-page link.
-                  </span>
                 )}
                 {digest && digest.operator_note && (
                   // What the crew receives is the rendered note (lib/cleaner-note),
@@ -765,21 +847,11 @@ export default async function CheckoutSchedulePage({
                     />
                   </form>
                 )}
-                {digest && pending && enabledHere.length > 0 && !preview.error && (
-                  <form action={approveAndSendDigest}>
-                    <input type="hidden" name="digestId" value={digest.id} />
-                    <input type="hidden" name="body" value={digest.body} />
-                    <input type="hidden" name="draftedBody" value={digest.body} />
-                    <input type="hidden" name="note" value={digest.operator_note ?? ''} />
-                    <input type="hidden" name="region" value={region} />
-                    <input type="hidden" name="back" value="page" />
-                    <SubmitButton
-                      label={`Send to ${enabledHere.map((r) => r.display_name).join(', ')}`}
-                      busyLabel="Sending..."
-                      style={{ fontSize: 12, fontWeight: 600, padding: '7px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
-                    />
-                  </form>
-                )}
+                {/* One approval gate: the text is approved and sent, and an
+                    update after a change is sent, from the card on the
+                    cleaner inbox. This card is the preview; the link in its
+                    head goes to the gate. Skip stays here because it sends
+                    nothing. */}
                 {digest && pending && (
                   <form action={skipDigestAction}>
                     <input type="hidden" name="digestId" value={digest.id} />
@@ -790,20 +862,6 @@ export default async function CheckoutSchedulePage({
                       busyLabel="..."
                       spinnerTone="ink"
                       style={{ fontSize: 12, padding: '6px 12px', background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--rule)', borderRadius: 5, cursor: 'pointer' }}
-                    />
-                  </form>
-                )}
-                {digest && sent && enabledHere.length > 0 && !preview.error && (
-                  <form action={sendDigestUpdate}>
-                    <input type="hidden" name="digestId" value={digest.id} />
-                    <input type="hidden" name="region" value={region} />
-                    <input type="hidden" name="back" value="page" />
-                    <input type="hidden" name="digestDate" value={digest.service_date} />
-                    <SubmitButton
-                      label="Send an update (schedule changed)"
-                      busyLabel="Sending..."
-                      spinnerTone="ink"
-                      style={{ fontSize: 12, padding: '6px 12px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--ink)', borderRadius: 5, cursor: 'pointer' }}
                     />
                   </form>
                 )}
@@ -824,24 +882,7 @@ export default async function CheckoutSchedulePage({
           {recipients.map((r) => (
             <div key={r.phone} id={`recipient-${r.phone.replace(/\D/g, '')}`} style={{ borderTop: '1px solid var(--rule)', scrollMarginTop: 100 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', flexWrap: 'wrap' }}>
-                <form action={toggleRecipientAction} style={{ display: 'inline' }}>
-                  <input type="hidden" name="phone" value={r.phone} />
-                  <input type="hidden" name="enabled" value={r.enabled ? 'false' : 'true'} />
-                  <SubmitButton
-                    label={`${r.display_name} ${r.enabled ? '✓' : '· off'}`}
-                    busyLabel="..."
-                    spinnerTone="ink"
-                    style={{
-                      fontSize: 12,
-                      padding: '5px 12px',
-                      borderRadius: 12,
-                      cursor: 'pointer',
-                      border: r.enabled ? '1px solid var(--ink)' : '1px solid var(--rule)',
-                      background: r.enabled ? 'var(--ink)' : 'transparent',
-                      color: r.enabled ? 'var(--paper)' : 'var(--ink-4)',
-                    }}
-                  />
-                </form>
+                <RecipientToggle phone={r.phone} name={r.display_name} enabled={r.enabled} />
                 <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--ink-3)' }}>{r.phone}</span>
                 <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                   {regionLabel(r.region)} · {describeRecipientScope(r, regionLabel, (id) => allPropNames.get(id) ?? id)}
@@ -875,14 +916,9 @@ export default async function CheckoutSchedulePage({
             </div>
           </details>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
-          Each enabled cleaner gets a digest scoped to their homes (no homes listed = every home in their region) in
-          their language, plus their own live-page link. Drafts land every afternoon for the next day; nothing texts
-          without your approval, here or on the cleaner inbox.
-        </div>
       </Section>
 
-      <Section title="Default times per property" eyebrow="Fallback when no adjustment exists" paddingTop={8}>
+      <Section title="Default times per property" eyebrow="When no adjustment is set" paddingTop={8}>
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {timeProps.map((p) => (
             <form
@@ -894,12 +930,16 @@ export default async function CheckoutSchedulePage({
               <input type="hidden" name="propertyId" value={p.id} />
               <span style={{ fontSize: 13, fontWeight: 600, minWidth: 150 }}>{p.name}</span>
               <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                out
+                Checkout (guest)
                 <input name="checkoutTime" defaultValue={p.default_checkout_time ?? ''} placeholder="10:00" style={{ ...inputStyle, width: 84 }} />
               </label>
+              {/* default_checkin_time is the CLEANER's finish target, not the
+                  guest's 4 PM check-in (lib/onboarding-catalog.ts, #1294). The
+                  old label "in" with a 16:00 placeholder invited a new hire to
+                  "correct" it and move the crew's target an hour later. */}
               <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                in
-                <input name="checkinTime" defaultValue={p.default_checkin_time ?? ''} placeholder="16:00" style={{ ...inputStyle, width: 84 }} />
+                Cleaner finish target
+                <input name="checkinTime" defaultValue={p.default_checkin_time ?? ''} placeholder="15:00" style={{ ...inputStyle, width: 84 }} />
               </label>
               <SubmitButton
                 label="Save"
@@ -911,9 +951,7 @@ export default async function CheckoutSchedulePage({
           ))}
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
-          Blank means never set: the nightly Guesty sync fills blanks from each listing&rsquo;s default checkout /
-          check-in time, and readers fall back to 10:00 / 16:00. A value you type here sticks (the sync only fills
-          blanks).
+          Blank = Guesty&rsquo;s listing default.
         </div>
       </Section>
 
