@@ -49,7 +49,11 @@ type QueueCard = {
 
 type PlannedWalk = {
   id: string;
+  propertyId: string;
   propertyName: string;
+  /** The stay the walk preps for: with the property id it names the
+   *  pipeline row's anchor (#turnover-<pid>-<rid>). */
+  reservationId: string | null;
   plannedFor: string | null;
   checkinDate: string;
   notes: string | null;
@@ -792,7 +796,7 @@ async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
     const today = operatingDate();
     const { data } = await supabase
       .from('inspection_plans')
-      .select('id, property_id, planned_for_date, checkin_date, notes, properties!inner(id, name)')
+      .select('id, property_id, guesty_reservation_id, planned_for_date, checkin_date, notes, properties!inner(id, name)')
       .eq('assigned_to_email', email)
       .gte('planned_for_date', today)
       .order('planned_for_date', { ascending: true })
@@ -800,6 +804,7 @@ async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
     return ((data ?? []) as Array<{
       id: string;
       property_id: string;
+      guesty_reservation_id: string | null;
       planned_for_date: string | null;
       checkin_date: string;
       notes: string | null;
@@ -808,7 +813,9 @@ async function loadPlannedWalks(email: string): Promise<PlannedWalk[]> {
       const prop = Array.isArray(p.properties) ? p.properties[0] : p.properties;
       return {
         id: p.id,
+        propertyId: p.property_id,
         propertyName: prop?.name ?? p.property_id,
+        reservationId: p.guesty_reservation_id,
         plannedFor: p.planned_for_date,
         checkinDate: p.checkin_date,
         notes: p.notes,
@@ -853,9 +860,17 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
   const isPast = !!walk.plannedFor && walk.plannedFor < today;
   const dotColor = isPast ? 'var(--negative)' : isToday ? 'var(--signal)' : 'var(--tide-deep)';
   const label = isPast ? 'overdue' : isToday ? 'today' : walk.plannedFor ?? 'upcoming';
+  // Land on the walk's own row, not the top of the board: the pipeline is
+  // filtered to the home and widened to a range that holds the check-in,
+  // and the row anchor scrolls to it. A plan with no stay behind it falls
+  // back to the filtered board.
+  const daysOut = Math.ceil((Date.parse(`${walk.checkinDate.slice(0, 10)}T12:00:00`) - Date.parse(`${today}T12:00:00`)) / 86_400_000);
+  const range = daysOut <= 0 ? 'today' : daysOut <= 3 ? '3d' : daysOut <= 7 ? '7d' : daysOut <= 14 ? '14d' : '30d';
+  const anchor = walk.reservationId ? `#turnover-${walk.propertyId}-${walk.reservationId}` : '';
+  const href = `/turnovers?range=${range}&property=${encodeURIComponent(walk.propertyId)}${anchor}`;
   return (
     <Link
-      href="/turnovers"
+      href={href}
       style={{ ...feedRowStyle, alignItems: 'center', textDecoration: 'none', color: 'inherit' }}
     >
       <span style={{ ...dotStyle, marginTop: 0, background: dotColor }} aria-hidden="true" />
