@@ -9,15 +9,20 @@ import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { isStayConciergeConfigured, listConversations, explainError } from '@/lib/stay-concierge';
 import { todayET } from '@/lib/checkout-schedule';
 import { RemindersSection } from '../RemindersSection';
-import { SendPanel } from './SendPanel';
+import { SendPanel, type SendTab } from './SendPanel';
 import { PaymentLinksLedger } from './PaymentLinksLedger';
 
 /**
- * /messaging/send - the Send lens of the Guests tab.
+ * /messaging/send - the Send lens of the Guests tab, in two tabs.
  *
  * The Inbox reacts to what guests sent us. This is the other half: starting
- * a message ourselves. Phase 1 is free text against a picked stay; the
- * mirrored Guesty check-in templates mount onto this same surface next.
+ * something ourselves. Message: pick a stay, write, send (now or later).
+ * Charge: pick a stay, say what for and how much, and the payment link
+ * mints in the home's own Stripe account and texts the guest; the ledger
+ * of every link from the last month sits under it. The tab rides in the
+ * URL (?tab=charge) so the home feed's Payments cards and the concierge's
+ * add-on alert land on the ledger, and so the server can render the
+ * ledger only when it is wanted.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -62,7 +67,7 @@ function NotReachable({ message, retry = false }: { message: string; retry?: boo
 // here right after /messaging is warm. `today` is resolved server-side in ET
 // so stay proximity can never disagree with the render because of a browser
 // clock or timezone.
-async function SendSection() {
+async function SendSection({ tab, stayId }: { tab: SendTab; stayId: string }) {
   const conversations = await listConversations(60);
   if (!conversations.ok) {
     return <NotReachable message={explainError(conversations.error)} retry />;
@@ -72,11 +77,22 @@ async function SendSection() {
       initialConversations={conversations.data.conversations}
       initialError={null}
       today={todayET()}
+      tab={tab}
+      initialStayId={stayId}
     />
   );
 }
 
-export default function MessagingSendPage() {
+export default async function MessagingSendPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? '';
+  const tab: SendTab = first(sp.tab) === 'charge' ? 'charge' : 'message';
+  const stayId = first(sp.stay);
+
   if (!isStayConciergeConfigured()) {
     return (
       <Shell>
@@ -86,25 +102,28 @@ export default function MessagingSendPage() {
   }
   return (
     <Shell>
-      <Suspense fallback={<SendSkeleton />}>
-        <SendSection />
+      <Suspense fallback={<SendSkeleton tab={tab} />}>
+        <SendSection tab={tab} stayId={stayId} />
       </Suspense>
-      {/* Every payment link from the last month and whether it was paid.
-          Reads Supabase, not the concierge, so it renders even when the
-          Mac Mini is unreachable. */}
-      <Suspense fallback={null}>
-        <PaymentLinksLedger />
-      </Suspense>
-      {/* Scheduled + repeating messages moved here with the compose surface:
-          both are "things we start", so they belong on the same lens. */}
-      <RemindersSection />
+      {tab === 'charge' ? (
+        // Every payment link from the last month and whether it was paid.
+        // Reads Supabase, not the concierge, so it renders even when the
+        // Mac Mini is unreachable.
+        <Suspense fallback={null}>
+          <PaymentLinksLedger />
+        </Suspense>
+      ) : (
+        // Scheduled + repeating messages ride with the compose surface: both
+        // are "things we start", so they belong on the Message tab.
+        <RemindersSection />
+      )}
     </Shell>
   );
 }
 
-function SendSkeleton() {
+function SendSkeleton({ tab }: { tab: SendTab }) {
   return (
-    <Section title="Send a message" eyebrow="pick a stay, write, send">
+    <Section title={tab === 'charge' ? 'Charge a guest' : 'Send a message'} eyebrow={tab === 'charge' ? 'pick a stay, say what for' : 'pick a stay, write, send'}>
       <div style={{ borderTop: '1px solid var(--ink)', padding: '18px 0', fontSize: 13, color: 'var(--ink-4)' }}>
         Loading stays...
       </div>

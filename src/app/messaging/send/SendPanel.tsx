@@ -4,6 +4,11 @@
  * The Send lens: pick a stay, write, send. Free text only in this phase -
  * the mirrored Guesty templates land on top of this same surface next.
  *
+ * Two tabs since 2026-10-17: Message (this composer) and Charge (the
+ * payment-link form, which used to be a disclosure under the composer).
+ * The tab rides in the URL; the picked stay rides along as ?stay= so
+ * switching tabs keeps the guest.
+ *
  * Replaces a 13-step errand (expand the Proactive block, choose a kind,
  * find the guest in a dropdown that fetched separately, fill a cadence, a
  * time, a start date, an end date...) with: pick the guest, type, send.
@@ -21,6 +26,7 @@
  */
 
 import { useEffect, useRef, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Section } from '@/components/Section';
 import { SplitSendButton, SchedulePopover } from '@/components/ScheduleSend';
@@ -35,17 +41,26 @@ import { PaymentLinkPanel } from './PaymentLinkPanel';
 // button keeps spinning. After this long, say so instead of spinning forever.
 const STALL_MS = 10_000;
 
+export type SendTab = 'message' | 'charge';
+
 export function SendPanel({
   initialConversations,
   initialError,
   today,
+  tab = 'message',
+  initialStayId = '',
 }: {
   initialConversations: ConversationSummary[];
   initialError: string | null;
   today: string;
+  tab?: SendTab;
+  /** The stay picked on the other tab, carried across the switch. */
+  initialStayId?: string;
 }) {
   const router = useRouter();
-  const [picked, setPicked] = useState<ConversationSummary | null>(null);
+  const [picked, setPicked] = useState<ConversationSummary | null>(
+    () => (initialStayId ? initialConversations.find((c) => c.conversation_id === initialStayId) ?? null : null),
+  );
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -165,10 +180,24 @@ export function SendPanel({
     : '';
   const stayLabel = picked ? formatStayDates(picked.check_in, picked.check_out) : '';
 
+  const tabHref = (t: SendTab) =>
+    `/messaging/send?tab=${t}${picked ? `&stay=${encodeURIComponent(picked.conversation_id)}` : ''}`;
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: '8px 16px',
+    fontSize: 10,
+    letterSpacing: '.16em',
+    textTransform: 'uppercase',
+    fontWeight: 700,
+    textDecoration: 'none',
+    border: `1px solid ${active ? 'var(--ink)' : 'var(--rule)'}`,
+    background: active ? 'var(--ink)' : 'transparent',
+    color: active ? 'var(--paper)' : 'var(--ink-3)',
+  });
+
   return (
     <Section
-      title="Send a message"
-      eyebrow="pick a stay, write, send"
+      title={tab === 'charge' ? 'Charge a guest' : 'Send a message'}
+      eyebrow={tab === 'charge' ? 'pick a stay, say what for, the link texts them' : 'pick a stay, write, send'}
       right={
         picked ? (
           <button
@@ -196,6 +225,13 @@ export function SendPanel({
         ) : undefined
       }
     >
+      <div role="tablist" aria-label="Send lens" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {(['message', 'charge'] as SendTab[]).map((t) => (
+          <Link key={t} role="tab" aria-selected={tab === t} href={tabHref(t)} style={tabStyle(tab === t)}>
+            {t === 'message' ? 'Message' : 'Charge'}
+          </Link>
+        ))}
+      </div>
       {initialError && initialConversations.length === 0 ? (
         <div style={{ borderTop: '1px solid var(--ink)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)' }}>
           {initialError}
@@ -252,6 +288,12 @@ export function SendPanel({
             )}
           </div>
 
+          {tab === 'charge' ? (
+            // The other way to reach this guest: a bill. Keyed on the stay so
+            // switching guests resets the form.
+            <PaymentLinkPanel key={picked.conversation_id} picked={picked} />
+          ) : (
+            <>
           {!canSend && (
             <p
               style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 500, margin: '0 0 10px' }}
@@ -378,10 +420,8 @@ export function SendPanel({
               then, and comes back for review if the guest writes first.
             </p>
           )}
-
-          {/* The other way to reach this guest: a bill. Keyed on the stay so
-              switching guests resets the form. */}
-          <PaymentLinkPanel key={picked.conversation_id} picked={picked} />
+            </>
+          )}
         </div>
       )}
     </Section>

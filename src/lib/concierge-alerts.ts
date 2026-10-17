@@ -65,7 +65,7 @@ export function conciergeAlertTitle(kind: string): string {
 
 /** Where the operator goes to act on it. */
 export function conciergeAlertHref(kind: string): string {
-  if (kind === 'addon_sms_failed') return '/messaging/send#payment-links';
+  if (kind === 'addon_sms_failed') return '/messaging/send?tab=charge#payment-links';
   if (kind === 'unknown_owner_sms' || kind.startsWith('owner_')) return '/owner-messaging';
   return '/messaging';
 }

@@ -9,11 +9,12 @@
  * editable, and sends as shown. After that the ledger below and the home
  * feed's Payments cards say whether it was paid.
  *
- * Sits under the composer because it is the other thing "I need to reach
- * this guest" means: a message, or a bill.
+ * The Charge tab of the Send lens (2026-10-17): the other thing "I need to
+ * reach this guest" means is a bill. It used to be a disclosure under the
+ * composer; now it opens straight onto the form.
  */
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ConversationSummary } from '@/lib/stay-concierge';
 import {
@@ -41,7 +42,6 @@ function pct(rate: number): string {
 
 export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [prep, setPrep] = useState<PreparedLink | null>(null);
   const [prepError, setPrepError] = useState<string | null>(null);
   const [loadingPrep, setLoadingPrep] = useState(false);
@@ -80,10 +80,13 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
       .finally(() => setLoadingPrep(false));
   };
 
-  const openPanel = () => {
-    setOpen(true);
-    if (!prep) loadPrep();
-  };
+  // The tab opens onto the form: look the stay up on mount, once.
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    loadPrep();
+  });
 
   const property = prep?.properties.find((p) => p.id === propertyId) ?? null;
   const rate = taxable && property ? property.taxRate : 0;
@@ -140,33 +143,8 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
   };
 
   return (
-    <div style={{ marginTop: 22, borderTop: '1px solid var(--rule)', paddingTop: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={open ? () => setOpen(false) : openPanel}
-          className="eyebrow"
-          aria-expanded={open}
-          style={{
-            color: 'var(--ink)',
-            background: 'transparent',
-            border: '1px solid var(--rule)',
-            padding: '6px 10px',
-            cursor: 'pointer',
-          }}
-        >
-          {open ? 'Payment link ▴' : 'Payment link ▾'}
-        </button>
-        {!open && (
-          <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>
-            Charge {guestFirst} for a late checkout, a pet, an extra night. The link mints in the
-            home&apos;s own Stripe and texts to their phone; the home page tells you when it&apos;s paid.
-          </span>
-        )}
-      </div>
-
-      {open && (
-        <div style={{ marginTop: 14 }}>
+    <div style={{ marginTop: 14 }}>
+      <div>
           {loadingPrep && !prep && (
             <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>Looking up the stay...</div>
           )}
@@ -243,7 +221,7 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
                       <option value="">Pick the property</option>
                       {prep.properties.map((p) => (
                         <option key={p.id} value={p.id} disabled={!p.hasKey}>
-                          {p.name}{p.hasKey ? '' : ' (no Stripe key)'}
+                          {p.name}{p.hasKey ? '' : ' (not set up)'}
                         </option>
                       ))}
                     </select>
@@ -262,7 +240,7 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
               </div>
               {property && !property.hasKey && (
                 <p role="alert" style={{ fontSize: 12, color: 'var(--signal)', fontWeight: 500, margin: '8px 0 0' }}>
-                  Helm has no Stripe key for {property.name}, so it can&apos;t mint a link there yet.
+                  Payment links are not set up for {property.name}. Ask Ryan.
                 </p>
               )}
               {!prep.propertyId && (
@@ -276,7 +254,7 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
                 <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
                   The text{' '}
                   <span style={{ textTransform: 'none', letterSpacing: 0 }}>
-                    · sends from the Guests line as Allie; [link] becomes the real link
+                    · from the Guests line, signed Allie like every guest text; [link] becomes the real link
                   </span>
                   {smsTouched && (
                     <>
@@ -376,7 +354,6 @@ export function PaymentLinkPanel({ picked }: { picked: ConversationSummary }) {
             </div>
           )}
         </div>
-      )}
     </div>
   );
 }

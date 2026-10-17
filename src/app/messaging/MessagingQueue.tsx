@@ -1206,11 +1206,9 @@ function ApprovalCard({
             </div>
           ) : (
             <p style={{ marginTop: 10, fontSize: 13, color: 'var(--signal)', lineHeight: 1.55 }}>
-              {addon.link_error === 'no_key'
-                ? 'This property has no Stripe key in Helm, so no payment link was created. Make the link manually in Stripe and text it yourself.'
-                : addon.link_error === 'stripe_permission'
-                  ? "The property's Stripe key is read-only, so the payment link couldn't be created. Add write access for Payment Links, Products, and Prices to the restricted key, update STRIPE_KEYS_JSON in Vercel, and future links will mint automatically."
-                  : `Payment link creation failed (${addon.link_error || 'unknown error'}). Approve sends the reply only; make the link manually.`}
+              {addon.link_error === 'no_key' || addon.link_error === 'stripe_permission'
+                ? 'Payment links are not set up for this home. Ask Ryan. Approve sends the reply only; make the link by hand.'
+                : `Payment link creation failed (${addon.link_error || 'unknown error'}). Approve sends the reply only; make the link by hand.`}
             </p>
           )}
         </div>

@@ -166,8 +166,9 @@ test('paid-check errors: the fix link and the plain-words reason', () => {
   const err = "403 Permission denied. The provided key 'rk_live_...SYT3' does not have the required permissions for this endpoint on account 'acct_1'. Enabling Checkout Sessions Read ('checkout_session_read') permissions on this key would allow this request to continue. You can edit permissions at https://dashboard.stripe.com/b/acct_1?destination=%2Fapikeys%2Fmk_1%2Fedit";
   assert.equal(stripeKeyFixUrl(err), 'https://dashboard.stripe.com/b/acct_1?destination=%2Fapikeys%2Fmk_1%2Fedit');
   assert.equal(stripeKeyFixUrl('nothing here'), '');
-  assert.equal(explainPaidCheckError(err), "the property's Stripe key needs Checkout Sessions read");
-  assert.equal(explainPaidCheckError('no Stripe key for this property'), 'Helm has no Stripe key for this property');
+  // Setup problems read as setup, for the operator, never as key permissions.
+  assert.equal(explainPaidCheckError(err), 'payment links are not fully set up for this home. Ask Ryan');
+  assert.equal(explainPaidCheckError('no Stripe key for this property'), 'payment links are not set up for this home. Ask Ryan');
 });
 
 test('money', () => {

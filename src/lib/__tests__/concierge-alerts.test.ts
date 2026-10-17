@@ -16,7 +16,7 @@ test('a kind nobody named yet still shows, as words and never as a code', () => 
 
 test('each alert links to where it gets handled', () => {
   assert.equal(conciergeAlertHref('pipeline_failure'), '/messaging');
-  assert.equal(conciergeAlertHref('addon_sms_failed'), '/messaging/send#payment-links');
+  assert.equal(conciergeAlertHref('addon_sms_failed'), '/messaging/send?tab=charge#payment-links');
   assert.equal(conciergeAlertHref('unknown_owner_sms'), '/owner-messaging');
   assert.equal(conciergeAlertHref('owner_guest_message_no_guest'), '/owner-messaging');
   assert.equal(conciergeAlertHref('something_new'), '/messaging');

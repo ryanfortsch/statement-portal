@@ -235,16 +235,16 @@ async function propertyTitleFor(propertyId: string): Promise<string> {
 
 function explainMintError(error: string, detail?: string): string {
   switch (error) {
+    // Both are setup, not something the operator can fix from here.
     case 'no_key':
-      return 'This property has no Stripe key in Helm, so no link can be minted here. Add its STRIPE_KEY_<PROPERTY_ID> in Vercel.';
     case 'stripe_permission':
-      return "The property's Stripe key is read-only. Add write access for Payment Links, Products, and Prices to the restricted key in that property's Stripe dashboard.";
+      return 'Payment links are not set up for this home. Ask Ryan.';
     case 'amount_out_of_range':
       return 'Amount must be between $1 and $2,000, before tax.';
     case 'not_configured':
-      return 'Supabase service key is not set, so nothing can be recorded.';
+      return 'Helm cannot record a payment link right now. Ask Ryan.';
     case 'tax_jurisdiction_unknown':
-      return 'This home is outside Cape Ann and has no tax jurisdiction on file, so Helm will not add tax to a link for it. Add its property_tax_config row first.';
+      return 'This home is outside Cape Ann and has no tax rate on file, so Helm will not add tax to a link for it. Ask Ryan to add it.';
     default:
       return `Stripe refused: ${detail || error}`;
   }
