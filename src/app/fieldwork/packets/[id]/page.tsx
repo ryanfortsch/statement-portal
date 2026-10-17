@@ -49,6 +49,9 @@ function windowLabel(s: PacketStopDetail): string {
 }
 
 const TIER_LABEL: Record<ReliabilityTier, string> = { top: 'top', steady: 'steady', new: 'new', watch: 'watch' };
+/** The one-line key for the tiers, printed wherever they appear. The score
+ *  is getContractorReliability's: completion, on-time and redo rates. */
+const TIER_KEY = 'Reliability: top is a score of 90 or more, steady 75 or more, watch under 75, new has no history yet. Scored on visits completed, on-time arrivals and redos.';
 
 // ── Live trip timing (Uber-style tracker) ─────────────────────────────
 // Arrival = the Seam lock recording their trip code (arrived_verified_at), with
@@ -348,6 +351,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               {ageLabel(packet.published_at) && <span>{ageLabel(packet.published_at)}</span>}
               {deadlineLabel(packet.claim_deadline) && <><span>·</span><span>{deadlineLabel(packet.claim_deadline)}</span></>}
             </div>
+            {eligible.length > 0 && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6, lineHeight: 1.45 }}>{TIER_KEY}</div>}
           </div>
         )}
 
@@ -547,7 +551,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
             rel="noopener noreferrer"
             style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--rule)', borderRadius: 999, padding: '7px 14px', background: 'var(--paper-2, #fff)' }}
           >
-            👁 Preview as inspector ↗
+            Preview as inspector ↗
           </Link>
         </div>
 
@@ -571,9 +575,9 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   {packet.visit_date < todayET() ? (
                     // Expired (or otherwise past-dated) draft: publishPacket
                     // refuses past dates server-side, so don't offer a button
-                    // that would no-op. Move date / time below relists it.
+                    // that would no-op. The When menu below relists it.
                     <span style={{ fontSize: 12, color: '#7a5512', fontWeight: 600 }}>
-                      Visit day has passed. Set a new date under Move date / time, then publish.
+                      Visit day has passed. Set a new day under When, then publish.
                     </span>
                   ) : (
                     <form action={publishPacket}>
@@ -584,18 +588,20 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                 </>
               )}
               {(readyToClose || canWrapUp) && (
-                <form action={submitPacketForContractor} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+                <form action={submitPacketForContractor} style={{ margin: 0 }}>
                   <input type="hidden" name="packet_id" value={packet.id} />
+                  {/* The office closing a trip out for the contractor: what
+                      that does rides in the confirm, not a caption. */}
                   <PendingButton
                     label={readyToClose ? `Submit for ${inspectorFirst}` : `Wrap up & submit for ${inspectorFirst}`}
                     busyLabel="Closing out the trip…"
                     style={btnDark}
+                    confirm={
+                      readyToClose
+                        ? `Submit for ${inspectorFirst}? Every stop is done but they never tapped Submit. This closes the trip out like their own tap: stops the clock, pulls the door codes, and moves it to ${owner ? 'your' : "Ryan's"} review.`
+                        : `Wrap up for ${inspectorFirst}? ${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open. This marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to ${owner ? 'your' : "Ryan's"} review.`
+                    }
                   />
-                  <span style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 520 }}>
-                    {readyToClose
-                      ? `Every stop is done but ${inspectorFirst} never tapped Submit. This closes the trip out exactly like their own tap (stops the clock, pulls the door codes) and moves it to your review.`
-                      : `${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open; this marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to your review.`}
-                  </span>
                 </form>
               )}
               {packet.status === 'submitted' && !owner && (
@@ -757,7 +763,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                           spinnerTone="ink"
                           style={menuRow}
                           label={
-                            // Inner wrapper keeps the name / tier space-between layout —
+                            // Inner wrapper keeps the name / tier space-between layout;
                             // the shared button centers its own children.
                             <span style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 14 }}>
                               <span style={{ fontSize: 13.5, color: 'var(--ink)' }}>{c.full_name}</span>
@@ -769,74 +775,89 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                         />
                       </form>
                     ))}
+                    <div style={{ fontSize: 10.5, color: 'var(--ink-4)', lineHeight: 1.45, borderTop: '1px solid var(--rule)', paddingTop: 8, marginTop: 4, maxWidth: 280 }}>{TIER_KEY}</div>
                   </div>
                 </details>
               )}
-              {(editable || packet.status === 'published') && (
-                <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>Move date / time ▾</summary>
-                  <div style={menuCard}>
-                    <form action={setPacketVisitDate} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
-                      <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} title="Optional start time; leave blank for anytime that day" style={{ ...priceInput, width: 110 }} />
-                      <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
-                    </form>
-                  </div>
-                </details>
-              )}
-              {(packet.status === 'claimed' || packet.status === 'in_progress') && (
-                <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>Earliest start ▾</summary>
-                  <div style={menuCard}>
-                    <form action={setPacketStartTime} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} title="Earliest she can start (a window opening, not an appointment); we email the change" style={{ ...priceInput, width: 110 }} />
-                      <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
-                    </form>
-                    {packet.visit_time && (
-                      <form action={setPacketStartTime} style={{ margin: '6px 0 0' }}>
-                        <input type="hidden" name="packet_id" value={packet.id} />
-                        <input type="hidden" name="visit_time" value="" />
-                        <PendingButton label="Clear earliest start" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
-                      </form>
-                    )}
-                  </div>
-                </details>
-              )}
+              {/* WHEN: the day, the earliest start and the complete-by
+                  deadline in one menu. Three menus for three columns of one
+                  row read as three different things (UI/UX audit). Before a
+                  claim the day and start move together; once claimed, the day
+                  is fixed and a new start time emails the contractor. */}
               {attachEditable && (
                 <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>Complete by ▾</summary>
-                  <div style={menuCard}>
-                    <form action={setPacketCompleteBy} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <input type="hidden" name="packet_id" value={packet.id} />
-                      <input type="time" name="complete_by" defaultValue={packet.complete_by?.slice(0, 5) ?? ''} title="Deadline shown to the inspector; flags them late on the board if missed" style={{ ...priceInput, width: 110 }} />
-                      <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
-                    </form>
-                    {packet.complete_by && (
-                      <form action={setPacketCompleteBy} style={{ margin: '6px 0 0' }}>
+                  <summary style={quietSummary}>When ▾</summary>
+                  <div style={{ ...menuCard, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {(editable || packet.status === 'published') ? (
+                      <form action={setPacketVisitDate} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <input type="hidden" name="packet_id" value={packet.id} />
-                        <input type="hidden" name="complete_by" value="" />
-                        <PendingButton label="Clear deadline" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          <label style={menuLabel}>
+                            Day
+                            <input type="date" name="visit_date" defaultValue={packet.visit_date} style={{ ...priceInput, width: 150 }} />
+                          </label>
+                          <label style={menuLabel}>
+                            Earliest start <span style={{ fontWeight: 400 }}>(blank = any time)</span>
+                            <input type="time" name="visit_time" defaultValue={packet.visit_time ?? ''} style={{ ...priceInput, width: 110 }} />
+                          </label>
+                        </div>
+                        <div><PendingButton label="Move" busyLabel="Moving…" style={btnGhost} spinnerTone="ink" /></div>
                       </form>
+                    ) : (
+                      // Clear is its own form: an empty visit_time field is what
+                      // clears, and a named submitter cannot override the input.
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                        <form action={setPacketStartTime} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', margin: 0 }}>
+                          <input type="hidden" name="packet_id" value={packet.id} />
+                          <label style={menuLabel}>
+                            Earliest start <span style={{ fontWeight: 400 }}>(blank = any time)</span>
+                            <input type="time" name="visit_time" defaultValue={packet.visit_time?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
+                          </label>
+                          <PendingButton label={`Set & email ${inspectorFirst}`} busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
+                        </form>
+                        {packet.visit_time && (
+                          <form action={setPacketStartTime} style={{ margin: 0 }}>
+                            <input type="hidden" name="packet_id" value={packet.id} />
+                            <input type="hidden" name="visit_time" value="" />
+                            <PendingButton label="Clear" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                          </form>
+                        )}
+                      </div>
                     )}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', borderTop: '1px solid var(--rule)', paddingTop: 10 }}>
+                      <form action={setPacketCompleteBy} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', margin: 0 }}>
+                        <input type="hidden" name="packet_id" value={packet.id} />
+                        <label style={menuLabel}>
+                          Complete by <span style={{ fontWeight: 400 }}>(the board flags them late after it)</span>
+                          <input type="time" name="complete_by" defaultValue={packet.complete_by?.slice(0, 5) ?? ''} style={{ ...priceInput, width: 110 }} />
+                        </label>
+                        <PendingButton label="Set" busyLabel="Setting…" style={btnGhost} spinnerTone="ink" />
+                      </form>
+                      {packet.complete_by && (
+                        <form action={setPacketCompleteBy} style={{ margin: 0 }}>
+                          <input type="hidden" name="packet_id" value={packet.id} />
+                          <input type="hidden" name="complete_by" value="" />
+                          <PendingButton label="Clear" busyLabel="Clearing…" style={{ ...btnGhost, color: 'var(--ink-4)' }} spinnerTone="ink" />
+                        </form>
+                      )}
+                    </div>
                   </div>
                 </details>
               )}
               {owner && (packet.status === 'claimed' || packet.status === 'in_progress') && (
                 <details style={{ position: 'relative' }}>
-                  <summary style={quietSummary}>Adjust estimate ▾</summary>
+                  {/* Raise only: the posted figure is what the contractor
+                      agreed to, so the input will not go below it. Lowering
+                      means releasing the claim. */}
+                  <summary style={quietSummary}>Raise pay ▾</summary>
                   <div style={menuCard}>
                     <form action={raisePacketEstimate} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
                       <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
-                      <input type="number" name="price_dollars" min={Math.round(packet.posted_price_cents / 100) + 1} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} style={{ ...priceInput, width: 90 }} />
+                      <input type="number" name="price_dollars" min={Math.round(packet.posted_price_cents / 100) + 1} step={1} defaultValue={Math.round(packet.posted_price_cents / 100)} aria-label={`New pay, above the agreed ${dollars(packet.posted_price_cents)}`} style={{ ...priceInput, width: 90 }} />
                       <input name="reason" placeholder="reason (optional)" maxLength={500} style={{ ...priceInput, width: 150 }} />
-                      <PendingButton label="Raise pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                      <PendingButton label="Raise pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" confirm={`Raise ${inspectorFirst}'s pay above the agreed ${dollars(packet.posted_price_cents)}? We email them the new amount.`} />
                     </form>
-                    <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, maxWidth: 230, lineHeight: 1.45 }}>
-                      Raise only. {dollars(packet.posted_price_cents)} is what {packet.contractor?.full_name ?? 'the contractor'} agreed to, and we&apos;ll email them the new amount. To lower it, release the claim first.
-                    </div>
                   </div>
                 </details>
               )}
@@ -863,17 +884,15 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <input name="instructions" placeholder="What to do (inspection: blank = full walk)" maxLength={500} style={{ ...priceInput, width: '100%' }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 14, color: 'var(--ink-4)' }}>$</span>
-                        <input type="number" name="price_dollars" min={1} step={1} placeholder="pay" required style={{ ...priceInput, width: 80 }} />
-                        <PendingButton label="Add stop" busyLabel="Adding…" style={btnGhost} spinnerTone="ink" />
+                        <input type="number" name="price_dollars" min={1} step={1} placeholder="pay" required aria-label="Pay for this stop, in dollars" style={{ ...priceInput, width: 80 }} />
+                        <PendingButton
+                          label="Add stop"
+                          busyLabel="Adding…"
+                          style={btnGhost}
+                          spinnerTone="ink"
+                          confirm={isWorkingStatus(packet.status) ? `Add this stop? It joins ${inspectorFirst}'s route and pay, and we email them the change.` : undefined}
+                        />
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
-                        A one-off or setup rides as a task the contractor marks done with a photo, not a full inspection.
-                      </div>
-                      {(packet.status === 'claimed' || packet.status === 'in_progress') && (
-                        <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.45 }}>
-                          Adds to {packet.contractor?.full_name ?? 'the contractor'}&apos;s route and pay; we&apos;ll email them the change.
-                        </div>
-                      )}
                     </form>
                   </div>
                 </details>
@@ -1101,6 +1120,7 @@ const quietCtl: React.CSSProperties = {
 };
 // display:flex on summary drops the native disclosure triangle cross-browser.
 const quietSummary: React.CSSProperties = { ...quietCtl, display: 'flex', listStyle: 'none', userSelect: 'none' };
+const menuLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--ink-3)', fontWeight: 600 };
 const menuCard: React.CSSProperties = {
   position: 'absolute',
   top: 'calc(100% + 8px)',

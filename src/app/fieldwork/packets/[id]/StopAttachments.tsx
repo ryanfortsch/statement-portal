@@ -252,10 +252,8 @@ export function StopAttachments({
           {/* Since 2026-09-14 the inspector's stop lists EVERY open slip at
               the home by default, with a tap-open detail on each. Pinning is
               for the ones this trip is really about: it leads the list and
-              carries a note for this visit. */}
-          <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45, marginTop: -4 }}>
-            The inspector already sees every open slip at this home on the stop. Pin one here to put it first, with a note for this trip.
-          </div>
+              carries a note for this visit. The fold's own label says so;
+              there is no caption. */}
 
           {/* The stop's OWN task (one-off / setup / maintenance): editable, so
               the office can fix or expand the job after creation. Saves on
@@ -293,7 +291,7 @@ export function StopAttachments({
           {pickable.length > 0 ? (
             <details>
               <summary style={{ ...box, color: 'var(--ink-3)', cursor: 'pointer', listStyle: 'none' }}>
-                + Attach a work slip ({pickable.length} open)…
+                + Pin a slip to lead the list ({pickable.length} open, all already on the stop)…
               </summary>
               <div style={{ border: '1px solid var(--rule)', borderRadius: 8, marginTop: 6, background: 'var(--paper)' }}>
                 {pickable.map((w) => (
