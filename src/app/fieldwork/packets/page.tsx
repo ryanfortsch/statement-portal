@@ -11,6 +11,7 @@ import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadInspectionCalendar, loadPackets , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
 import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, canClaim, type ContractorRow, type PacketRow } from '@/lib/field-types';
 import { isLiveStatus, isWorkingStatus } from '@/lib/field-packet-status';
+import { PacketStatusStrip } from './PacketStatusStrip';
 import { FieldAvatar } from '@/components/FieldAvatar';
 import { SubmitButton } from '@/components/SubmitButton';
 
@@ -61,27 +62,6 @@ function packetAtRisk(p: PacketRow): boolean {
   if (p.submitted_at || (p.status !== 'claimed' && p.status !== 'in_progress')) return false;
   if (p.complete_by) return pastCompleteByET(p);
   return p.status === 'claimed' && packetAtRiskET(p.visit_date);
-}
-
-function statusChip(status: string, officeAssigned = false): { label: string; bg: string; color: string } {
-  switch (status) {
-    case 'published':
-      return { label: 'Open · unclaimed', bg: 'rgba(186,117,23,0.14)', color: '#7a5512' };
-    case 'claimed':
-      // Assigned by the office reads "Assigned" — saying "Claimed" for work the
-      // operator just handed out makes it look like the contractor acted.
-      return { label: officeAssigned ? 'Assigned' : 'Claimed', bg: 'rgba(58,107,138,0.16)', color: 'var(--tide-deep)' };
-    case 'in_progress':
-      return { label: 'In progress', bg: 'rgba(58,107,138,0.16)', color: 'var(--tide-deep)' };
-    case 'submitted':
-      return { label: 'Needs review', bg: 'rgba(200,90,58,0.14)', color: 'var(--signal)' };
-    case 'approved':
-      return { label: 'Approved', bg: 'rgba(63,153,34,0.16)', color: 'var(--positive)' };
-    case 'cancelled':
-      return { label: 'Cancelled', bg: 'rgba(30,46,52,0.06)', color: 'var(--ink-4)' };
-    default:
-      return { label: status, bg: 'rgba(30,46,52,0.06)', color: 'var(--ink-4)' };
-  }
 }
 
 function fmtDate(d: string): string {
@@ -212,18 +192,7 @@ export default async function PacketsBoard({
   const focusedPackets = focus === 'late' ? atRiskPackets : focus === 'today' ? outToday : focus === 'unclaimed' ? unclaimedSoon : null;
   const visibleLive = focusedPackets ?? (focus === 'all' ? live : []);
   const visibleDrafts = focus === 'drafts' ? expiredDrafts : focus === 'all' ? drafts : [];
-  const focusLabels: Record<string, string> = { late: 'Late visits', today: 'Visits today', unclaimed: 'Unassigned soon', drafts: 'Visits to reschedule', review: 'Awaiting approval' };
-
-  // Live per-packet progress (done stops) for claimed/in-progress packets, so
-  // the office can watch a visit move stop-by-stop on the board.
-  const trackIds = packets.filter((p) => isWorkingStatus(p.status)).map((p) => p.id);
-  const progress = new Map<string, number>();
-  if (trackIds.length) {
-    const { data: ps } = await fieldDb().from('packet_stops').select('packet_id, status').in('packet_id', trackIds);
-    for (const r of (ps ?? []) as { packet_id: string; status: string }[]) {
-      if (r.status === 'complete' || r.status === 'skipped') progress.set(r.packet_id, (progress.get(r.packet_id) ?? 0) + 1);
-    }
-  }
+  const focusLabels: Record<string, string> = { late: 'Late visits', today: 'Visits today', unclaimed: 'Open, visit within 2 days', drafts: 'Visits to reschedule', review: 'Awaiting approval' };
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -256,7 +225,7 @@ export default async function PacketsBoard({
           {[
             { id: 'late', label: 'Late visits', count: atRiskPackets.length },
             { id: 'today', label: 'Today', count: outToday.length },
-            { id: 'unclaimed', label: 'Unassigned soon', count: unclaimedSoon.length },
+            { id: 'unclaimed', label: 'Open', count: unclaimedSoon.length },
             { id: 'drafts', label: 'Reschedule', count: expiredDrafts.length },
           ].filter(item => item.count > 0 || item.id === focus).map(item => <Link key={item.id} href={focusHref(item.id)} aria-current={focus === item.id ? 'page' : undefined}>{item.label} · {item.count}</Link>)}
         </nav>
@@ -323,7 +292,7 @@ export default async function PacketsBoard({
         {visibleLive.length > 0 && (
           <div style={{ marginTop: 40 }}>
             <h2 style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
-              {focusLabels[focus ?? 'all'] ?? 'Out to contractors'} · {visibleLive.length}
+              {focusLabels[focus ?? 'all'] ?? 'Live'} · {visibleLive.length}
             </h2>
             <div style={{ border: '1px solid var(--rule)', borderRadius: 10, overflow: 'hidden', background: 'var(--paper-2, #fff)' }}>
               {visibleLive.map((p) => (
@@ -331,7 +300,6 @@ export default async function PacketsBoard({
                   key={p.id}
                   p={p}
                   who={whoOf(p.awarded_contractor_id)}
-                  done={progress.get(p.id) ?? 0}
                   assigned={officeAssigned.has(p.id)}
                   owner={owner}
                 />
@@ -414,11 +382,9 @@ function DraftRow({ p }: { p: PacketRow }) {
   );
 }
 
-function LiveRow({ p, who, dim, done = 0, assigned = false, owner = false }: { p: PacketRow; who: Who; dim?: boolean; done?: number; assigned?: boolean; owner?: boolean }) {
-  const c = statusChip(p.status, assigned);
+function LiveRow({ p, who, dim, assigned = false, owner = false }: { p: PacketRow; who: Who; dim?: boolean; assigned?: boolean; owner?: boolean }) {
   const atRisk = packetAtRisk(p);
   const overdue = pastCompleteByET(p);
-  const tracking = isWorkingStatus(p.status);
   return (
     <div
       style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, opacity: dim ? 0.6 : 1, flexWrap: 'wrap' }}
@@ -427,7 +393,7 @@ function LiveRow({ p, who, dim, done = 0, assigned = false, owner = false }: { p
         <span className="font-serif" style={{ fontSize: 17 }}>{p.title}</span>
         {p.trade !== 'inspection' && (
           <span style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tide-deep)', border: '1px solid var(--rule)', borderRadius: 999, padding: '1px 6px', marginLeft: 8, verticalAlign: 'middle' }}>
-            {p.trade}
+            {TRADE_META[parseTrade(p.trade)].singular}
           </span>
         )}
         {p.kind === 'setup' && (
@@ -443,19 +409,17 @@ function LiveRow({ p, who, dim, done = 0, assigned = false, owner = false }: { p
             ? `Visited ${fmtVisitDay(p.visit_date)}`
             : fmtDate(p.visit_date)} · {p.stop_count} {p.stop_count === 1 ? 'stop' : 'stops'}
           {p.complete_by ? ` · due ${fmtVisitTime(p.complete_by)}` : ''}
-          {tracking && p.stop_count > 0 ? ` · ${done}/${p.stop_count} done` : ''}
         </div>
       </Link>
       <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
-        {atRisk ? (
+        {/* The pipeline, lit at this packet's step. A slipping visit keeps its
+            red overlay above the strip: late is a warning, not a status. */}
+        {atRisk && (
           <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: 'rgba(192,57,43,0.14)', color: '#c0392b', whiteSpace: 'nowrap' }}>
             {overdue ? `Overdue · was due ${fmtVisitTime(p.complete_by)}` : 'At risk · not started'}
           </span>
-        ) : (
-          <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: c.bg, color: c.color, whiteSpace: 'nowrap' }}>
-            {c.label}
-          </span>
         )}
+        <PacketStatusStrip status={p.status} paidAt={p.paid_at} />
         <div style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {/* The REAL payout: final (once set at approval) + bonus, falling back
               to the posted estimate. A completed row must show what was paid,
@@ -467,9 +431,12 @@ function LiveRow({ p, who, dim, done = 0, assigned = false, owner = false }: { p
               {owner && <span>·</span>}
               <FieldAvatar name={who.name} url={who.photoUrl} size={18} />
               <span>{who.name}</span>
+              {/* Handed out by the office, not grabbed: the strip says
+                  Claimed either way, so the provenance rides beside the name
+                  (an assignment once read as the contractor acting). */}
+              {assigned && <span style={{ color: 'var(--ink-4)' }}>· assigned by the office</span>}
             </>
           )}
-          {p.status === 'approved' && p.paid_at ? <span>· paid</span> : null}
         </div>
       </div>
       {p.status === 'claimed' && (
