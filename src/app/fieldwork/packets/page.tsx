@@ -388,7 +388,7 @@ function DraftRow({ p }: { p: PacketRow }) {
   // A past-dated draft (the nightly sweep's expired listing, or a saved draft
   // whose day slipped by) can't be published as-is; publishPacket refuses past
   // dates server-side. Swap Publish for Re-date, which lands on the detail
-  // page's Move date / time control.
+  // page's When menu.
   const expired = daysUntilET(p.visit_date) < 0;
   return (
     <div style={{ borderBottom: '1px solid var(--rule)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
