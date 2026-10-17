@@ -133,6 +133,13 @@ export default async function OnboardingBoardPage() {
       </section>
 
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 60, flex: 1 }}>
+        <p style={{ margin: '0 0 22px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 720 }}>
+          The procedures behind these steps, from the Guesty listing to the first guest, are written down in the{' '}
+          <Link href="/playbook" style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+            Playbook
+          </Link>
+          .
+        </p>
         <Group
           title="In flight"
           blurb="Promoted, not yet activated. The next step is the first open required step in checklist order."

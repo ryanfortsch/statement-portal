@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
@@ -119,6 +120,14 @@ export default async function ApplicantsPage({
             ))}
           </div>
         </div>
+
+        <p style={{ margin: '-14px 0 28px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 620 }}>
+          What a new hire is signing up for, from a published packet to the payment, is written down in the Playbook:{' '}
+          <Link href="/playbook/field-packets-from-publish-to-pay" style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+            Field packets, from publish to pay
+          </Link>
+          .
+        </p>
 
         {active.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
