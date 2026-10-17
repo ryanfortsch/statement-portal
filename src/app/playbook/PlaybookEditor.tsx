@@ -82,7 +82,9 @@ export function PlaybookEditor({
   const [body, setBody] = useState(initial?.body_md ?? '');
   const [tags, setTags] = useState((initial?.tags ?? []).join(', '));
   const [propertyId, setPropertyId] = useState(initial?.property_id ?? '');
-  const [status, setStatus] = useState<PlaybookStatus>(initial?.status ?? 'draft');
+  // A new entry is Published by default: the Playbook is read from the screen and
+  // from Ask Helm, and a draft is visible in neither (UI/UX audit, 2026-10-17).
+  const [status, setStatus] = useState<PlaybookStatus>(initial?.status ?? 'published');
   const [pinned, setPinned] = useState(initial?.pinned ?? false);
   const [changeNote, setChangeNote] = useState('');
   const saving = useRef(false);
