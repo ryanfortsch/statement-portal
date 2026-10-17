@@ -174,14 +174,14 @@ export default async function InspectionInProgressPage({
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
         <HelmMasthead />
         <HelmHero
-          eyebrow="Inspection complete"
-          title="This inspection is"
+          eyebrow="Walk complete"
+          title="This walk is"
           emphasis="already done."
           description=""
           belowDescription={
             <p style={{ marginTop: 14, fontSize: 14, color: 'var(--ink-3)' }}>
               View the <Link href={`/inspections/${id}/summary`} style={{ color: 'var(--tide-deep)' }}>summary</Link> or
-              start a <Link href="/inspections" style={{ color: 'var(--tide-deep)' }}>new inspection</Link>.
+              start a <Link href="/inspections" style={{ color: 'var(--tide-deep)' }}>new walk</Link>.
             </p>
           }
         />

@@ -277,7 +277,7 @@ export default async function InspectionSummaryPage({
 
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 16, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Inspection &middot; complete</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Walk &middot; complete</div>
         <h1
           className="font-serif"
           style={{
@@ -347,7 +347,7 @@ export default async function InspectionSummaryPage({
         title="Issues"
         eyebrow={`${issues.length} flagged`}
         empty={issues.length === 0}
-        emptyMessage="No issues flagged on this inspection. Clean walkthrough."
+        emptyMessage="No issues flagged on this walk. Clean walkthrough."
       >
         <div style={{ borderTop: '1px solid var(--ink)' }}>
           {issues.map((row) => (
@@ -543,7 +543,7 @@ export default async function InspectionSummaryPage({
       {/* INSPECTION-SCOPED NOTES */}
       {inspectionNotes.length > 0 && (
         <Section
-          title="Inspection Notes"
+          title="Walk notes"
           eyebrow={`${inspectionNotes.length}`}
           empty={false}
           emptyMessage=""
@@ -590,7 +590,7 @@ export default async function InspectionSummaryPage({
         </FoldedResults>
       )}
 
-      <HelmFooter module="Inspection" right="Source: Helm" />
+      <HelmFooter module="Walk" right="Source: Helm" />
     </div>
   );
 }
