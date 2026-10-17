@@ -66,7 +66,7 @@ export function PlanButton({
   }
   function requestClose() {
     if (lock.current) return;
-    if ((dirty || uncertain) && !window.confirm('Discard your unsaved inspection plan changes?')) return;
+    if ((dirty || uncertain) && !window.confirm('Discard your unsaved walk plan changes?')) return;
     setOpen(false); setErr(null); setUncertain(false);
   }
 
@@ -86,7 +86,7 @@ export function PlanButton({
       softRefresh();
     } catch {
       setUncertain(true);
-      setErr('Could not confirm the inspection plan save. Your date, inspector, and notes are kept. Check the plan before retrying.');
+      setErr('Could not confirm the walk plan save. Your date, who walks it, and notes are kept. Check the plan before retrying.');
     } finally {
       lock.current = false; setSubmitting(false);
     }
@@ -115,13 +115,13 @@ export function PlanButton({
   // row's status column alongside the cleaning / slips / field / mark-done
   // chips, so the plan state sits in the same place on every row. Two
   // states: a colored "Planned …" line when scheduled, a faint "+ Plan
-  // inspection" prompt when not. Both open the same editor modal below.
+  // walk" prompt when not. Both open the same editor modal below.
   if (!open) {
     if (saved.id) {
       const inspectorLabel = saved.assignee ? displayNameForEmail(saved.assignee) : null;
       const tooltip = [
         plannedBy ? `Planned by ${plannedBy.split('@')[0]}` : null,
-        inspectorLabel ? `Inspector: ${inspectorLabel}` : null,
+        inspectorLabel ? `Walks it: ${inspectorLabel}` : null,
         'Click to edit',
       ].filter(Boolean).join(' · ');
       if (variant === 'byline') {
@@ -170,7 +170,7 @@ export function PlanButton({
       <button
         type="button"
         onClick={openEditor}
-        title="Schedule this inspection for a day and assign someone"
+        title="Schedule this walk for a day and assign someone"
         style={{
           background: 'none',
           border: 'none',
@@ -183,7 +183,7 @@ export function PlanButton({
           lineHeight: 1.6,
         }}
       >
-        + Plan inspection
+        + Plan walk
       </button>
     );
   }
@@ -230,7 +230,7 @@ export function PlanButton({
                 margin: 0,
               }}
             >
-              {saved.id ? 'Edit inspection plan' : 'Plan an inspection'}
+              {saved.id ? 'Edit walk plan' : 'Plan a walk'}
             </h3>
             <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>
               Check-in {formatShort(checkInDate)} &middot; Checkout {formatShort(checkOutDate)}
@@ -257,7 +257,7 @@ export function PlanButton({
         <div className="eyebrow" style={{ marginBottom: 6 }}>Walk on</div>
         <input
           type="date"
-          aria-label="Inspection date"
+          aria-label="Walk date"
           value={picked}
           onChange={(e) => setPicked(e.target.value)}
           min={todayStr()}
@@ -274,7 +274,7 @@ export function PlanButton({
           }}
         />
 
-        <div className="eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Inspector</div>
+        <div className="eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Who walks it</div>
         <TeamPicker
           value={assignee}
           onChange={setAssignee}
@@ -284,7 +284,7 @@ export function PlanButton({
 
         <div className="eyebrow" style={{ marginTop: 14, marginBottom: 6 }}>Notes (optional)</div>
         <textarea
-          aria-label="Inspection notes"
+          aria-label="Walk notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}

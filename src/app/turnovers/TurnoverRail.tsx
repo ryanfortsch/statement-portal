@@ -6,7 +6,7 @@ import { STAGE_HUES } from './turnover-format';
 
 /**
  * The living lifecycle rail for one turnover: Checked out → Cleaner in →
- * Cleaning → Cleaned → Inspected → Guest-ready. Each node advances off a real
+ * Cleaning → Cleaned → Walked → Guest-ready. Each node advances off a real
  * signal (lock keypad entry, Quo text / confirm, inspection). The stage we're
  * waiting on carries a pulsing coral halo and a live elapsed counter; an
  * estimated finish is a dashed node you tap to confirm. Motion respects
@@ -20,8 +20,8 @@ type Props = {
   cleanedSource: string | null;
   enteredViaLock: boolean;
   inspected: boolean;
-  // An inspection is genuinely underway (not just the next pending stage), so
-  // the node reads "Inspecting" with a live counter instead of "Needs inspection".
+  // A walk is genuinely underway (not just the next pending stage), so the
+  // node reads "Walking" with a live counter instead of "Needs walk".
   inspecting: boolean;
   inspectionStartedAt: string | null;
   // The in-progress inspection is known from a lock master-code unlock (no app
@@ -189,10 +189,11 @@ export function TurnoverRail(p: Props) {
     },
     {
       key: 'inspected',
-      // "Inspecting" only when one is genuinely underway; otherwise the active
-      // state is the awaiting "Needs inspection" (mirrors Needs clean). A
-      // completed or future node just reads "Inspected".
-      label: inspected ? 'Inspected' : active === 'inspected' ? (p.inspecting ? 'Inspecting' : 'Needs inspection') : 'Inspected',
+      // "Walking" only when one is genuinely underway; otherwise the active
+      // state is the awaiting "Needs walk" (mirrors Needs clean). A completed
+      // or future node just reads "Walked". The same three words print on
+      // the pipeline's header strip and the collapsed row's readout.
+      label: inspected ? 'Walked' : active === 'inspected' ? (p.inspecting ? 'Walking' : 'Needs walk') : 'Walked',
       cls: inspected ? 'good' : active === 'inspected' ? 'active' : 'future',
       glyph: p.inspecting && p.inspectionViaLock ? 'lock' : null,
     },

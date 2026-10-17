@@ -122,7 +122,7 @@ export default async function InspectionsPage({
           and the paragraph that stood here described a fixed checklist the
           decks stopped being; the stepper explains itself card by card. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 32, paddingBottom: 56, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Inspections</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Walks</div>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '24px 0' }}>
           <form action={startInspection} className="flex items-end gap-4 flex-wrap">
             <div style={{ flex: 1, minWidth: 280 }}>
@@ -182,7 +182,7 @@ export default async function InspectionsPage({
 
       {/* RECENTS */}
       <Section
-        title="Recent Inspections"
+        title="Recent walks"
         eyebrow={
           totalCount > 0
             ? page > 1
@@ -191,7 +191,7 @@ export default async function InspectionsPage({
             : undefined
         }
         empty={totalCount === 0}
-        emptyMessage="No inspections yet. Start one above."
+        emptyMessage="No walks yet. Start one above."
         paddingBottom={80}
       >
         <div style={{ borderTop: '1px solid var(--ink)' }}>
@@ -204,7 +204,7 @@ export default async function InspectionsPage({
         )}
       </Section>
 
-      <HelmFooter module="Inspections" right="Source: Helm" />
+      <HelmFooter module="Walks" right="Source: Helm" />
     </div>
   );
 }
@@ -220,7 +220,7 @@ function HistoryPager({ page, hasOlder }: { page: number; hasOlder: boolean }) {
   };
   return (
     <nav
-      aria-label="Inspection history pages"
+      aria-label="Walk history pages"
       style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0' }}
     >
       <span>

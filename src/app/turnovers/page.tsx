@@ -330,14 +330,14 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
                   // browser do the scroll natively.
                   if (pendingHref?.startsWith('#')) {
                     return (
-                      <a href={pendingHref} style={linkStyle} title="Jump to the first turnover that still needs an inspection">
+                      <a href={pendingHref} style={linkStyle} title="Jump to the first turnover that still needs a walk">
                         {phrase}
                       </a>
                     );
                   }
                   if (pendingHref) {
                     return (
-                      <Link href={pendingHref} style={linkStyle} title="Resume the inspection in progress">
+                      <Link href={pendingHref} style={linkStyle} title="Resume the walk in progress">
                         {phrase}
                       </Link>
                     );
@@ -429,10 +429,10 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
               <StageCount hue={STAGE_HUES[1]} label="Awaiting cleaner" n={awaitingCleaner} target={firsts.awaiting} />
             )}
             {inspectingNow > 0 && (
-              <StageCount hue={STAGE_HUES[4]} label="Inspecting" n={inspectingNow} target={firsts.inspecting} />
+              <StageCount hue={STAGE_HUES[4]} label="Walking" n={inspectingNow} target={firsts.inspecting} />
             )}
             {needsInspection > 0 && (
-              <StageCount hue={STAGE_HUES[4]} label="Needs inspection" n={needsInspection} target={firsts.needsInspection} />
+              <StageCount hue={STAGE_HUES[4]} label="Needs walk" n={needsInspection} target={firsts.needsInspection} />
             )}
           </div>
         )}
@@ -585,7 +585,7 @@ export default async function TurnoversPage({ searchParams }: PageProps) {
         <OccupancyCalendar calendar={data.calendar} />
       </section>
 
-      <HelmFooter module="Turnovers" right="Source: Guesty + Helm inspections" />
+      <HelmFooter module="Turnovers" right="Source: Guesty + Helm walks" />
     </div>
   );
 }

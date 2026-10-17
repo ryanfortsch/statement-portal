@@ -142,20 +142,22 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/turnovers',
     number: '02',
     title: 'Turnovers',
-    description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start an inspection from here.',
+    description: 'Turnover pipeline. Upcoming check-ins, prep status, and same-day turnaround flags. Live from Guesty. Start a walk from here.',
     status: 'active',
     primary: true,
     group: 'operations',
   },
-  // Inspections has no menu entry: a run is started from a button on the
-  // Turnovers page and the flow lives at /inspections/[id]. Registered here
-  // for search, surfaced in-context (hidden from menus).
+  // Walks has no menu entry: it is the Walks tab of Turnovers and the walk
+  // flow lives at /inspections/[id] (the route keeps its old name; a person
+  // reads "walk"). Registered here for search, surfaced in-context (hidden
+  // from menus). The id stays 'inspections' so a search for the old word
+  // still lands here: search matches title, description and id.
   {
     id: 'inspections',
     href: '/inspections',
     number: '02a',
-    title: 'Inspections',
-    description: 'Start a property inspection and browse recent runs. The run flow itself lives at /inspections/[id].',
+    title: 'Walks',
+    description: 'Walk a home and browse recent walks. The walk itself lives at /inspections/[id].',
     status: 'active',
     primary: false,
     hidden: true,

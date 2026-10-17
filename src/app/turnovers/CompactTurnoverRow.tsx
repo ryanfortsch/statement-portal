@@ -96,14 +96,14 @@ export function CompactTurnoverRow({
     readout = 'Needs clean';
     roColor = lc.overdue ? 'var(--negative)' : 'var(--signal)';
   } else if (lc.inspecting) {
-    // An inspection is genuinely underway (app start, or a master-code unlock):
+    // A walk is genuinely underway (app start, or a master-code unlock):
     // count up off its real start, not a bare countdown.
-    readout = lc.inspectionStartedAt ? `Inspecting · ${elapsed(lc.inspectionStartedAt, now)}` : 'Inspecting';
+    readout = lc.inspectionStartedAt ? `Walking · ${elapsed(lc.inspectionStartedAt, now)}` : 'Walking';
     roColor = INSPECTING_TEXT_HUE; // shared with the header stage-strip dot
   } else if (lc.active === 'inspected') {
-    // Cleaned and due, but no inspection has started: the actionable state is
-    // "Needs inspection", not a bare countdown to check-in.
-    readout = 'Needs inspection';
+    // Cleaned and due, but no walk has started: the actionable state is
+    // "Needs walk", not a bare countdown to check-in.
+    readout = 'Needs walk';
     roColor = lc.overdue ? 'var(--negative)' : 'var(--signal)';
   } else {
     const cd = countdown(t.checkIn, now);

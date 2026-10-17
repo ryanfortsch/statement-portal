@@ -492,7 +492,7 @@ export function Stepper({
   const undoneTasks = trailingTasks.filter((t) => !taskState.get(t.attachmentId)?.done);
 
   async function complete() {
-    if (queueRef.current?.snapshot().size) { setError('Sync the pending marks before completing this inspection.'); return; }
+    if (queueRef.current?.snapshot().size) { setError('Sync the pending marks before completing this walk.'); return; }
     setError(null);
     setIsCompleting(true);
     try {
@@ -773,7 +773,7 @@ export function Stepper({
               disabled={isCompleting || markedCount === 0 || failedKeys.length > 0 || savingCount > 0}
               style={{ ...primaryBtn(), opacity: markedCount === 0 || failedKeys.length > 0 || savingCount > 0 ? 0.5 : 1 }}
             >
-              {isCompleting ? 'Completing…' : savingCount > 0 ? 'Saving marks…' : 'Complete Inspection →'}
+              {isCompleting ? 'Completing…' : savingCount > 0 ? 'Saving marks…' : 'Complete walk →'}
             </button>
           </div>
         </section>
@@ -1024,7 +1024,7 @@ export function Stepper({
                   : 'Photo'
                 : isProperty
                   ? `Property Note · ${pinLabel}`
-                  : 'Inspection Note';
+                  : 'Walk note';
               return (
                 <div
                   key={n.id}
@@ -1712,7 +1712,7 @@ function NoteModal({
             Pin to property folder
           </div>
           <div style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.4 }}>
-            Visible on the property folder, persists across inspections so the next inspector sees it on arrival.
+            Visible on the property folder, persists across walks so whoever walks next sees it on arrival.
           </div>
         </div>
       </label>

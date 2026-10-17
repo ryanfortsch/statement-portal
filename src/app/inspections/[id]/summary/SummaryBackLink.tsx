@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 
 /**
  * The summary's back link returns to where the reader came from: the
- * pipeline row (Turnovers), the property page, Home or the inspections
+ * pipeline row (Turnovers), the property page, Home or the walks
  * index. The referrer is a browser fact the server cannot know, so it is
  * read as an external value (empty on the server and on the first paint,
  * so hydration matches) and only a same-origin Helm page counts; anything
@@ -13,7 +13,7 @@ import { useSyncExternalStore } from 'react';
  * reader on an external page or a sign-in redirect, so this navigates to
  * the referrer URL instead.
  */
-const FALLBACK = { href: '/inspections', label: '← All Inspections' };
+const FALLBACK = { href: '/inspections', label: '← All walks' };
 
 const noop = () => () => {};
 const readReferrer = () => (typeof document === 'undefined' ? '' : document.referrer);
@@ -31,7 +31,7 @@ function targetFor(referrer: string): { href: string; label: string } {
     const href = `${url.pathname}${url.search}${url.hash}`;
     if (path.startsWith('/turnovers')) return { href, label: '← Turnovers' };
     if (path.startsWith('/properties/')) return { href, label: '← Property' };
-    if (path === '/inspections') return { href, label: '← All Inspections' };
+    if (path === '/inspections') return { href, label: '← All walks' };
     if (path === '/' || path.startsWith('/today')) return { href, label: '← Home' };
     return FALLBACK;
   } catch {

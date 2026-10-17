@@ -5,9 +5,9 @@ import { SectionTabs } from './SectionTabs';
  * living turnover rail; Schedule is the cleaner checkout schedule (the
  * merged bookings + adjustments truth behind Rosa's daily digest);
  * Cleanings is the crew's own side of it (Cape Ann Elite's bookings from
- * their Jobber reminder texts, against our checkouts); Inspections
- * finally gets a standing tab instead of a whisper link (the full history
- * view is a later phase).
+ * their Jobber reminder texts, against our checkouts); Walks is the
+ * walk index at /inspections (the route keeps its old name; the word a
+ * person reads is walk, per the 2026-10-17 audit).
  *
  * Thin wrapper over SectionTabs, the shared strip primitive. `current` is
  * optional: a layout can render this prop-less and SectionTabs derives
@@ -25,7 +25,7 @@ export function TurnoverTabs({
         { id: 'pipeline', label: 'Pipeline', href: '/turnovers' },
         { id: 'schedule', label: 'Schedule', href: '/turnovers/schedule' },
         { id: 'cleanings', label: 'Cleanings', href: '/turnovers/cleanings' },
-        { id: 'inspections', label: 'Inspections', href: '/inspections' },
+        { id: 'inspections', label: 'Walks', href: '/inspections' },
       ]}
     />
   );

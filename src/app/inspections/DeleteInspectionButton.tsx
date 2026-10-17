@@ -36,7 +36,7 @@ export function DeleteInspectionButton({
       if (!res.ok) setError(res.error);
       else if (afterDeleteHref) router.push(afterDeleteHref);
       else softRefresh();
-    }, 'Could not confirm deletion. Check the inspection, then retry if it is still present.');
+    }, 'Could not confirm deletion. Check the walk, then retry if it is still present.');
   }
 
   if (!confirming) {
@@ -44,7 +44,7 @@ export function DeleteInspectionButton({
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        aria-label={`Delete inspection — ${label}`}
+        aria-label={`Delete walk: ${label}`}
         style={{
           background: 'none',
           border: 'none',
