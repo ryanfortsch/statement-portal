@@ -7,6 +7,7 @@ import { MobileInboxReview } from '@/components/MobileInboxReview';
 
 import { MessageOutcomes } from '@/components/MessageOutcomes';
 import { MaintenanceWorkPanel } from '@/components/MaintenanceWorkPanel';
+import { EnglishLine } from '@/components/messaging/TranslationLine';
 import { splitMaintenanceOutcomes } from '@/lib/message-outcomes';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -893,6 +894,7 @@ function ApprovalCard({
           subLabelTitle={approval.guest_received_at || approval.created_at || undefined}
         >
           <BodyText>{(inquiry ? inquiryMessageText(approval.guest_text || '') : approval.guest_text) || '(empty)'}</BodyText>
+          <EnglishLine text={approval.guest_text_english} translating={approval.guest_text_translating} />
         </FieldBlock>
         <FieldBlock
           label={editing ? 'Editing reply' : inquiryWithoutDraft ? inquiryState!.label : 'Proposed reply'}
@@ -920,6 +922,8 @@ function ApprovalCard({
                   resize: 'vertical',
                 }}
               />
+              {/* The English of the draft as written, for someone rewriting a reply in another language. */}
+              <EnglishLine text={approval.draft_english} label="English, as drafted" />
               {draftChangedUnderEdit && (
                 <div style={{ marginTop: 10, padding: '8px 10px', border: '1px solid var(--signal)', background: 'var(--paper)' }}>
                   <p style={{ margin: 0, fontSize: 12, color: 'var(--signal)', fontWeight: 600 }}>
@@ -964,6 +968,8 @@ function ApprovalCard({
           ) : (
             <>
               <BodyText emphasis>{(savedDraft ?? approval.draft) || '(no draft)'}</BodyText>
+              {/* Only once the saved text is the server's draft: the English is for the text that sends. */}
+              {savedDraft == null && <EnglishLine text={approval.draft_english} translating={approval.draft_translating} />}
               {inquiry && <details style={{ marginTop: 14 }}><summary className="eyebrow" style={{ cursor: 'pointer', color: 'var(--ink-3)' }}>Inquiry details</summary><div style={{ marginTop: 10 }}><RentalInquiryPanel inquiry={inquiry} first={guestLabel} email={quoteEmail} source={approval.guesty_message_id} /></div></details>}
             </>
           )}

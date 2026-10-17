@@ -72,6 +72,14 @@ export type Approval = MessageOutcomeCarrier & {
    * the quote composer can be opened complete rather than half-filled.
    * Null/absent on every other card. */
   prerelease?: PrereleaseRequestDetails | null;
+  /** English for guest_text when the guest wrote in another language; '' when
+   * it was already English. */
+  guest_text_english?: string;
+  /** English for the draft when the reply is in another language. */
+  draft_english?: string;
+  /** That side's English is still being made; the next poll brings it. */
+  guest_text_translating?: boolean;
+  draft_translating?: boolean;
 };
 
 /** The parts of a staycapeann.com 2027 request that live in the concierge's
