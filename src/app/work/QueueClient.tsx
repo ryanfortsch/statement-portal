@@ -839,7 +839,7 @@ function PropertyGroup({
     window.open(`/properties/${propertyId}/work-slips/print?auto=1`, '_blank', 'noopener,noreferrer');
   }
 
-  const { pending: drafting, error: draftErr, draftUrl, draft: draftOwnerEmail } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
+  const { pending: drafting, error: draftErr, draftUrl, draft: draftOwnerEmail, savedIn: draftSavedIn } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
 
   return (
     // Anchor target for /work?open=X#prop-X (the slip page's back link);
@@ -962,7 +962,7 @@ function PropertyGroup({
               opacity: drafting ? 0.6 : 1,
             }}
           >
-            {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : 'Draft Owner Email'}
+            {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : draftSavedIn ? 'Drafted' : 'Draft Owner Email'}
           </button>
         )}
         {expanded && propertyId && (
@@ -1027,6 +1027,7 @@ function PropertyGroup({
       </div>
 
       {draftUrl && <a className="rt-no-print" href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
+      {draftSavedIn && <span className="rt-no-print" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{draftSavedIn}</span>}
       {draftErr && (
         <div role="alert"
           style={{

@@ -12,6 +12,8 @@ import {
 } from '@/lib/daily-brief';
 import type { Approval } from '@/lib/stay-concierge';
 import { isOwnerSession } from '@/lib/helm-access-server';
+import { auth } from '@/auth';
+import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
 import { MarkHandledButton } from './MarkHandledButton';
 
 export const dynamic = 'force-dynamic';
@@ -179,9 +181,12 @@ function formatAge(ageHours: number): string {
   return `${Math.round(ageHours / 24)}d ago`;
 }
 
-function EmailRow({ e }: { e: BriefEmail }) {
+/** Which mailbox the brief's emails live in, and whether this session may
+ *  open it. A session that may not sees the same row with nothing to click. */
+type MailAccess = { mailbox: string | null; canOpen: boolean };
+
+function EmailRow({ e, mail }: { e: BriefEmail; mail: MailAccess }) {
   const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
-  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
   const needsReply = e.triage === 'needs_reply';
   return (
     <li
@@ -202,15 +207,19 @@ function EmailRow({ e }: { e: BriefEmail }) {
       <div className="flex-1 min-w-0">
         <div className="flex justify-between items-baseline gap-4">
           <div className="flex items-baseline gap-2 min-w-0">
-            <a
-              href={gmailUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm font-medium hover:underline underline-offset-2 truncate"
-              style={{ color: 'var(--ink)' }}
-            >
-              {fromLabel}
-            </a>
+            {mail.canOpen ? (
+              <a
+                href={gmailUrl(mail.mailbox, `inbox/${e.threadId}`)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm font-medium hover:underline underline-offset-2 truncate"
+                style={{ color: 'var(--ink)' }}
+              >
+                {fromLabel}
+              </a>
+            ) : (
+              <span className="text-sm font-medium truncate" style={{ color: 'var(--ink)' }}>{fromLabel}</span>
+            )}
             {needsReply ? (
               <span
                 className="text-[9px] uppercase tracking-[0.14em] px-1.5 py-0.5 rounded"
@@ -241,9 +250,9 @@ function EmailRow({ e }: { e: BriefEmail }) {
             <span className="text-[11px] italic" style={{ color: 'var(--ink-4)' }}>
               {e.subject}
             </span>
-            {e.draftId ? (
+            {e.draftId && mail.canOpen ? (
               <a
-                href={`https://mail.google.com/mail/u/0/#drafts/${e.draftId}`}
+                href={gmailUrl(mail.mailbox, `drafts/${e.draftId}`)}
                 target="_blank"
                 rel="noreferrer"
                 className="text-[10px] uppercase tracking-[0.14em] hover:underline"
@@ -251,6 +260,10 @@ function EmailRow({ e }: { e: BriefEmail }) {
               >
                 Reply drafted →
               </a>
+            ) : e.draftId ? (
+              <span className="text-[10px] uppercase tracking-[0.14em]" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
+                Reply drafted
+              </span>
             ) : null}
           </div>
         ) : null}
@@ -328,8 +341,11 @@ export default async function TodayPage() {
 
   // The prospect funnel is owner work and its pages are owner-only: a staff
   // login gets neither the section nor the footer count.
-  const [brief, owner] = await Promise.all([loadDailyBrief(), isOwnerSession()]);
+  const [brief, owner, session] = await Promise.all([loadDailyBrief(), isOwnerSession(), auth()]);
   const headline = briefHeadline(brief);
+  // Links into the mailbox the brief read render only for the person who
+  // owns it; everyone else gets the sender, the summary and the subject.
+  const mail: MailAccess = { mailbox: brief.gmailMailbox, canOpen: canOpenMailbox(session?.user?.email, brief.gmailMailbox) };
 
   // Property IDs whose inspection completed today; used to mark a ✓ on
   // any stay row for that property.
@@ -477,7 +493,7 @@ export default async function TodayPage() {
           number={num()}
           title="Emails"
           count={visibleEmails.length}
-          href="https://mail.google.com/mail/u/0/#inbox"
+          href={mail.canOpen ? gmailUrl(mail.mailbox, 'inbox') : undefined}
         />
         {transparencyBits.length ? (
           <p className="text-[11px] mb-3" style={{ color: 'var(--ink-4)' }}>
@@ -490,7 +506,7 @@ export default async function TodayPage() {
         )}
         <ul>
           {visibleEmails.slice(0, 16).map(e => (
-            <EmailRow key={e.id} e={e} />
+            <EmailRow key={e.id} e={e} mail={mail} />
           ))}
         </ul>
       </section>,

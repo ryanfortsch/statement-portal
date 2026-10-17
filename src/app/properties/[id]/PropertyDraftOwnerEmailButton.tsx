@@ -14,7 +14,7 @@ type Props = {
  * Gmail draft in a new tab on success.
  */
 export function PropertyDraftOwnerEmailButton({ propertyId, disabled }: Props) {
-  const { pending: drafting, error: err, draftUrl, draft } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
+  const { pending: drafting, error: err, draftUrl, draft, savedIn } = useOwnerEmailDraft('/api/work/draft-owner-email', 'property_id', propertyId);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
@@ -36,9 +36,10 @@ export function PropertyDraftOwnerEmailButton({ propertyId, disabled }: Props) {
           opacity: disabled ? 0.5 : drafting ? 0.7 : 1,
         }}
       >
-        {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : 'Draft Owner Email'}
+        {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : savedIn ? 'Drafted' : 'Draft Owner Email'}
       </button>
       {draftUrl && <a href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
+      {savedIn && <span style={{ fontSize: 11, color: 'var(--ink-3)', maxWidth: 320, textAlign: 'right' }}>{savedIn}</span>}
       {err && (
         <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', maxWidth: 320, textAlign: 'right' }}>
           {err}

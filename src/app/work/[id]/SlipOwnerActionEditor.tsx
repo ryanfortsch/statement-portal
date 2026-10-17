@@ -1,7 +1,9 @@
 'use client';
 
 import { useRef, useState, useTransition } from 'react';
+import { useSession } from 'next-auth/react';
 import type { WorkSlipOwnerActionType, WorkSlipOwnerStatus } from '@/lib/work-types';
+import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
 import { updateWorkSlipOwnerAction, updateWorkSlipOwnerStatus } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
@@ -63,6 +65,11 @@ export function SlipOwnerActionEditor({
   const [drafting, setDrafting] = useState(false);
   const [pending, startTransition] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  // Where the owner email draft went, for a session that cannot open that
+  // mailbox: the draft is made for the owner to send, so staff may draft it,
+  // but only the mailbox's owner gets it opened.
+  const [draftNotice, setDraftNotice] = useState<string | null>(null);
+  const sessionEmail = useSession().data?.user?.email;
   const [attempt, setAttempt] = useState<OwnerChange | null>(null);
   const saving = useRef(false);
   const draftingRef = useRef(false);
@@ -160,8 +167,11 @@ export function SlipOwnerActionEditor({
         setErr(data?.error || `Failed (${res.status})`);
         return;
       }
-      if (data?.draft_url) {
+      const mailbox = typeof data?.mailbox === 'string' ? data.mailbox : null;
+      if (data?.draft_url && canOpenMailbox(sessionEmail, mailbox)) {
         window.open(data.draft_url, '_blank', 'noopener,noreferrer');
+      } else if (data?.draft_url) {
+        setDraftNotice(draftSavedNotice(mailbox));
       }
       softRefresh();
     } catch {
@@ -172,9 +182,10 @@ export function SlipOwnerActionEditor({
     }
   }
 
-  const feedback = err && (
-    <div role="alert">
-      <ErrorStrip message={err} />
+  const feedback = (err || draftNotice) && (
+    <div role={err ? 'alert' : 'status'}>
+      {draftNotice && !err && <div style={{ fontSize: 12, color: 'var(--positive)' }}>{draftNotice}</div>}
+      {err && <ErrorStrip message={err} />}
       {attempt && (
         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
           <button type="button" disabled={pending || drafting} onClick={() => attempt.kind === 'notes' ? saveNotes() : saveChange(attempt)} style={ghostBtnStyle}>Retry save</button>

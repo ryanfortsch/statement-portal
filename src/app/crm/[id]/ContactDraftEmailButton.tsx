@@ -18,7 +18,7 @@ type Props = {
  * properties through Rising Tide.
  */
 export function ContactDraftEmailButton({ contactId, disabled }: Props) {
-  const { pending: drafting, error: err, draftUrl, draft } = useOwnerEmailDraft('/api/crm/draft-contact-email', 'contact_id', contactId);
+  const { pending: drafting, error: err, draftUrl, draft, savedIn } = useOwnerEmailDraft('/api/crm/draft-contact-email', 'contact_id', contactId);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
@@ -44,9 +44,10 @@ export function ContactDraftEmailButton({ contactId, disabled }: Props) {
           opacity: disabled ? 0.5 : drafting ? 0.7 : 1,
         }}
       >
-        {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : 'Draft Email'}
+        {drafting ? 'Drafting…' : draftUrl ? 'Open Gmail draft' : savedIn ? 'Drafted' : 'Draft Email'}
       </button>
       {draftUrl && <a href={draftUrl} target="_blank" rel="noopener noreferrer">Open saved Gmail draft</a>}
+      {savedIn && <span style={{ fontSize: 11, color: 'var(--ink-3)', maxWidth: 320, textAlign: 'right' }}>{savedIn}</span>}
       {err && (
         <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', maxWidth: 320, textAlign: 'right' }}>
           {err}

@@ -13,6 +13,7 @@ import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { loadMeetingCards } from '@/lib/meetings';
 import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
 import { roleForEmail, roleMayOpen } from '@/lib/helm-access';
+import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
 import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
 import { loadHandoffItems } from '@/lib/close-handoff-db';
 import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
@@ -81,6 +82,7 @@ export async function ForMeFeed() {
   let inboundWaiting: BriefInboundTouch[] = [];
   let cleaningFlags: BriefCleaningFlag[] = [];
   let gmailConfigured = true;
+  let gmailMailbox: string | null = null;
 
   try {
     const brief = await loadDailyBrief();
@@ -89,6 +91,7 @@ export async function ForMeFeed() {
     inboundWaiting = brief.inboundWaiting;
     cleaningFlags = brief.cleaningFlags;
     gmailConfigured = brief.gmailConfigured;
+    gmailMailbox = brief.gmailMailbox;
   } catch {
     // Surface a graceful empty state rather than crash the home page.
     gmailConfigured = false;
@@ -96,6 +99,9 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
+  // Links into the mailbox the brief read render only for the person who
+  // owns it; everyone else gets the sender, the summary and the subject.
+  const mail = { mailbox: gmailMailbox, canOpen: canOpenMailbox(email, gmailMailbox) };
   const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards, ownerHolds] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
@@ -342,7 +348,7 @@ export async function ForMeFeed() {
               />
               <div style={{ borderTop: '1px solid var(--ink)' }}>
                 {replyEmails.map((e) => (
-                  <EmailItem key={e.id} email={e} />
+                  <EmailItem key={e.id} email={e} mail={mail} />
                 ))}
                 {replyInbound.map((t) => (
                   <InboundItem key={inboundId(t)} touch={t} />
@@ -361,7 +367,7 @@ export async function ForMeFeed() {
               }}
             >
               {glance.map((e) => (
-                <EmailItem key={e.id} email={e} dim />
+                <EmailItem key={e.id} email={e} mail={mail} dim />
               ))}
             </div>
           )}
@@ -689,30 +695,33 @@ function formatDueDate(iso: string): string {
   return due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function EmailItem({ email: e, dim = false }: { email: BriefEmail; dim?: boolean }) {
+/** Which mailbox the feed's emails live in, and whether this session may
+ *  open it. A session that may not sees the same row with nothing to click. */
+type MailAccess = { mailbox: string | null; canOpen: boolean };
+
+function EmailItem({ email: e, mail, dim = false }: { email: BriefEmail; mail: MailAccess; dim?: boolean }) {
   const fromLabel = e.fromName || e.fromEmail || 'Unknown sender';
-  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${e.threadId}`;
+  const fromStyle = {
+    fontSize: 14,
+    fontWeight: 500,
+    color: 'var(--ink)',
+    textDecoration: 'none',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  } as const;
   return (
     <div style={feedRowStyle}>
       <span aria-hidden style={{ ...dotStyle, background: dim ? 'var(--rule)' : 'var(--signal)' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
-          <a
-            href={gmailUrl}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              fontSize: 14,
-              fontWeight: 500,
-              color: 'var(--ink)',
-              textDecoration: 'none',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {fromLabel}
-          </a>
+          {mail.canOpen ? (
+            <a href={gmailUrl(mail.mailbox, `inbox/${e.threadId}`)} target="_blank" rel="noreferrer" style={fromStyle}>
+              {fromLabel}
+            </a>
+          ) : (
+            <span style={fromStyle}>{fromLabel}</span>
+          )}
           <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)' }}>{formatAge(e.ageHours)}</span>
         </div>
         <div style={{ marginTop: 3, fontSize: dim ? 13 : 14, color: dim ? 'var(--ink-3)' : 'var(--ink)', lineHeight: 1.4 }}>
@@ -723,15 +732,20 @@ function EmailItem({ email: e, dim = false }: { email: BriefEmail; dim?: boolean
             <span style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {e.subject}
             </span>
-            {e.draftId && (
+            {e.draftId && mail.canOpen && (
               <a
-                href={`https://mail.google.com/mail/u/0/#drafts/${e.draftId}`}
+                href={gmailUrl(mail.mailbox, `drafts/${e.draftId}`)}
                 target="_blank"
                 rel="noreferrer"
                 style={{ flexShrink: 0, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--signal)', textDecoration: 'none' }}
               >
                 Reply drafted →
               </a>
+            )}
+            {e.draftId && !mail.canOpen && (
+              <span style={{ flexShrink: 0, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+                Reply drafted
+              </span>
             )}
           </div>
         )}

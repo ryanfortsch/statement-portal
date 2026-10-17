@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { gmailMailbox } from '@/lib/gmail-draft';
+import { gmailUrl } from '@/lib/gmail-links';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ALWAYS_CC, SEND_FROM, getActivePropertyForStatements } from '@/lib/properties';
 import {
@@ -628,8 +630,10 @@ export async function POST(request: NextRequest) {
     const draft = await draftRes.json();
     // Gmail's API doesn't return a direct web URL for the draft. Constructing
     // a mailbox URL by draft ID works in the browser: opens the drafts folder
-    // and focuses the one we just made.
-    const draftUrl = `https://mail.google.com/mail/u/0/#drafts/${draft.id}`;
+    // and focuses the one we just made. The link names the mailbox the shared
+    // token opens, and the page offers it only to that session.
+    const mailbox = await gmailMailbox('shared');
+    const draftUrl = gmailUrl(mailbox, `drafts/${draft.id}`);
 
     // The draft exists; now make the forced sent-clear a matter of record.
     // An insert failure cannot undo the redraft, so it lands in `warnings`
@@ -712,6 +716,8 @@ export async function POST(request: NextRequest) {
       success: true,
       draft_id: draft.id,
       draft_url: draftUrl,
+      // Whose Gmail the draft is in; the client offers the link only to them.
+      mailbox,
       subject,
       recipients,
       attached_pdf: pdfAttachments.length > 0,

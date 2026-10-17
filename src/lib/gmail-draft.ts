@@ -16,6 +16,7 @@
  */
 
 import 'server-only';
+import { gmailUrl } from '@/lib/gmail-links';
 
 export type GmailAttachment = { filename: string; contentType: string; content: Buffer };
 
@@ -36,6 +37,37 @@ function pickToken(preferDotti: boolean): TokenPick | null {
     return { clientId: sharedId, clientSecret: sharedSecret, refreshToken: process.env.GMAIL_REFRESH_TOKEN, mailbox: 'shared' };
   }
   return null;
+}
+
+/**
+ * Which Workspace address a token opens, asked of Gmail itself
+ * (users/me/profile) and cached for six hours per token. Every Gmail link
+ * Helm renders carries this address (`gmailUrl`) and renders only for the
+ * session that owns it (`canOpenMailbox`). Null when the token is not
+ * configured or Gmail cannot say, in which case no link is offered to
+ * anyone rather than a link to the wrong mailbox.
+ */
+const PROFILE_TTL_MS = 6 * 60 * 60 * 1000;
+const profileCache = new Map<TokenPick['mailbox'], { address: string; at: number }>();
+
+export async function gmailMailbox(kind: 'shared' | 'dotti'): Promise<string | null> {
+  const pick = pickToken(kind === 'dotti');
+  if (!pick) return null;
+  const hit = profileCache.get(pick.mailbox);
+  if (hit && Date.now() - hit.at < PROFILE_TTL_MS) return hit.address;
+  try {
+    const accessToken = await getAccessToken(pick);
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { emailAddress?: string };
+    const address = data.emailAddress?.trim().toLowerCase() || null;
+    if (address) profileCache.set(pick.mailbox, { address, at: Date.now() });
+    return address;
+  } catch {
+    return null;
+  }
 }
 
 async function getAccessToken(pick: TokenPick): Promise<string> {
@@ -147,7 +179,7 @@ function buildMimeMessage(args: {
 }
 
 export type GmailDraftResult =
-  | { ok: true; draftId: string; draftUrl: string; mailbox: 'dotti' | 'shared' }
+  | { ok: true; draftId: string; draftUrl: string; mailbox: 'dotti' | 'shared'; mailboxAddress: string | null }
   | { ok: false; error: string };
 
 /** Create a Gmail draft for human review-and-send. Never sends. */
@@ -186,10 +218,14 @@ export async function createGmailDraft(args: {
     return { ok: false, error: `Gmail draft creation failed (${res.status}): ${errText.slice(0, 300)}${hint}` };
   }
   const draft = (await res.json()) as { id: string };
+  // The link names the mailbox the draft is in; the caller shows it only to
+  // the session that owns that mailbox (canOpenMailbox).
+  const mailboxAddress = await gmailMailbox(pick.mailbox);
   return {
     ok: true,
     draftId: draft.id,
-    draftUrl: `https://mail.google.com/mail/u/0/#drafts/${draft.id}`,
+    draftUrl: gmailUrl(mailboxAddress, `drafts/${draft.id}`),
     mailbox: pick.mailbox,
+    mailboxAddress,
   };
 }
