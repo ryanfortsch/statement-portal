@@ -297,6 +297,18 @@ export const HELM_MODULES: HelmModule[] = [
   // property-work board. Registered here for search, surfaced in-context
   // (hidden from menus).
   {
+    id: 'maintenance-runs',
+    href: '/work/maintenance',
+    number: '04b',
+    title: 'Maintenance',
+    description: 'Handyman jobs bundled onto days a home is empty. Publish a run for a contractor to claim, or email the work order to a vendor.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'work',
+  },
+  {
     id: 'gear',
     href: '/work/gear',
     number: '04a',

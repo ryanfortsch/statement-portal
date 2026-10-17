@@ -228,7 +228,22 @@ function WorkOrderComposer({
             {markError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{markError}</span>}
           </div>
         )}
-        <button type="button" onClick={requestClose} disabled={marking} style={{ alignSelf: 'flex-start' }}>Close work order</button>
+        <button
+          type="button"
+          onClick={requestClose}
+          disabled={marking}
+          style={{
+            alignSelf: 'flex-start',
+            background: 'none',
+            border: '1px solid var(--rule)',
+            color: 'var(--ink-3)',
+            padding: '4px 10px',
+            ...LABEL,
+            cursor: marking ? 'default' : 'pointer',
+          }}
+        >
+          Close work order
+        </button>
       </div>
     );
   }
@@ -318,6 +333,10 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
   const [publishing, startPublish] = useTransition();
   const publishLock = useRef(false);
   const [published, setPublished] = useState(false);
+  // Publishing posts a priced job to outside contractors, so it takes two
+  // taps (Publish, then Confirm / Cancel inline), the same two-step the
+  // Field packet's Cancel link and the inspection list's Delete use.
+  const [confirmingPublish, setConfirmingPublish] = useState(false);
   useUnsavedWorkGuard(publishing);
   const [composing, setComposing] = useState(false);
   const [error, setError] = useState('');
@@ -331,6 +350,7 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
         const res = await publishRun(run.packetId);
         if (!res.ok) { setError(res.error); return; }
         setPublished(true);
+        setConfirmingPublish(false);
         softRefresh();
       } catch {
         setError('Could not confirm publishing. Open the packet to check its status before retrying.');
@@ -397,23 +417,59 @@ function RunCard({ run, roster }: { run: MaintenanceRunCard; roster: RosterPerso
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 2, flexWrap: 'wrap' }}>
-        {run.status === 'draft' && !published && (
+        {run.status === 'draft' && !published && !confirmingPublish && (
           <button
             type="button"
-            onClick={onPublish}
-            disabled={publishing}
+            onClick={() => setConfirmingPublish(true)}
             style={{
               background: 'var(--ink)',
               color: 'var(--paper)',
               border: '1px solid var(--ink)',
               padding: '4px 10px',
               ...LABEL,
-              cursor: publishing ? 'default' : 'pointer',
-              opacity: publishing ? 0.6 : 1,
+              cursor: 'pointer',
             }}
           >
-            {publishing ? 'Publishing…' : 'Publish'}
+            Publish
           </button>
+        )}
+        {run.status === 'draft' && !published && confirmingPublish && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+              Post this run for a contractor to claim{run.postedPriceCents != null ? ` at ${fmtPrice(run.postedPriceCents)}` : ''}?
+            </span>
+            <button
+              type="button"
+              onClick={onPublish}
+              disabled={publishing}
+              style={{
+                background: 'var(--ink)',
+                color: 'var(--paper)',
+                border: '1px solid var(--ink)',
+                padding: '4px 10px',
+                ...LABEL,
+                cursor: publishing ? 'default' : 'pointer',
+                opacity: publishing ? 0.6 : 1,
+              }}
+            >
+              {publishing ? 'Publishing…' : error ? 'Retry publish' : 'Confirm'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setConfirmingPublish(false); setError(''); }}
+              disabled={publishing}
+              style={{
+                background: 'none',
+                border: '1px solid var(--rule)',
+                color: 'var(--ink-3)',
+                padding: '4px 10px',
+                ...LABEL,
+                cursor: publishing ? 'default' : 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </span>
         )}
         <button
           type="button"
@@ -555,7 +611,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
       <div style={{ borderBottom: standalone ? 'none' : '1px solid var(--rule)', paddingBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
           <h2 className="font-serif" style={{ fontSize: standalone ? 26 : 20, fontWeight: 500, flex: 1, minWidth: 160 }}>
-            Maintenance runs
+            Maintenance
           </h2>
           {note && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{note}</span>}
           {planError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{planError}</span>}
@@ -576,10 +632,6 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
             {planning ? 'Planning…' : 'Plan now'}
           </button>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
-          Substantive fixes bundled onto days the house is empty. Publish for a handyman to claim, or email the work order out.
-        </p>
-
         {data.runs.length > 0 && (
           <div style={{ display: 'flex', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
             {data.runs.map((r) => (
@@ -601,8 +653,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
 
         {standalone && !hasAnything && (
           <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 18 }}>
-            Nothing to plan right now: no open handyman-scope work anywhere. New slips are triaged
-            automatically; hit Plan now to force a pass.
+            Nothing to plan right now. No home has open handyman work; Plan now checks again.
           </p>
         )}
 
@@ -620,7 +671,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
               </>
             )}{' '}
             {data.unclassifiedCount > 0 && (
-              <>{data.unclassifiedCount} new {data.unclassifiedCount === 1 ? 'slip' : 'slips'} awaiting triage.</>
+              <>{data.unclassifiedCount} new {data.unclassifiedCount === 1 ? 'slip has' : 'slips have'} no one decided to do them yet.</>
             )}
           </p>
         )}

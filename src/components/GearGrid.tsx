@@ -30,16 +30,40 @@ export function GearGrid({
     for (const r of rows) for (const i of items) m[`${r.propertyId}|${i.key}`] = r.cells[i.key] ?? '';
     return m;
   });
+  // A save that did not land: the cell keeps what was typed, is outlined,
+  // and the line under the grid says so. The stored copy reverts so the
+  // next click-away on the same text retries instead of reading as "no
+  // change". A failure used to be swallowed and the cell looked saved.
+  const [failed, setFailed] = useState<Record<string, string>>({});
 
   function commit(propertyId: string, itemKey: string, value: string) {
     const key = `${propertyId}|${itemKey}`;
     const clean = value.trim();
     if ((cells[key] ?? '') === clean) return;
+    const previous = cells[key] ?? '';
     setCells((prev) => ({ ...prev, [key]: clean }));
+    setFailed((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
     start(async () => {
-      await save(propertyId, itemKey, clean);
+      let ok = false;
+      try {
+        ok = (await save(propertyId, itemKey, clean)).ok;
+      } catch {
+        ok = false;
+      }
+      if (ok) return;
+      setCells((prev) => ({ ...prev, [key]: previous }));
+      const home = rows.find((r) => r.propertyId === propertyId)?.propertyName ?? propertyId;
+      const item = items.find((i) => i.key === itemKey)?.label ?? itemKey;
+      setFailed((prev) => ({ ...prev, [key]: `${home} · ${item}` }));
     });
   }
+
+  const failures = Object.values(failed);
 
   return (
     <div>
@@ -74,8 +98,9 @@ export function GearGrid({
                         <input
                           defaultValue={val}
                           placeholder="none"
+                          aria-invalid={key in failed || undefined}
                           onBlur={(e) => commit(r.propertyId, i.key, e.target.value)}
-                          style={{ width: '100%', font: 'inherit', fontSize: 13.5, color: val ? 'var(--ink)' : 'var(--ink-3)', background: 'transparent', border: 'none', outline: 'none', padding: '6px 0', minHeight: 34 }}
+                          style={{ width: '100%', font: 'inherit', fontSize: 13.5, color: val ? 'var(--ink)' : 'var(--ink-3)', background: 'transparent', border: 'none', borderBottom: key in failed ? '1px solid var(--negative)' : 'none', outline: 'none', padding: '6px 0', minHeight: 34 }}
                         />
                       )}
                     </td>
@@ -89,6 +114,11 @@ export function GearGrid({
       {!readOnly && (
         <div style={{ fontSize: 11.5, color: 'var(--ink-4)', marginTop: 8 }}>
           {pending ? 'Saving…' : 'Tap a cell to edit; saves when you click away. Clear a cell if the home no longer has one.'}
+        </div>
+      )}
+      {!readOnly && failures.length > 0 && (
+        <div role="alert" style={{ fontSize: 11.5, color: 'var(--negative)', marginTop: 6 }}>
+          Could not save {failures.join(', ')}. The cell shows what you typed; click away from it again to retry.
         </div>
       )}
     </div>
