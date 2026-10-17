@@ -241,9 +241,7 @@ export default async function CreativeBoard({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
             <div>
               <span style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', fontWeight: 600 }}>Send a contributor to a home</span>
-              <span style={{ fontSize: 12, color: 'var(--ink-4)', marginLeft: 10 }}>
-                Click an empty day. We log the shoot and text + email the brief: address, arrival, and the door code on the day. The forecast row is advisory, never a block.
-              </span>
+              <span style={{ fontSize: 12, color: 'var(--ink-4)', marginLeft: 10 }}>Pick an empty day.</span>
             </div>
             <div style={{ display: 'flex', gap: 14, fontSize: 12, whiteSpace: 'nowrap' }}>
               <Link href={`/fieldwork/shoots?from=${addDays(from, -span)}&to=${addDays(from, -1)}`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>

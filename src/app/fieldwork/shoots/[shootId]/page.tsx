@@ -126,7 +126,7 @@ export default async function ShootDetail({
                       <input name="note" defaultValue={shoot.paid_adjustment_note ?? ''} placeholder="e.g. Venmo'd on shoot day" maxLength={300} style={input} />
                     </label>
                     <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 250 }}>
-                      Corrects what this shoot has actually paid. Receipts total {dollars(sum.receiptsPaidCents)}; any later payment still adds on top. {detail.contractorName.split(' ')[0]} sees the same figure.
+                      Overrides the receipts total ({dollars(sum.receiptsPaidCents)}); later payments add on top, and {detail.contractorName.split(' ')[0]} sees the same figure.
                     </div>
                     <PendingButton label="Save" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                   </form>
@@ -205,38 +205,35 @@ export default async function ShootDetail({
         {isCreativeDriveConfigured() && active && (
           <div style={{ marginTop: 14, border: '1px solid var(--rule)', borderRadius: 10, padding: '12px 16px', background: 'var(--paper-2, #fff)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>
+              <div style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--ink-4)', display: 'flex', alignItems: 'baseline', gap: 12 }}>
                 Drive delivery
-                {shoot.drive_finals_folder_id && (
-                  <a
-                    href={`https://drive.google.com/drive/folders/${shoot.drive_finals_folder_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: 'var(--tide-deep)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 600 }}
-                  >
-                    Finals folder ↗
-                  </a>
-                )}
-                {shoot.drive_drone_folder_id && (
-                  <a
-                    href={`https://drive.google.com/drive/folders/${shoot.drive_drone_folder_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: 'var(--ink-4)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 400 }}
-                    title="Raw footage parked here is never counted as a deliverable"
-                  >
-                    drone box ↗
-                  </a>
-                )}
+                {/* The folder links and the folder change live in one fold:
+                    three links and a form in the header were the clutter,
+                    not the content. */}
                 {shoot.drive_folder_id && (
-                  <a
-                    href={`https://drive.google.com/drive/folders/${shoot.drive_folder_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: 'var(--ink-4)', textDecoration: 'none', marginLeft: 10, letterSpacing: 0, textTransform: 'none', fontWeight: 400 }}
-                  >
-                    whole folder ↗
-                  </a>
+                  <details style={{ position: 'relative', letterSpacing: 0, textTransform: 'none' }}>
+                    <summary style={{ ...quietSummary, color: 'var(--tide-deep)', fontWeight: 600, fontSize: 12 }}>Drive ▾</summary>
+                    <div style={{ ...menuCard, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                      {shoot.drive_finals_folder_id && (
+                        <a href={`https://drive.google.com/drive/folders/${shoot.drive_finals_folder_id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tide-deep)', textDecoration: 'none', fontWeight: 600 }}>
+                          Finals folder ↗ <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>· what counts as delivered</span>
+                        </a>
+                      )}
+                      {shoot.drive_drone_folder_id && (
+                        <a href={`https://drive.google.com/drive/folders/${shoot.drive_drone_folder_id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>
+                          Drone box ↗ <span style={{ color: 'var(--ink-4)' }}>· raw footage, never a deliverable</span>
+                        </a>
+                      )}
+                      <a href={`https://drive.google.com/drive/folders/${shoot.drive_folder_id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>
+                        Whole folder ↗
+                      </a>
+                      <form action={setShootDriveFolder} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: '1px solid var(--rule)', paddingTop: 10, marginTop: 2 }}>
+                        <input type="hidden" name="shoot_id" value={shoot.id} />
+                        <input name="folder" placeholder="Paste a folder link, or leave empty to unlink" aria-label="Change the linked folder" style={{ ...input, width: 220 }} />
+                        <PendingButton label="Change folder" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
+                      </form>
+                    </div>
+                  </details>
                 )}
               </div>
               <form action={syncDriveNow} style={{ margin: 0, display: 'flex', alignItems: 'baseline', gap: 10 }}>
@@ -331,16 +328,6 @@ export default async function ShootDetail({
               );
             })()}
 
-            {shoot.drive_folder_id && (
-              <details style={{ marginTop: 10 }}>
-                <summary style={{ ...quietSummary, fontSize: 11.5 }}>Change folder ▾</summary>
-                <form action={setShootDriveFolder} style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                  <input type="hidden" name="shoot_id" value={shoot.id} />
-                  <input name="folder" placeholder="Paste a folder link, or leave empty to unlink" style={{ ...input, width: 320 }} />
-                  <PendingButton label="Save" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
-                </form>
-              </details>
-            )}
           </div>
         )}
 
@@ -360,8 +347,7 @@ export default async function ShootDetail({
             }}
           >
             <strong style={{ color: 'var(--ink)' }}>{dollars(sum.setBaseCents)} on the full set</strong>: {setShortLabel(sum)}.
-            The delivery base pays once, when the whole package is in. Posting a reel is a separate clock: it starts the view
-            bonus, read {card.countDays} days later.
+            The base pays once the whole package is in; each reel&apos;s bonus starts when we post it.
           </div>
         )}
 
@@ -424,19 +410,23 @@ export default async function ShootDetail({
                         <div style={{ color: paidBase ? 'var(--positive)' : 'var(--ink-4)', fontWeight: paidBase ? 600 : 400 }}>
                           {paidBase ? '✓ base paid' : 'part of the set'}
                         </div>
+                        {/* One of three words per reel: waiting to post,
+                            counting (settles <date>), due $X. A paid bonus
+                            says so, and a decided zero says no bonus. The
+                            office override shows on its own Edit bonus fold. */}
                         {a.kind === 'reel' && (
-                          <div style={{ color: paidTopup ? 'var(--positive)' : a.posted_at && paidBase && locked && ap.topupCents > 0 ? 'var(--signal)' : 'var(--ink-4)', marginTop: 2 }}>
+                          <div style={{ color: paidTopup ? 'var(--positive)' : locked && ap.topupCents > 0 ? 'var(--signal)' : 'var(--ink-4)', marginTop: 2 }}>
                             {paidTopup
-                              ? `✓ bonus ${dollars(a.topup_cents ?? 0)}`
+                              ? `bonus paid ${dollars(a.topup_cents ?? 0)}`
                               : !a.posted_at
-                                ? 'bonus after posting'
-                                : ap.overridden
-                                  ? ap.topupCents > 0 ? `bonus ${dollars(ap.topupCents)} · set by office` : 'bonus zeroed by office'
-                                  : locked
-                                    ? ap.topupCents > 0
-                                      ? `bonus ${dollars(ap.topupCents)}${paidBase ? ' due' : ' · after the base'}`
-                                      : `no bonus · under ${firstRung(card).toLocaleString()}`
-                                    : `bonus counting${ap.locksOn ? ` · settles ${fmtShort(ap.locksOn)}` : ''}`}
+                                ? 'waiting to post'
+                                : locked
+                                  ? ap.topupCents > 0
+                                    ? `due ${dollars(ap.topupCents)}`
+                                    : `no bonus, under ${firstRung(card).toLocaleString()} views`
+                                  : ap.locksOn
+                                    ? `counting, settles ${fmtShort(ap.locksOn)}`
+                                    : 'counting'}
                           </div>
                         )}
                       </>
@@ -504,7 +494,7 @@ export default async function ShootDetail({
                               <input type="number" name="dollars" min={0} step={1} defaultValue={ap.topupCents / 100} style={{ ...input, width: 110 }} />
                             </label>
                             <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 240 }}>
-                              Sets this reel&apos;s bonus and stops the view count. It becomes payable at this number, and {detail.contractorName.split(' ')[0]} sees the same figure.
+                              Stops the count and makes the bonus payable at this number; {detail.contractorName.split(' ')[0]} sees the same figure.
                             </div>
                             <PendingButton label="Set bonus" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                           </form>
@@ -567,14 +557,11 @@ export default async function ShootDetail({
               <summary style={{ ...quietSummary, fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600 }}>+ Log a delivered asset ▾</summary>
               <form action={addAsset} style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 520, border: '1px solid var(--rule)', borderRadius: 10, padding: 14, background: 'var(--paper-2, #fff)' }}>
                 <input type="hidden" name="shoot_id" value={shoot.id} />
-                <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-                  Log each reel or carousel as {detail.contractorName.split(' ')[0]} delivers it. The {dollars(sum.setBaseCents)} base is owed once all {card.maxPerShoot + card.maxCarouselsPerShoot} pieces are in, not per asset. Leave the posted date blank until it actually goes live; that&apos;s what starts a reel&apos;s bonus clock.
-                </div>
                 <label style={miniLabel}>Type<select name="kind" defaultValue="reel" style={input}><option value="reel">Reel</option><option value="carousel">Carousel</option></select></label>
                 <label style={miniLabel}>Duration (s)<input type="number" name="duration_seconds" min={1} step={1} placeholder="reels only" style={input} /></label>
                 <label style={{ ...miniLabel, gridColumn: '1 / -1' }}>Title<input name="title" maxLength={200} placeholder="Optional label" style={input} /></label>
                 <label style={miniLabel}>Post URL <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(if live)</span><input name="post_url" placeholder="https://instagram.com/…" style={input} /></label>
-                <label style={miniLabel}>Posted date <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(if live)</span><input type="date" name="posted_at" style={input} /></label>
+                <label style={miniLabel}>Posted date <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(blank until it goes live; that starts the bonus clock)</span><input type="date" name="posted_at" style={input} /></label>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gridColumn: '1 / -1' }}>
                   <PendingButton label="Log asset" busyLabel="Adding…" style={btnGhost} spinnerTone="ink" />
                 </div>

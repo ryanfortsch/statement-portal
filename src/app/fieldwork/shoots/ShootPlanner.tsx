@@ -201,25 +201,32 @@ export function ShootPlanner({
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
-        <Swatch bg={OPEN_BG} label="empty all day" />
-        <Swatch bg={CHECKOUT_BG} label="empty after the 11 AM checkout" />
-        <Swatch bg={BOOKED_BG} label="shoot booked (initials)" />
-        <Swatch bg={PENDING_BG} label="offered, waiting on their answer (CN?)" />
-        <Swatch bg={OCCUPIED_BG} label="guest in house" />
-        <Swatch bg={HELD_BG} label="owner / blocked" />
-        <Swatch bg="var(--signal)" label="picked" />
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
-        <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
-        A red left edge is the day a guest checks in (~3 PM). The 8 AM day-of check calls that day a hold, so it isn&apos;t offered.
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
-        <span>Forecast, National Weather Service, seven days out:</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: GRADE_TINT.good }}><WeatherGlyph sky="clear" size={13} /> good light</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: GRADE_TINT.fair }}><WeatherGlyph sky="cloudy" size={13} /> workable</span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: GRADE_TINT.poor }}><WeatherGlyph sky="rain" size={13} /> poor for filming</span>
-        <span>A blank column is a day past the forecast, not a fair one. It never stops you sending.</span>
+      {/* One line of key; the detail of each mark rides its tooltip. The
+          grid is already colour-coded, so the legend names the colours and
+          nothing more (UI/UX audit, 2026-10-17). */}
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
+        <Swatch bg={OPEN_BG} label="empty" title="Empty all day. Click to offer the day." />
+        <Swatch bg={CHECKOUT_BG} label="after checkout" title="Empty once the guests leave, about 11 AM. Click to offer the day." />
+        <Swatch bg={BOOKED_BG} label="booked" title="A shoot is on; the initials are the contributor's. Click to open it." />
+        <Swatch bg={PENDING_BG} label="offered" title="Offered, waiting on their answer (initials with a ?). Withdraw it before giving the day to anyone else." />
+        <Swatch bg={OCCUPIED_BG} label="guest" title="A guest is in the house." />
+        <Swatch bg={HELD_BG} label="blocked" title="An owner or maintenance hold." />
+        <Swatch bg="var(--signal)" label="picked" title="Your current pick." />
+        <span
+          title="A red left edge is the day a guest checks in, about 3 PM. The 8 AM day-of check calls that day a hold, so it is not offered."
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} /> check-in
+        </span>
+        <span
+          title="National Weather Service, seven days out. Advisory only: a poor sky never blocks an offer, and a blank column is a day past the forecast, not a fair one."
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--ink-4)' }}
+        >
+          forecast
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: GRADE_TINT.good }} title="Good light"><WeatherGlyph sky="clear" size={13} /></span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: GRADE_TINT.fair }} title="Workable"><WeatherGlyph sky="cloudy" size={13} /></span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: GRADE_TINT.poor }} title="Poor for filming"><WeatherGlyph sky="rain" size={13} /></span>
+        </span>
       </div>
 
       {error && selCell && (
@@ -495,9 +502,9 @@ function PlannerRow({
   );
 }
 
-function Swatch({ bg, label }: { bg: string; label: string }) {
+function Swatch({ bg, label, title }: { bg: string; label: string; title?: string }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: title ? 'help' : undefined }}>
       <span style={{ width: 14, height: 14, borderRadius: 3, background: bg }} /> {label}
     </span>
   );
