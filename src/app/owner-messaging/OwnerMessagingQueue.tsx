@@ -525,7 +525,7 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
           )}
 
           {approval.followup_status?.enabled !== 0 && approval.followup_status && ['checking', 'retrying', 'unchecked'].includes(approval.followup_status.state) && (
-            <p role="status" style={{ fontSize: 13, color: 'var(--signal)' }}>
+            <p role="status" style={{ fontSize: 13, color: approval.followup_status.error ? 'var(--signal)' : 'var(--ink-3)' }}>
               {approval.followup_status.error || 'Checking this message for follow-up work.'}
             </p>
           )}

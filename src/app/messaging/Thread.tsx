@@ -159,6 +159,9 @@ export function ThreadPanel({
   const [refreshing, setRefreshing] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
+  // A Helm-native thread (guest SMS on the GUESTS line, email) never touches
+  // Guesty; only a Guesty conversation may claim Guesty provenance.
+  const fromGuesty = !conversationId.startsWith('helm:');
 
   const load = useCallback(
     async (opts?: { quiet?: boolean }) => {
@@ -206,7 +209,7 @@ export function ThreadPanel({
   if (messages === null && !error) {
     return (
       <div style={{ border: '1px solid var(--rule)', padding: '16px', fontSize: 13, color: 'var(--ink-3)' }}>
-        Loading the conversation from Guesty…
+        {fromGuesty ? 'Loading the conversation from Guesty…' : 'Loading the conversation…'}
       </div>
     );
   }
@@ -299,7 +302,7 @@ export function ThreadPanel({
         }}
       >
         <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-          Live from Guesty · refreshes every {REFETCH_MS / 1000}s
+          {fromGuesty ? 'Live from Guesty' : 'Live from Helm'} · refreshes every {REFETCH_MS / 1000}s
         </span>
         <button
           type="button"

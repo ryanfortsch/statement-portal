@@ -534,7 +534,7 @@ export async function ScheduleDigestCard({
             <input type="hidden" name="enabled" value={settings.autosend_enabled ? 'false' : 'true'} />
             <input type="hidden" name="back" value="card" />
             <SubmitButton
-              label={settings.autosend_enabled ? 'Turn off automatic sending' : 'Send automatically at 6 PM'}
+              label={settings.autosend_enabled ? 'Turn off automatic sending' : `Send automatically at ${formatTime12(`${String(settings.send_hour_et).padStart(2, '0')}:00`)}`}
               busyLabel="Saving..."
               spinnerTone="ink"
               style={{

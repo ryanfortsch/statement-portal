@@ -984,7 +984,7 @@ function ApprovalCard({
               padding: 0,
               cursor: 'pointer',
             }}
-            title="The full conversation history, live from Guesty"
+            title={approval.conversation_id.startsWith('helm:') ? 'The full conversation history, live from Helm' : 'The full conversation history, live from Guesty'}
           >
             {showThread ? 'Hide conversation ▴' : 'View conversation ▾'}
           </button>

@@ -10,7 +10,10 @@ type Props = { initialRecent: OwnerApproval[] };
 const STATUS_LABELS: Record<string, string> = {
   approved: 'Sent',
   rejected: 'Handled',
-  manual_sent: 'Sent via Quo',
+  // The guest strip's word for the same status: a reply made elsewhere (or a
+  // Mark handled), by text or by email. "Sent via Quo" read wrong on an
+  // email reply marked handled.
+  manual_sent: 'Replied manually',
   superseded: 'Coached & regenerated',
   auto_rejected_stale: 'Auto-pruned (stale)',
 };
