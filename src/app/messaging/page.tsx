@@ -15,25 +15,15 @@ import {
   listInboxSearchApprovals,
   listRecentApprovals,
   listConversations,
-  getStats,
-  getStatsTimeseries,
-  getCourtesyRollup,
-  getFacts,
-  getFactAudit,
-  listProposedPropertyUpdates,
-  listReflectionProposals,
   explainError,
 } from '@/lib/stay-concierge';
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
 import { listHelmConversations } from '@/lib/helm-inbox';
 import { mergeConversationLists } from '@/lib/helm-inbox-core';
+import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import { MessagingQueue } from './MessagingQueue';
 import { RecentDecisions } from './RecentDecisions';
 import { ConversationsBrowser } from './Conversations';
-import { PerformanceDropdown } from './PerformanceDropdown';
-import { TriagedPropertyUpdates } from './TriagedPropertyUpdates';
-import { ReflectionProposals } from './ReflectionProposals';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -146,95 +136,11 @@ async function ConversationsSection() {
   );
 }
 
-// Helm's own property list (service-role read; properties is RLS-locked) for the target selector
-// on each proposed update. Independent of the stay-concierge service.
-/** null means the lookup FAILED, which is not the same as "no properties".
- *  Returning [] for both made a momentary read error tell the operator each
- *  property "is not in Helm's registry" and switched filing off fleet-wide
- *  (2026-09-23, 3 South). Callers must treat null as "could not check". */
-async function loadProperties(): Promise<{ id: string; name: string }[] | null> {
-  try {
-    const { data, error } = await supabase.from('properties').select('id, name').order('name');
-    if (error || !data) return null;
-    return data as { id: string; name: string }[];
-  } catch {
-    return null;
-  }
-}
-
-// Mid boundary: the KB self-healing loop's review card. kb_gap_harvest mines
-// the operator's own manual Guesty replies for durable property facts the AI
-// drafts lacked (item locations, standing fees, quirks) and proposes them
-// here; applying routes through the same Quick Capture parse + apply as the
-// owner and cleaner cards.
-async function ProposedUpdatesSection() {
-  const [proposed, properties] = await Promise.all([
-    listProposedPropertyUpdates('guest'),
-    loadProperties(),
-  ]);
-  // Hide the card entirely when there is nothing to review AND no error -
-  // unlike the owner page, /messaging is a daily working surface and an
-  // empty educational card would be noise on it.
-  if (proposed.ok && proposed.data.updates.length === 0) return null;
-  return (
-    <TriagedPropertyUpdates
-      initial={proposed.ok ? proposed.data.updates : []}
-      initialError={proposed.ok ? null : explainError(proposed.error)}
-      properties={properties}
-      source="guest"
-    />
-  );
-}
-
-// The weekly reflection pass, as decisions. It mines the coaching log and the
-// AI-drafted-vs-human-sent diffs for rules taught repeatedly that the canon
-// never absorbed. It proposes and never self-applies, which was correct and
-// also meant nothing applied: its report had no reader on either side of the
-// bridge, so 25 proposals piled up across 5 runs. Hidden entirely when the
-// queue is empty AND the service is reachable, like the triage card above it.
-async function ReflectionSection() {
-  const res = await listReflectionProposals();
-  if (res.ok && res.data.proposals.length === 0 && res.data.promoted_count === 0) return null;
-  return (
-    <ReflectionProposals
-      initial={res.ok ? res.data.proposals : []}
-      initialError={res.ok ? null : explainError(res.error)}
-      openCount={res.ok ? res.data.open_count : 0}
-      promotedCount={res.ok ? res.data.promoted_count : 0}
-    />
-  );
-}
-
-// Below-the-fold boundary: the tabbed Performance section (score / last-24h
-// activity / learning + weekly fact audit). Slow calls; they stream in
-// independently after the queue and never block it.
-async function AnalyticsSection() {
-  const [stats, facts, ts, audit, recent, rollup] = await Promise.all([
-    // Default the stats window to All-time (hours=0). The 7d window is thin
-    // because /messaging only just went live; All-time is where the real
-    // "is the AI getting it right?" signal lives.
-    getStats(0),
-    getFacts(20),
-    getStatsTimeseries(30, undefined, 'substantive'),
-    getFactAudit(),
-    listRecentApprovals(24),
-    getCourtesyRollup(28),
-  ]);
-  return (
-    <PerformanceDropdown
-      initialStats={stats.ok ? stats.data : null}
-      initialError={stats.ok ? null : explainError(stats.error)}
-      initialFacts={facts.ok ? facts.data.facts : []}
-      totalFacts={facts.ok ? facts.data.total_facts : 0}
-      initialTimeseries={ts.ok ? ts.data.series : []}
-      initialAvailableTopics={ts.ok ? ts.data.available_topics : []}
-      initialRecent={recent.ok ? recent.data.approvals : []}
-      audit={audit.ok ? audit.data : null}
-      auditError={audit.ok ? null : explainError(audit.error)}
-      rollup={rollup.ok ? rollup.data : null}
-    />
-  );
-}
+// Everything analytical and every "teach the AI" surface (Performance and
+// its learned-facts editor, the weekly reflection proposals, the property
+// facts to file) lives on the Quality lens (/messaging/quality) since
+// 2026-10-17. The Inbox is the working page: it ends at Conversations and
+// keeps one line pointing there.
 
 export default function MessagingPage() {
   if (!isStayConciergeConfigured()) {
@@ -256,16 +162,8 @@ export default function MessagingPage() {
       <Suspense fallback={null}>
         <ConversationsSection />
       </Suspense>
+      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="guests" /></Suspense>
-      <Suspense fallback={null}>
-        <ProposedUpdatesSection />
-      </Suspense>
-      <Suspense fallback={null}>
-        <ReflectionSection />
-      </Suspense>
-      <Suspense fallback={null}>
-        <AnalyticsSection />
-      </Suspense>
     </Shell>
   );
 }

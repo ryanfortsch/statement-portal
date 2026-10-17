@@ -123,7 +123,7 @@ export function TriagedPropertyUpdates({ initial, initialError, properties, sour
 
   if (initialError) {
     return (
-      <Section title="Proposed property updates" paddingTop={36}>
+      <Section title="Property facts to file" paddingTop={36}>
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
           {initialError}
         </div>
@@ -133,7 +133,7 @@ export function TriagedPropertyUpdates({ initial, initialError, properties, sour
 
   if (groups.length === 0 && untriaged.length === 0) {
     return (
-      <Section title="Proposed property updates" paddingTop={36}>
+      <Section title="Property facts to file" paddingTop={36}>
         <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18, fontSize: 13, color: 'var(--ink-4)', lineHeight: 1.6 }}>
           Nothing to review. Facts mined from your own replies are checked against each
           property&apos;s knowledge base first, so only what the KB is actually missing,
@@ -145,8 +145,8 @@ export function TriagedPropertyUpdates({ initial, initialError, properties, sour
 
   return (
     <Section
-      title="Proposed property updates"
-      eyebrow="Checked against each property's knowledge base"
+      title="Property facts to file"
+      eyebrow="From your own replies, checked against each home's knowledge base"
       paddingTop={36}
       right={
         <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>

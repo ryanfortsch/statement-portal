@@ -29,7 +29,7 @@ export async function editFactAction(
   }
   const res = await editFact(id, patch);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true };
 }
 
@@ -38,7 +38,7 @@ export async function deleteFactAction(id: string): Promise<FactActionResult> {
   if (!sess.ok) return sess;
   const res = await softDeleteFact(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true };
 }
 
@@ -47,7 +47,7 @@ export async function restoreFactAction(id: string): Promise<FactActionResult> {
   if (!sess.ok) return sess;
   const res = await restoreFact(id);
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true };
 }
 
@@ -66,6 +66,6 @@ export async function createFactAction(args: {
     topic: args.topic.trim(),
   });
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true };
 }

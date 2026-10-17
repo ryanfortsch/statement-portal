@@ -14,16 +14,14 @@ import {
   listRecentOwnerApprovals,
   listOwnerHistory,
   getOwnerCuratedFacts,
-  listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
+import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import { OwnerMessagingQueue } from './OwnerMessagingQueue';
 import { OwnerRecentStrip } from './OwnerRecentStrip';
 import { OwnerContactsHistory } from './OwnerContactsHistory';
 import { OwnerFactsEditor } from './OwnerFactsEditor';
-import { ProposedPropertyUpdatesCard } from './ProposedPropertyUpdatesCard';
 import {
   fetchProactiveReminders,
   fetchProactiveTargets,
@@ -110,38 +108,9 @@ async function OwnerQueueSection() {
   );
 }
 
-// Helm's own property list (anon-readable id + name) for the target selector
-// on each proposed update. Independent of the stay-concierge service; a
-// failure here just yields an empty list (operator can still dismiss, and the
-// synced slug usually matches).
-/** null means the lookup FAILED, which is not the same as "no properties".
- *  Returning [] for both made a momentary read error tell the operator each
- *  property "is not in Helm's registry" and switched filing off fleet-wide
- *  (2026-09-23, 3 South). Callers must treat null as "could not check". */
-async function loadProperties(): Promise<{ id: string; name: string }[] | null> {
-  try {
-    const { data, error } = await supabase.from('properties').select('id, name').order('name');
-    if (error || !data) return null;
-    return data as { id: string; name: string }[];
-  } catch {
-    return null;
-  }
-}
-
-// Mid boundary: property facts owners shared, ready to file to the property.
-async function ProposedUpdatesSection() {
-  const [proposed, properties] = await Promise.all([
-    listProposedPropertyUpdates(),
-    loadProperties(),
-  ]);
-  return (
-    <ProposedPropertyUpdatesCard
-      initial={proposed.ok ? proposed.data.updates : []}
-      initialError={proposed.ok ? null : explainError(proposed.error)}
-      properties={properties ?? []}
-    />
-  );
-}
+// The facts owners share ("Proposed property updates") are filed from the
+// Quality lens (/messaging/quality, owner sessions only) since 2026-10-17;
+// this page keeps the one-line count.
 
 // Below-the-fold boundary: contact history + curated owner facts editor.
 async function OwnerDetailSection() {
@@ -176,9 +145,7 @@ export default function OwnerMessagingPage() {
         <OwnerQueueSection />
       </Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="owners" /></Suspense>
-      <Suspense fallback={null}>
-        <ProposedUpdatesSection />
-      </Suspense>
+      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
       <Suspense fallback={null}>
         <OwnerDetailSection />
       </Suspense>

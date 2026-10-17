@@ -14,13 +14,15 @@ import { MessagingTabCount } from './MessagingTabCount';
  * has drafts waiting. `current` stays required: the four routes share no
  * common prefix, so the caller names its own tab.
  *
- * Row 2 (lens) is the function within an audience. Guests has two surfaces:
- * Inbox (the approval queue + conversation browser) and Send (pick a stay
- * and write to them). It rides in SectionTabs' `secondRow` slot, the same
- * primitive FieldTabs uses for its lens row.
+ * Row 2 (lens) is the function within an audience. Guests has four
+ * surfaces: Inbox (the approval queue + conversation browser), Send (pick a
+ * stay and write to them), Saved replies, and Quality (how the AI is doing
+ * and what it is being taught; off the Inbox since 2026-10-17 so the working
+ * page ends at Conversations). It rides in SectionTabs' `secondRow` slot,
+ * the same primitive FieldTabs uses for its lens row.
  *
  * A lens row appears only when there is more than one destination: Guests
- * has three, the other audiences have none. A single Inbox label would add
+ * has four, the other audiences have none. A single Inbox label would add
  * no navigation and waste the space.
  *
  * Role-aware through SectionTabs: Owners (`/owner-messaging`) is an owner
@@ -28,7 +30,7 @@ import { MessagingTabCount } from './MessagingTabCount';
  */
 
 type MessagingAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
-type MessagingLens = 'inbox' | 'send' | 'blurbs';
+type MessagingLens = 'inbox' | 'send' | 'blurbs' | 'quality';
 
 export function MessagingTabs({
   current,
@@ -43,6 +45,7 @@ export function MessagingTabs({
           { id: 'inbox', label: 'Inbox', href: '/messaging' },
           { id: 'send', label: 'Send', href: '/messaging/send' },
           { id: 'blurbs', label: 'Saved replies', href: '/messaging/blurbs' },
+          { id: 'quality', label: 'Quality', href: '/messaging/quality' },
         ]
       : [];
 

@@ -9,17 +9,16 @@ import { MessagingTabs } from '@/components/MessagingTabs';
 import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { QueueSkeleton } from '@/components/QueueSkeleton';
 import { ProactiveRemindersPanel } from '@/components/ProactiveRemindersPanel';
+import { PropertyFactsToFile } from '@/components/PropertyFactsToFile';
 import {
   isStayConciergeConfigured,
   listContractorApprovals,
   listRecentContractorApprovals,
-  listProposedPropertyUpdates,
   explainError,
 } from '@/lib/stay-concierge';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ContractorMessagingQueue } from './ContractorMessagingQueue';
 import { loadContractorApprovalContext } from '@/lib/contractor-approval-context';
-import { ProposedPropertyUpdatesCard } from '../owner-messaging/ProposedPropertyUpdatesCard';
 import {
   fetchProactiveReminders,
   fetchProactiveTargets,
@@ -125,23 +124,9 @@ async function QueueSection() {
   );
 }
 
-// Mid boundary: property facts contractors shared (the contractor-sourced
-// slice of the same extractor feeding /owner-messaging), ready to file to the
-// property.
-async function ProposedUpdatesSection() {
-  const [proposed, properties] = await Promise.all([
-    listProposedPropertyUpdates('contractor'),
-    loadProperties(),
-  ]);
-  return (
-    <ProposedPropertyUpdatesCard
-      initial={proposed.ok ? proposed.data.updates : []}
-      initialError={proposed.ok ? null : explainError(proposed.error)}
-      properties={properties}
-      source="contractor"
-    />
-  );
-}
+// The facts contractors share ("Proposed property updates") are filed from
+// the Quality lens (/messaging/quality) since 2026-10-17; this page keeps the
+// one-line count.
 
 export default function ContractorMessagingPage() {
   if (!isStayConciergeConfigured()) {
@@ -158,9 +143,7 @@ export default function ContractorMessagingPage() {
         <QueueSection />
       </Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="contractors" /></Suspense>
-      <Suspense fallback={null}>
-        <ProposedUpdatesSection />
-      </Suspense>
+      <Suspense fallback={null}><PropertyFactsToFile /></Suspense>
     </Shell>
   );
 }

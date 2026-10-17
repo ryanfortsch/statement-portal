@@ -451,6 +451,37 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
     section: 'messaging',
   },
+  // The Quality lens of the Guests tab: how the AI is doing and what it is
+  // being taught. Off the Inbox since 2026-10-17 so the working page ends at
+  // Conversations; hidden from the nav lists, reachable from the lens row,
+  // the one-line "N property facts to file" on each queue page, and search.
+  {
+    id: 'messaging-quality',
+    href: '/messaging/quality',
+    number: '08g',
+    title: 'Messaging Quality',
+    description: 'How the guest AI is doing and what it is being taught: performance, learned facts, rules coached repeatedly, and property facts waiting to be filed. The Quality lens of the Messaging Guests tab.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'messaging',
+  },
+  // The Saved replies lens of the Guests tab. Registered so Cmd+K and the
+  // breadcrumb registry know it exists; it had no atlas entry until
+  // 2026-10-17.
+  {
+    id: 'messaging-blurbs',
+    href: '/messaging/blurbs',
+    number: '08h',
+    title: 'Saved Replies',
+    description: 'Answers in your own words that the guest AI quotes verbatim when a question matches. Approve, edit, retire. The Saved replies lens of the Messaging Guests tab.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'relationships',
+    section: 'messaging',
+  },
   // Owner Messaging is now a TAB inside Messaging (see MessagingTabs), same
   // pattern as Statements / Revenue / Forecast / Cost Analysis / Books sitting
   // under Financials. Hidden from the nav lists so it doesn't duplicate the

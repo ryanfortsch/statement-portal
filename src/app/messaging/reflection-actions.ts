@@ -49,7 +49,7 @@ export async function promoteProposal(
     }
     return { ok: false, error: explainError(res.error) };
   }
-  revalidatePath('/messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true };
 }
 
@@ -66,6 +66,6 @@ export async function dismissProposal(id: string, reason: string): Promise<Refle
     }
     return { ok: false, error: explainError(res.error) };
   }
-  revalidatePath('/messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true };
 }

@@ -16,6 +16,6 @@ export async function refreshFactAuditAction(): Promise<RefreshFactAuditResult> 
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
   const res = await refreshFactAudit();
   if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/messaging');
+  revalidatePath('/messaging/quality');
   return { ok: true, data: res.data };
 }
