@@ -103,27 +103,29 @@ export default async function ApplicantsPage({
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 2 }}>{meta.label}</div>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Applicants</div>
-        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 20, maxWidth: 620 }}>
-          People who applied to be a {meta.role} through the public link. Invite the good ones (we email them a portal
-          link and they onboard themselves) or decline. Post the job anywhere and point it at these links:
+        <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 16, maxWidth: 620 }}>
+          People who applied to be a {meta.role} through the public link. An invite emails them a portal link and they onboard themselves.
         </p>
 
-        {/* Shareable apply links, tagged by source for attribution */}
-        <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', marginBottom: 28, background: 'var(--paper-2, #fff)' }}>
-          <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 8 }}>
-            Apply links
+        {/* Shareable apply links, tagged by source for attribution. Folded:
+            set-up material, not the day's work. */}
+        <details style={{ marginBottom: 20 }}>
+          <summary style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, cursor: 'pointer', listStyle: 'none', padding: '4px 0' }}>
+            Apply links, one per place the job is posted ▾
+          </summary>
+          <div style={{ border: '1px solid var(--rule)', borderRadius: 10, padding: '14px 18px', marginTop: 8, background: 'var(--paper-2, #fff)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: 13, alignItems: 'baseline' }}>
+              {SOURCES.map((s) => (
+                <div key={s} style={{ display: 'contents' }}>
+                  <span style={{ color: 'var(--ink-4)', textTransform: 'capitalize' }}>{s}</span>
+                  <CopyCode value={`${base}/field/apply?src=${s}${trade !== 'inspection' ? `&trade=${trade}` : ''}`} mono={false} />
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '6px 14px', fontSize: 13, alignItems: 'baseline' }}>
-            {SOURCES.map((s) => (
-              <div key={s} style={{ display: 'contents' }}>
-                <span style={{ color: 'var(--ink-4)', textTransform: 'capitalize' }}>{s}</span>
-                <CopyCode value={`${base}/field/apply?src=${s}${trade !== 'inspection' ? `&trade=${trade}` : ''}`} mono={false} />
-              </div>
-            ))}
-          </div>
-        </div>
+        </details>
 
-        <p style={{ margin: '-14px 0 28px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 620 }}>
+        <p style={{ margin: '0 0 28px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 620 }}>
           What a new hire is signing up for, from a published packet to the payment, is written down in the Playbook:{' '}
           <Link href="/playbook/field-packets-from-publish-to-pay" style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
             Field packets, from publish to pay
@@ -134,7 +136,7 @@ export default async function ApplicantsPage({
         {active.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '0.02em' }}>
-              Sorted by an AI first pass. Advisory only — you make the call.
+              Sorted by an AI first pass. Advisory only; you make the call.
             </span>
             <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
               {unscreened > 0 && (
@@ -232,6 +234,11 @@ function ApplicantCard({ a, owner }: { a: ContractorApplication; owner: boolean 
           )}
           {a.about && <div style={{ marginTop: 4 }}>{a.about}</div>}
         </div>
+      )}
+      {/* Staff screen and shortlist; the invite is Ryan's. Say so, the way
+          the packet page says who approves and who pays. */}
+      {!owner && (
+        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 14 }}>Ryan invites or declines.</div>
       )}
       {owner && (
         <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
