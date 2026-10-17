@@ -237,10 +237,12 @@ export default async function ContractorsPage({
           </label>
           <label style={lbl}>
             Trade
+            {/* Cleaning is a valid trade with no tab (turnovers run through
+                Cape Ann Elite), so an invited cleaner would vanish from
+                every roster view. Not offered until a Cleaners tab exists. */}
             <select name="trade" defaultValue={trade} style={inp}>
               <option value="inspection">Inspection</option>
               <option value="maintenance">Maintenance</option>
-              <option value="cleaning">Cleaning</option>
               <option value="creative">Creative</option>
             </select>
           </label>
@@ -256,7 +258,7 @@ export default async function ContractorsPage({
               W-9 needed · {needsW9.length}
             </div>
             <p style={{ fontSize: 13, color: 'var(--ink-3)', margin: '0 0 12px', lineHeight: 1.5 }}>
-              Active {meta.label.toLowerCase()} without a W-9 on file. You need one before issuing a 1099 — mark each as you collect it.
+              Active {meta.label.toLowerCase()} without a W-9 on file; one is needed before a 1099 goes out. Mark each as you collect it.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {needsW9.map((c) => (
@@ -611,7 +613,7 @@ function ContractorCard({
             </form>
           )}
           {owner && (
-            <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal — reveals the full portfolio, so grant deliberately">
+            <form action={setContractorWorkBoard} style={{ margin: 0 }} title="The all-properties work-slip board in their Field portal. It reveals the full portfolio, so grant deliberately.">
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="grant" value={c.work_board_access ? 'false' : 'true'} />
               <SubmitButton
@@ -629,16 +631,28 @@ function ContractorCard({
             </form>
           )}
           {owner && (
-            <form action={rotateContractorToken} style={{ margin: 0 }} title="Kill the old link + all sessions and email a fresh one">
+            <form action={rotateContractorToken} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
-              <SubmitButton label="Rotate link" busyLabel="Rotating…" style={actBtn} spinnerTone="ink" />
+              <SubmitButton
+                label="Rotate link"
+                busyLabel="Rotating…"
+                style={actBtn}
+                spinnerTone="ink"
+                confirm={`Rotate ${c.full_name.split(' ')[0]}'s link? The old link and every signed-in session stop working, and we email them a fresh one.`}
+              />
             </form>
           )}
           {owner && c.status !== 'archived' && (
-            <form action={setContractorStatus} style={{ margin: 0 }} title="Retire them: kills their portal link + sessions, pulls any live door codes, and releases work they were holding. Reversible with Reactivate.">
+            <form action={setContractorStatus} style={{ margin: 0 }}>
               <input type="hidden" name="contractor_id" value={c.id} />
               <input type="hidden" name="status" value="archived" />
-              <SubmitButton label="Retire" busyLabel="Retiring…" style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }} spinnerTone="ink" />
+              <SubmitButton
+                label="Retire"
+                busyLabel="Retiring…"
+                style={{ ...actBtn, color: 'var(--signal)', borderColor: 'var(--signal)' }}
+                spinnerTone="ink"
+                confirm={`Retire ${c.full_name}? Their portal link and signed-in sessions stop working, any live door codes are pulled, and work they were holding goes back on the board with the roster texted. Reactivate brings them back.`}
+              />
             </form>
           )}
         </div>

@@ -96,9 +96,9 @@ export function VendorForm({
           <input type="text" name="name" required maxLength={200} defaultValue={vendor?.name ?? ''} placeholder="e.g. Cape Ann Plumbing & Heating" style={inp} />
         </label>
         <label style={lbl}>
-          Trade *
+          What they do *
           <select name="category" required defaultValue={vendor?.category ?? defaultCategory ?? ''} style={inp}>
-            <option value="" disabled>Choose the trade…</option>
+            <option value="" disabled>Choose…</option>
             {TRADE_CATEGORIES.map((c) => (
               <option key={c.id} value={c.id}>{c.label}</option>
             ))}
@@ -159,14 +159,22 @@ export function VendorForm({
         </label>
       </div>
 
-      <label style={lbl}>
-        Homes they cover <span style={hint}>(leave everything unpicked when they serve the whole fleet)</span>
-        <select name="property_ids" multiple defaultValue={vendor?.property_ids ?? []} size={Math.min(8, Math.max(4, properties.length))} style={{ ...inp, height: 'auto' }}>
+      {/* Checkboxes, not a multi-select listbox: one tap per home works on
+          a phone, and the whole-fleet default is visible as nothing ticked.
+          The action reads getAll('property_ids') either way. */}
+      <fieldset style={{ border: 0, padding: 0, margin: '0 0 18px', minWidth: 0 }}>
+        <legend style={{ ...lbl, marginBottom: 8 }}>
+          Homes they cover <span style={hint}>(none ticked means the whole fleet)</span>
+        </legend>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '6px 14px' }}>
           {properties.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)', minHeight: 28 }}>
+              <input type="checkbox" name="property_ids" value={p.id} defaultChecked={vendor?.property_ids.includes(p.id) ?? false} />
+              {p.name}
+            </label>
           ))}
-        </select>
-      </label>
+        </div>
+      </fieldset>
 
       <div style={row3}>
         <label style={lbl}>
@@ -178,7 +186,7 @@ export function VendorForm({
           <input type="text" name="license_number" maxLength={80} defaultValue={vendor?.license_number ?? ''} style={inp} />
         </label>
         <label style={lbl}>
-          Last used
+          Last used <span style={hint}>(what Used today stamps; change it here)</span>
           <input type="date" name="last_used_on" defaultValue={vendor?.last_used_on ?? ''} style={inp} />
         </label>
       </div>

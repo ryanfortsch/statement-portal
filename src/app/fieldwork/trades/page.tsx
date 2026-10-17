@@ -307,7 +307,7 @@ function VendorCard({
           {v.contact_name && <span style={{ fontSize: 12.5, color: 'var(--ink-4)', marginLeft: 8 }}>ask for {v.contact_name}</span>}
         </div>
         {v.last_used_on && (
-          <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>last used {v.last_used_on}</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-4)' }} title="Change the date under Edit">last used {v.last_used_on}</span>
         )}
       </div>
 
@@ -355,14 +355,23 @@ function VendorCard({
       {v.notes && <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.5 }}>{v.notes}</div>}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <form action={markVendorUsed} style={{ margin: 0 }}>
+        {/* Both are reversible, and each says so where its undo lives:
+            Used today stamps a date the Edit form can change; Retire moves
+            the vendor to the Retired list, where Bring back restores them. */}
+        <form action={markVendorUsed} style={{ margin: 0 }} title="Stamps today as the last-used date. Change it under Edit.">
           <input type="hidden" name="id" value={v.id} />
           <SubmitButton label="Used today" busyLabel="Noting…" style={btnGhostSm} spinnerTone="ink" />
         </form>
         <form action={setVendorArchived} style={{ margin: 0 }}>
           <input type="hidden" name="id" value={v.id} />
           <input type="hidden" name="archived" value="1" />
-          <SubmitButton label="Retire" busyLabel="Retiring…" style={btnGhostSm} spinnerTone="ink" />
+          <SubmitButton
+            label="Retire"
+            busyLabel="Retiring…"
+            style={btnGhostSm}
+            spinnerTone="ink"
+            confirm={`Retire ${v.name}? They move to the Retired list at the bottom of this page, out of the after-hours rail and the search. Bring back restores them.`}
+          />
         </form>
       </div>
 
