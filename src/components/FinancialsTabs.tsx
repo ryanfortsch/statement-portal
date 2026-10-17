@@ -12,6 +12,10 @@ import { NavTabCount } from '@/components/NavTabCount';
  * Thin wrapper over SectionTabs, the shared strip primitive. `current`
  * stays required here: the six routes share no common prefix, so the
  * caller names its own tab.
+ *
+ * Role-aware through SectionTabs: every one of these routes that sits in
+ * OWNER_PATH_PREFIXES drops out of the strip for a staff login, so the
+ * strip never offers a page the proxy would bounce.
  */
 export function FinancialsTabs({
   current,

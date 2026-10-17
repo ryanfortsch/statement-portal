@@ -140,5 +140,21 @@ export function apiRequiresOwner(pathname: string): boolean {
   return OWNER_API_PREFIXES.some((p) => matchesPrefix(pathname, p));
 }
 
+/**
+ * May this role open this href? Owners always; staff only when the proxy
+ * would let the page through. Query and hash are ignored, so
+ * `/fieldwork/shoots?trade=creative` is judged as `/fieldwork/shoots`, and
+ * an external link (`https://`, `mailto:`) is never gated here.
+ *
+ * The one question every tab, feed card and inline link that could land on
+ * /not-available asks before it renders. Deciding from OWNER_PATH_PREFIXES
+ * rather than a flag on each link is what keeps the chrome from drifting
+ * from what the proxy enforces: gate a new page and its links hide with it.
+ */
+export function roleMayOpen(role: HelmRole, href: string): boolean {
+  if (role === 'owner') return true;
+  return !pathRequiresOwner(href.split(/[?#]/)[0]);
+}
+
 /** Where the proxy sends a staff login that opened an owner page. */
 export const NOT_AVAILABLE_PATH = '/not-available';

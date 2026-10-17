@@ -1,18 +1,26 @@
 import Link from 'next/link';
+import { roleMayOpen } from '@/lib/helm-access';
+import { sessionRole } from '@/lib/helm-access-server';
 
 /** Tab switch over the Properties index: the managed roster at
  *  /properties, the prospect funnel at /properties/prospects, the fleet
  *  onboarding board at /properties/onboarding, and the management-contract
  *  register at /properties/contracts.
  *  Server-rendered Links (no client JS) so each tab is a plain
- *  deep-linkable URL. Styled to match the property detail tab bar. */
-export function PropertiesTabBar({ active }: { active: 'properties' | 'prospects' | 'onboarding' | 'contracts' }) {
+ *  deep-linkable URL. Styled to match the property detail tab bar.
+ *
+ *  Role-aware: Prospects and Contracts are owner pages (OWNER_PATH_PREFIXES),
+ *  so a staff login sees Properties and Onboarding only. The bar reads the
+ *  session itself rather than taking a role prop, so a page that mounts it
+ *  cannot forget to pass one; the gate list decides which tabs survive. */
+export async function PropertiesTabBar({ active }: { active: 'properties' | 'prospects' | 'onboarding' | 'contracts' }) {
+  const role = (await sessionRole()) ?? 'staff';
   const tabs = [
     { id: 'properties' as const, label: 'Properties', href: '/properties' },
     { id: 'prospects' as const, label: 'Prospects', href: '/properties/prospects' },
     { id: 'onboarding' as const, label: 'Onboarding', href: '/properties/onboarding' },
     { id: 'contracts' as const, label: 'Contracts', href: '/properties/contracts' },
-  ];
+  ].filter((t) => roleMayOpen(role, t.href));
   return (
     <nav aria-label="Properties sections" style={{ borderBottom: '1px solid var(--ink)', marginBottom: 28 }}>
       <div className="max-w-[1100px] mx-auto px-10" style={{ display: 'flex', gap: 4 }}>

@@ -13,6 +13,8 @@
  *   3. the money server actions, which must call ownerEmail() because a
  *      server action posts to whatever page rendered it and the path gate
  *      cannot cover an action shared across pages
+ *   4. the section strips, which must never offer a staff login a tab the
+ *      proxy would bounce to /not-available
  *
  * Run: npm test
  */
@@ -23,6 +25,7 @@ import {
   roleForEmail,
   pathRequiresOwner,
   apiRequiresOwner,
+  roleMayOpen,
   OWNER_PATH_PREFIXES,
   OWNER_API_PREFIXES,
   OWNER_ONLY_ASK_TOOLS,
@@ -247,5 +250,129 @@ describe('the money server actions refuse a staff session', () => {
     const proxy = read('src/proxy.ts');
     assert.ok(proxy.includes('pathRequiresOwner(pathname)'), 'the proxy must gate owner pages');
     assert.ok(proxy.includes('apiRequiresOwner(pathname)'), 'the proxy must gate owner /api routes');
+  });
+});
+
+describe('the section strips never offer a tab the proxy would bounce', () => {
+  test('roleMayOpen: owners open everything, staff only the ungated pages, query and hash ignored', () => {
+    for (const href of [
+      '/statements',
+      '/fieldwork/shoots?trade=creative',
+      '/guests/quotes',
+      '/owner-messaging',
+      '/properties/prospects',
+      '/properties/contracts',
+      '/fieldwork/rate-card#card',
+    ]) {
+      assert.equal(roleMayOpen('owner', href), true, `an owner may open ${href}`);
+      assert.equal(roleMayOpen('staff', href), false, `staff must not be offered ${href}`);
+    }
+    for (const href of [
+      '/fieldwork/roster?trade=creative',
+      '/fieldwork/packets?trade=inspection&focus=review#needs-review',
+      '/messaging',
+      '/properties/onboarding',
+      'https://mail.google.com/mail/u/0/#inbox',
+      'mailto:ryan@risingtidestr.com',
+    ]) {
+      assert.equal(roleMayOpen('staff', href), true, `staff may open ${href}`);
+    }
+  });
+
+  test('SectionTabs filters every strip it renders through the gate list', () => {
+    const src = read('src/components/SectionTabs.tsx');
+    assert.ok(src.includes('const role = useHelmRole();'), 'SectionTabs must read the role');
+    assert.ok(
+      src.includes('const visible = tabs.filter((t) => roleMayOpen(role, t.href));'),
+      'SectionTabs must drop the tabs the proxy would bounce',
+    );
+    assert.ok(src.includes('{visible.map((t) => {'), 'SectionTabs must render the filtered list, not the one it was handed');
+    assert.ok(!src.includes('{tabs.map((t) => {'), 'SectionTabs must not render the unfiltered list');
+  });
+
+  // Every strip, with how many owner-gated hrefs each is expected to list.
+  // A gated href is fine when it reaches the page through SectionTabs'
+  // `tabs` (filtered above); a strip that prints links of its own has to
+  // read the role itself. The expected counts keep the scan honest: if the
+  // literal scan stopped finding hrefs, the test would pass for nothing.
+  const STRIPS: Record<string, number> = {
+    'src/components/MessagingTabs.tsx': 1,
+    'src/components/FieldTabs.tsx': 1,
+    'src/components/FinancialsTabs.tsx': 5,
+    'src/components/MarketingTabs.tsx': 0,
+    'src/components/WorkTabs.tsx': 0,
+    'src/components/TurnoverTabs.tsx': 0,
+    'src/app/properties/PropertiesTabBar.tsx': 2,
+    'src/app/guests/GuestsTabBar.tsx': 1,
+  };
+
+  /** Character ranges of every `tabs={[ ... ]}` literal handed to SectionTabs. */
+  function sectionTabsRanges(src: string): Array<[number, number]> {
+    const ranges: Array<[number, number]> = [];
+    const marker = 'tabs={[';
+    let at = src.indexOf(marker);
+    while (at !== -1) {
+      const open = at + marker.length - 1;
+      let depth = 0;
+      let i = open;
+      for (; i < src.length; i++) {
+        if (src[i] === '[') depth++;
+        else if (src[i] === ']') {
+          depth--;
+          if (depth === 0) break;
+        }
+      }
+      ranges.push([open, i]);
+      at = src.indexOf(marker, i);
+    }
+    return ranges;
+  }
+
+  /** The source with its comments blanked out: a path named in a docblock
+   *  is prose, not a link, and must neither count nor be checked. */
+  function withoutComments(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+      .replace(/^\s*\/\/.*$/gm, (m) => ' '.repeat(m.length));
+  }
+
+  for (const [file, expected] of Object.entries(STRIPS)) {
+    test(`${file} lists no owner page without a role check`, () => {
+      const src = withoutComments(read(file));
+      const readsRole = src.includes('useHelmRole()') || src.includes('await sessionRole()');
+      const ranges = sectionTabsRanges(src);
+      const literal = /['"`](\/[^'"`\s$]*)['"`]/g;
+      let gated = 0;
+      for (let m = literal.exec(src); m; m = literal.exec(src)) {
+        const index = m.index;
+        if (!pathRequiresOwner(m[1].split(/[?#]/)[0])) continue;
+        gated++;
+        const throughSectionTabs = ranges.some(([a, b]) => index > a && index < b);
+        assert.ok(
+          throughSectionTabs || readsRole,
+          `${file} lists ${m[1]} without a role check: hand it to SectionTabs' tabs, or read useHelmRole() / sessionRole() and filter with roleMayOpen`,
+        );
+      }
+      assert.equal(gated, expected, `${file}: expected ${expected} owner-gated href(s) in the source, found ${gated}; update the count if the strip changed on purpose`);
+    });
+  }
+
+  test('FieldTabs lands staff on the Roster for creative and never offers Shoots & Pay', () => {
+    const src = read('src/components/FieldTabs.tsx');
+    assert.ok(src.startsWith("'use client';"), 'FieldTabs reads the role on the client');
+    assert.ok(src.includes("const owner = useHelmRole() === 'owner';"));
+    assert.ok(src.includes('const hasShoots = (t: ContractorTrade) => TRADE_META[t].hasShoots && owner;'));
+    assert.ok(
+      src.includes("TRADE_META[t].hasPackets ? 'packets' : hasShoots(t) ? 'shoots' : 'contractors'"),
+      'the creative home lens must consult the role',
+    );
+    assert.ok(src.includes("hasShoots(trade) ? { id: 'shoots', label: 'Shoots & Pay' } : null"), 'the Shoots & Pay lens must consult the role');
+    assert.ok(!src.includes("TRADE_META[t].hasShoots ? 'shoots'"), 'no path to the pay ledger may skip the role');
+  });
+
+  test('PropertiesTabBar reads the session and drops Prospects and Contracts for staff', () => {
+    const src = read('src/app/properties/PropertiesTabBar.tsx');
+    assert.ok(src.includes("const role = (await sessionRole()) ?? 'staff';"), 'the bar reads the session itself');
+    assert.ok(src.includes('].filter((t) => roleMayOpen(role, t.href));'), 'the bar filters through the gate list');
   });
 });

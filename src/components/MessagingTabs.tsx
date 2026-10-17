@@ -19,19 +19,16 @@ import { MessagingTabCount } from './MessagingTabCount';
  * and write to them). It rides in SectionTabs' `secondRow` slot, the same
  * primitive FieldTabs uses for its lens row.
  *
- * A lens row appears only when there is more than one destination. The
- * single Inbox label on other audiences adds no navigation and wastes space.
+ * A lens row appears only when there is more than one destination: Guests
+ * has three, the other audiences have none. A single Inbox label would add
+ * no navigation and waste the space.
+ *
+ * Role-aware through SectionTabs: Owners (`/owner-messaging`) is an owner
+ * page, so the strip drops that tab and its count pill for a staff login.
  */
 
 type MessagingAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
 type MessagingLens = 'inbox' | 'send' | 'blurbs';
-
-const AUDIENCE_HOME: Record<MessagingAudience, string> = {
-  guests: '/messaging',
-  owners: '/owner-messaging',
-  cleaners: '/cleaner-messaging',
-  contractors: '/contractor-messaging',
-};
 
 export function MessagingTabs({
   current,
@@ -47,7 +44,7 @@ export function MessagingTabs({
           { id: 'send', label: 'Send', href: '/messaging/send' },
           { id: 'blurbs', label: 'Saved replies', href: '/messaging/blurbs' },
         ]
-      : [{ id: 'inbox', label: 'Inbox', href: AUDIENCE_HOME[current] }];
+      : [];
 
   return (
     <div className="rt-messaging-tabs">
@@ -59,7 +56,7 @@ export function MessagingTabs({
         { id: 'cleaners', label: 'Cleaners', href: '/cleaner-messaging', badge: <MessagingTabCount category="cleaners" /> },
         { id: 'contractors', label: 'Contractors', href: '/contractor-messaging', badge: <MessagingTabCount category="contractors" /> },
       ]}
-      secondRow={lenses.length > 1 ?
+      secondRow={lenses.length > 0 ?
         <div className="flex items-center" style={{ gap: 16, paddingTop: 10, paddingBottom: 2, overflowX: 'auto' }}>
           {lenses.map((l, i) => {
             const isActive = l.id === lens;
