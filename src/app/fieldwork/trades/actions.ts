@@ -6,7 +6,6 @@ import { auth } from '@/auth';
 import { fieldDb } from '@/lib/field-db';
 import { todayET } from '@/lib/checkout-schedule';
 import { parseStanding } from '@/lib/trades';
-import { parseTrade } from '@/lib/field-types';
 
 export type TradeFormState = { error: string };
 
@@ -17,11 +16,10 @@ async function staffEmail(): Promise<string> {
 }
 
 /** Where an action lands you: back on the directory, anchored on the row
- *  that changed, still in the job type you were browsing -- otherwise the
- *  row-1 tab silently snaps back to Inspectors. */
-function landing(fd: FormData, id: string | null): string {
-  const trade = parseTrade(String(fd.get('trade') ?? ''));
-  return `/fieldwork/trades?trade=${trade}${id ? `#v-${id}` : ''}`;
+ *  that changed. The directory sits off the trade grid, so there is no job
+ *  type to carry. */
+function landing(id: string | null): string {
+  return `/fieldwork/trades${id ? `#v-${id}` : ''}`;
 }
 
 const str = (fd: FormData, key: string): string | null => {
@@ -91,7 +89,7 @@ export async function saveTradeVendor(_prev: TradeFormState, formData: FormData)
   }
 
   revalidatePath('/fieldwork/trades');
-  redirect(landing(formData, savedId));
+  redirect(landing(savedId));
 }
 
 /** Retire a vendor (or bring one back). Never deletes: who we used to
@@ -106,7 +104,7 @@ export async function setVendorArchived(formData: FormData): Promise<void> {
     .update({ archived_at: archived ? new Date().toISOString() : null })
     .eq('id', id);
   revalidatePath('/fieldwork/trades');
-  redirect(landing(formData, id));
+  redirect(landing(id));
 }
 
 /** One tap after a call: stamps today so the directory shows who is
@@ -117,5 +115,5 @@ export async function markVendorUsed(formData: FormData): Promise<void> {
   if (!id) return;
   await fieldDb().from('trade_vendors').update({ last_used_on: todayET() }).eq('id', id);
   revalidatePath('/fieldwork/trades');
-  redirect(landing(formData, id));
+  redirect(landing(id));
 }

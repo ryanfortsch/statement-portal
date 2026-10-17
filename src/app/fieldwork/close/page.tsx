@@ -4,7 +4,6 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { auth } from '@/auth';
 import { roleForEmail } from '@/lib/helm-access';
 import { fieldDb } from '@/lib/field-db';
-import { parseTrade, navTrade } from '@/lib/field-types';
 import { PROPERTIES } from '@/lib/properties';
 import { todayET } from '@/lib/team-recipients';
 import { handoffMonths, isMonth, type HandoffItem } from '@/lib/close-handoff';
@@ -40,10 +39,9 @@ async function loadProperties(): Promise<{ id: string; name: string }[]> {
 export default async function CloseHandoffPage({
   searchParams,
 }: {
-  searchParams: Promise<{ trade?: string; month?: string }>;
+  searchParams: Promise<{ month?: string }>;
 }) {
   const sp = await searchParams;
-  const trade = navTrade(parseTrade(sp.trade));
   const session = await auth();
   const email = session?.user?.email ?? '';
   const owner = roleForEmail(email) === 'owner';
@@ -62,7 +60,7 @@ export default async function CloseHandoffPage({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <FieldTabs current="close" trade={trade} />
+      <FieldTabs current="close" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 2 }}>Field</div>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Close handoff</div>
@@ -84,7 +82,6 @@ export default async function CloseHandoffPage({
             month={month}
             months={offered}
             today={today}
-            trade={trade}
             items={loaded.items}
             properties={properties}
             statementHomes={Object.keys(PROPERTIES)}

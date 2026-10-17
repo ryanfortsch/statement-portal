@@ -3,7 +3,6 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
-import { parseTrade, navTrade } from '@/lib/field-types';
 import {
   byCategory,
   categoryLabel,
@@ -26,9 +25,9 @@ export const dynamic = 'force-dynamic';
  *
  * Sits in the Field section because it answers the same question the rest
  * of Field answers -- who goes to the house -- for the half of the answer
- * that isn't our own 1099 roster. It is deliberately trade-agnostic: the
- * ?trade= param rides through so the tab strip returns you to the job type
- * you came from, but a plumber is a plumber no matter which lens you left.
+ * that isn't our own 1099 roster. It is deliberately trade-agnostic and
+ * sits off the trade grid: no ?trade=, no lit job-type tab, because a
+ * plumber is a plumber no matter which lens you left.
  *
  * The page is built around the 9 PM question. The after-hours rail is
  * first, every number is a one-tap tel:/sms: link, and the list is sorted
@@ -73,10 +72,9 @@ function matches(v: TradeVendorRow, q: string): boolean {
 export default async function TradesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ trade?: string; cat?: string; q?: string }>;
+  searchParams: Promise<{ cat?: string; q?: string }>;
 }) {
   const sp = await searchParams;
-  const trade = navTrade(parseTrade(sp.trade));
   const cat = sp.cat ?? '';
   const q = (sp.q ?? '').trim().toLowerCase();
 
@@ -111,7 +109,7 @@ export default async function TradesPage({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <FieldTabs current="trades" trade={trade} />
+      <FieldTabs current="trades" />
       <section className="max-w-[900px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--tide-deep)', fontWeight: 600, marginBottom: 2 }}>Field</div>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Trades &amp; vendors</div>
@@ -166,7 +164,6 @@ export default async function TradesPage({
         {/* Find: plain GET form, no client JS. */}
         {live.length > 0 && (
           <form method="get" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-            <input type="hidden" name="trade" value={trade} />
             {cat && <input type="hidden" name="cat" value={cat} />}
             <input
               type="search"
@@ -181,12 +178,12 @@ export default async function TradesPage({
 
         {chips.length > 1 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 22 }}>
-            <Chip label="All trades" href={`/fieldwork/trades?trade=${trade}${q ? `&q=${encodeURIComponent(q)}` : ''}`} active={!cat} />
+            <Chip label="All trades" href={`/fieldwork/trades${q ? `?q=${encodeURIComponent(q)}` : ''}`} active={!cat} />
             {chips.map((c) => (
               <Chip
                 key={c.id}
                 label={c.label}
-                href={`/fieldwork/trades?trade=${trade}&cat=${c.id}${q ? `&q=${encodeURIComponent(q)}` : ''}`}
+                href={`/fieldwork/trades?cat=${c.id}${q ? `&q=${encodeURIComponent(q)}` : ''}`}
                 active={cat === c.id}
               />
             ))}
@@ -208,7 +205,7 @@ export default async function TradesPage({
               {g.label} · {g.vendors.length}
             </h2>
             {g.vendors.map((v) => (
-              <VendorCard key={v.id} v={v} trade={trade} propertyName={propertyName} properties={properties} />
+              <VendorCard key={v.id} v={v} propertyName={propertyName} properties={properties} />
             ))}
           </div>
         ))}
@@ -216,7 +213,7 @@ export default async function TradesPage({
         <details style={{ marginTop: 8, borderTop: '1px solid var(--rule)', paddingTop: 20 }}>
           <summary style={summary}>+ Add a vendor</summary>
           <div style={{ marginTop: 18 }}>
-            <VendorForm properties={properties} trade={trade} defaultCategory={cat || undefined} />
+            <VendorForm properties={properties} defaultCategory={cat || undefined} />
           </div>
         </details>
 
@@ -232,7 +229,6 @@ export default async function TradesPage({
                   </span>
                   <form action={setVendorArchived} style={{ margin: 0 }}>
                     <input type="hidden" name="id" value={v.id} />
-                    <input type="hidden" name="trade" value={trade} />
                     <input type="hidden" name="archived" value="0" />
                     <SubmitButton label="Bring back" busyLabel="Restoring…" style={btnGhostSm} spinnerTone="ink" />
                   </form>
@@ -271,12 +267,10 @@ function Chip({ label, href, active }: { label: string; href: string; active: bo
 
 function VendorCard({
   v,
-  trade,
   propertyName,
   properties,
 }: {
   v: TradeVendorRow;
-  trade: string;
   propertyName: Map<string, string>;
   properties: { id: string; name: string }[];
 }) {
@@ -363,12 +357,10 @@ function VendorCard({
       <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <form action={markVendorUsed} style={{ margin: 0 }}>
           <input type="hidden" name="id" value={v.id} />
-          <input type="hidden" name="trade" value={trade} />
           <SubmitButton label="Used today" busyLabel="Noting…" style={btnGhostSm} spinnerTone="ink" />
         </form>
         <form action={setVendorArchived} style={{ margin: 0 }}>
           <input type="hidden" name="id" value={v.id} />
-          <input type="hidden" name="trade" value={trade} />
           <input type="hidden" name="archived" value="1" />
           <SubmitButton label="Retire" busyLabel="Retiring…" style={btnGhostSm} spinnerTone="ink" />
         </form>
@@ -377,7 +369,7 @@ function VendorCard({
       <details style={{ marginTop: 12 }}>
         <summary style={{ ...summary, fontSize: 11 }}>Edit</summary>
         <div style={{ marginTop: 14 }}>
-          <VendorForm vendor={v} properties={properties} trade={trade} />
+          <VendorForm vendor={v} properties={properties} />
         </div>
       </details>
     </div>

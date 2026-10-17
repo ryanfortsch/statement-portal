@@ -3,7 +3,7 @@ import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { isFieldConfigured, fieldDb } from '@/lib/field-db';
 import { loadFieldProperties } from '@/lib/field-packets';
-import { canClaim, type ContractorRow } from '@/lib/field-types';
+import { canClaim, parseTrade, navTrade, type ContractorRow } from '@/lib/field-types';
 import { AdhocForm } from './AdhocForm';
 
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,10 @@ export const dynamic = 'force-dynamic';
  *  rails. Not a full inspection — just the task you describe. The form itself
  *  is a client component (AdhocForm) so a failed save shows an inline error
  *  instead of silently re-landing here. */
-export default async function AdhocPacketPage() {
+export default async function AdhocPacketPage({ searchParams }: { searchParams: Promise<{ trade?: string }> }) {
+  // The strip keeps the job type the operator arrived from (the board's
+  // link carries it); the job itself still goes to the inspection roster.
+  const trade = navTrade(parseTrade((await searchParams).trade));
   if (!isFieldConfigured) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -45,13 +48,11 @@ export default async function AdhocPacketPage() {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <FieldTabs current="packets" trade="inspection" />
+      <FieldTabs current="packets" trade={trade} />
       <section className="max-w-[720px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
         <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Send a one-off job</div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 24, maxWidth: 560 }}>
-          A single task at a home (drop something off, meet a vendor, grab a photo, swap a bulb). Done by the same
-          specialists, on its own claim → do → approve → pay. Set the pay now; you can adjust it after the visit from
-          the packet page. To add a one-off onto an inspector&apos;s existing run instead, use the packet page.
+          One task at one home for a set pay. To add one to a run already out, use that packet&apos;s Add a stop.
         </p>
         <AdhocForm properties={properties} offerable={offerable} />
       </section>

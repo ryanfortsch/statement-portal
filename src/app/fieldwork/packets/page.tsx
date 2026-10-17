@@ -221,8 +221,8 @@ export default async function PacketsBoard({
             <div className="font-serif" style={{ fontSize: 26, fontWeight: 400 }}>Field packets</div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Link href="/fieldwork/packets/setup" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Property setup</Link>
-            <Link href="/fieldwork/packets/adhoc" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ One-off job</Link>
+            <Link href={`/fieldwork/packets/setup?trade=${trade}`} style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Property setup</Link>
+            <Link href={`/fieldwork/packets/adhoc?trade=${trade}`} style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ One-off job</Link>
             <Link href="/fieldwork/packets/maintenance" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Maintenance run</Link>
           </div>
         </div>
