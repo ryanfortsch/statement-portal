@@ -21,6 +21,7 @@ for (const [name, path] of [
   ['assignment', 'src/app/work/[id]/SlipAssignEditor.tsx'],
   ['scope', 'src/app/work/[id]/SlipScopeEditor.tsx'],
   ['snooze', 'src/app/work/[id]/SnoozeButton.tsx'],
+  ['slip-controls', 'src/app/work/[id]/slip-controls.ts'],
   ['picker', 'src/components/TeamPicker.tsx'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
@@ -66,6 +67,7 @@ await new Promise((done,reject)=>{
       '../actions':join(scratch,'actions.js'),
       '@/components/TeamPicker':join(scratch,'picker.js'),
       '@/lib/use-soft-refresh':join(scratch,'refresh.js'),
+      './slip-controls':join(scratch,'slip-controls.js'),
       '@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
       '@/lib/team':join(scratch,'team.js'),
     }},performance:{hints:false},
