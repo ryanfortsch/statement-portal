@@ -6,7 +6,10 @@ import { TeamPicker } from '@/components/TeamPicker';
 import {
   type WorkSlipCategory,
   type WorkSlipPriority,
+  DEFAULT_WORK_SLIP_CATEGORY,
+  WORK_SLIP_CATEGORY_HINTS,
   WORK_SLIP_CATEGORY_LABELS,
+  WORK_SLIP_PICKER_CATEGORIES,
 } from '@/lib/work-types';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
@@ -30,9 +33,9 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  // Defaults: Rising Tide category + self-assigned (see WorkSlipModal in
-  // QueueClient — same rationale). Both change in one tap before saving.
-  const [category, setCategory] = useState<WorkSlipCategory>('rising_tide');
+  // Defaults: Maintenance (the same default as the board's modal and the
+  // server) + self-assigned. Both change in one tap before saving.
+  const [category, setCategory] = useState<WorkSlipCategory>(DEFAULT_WORK_SLIP_CATEGORY);
   const [priority, setPriority] = useState<WorkSlipPriority>('normal');
   const [scheduledDate, setScheduledDate] = useState('');
   const [assignedToEmail, setAssignedToEmail] = useState<string | null>(myEmail || null);
@@ -43,7 +46,7 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
     setTitle('');
     setDescription('');
     setLocation('');
-    setCategory('rising_tide');
+    setCategory(DEFAULT_WORK_SLIP_CATEGORY);
     setPriority('normal');
     setScheduledDate('');
     setAssignedToEmail(myEmail || null);
@@ -162,14 +165,14 @@ export function PropertyAddSlipButton({ propertyId, propertyName, myEmail }: Pro
                 <div style={{ flex: 1 }}>
                   <Field label="Category">
                     <select value={category} onChange={(e) => setCategory(e.target.value as WorkSlipCategory)} style={selectStyle()}>
-                      {/* Same trim as the work-board modal: vendor and
-                          ad_hoc have never been hand-filed. */}
-                      {(Object.entries(WORK_SLIP_CATEGORY_LABELS) as [WorkSlipCategory, string][])
-                        .filter(([v]) => v !== 'vendor' && v !== 'ad_hoc')
-                        .map(([v, l]) => (
-                          <option key={v} value={v}>{l}</option>
-                        ))}
+                      {/* The same five lane words as the board's modal
+                          (lib/work-types.ts); vendor and ad_hoc are never
+                          hand-filed. */}
+                      {WORK_SLIP_PICKER_CATEGORIES.map((v) => (
+                        <option key={v} value={v}>{WORK_SLIP_CATEGORY_LABELS[v]}</option>
+                      ))}
                     </select>
+                    <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.4 }}>{WORK_SLIP_CATEGORY_HINTS[category]}</div>
                   </Field>
                 </div>
                 <div style={{ flex: 1 }}>

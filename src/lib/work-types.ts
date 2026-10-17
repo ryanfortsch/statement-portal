@@ -204,14 +204,46 @@ export type RunsBoardData = {
 export const ACTIVE_WORK_SLIP_STATUSES: WorkSlipStatus[] = ['open', 'in_progress', 'scheduled'];
 export const ACTIVE_TASK_STATUSES: TaskStatus[] = ['open', 'in_progress', 'blocked'];
 
+/**
+ * One vocabulary for a slip's category: the lane words. The stored column
+ * keeps its old values (inventory, rising_tide) but every surface a person
+ * reads prints the word the board's lane headers and the slip page's chips
+ * use, so "Supply" on the create modal is "Supply" on the slip's header pill
+ * and "Supply" on its Lane chips (lib/work-slip-lanes.ts derives the lane
+ * from this column). "Inventory" and "Rising Tide" were the same two
+ * categories under their database names and are gone from the UI.
+ *
+ * vendor and ad_hoc stay in the enum for packet code (createAdHocPacket
+ * files ad_hoc) and are never offered to a person: WORK_SLIP_PICKER_CATEGORIES
+ * is the list every picker renders. work-slip-vocabulary.test.ts guards both.
+ */
 export const WORK_SLIP_CATEGORY_LABELS: Record<WorkSlipCategory, string> = {
   maintenance: 'Maintenance',
-  inventory: 'Inventory',
+  inventory: 'Supply',
   owner: 'Owner',
   vendor: 'Vendor',
   other: 'Other',
-  rising_tide: 'Rising Tide',
+  rising_tide: 'Office',
   /** Standalone one-off job from the Field packet flow (createAdHocPacket);
    *  like rising_tide, stays out of the open-maintenance bundling pool. */
   ad_hoc: 'One-off',
+};
+
+/** The categories a person files by hand, in picker order. A board-filed
+ *  slip defaults to the first one: a plain repair is the common case, and
+ *  the nightly organize pass re-files anything the filer did not pick. */
+export const WORK_SLIP_PICKER_CATEGORIES: readonly WorkSlipCategory[] = ['maintenance', 'inventory', 'owner', 'rising_tide', 'other'];
+
+export const DEFAULT_WORK_SLIP_CATEGORY: WorkSlipCategory = 'maintenance';
+
+/** One clause per category, printed under the picker and under the slip
+ *  page's chips (never only in a tooltip, which a phone does not show). */
+export const WORK_SLIP_CATEGORY_HINTS: Record<WorkSlipCategory, string> = {
+  maintenance: 'A fix or a check in the house. Who does it is decided under Who does this.',
+  inventory: 'A restock from the closet or a small purchase the office makes.',
+  owner: 'The owner buys, approves or decides first.',
+  vendor: 'A licensed or specialty trade the office books.',
+  other: 'None of the above.',
+  rising_tide: 'Desk work for the office. Nothing to do in the house.',
+  ad_hoc: 'A one-off job filed from a Field packet.',
 };
