@@ -30,13 +30,15 @@ import { MessagingTabCount } from './MessagingTabCount';
  */
 
 type MessagingAudience = 'guests' | 'owners' | 'cleaners' | 'contractors';
+/** 'none' is a page of the section that belongs to no audience (Delivery &
+ *  sync): the strip renders with no tab lit, so the way out is still there. */
 type MessagingLens = 'inbox' | 'send' | 'blurbs' | 'quality';
 
 export function MessagingTabs({
   current,
   lens = 'inbox',
 }: {
-  current: MessagingAudience;
+  current: MessagingAudience | 'none';
   lens?: MessagingLens;
 }) {
   const lenses: { id: MessagingLens; label: string; href: string }[] =

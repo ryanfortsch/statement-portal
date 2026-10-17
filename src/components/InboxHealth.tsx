@@ -6,14 +6,10 @@ import { getInboxHealth, listWorkFollowups } from '@/lib/stay-concierge';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { auth } from '@/auth';
 import { canOpenMailbox, gmailUrl } from '@/lib/gmail-links';
-import { inboxStatus } from '@/lib/inbox-status';
+import { channelWord, inboxStatus } from '@/lib/inbox-status';
 import { SubmitButton } from './SubmitButton';
 import { releaseHeldPitch } from '@/app/messaging/inbox-health-actions';
 
-const labels: Record<string, string> = {
-  ok: 'Checked', checking: 'Checking', partial: 'Incomplete check',
-  failed: 'Check failed', stale: 'Check overdue', disabled: 'Not enabled', unverified: 'Not verified',
-};
 const importLabels: Record<string, string> = { review: 'Review import', retry: 'Import retrying', processing: 'Import processing' };
 
 function when(timestamp: number | null) {
@@ -47,7 +43,8 @@ export async function InboxHealth({ diagnostics = false }: { diagnostics?: boole
     {channels.length > 0 && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" style={{ marginTop: 14 }}>
       {channels.map(channel => <div key={channel.id} style={{ fontSize: 12, lineHeight: 1.6 }}>
         <strong>{channel.label}</strong>
-        <div>{labels[channel.status] || 'Not verified'}</div>
+        {/* Working / Delayed / Broken; the service's own label in the title. */}
+        <div title={channelWord(channel.status).raw} style={{ color: channelWord(channel.status).tone, fontWeight: 600 }}>{channelWord(channel.status).word}</div>
         <div style={{ color: 'var(--ink-3)' }}>Last successful check: {when(channel.success_at)}</div>
         {diagnostics && <div style={{ color: 'var(--ink-3)' }}>{channel.coverage}</div>}
         {channel.detail && <div>{channel.detail}</div>}

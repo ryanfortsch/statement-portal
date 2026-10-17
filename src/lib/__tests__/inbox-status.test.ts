@@ -32,7 +32,7 @@ test('a truncated receipt list cannot be treated as a healthy inbox', () => {
 test('failed reads and source checks remain visible without claiming missing messages', () => {
   assert.equal(inboxStatus(null, null, now).summary, 'Import status unavailable · Work status unavailable');
   const result = inboxStatus(health({ channels: ['failed', 'stale'].map(status => ({ id: status, label: status === 'failed' ? 'Guest email' : 'Guesty', status, coverage: '', detail: '', checked_at: now, success_at: null })) }), emptyWork, now);
-  assert.equal(result.summary, 'Guest email check failed · Guesty check overdue');
+  assert.equal(result.summary, 'Guest email broken · Guesty delayed');
   assert.equal(result.attention, true);
 });
 
