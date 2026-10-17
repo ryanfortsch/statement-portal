@@ -189,7 +189,7 @@ pass('owner facts retain failed edits, prevent duplicate saves, protect their sa
 for(const extra of ['', '&edit=1']){
   await reset('vendor',extra);assert.equal(await guard(),false);await edit('#vendor [name="name"]','Synthetic vendor');await edit('#vendor [name="category"]','plumbing');await edit('#vendor [name="notes"]','Detailed vendor notes');
   await edit('#vendor [name="phone"]','9785550109');await edit('#vendor [name="insured"]','no');await edit('#vendor [name="standing"]','primary');await page.$eval('#vendor [name="emergency"]',e=>e.click());
-  await page.$eval('#vendor [name="property_ids"]',e=>{for(const o of e.options)o.selected=true;e.dispatchEvent(new Event('change',{bubbles:true}));});
+  await page.$$eval('#vendor [name="property_ids"]',es=>{for(const e of es)e.click();});// one checkbox per home since #1830
   await submit('vendor',true);await waitCalls(1);assert.equal(await frozen('vendor'),true);const first=(await calls())[0].args;
   assert.deepEqual(first.filter(([k])=>k==='property_ids').map(([,v])=>v),['synthetic-home','other-home']);assert.equal(Object.fromEntries(first).insured,'no');
   assert.equal(Object.fromEntries(first).id,extra?'synthetic-vendor':undefined);
