@@ -87,7 +87,7 @@ export default function BlurbsPage() {
   }
   return (
     <Shell>
-      <Suspense fallback={<QueueSkeleton />}>
+      <Suspense fallback={<QueueSkeleton title="Saved replies" />}>
         <LibrarySection />
       </Suspense>
     </Shell>
