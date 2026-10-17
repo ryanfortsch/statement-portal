@@ -887,3 +887,67 @@ Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
 document. Existing contract notes remain excluded. Production Channex access,
 pricing delivery, the supported arrival/departure source, cleaner history and
 contract exit remain separate requirements.
+
+
+### Conditional workflow review, October 17
+
+The same Calderwood/Active filter still returned six workflows and twenty
+configured templates. Read-only list expansions established the remaining
+thirteen confirmation-triggered templates; the alteration template was already
+observed. The workflow editors supplied exact source conditions. All inspected
+Save controls were disabled, and the editors were left through list navigation.
+No workflow, recipient, switch, attachment or scheduled message was changed.
+
+| Workflow | Exact source condition | Existing delivery and timing |
+| --- | --- | --- |
+| Calderwood Messaging | All except Website, Manual, Direct - stay cape ann | Existing four booking-channel guest messages |
+| DIRECT BOOKING | Website, Manual, Direct - stay cape ann | Separate guest SMS and email at confirmation, one day before check-in, one hour before check-in, and one day before checkout: eight templates |
+| Rental Agreement | Website only | Guest email one hour after confirmation; visible body references Rental Agreement 2025.pdf |
+| STAFF messages ONLY | All | Four User-via-SMS notices, detailed below |
+| Copy of STAFF Booking Change CT | All; Bridgeport property rule | User via SMS at alteration; TEST Change to Stay remains active |
+| Cleaning updates - Luana | All; Calderwood | Existing two phone-book-contact SMS reminders |
+
+The staff list showed Check In Notice and Check in notice - Allie, each one day
+before check-in; Check Out Notice - Morgan one day before checkout; and Check Out
+Message three hours before checkout. Selecting each showed User via SMS. Message
+names are not proof of the configured user recipients. The editor did not expose
+those four timeline entries in the available view; exact user bindings remain
+unverified. The two cleaner reminders likewise have no new delivery/queue proof.
+
+Important implementation distinctions:
+
+- The direct-booking confirmation is at confirmation, unlike Calderwood's
+  booking-channel confirmation at +30 minutes. Do not reuse that offset.
+- SMS and email are separate obligations. The visible direct-booking confirmation
+  uses a Guesty guest-portal variable; link migration needs its own verification.
+- The agreement email is Website-only, narrower than the direct-booking workflow.
+  Its referenced attachment must be retrieved and checked for the approved
+  current version before replacement; the filename alone proves neither content
+  nor legal suitability. No agreement was downloaded, accepted or sent here.
+- The main guest and direct-booking workflows have complementary displayed source
+  conditions. Reservation API source labels have not been proven equivalent to
+  those UI selections, so no automatic eligibility mapping was added.
+- The active alteration alert cannot be discarded merely because its name says
+  TEST. Recipient and event relevance still need verification.
+- Day-based staff/direct/cleaner offsets inherit the unresolved DST interpretation
+  issue. No noon/11 AM rule was generalized from one observed guest queue.
+
+The protected Calderwood page now shows this dated six-workflow inventory even
+before a live comparison is requested. It distinguishes twenty configured
+templates from six timing previews and fourteen additional templates. Details
+show scope, delivery method, timing and missing migration coverage. The timing
+panel also states its partial coverage. These are server-rendered review text,
+not a configuration feed, source matcher, scheduler or sending capability.
+
+Validation: all 1,968 tests passed on Node 25.9.0, with zero failures.
+Nonincremental TypeScript, targeted ESLint and diff checks passed. No new unit
+test was added for static inventory prose. Hosted acceptance is recorded in
+draft PR #1714 after preview deployment.
+
+Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
+`eb5212fa`; remote main verified as
+`d8446ebc7717c5c77044b1fd2151a0445ea787e2`. Changed files are
+`MessageWorkflowCoverage.tsx`, its insertion in `page.tsx`, the scope notice in
+`MessageTimingReview.tsx`, and this document. Existing contract notes remain
+excluded. This closes the missing template timing/source inventory, not the
+pending queue, recipient, attachment or cutover requirements.
