@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { updateWorkSlipStatus, updateWorkSlipResolution } from '../actions';
 import type { WorkSlipStatus } from '@/lib/work-types';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
@@ -17,6 +17,9 @@ type Props = {
 
 const CLOSED: WorkSlipStatus[] = ['done', 'dismissed'];
 type SaveMode = 'done' | 'dismissed' | 'open' | 'notes';
+
+/** A pause in typing this long writes the notes. */
+const NOTES_AUTOSAVE_MS = 1200;
 
 /**
  * The slip's close-out flow. Slips really only move open → done (or
@@ -43,8 +46,24 @@ export function SlipClosePanel({
 
   const isClosed = CLOSED.includes(status);
   const notesDirty = notes.trim() !== savedNotes.trim();
+  // True once an autosave has landed and nothing has been typed since.
+  const [notesSaved, setNotesSaved] = useState(false);
 
   useUnsavedWorkGuard(notesDirty || saving !== null);
+
+  // The notes save on their own, open or closed: a pause in typing or
+  // leaving the box writes them, so "called the plumber, coming Thursday"
+  // is never held hostage to Mark Done. A close still saves whatever is in
+  // the box in the same round trip. The ref keeps the effect on the latest
+  // save() without re-arming the timer on every render.
+  const saveRef = useRef<(mode: SaveMode) => Promise<void>>(async () => {});
+  useEffect(() => {
+    if (!notesDirty || saving !== null) return;
+    const timer = setTimeout(() => {
+      void saveRef.current('notes');
+    }, NOTES_AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [notes, notesDirty, saving]);
 
   // Close (done or dismissed) saves whatever is in the notes box in the
   // same round trip; the server stamps completed_at / closed_at.
@@ -70,6 +89,7 @@ export function SlipClosePanel({
       if (mode !== 'notes') setStatus(mode);
       // Reopening changes only the status. Any draft notes remain unsaved.
       if (mode !== 'open') setSavedNotes(submittedNotes);
+      if (mode === 'notes') setNotesSaved(true);
       softRefresh();
     } catch {
       setUncertain(true);
@@ -79,16 +99,28 @@ export function SlipClosePanel({
       setSaving(null);
     }
   }
+  // Keep the autosave timer on the latest save() without re-arming it on
+  // every render (a ref written during render is what the lint rule forbids).
+  useEffect(() => {
+    saveRef.current = save;
+  });
 
   return (
     <div>
       <textarea
         value={notes}
-        disabled={saving !== null}
-        aria-label="Completion notes"
-        onChange={(e) => setNotes(e.target.value)}
+        // A notes autosave must not lock the box mid-sentence; a close does.
+        disabled={saving !== null && saving !== 'notes'}
+        aria-label="Notes"
+        onChange={(e) => {
+          setNotes(e.target.value);
+          setNotesSaved(false);
+        }}
+        onBlur={() => {
+          if (notesDirty && saving === null) void save('notes');
+        }}
         rows={2}
-        placeholder="What did you do? Cost? Vendor? Anything worth knowing for next time… (optional)"
+        placeholder="What did you do? Cost? Vendor? Anything worth knowing for next time… Saves as you type."
         style={{
           width: '100%',
           background: 'transparent',
@@ -105,16 +137,6 @@ export function SlipClosePanel({
       <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 12 }}>
         {isClosed ? (
           <>
-            {notesDirty && (
-              <button
-                type="button"
-                onClick={() => save('notes')}
-                disabled={saving !== null}
-                style={solidButton(saving === 'notes')}
-              >
-                {saving === 'notes' ? 'Saving…' : 'Save Notes'}
-              </button>
-            )}
             <button
               type="button"
               onClick={() => save('open')}
@@ -154,6 +176,11 @@ export function SlipClosePanel({
           </>
         )}
       </div>
+      {(saving === 'notes' || (notesSaved && !notesDirty)) && (
+        <div role="status" style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-4)' }}>
+          {saving === 'notes' ? 'Saving notes…' : 'Notes saved.'}
+        </div>
+      )}
 
       {err && (
         <div

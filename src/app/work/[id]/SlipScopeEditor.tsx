@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from 'react';
 import type { RunScope } from '@/lib/work-types';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { updateWorkSlipScope } from '../actions';
+import { chipHintStyle, chipStyle, smallGhostButton, withClearHint } from './slip-controls';
 
 type Props = {
   slipId: string;
@@ -12,9 +13,9 @@ type Props = {
 };
 
 const OPTIONS: { value: RunScope; label: string; hint: string }[] = [
-  { value: 'inspector', label: 'Inspector', hint: 'quick fix on a routine stop' },
-  { value: 'handyman', label: 'Handyman', hint: 'bundle onto a maintenance run' },
-  { value: 'pro', label: 'Pro / vendor', hint: 'licensed or specialty trade' },
+  { value: 'inspector', label: 'Inspector', hint: 'A quick fix on a routine visit.' },
+  { value: 'handyman', label: 'Handyman', hint: 'Bundled onto a maintenance run.' },
+  { value: 'pro', label: 'Pro / vendor', hint: 'A licensed or specialty trade the office books.' },
 ];
 
 /**
@@ -68,19 +69,7 @@ export function SlipScopeEditor({ slipId, initialScope, initialNote }: Props) {
               onClick={() => save(o.value === scope ? null : o.value)}
               disabled={pending}
               aria-pressed={active}
-              title={o.hint}
-              style={{
-                background: active ? 'var(--ink)' : 'none',
-                color: active ? 'var(--paper)' : 'var(--ink)',
-                border: `1px solid ${active ? 'var(--ink)' : 'var(--rule)'}`,
-                padding: '5px 12px',
-                fontSize: 10,
-                letterSpacing: '.16em',
-                textTransform: 'uppercase',
-                fontWeight: 700,
-                cursor: pending ? 'default' : 'pointer',
-                opacity: pending ? 0.6 : 1,
-              }}
+              style={chipStyle(active, pending)}
             >
               {o.label}
             </button>
@@ -93,19 +82,19 @@ export function SlipScopeEditor({ slipId, initialScope, initialNote }: Props) {
             ? `${targetLabel}: ${error} Showing the last confirmed routing.`
             : `Saving routing: ${targetLabel}…`}
           {error && attempt && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              <button type="button" disabled={pending} onClick={() => save(attempt.scope)}>Retry routing</button>
-              <button type="button" disabled={pending} onClick={() => { setAttempt(null); setError(''); }}>Dismiss</button>
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button type="button" disabled={pending} onClick={() => save(attempt.scope)} style={smallGhostButton}>Retry routing</button>
+              <button type="button" disabled={pending} onClick={() => { setAttempt(null); setError(''); }} style={smallGhostButton}>Dismiss</button>
             </div>
           )}
         </div>
       )}
-      <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, marginBottom: 0 }}>
+      <p style={chipHintStyle}>
         {note
-          ? note
+          ? withClearHint(note, !!scope)
           : scope
-            ? OPTIONS.find((o) => o.value === scope)?.hint
-            : 'Not triaged yet. The planner will classify it on its next pass.'}
+            ? withClearHint(OPTIONS.find((o) => o.value === scope)?.hint ?? '', true)
+            : 'Not decided yet. Helm decides on its next pass; tap a chip to decide now.'}
       </p>
     </div>
   );

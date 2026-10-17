@@ -10,6 +10,7 @@ import {
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { updateWorkSlipCategory } from '../actions';
+import { chipHintStyle, chipStyle } from './slip-controls';
 
 type Props = {
   slipId: string;
@@ -77,26 +78,16 @@ export function SlipCategoryEditor({ slipId, propertyId, initialCategory }: Prop
               onClick={() => save(o.value)}
               disabled={pending}
               aria-pressed={active}
-              title={o.hint}
-              style={{
-                background: active ? 'var(--ink)' : 'transparent',
-                color: active ? 'var(--paper)' : 'var(--ink-3)',
-                border: `1px solid ${active ? 'var(--ink)' : 'var(--rule)'}`,
-                padding: '6px 14px',
-                fontSize: 11,
-                letterSpacing: '.14em',
-                textTransform: 'uppercase',
-                fontWeight: 500,
-                cursor: pending ? 'wait' : 'pointer',
-                opacity: pending && !active ? 0.6 : 1,
-              }}
+              style={chipStyle(active, pending)}
             >
               {o.label}
             </button>
           );
         })}
       </div>
-      {current && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)' }}>{current.hint}</div>}
+      {/* A slip always has a category, so there is nothing to clear here;
+          the hint says what the lit chip means. */}
+      {current && <p style={chipHintStyle}>{current.hint}</p>}
       {error && (
         <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)' }}>
           {error}

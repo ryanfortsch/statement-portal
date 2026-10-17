@@ -7,6 +7,7 @@ import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
 import { updateWorkSlipOwnerAction, updateWorkSlipOwnerStatus } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { chipHintStyle, chipStyle, withClearHint } from './slip-controls';
 
 type OwnerChange =
   | { kind: 'flag'; value: boolean }
@@ -226,7 +227,6 @@ export function SlipOwnerActionEditor({
                 onClick={() => chooseType(o.value)}
                 disabled={pending}
                 aria-pressed={active}
-                title={o.hint}
                 style={chipStyle(active, pending)}
               >
                 {o.label}
@@ -234,9 +234,9 @@ export function SlipOwnerActionEditor({
             );
           })}
         </div>
-        <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, marginBottom: 0 }}>
+        <p style={chipHintStyle}>
           {type
-            ? TYPE_OPTIONS.find((o) => o.value === type)?.hint
+            ? withClearHint(TYPE_OPTIONS.find((o) => o.value === type)?.hint ?? '', true)
             : 'Optional. Labels the item in the owner email.'}
         </p>
       </div>
@@ -307,7 +307,7 @@ export function SlipOwnerActionEditor({
           </button>
           <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
             {status === 'sent' && ownerLastContactedAt
-              ? `Asked ${formatDate(ownerLastContactedAt)} , awaiting reply. Drafting again re-bundles.`
+              ? `Asked ${formatDate(ownerLastContactedAt)}, awaiting reply. Drafting again re-bundles.`
               : 'Bundles every flagged item at this property into one Gmail draft.'}
           </span>
         </div>
@@ -332,13 +332,13 @@ export function SlipOwnerActionEditor({
               );
             })}
           </div>
-          <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, marginBottom: 0 }}>
+          <p style={chipHintStyle}>
             {status === 'approved'
-              ? 'Approved. Drops off the daily brief.'
+              ? withClearHint('Approved. Drops off the daily brief.', true)
               : status === 'declined'
-                ? 'Declined. Dismiss the slip if the work is off.'
+                ? withClearHint('Declined. Dismiss the slip if the work is off.', true)
                 : status === 'questions'
-                  ? 'Owner has questions. Reply, then update this.'
+                  ? withClearHint('Owner has questions. Reply, then update this.', true)
                   : 'Log the reply from your inbox or a call.'}
           </p>
         </div>
@@ -356,21 +356,6 @@ export function SlipOwnerActionEditor({
       {feedback}
     </fieldset>
   );
-}
-
-function chipStyle(active: boolean, pending: boolean): React.CSSProperties {
-  return {
-    background: active ? 'var(--ink)' : 'none',
-    color: active ? 'var(--paper)' : 'var(--ink)',
-    border: `1px solid ${active ? 'var(--ink)' : 'var(--rule)'}`,
-    padding: '5px 12px',
-    fontSize: 10,
-    letterSpacing: '.16em',
-    textTransform: 'uppercase',
-    fontWeight: 700,
-    cursor: pending ? 'default' : 'pointer',
-    opacity: pending ? 0.6 : 1,
-  };
 }
 
 const solidBtnStyle: React.CSSProperties = {

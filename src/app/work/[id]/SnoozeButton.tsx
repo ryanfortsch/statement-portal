@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { snoozeWorkSlip } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { smallGhostButton } from './slip-controls';
 
 type Props = {
   slipId: string;
@@ -136,7 +137,7 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
 
       {!open && (attempt || customDate) && (
         <div style={{ marginTop: 4 }}>
-          <button type="button" disabled={pending} onClick={() => setOpen(true)} style={{ fontSize: 11 }}>
+          <button type="button" disabled={pending} onClick={() => setOpen(true)} style={smallGhostButton}>
             {err ? 'Snooze needs attention' : 'Unsaved snooze selection'}
           </button>
         </div>
@@ -243,10 +244,10 @@ export function SnoozeButton({ slipId, initialSnoozedUntil }: Props) {
           {err && attempt && (
             <div role="alert" style={{ fontSize: 11, color: 'var(--negative)', padding: '6px 10px', borderTop: '1px solid var(--rule)' }}>
               <div>{attempt.until ? `Snooze until ${attempt.until}` : 'Un-snooze'}: {err} Showing the last confirmed snooze.</div>
-              <button type="button" disabled={pending} onClick={() => apply(attempt.until)} style={{ marginTop: 6 }}>Retry snooze change</button>
+              <button type="button" disabled={pending} onClick={() => apply(attempt.until)} style={{ ...smallGhostButton, marginTop: 6 }}>Retry snooze change</button>
             </div>
           )}
-          <button type="button" disabled={pending} onClick={() => { setCustomDate(''); setAttempt(null); setErr(null); setOpen(false); }} style={{ margin: '6px 10px', fontSize: 11 }}>
+          <button type="button" disabled={pending} onClick={() => { setCustomDate(''); setAttempt(null); setErr(null); setOpen(false); }} style={{ ...smallGhostButton, margin: '6px 10px' }}>
             Dismiss
           </button>
         </div>

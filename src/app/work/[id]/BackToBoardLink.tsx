@@ -8,10 +8,11 @@ import { useRouter } from 'next/navigation';
  *
  * The board mirrors its view state (filter, tab, expanded groups) into its
  * URL and stashes that URL in sessionStorage on every change. Clicking this
- * link replays that URL with this slip's property merged into the ?open=
- * set, plus a #prop- anchor so the board scrolls to the group. A hardcoded
- * href can't do this — it would silently reset the filter and collapse
- * every other group the operator had open mid-triage.
+ * link replays that URL. For a slip, its property is merged into the ?open=
+ * set and a #prop- anchor scrolls the board to the group; for a task, the
+ * Tasks tab is kept selected. A hardcoded href can't do this — it would
+ * silently reset the filter and collapse every other group the operator
+ * had open mid-triage, or drop a task's reader back on Property Work.
  *
  * Cold loads (slip opened from a ping or email, no board visit this tab)
  * fall back to the server-provided href, which still opens this property's
@@ -21,9 +22,13 @@ import { useRouter } from 'next/navigation';
 export function BackToBoardLink({
   fallbackHref,
   propertyId,
+  tab,
 }: {
   fallbackHref: string;
-  propertyId: string;
+  /** The slip's home: merged into the board's expanded set. */
+  propertyId?: string;
+  /** The board face to return to; a task lives on Tasks. */
+  tab?: 'slips' | 'tasks';
 }) {
   const router = useRouter();
 
@@ -39,12 +44,19 @@ export function BackToBoardLink({
     if (!saved || !saved.startsWith('/work')) return;
     e.preventDefault();
     const url = new URL(saved, window.location.origin);
-    const open = new Set(
-      (url.searchParams.get('open') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-    );
-    open.add(propertyId);
-    url.searchParams.set('open', [...open].join(','));
-    router.push(`${url.pathname}?${url.searchParams.toString()}#prop-${propertyId}`);
+    let hash = '';
+    if (propertyId) {
+      const open = new Set(
+        (url.searchParams.get('open') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+      );
+      open.add(propertyId);
+      url.searchParams.set('open', [...open].join(','));
+      hash = `#prop-${propertyId}`;
+    }
+    if (tab === 'tasks') url.searchParams.set('tab', 'tasks');
+    else if (tab === 'slips') url.searchParams.delete('tab');
+    const query = url.searchParams.toString();
+    router.push(`${url.pathname}${query ? `?${query}` : ''}${hash}`);
   }
 
   return (
