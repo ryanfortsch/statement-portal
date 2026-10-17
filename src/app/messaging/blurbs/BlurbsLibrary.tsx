@@ -10,8 +10,17 @@ import { saveBlurbAction, setBlurbStatusAction, createBlurbAction } from './blur
 
 /**
  * The saved-reply library. Approved blurbs are quoted to guests verbatim by
- * the responder; drafts are review-only. Grouped Fleet -> areas -> properties
- * so the operator reads it the way she thinks about it.
+ * the responder; drafts are review-only; retired ones are off, with a way
+ * back. Grouped Fleet -> areas -> properties so the operator reads it the
+ * way she thinks about it.
+ *
+ * 2026-10-17: a card reads as a saved reply, not a form. The title is text
+ * with a pencil, the body is text with Edit; Save / Discard edits appear
+ * only once something changed. Retire asks once and lands the reply on a
+ * Retired tab with Restore. The concierge's list leaves retired rows out
+ * (blurbs.list_all without include_retired), so until it returns them the
+ * Retired tab holds what was retired in this session; Restore works either
+ * way, since unapprove sets any row back to draft.
  */
 
 type DraftState = { dirty: boolean; pending: boolean };
@@ -29,6 +38,15 @@ type Props = {
   categories: string[];
   properties: { id: string; name: string }[];
 };
+
+type Tab = 'review' | 'live' | 'retired';
+const TAB_STATUS: Record<Tab, SavedBlurb['status']> = { review: 'draft', live: 'approved', retired: 'retired' };
+
+/** The towns Helm serves (civic.ts); an area scope is `area:<town>`. Any
+ *  area a saved reply already uses is offered too. */
+const AREAS = ['gloucester', 'rockport', 'beverly'];
+
+const CONFIRM_MS = 5000;
 
 const chip = (bg: string, fg: string): React.CSSProperties => ({
   fontSize: 9,
@@ -80,17 +98,29 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
     });
   }, []);
   useDraftNavigationGuard(Object.values(draftStates).some((s) => s.dirty), Object.values(draftStates).some((s) => s.pending));
-  const drafts = initial.filter((b) => b.status === 'draft').length;
-  const live = initial.filter((b) => b.status === 'approved').length;
-  // Two tabs: the review pile (drafts) and what's live. Approving moves a
-  // blurb across, so the To-review tab burns down as she works through it.
+
+  // Replies retired in this session. The service's list omits retired rows,
+  // so after the refresh that follows a retire the row is gone from
+  // `initial`; it stays here, restorable, until a restore brings it back as
+  // a draft (at which point `initial` carries it and this entry drops).
+  const [retiredHere, setRetiredHere] = useState<SavedBlurb[]>([]);
+  const rows = useMemo(() => {
+    const fromServer = initial.filter((b) => b.status === 'draft' || b.status === 'approved' || b.status === 'retired');
+    const ids = new Set(fromServer.map((b) => b.id));
+    return [...fromServer, ...retiredHere.filter((r) => !ids.has(r.id))];
+  }, [initial, retiredHere]);
+
+  const drafts = rows.filter((b) => b.status === 'draft').length;
+  const live = rows.filter((b) => b.status === 'approved').length;
+  const retired = rows.filter((b) => b.status === 'retired').length;
+  // Three tabs: the review pile (drafts), what is live, what was retired.
   // Default to review while anything is waiting; land on Live once done.
-  const [tab, setTab] = useState<'review' | 'live'>(drafts > 0 ? 'review' : 'live');
+  const [tab, setTab] = useState<Tab>(drafts > 0 ? 'review' : 'live');
+  const counts: Record<Tab, number> = { review: drafts, live, retired };
 
   const groups = useMemo(() => {
     const byScope = new Map<string, SavedBlurb[]>();
-    for (const b of initial) {
-      if (b.status !== 'draft' && b.status !== 'approved') continue;
+    for (const b of rows) {
       const list = byScope.get(b.scope) ?? [];
       list.push(b);
       byScope.set(b.scope, list);
@@ -98,9 +128,15 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
     return [...byScope.entries()].sort(
       (a, b) => scopeRank(a[0]) - scopeRank(b[0]) || a[0].localeCompare(b[0]),
     );
+  }, [rows]);
+
+  const areas = useMemo(() => {
+    const seen = new Set(AREAS);
+    for (const b of initial) if (b.scope.startsWith('area:')) seen.add(b.scope.slice(5));
+    return [...seen];
   }, [initial]);
 
-  const tabBtn = (id: 'review' | 'live', label: string): React.CSSProperties => ({
+  const tabBtn = (id: Tab): React.CSSProperties => ({
     padding: '8px 16px',
     fontSize: 10,
     letterSpacing: '.16em',
@@ -111,6 +147,8 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
     background: tab === id ? 'var(--ink)' : 'transparent',
     color: tab === id ? 'var(--paper)' : 'var(--ink-3)',
   });
+
+  const status = TAB_STATUS[tab];
 
   return (
     <Section
@@ -123,30 +161,27 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
         </span>
       }
     >
-      <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 16, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-        Drafts never reach a guest. Approve a blurb and it moves to the Live tab,
-        where the AI quotes it near-verbatim in drafts for that scope; edit any
-        time and the next draft uses the new text. Retire what no longer applies.
+      <div style={{ display: 'flex', gap: 8, marginTop: 16, borderTop: '1px solid var(--rule)', paddingTop: 16 }} role="tablist">
+        {(['review', 'live', 'retired'] as Tab[]).map((id) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} style={tabBtn(id)}>
+            {id === 'review' ? 'To review' : id === 'live' ? 'Live' : 'Retired'}
+            {counts[id] > 0 ? ` (${counts[id]})` : ''}
+          </button>
+        ))}
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button type="button" onClick={() => setTab('review')} style={tabBtn('review', 'review')}>
-          To review{drafts > 0 ? ` (${drafts})` : ''}
-        </button>
-        <button type="button" onClick={() => setTab('live')} style={tabBtn('live', 'live')}>
-          Live{live > 0 ? ` (${live})` : ''}
-        </button>
-      </div>
-      <AddBlurbForm categories={categories} properties={properties} reportDraft={reportDraft} />
+      <AddBlurbForm categories={categories} properties={properties} areas={areas} reportDraft={reportDraft} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28, marginTop: 24 }}>
-        {(tab === 'review' ? drafts === 0 : live === 0) && (
+        {counts[tab] === 0 && (
           <div style={{ fontSize: 13, color: 'var(--ink-4)' }}>
             {tab === 'review'
               ? 'Nothing left to review. Everything you approved is on the Live tab.'
-              : 'Nothing live yet. Approve blurbs on the To review tab to turn them on.'}
+              : tab === 'live'
+                ? 'Nothing live yet. Approve replies on the To review tab to turn them on.'
+                : 'Nothing retired. A retired reply lands here with Restore.'}
           </div>
         )}
         {groups.map(([scope, blurbs]) => (
-          <div key={scope} hidden={!blurbs.some((b) => b.status === (tab === 'review' ? 'draft' : 'approved'))}>
+          <div key={scope} hidden={!blurbs.some((b) => b.status === status)}>
             <div
               className="eyebrow"
               style={{ color: 'var(--tide-deep)', borderBottom: '1px solid var(--rule)', paddingBottom: 6, marginBottom: 12 }}
@@ -155,7 +190,14 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {blurbs.map((b) => (
-                <div key={b.id} hidden={b.status !== (tab === 'review' ? 'draft' : 'approved')}><BlurbCard blurb={b} reportDraft={reportDraft} /></div>
+                <div key={b.id} hidden={b.status !== status}>
+                  <BlurbCard
+                    blurb={b}
+                    reportDraft={reportDraft}
+                    onRetired={(row) => setRetiredHere((prev) => [...prev.filter((r) => r.id !== row.id), { ...row, status: 'retired' }])}
+                    onRestored={(id) => setRetiredHere((prev) => prev.filter((r) => r.id !== id))}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -165,10 +207,23 @@ export function BlurbsLibrary({ initial, categories, properties }: Props) {
   );
 }
 
-function BlurbCard({ blurb, reportDraft }: { blurb: SavedBlurb; reportDraft: ReportDraft }) {
+function BlurbCard({
+  blurb,
+  reportDraft,
+  onRetired,
+  onRestored,
+}: {
+  blurb: SavedBlurb;
+  reportDraft: ReportDraft;
+  onRetired: (row: SavedBlurb) => void;
+  onRestored: (id: string) => void;
+}) {
   const router = useRouter();
   const [title, setTitle] = useState(blurb.title);
   const [body, setBody] = useState(blurb.body);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingBody, setEditingBody] = useState(false);
+  const [confirmRetire, setConfirmRetire] = useState(false);
   const action = useRecoverableAction();
   const { error, setError, pending } = action;
   const [saved, setSaved] = useState({ title: blurb.title, body: blurb.body });
@@ -184,60 +239,96 @@ function BlurbCard({ blurb, reportDraft }: { blurb: SavedBlurb; reportDraft: Rep
     // Only new server text should trigger this, never a local save baseline change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blurb.title, blurb.body]);
+  // Retire asks once: the second tap within a few seconds does it.
+  useEffect(() => {
+    if (!confirmRetire) return;
+    const t = setTimeout(() => setConfirmRetire(false), CONFIRM_MS);
+    return () => clearTimeout(t);
+  }, [confirmRetire]);
   const isLive = blurb.status === 'approved';
+  const isRetired = blurb.status === 'retired';
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, savedEdit = false) => {
+  const run = (fn: () => Promise<{ ok: boolean; error?: string }>, after?: () => void, savedEdit = false) => {
     if (action.busy.current || (!savedEdit && dirty)) return;
     action.run(async () => {
       setNotice('');
       const res = await fn();
       if (!res.ok) { setError(res.error ?? 'Something went wrong.'); return; }
-      if (savedEdit) { setSaved({ title, body }); setNotice('Saved.'); }
+      if (savedEdit) { setSaved({ title, body }); setNotice('Saved.'); setEditingTitle(false); setEditingBody(false); }
+      after?.();
       router.refresh();
     }, 'Could not confirm the change. Your edits are kept. Refresh to check the saved reply before trying again.');
   };
 
+  const discard = () => {
+    if (action.busy.current || !window.confirm('Discard these unsaved reply edits?')) return;
+    setTitle(saved.title); setBody(saved.body); setError(null); setNotice('');
+    setEditingTitle(false); setEditingBody(false);
+  };
+
+  const quiet: React.CSSProperties = {
+    fontSize: 10,
+    letterSpacing: '.12em',
+    textTransform: 'uppercase',
+    fontWeight: 600,
+    color: 'var(--ink-3)',
+    background: 'transparent',
+    border: 0,
+    padding: 0,
+    cursor: 'pointer',
+    textDecoration: 'underline',
+    textUnderlineOffset: 4,
+  };
+
   return (
-    <fieldset disabled={pending} style={{ minWidth: 0, margin: 0, border: '1px solid var(--rule)', padding: 14, background: 'var(--paper)' }}>
+    <fieldset disabled={pending} style={{ minWidth: 0, margin: 0, border: '1px solid var(--rule)', padding: 14, background: 'var(--paper)', opacity: isRetired ? 0.75 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={chip(isLive ? 'var(--tide-deep)' : 'transparent', isLive ? 'var(--paper)' : 'var(--signal)')}>
-          {isLive ? 'Live' : 'Draft'}
+        <span style={chip(isLive ? 'var(--tide-deep)' : 'transparent', isLive ? 'var(--paper)' : isRetired ? 'var(--ink-4)' : 'var(--signal)')}>
+          {isLive ? 'Live' : isRetired ? 'Retired' : 'Draft'}
         </span>
         <span style={{ ...chip('transparent', 'var(--tide-deep)'), border: '1px solid var(--tide-deep)' }}>
           {blurb.category.replace(/_/g, ' ')}
         </span>
-        <input
-          value={title}
-          onChange={(e) => { setTitle(e.target.value); setNotice(''); }}
-          style={{
-            flex: 1,
-            minWidth: 180,
-            fontSize: 13,
-            fontWeight: 600,
-            color: 'var(--ink)',
-            background: 'transparent',
-            border: 'none',
-            outline: 'none',
-            borderBottom: '1px dashed transparent',
-          }}
-        />
+        {editingTitle ? (
+          <input
+            value={title}
+            autoFocus
+            aria-label="Title"
+            onChange={(e) => { setTitle(e.target.value); setNotice(''); }}
+            onBlur={() => setEditingTitle(false)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setEditingTitle(false); }}
+            style={{ flex: 1, minWidth: 180, fontSize: 13, fontWeight: 600, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '4px 8px' }}
+          />
+        ) : (
+          <span style={{ flex: 1, minWidth: 180, fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
+            {title}
+            {!isRetired && (
+              <button type="button" onClick={() => setEditingTitle(true)} aria-label="Edit title" title="Edit title" style={{ ...quiet, textDecoration: 'none', fontSize: 12 }}>
+                ✎
+              </button>
+            )}
+          </span>
+        )}
       </div>
-      <textarea
-        value={body}
-        onChange={(e) => { setBody(e.target.value); setNotice(''); }}
-        rows={Math.min(8, Math.max(2, Math.ceil(body.length / 90)))}
-        style={{
-          width: '100%',
-          marginTop: 10,
-          fontSize: 13,
-          lineHeight: 1.6,
-          color: 'var(--ink)',
-          background: 'transparent',
-          border: '1px solid var(--rule)',
-          padding: 10,
-          resize: 'vertical',
-        }}
-      />
+      {editingBody ? (
+        <textarea
+          value={body}
+          autoFocus
+          aria-label="Reply"
+          onChange={(e) => { setBody(e.target.value); setNotice(''); }}
+          rows={Math.min(8, Math.max(3, Math.ceil(body.length / 90)))}
+          style={{ width: '100%', marginTop: 10, fontSize: 13, lineHeight: 1.6, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--ink)', padding: 10, resize: 'vertical' }}
+        />
+      ) : (
+        <div style={{ marginTop: 10, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <p style={{ flex: 1, margin: 0, fontSize: 13, lineHeight: 1.6, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{body}</p>
+          {!isRetired && (
+            <button type="button" onClick={() => setEditingBody(true)} style={{ ...quiet, flexShrink: 0 }}>
+              Edit
+            </button>
+          )}
+        </div>
+      )}
       {blurb.source_note && (
         <div style={{ marginTop: 6, fontSize: 10, color: 'var(--ink-4)', fontStyle: 'italic' }}>
           {blurb.source_note}
@@ -246,47 +337,63 @@ function BlurbCard({ blurb, reportDraft }: { blurb: SavedBlurb; reportDraft: Rep
       {error && (
         <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>{error}</div>
       )}
-      {notice && !dirty && <p role="status">{notice}</p>}
-      {dirty && <p style={{ fontSize: 12 }}>Save or discard edits before changing this reply&apos;s status.</p>}
+      {notice && !dirty && <p role="status" style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>{notice}</p>}
+      {dirty && <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--ink-3)' }}>Save or discard your edits before changing this reply&apos;s status.</p>}
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         {dirty && (
           <button
             disabled={pending}
-            onClick={() => run(() => saveBlurbAction(blurb.id, { title, body }), true)}
+            onClick={() => run(() => saveBlurbAction(blurb.id, { title, body }), undefined, true)}
             style={btn(true)}
           >
             {pending ? 'Saving…' : 'Save'}
           </button>
         )}
-        {dirty && <button disabled={pending} style={btn()} onClick={() => {
-          if (action.busy.current || !window.confirm('Discard these unsaved reply edits?')) return;
-          setTitle(saved.title); setBody(saved.body); setError(null); setNotice('');
-        }}>Discard edits</button>}
-        {!isLive ? (
+        {dirty && <button disabled={pending} style={btn()} onClick={discard}>Discard edits</button>}
+        {isRetired ? (
           <button
-            disabled={pending || dirty}
-            title={dirty ? 'Save your edits first' : undefined}
-            onClick={() => run(() => setBlurbStatusAction(blurb.id, 'approve'))}
-            style={{ ...btn(!dirty), opacity: dirty ? 0.5 : 1 }}
+            disabled={pending}
+            title="Back to the To review tab as a draft. Approve it there to turn it on again."
+            onClick={() => run(() => setBlurbStatusAction(blurb.id, 'unapprove'), () => onRestored(blurb.id))}
+            style={btn(true)}
           >
-            Approve
+            Restore
           </button>
         ) : (
-          <button
-            disabled={pending || dirty}
-            onClick={() => run(() => setBlurbStatusAction(blurb.id, 'unapprove'))}
-            style={btn()}
-          >
-            Back to draft
-          </button>
+          <>
+            {!isLive ? (
+              <button
+                disabled={pending || dirty}
+                title={dirty ? 'Save your edits first' : undefined}
+                onClick={() => run(() => setBlurbStatusAction(blurb.id, 'approve'))}
+                style={{ ...btn(!dirty), opacity: dirty ? 0.5 : 1 }}
+              >
+                Approve
+              </button>
+            ) : (
+              <button
+                disabled={pending || dirty}
+                onClick={() => run(() => setBlurbStatusAction(blurb.id, 'unapprove'))}
+                style={btn()}
+              >
+                Back to draft
+              </button>
+            )}
+            <button
+              disabled={pending || dirty}
+              title="Stops the AI quoting it. It lands on the Retired tab, with Restore."
+              onClick={() => (confirmRetire ? run(() => setBlurbStatusAction(blurb.id, 'retire'), () => onRetired(blurb)) : setConfirmRetire(true))}
+              style={{
+                ...btn(),
+                border: `1px solid ${confirmRetire ? 'var(--signal)' : 'var(--rule)'}`,
+                color: confirmRetire ? 'var(--paper)' : 'var(--ink-4)',
+                background: confirmRetire ? 'var(--signal)' : 'transparent',
+              }}
+            >
+              {confirmRetire ? 'Sure? Retire it' : 'Retire'}
+            </button>
+          </>
         )}
-        <button
-          disabled={pending || dirty}
-          onClick={() => run(() => setBlurbStatusAction(blurb.id, 'retire'))}
-          style={{ ...btn(), border: '1px solid var(--rule)', color: 'var(--ink-4)' }}
-        >
-          Retire
-        </button>
       </div>
     </fieldset>
   );
@@ -295,10 +402,12 @@ function BlurbCard({ blurb, reportDraft }: { blurb: SavedBlurb; reportDraft: Rep
 function AddBlurbForm({
   categories,
   properties,
+  areas,
   reportDraft,
 }: {
   categories: string[];
   properties: { id: string; name: string }[];
+  areas: string[];
   reportDraft: ReportDraft;
 }) {
   const router = useRouter();
@@ -348,15 +457,24 @@ function AddBlurbForm({
   return (
     <fieldset disabled={pending} style={{ minWidth: 0, margin: '14px 0 0', border: '1px solid var(--ink)', padding: 14 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <select value={scope} onChange={(e) => setScope(e.target.value)} style={selectStyle}>
+        <select value={scope} onChange={(e) => setScope(e.target.value)} style={selectStyle} aria-label="Where it applies">
           <option value="fleet">Every property</option>
-          {properties.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
+          <optgroup label="An area">
+            {areas.map((town) => (
+              <option key={town} value={`area:${town}`}>
+                {scopeLabel(`area:${town}`, properties)}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="One property">
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </optgroup>
         </select>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} style={selectStyle}>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} style={selectStyle} aria-label="Category">
           {categories.map((c) => (
             <option key={c} value={c}>
               {c.replace(/_/g, ' ')}

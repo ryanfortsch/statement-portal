@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmFooter } from '@/components/HelmFooter';
+import { MessagingFooter } from '@/components/MessagingFooter';
 import { Section } from '@/components/Section';
 import { RetryRefresh } from '@/components/RetryRefresh';
 import { MessagingTabs } from '@/components/MessagingTabs';
@@ -30,7 +30,7 @@ function Shell({ children }: { children: ReactNode }) {
       <MessagingTabs current="guests" lens="blurbs" />
       {children}
       <div style={{ flex: 1 }} />
-      <HelmFooter left="Stay Concierge · approved blurbs are quoted to guests verbatim" />
+      <MessagingFooter />
     </div>
   );
 }
