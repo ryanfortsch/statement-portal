@@ -9,8 +9,12 @@
  * alerts that reached nobody. The concierge now serves them at
  * /api/attention; this names and routes them.
  *
- * No imports on purpose, so `npm test` loads it without a database.
+ * Pure imports only (the role rule), so `npm test` loads it without a
+ * database.
  */
+
+// Relative with the extension, the convention for modules under test.
+import { roleMayOpen, type HelmRole } from './helm-access.ts';
 
 export type ConciergeCritical = {
   item_key: string;
@@ -64,6 +68,16 @@ export function conciergeAlertHref(kind: string): string {
   if (kind === 'addon_sms_failed') return '/messaging/send#payment-links';
   if (kind === 'unknown_owner_sms' || kind.startsWith('owner_')) return '/owner-messaging';
   return '/messaging';
+}
+
+/**
+ * The alerts a role may act on. An owner-line alert (`owner_*`,
+ * `unknown_owner_sms`) is handled on /owner-messaging, an owner page, so the
+ * strip never shows one to a staff login: a row whose link bounces is a row
+ * nobody can clear. Guest alerts route to /messaging and pass for everyone.
+ */
+export function conciergeAlertsFor<T extends { kind: string }>(role: HelmRole, items: T[]): T[] {
+  return items.filter((i) => roleMayOpen(role, conciergeAlertHref(i.kind)));
 }
 
 /** Collapse whitespace and cap a summary for a one-line row. */

@@ -11,6 +11,8 @@ import { splitMaintenanceOutcomes } from '@/lib/message-outcomes';
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useHelmRole } from '@/components/useHelmRole';
+import { roleMayOpen } from '@/lib/helm-access';
 import { Section } from '@/components/Section';
 import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
@@ -230,6 +232,11 @@ function ApprovalCard({
   regenStalled: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
+  // Guest pricing is set by the owners: /guests/quotes is an owner page, so
+  // a staff login gets no Send a price, no quote links and no "See all in
+  // Quotes". The price note tells them who to ask instead of a dead button.
+  const role = useHelmRole();
+  const canPrice = role === 'owner';
   const [error, setError] = useState<string | null>(null);
   const [showCoach, setShowCoach] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -1049,11 +1056,7 @@ function ApprovalCard({
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {quotes.quotes.map((q) => (
-              <a
-                key={q.id}
-                href={`/guests/quotes/${q.id}`}
-                style={{ color: 'var(--ink)', textDecoration: 'none', display: 'block' }}
-              >
+              <QuoteRow key={q.id} href={`/guests/quotes/${q.id}`} linked={canPrice}>
                 <span
                   style={{
                     display: 'flex',
@@ -1113,14 +1116,18 @@ function ApprovalCard({
                     Addressed to {q.guest_email}
                   </span>
                 )}
-              </a>
+              </QuoteRow>
             ))}
           </div>
           <p style={{ marginTop: 9, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
             {quotes.quotes.some((q) => q.status === 'draft')
-              ? 'A draft is not with the guest yet. Open it to send.'
-              : 'Open one to see its terms and what it is waiting on.'}
-            {quotes.total > quotes.quotes.length && (
+              ? canPrice
+                ? 'A draft is not with the guest yet. Open it to send.'
+                : 'A draft is not with the guest yet. Ask Ryan or Dotti to send it.'
+              : canPrice
+                ? 'Open one to see its terms and what it is waiting on.'
+                : 'Ryan or Dotti can open one for its terms and what it is waiting on.'}
+            {canPrice && quotes.total > quotes.quotes.length && (
               <>
                 {' '}
                 <a href="/guests/quotes" style={{ color: 'var(--ink-3)' }}>
@@ -1339,12 +1346,16 @@ function ApprovalCard({
                   Drafted for {handoff.target_name || 'them'}
                   <span style={{ color: 'var(--ink-4)' }}>
                     {' '}(waiting on{' '}
-                    <a
-                      href={HANDOFF_HREF[handoff.audience] ?? '/messaging'}
-                      style={{ color: 'var(--ink-3)' }}
-                    >
-                      {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'}
-                    </a>
+                    {roleMayOpen(role, HANDOFF_HREF[handoff.audience] ?? '/messaging') ? (
+                      <a
+                        href={HANDOFF_HREF[handoff.audience] ?? '/messaging'}
+                        style={{ color: 'var(--ink-3)' }}
+                      >
+                        {HANDOFF_SURFACE[handoff.audience] ?? 'their queue'}
+                      </a>
+                    ) : (
+                      HANDOFF_SURFACE[handoff.audience] ?? 'their queue'
+                    )}
                     {' '}for your approval, nothing has sent)
                   </span>
                 </>
@@ -1416,8 +1427,8 @@ function ApprovalCard({
             {/* A queued holding reply must not hide the pricing action: this
                 branch runs before the pre-release branch below, and the header
                 link it replaced used to render here. */}
-            {isPrereleaseRequest && <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>}
-            {canQuoteEmailGuest && (
+            {isPrereleaseRequest && (canPrice ? <PrimaryLink href={quoteHref}>Send a price</PrimaryLink> : <StaffPriceNote />)}
+            {canQuoteEmailGuest && canPrice && (
               <SecondaryLink href={quoteHref} title={quoteHint}>
                 Send a price
               </SecondaryLink>
@@ -1473,7 +1484,7 @@ function ApprovalCard({
           </>
         ) : inquiryWithoutDraft ? (
           <>
-            {inquiryState?.pricing ? <PrimaryLink href={quoteHref} disabled={busy}>Set a price</PrimaryLink> : (
+            {inquiryState?.pricing ? (canPrice ? <PrimaryLink href={quoteHref} disabled={busy}>Set a price</PrimaryLink> : <StaffPriceNote />) : (
               <PrimaryButton onClick={handleRedraft} disabled={busy} loading={pendingAction === 'redraft'} loadingLabel="Drafting">Retry draft</PrimaryButton>
             )}
             {inquiryState?.pricing && <SecondaryButton onClick={handleRedraft} disabled={busy} loading={pendingAction === 'redraft'} loadingLabel="Drafting">Recheck & draft</SecondaryButton>}
@@ -1482,7 +1493,7 @@ function ApprovalCard({
           </>
         ) : isPrereleaseRequest && !showMore ? (
           <>
-            <PrimaryLink href={quoteHref}>Send a price</PrimaryLink>
+            {canPrice ? <PrimaryLink href={quoteHref}>Send a price</PrimaryLink> : <StaffPriceNote />}
             {/* Sending the written reply used to live behind "Other options",
                 so a card whose draft was the right answer looked unsendable.
                 Dotti, 2026-10-01, on Beth Dowling's 4 Brier Neck request (a
@@ -1500,7 +1511,9 @@ function ApprovalCard({
               Send reply
             </SecondaryButton>
             <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
-              Send a price opens the quote form, filled in. Send reply emails the draft above as written.
+              {canPrice
+                ? 'Send a price opens the quote form, filled in. Send reply emails the draft above as written.'
+                : 'Send reply emails the draft above as written, with no price and no payment link.'}
             </span>
             <button
               type="button"
@@ -1525,9 +1538,13 @@ function ApprovalCard({
           <>
             {isPrereleaseRequest ? (
               <>
-                <PrimaryLink href={quoteHref} disabled={busy}>
-                  Send a price
-                </PrimaryLink>
+                {canPrice ? (
+                  <PrimaryLink href={quoteHref} disabled={busy}>
+                    Send a price
+                  </PrimaryLink>
+                ) : (
+                  <StaffPriceNote />
+                )}
                 {/* Not a second dark button: only one action on this card is the
                     likely one, and the difference between them has to be legible
                     without hovering. */}
@@ -1541,8 +1558,9 @@ function ApprovalCard({
                   Send reply
                 </SecondaryButton>
                 <span className="eyebrow" style={{ color: 'var(--ink-3)', flexBasis: '100%' }}>
-                  Send a price opens the quote form. Send reply emails the draft above as written,
-                  with no price and no payment link.
+                  {canPrice
+                    ? 'Send a price opens the quote form. Send reply emails the draft above as written, with no price and no payment link.'
+                    : 'Send reply emails the draft above as written, with no price and no payment link.'}
                 </span>
               </>
             ) : (
@@ -1554,7 +1572,7 @@ function ApprovalCard({
                   loading={pendingAction === 'approve'}
                   open={showSchedule}
                 />
-                {canQuoteEmailGuest && (
+                {canQuoteEmailGuest && canPrice && (
                   <SecondaryLink
                     href={quoteHref}
                     disabled={busy}
@@ -2174,6 +2192,25 @@ function PrimaryLink({
       {children}
     </a>
   );
+}
+
+/** What a staff login sees where an owner sees Send a price: the quote
+ *  form is owners-only, so the card says who prices it instead of showing a
+ *  button that lands on /not-available. */
+function StaffPriceNote() {
+  return (
+    <span className="eyebrow" style={{ color: 'var(--ink-3)' }}>
+      Ask Ryan or Dotti to price this
+    </span>
+  );
+}
+
+/** A quote on file: a link into Quotes for an owner, the same row as plain
+ *  text for staff, who cannot open the quote but should still know one went
+ *  out so the guest is not priced twice. */
+function QuoteRow({ href, linked, children }: { href: string; linked: boolean; children: React.ReactNode }) {
+  const style = { color: 'var(--ink)', textDecoration: 'none', display: 'block' } as const;
+  return linked ? <a href={href} style={style}>{children}</a> : <span style={style}>{children}</span>;
 }
 
 /** A secondary action that navigates (Send a price on an email card). Same

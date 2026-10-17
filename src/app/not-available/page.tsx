@@ -3,10 +3,14 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 
 /**
- * Where the proxy lands a staff login that opened an owner-only page
- * (statements, books, forecast, contracts, prospects, owner messaging).
- * The nav never links there for staff, so this is reached by a typed URL,
- * an old bookmark, or a link in a message. Say so plainly and point home.
+ * Where the proxy lands a staff login that opened an owner-only page. The
+ * nav, the section strips and the feed never link there for staff, so this
+ * is reached by a typed URL, an old bookmark, or a link in a message. Say
+ * plainly what stays with the owners and point home.
+ *
+ * The sentence below names every area in OWNER_PATH_PREFIXES
+ * (helm-access.ts); helm-access.test.ts checks the words are still here, so
+ * a newly gated page gets named on this page too.
  */
 export const dynamic = 'force-dynamic';
 
@@ -27,8 +31,9 @@ export default async function NotAvailablePage({
           This part of Helm is for the owners.
         </h1>
         <p style={{ marginTop: 18, fontSize: 15.5, lineHeight: 1.6, color: 'var(--ink-3)', maxWidth: 560 }}>
-          Owner statements, the books, contracts and prospects stay with Ryan and the back office.
-          If you need something from here, ask Ryan.
+          Owner statements, revenue, the forecast, the books and payments; contracts, prospects
+          and projections; owner messaging; guest quotes; creative pay and the contractor rate card.
+          All of it stays with Ryan and the back office. If you need something from here, ask Ryan.
         </p>
         {from && (
           <p className="font-mono" style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-4)' }}>{from}</p>

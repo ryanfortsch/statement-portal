@@ -3,6 +3,7 @@ import { CompactDisclosure } from './CompactDisclosure';
 import { Section } from './Section';
 import { WorkFollowupsContent } from './WorkFollowups';
 import { getInboxHealth, listWorkFollowups } from '@/lib/stay-concierge';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { inboxStatus } from '@/lib/inbox-status';
 import { SubmitButton } from './SubmitButton';
 import { releaseHeldPitch } from '@/app/messaging/inbox-health-actions';
@@ -21,12 +22,12 @@ function when(timestamp: number | null) {
 }
 
 async function loadStatus() {
-  const [result, followups] = await Promise.all([getInboxHealth(), listWorkFollowups()]);
-  return { result, followups, checkedAt: Date.now() / 1000 };
+  const [result, followups, owner] = await Promise.all([getInboxHealth(), listWorkFollowups(), isOwnerSession()]);
+  return { result, followups, owner, checkedAt: Date.now() / 1000 };
 }
 
 export async function InboxHealth({ diagnostics = false }: { diagnostics?: boolean }) {
-  const { result, followups, checkedAt } = await loadStatus();
+  const { result, followups, owner, checkedAt } = await loadStatus();
   const health = result.ok ? result.data : null;
   const status = inboxStatus(health, followups.ok ? followups.data : null, checkedAt);
   if (!diagnostics && !status.summary) return null;
@@ -72,7 +73,7 @@ export async function InboxHealth({ diagnostics = false }: { diagnostics?: boole
         </li>)}
       </ul>
     </div>}
-    <WorkFollowupsContent result={followups} />
+    <WorkFollowupsContent result={followups} owner={owner} />
     {!diagnostics && <p style={{ margin: '12px 0 0' }}><Link href="/messaging/status" className="rt-inline-action">Delivery &amp; sync details →</Link></p>}
   </>;
   return diagnostics

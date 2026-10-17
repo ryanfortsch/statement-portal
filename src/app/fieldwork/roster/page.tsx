@@ -174,7 +174,8 @@ export default async function ContractorsPage({
             <Link href={`/field?office=1&trade=${trade}`} target="_blank" style={{ fontSize: 13, color: 'var(--tide-deep)', textDecoration: 'none' }}>
               Preview their portal →
             </Link>
-            {trade === 'creative' && (
+            {/* The pay ledger is an owner page: no link to it for staff. */}
+            {trade === 'creative' && owner && (
               <Link href="/fieldwork/shoots" style={{ fontSize: 13, color: 'var(--tide-deep)', fontWeight: 600, textDecoration: 'none' }}>
                 Shoots &amp; pay →
               </Link>
@@ -186,7 +187,9 @@ export default async function ContractorsPage({
         </div>
         <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4, marginBottom: 18 }}>
           {trade === 'creative'
-            ? 'Everyone who shoots for us: standing, pay to date, W-9. To send someone to a home, use Shoots & pay.'
+            ? owner
+              ? 'Everyone who shoots for us: standing, pay to date, W-9. To send someone to a home, use Shoots & pay.'
+              : 'Everyone who shoots for us. To send someone to a home, ask Ryan or Dotti.'
             : `Everyone on the ${meta.label.toLowerCase()} roster: standing, reliability, pay to date, W-9.`}
         </p>
 
