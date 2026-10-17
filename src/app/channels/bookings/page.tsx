@@ -6,6 +6,7 @@ import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
 import { regionLabel } from '@/lib/property-scope';
 import { countEchoes, getGuestLite, listBookings, listChannelListings, type BookingEx, type ChannelListingEx, type GuestLite } from '@/lib/channels';
 import { supabaseAdmin, isServiceConfigured } from '@/lib/supabase-admin';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { CHANNEL_LABELS, STATUS_LABELS, type BookingChannel, type BookingStatus } from '@/lib/channels-types';
 import { authorityBadge, channelColor, sourceGlyph } from '@/lib/calendar-model';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
@@ -185,7 +186,7 @@ async function safeEchoes(ids: string[]): Promise<Map<string, number>> {
   }
 }
 
-function BookingsTable({
+async function BookingsTable({
   bookings,
   fleetById,
   directFeedIds,
@@ -200,7 +201,10 @@ function BookingsTable({
   today: string;
   qs: (patch: Record<string, string | undefined>) => string;
 }) {
-  const cols = '10px 22px 175px 1fr 110px 1fr 60px 80px 90px';
+  // The Payout column is owner money per stay: owners only, and the grid
+  // loses the column rather than keeping an empty one.
+  const owner = await isOwnerSession();
+  const cols = owner ? '10px 22px 175px 1fr 110px 1fr 60px 80px 90px' : '10px 22px 175px 1fr 110px 1fr 60px 90px';
   return (
     <div style={{ borderTop: '1px solid var(--ink)' }}>
       <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 12, padding: '10px 0', borderBottom: '1px solid var(--rule)', fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
@@ -211,7 +215,7 @@ function BookingsTable({
         <div>Channel</div>
         <div>Guest</div>
         <div style={{ textAlign: 'right' }}>Nights</div>
-        <div style={{ textAlign: 'right' }}>Payout</div>
+        {owner && <div style={{ textAlign: 'right' }}>Payout</div>}
         <div style={{ textAlign: 'right' }}>Status</div>
       </div>
       {bookings.map((b) => {
@@ -260,7 +264,7 @@ function BookingsTable({
               )}
             </span>
             <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right' }}>{b.nights ?? '-'}</span>
-            <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right', color: 'var(--ink-3)' }}>{b.payout ? `$${Math.round(b.payout)}` : '-'}</span>
+            {owner && <span className="tabular-nums" style={{ fontSize: 12, textAlign: 'right', color: 'var(--ink-3)' }}>{b.payout ? `$${Math.round(b.payout)}` : '-'}</span>}
             <span style={{ fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', textAlign: 'right', color: isCancelled ? 'var(--negative)' : 'var(--ink-3)' }}>{STATUS_LABELS[b.status] ?? b.status}</span>
           </div>
         );

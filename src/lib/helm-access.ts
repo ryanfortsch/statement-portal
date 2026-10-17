@@ -68,6 +68,9 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
   '/forecast',
   '/revenue',
   '/payments',
+  // The company ledger to the transaction, payroll and every contractor's
+  // pay. Gated whole until the housekeeping-cost view is split out of it.
+  '/cost-analysis',
   // Owner relationships and the pipeline.
   '/properties/contracts',
   '/properties/prospects',
@@ -88,10 +91,11 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
  * receipt writes, Stripe, the books, contracts and the prospect mail sync.
  * Everything that writes `owner_payout` is in here.
  *
- * Deliberately NOT here: /api/ingest-overhead (the company card upload on
- * /cost-analysis, which staff keep), /api/stripe-account-check (the launch
- * checklist's wiring check, part of property onboarding) and the cron
- * routes (re-running a stuck feed is an operations duty).
+ * Deliberately NOT here: /api/ingest-overhead (the company card upload,
+ * reached from /cost-analysis, which is itself gated as a page since
+ * 2026-10-17), /api/stripe-account-check (the launch checklist's wiring
+ * check, part of property onboarding) and the cron routes (re-running a
+ * stuck feed is an operations duty).
  */
 export const OWNER_API_PREFIXES: readonly string[] = [
   '/api/ingest',

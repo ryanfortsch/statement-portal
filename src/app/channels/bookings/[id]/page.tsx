@@ -5,6 +5,7 @@ import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
 import { getFleetProperty } from '@/lib/fleet';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import {
   getBookingEx,
   getBookingFinance,
@@ -48,6 +49,11 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   const conflict = conflictFromSearchParams(sp);
   const kept = one(sp.kept) === 'cancelled';
 
+  // Gross, fees and payout on a stay are owner money: the money inputs and
+  // the booking_finance sub-record render for owners only. updateBooking
+  // patches a money column only when its input was posted, so a staff save
+  // of the rest of the form leaves the money untouched.
+  const owner = await isOwnerSession();
   const [property, events, finance, sends, threads, guest, echoes, artifacts, parent, feedState, guestyGone] = await Promise.all([
     getFleetProperty(booking.property_id),
     safe(() => listBookingEvents(id), [] as BookingEventRow[]),
@@ -197,21 +203,25 @@ export default async function BookingDetailPage({ params, searchParams }: { para
                 </p>
               )}
 
-              <div className="eyebrow" style={{ marginTop: 4 }}>Money on the booking row</div>
-              <Row>
-                <Field label="Gross">
-                  <input name="gross_amount" type="text" inputMode="decimal" defaultValue={booking.gross_amount ?? ''} style={inputStyle} />
-                </Field>
-                <Field label="Cleaning">
-                  <input name="cleaning_fee" type="text" inputMode="decimal" defaultValue={booking.cleaning_fee ?? ''} style={inputStyle} />
-                </Field>
-                <Field label="Taxes">
-                  <input name="taxes" type="text" inputMode="decimal" defaultValue={booking.taxes ?? ''} style={inputStyle} />
-                </Field>
-                <Field label="Payout">
-                  <input name="payout" type="text" inputMode="decimal" defaultValue={booking.payout ?? ''} style={inputStyle} />
-                </Field>
-              </Row>
+              {owner && (
+                <>
+                  <div className="eyebrow" style={{ marginTop: 4 }}>Money on the booking row</div>
+                  <Row>
+                    <Field label="Gross">
+                      <input name="gross_amount" type="text" inputMode="decimal" defaultValue={booking.gross_amount ?? ''} style={inputStyle} />
+                    </Field>
+                    <Field label="Cleaning">
+                      <input name="cleaning_fee" type="text" inputMode="decimal" defaultValue={booking.cleaning_fee ?? ''} style={inputStyle} />
+                    </Field>
+                    <Field label="Taxes">
+                      <input name="taxes" type="text" inputMode="decimal" defaultValue={booking.taxes ?? ''} style={inputStyle} />
+                    </Field>
+                    <Field label="Payout">
+                      <input name="payout" type="text" inputMode="decimal" defaultValue={booking.payout ?? ''} style={inputStyle} />
+                    </Field>
+                  </Row>
+                </>
+              )}
             </>
           )}
 
@@ -265,7 +275,11 @@ export default async function BookingDetailPage({ params, searchParams }: { para
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
           <div>
             <div className="eyebrow" style={{ marginBottom: 10 }}>Money sub-record · booking_finance</div>
-            {finance ? (
+            {!owner ? (
+              <p style={{ fontSize: 12, color: 'var(--ink-3)', borderTop: '1px solid var(--ink)', paddingTop: 12, margin: 0, lineHeight: 1.5 }}>
+                Money on a stay is owners only.
+              </p>
+            ) : finance ? (
               <dl className="font-mono" style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '6px 14px', fontSize: 12, margin: 0, borderTop: '1px solid var(--ink)', paddingTop: 12 }}>
                 <Term k="source" v={`${finance.money_source} · ${finance.confidence} confidence`} />
                 <Term k="gross" v={money(finance.gross_amount)} />

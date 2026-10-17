@@ -459,11 +459,12 @@ function LiveRow({ p, who, dim, done = 0, assigned = false, owner = false }: { p
         <div style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           {/* The REAL payout: final (once set at approval) + bonus, falling back
               to the posted estimate. A completed row must show what was paid,
-              not what was guessed (Dotti: "$199" on a packet she paid $264). */}
-          <span>{dollars(totalPayoutCents(p))}</span>
+              not what was guessed (Dotti: "$199" on a packet she paid $264).
+              Contractor pay is owner money: owners only. */}
+          {owner && <span>{dollars(totalPayoutCents(p))}</span>}
           {who && (
             <>
-              <span>·</span>
+              {owner && <span>·</span>}
               <FieldAvatar name={who.name} url={who.photoUrl} size={18} />
               <span>{who.name}</span>
             </>

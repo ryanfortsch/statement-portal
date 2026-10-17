@@ -81,6 +81,9 @@ describe('what a staff login may open', () => {
       '/fieldwork/shoots',
       '/fieldwork/rate-card',
       '/fieldwork/packets/test',
+      // The company ledger and every contractor's pay print here.
+      '/cost-analysis',
+      '/cost-analysis/anything',
     ]) {
       assert.ok(pathRequiresOwner(p), `${p} should be owners-only`);
     }
@@ -106,7 +109,6 @@ describe('what a staff login may open', () => {
       '/channels',
       '/crm',
       '/playbook',
-      '/cost-analysis',
       '/guests',
       '/guests/agreements',
       // Prefix matching is by whole segment: a sibling that merely starts
@@ -300,7 +302,7 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
   const STRIPS: Record<string, number> = {
     'src/components/MessagingTabs.tsx': 1,
     'src/components/FieldTabs.tsx': 1,
-    'src/components/FinancialsTabs.tsx': 5,
+    'src/components/FinancialsTabs.tsx': 6,
     'src/components/MarketingTabs.tsx': 0,
     'src/components/WorkTabs.tsx': 0,
     'src/components/TurnoverTabs.tsx': 0,
@@ -432,7 +434,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
 
   test('/not-available names every area the gate list covers', () => {
     const src = read('src/app/not-available/page.tsx').toLowerCase();
-    for (const word of ['statements', 'revenue', 'forecast', 'books', 'payments', 'contracts', 'prospects', 'projections', 'owner messaging', 'quotes', 'creative pay', 'rate card']) {
+    for (const word of ['statements', 'revenue', 'forecast', 'cost analysis', 'books', 'payments', 'contracts', 'prospects', 'projections', 'owner messaging', 'quotes', 'creative pay', 'rate card']) {
       assert.ok(src.includes(word), `/not-available should mention ${word}`);
     }
   });
@@ -501,5 +503,56 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
     const statements = read('src/app/statements/page.tsx');
     assert.ok(statements.includes('{canOpenMailbox(sessionEmail, draftResult.mailbox) ? ('));
     assert.ok(statements.includes('{bulkDraftResult.drafted > 0 && canOpenMailbox(sessionEmail, draftMailbox) && ('));
+  });
+});
+
+describe('owner money on the pages staff keep renders for owners only (part two)', () => {
+  // The first part of this list lives in "the money server actions refuse
+  // a staff session" above (home payout tile, fee on the list, fee / bank /
+  // statements / contract on a property page). These are the surfaces the
+  // 2026-10-17 audit found still printing money to staff.
+  test('the calendar hover card drops the payout on the server', () => {
+    const src = read('src/components/OccupancyCalendar.tsx');
+    assert.ok(src.includes('const owner = await isOwnerSession();'), 'the calendar must know the role');
+    assert.ok(src.includes('hostPayout: owner ? r.host_payout : null,'), 'the payout must be nulled before it reaches the browser');
+  });
+
+  test('the property page keeps the multi-month section, the contract alerts, the executed contract and the prospect chips from staff', () => {
+    const src = read('src/app/properties/[id]/page.tsx');
+    assert.ok(src.includes('{owner && <MultiMonthBookingsSection propertyId={p.id} />}'));
+    assert.ok(src.includes('if (owner && !activeContract && !p.is_rising_tide_owned && p.is_active) {'));
+    assert.ok(src.includes("if (owner && activeContractAttention?.kind === 'notice_window') {"));
+    assert.ok(src.includes("const visibleDocuments = owner ? documents : documents.filter((d) => d.source !== 'contract-auto');"));
+    assert.ok(src.includes('<DocumentsPanel propertyId={p.id} documents={visibleDocuments} />'));
+    assert.ok(src.includes('{owner && ownerPortfolio.prospects.map((op) => ('));
+  });
+
+  test('a roster card shows staff no pay, no Books YTD, no W-9 details and no payment method', () => {
+    const src = read('src/app/fieldwork/roster/page.tsx');
+    assert.ok(src.includes('{owner && earned && ps!.owedCents > 0 &&'), 'the collapsed owed figure is owners only');
+    assert.ok(src.includes('{owner && earned && ps!.paidCents > 0 &&'), 'the collapsed paid figure is owners only');
+    assert.ok(/\{owner && \(\n\s*<Stat label="Earnings">/.test(src), 'the Earnings stat is owners only');
+    assert.ok(/\{owner && \(\n\s*<Stat label="Books YTD">/.test(src), 'the Books YTD stat is owners only');
+    assert.ok(src.includes('{owner && w9 && ('), 'the W-9 summary line is owners only');
+    assert.ok(src.includes('{owner && pm && ('), 'the payment method line is owners only');
+    assert.ok(src.includes('{owner && Math.abs(gap) > 5000 && ('), 'the pay-versus-books gap is owners only');
+  });
+
+  test('the Field board rows and the channels bookings pages print payouts to owners only', () => {
+    const board = read('src/app/fieldwork/packets/page.tsx');
+    assert.ok(board.includes('{owner && <span>{dollars(totalPayoutCents(p))}</span>}'));
+    const list = read('src/app/channels/bookings/page.tsx');
+    assert.ok(list.includes("{owner && <div style={{ textAlign: 'right' }}>Payout</div>}"), 'the Payout column header is owners only');
+    assert.ok(list.includes("{owner && <span className=\"tabular-nums\" style={{ fontSize: 12, textAlign: 'right', color: 'var(--ink-3)' }}>{b.payout"), 'the Payout cell is owners only');
+    const record = read('src/app/channels/bookings/[id]/page.tsx');
+    assert.ok(record.includes('const owner = await isOwnerSession();'));
+    assert.ok(/\{owner && \(\n\s*<>\n\s*<div className="eyebrow" style=\{\{ marginTop: 4 \}\}>Money on the booking row<\/div>/.test(record), 'the money inputs are owners only');
+    assert.ok(record.includes('{!owner ? ('), 'the booking_finance sub-record is owners only');
+  });
+
+  test('/cost-analysis is gated as a page and flagged in the atlas', () => {
+    assert.ok(OWNER_PATH_PREFIXES.includes('/cost-analysis'));
+    const mod = HELM_MODULES.find((m) => m.id === 'cost-analysis');
+    assert.equal(mod?.access, 'owner', 'the module must be flagged so nav and search hide it');
   });
 });

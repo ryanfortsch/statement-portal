@@ -489,6 +489,9 @@ export default async function PropertyDetailPage({
   // Owner money on this page (the fee, bank digits, owner emails, payouts,
   // the contract) renders for owners only. Staff keep the operations.
   const owner = roleForEmail(session?.user?.email) === 'owner';
+  // The executed management agreement files itself into Documents with its
+  // fee terms. Owner money, so a staff login's Documents list omits it.
+  const visibleDocuments = owner ? documents : documents.filter((d) => d.source !== 'contract-auto');
 
   // PMS plumbing: who runs this home's calendar (properties.calendar_authority,
   // read off the select('*') row), plus the three Helm-native records the
@@ -545,7 +548,9 @@ export default async function PropertyDetailPage({
       href: `/properties/${p.id}?tab=owner`,
     });
   }
-  if (!activeContract && !p.is_rising_tide_owned && p.is_active) {
+  // The two contract alerts point at the Owner & money tab's agreement
+  // section, which staff do not get.
+  if (owner && !activeContract && !p.is_rising_tide_owned && p.is_active) {
     mastheadAlerts.push({
       key: 'no-contract',
       tone: 'negative',
@@ -553,7 +558,7 @@ export default async function PropertyDetailPage({
       href: `/properties/${p.id}?tab=owner`,
     });
   }
-  if (activeContractAttention?.kind === 'notice_window') {
+  if (owner && activeContractAttention?.kind === 'notice_window') {
     mastheadAlerts.push({
       key: 'notice-window',
       tone: 'signal',
@@ -601,7 +606,7 @@ export default async function PropertyDetailPage({
     roomsWithQuirks: propertyRooms.filter((r) => (r.details?.quirks?.length ?? 0) > 0).length,
     guestFacingNotes: propertyNotes.filter((n) => n.guest_facing).length,
     opsNotes: propertyNotes.filter((n) => !n.guest_facing).length,
-    documentsCount: documents.length,
+    documentsCount: visibleDocuments.length,
     locksMapped: guestCodeView.locks.length,
     climateConfigured: !!climateProfile?.enabled,
     cleanerMapped: launchCleanerMapped,
@@ -841,7 +846,9 @@ export default async function PropertyDetailPage({
           the months it spans. Hidden when this property has no qualifying
           upcoming bookings, so it costs zero vertical space on the
           ~9 properties that don't have one right now. */}
-      <MultiMonthBookingsSection propertyId={p.id} />
+      {/* Each row prints the stay's net and offers the installment split,
+          which saves through an owner-only route: owners only. */}
+      {owner && <MultiMonthBookingsSection propertyId={p.id} />}
 
       <PropertyTabs
         initialTab={initialTab}
@@ -1708,7 +1715,7 @@ export default async function PropertyDetailPage({
         {/* Also owns — other properties / open prospects under the same
             owner (matched by shared email). Lets a multi-property owner
             read as one person across their portfolio. */}
-        {(ownerPortfolio.properties.length > 0 || ownerPortfolio.prospects.length > 0) && (
+        {(ownerPortfolio.properties.length > 0 || (owner && ownerPortfolio.prospects.length > 0)) && (
           <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--rule)' }}>
             <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 12 }}>
               {p.owner_full ? `${p.owner_full} also has` : 'Same owner also has'}
@@ -1735,7 +1742,8 @@ export default async function PropertyDetailPage({
                   </span>
                 </Link>
               ))}
-              {ownerPortfolio.prospects.map((op) => (
+              {/* Prospects are owner pages; the chips would bounce staff. */}
+              {owner && ownerPortfolio.prospects.map((op) => (
                 <Link
                   key={op.id}
                   href={`/prospects/${op.id}`}
@@ -2051,9 +2059,9 @@ export default async function PropertyDetailPage({
       <CollapsibleSection
         id="documents"
         title="Documents"
-        summary={documents.length === 0 ? 'none yet' : `${documents.length} on file`}
+        summary={visibleDocuments.length === 0 ? 'none yet' : `${visibleDocuments.length} on file`}
       >
-        <DocumentsPanel propertyId={p.id} documents={documents} />
+        <DocumentsPanel propertyId={p.id} documents={visibleDocuments} />
       </CollapsibleSection>
       {/* RECENT STATEMENTS (Helm-native) */}
       {owner && (
