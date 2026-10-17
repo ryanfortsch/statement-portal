@@ -453,7 +453,7 @@ function ContractorApprovalCard({
           </div>
           {ctx && ctx.alreadyFiled.length > 0 && (
             <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>
-              Heads up: they already filed {ctx.alreadyFiled.map((f) => `"${f.title}" at ${f.name}`).join(' and ')} during today&apos;s inspection — filing here may duplicate it. Untick if so.
+              Heads up: they already filed {ctx.alreadyFiled.map((f) => `"${f.title}" at ${f.name}`).join(' and ')} during today&apos;s inspection. Filing here may duplicate it; untick if so.
             </p>
           )}
           {slipBlocked && (
