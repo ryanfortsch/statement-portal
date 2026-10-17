@@ -120,7 +120,7 @@ export default async function InspectionsPage({
         eyebrow="Helm · Inspections"
         title="Walk a property,"
         emphasis="start a checklist."
-        description={`Hi ${firstName}. Pick a property and Helm will walk you through 50 items across 10 categories. Mark each Pass, Issue, or N/A; add notes where it matters.`}
+        description={`Hi ${firstName}. Pick a property and Helm walks you through its checklist, room by room. Mark each Pass, Issue, or N/A; add notes where it matters.`}
       />
 
       {/* START FORM */}

@@ -213,7 +213,7 @@ export default async function CreativeBoard({
               color: driveNote.startsWith('err:') ? 'var(--signal)' : 'var(--ink-3)',
             }}
           >
-            {driveNote.startsWith('err:') ? `Drive sync: ${driveNote.slice(4)}` : `Drive checked — ${driveNote.replace(/^ok:/, '')}.`}
+            {driveNote.startsWith('err:') ? `Drive sync: ${driveNote.slice(4)}` : `Drive checked: ${driveNote.replace(/^ok:/, '')}.`}
           </div>
         )}
 

@@ -32,7 +32,7 @@ export function RecentChanges({ events, lastSyncAt }: Props) {
             fontSize: 13,
           }}
         >
-          No inventory changes recorded yet. The weekly cron runs Sunday 8am UTC; or click <em style={{ fontStyle: 'italic' }}>Sync inventory now</em> above to seed the tracker from the current listings file.
+          No inventory changes recorded yet. Helm checks the listings weekly; or click <em style={{ fontStyle: 'italic' }}>Sync inventory now</em> above to seed the tracker from the current listings file.
         </div>
       ) : (
         <div style={{ borderTop: '1px solid var(--ink)' }}>

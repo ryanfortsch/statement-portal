@@ -1094,7 +1094,7 @@ export default async function PropertyDetailPage({
                 href={`/properties/${p.id}?tab=now`}
                 style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
               >
-                Dictate it into the capture box on Today
+                Dictate it into the capture box on Now
               </Link>
               . Room by room is recognised on its own; everything it finds lands in the stages below.
             </p>
@@ -2235,7 +2235,7 @@ export default async function PropertyDetailPage({
       >
         <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 720 }}>
           Print-ready guest artifacts pre-populated from this property&rsquo;s onboarding answers
-          (WiFi, parking, climate, safety equipment, etc). Edit operational data in the Operations tab to refresh.
+          (WiFi, parking, climate, safety equipment, etc). Edit the fact sheet on the Facts tab to refresh.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
           {/* Welcome Guide tile */}
@@ -2358,7 +2358,7 @@ export default async function PropertyDetailPage({
                     {trashNotice.notice.day}
                     {trashNotice.notice.daySource === 'row' ? ', set on the property' : ', from the DPW street list'}.
                     {trashNotice.notice.cartsHandledByUs ? ' We move the carts here, and the card says so.' : ''}
-                    {trashNotice.notice.location ? '' : ' Add where the carts live under Operations and it prints on the card.'}
+                    {trashNotice.notice.location ? '' : ' Add where the carts live under Edit property and it prints on the card.'}
                   </span>
                 ) : (
                   <span style={{ display: 'block', marginTop: 6, color: 'var(--negative)' }}>

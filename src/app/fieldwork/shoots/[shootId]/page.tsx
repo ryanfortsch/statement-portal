@@ -104,7 +104,7 @@ export default async function ShootDetail({
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: sum.fullySettled ? 'var(--positive)' : 'var(--signal)' }}>{statusTag}</div>
-            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }} title={paidAdjusted ? `Set by office${shoot.paid_adjustment_note ? ` — ${shoot.paid_adjustment_note}` : ''} · receipts ${dollars(sum.receiptsPaidCents)}` : undefined}>
+            <div className="font-mono" style={{ fontSize: 24, marginTop: 4 }} title={paidAdjusted ? `Set by office${shoot.paid_adjustment_note ? `: ${shoot.paid_adjustment_note}` : ''} · receipts ${dollars(sum.receiptsPaidCents)}` : undefined}>
               {dollars(sum.paidCents)}
             </div>
             <div style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--ink-4)', marginTop: 2 }}>paid to date</div>
@@ -196,7 +196,7 @@ export default async function ShootDetail({
 
         {pay.needsAttention && (
           <div style={{ marginTop: 14, border: '1px solid var(--signal)', borderRadius: 10, padding: '10px 16px', background: 'rgba(200,90,58,0.06)', fontSize: 13.5, color: 'var(--signal)' }}>
-            A reel we posted is past its {card.countDays}-day count and its views were never read — read them below to release the bonus.
+            A reel we posted is past its {card.countDays}-day count and its views were never read. Read them below to release the bonus.
           </div>
         )}
 
@@ -263,12 +263,12 @@ export default async function ShootDetail({
               return (
                 <div style={{ marginTop: 10, borderLeft: `3px solid ${p.complete ? 'var(--positive)' : 'var(--tide)'}`, background: p.complete ? 'rgba(46,125,80,0.06)' : 'rgba(78,124,158,0.06)', padding: '8px 12px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, maxWidth: 560 }}>
                   {p.complete ? (
-                    <>Full set delivered — the package is logged below and the delivery base is due.</>
+                    <>Full set delivered. The package is logged below and the delivery base is due.</>
                   ) : (
                     <>
                       <strong>{finalsProgressLabel(p)}.</strong> Pay stays $0 until all{' '}
                       {p.reelsNeed + p.carouselsNeed} finals ({p.reelsNeed} reels {card.minSeconds}s+ and the carousel photos) are in the Finals
-                      folder — the moment the set completes, the {dollars(card.baseCents * p.reelsNeed + card.carouselCents * p.carouselsNeed)} base goes due here on its own.
+                      folder. The moment the set completes, the {dollars(card.baseCents * p.reelsNeed + card.carouselCents * p.carouselsNeed)} base goes due here on its own.
                     </>
                   )}
                 </div>
@@ -279,7 +279,7 @@ export default async function ShootDetail({
               <div style={{ marginTop: 10 }}>
                 <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
                   No folder linked yet. Sync auto-matches a subfolder named like the property inside
-                  &ldquo;Creative Assets - {detail.contractorName.split(' ')[0]}&rdquo; — or paste the folder link:
+                  &ldquo;Creative Assets - {detail.contractorName.split(' ')[0]}&rdquo;, or paste the folder link:
                 </div>
                 <form action={setShootDriveFolder} style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   <input type="hidden" name="shoot_id" value={shoot.id} />
@@ -289,7 +289,7 @@ export default async function ShootDetail({
               </div>
             ) : driveFiles.length === 0 ? (
               <div style={{ marginTop: 10, fontSize: 13, color: 'var(--ink-4)' }}>
-                Folder linked — nothing uploaded yet. Files show here as they land; pay triggers when the full set is in the Finals folder.
+                Folder linked, nothing uploaded yet. Files show here as they land; pay triggers when the full set is in the Finals folder.
               </div>
             ) : (() => {
               // The list stays about DELIVERY: finals files + anything linked
@@ -311,7 +311,7 @@ export default async function ShootDetail({
                   ))}
                   {deliverables.length === 0 && (
                     <div style={{ fontSize: 13, color: 'var(--ink-4)', padding: '2px 0 6px' }}>
-                      Nothing in the Finals folder yet — pay triggers when the full set lands there.
+                      Nothing in the Finals folder yet. Pay triggers when the full set lands there.
                     </div>
                   )}
                   {raws.length > 0 && (
@@ -359,7 +359,7 @@ export default async function ShootDetail({
               lineHeight: 1.55,
             }}
           >
-            <strong style={{ color: 'var(--ink)' }}>{dollars(sum.setBaseCents)} on the full set</strong> — {setShortLabel(sum)}.
+            <strong style={{ color: 'var(--ink)' }}>{dollars(sum.setBaseCents)} on the full set</strong>: {setShortLabel(sum)}.
             The delivery base pays once, when the whole package is in. Posting a reel is a separate clock: it starts the view
             bonus, read {card.countDays} days later.
           </div>
@@ -387,7 +387,7 @@ export default async function ShootDetail({
         <div style={{ marginTop: 26 }}>
           <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--ink-4)', marginBottom: 10 }}>Posts</div>
           {detail.assets.length === 0 && (
-            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No assets logged yet. Log each reel or carousel as {detail.contractorName.split(' ')[0]} delivers it — the base pays once the full set is in, and each reel&apos;s bonus follows once we post it.</div>
+            <div style={{ fontSize: 13.5, color: 'var(--ink-4)', marginBottom: 12 }}>No assets logged yet. Log each reel or carousel as {detail.contractorName.split(' ')[0]} delivers it. The base pays once the full set is in, and each reel&apos;s bonus follows once we post it.</div>
           )}
           {[...reels, ...carousels].map((a) => {
             const ap = payByAsset.get(a.id);
@@ -504,7 +504,7 @@ export default async function ShootDetail({
                               <input type="number" name="dollars" min={0} step={1} defaultValue={ap.topupCents / 100} style={{ ...input, width: 110 }} />
                             </label>
                             <div style={{ fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 240 }}>
-                              Sets this reel&apos;s bonus and stops the view count — it becomes payable at this number, and Cooper sees the same figure.
+                              Sets this reel&apos;s bonus and stops the view count. It becomes payable at this number, and {detail.contractorName.split(' ')[0]} sees the same figure.
                             </div>
                             <PendingButton label="Set bonus" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                           </form>
@@ -568,7 +568,7 @@ export default async function ShootDetail({
               <form action={addAsset} style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, maxWidth: 520, border: '1px solid var(--rule)', borderRadius: 10, padding: 14, background: 'var(--paper-2, #fff)' }}>
                 <input type="hidden" name="shoot_id" value={shoot.id} />
                 <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-                  Log each reel or carousel as Cooper delivers it. The {dollars(sum.setBaseCents)} base is owed once all {card.maxPerShoot + card.maxCarouselsPerShoot} pieces are in, not per asset. Leave the posted date blank until it actually goes live; that&apos;s what starts a reel&apos;s bonus clock.
+                  Log each reel or carousel as {detail.contractorName.split(' ')[0]} delivers it. The {dollars(sum.setBaseCents)} base is owed once all {card.maxPerShoot + card.maxCarouselsPerShoot} pieces are in, not per asset. Leave the posted date blank until it actually goes live; that&apos;s what starts a reel&apos;s bonus clock.
                 </div>
                 <label style={miniLabel}>Type<select name="kind" defaultValue="reel" style={input}><option value="reel">Reel</option><option value="carousel">Carousel</option></select></label>
                 <label style={miniLabel}>Duration (s)<input type="number" name="duration_seconds" min={1} step={1} placeholder="reels only" style={input} /></label>
@@ -775,7 +775,7 @@ async function ShootDayCard({
         </div>
       )}
       {!propertyId && (
-        <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)' }}>No home attached — the brief covers date and deliverables only.</div>
+        <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)' }}>No home attached. The brief covers date and deliverables only.</div>
       )}
       {note && (
         <div style={{ marginTop: 8, fontSize: 12.5, color: note.startsWith('err:') ? 'var(--signal)' : 'var(--positive)' }}>

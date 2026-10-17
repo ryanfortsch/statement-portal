@@ -101,8 +101,7 @@ export function RentalSeasonPanel({
         <div style={noteStyle}>
           The forecast also carries a schedule for this home in code:{' '}
           <strong style={{ color: 'var(--ink)' }}>{codeWindow}</strong>. Both apply, so the home
-          is open only on nights they agree on. Editing that one means editing{' '}
-          <code>src/lib/forecast-operating-windows.ts</code>.
+          is open only on nights they agree on. Ask Ryan to change that one.
         </div>
       )}
 

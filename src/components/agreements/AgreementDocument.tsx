@@ -208,7 +208,7 @@ export function AgreementDocument({
               <div className="sca-cert-block-title">Document</div>
               <div className="sca-cert-kv">
                 <div className="sca-cert-k">Title</div>
-                <div className="sca-cert-v">Rental Agreement &mdash; {a.property_address}, {a.property_city}</div>
+                <div className="sca-cert-v">Rental Agreement: {a.property_address}, {a.property_city}</div>
                 <div className="sca-cert-k">Document ID</div>
                 <div className="sca-cert-v sca-cert-mono">{a.id}</div>
                 <div className="sca-cert-k">Guest</div>

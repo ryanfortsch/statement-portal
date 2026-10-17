@@ -171,7 +171,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
                 key={d}
                 type="button"
                 onClick={() => selectColumn(d)}
-                title="Plan a visit this day — selects every property open"
+                title="Plan a visit this day: selects every property open"
                 style={{
                   textAlign: 'center',
                   padding: '8px 2px',
@@ -208,13 +208,13 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
           of mark, so it gets its own line instead of sitting among the fills. */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--ink-3)', marginTop: 10, alignItems: 'center' }}>
         <Swatch bg={OPEN_BG} label="open to inspect" />
-        <Swatch bg={HANDLED_BG} label="handled — out to a contractor, or done" />
+        <Swatch bg={HANDLED_BG} label="handled: out to a contractor, or done" />
         <Swatch bg={OCCUPIED_BG} label="guest in house" />
         <Swatch bg={BLOCKED_BG} label="owner / blocked" />
         <Swatch bg="var(--signal)" label="picked" />
       </div>
       <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
-        Initials in a handled day are whoever has it — the inspector it&apos;s assigned to, whoever walked it, or whoever ticked it done.
+        Initials in a handled day are whoever has it: the inspector it&apos;s assigned to, whoever walked it, or whoever ticked it done.
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-4)', marginTop: 6 }}>
         <span style={{ width: 4, height: 14, background: 'var(--signal)', flexShrink: 0 }} />
@@ -444,7 +444,7 @@ function CalendarRow({
         {row.propertyName}
         {dd != null && dd >= 0 && dd <= 2 && (
           <span
-            title={`Guest checks in ${dd === 0 ? 'today' : `in ${dd} day${dd === 1 ? '' : 's'}`} — still uncovered`}
+            title={`Guest checks in ${dd === 0 ? 'today' : `in ${dd} day${dd === 1 ? '' : 's'}`}, still uncovered`}
             style={{ fontSize: 10, fontWeight: 600, color: 'var(--signal)', whiteSpace: 'nowrap' }}
           >
             {dd === 0 ? 'today' : `${dd}d`}
@@ -473,11 +473,11 @@ function CalendarRow({
             onClick={() => clickable && onToggle(row.propertyId, d)}
             title={
               clickable
-                ? `${row.propertyName} is open ${fmtDay(d)} — click to inspect that day`
+                ? `${row.propertyName} is open ${fmtDay(d)}. Click to inspect that day`
                 : c?.covered
                   ? `${row.propertyName}'s next guest is out to ${c.who ? c.who : 'a contractor'}`
                   : c?.inspected
-                    ? `${row.propertyName}'s next turnover is handled${c.who ? ` — inspected by ${c.who}` : ' — inspected or marked done'}`
+                    ? `${row.propertyName}'s next turnover is handled${c.who ? `: inspected by ${c.who}` : ': inspected or marked done'}`
                     : undefined
             }
             style={{

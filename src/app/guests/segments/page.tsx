@@ -27,7 +27,7 @@ export default async function GuestSegmentsPage() {
           Segments
         </h1>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)' }}>
-          Saved tag-based filters used as send targets. Edit and creation UI lands with the campaign composer.
+          Saved tag-based filters used as send targets.
         </p>
       </section>
 
@@ -89,7 +89,7 @@ export default async function GuestSegmentsPage() {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot;Guests&middot; Segments</span>
+          <span>Rising Tide &middot; Guests &middot; Segments</span>
         </div>
       </footer>
     </div>

@@ -33,6 +33,14 @@ function relativeTime(iso: string | null): string {
   return `${Math.round(diffSec / 86400)} d ago`;
 }
 
+/** How long a drafted reply has waited: minutes under an hour, then hours, then days. */
+function waitingLabel(minutes: number | null): string {
+  if (minutes == null) return '';
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
+}
+
 function SectionHead({
   number,
   title,
@@ -261,7 +269,7 @@ function ApprovalRow({ a }: { a: Approval }) {
           {a.guest_first} · {a.listing_name}
         </span>
         <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>
-          {a.age_minutes != null ? `${a.age_minutes}m` : ''}
+          {waitingLabel(a.age_minutes)}
         </span>
       </div>
       <div className="text-xs mt-0.5 italic" style={{ color: 'var(--ink-3)' }}>

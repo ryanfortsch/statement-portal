@@ -19,7 +19,7 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 function adminClient() {
   if (!SUPABASE_URL || !SERVICE_KEY) {
-    throw new Error('Helm Supabase env vars (URL + service role) are not configured.');
+    throw new Error('Ask Ryan: this feature is not set up.');
   }
   return createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },

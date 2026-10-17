@@ -648,7 +648,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
               onChange={(e) => setTouchNotes(e.target.value)}
               rows={2}
               maxLength={2000}
-              placeholder="Notes (optional) — what was decided, what's next, etc."
+              placeholder="Notes (optional): what was decided, what's next, etc."
               style={{ ...inputStyle(), fontFamily: 'inherit', resize: 'vertical' }}
             />
             {touchErr && (

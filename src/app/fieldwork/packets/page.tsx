@@ -131,7 +131,7 @@ export default async function PacketsBoard({
         <HelmMasthead />
         <section className="max-w-[1000px] mx-auto px-10" style={{ paddingTop: 56 }}>
           <div className="eyebrow">Field packets</div>
-          <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Set SUPABASE_SERVICE_ROLE_KEY to enable the Field module.</p>
+          <p style={{ marginTop: 14, color: 'var(--ink-3)' }}>Ask Ryan: the Field module is not set up.</p>
         </section>
       </div>
     );

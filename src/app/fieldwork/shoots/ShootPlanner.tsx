@@ -472,7 +472,7 @@ function PlannerRow({
         else if (c.state === 'held') bg = HELD_BG;
         else bg = OCCUPIED_BG;
         const hint = clickable
-          ? `${row.propertyName} is free ${fmtDay(c.date)}${c.state === 'checkout' ? ' after the ~11 AM checkout' : ''} — click to send someone`
+          ? `${row.propertyName} is free ${fmtDay(c.date)}${c.state === 'checkout' ? ' after the ~11 AM checkout' : ''}. Click to send someone`
           : past
             ? `${fmtDay(c.date)} has passed`
             : c.reason

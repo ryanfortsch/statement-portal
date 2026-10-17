@@ -101,7 +101,7 @@ export default async function BooksPage() {
         eyebrow="Helm · Financials"
         title="LLC"
         emphasis="accounting."
-        description="In-house bookkeeping for the three LLCs. The chart of accounts and bank inventory below are seeded from the QuickBooks exports — Phase 1b wires the transaction ingestion + AI categorizer next."
+        description="In-house bookkeeping for the three LLCs. The chart of accounts and bank inventory below are seeded from the QuickBooks exports."
         paddingTop={40}
         paddingBottom={20}
       />
@@ -114,7 +114,7 @@ export default async function BooksPage() {
             background: 'var(--paper-2)',
             fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5,
           }}>
-            <strong style={{ color: 'var(--signal)' }}>Setup pending.</strong> Run <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>supabase-schema-books.sql</code> in the Supabase SQL editor to create the ledger tables. The entity structure + chart of accounts + bank inventory below render from <code style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>src/lib/books.ts</code> regardless.
+            <strong style={{ color: 'var(--signal)' }}>Setup pending.</strong> The ledger tables are not set up yet, so uploads will not work. The entity structure, chart of accounts and bank inventory below still render.
           </div>
         </section>
       )}
@@ -232,7 +232,7 @@ export default async function BooksPage() {
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40, flex: 1 }}>
         <div className="eyebrow" style={{ marginBottom: 4 }}>Chart of accounts</div>
         <p style={{ fontSize: 12, color: 'var(--ink-4)', marginBottom: 16, maxWidth: 720, lineHeight: 1.5 }}>
-          Hierarchical chart sourced from the QuickBooks exports (transaction detail + chart of accounts CSVs, 2026-05-27). Categories marked <em style={{ color: 'var(--tide-deep)' }}>pass-through</em> auto-populate from Statements module data in Phase 1c — the categorizer doesn&apos;t target them. Scope tags show which entities each category applies to.
+          Hierarchical chart sourced from the QuickBooks exports (transaction detail + chart of accounts CSVs, 2026-05-27). Categories marked <em style={{ color: 'var(--tide-deep)' }}>pass-through</em> fill from Statements data; the categorizer leaves them alone. Scope tags show which entities each category applies to.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 28 }}>
           {coaByType.map((g) => (

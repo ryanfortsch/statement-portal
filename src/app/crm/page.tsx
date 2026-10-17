@@ -29,7 +29,7 @@ async function getContacts(): Promise<{
 }> {
   const empty = { contacts: [], properties: [], lastTouchByContact: {}, unknownNumbers: [], suggestions: [], guestByPhone: {} };
   if (!isHelmConfigured) {
-    return { ...empty, error: 'Helm Supabase env vars are not set.' };
+    return { ...empty, error: 'Ask Ryan: this page is not set up.' };
   }
   try {
     const [

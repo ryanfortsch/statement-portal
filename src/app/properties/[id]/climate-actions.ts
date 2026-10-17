@@ -82,11 +82,11 @@ export async function runClimateNow(
   try {
     const results = await runClimateAutomation({ onlyPropertyId: propertyId });
     if (results.length === 0) {
-      return { ok: false, message: 'Nothing to do — enable the automation and map a thermostat first.' };
+      return { ok: false, message: 'Nothing to do: enable the automation and map a thermostat first.' };
     }
     const r = results[0];
     if (r.skipped === 'seam_unconfigured') {
-      return { ok: false, message: 'SEAM_API_KEY is not set in this environment yet.' };
+      return { ok: false, message: 'Seam is not connected to Helm yet. Ask Ryan.' };
     }
     if (r.skipped === 'guest_occupied') {
       return { ok: true, message: 'Guest in residence - thermostat left alone so they control it.' };

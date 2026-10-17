@@ -39,7 +39,7 @@ export default async function GuestCampaignsPage() {
           </Link>
         </div>
         <p style={{ marginTop: 8, fontSize: 14, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Newsletters and broadcasts. Composer + send-via-Resend lands next; for now this view shows what's been saved or sent.
+          Newsletters and broadcasts, saved or sent.
         </p>
       </section>
 
@@ -90,7 +90,7 @@ export default async function GuestCampaignsPage() {
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot;Guests&middot; Campaigns</span>
+          <span>Rising Tide &middot; Guests &middot; Campaigns</span>
         </div>
       </footer>
     </div>

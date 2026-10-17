@@ -62,14 +62,14 @@ export function GuestCodesPanel({
 
       {!seamConfigured && (
         <div style={noteStyle}>
-          <code>SEAM_API_KEY</code> isn&apos;t set in this environment yet, so no codes can be issued.
+          Seam is not connected to Helm yet, so no codes can be issued. Ask Ryan.
         </div>
       )}
 
       {seamConfigured && !hasLocks && (
         <div style={noteStyle}>
           No lock mapped to this property yet. Sync your Seam devices, then map this property&apos;s
-          lock — no URLs or SQL needed.
+          lock.
         </div>
       )}
 

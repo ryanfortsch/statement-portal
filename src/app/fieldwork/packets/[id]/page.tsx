@@ -283,7 +283,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
               {isPayoutFinal(packet) ? 'Final' : 'Estimated'}
             </div>
             {packet.expenses_cents > 0 && (
-              <div style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, marginTop: 2 }} title="Receipt reimbursements recorded by the contractor — included in the payout automatically">
+              <div style={{ fontSize: 12, color: 'var(--tide-deep)', fontWeight: 600, marginTop: 2 }} title="Receipt reimbursements recorded by the contractor, included in the payout automatically">
                 + {dollars(packet.expenses_cents)} receipts
               </div>
             )}
@@ -404,7 +404,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   {r.kind === 'maintenance' ? (
                     <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
                       <span style={{ color: 'var(--ink)' }}>{r.title}</span>
-                      {r.note ? <> — {r.note}</> : <span style={{ color: 'var(--signal)' }}> — no note</span>}
+                      {r.note ? <> · {r.note}</> : <span style={{ color: 'var(--signal)' }}> · no note</span>}
                     </div>
                   ) : (
                     r.issues.length > 0 && (
@@ -586,7 +586,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <span style={{ fontSize: 12, color: 'var(--ink-4)', maxWidth: 520 }}>
                     {readyToClose
                       ? `Every stop is done but ${inspectorFirst} never tapped Submit. This closes the trip out exactly like their own tap (stops the clock, pulls the door codes) and moves it to your review.`
-                      : `${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open — this marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to your review.`}
+                      : `${packet.stops.length - doneCount} stop${packet.stops.length - doneCount === 1 ? ' is' : 's are'} still open; this marks ${packet.stops.length - doneCount === 1 ? 'it' : 'them'} complete, closes the trip out (stops the clock, pulls the door codes), and moves it to your review.`}
                   </span>
                 </form>
               )}
@@ -619,7 +619,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                         </span>
                       </div>
                     )}
-                    <PendingButton label="Approve packet" busyLabel="Approving — sending reports…" style={btnDark} />
+                    <PendingButton label="Approve packet" busyLabel="Approving, sending reports…" style={btnDark} />
                     <details>
                       <summary style={quietSummary}>+ Add an above-and-beyond bonus ▾</summary>
                       <div style={{ marginTop: 10 }}><BonusFields /></div>
@@ -648,8 +648,8 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                   <details open={!isPayoutFinal(packet)}>
                     <summary style={quietSummary}>
                       {isPayoutFinal(packet)
-                        ? `Final pay: ${dollars(effectiveBaseCents(packet))} — adjust ▾`
-                        : `Payout is still the ${dollars(packet.posted_price_cents)} estimate — set the final ▾`}
+                        ? `Final pay: ${dollars(effectiveBaseCents(packet))}, adjust ▾`
+                        : `Payout is still the ${dollars(packet.posted_price_cents)} estimate, set the final ▾`}
                     </summary>
                     <form action={finalizePacketPayout} style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start', marginTop: 10 }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
@@ -702,7 +702,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       focus; opens on its own when a bonus is already set. */}
                   <details open={packet.bonus_cents > 0}>
                     <summary style={quietSummary}>
-                      {packet.bonus_cents > 0 ? `Bonus: ${dollars(packet.bonus_cents)} — edit ▾` : '+ Add a bonus ▾'}
+                      {packet.bonus_cents > 0 ? `Bonus: ${dollars(packet.bonus_cents)}, edit ▾` : '+ Add a bonus ▾'}
                     </summary>
                     <form action={setPacketBonus} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                       <input type="hidden" name="packet_id" value={packet.id} />
@@ -827,7 +827,7 @@ export default async function PacketDetail({ params }: { params: Promise<{ id: s
                       <PendingButton label="Raise pay" busyLabel="Saving…" style={btnGhost} spinnerTone="ink" />
                     </form>
                     <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, maxWidth: 230, lineHeight: 1.45 }}>
-                      Raise only — {dollars(packet.posted_price_cents)} is what {packet.contractor?.full_name ?? 'the contractor'} agreed to, and we&apos;ll email them the new amount. To lower it, release the claim first.
+                      Raise only. {dollars(packet.posted_price_cents)} is what {packet.contractor?.full_name ?? 'the contractor'} agreed to, and we&apos;ll email them the new amount. To lower it, release the claim first.
                     </div>
                   </div>
                 </details>

@@ -240,7 +240,7 @@ export default function MessagingPage() {
   if (!isStayConciergeConfigured()) {
     return (
       <Shell>
-        <NotReachable message="STAY_CONCIERGE_URL and STAY_CONCIERGE_KEY are not set. Pull them from the Mac Mini service config and add them to Helm in Vercel." />
+        <NotReachable message="The messaging service is not connected to Helm. Ask Ryan." />
       </Shell>
     );
   }

@@ -225,7 +225,7 @@ function WorkOrderComposer({
 
   return (
     <fieldset disabled={sending} style={{ border: 0, borderTop: '1px solid var(--rule-soft)', padding: '10px 0 0', margin: '4px 0 0', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <span style={{ ...LABEL, color: 'var(--ink-3)' }}>Email work order — {contextLabel}</span>
+      <span style={{ ...LABEL, color: 'var(--ink-3)' }}>Email work order: {contextLabel}</span>
       <select
         aria-label="Work order recipient"
         value={selected}
@@ -525,7 +525,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
         if (res.created) parts.push(`${res.created} planned`);
         if (res.kept) parts.push(`${res.kept} unchanged`);
         if (res.noVacancy) parts.push(`${res.noVacancy} waiting on an empty day`);
-        if (res.classifying) parts.push(`triaging ${res.classifying} new slips in the background — check back in a few minutes`);
+        if (res.classifying) parts.push(`triaging ${res.classifying} new slips in the background; check back in a few minutes`);
         setNote(parts.length ? parts.join(' · ') : 'Nothing to plan right now');
         softRefresh();
       } catch {
@@ -567,7 +567,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
           </button>
         </div>
         <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
-          Substantive fixes bundled onto days the house is empty — publish for a handyman to claim, or email the work order out.
+          Substantive fixes bundled onto days the house is empty. Publish for a handyman to claim, or email the work order out.
         </p>
 
         {data.runs.length > 0 && (
@@ -591,7 +591,7 @@ export function RunsRail({ data, standalone }: { data: RunsBoardData; standalone
 
         {standalone && !hasAnything && (
           <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 18 }}>
-            Nothing to plan right now — no open handyman-scope work anywhere. New slips are triaged
+            Nothing to plan right now: no open handyman-scope work anywhere. New slips are triaged
             automatically; hit Plan now to force a pass.
           </p>
         )}

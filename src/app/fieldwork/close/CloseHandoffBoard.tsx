@@ -188,7 +188,7 @@ export function CloseHandoffBoard({
             {summary.pending === 0 && summary.filed + summary.dismissed === 0
               ? 'Nothing added yet.'
               : `${summary.open} not sent · ${summary.sent} with the office · ${summary.filed} filed · ${summary.dismissed} set aside${summary.pendingAmount > 0 ? ` · ${fmtMoney(summary.pendingAmount)} waiting` : ''}`}
-            {' '}The close starts {fmtDay(due).replace(/^\w+, /, '')} plus three days; send by the {due.slice(8, 10).replace(/^0/, '')}th.
+            {' '}Send by {fmtDay(due)}; the close starts three days later.
           </div>
         </div>
         {summary.open > 0 && (

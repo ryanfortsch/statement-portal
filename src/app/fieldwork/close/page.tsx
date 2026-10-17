@@ -76,7 +76,7 @@ export default async function CloseHandoffPage({
           <div role="alert" style={{ border: '1px solid var(--signal)', background: 'rgba(200,90,58,0.06)', color: 'var(--signal)', padding: '12px 16px', fontSize: 13, borderRadius: 8, marginBottom: 24, lineHeight: 1.5 }}>
             The handoff can&apos;t be read yet: {loaded.error}
             <div style={{ color: 'var(--ink-3)', marginTop: 6 }}>
-              Apply <code>supabase/migrations/20261014130000_close_handoff_items.sql</code> and this page fills in.
+              Ask Ryan: this page is not set up yet.
             </div>
           </div>
         ) : (

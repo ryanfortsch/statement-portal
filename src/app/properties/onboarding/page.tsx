@@ -64,7 +64,7 @@ function attentionFlags(load: LaunchLoad): string[] {
     flags.push('One flat nightly price across the next 60 days: PriceLabs is not pushing to this listing.');
   }
   if (open.has('code_roster_entry')) {
-    flags.push('Not in the code roster (src/lib/properties.ts): /book page 404s, fallbacks skip it.');
+    flags.push('Not on Helm\'s roster yet: the /book page 404s and fallbacks skip it. Ask Ryan for the entry.');
   }
   if (open.has('guesty_listing_match') && !load.ctx.property.guesty_listing_id) {
     flags.push('No Guesty listing id on the record: syncs cannot attribute its reservations.');

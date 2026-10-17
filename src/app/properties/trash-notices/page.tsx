@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
  * per-property render page is public for the PDF path.
  */
 async function loadFleet(): Promise<{ rows: HelmPropertyRow[]; error: string | null }> {
-  if (!isServiceConfigured) return { rows: [], error: 'Helm Supabase env vars are not set.' };
+  if (!isServiceConfigured) return { rows: [], error: 'Ask Ryan: this page is not set up.' };
   const { data, error } = await supabase.from('properties').select(TRASH_NOTICE_COLUMNS).order('name');
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as unknown as HelmPropertyRow[], error: null };
