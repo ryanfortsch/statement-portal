@@ -175,7 +175,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 key={s.id}
                 href={`/work/${s.id}`}
                 primary={s.title}
-                secondary={`${s.property_name}${s.location ? ` · ${s.location}` : ''} · ${s.assigned_to_email ? displayNameForEmail(s.assigned_to_email) : 'Unclaimed'}`}
+                secondary={`${s.property_name}${s.location ? ` · ${s.location}` : ''} · ${s.assigned_to_email ? displayNameForEmail(s.assigned_to_email) : 'Unassigned'}`}
                 pill={s.priority}
                 pillColor={s.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)'}
               />

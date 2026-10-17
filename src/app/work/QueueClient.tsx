@@ -31,8 +31,9 @@ import { useOwnerEmailDraft } from '@/lib/use-owner-email-draft';
 import { operatingDate } from '@/lib/operating-date';
 import { compareWork, workOverdue, workSignals, workUnassigned } from '@/lib/work-board-view';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
-import { groupSlipsByLane, isSupplySlip, LANE_LABELS, slipDetailLine, slipDisplayTitle, supplyChipLabel, type WorkLane } from '@/lib/work-slip-lanes';
-import { organizeWorkNow } from './organize-actions';
+import { groupSlipsByLane, LANE_LABELS, slipDetailLine, slipDisplayTitle, type WorkLane } from '@/lib/work-slip-lanes';
+import type { WorkBriefHeadline } from '@/lib/work-briefs';
+import { organizePendingCount, organizeWorkNow } from './organize-actions';
 
 type PropertyForPicker = {
   id: string;
@@ -52,8 +53,8 @@ type Props = {
   taskCommentCounts: Record<string, number>;
   /** contractor id -> name, for slips a field inspector flagged post-visit. */
   reporterNames: Record<string, string>;
-  /** property id -> the nightly brief's one-line headline (lib/work-briefs.ts). */
-  briefHeadlines?: Record<string, string>;
+  /** property id -> the nightly brief's one-line headline and its date (lib/work-briefs.ts). */
+  briefHeadlines?: Record<string, WorkBriefHeadline>;
 };
 
 type FilterId = 'all' | 'overdue' | 'blocked' | 'mine' | 'high' | 'due-today' | 'unclaimed' | 'owner-action' | 'snoozed';
@@ -70,6 +71,14 @@ const FILTER_IDS: FilterId[] = ['all', 'overdue', 'blocked', 'mine', 'high', 'du
  *  neither render nor apply, but they stay in the URL so tabbing back to
  *  Property Work restores the view you left. */
 const SLIP_ONLY_FILTERS: FilterId[] = ['owner-action', 'snoozed'];
+
+/** Blocked is a task status only. The board loads open, in-progress and
+ *  scheduled slips and nothing sets a slip to blocked, so on Property Work
+ *  the pill never renders and the filter reads as All. */
+const TASK_ONLY_FILTERS: FilterId[] = ['blocked'];
+
+/** The filters behind the "More" select, in its order. */
+const MORE_FILTERS: FilterId[] = ['mine', 'high', 'owner-action', 'snoozed'];
 
 function parseFilter(value: string | null): FilterId {
   if (!value) return 'all';
@@ -287,7 +296,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
   // over on Tasks rather than blanking the list. The URL keeps the real
   // one, so tabbing back restores it.
   const activeFilter: FilterId =
-    tab === 'tasks' && SLIP_ONLY_FILTERS.includes(filter) ? 'all' : filter;
+    (tab === 'tasks' && SLIP_ONLY_FILTERS.includes(filter)) || (tab === 'slips' && TASK_ONLY_FILTERS.includes(filter)) ? 'all' : filter;
 
   const filteredSlips = useMemo(() => {
     // Snoozed pill switches the source bucket entirely — operator wants
@@ -295,7 +304,6 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
     const source = activeFilter === 'snoozed' ? snoozedSlips : workSlips;
     return source.filter((w) => {
       if (activeFilter === 'overdue' && !workOverdue(w, todayIso)) return false;
-      if (activeFilter === 'blocked' && w.status !== 'blocked') return false;
       if (activeFilter === 'mine' && w.assigned_to_email !== myEmail) return false;
       if (activeFilter === 'high' && w.priority !== 'high') return false;
       if (activeFilter === 'due-today' && w.scheduled_date !== todayIso) return false;
@@ -467,11 +475,14 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
           <Pill active={activeFilter === 'all'} onClick={() => setFilter('all')} label="All" count={counts.all} />
           {(counts.overdue > 0 || activeFilter === 'overdue') && <Pill active={activeFilter === 'overdue'} onClick={() => setFilter('overdue')} label="Overdue" count={counts.overdue} accent="var(--negative)" />}
           {(counts.dueToday > 0 || activeFilter === 'due-today') && <Pill active={activeFilter === 'due-today'} onClick={() => setFilter('due-today')} label="Due today" count={counts.dueToday} />}
-          {(counts.blocked > 0 || activeFilter === 'blocked') && <Pill active={activeFilter === 'blocked'} onClick={() => setFilter('blocked')} label="Blocked" count={counts.blocked} accent="var(--signal)" />}
+          {!onSlips && (counts.blocked > 0 || activeFilter === 'blocked') && <Pill active={activeFilter === 'blocked'} onClick={() => setFilter('blocked')} label="Blocked" count={counts.blocked} accent="var(--signal)" />}
           {(counts.unclaimed > 0 || activeFilter === 'unclaimed') && <Pill active={activeFilter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="Unassigned" count={counts.unclaimed} />}
-          <select aria-label="More work filters" value={['mine', 'high', 'owner-action', 'snoozed'].includes(activeFilter) ? activeFilter : ''}
-            onChange={e => setFilter(e.target.value as FilterId)} style={{ ...selectStyle(), width: ['mine', 'high', 'owner-action', 'snoozed'].includes(activeFilter) ? 'auto' : 96, padding: '8px', fontSize: 12, minHeight: 44 }}>
-            <option value="" disabled>More</option>
+          {/* The first option is the way out: once a More filter is on, the
+              select's own list offers All, so clearing it is one gesture
+              here and not a trip to the All pill. */}
+          <select aria-label="More work filters" value={MORE_FILTERS.includes(activeFilter) ? activeFilter : ''}
+            onChange={e => setFilter((e.target.value || 'all') as FilterId)} style={{ ...selectStyle(), width: MORE_FILTERS.includes(activeFilter) ? 'auto' : 96, padding: '8px', fontSize: 12, minHeight: 44 }}>
+            <option value="">{MORE_FILTERS.includes(activeFilter) ? 'All' : 'More'}</option>
             <option value="mine">My items ({counts.mine})</option>
             <option value="high">High priority ({counts.high})</option>
             {onSlips && <option value="owner-action">Owner action ({counts.ownerAction})</option>}
@@ -510,7 +521,7 @@ export function QueueClient({ workSlips, snoozedSlips, tasks, properties, myEmai
                   onToggleSelect={toggleSlip}
                   commentCounts={slipCommentCounts}
                   reporterNames={reporterNames}
-                  headline={briefHeadlines[propId]}
+                  brief={briefHeadlines[propId]}
                   onAddSlip={() => {
                     setSlipPrefillProperty(propId);
                     setShowSlipModal(true);
@@ -728,29 +739,11 @@ function Pill({
   );
 }
 
-// isSupplySlip lives in lib/work-slip-lanes.ts, next to the lane rule the
-// print sheet and the organize pass share, so the board can never disagree
-// with paper about what counts as a restock.
-
-/** Names shown on the glance line before collapsing into "+N". */
-const GLANCE_SUPPLY_LIMIT = 2;
-
-function SupplyChip({ label, title }: { label: string; title?: string }) {
-  return (
-    <span
-      title={title}
-      style={{
-        fontSize: 11,
-        color: 'var(--tide-deep)',
-        border: '1px solid var(--tide)',
-        background: 'rgba(78, 124, 158, 0.10)',
-        padding: '2px 8px',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {label}
-    </span>
-  );
+/** "Brief · Oct 16": the day the nightly brief was written, in Eastern. */
+function briefDateLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }).format(d);
 }
 
 function laneColor(lane: WorkLane): string {
@@ -795,14 +788,14 @@ function PropertyGroup({
   bulkPending = false,
   commentCounts,
   reporterNames,
-  headline,
+  brief,
   onAddSlip,
 }: {
   propId: string;
   property: PropertyForPicker | null;
   slips: WorkSlipRow[];
-  /** The nightly brief's one line for this home, under the signals. */
-  headline?: string;
+  /** The nightly brief's one line for this home, with its date, under the signals. */
+  brief?: WorkBriefHeadline;
   myEmail: string;
   /** Expansion is owned by QueueClient (mirrored to ?open=) so it survives
    *  navigating into a slip and back. Default collapsed: with 8+ properties
@@ -819,16 +812,14 @@ function PropertyGroup({
 }) {
   const signals = workSignals(slips, operatingDate());
   const highCount = slips.filter((s) => s.priority === 'high').length;
-  const summary = [signals.overdue && `${signals.overdue} overdue`, signals.blocked && `${signals.blocked} blocked`, signals.dueToday && `${signals.dueToday} due today`, !signals.overdue && !signals.blocked && !signals.dueToday && highCount && `${highCount} high priority`, signals.unclaimed && `${signals.unclaimed} unassigned`].filter(Boolean).join(' · ');
+  // No "blocked" term: a slip is never blocked (that is a task status).
+  const summary = [signals.overdue && `${signals.overdue} overdue`, signals.dueToday && `${signals.dueToday} due today`, !signals.overdue && !signals.dueToday && highCount && `${highCount} high priority`, signals.unclaimed && `${signals.unclaimed} unassigned`].filter(Boolean).join(' · ');
   const ownerActionCount = slips.filter((s) => s.owner_action_required).length;
-  const supplySlips = slips.filter(isSupplySlip);
   // Lanes: restock, this visit, handyman run, pro, owner, office. The rule
   // is shared with the print sheet (lib/work-slip-lanes.ts), so what the
-  // screen groups is what the paper groups.
+  // screen groups is what the paper groups. Restocks are listed once, in
+  // their lane; the header used to repeat them as chips.
   const laneGroups = groupSlipsByLane(slips);
-  // The same supply can be flagged low at two inspections before anyone
-  // shops — one chip on the glance line, not two.
-  const supplyNames = [...new Set(supplySlips.map((s) => supplyChipLabel(s, property?.name)))];
   const propName = property?.name ?? 'Unknown property';
   const propertyId = property?.id ?? null;
 
@@ -881,41 +872,19 @@ function PropertyGroup({
               {propName}<span aria-hidden="true" style={{ marginLeft: 8, fontSize: 12 }}>{expanded ? '−' : '+'}</span>
             </span>
           </button>
-          {summary && <div style={{ fontSize: 12, marginTop: 5, color: signals.overdue || signals.blocked ? 'var(--signal)' : 'var(--ink-3)' }}>{summary}</div>}
+          {summary && <div style={{ fontSize: 12, marginTop: 5, color: signals.overdue ? 'var(--signal)' : 'var(--ink-3)' }}>{summary}</div>}
           {/* The brief's headline: what the work at this home IS, in one
-              line, so a collapsed home reads as more than a count. */}
-          {headline && (
-            <div style={{ fontSize: 12, marginTop: 4, color: 'var(--ink-2)', fontStyle: 'italic', maxWidth: 720, lineHeight: 1.4 }}>
-              {headline}
-            </div>
-          )}
-          {/* Supply details appear with the expanded property. Open restock
-              slips drive these chips, so completing one clears its chip. */}
-          {expanded && supplyNames.length > 0 && (
-            <div
-              className="rt-no-print"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' }}
-            >
-              <span
-                style={{
-                  fontSize: 10,
-                  letterSpacing: '.16em',
-                  textTransform: 'uppercase',
-                  fontWeight: 700,
-                  color: 'var(--tide-deep)',
-                }}
-              >
-                Supplies
-              </span>
-              {supplyNames.slice(0, GLANCE_SUPPLY_LIMIT).map((name) => (
-                <SupplyChip key={name} label={name} />
-              ))}
-              {supplyNames.length > GLANCE_SUPPLY_LIMIT && (
-                <SupplyChip
-                  label={`+${supplyNames.length - GLANCE_SUPPLY_LIMIT}`}
-                  title={supplyNames.slice(GLANCE_SUPPLY_LIMIT).join(', ')}
-                />
-              )}
+              line, so a collapsed home reads as more than a count. It
+              carries its name and the day it was written, so the line is
+              not an anonymous sentence. */}
+          {brief && (
+            <div style={{ marginTop: 6, maxWidth: 720 }}>
+              <div className="eyebrow" style={{ fontSize: 10 }}>
+                Brief{brief.generatedAt && briefDateLabel(brief.generatedAt) ? ` · ${briefDateLabel(brief.generatedAt)}` : ''}
+              </div>
+              <div style={{ fontSize: 12, marginTop: 2, color: 'var(--ink-2)', fontStyle: 'italic', lineHeight: 1.4 }}>
+                {brief.headline}
+              </div>
             </div>
           )}
         </div>
@@ -2020,16 +1989,52 @@ function primaryBtn(): React.CSSProperties {
  *  answers at once with how many slips the pass has not seen; the model
  *  calls run after the response, so the note tells the operator to check
  *  back rather than spinning on a minutes-long pass. */
+/** How often the button asks how many slips the background pass still has
+ *  to file, and how long it keeps asking. The pass itself runs under a
+ *  230-second budget (lib/organize-work-slips.ts), then rewrites the briefs. */
+const ORGANIZE_POLL_MS = 10_000;
+const ORGANIZE_WATCH_MS = 5 * 60_000;
+
 function OrganizeButton() {
   const softRefresh = useSoftRefresh();
   const [pending, startTransition] = useTransition();
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
+  const [watching, setWatching] = useState(false);
   const lock = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useUnsavedWorkGuard(pending);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+  const plural = (n: number) => `${n} slip${n === 1 ? '' : 's'}`;
+
+  /** The pass runs after the action returns. Rather than "check back", the
+   *  button watches the pending count fall and, when it reaches zero (or
+   *  the pass's budget is spent), says what was filed and refreshes the
+   *  board so the lanes show it. */
+  function watch(started: number, startedAt: number) {
+    timer.current = setTimeout(async () => {
+      let left = started;
+      try {
+        const res = await organizePendingCount();
+        if (res.ok) left = res.pending;
+      } catch {
+        // A failed poll is not a failed pass; ask again next tick.
+      }
+      const filed = Math.max(0, started - left);
+      if (left === 0 || Date.now() - startedAt > ORGANIZE_WATCH_MS) {
+        setWatching(false);
+        setNote(left === 0 ? `Organized ${plural(filed)}.` : `Organized ${filed} of ${plural(started)}. The nightly pass takes the rest.`);
+        softRefresh();
+        return;
+      }
+      if (filed > 0) setNote(`Organizing… ${filed} of ${started} filed.`);
+      watch(started, startedAt);
+    }, ORGANIZE_POLL_MS);
+  }
 
   function run() {
-    if (lock.current) return;
+    if (lock.current || watching) return;
     lock.current = true;
     setNote('');
     setError('');
@@ -2040,11 +2045,13 @@ function OrganizeButton() {
           setError(res.error);
           return;
         }
-        setNote(
-          res.pending === 0
-            ? 'Every open slip is already organized.'
-            : `Organizing ${res.pending} new slip${res.pending === 1 ? '' : 's'} in the background. Check back in a few minutes.`,
-        );
+        if (res.pending === 0) {
+          setNote('Every open slip is already organized.');
+        } else {
+          setNote(`Organizing ${plural(res.pending)}…`);
+          setWatching(true);
+          watch(res.pending, Date.now());
+        }
         softRefresh();
       } catch {
         setError('Could not confirm the organize pass. Refresh the board before retrying.');
@@ -2061,7 +2068,7 @@ function OrganizeButton() {
       <button
         type="button"
         onClick={run}
-        disabled={pending}
+        disabled={pending || watching}
         title="File new slips into lanes (this visit, handyman, pro, owner, office) and synthesize pasted reviews. Runs nightly on its own."
         style={{
           background: 'none',
@@ -2071,11 +2078,11 @@ function OrganizeButton() {
           fontSize: 11,
           letterSpacing: '.14em',
           textTransform: 'uppercase',
-          cursor: pending ? 'wait' : 'pointer',
-          opacity: pending ? 0.6 : 1,
+          cursor: pending || watching ? 'wait' : 'pointer',
+          opacity: pending || watching ? 0.6 : 1,
         }}
       >
-        {pending ? 'Organizing…' : 'Organize'}
+        {pending || watching ? 'Organizing…' : 'Organize'}
       </button>
     </span>
   );

@@ -89,12 +89,17 @@ export async function loadWorkBrief(supabase: SupabaseClient, propertyId: string
   return (data as WorkBriefRow | null) ?? null;
 }
 
+/** The one line the board prints under a home's name, with the date it was
+ *  written so the line can carry its own name ("Brief · Oct 16") instead of
+ *  reading as an unlabeled sentence. */
+export type WorkBriefHeadline = { headline: string; generatedAt: string | null };
+
 /** property id -> headline, for the Work board's home headers. */
-export async function loadWorkBriefHeadlines(supabase: SupabaseClient): Promise<Record<string, string>> {
-  const { data } = await supabase.from('property_work_briefs').select('property_id, headline, slip_count').gt('slip_count', 0);
-  const out: Record<string, string> = {};
-  for (const r of (data ?? []) as Array<{ property_id: string; headline: string }>) {
-    if (r.headline) out[r.property_id] = r.headline;
+export async function loadWorkBriefHeadlines(supabase: SupabaseClient): Promise<Record<string, WorkBriefHeadline>> {
+  const { data } = await supabase.from('property_work_briefs').select('property_id, headline, slip_count, generated_at').gt('slip_count', 0);
+  const out: Record<string, WorkBriefHeadline> = {};
+  for (const r of (data ?? []) as Array<{ property_id: string; headline: string; generated_at: string | null }>) {
+    if (r.headline) out[r.property_id] = { headline: r.headline, generatedAt: r.generated_at ?? null };
   }
   return out;
 }
