@@ -7,6 +7,7 @@ import { loadFieldTestState, type FieldTestPacket } from '@/lib/field-test';
 import { dollars, parseTrade, TRADE_META } from '@/lib/field-types';
 import { packetStatusLabel } from '@/lib/field-packet-status';
 import { CopyCode } from '@/app/field/CopyCode';
+import { SubmitButton } from '@/components/SubmitButton';
 import { seedFieldTestAction, resetFieldTestAction } from './actions';
 
 export const dynamic = 'force-dynamic';
@@ -50,11 +51,17 @@ export default async function FieldTestPage() {
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 28 }}>
           <form action={seedFieldTestAction}>
-            <button type="submit" style={btnDark}>{state.seeded ? 'Re-seed test data' : 'Seed test data'}</button>
+            <SubmitButton label={state.seeded ? 'Re-seed test data' : 'Seed test data'} busyLabel="Seeding…" style={btnDark} />
           </form>
           {(state.seeded || state.hasLegacyDemo) && (
             <form action={resetFieldTestAction}>
-              <button type="submit" style={btnGhost} title="Delete all test data + the old Demo Inspector">Reset / wipe test data</button>
+              <SubmitButton
+                label="Reset / wipe test data"
+                busyLabel="Wiping…"
+                style={btnGhost}
+                spinnerTone="ink"
+                confirm="Wipe the test data? This deletes the test contractors, their packets, inspections and work slips, and the old Demo Inspector. Real contractors and packets are untouched."
+              />
             </form>
           )}
         </div>

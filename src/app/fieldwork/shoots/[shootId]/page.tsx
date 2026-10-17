@@ -589,7 +589,13 @@ export default async function ShootDetail({
           <div style={{ marginTop: 28, borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
             <form action={cancelShoot} style={{ margin: 0 }}>
               <input type="hidden" name="shoot_id" value={shoot.id} />
-              <PendingButton label="Cancel shoot" busyLabel="Cancelling…" style={{ ...quietCtl, color: 'var(--signal)' }} spinnerTone="ink" />
+              <PendingButton
+                label="Cancel shoot"
+                busyLabel="Cancelling…"
+                style={{ ...quietCtl, color: 'var(--signal)' }}
+                spinnerTone="ink"
+                confirm={`Cancel this shoot? It comes off ${detail.contractorName.split(' ')[0]}'s board and the day shows free on the planner again. Nobody is texted, and this cannot be undone.`}
+              />
             </form>
           </div>
         )}
