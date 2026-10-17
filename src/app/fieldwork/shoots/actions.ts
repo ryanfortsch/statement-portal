@@ -617,7 +617,8 @@ export async function markAssetPosted(formData: FormData): Promise<void> {
  * locked. Reels only; nothing to pay if the views never beat the base rung.
  */
 export async function payAssetTopup(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  // Pays or re-prices a contributor: owners only, like payDeliveryBase.
+  const email = await ownerEmail();
   const shootId = String(formData.get('shoot_id') || '');
   const assetId = String(formData.get('asset_id') || '');
   if (!shootId || !assetId) return;
@@ -674,7 +675,8 @@ export async function payAssetTopup(formData: FormData): Promise<void> {
  * computeShootPay, so nothing can drift.
  */
 export async function setAssetTopupOverride(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  // Pays or re-prices a contributor: owners only, like payDeliveryBase.
+  const email = await ownerEmail();
   const shootId = String(formData.get('shoot_id') || '');
   const assetId = String(formData.get('asset_id') || '');
   if (!shootId || !assetId) return;
@@ -720,7 +722,8 @@ export async function setAssetTopupOverride(formData: FormData): Promise<void> {
  * No receipt email — this is bookkeeping, not a payment event.
  */
 export async function setShootPaidAdjustment(formData: FormData): Promise<void> {
-  const email = await staffEmail();
+  // Pays or re-prices a contributor: owners only, like payDeliveryBase.
+  const email = await ownerEmail();
   const shootId = String(formData.get('shoot_id') || '');
   if (!shootId) return;
   const clearing = String(formData.get('clear') || '') === '1';

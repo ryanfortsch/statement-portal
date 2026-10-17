@@ -46,8 +46,14 @@ export function searchInbox(rows: InboxSearchRow[], query: string, audience: Inb
   return rows.filter(row => (audience === 'all' || row.audience === audience) && (filter === 'all' || row.filter === filter) && matchesInboxText(query, [row.name, row.property, row.text, row.reply, row.translation]));
 }
 
-export async function loadInboxSearch(load: (audience: InboxAudience, recent: boolean) => Promise<{ ok: true; data: { approvals: SearchableApproval[] } } | { ok: false }>): Promise<InboxSearchData> {
-  const feeds = INBOX_AUDIENCES.flatMap(audience => [{ audience, recent: false }, { audience, recent: true }]);
+/** The audiences a role may search. Owner correspondence is an owner page
+ *  (/owner-messaging), so a staff login's search never reads that feed. */
+export function inboxAudiencesFor(role: 'owner' | 'staff'): readonly InboxAudience[] {
+  return role === 'owner' ? INBOX_AUDIENCES : INBOX_AUDIENCES.filter(a => a !== 'owners');
+}
+
+export async function loadInboxSearch(load: (audience: InboxAudience, recent: boolean) => Promise<{ ok: true; data: { approvals: SearchableApproval[] } } | { ok: false }>, audiences: readonly InboxAudience[] = INBOX_AUDIENCES): Promise<InboxSearchData> {
+  const feeds = audiences.flatMap(audience => [{ audience, recent: false }, { audience, recent: true }]);
   const results = await Promise.allSettled(feeds.map(feed => load(feed.audience, feed.recent)));
   const rows: InboxSearchRow[] = [], unavailable: string[] = [], limited: string[] = [];
   results.forEach((result, index) => {

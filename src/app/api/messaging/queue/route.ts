@@ -11,6 +11,7 @@ import {
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { loadContractorApprovalContext } from '@/lib/contractor-approval-context';
 import { loadGuestQuoteContext } from '@/lib/guest-quote-context';
+import { sessionRole } from '@/lib/helm-access-server';
 
 /**
  * A messaging queue's cards as plain JSON, for the card list to poll on its own.
@@ -63,6 +64,11 @@ export async function GET(req: NextRequest) {
   }
 
   if (audience === 'owners') {
+    // /owner-messaging is an owner page; its feed is too. The proxy cannot
+    // gate this by prefix because every audience shares the route.
+    if ((await sessionRole()) !== 'owner') {
+      return NextResponse.json({ error: 'Owners only' }, { status: 403 });
+    }
     const res = await listOwnerApprovals();
     return res.ok ? NextResponse.json({ approvals: res.data.approvals }) : failed(res.error);
   }
