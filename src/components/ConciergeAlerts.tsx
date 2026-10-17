@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { FeedClearButton } from '@/components/FeedClearButton';
 import { getConciergeAttention, isStayConciergeConfigured } from '@/lib/stay-concierge';
-import { alertSummary, conciergeAlertHref, conciergeAlertTitle } from '@/lib/concierge-alerts';
+import { alertSummary, conciergeAlertHref, conciergeAlertsFor, conciergeAlertTitle } from '@/lib/concierge-alerts';
+import { sessionRole } from '@/lib/helm-access-server';
 import { ageLabel } from '@/lib/payment-links-text';
 
 /**
@@ -18,12 +19,17 @@ import { ageLabel } from '@/lib/payment-links-text';
  * Renders nothing when there is nothing to show, and nothing when the
  * concierge cannot be read: /messaging owns "service unreachable", and a
  * failed read must never pass for an all-clear.
+ *
+ * Role-aware: an owner-line alert links to /owner-messaging, an owner page,
+ * so a staff login never sees one (`conciergeAlertsFor`). The count in the
+ * header is of what that login can act on.
  */
 export async function ConciergeAlerts() {
   if (!isStayConciergeConfigured()) return null;
-  const res = await getConciergeAttention();
+  const [res, role] = await Promise.all([getConciergeAttention(), sessionRole()]);
   if (!res.ok) return null;
-  const { criticals, items } = res.data;
+  const { criticals } = res.data;
+  const items = conciergeAlertsFor(role ?? 'staff', res.data.items);
   const total = criticals.length + items.length;
   if (total === 0) return null;
   const now = Date.now();

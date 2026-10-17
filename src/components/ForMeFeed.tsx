@@ -12,7 +12,7 @@ import { ageLabel, LINK_LOOKBACK_DAYS, money, paymentLinkStatus, stripeKeyFixUrl
 import { PaymentLinkActions } from '@/app/messaging/send/PaymentLinkActions';
 import { loadMeetingCards } from '@/lib/meetings';
 import { meetingWhen, todayET, type MeetingCard } from '@/lib/meetings-core';
-import { roleForEmail } from '@/lib/helm-access';
+import { roleForEmail, roleMayOpen } from '@/lib/helm-access';
 import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-handoff';
 import { loadHandoffItems } from '@/lib/close-handoff-db';
 import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
@@ -859,15 +859,25 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
  * Queue-pressure cards. Each loader degrades to null on any failure (missing
  * table, unconfigured Field env, network) so the rest of the feed is never
  * touched, matching how the other loaders here fail.
+ *
+ * Role-aware: creative pay and the statement close are owner work, and
+ * their cards link to owner pages. For a staff login those loaders are not
+ * run at all, so no dollar figure or unsent count is read for someone who
+ * could not open the page behind it; and whatever a loader returns, a card
+ * whose href the proxy would bounce never reaches the feed.
  */
 async function loadQueueCards(email: string): Promise<QueueCard[]> {
+  const role = roleForEmail(email);
+  const owner = role === 'owner';
   const [creative, packets, statements, handoff] = await Promise.all([
-    loadCreativeQueue(),
+    owner ? loadCreativeQueue() : null,
     loadPacketQueue(),
-    loadStatementQueue(),
+    owner ? loadStatementQueue() : null,
     loadCloseHandoffQueue(email),
   ]);
-  return [creative, ...packets, statements, handoff].filter((c): c is QueueCard => !!c);
+  return [creative, ...packets, statements, handoff]
+    .filter((c): c is QueueCard => !!c)
+    .filter((c) => roleMayOpen(role, c.href));
 }
 
 /**

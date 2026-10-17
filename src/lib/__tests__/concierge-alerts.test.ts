@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alertSummary, conciergeAlertHref, conciergeAlertTitle } from '../concierge-alerts.ts';
+import { alertSummary, conciergeAlertHref, conciergeAlertsFor, conciergeAlertTitle } from '../concierge-alerts.ts';
 
 test('the alerts that sat unread Sep 12-26 read as plain words', () => {
   assert.equal(conciergeAlertTitle('pipeline_failure'), 'A guest message got no draft');
@@ -34,4 +34,17 @@ test('no em dash in anything the strip prints', () => {
     'far_future_hold_failed', 'owner_guest_notice_no_guest', 'unknown_owner_sms', 'owner_email_empty']) {
     assert.ok(!conciergeAlertTitle(k).includes('—'), k);
   }
+});
+
+test('a staff login never sees an alert whose link lands on the owner inbox', () => {
+  const items = [
+    { kind: 'pipeline_failure', item_key: 'a' },
+    { kind: 'unknown_owner_sms', item_key: 'b' },
+    { kind: 'owner_guest_message_no_guest', item_key: 'c' },
+    { kind: 'addon_sms_failed', item_key: 'd' },
+    { kind: 'owner_email_empty', item_key: 'e' },
+    { kind: 'something_new', item_key: 'f' },
+  ];
+  assert.deepEqual(conciergeAlertsFor('staff', items).map((i) => i.item_key), ['a', 'd', 'f']);
+  assert.deepEqual(conciergeAlertsFor('owner', items).map((i) => i.item_key), ['a', 'b', 'c', 'd', 'e', 'f']);
 });

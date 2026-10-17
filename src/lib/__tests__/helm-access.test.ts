@@ -15,6 +15,8 @@
  *      cannot cover an action shared across pages
  *   4. the section strips, which must never offer a staff login a tab the
  *      proxy would bounce to /not-available
+ *   5. the feed cards and inline links on the pages staff keep, which must
+ *      ask the same question before rendering an owner href
  *
  * Run: npm test
  */
@@ -374,5 +376,64 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
     const src = read('src/app/properties/PropertiesTabBar.tsx');
     assert.ok(src.includes("const role = (await sessionRole()) ?? 'staff';"), 'the bar reads the session itself');
     assert.ok(src.includes('].filter((t) => roleMayOpen(role, t.href));'), 'the bar filters through the gate list');
+  });
+});
+
+describe('no card or link on a staff page lands on /not-available', () => {
+  test('the home feed loads no owner queue for staff and filters every card through the gate', () => {
+    const src = read('src/components/ForMeFeed.tsx');
+    assert.ok(src.includes('owner ? loadCreativeQueue() : null'), 'the creative pay card is owners only');
+    assert.ok(src.includes('owner ? loadStatementQueue() : null'), 'the statements card is owners only');
+    assert.ok(src.includes('.filter((c) => roleMayOpen(role, c.href))'), 'every queue card is checked against the gate');
+  });
+
+  test('/today keeps the prospect funnel and its footer count from staff', () => {
+    const src = read('src/app/today/page.tsx');
+    assert.ok(src.includes('const [brief, owner] = await Promise.all([loadDailyBrief(), isOwnerSession()]);'));
+    assert.ok(src.includes('if (owner && brief.activeProspects.length) {'), 'the Prospects section is owners only');
+    assert.ok(src.includes('{owner && <span>{brief.totals.activeProspects} prospects in funnel</span>}'), 'the footer count is owners only');
+  });
+
+  test('the concierge strip drops the owner-line alerts for staff', () => {
+    const src = read('src/components/ConciergeAlerts.tsx');
+    assert.ok(src.includes("const items = conciergeAlertsFor(role ?? 'staff', res.data.items);"));
+  });
+
+  test('the guest queue offers Send a price, the quote links and See all to owners only', () => {
+    const src = read('src/app/messaging/MessagingQueue.tsx');
+    assert.ok(src.includes("const canPrice = role === 'owner';"), 'the card must know the role');
+    // Every Send a price link is behind canPrice, as a ternary with the
+    // staff note or as a guard on the email card's secondary link.
+    const primary = [...src.matchAll(/<PrimaryLink href=\{quoteHref\}/g)];
+    assert.ok(primary.length >= 4, 'the three Send a price primaries and Set a price should still exist');
+    for (const m of primary) {
+      assert.ok(src.slice(Math.max(0, m.index! - 80), m.index!).includes('canPrice ?'), 'a Send a price primary without canPrice');
+    }
+    const secondary = [...src.matchAll(/<SecondaryLink\s*\n?\s*href=\{quoteHref\}/g)];
+    assert.ok(secondary.length >= 2, 'the two Send a price secondaries should still exist');
+    for (const m of secondary) {
+      assert.ok(src.slice(Math.max(0, m.index! - 80), m.index!).includes('canPrice &&'), 'a Send a price secondary without canPrice');
+    }
+    assert.ok(src.includes('Ask Ryan or Dotti to price this'), 'staff are told who prices');
+    assert.ok(src.includes('<QuoteRow key={q.id} href={`/guests/quotes/${q.id}`} linked={canPrice}>'), 'quote rows link for owners only');
+    assert.ok(src.includes('{canPrice && quotes.total > quotes.quotes.length && ('), 'See all in Quotes is owners only');
+    assert.ok(src.includes("{roleMayOpen(role, HANDOFF_HREF[handoff.audience] ?? '/messaging') ? ("), 'the handoff surface links only where the role may go');
+  });
+
+  test('the owner inbox link in Delivery & sync and the roster pay ledger link are owners only', () => {
+    const followups = read('src/components/WorkFollowups.tsx');
+    assert.ok(followups.includes('{owner && <Link href="/owner-messaging"'));
+    const health = read('src/components/InboxHealth.tsx');
+    assert.ok(health.includes('<WorkFollowupsContent result={followups} owner={owner} />'));
+    const roster = read('src/app/fieldwork/roster/page.tsx');
+    assert.ok(roster.includes("{trade === 'creative' && owner && ("), 'Shoots & pay is owners only');
+    assert.ok(roster.includes(": 'Everyone who shoots for us. To send someone to a home, ask Ryan or Dotti.'"), 'the staff sentence must not send them to Shoots & pay');
+  });
+
+  test('/not-available names every area the gate list covers', () => {
+    const src = read('src/app/not-available/page.tsx').toLowerCase();
+    for (const word of ['statements', 'revenue', 'forecast', 'books', 'payments', 'contracts', 'prospects', 'projections', 'owner messaging', 'quotes', 'creative pay', 'rate card']) {
+      assert.ok(src.includes(word), `/not-available should mention ${word}`);
+    }
   });
 });

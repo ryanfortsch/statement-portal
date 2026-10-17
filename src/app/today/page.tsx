@@ -11,6 +11,7 @@ import {
   type BriefProspect,
 } from '@/lib/daily-brief';
 import type { Approval } from '@/lib/stay-concierge';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { MarkHandledButton } from './MarkHandledButton';
 
 export const dynamic = 'force-dynamic';
@@ -325,7 +326,9 @@ export default async function TodayPage() {
     );
   }
 
-  const brief = await loadDailyBrief();
+  // The prospect funnel is owner work and its pages are owner-only: a staff
+  // login gets neither the section nor the footer count.
+  const [brief, owner] = await Promise.all([loadDailyBrief(), isOwnerSession()]);
   const headline = briefHeadline(brief);
 
   // Property IDs whose inspection completed today; used to mark a ✓ on
@@ -512,7 +515,7 @@ export default async function TodayPage() {
     );
   }
 
-  if (brief.activeProspects.length) {
+  if (owner && brief.activeProspects.length) {
     const draftCount = brief.activeProspects.filter(p => p.status === 'draft').length;
     const sentCount = brief.activeProspects.length - draftCount;
     const counterLabel: string[] = [];
@@ -685,7 +688,7 @@ export default async function TodayPage() {
               ? `Gmail · live ${relativeTime(brief.lastGmailSyncAt)}`
               : 'Gmail not connected'}
           </span>
-          <span>{brief.totals.activeProspects} prospects in funnel</span>
+          {owner && <span>{brief.totals.activeProspects} prospects in funnel</span>}
         </div>
       </main>
 

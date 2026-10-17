@@ -2,9 +2,12 @@ import Link from 'next/link';
 import { RetryRefresh } from './RetryRefresh';
 import type { listWorkFollowups } from '@/lib/stay-concierge';
 
-/** Kept inside the shared status disclosure, independent of reply decisions. */
-export function WorkFollowupsContent({ result }: {
+/** Kept inside the shared status disclosure, independent of reply decisions.
+ *  `owner` is the session role: the owner inbox is an owner page, so a staff
+ *  login reads the pending owner items without a link that would bounce. */
+export function WorkFollowupsContent({ result, owner }: {
   result: Awaited<ReturnType<typeof listWorkFollowups>>;
+  owner: boolean;
 }) {
   if (!result.ok) return <>
     <p style={{ color: 'var(--signal)' }}>Work follow-ups could not be checked. Retrying.</p>
@@ -23,7 +26,7 @@ export function WorkFollowupsContent({ result }: {
       {owners.map(item => <li key={item.id} style={{ padding: '8px 0' }}>
         <strong>{item.owner_name} · {item.property_id.replaceAll('_', ' ')}</strong>
         <div style={{ color: item.error ? 'var(--signal)' : 'var(--ink-3)' }}>{item.error || 'Waiting to be filed.'}</div>
-        <Link href="/owner-messaging" className="rt-inline-action">Open owner inbox →</Link>
+        {owner && <Link href="/owner-messaging" className="rt-inline-action">Open owner inbox →</Link>}
       </li>)}
     </ul>
   </div>;
