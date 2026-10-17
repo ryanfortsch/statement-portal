@@ -158,6 +158,10 @@ export function Stepper({
   onCompleteTask,
 }: Props) {
   const router = useRouter();
+  // A contractor walks from a packet (/field/inspect passes packetId) and the
+  // server refuses their Complete without a photo on every Issue; staff are
+  // not held to it, so the card's copy differs.
+  const photoRequired = !!packetId;
   const clearPhotoDraft = usePhotoDraftCleaner();
   const resultsRef = useRef(new Map(initialResults.map((r) => [cardKeyOf(r.item_id, r.zone_id), r])));
   const [results, setResults] = useState<Map<string, StepperResult>>(resultsRef.current);
@@ -506,13 +510,11 @@ export function Stepper({
     }
   }
 
-  // The "+ Slip" button sits in the top bar on BOTH the review screen and a
-  // card screen, so the modal is built once here and rendered by each branch.
-  // It used to live only inside the card screen's JSX, which left the review
-  // screen's button setting state that nothing rendered: it looked dead
-  // exactly when an inspector who had just marked the last card reached for
-  // it. With no active card the slip is property-scoped, which is right for
-  // something spotted on the way out.
+  // One "+ Work slip" per screen: the card's action row while walking, and a
+  // button on the review screen for something spotted on the way out (the
+  // top bar used to carry a second, property-scoped "+ Slip" beside it). The
+  // modal is built once here and rendered by each branch; with no active
+  // card the slip is property-scoped.
   const workSlipModal = showWorkSlipModal ? (
     <WorkSlipModal
       // Card-scoped when there's an active card (per-item slip from
@@ -542,7 +544,6 @@ export function Stepper({
           total={total}
           exitHref={exitHref}
           onExit={exitStepper}
-          onAddSlip={() => setShowWorkSlipModal(true)}
         />
 
         <section className="max-w-[760px] mx-auto px-6 sm:px-10" style={{ paddingTop: 24, paddingBottom: 48, width: '100%', flex: 1 }}>
@@ -553,6 +554,25 @@ export function Stepper({
           <p style={{ marginTop: 12, color: 'var(--ink-3)', fontSize: 14 }}>
             Tap any card to revisit. {markedCount} of {total} marked.
           </p>
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              onClick={() => setShowWorkSlipModal(true)}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--rule)',
+                padding: '8px 12px',
+                fontSize: 11,
+                letterSpacing: '.16em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-2)',
+                cursor: 'pointer',
+                fontWeight: 500,
+              }}
+            >
+              + Work slip
+            </button>
+          </div>
 
           <div style={{ marginTop: 28, borderTop: '1px solid var(--ink)' }}>
             {cards.map((card, idx) => {
@@ -795,7 +815,6 @@ export function Stepper({
         currentIdx={activeIdx}
         exitHref={exitHref}
         onExit={exitStepper}
-        onAddSlip={() => setShowWorkSlipModal(true)}
       />
 
       {/* CARD */}
@@ -821,8 +840,9 @@ export function Stepper({
                 marginBottom: 4,
               }}
             >
-              {activeCard.walkOrder != null ? `Stop ${activeCard.walkOrder}` : 'Zone'}
-              {activeCard.zoneFloorLabel && ` · ${activeCard.zoneFloorLabel}`}
+              {/* The floor alone: "Stop" is a house on a Field packet, not a
+                  room in a house, and the zone's name prints just below. */}
+              {activeCard.zoneFloorLabel ?? 'Room'}
             </div>
             <div
               className="font-serif"
@@ -952,8 +972,9 @@ export function Stepper({
           </div>
         )}
 
-        {/* Issue evidence: a photo is required to submit, so make that explicit
-            on the card and show what's attached. */}
+        {/* Issue evidence. The server requires a photo per Issue only from a
+            contractor (completeInspection); staff can complete without one,
+            so the copy says what is true for the person reading it. */}
         {activeResult?.status === 'issue' && (
           activeResult.photo_urls.length > 0 ? (
             <div style={{ marginTop: 16 }}>
@@ -962,7 +983,11 @@ export function Stepper({
             </div>
           ) : (
             <div style={{ marginTop: 16, padding: '10px 14px', borderLeft: '2px solid var(--signal)', background: 'rgba(200,90,58,0.06)', fontSize: 13.5, color: 'var(--signal)', lineHeight: 1.5 }}>
-              Add a photo of this issue before you submit — tap <strong>+ Photo</strong> below.
+              {photoRequired ? (
+                <>Add a photo of this issue before you submit: tap <strong>+ Photo</strong> below.</>
+              ) : (
+                <>Add a photo if you can: tap <strong>+ Photo</strong> below.</>
+              )}
             </div>
           )
         )}
@@ -1253,7 +1278,6 @@ function TopBar({
   currentIdx,
   exitHref,
   onExit,
-  onAddSlip,
 }: {
   markedCount: number;
   total: number;
@@ -1262,12 +1286,6 @@ function TopBar({
    *  tap before hydration land on the same page the onClick would. */
   exitHref: string;
   onExit: () => void;
-  /**
-   * Optional: when provided, the top bar shows a "+ Slip" affordance so
-   * the inspector can capture a property-level work slip the moment they
-   * spot something mid-walk that isn't tied to the active card.
-   */
-  onAddSlip?: () => void;
 }) {
   const pct = total > 0 ? Math.round((markedCount / total) * 100) : 0;
   return (
@@ -1298,26 +1316,6 @@ function TopBar({
           ← Exit
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {onAddSlip && (
-            <button
-              type="button"
-              onClick={onAddSlip}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--rule)',
-                padding: '6px 10px',
-                fontSize: 10,
-                letterSpacing: '.18em',
-                textTransform: 'uppercase',
-                color: 'var(--ink-2)',
-                cursor: 'pointer',
-                fontWeight: 500,
-              }}
-              title="Capture a property-level work slip without leaving the inspection"
-            >
-              + Slip
-            </button>
-          )}
           <span
             style={{
               fontSize: 11,

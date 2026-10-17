@@ -75,6 +75,7 @@ export function ArchiveTrigger({
   if (status === 'archiving') {
     return <span style={{ ...linkStyle, color: 'var(--ink-4)' }}>Archiving to Drive…</span>;
   }
-  // failed — the next summary-page load re-fires the archive (idempotent).
-  return <span style={{ ...linkStyle, color: 'var(--ink-4)' }}>Drive archive pending</span>;
+  // failed — the next summary-page load re-fires the archive (idempotent),
+  // and the line says so instead of reading like a status.
+  return <span style={{ ...linkStyle, color: 'var(--ink-4)' }}>Drive copy failed · reload to retry</span>;
 }

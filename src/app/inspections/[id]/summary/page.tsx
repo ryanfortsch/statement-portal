@@ -5,7 +5,10 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { Section } from '@/components/Section';
 import { Stat } from '@/components/Stat';
 import { PhotoThumbs } from '@/components/PhotoUploader';
+import { TurnoverTabs } from '@/components/TurnoverTabs';
+import { DeleteInspectionButton } from '../../DeleteInspectionButton';
 import { ArchiveTrigger } from './ArchiveTrigger';
+import { SummaryBackLink } from './SummaryBackLink';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { auth } from '@/auth';
@@ -221,6 +224,10 @@ export default async function InspectionSummaryPage({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      {/* The sub-nav stays with a staffer mid-flow (the board is one tap
+          away); a contractor reading a run's summary has no Helm session
+          and gets no strip. */}
+      {isStaff && <TurnoverTabs current="inspections" />}
 
       {/* HEADER */}
       <section
@@ -233,37 +240,39 @@ export default async function InspectionSummaryPage({
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: 12,
+          flexWrap: 'wrap',
         }}
       >
-        <Link
-          href="/inspections"
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink-3)',
-            textDecoration: 'none',
-          }}
-        >
-          ← All Inspections
-        </Link>
-        <Link
-          href={`/inspections/${id}/render`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            fontSize: 11,
-            letterSpacing: '.18em',
-            textTransform: 'uppercase',
-            color: 'var(--ink)',
-            textDecoration: 'none',
-            border: '1px solid var(--ink)',
-            padding: '8px 14px',
-            fontWeight: 600,
-          }}
-        >
-          Print / PDF →
-        </Link>
+        <SummaryBackLink />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          {/* Delete lives here, beside the walk it deletes, and leaves for
+              the index once the row is gone. It used to sit on every row of
+              the index. */}
+          {isStaff && (
+            <DeleteInspectionButton
+              inspectionId={inspection.id}
+              label={`${property.name} · ${formatDateTime(inspection.completed_at)}`}
+              afterDeleteHref="/inspections"
+            />
+          )}
+          <Link
+            href={`/inspections/${id}/render`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              fontSize: 11,
+              letterSpacing: '.18em',
+              textTransform: 'uppercase',
+              color: 'var(--ink)',
+              textDecoration: 'none',
+              border: '1px solid var(--ink)',
+              padding: '8px 14px',
+              fontWeight: 600,
+            }}
+          >
+            Print / PDF →
+          </Link>
+        </div>
       </section>
 
       {/* HERO */}
@@ -565,32 +574,49 @@ export default async function InspectionSummaryPage({
         </Section>
       )}
 
-      {/* COMPLETED ITEMS */}
-      <Section
-        title="Passed"
-        eyebrow={`${passes.length} clean`}
-        empty={passes.length === 0}
-        emptyMessage="—"
-      >
-        <div style={{ borderTop: '1px solid var(--rule)' }}>
-          {passes.map((row) => (
-            <CompactRow key={row.result.id} row={row} statusColor="var(--positive)" />
-          ))}
-        </div>
-      </Section>
+      {/* COMPLETED ITEMS: folded by default. Forty passed rows under the
+          issues were the longest thing on the page and the least read. */}
+      <FoldedResults title="Passed" count={passes.length}>
+        {passes.map((row) => (
+          <CompactRow key={row.result.id} row={row} statusColor="var(--positive)" />
+        ))}
+      </FoldedResults>
 
       {nas.length > 0 && (
-        <Section title="Not Applicable" eyebrow={`${nas.length}`} empty={false} emptyMessage="">
-          <div style={{ borderTop: '1px solid var(--rule)' }}>
-            {nas.map((row) => (
-              <CompactRow key={row.result.id} row={row} statusColor="var(--ink-4)" />
-            ))}
-          </div>
-        </Section>
+        <FoldedResults title="Not Applicable" count={nas.length}>
+          {nas.map((row) => (
+            <CompactRow key={row.result.id} row={row} statusColor="var(--ink-4)" />
+          ))}
+        </FoldedResults>
       )}
 
       <HelmFooter module="Inspection" right="Source: Helm" />
     </div>
+  );
+}
+
+/** A results list that opens on demand: the serif title and the count stay
+ *  in the section's head grammar; the rows wait behind the summary. */
+function FoldedResults({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+  return (
+    <section className="max-w-[1100px] mx-auto px-10 rt-helm-section" style={{ paddingTop: 24, paddingBottom: 24, width: '100%' }}>
+      <details>
+        <summary
+          className="flex items-baseline justify-between"
+          style={{ cursor: 'pointer', listStyle: 'none', minHeight: 44, paddingBottom: 14 }}
+        >
+          <span className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)' }}>
+            {title}
+          </span>
+          <span className="eyebrow">{count === 0 ? 'none' : `${count} · show`}</span>
+        </summary>
+        {count === 0 ? (
+          <div style={{ borderTop: '1px solid var(--ink)', padding: '20px 0', fontSize: 12, color: 'var(--ink-4)' }}>Nothing here.</div>
+        ) : (
+          <div style={{ borderTop: '1px solid var(--rule)' }}>{children}</div>
+        )}
+      </details>
+    </section>
   );
 }
 
