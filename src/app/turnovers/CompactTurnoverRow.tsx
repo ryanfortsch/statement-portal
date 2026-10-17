@@ -47,10 +47,14 @@ export function CompactTurnoverRow({
   const [open, setOpen] = useState(false);
   const haloRef = useRef<HTMLSpanElement | null>(null);
 
+  // A collapsed row's readouts are minute-granular ("in 3h 10m", "Cleaning ·
+  // 1h 2m"), so it re-reads the clock once a minute. Only the expanded row,
+  // whose rail shows a live counter, ticks every second: thirty rows at 1 Hz
+  // was a page of timers for nothing.
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    const id = setInterval(() => setNow(Date.now()), open ? 1000 : 60_000);
     return () => clearInterval(id);
-  }, []);
+  }, [open]);
 
   const isDone = t.inspectionStatus === 'complete' || t.manuallyCompleted;
   const todayStr = operatingDate(new Date(now));
@@ -72,32 +76,34 @@ export function CompactTurnoverRow({
     return () => a.cancel();
   }, [lc.active, lc.overdue]);
 
-  // Readout: cleaning-in-progress counts up off real entry; otherwise count
-  // down to check-in; done rows show a calm mark.
+  // Readout: the rail's own stage word (TurnoverRail.tsx node labels), with
+  // a live counter where work is underway; otherwise count down to check-in;
+  // done rows say Done. One word per state, the same word on the rail, the
+  // header strip and here.
   let readout = '';
   let roColor = 'var(--ink-4)';
   if (isDone) {
-    readout = '✓ done';
+    readout = 'Done';
     roColor = 'var(--positive)';
   } else if (lc.active === 'cleaning' && lc.enteredAt) {
-    readout = `cleaning ${elapsed(lc.enteredAt, now)}`;
+    readout = `Cleaning · ${elapsed(lc.enteredAt, now)}`;
     roColor = STAGE_HUES[2]; // cleaning stage identity — matches pip + header dot
   } else if (lc.active === 'clean') {
     // Lockless home, due, not yet cleaned: no lock signal is coming, so the
-    // honest readout is "needs clean" (red once past the check-in target),
-    // never a false "awaiting cleaner" or a fake elapsed counter. Must sit
+    // honest readout is "Needs clean" (red once past the check-in target),
+    // never a false "Awaiting cleaner" or a fake elapsed counter. Must sit
     // ahead of the countdown fallback below.
-    readout = 'needs clean';
+    readout = 'Needs clean';
     roColor = lc.overdue ? 'var(--negative)' : 'var(--signal)';
   } else if (lc.inspecting) {
     // An inspection is genuinely underway (app start, or a master-code unlock):
     // count up off its real start, not a bare countdown.
-    readout = lc.inspectionStartedAt ? `inspecting ${elapsed(lc.inspectionStartedAt, now)}` : 'inspecting';
+    readout = lc.inspectionStartedAt ? `Inspecting · ${elapsed(lc.inspectionStartedAt, now)}` : 'Inspecting';
     roColor = INSPECTING_TEXT_HUE; // shared with the header stage-strip dot
   } else if (lc.active === 'inspected') {
     // Cleaned and due, but no inspection has started: the actionable state is
-    // "needs inspection", not a bare countdown to check-in.
-    readout = 'needs inspection';
+    // "Needs inspection", not a bare countdown to check-in.
+    readout = 'Needs inspection';
     roColor = lc.overdue ? 'var(--negative)' : 'var(--signal)';
   } else {
     const cd = countdown(t.checkIn, now);

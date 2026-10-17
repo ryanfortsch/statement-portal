@@ -255,10 +255,10 @@ td:has(.rt-info-icon:focus-within) {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   letter-spacing: 0.02em;
-  /* Wide enough for the longest live readout ('inspecting 1h 23m', 17 mono
+  /* Wide enough for the longest live readout ('Inspecting · 1h 23m', 19 mono
      chars) so a long readout never shoves the pip rail left — the six-pip
      column stays aligned down the whole ledger. */
-  min-width: 120px;
+  min-width: 134px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }

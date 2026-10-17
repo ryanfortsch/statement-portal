@@ -92,6 +92,28 @@ export function TurnoverRail(p: Props) {
   const haloRef = useRef<HTMLSpanElement | null>(null);
   const [pending, start] = useTransition();
   const [justConfirmed, setJustConfirmed] = useState(false);
+  // Marking a clean done by hand writes a manual finish to cleaning_sessions
+  // with no undo in the UI, so it is a real button with an inline confirm
+  // (tap, then Confirm / Cancel), not a 10px underlined word under a dot.
+  const [confirming, setConfirming] = useState(false);
+  const [markError, setMarkError] = useState('');
+
+  function markCleaned() {
+    setMarkError('');
+    start(async () => {
+      try {
+        const r = await confirmCleaningDoneAction(p.propertyId, p.previousCheckout ?? '');
+        if (r.ok) {
+          setJustConfirmed(true);
+          setConfirming(false);
+        } else {
+          setMarkError(r.message ?? 'Could not save the clean.');
+        }
+      } catch {
+        setMarkError('Could not confirm the change. Refresh before retrying.');
+      }
+    });
+  }
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -332,42 +354,63 @@ export function TurnoverRail(p: Props) {
               >
                 {isActive && counterSince ? fmtElapsed(counterSince, now) : n.time ? fmtTime(n.time) : ''}
               </span>
-              {n.key === 'cleaned' && (showEstConfirm || canMarkClean) && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() =>
-                    start(async () => {
-                      const r = await confirmCleaningDoneAction(p.propertyId, p.previousCheckout ?? '');
-                      if (r.ok) setJustConfirmed(true);
-                    })
-                  }
-                  style={{
-                    fontSize: 10,
-                    color: 'var(--signal)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: pending ? 'wait' : 'pointer',
-                    padding: 0,
-                    textDecoration: 'underline',
-                    textUnderlineOffset: 2,
-                  }}
-                >
-                  {pending ? '…' : showEstConfirm ? 'confirm?' : 'mark clean'}
-                </button>
-              )}
             </div>
           );
         })}
       </div>
 
-      {/* Why two nodes are muted: this home has no smart lock, so Helm can't
-          see the cleaner arrive. Factual + calm, not a warning. */}
-      {!monitored && (
-        <div style={{ marginTop: 10, fontSize: 10.5, lineHeight: 1.45, color: 'var(--ink-4)' }}>
-          No smart lock here. Cleaning shows when the cleaner texts or you confirm.
+      {/* The operator's hand on the Cleaned node: confirm an estimated finish,
+          or mark the clean done when no signal is coming (every lockless home,
+          or a monitored one whose cleaner did not text). Two taps. */}
+      {(showEstConfirm || canMarkClean) && (
+        <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {!confirming ? (
+            <button type="button" onClick={() => setConfirming(true)} style={railButton(false)}>
+              {showEstConfirm ? 'Confirm cleaned' : 'Mark cleaned'}
+            </button>
+          ) : (
+            <>
+              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                {showEstConfirm
+                  ? 'The cleaner has finished? This confirms the estimated time.'
+                  : monitored
+                    ? 'Mark this home cleaned by hand? No cleaner signal has reached Helm.'
+                    : 'Mark this home cleaned by hand? It has no smart lock, so Helm only knows when the cleaner texts or you confirm.'}
+              </span>
+              <button type="button" onClick={markCleaned} disabled={pending} style={railButton(true, pending)}>
+                {pending ? 'Saving…' : markError ? 'Retry' : 'Confirm'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setConfirming(false); setMarkError(''); }}
+                disabled={pending}
+                style={railButton(false, pending)}
+              >
+                Cancel
+              </button>
+              {markError && <span role="alert" style={{ fontSize: 11, color: 'var(--negative)' }}>{markError}</span>}
+            </>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+/** A normal-sized control for the rail: solid for the commit, ghost for the
+ *  rest. 11px uppercase like the row's Start, 36px tall so a thumb finds it. */
+function railButton(solid: boolean, busy = false): React.CSSProperties {
+  return {
+    background: solid ? 'var(--ink)' : 'none',
+    color: solid ? 'var(--paper)' : 'var(--ink-3)',
+    border: `1px solid ${solid ? 'var(--ink)' : 'var(--rule)'}`,
+    padding: '8px 14px',
+    minHeight: 36,
+    fontSize: 11,
+    letterSpacing: '.14em',
+    textTransform: 'uppercase',
+    fontWeight: 600,
+    cursor: busy ? 'wait' : 'pointer',
+    opacity: busy ? 0.6 : 1,
+  };
 }
