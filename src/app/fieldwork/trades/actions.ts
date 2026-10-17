@@ -50,7 +50,7 @@ export async function saveTradeVendor(_prev: TradeFormState, formData: FormData)
   const name = str(formData, 'name');
   if (!name) return { error: 'Give the vendor a name.' };
   const category = str(formData, 'category');
-  if (!category) return { error: 'Pick a trade.' };
+  if (!category) return { error: 'Pick what they do.' };
 
   const fields = {
     name,
