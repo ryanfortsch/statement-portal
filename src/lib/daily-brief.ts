@@ -28,6 +28,7 @@ import {
 import { triageEmails } from '@/lib/ai/triage-emails';
 import { draftReply } from '@/lib/ai/draft-reply';
 import { replySignalFor, type HandledVia, type ReplySignals } from '@/lib/email-reply-signals';
+import { gmailMailbox } from '@/lib/gmail-draft';
 import { CHANNEL_LABELS, type BookingChannel } from '@/lib/channels-types';
 import { carryoverFor, loadCutoverFacts } from '@/lib/cutover';
 
@@ -158,6 +159,9 @@ export type DailyBrief = {
   stayConciergeConfigured: boolean;
   lastGmailSyncAt: string | null;
   gmailConfigured: boolean;
+  /** The address the inbox above belongs to, so a link into it can name
+   *  the mailbox and render only for that person. Null when unknown. */
+  gmailMailbox: string | null;
   /** Feeds in error state or past their expected cadence. Watchdog surface. */
   feedsNeedingAttention: BriefFeedHealth[];
   /** Helm-run homes with a handover or channel problem for a person. */
@@ -1372,6 +1376,7 @@ export async function loadDailyBrief(): Promise<DailyBrief> {
     stayConciergeConfigured: scConfigured,
     lastGmailSyncAt,
     gmailConfigured: gmailConfigured(),
+    gmailMailbox: gmailConfigured() ? await gmailMailbox('shared') : null,
     feedsNeedingAttention,
     channelsAttention: await loadChannelsAttention(),
     totals: {

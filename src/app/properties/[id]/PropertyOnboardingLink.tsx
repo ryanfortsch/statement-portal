@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, useTransition } from 'react';
+import { useSession } from 'next-auth/react';
 import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
+import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
 import { ensurePropertyOnboardingToken } from '@/app/projections/actions';
 import { ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import { renderOnboardingInviteEmail } from '@/lib/onboarding-invite-email';
@@ -57,6 +59,9 @@ export function PropertyOnboardingLink({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftUrl, setDraftUrl] = useState<string | null>(null);
+  // Whose Gmail the draft is in. Only that session gets the Open link.
+  const [draftMailbox, setDraftMailbox] = useState<string | null>(null);
+  const sessionEmail = useSession().data?.user?.email;
   const [draftError, setDraftError] = useState<string | null>(null);
 
   const tokenBusy = useRef(false), draftBusy = useRef(false);
@@ -131,6 +136,7 @@ export function PropertyOnboardingLink({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Draft failed (${res.status})`);
       if (typeof data.draft_url !== 'string' || !data.draft_url) throw new Error('Could not confirm the draft.');
+      setDraftMailbox(typeof data.mailbox === 'string' ? data.mailbox : null);
       setDraftUrl(data.draft_url);
     } catch (err) {
       setDraftError(`${err instanceof Error ? err.message : String(err)} Check Gmail before retrying if no draft confirmation arrived.`);
@@ -274,10 +280,14 @@ export function PropertyOnboardingLink({
 
           {draftUrl ? (
             <div style={{ marginTop: 18, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: 'var(--positive)', fontWeight: 500 }}>Draft created in Gmail.</span>
-              <a href={draftUrl} target="_blank" rel="noopener noreferrer" style={{ ...uppercaseBtn, color: 'var(--paper)', background: 'var(--ink)', textDecoration: 'none' }}>
-                Open in Gmail →
-              </a>
+              <span style={{ fontSize: 13, color: 'var(--positive)', fontWeight: 500 }}>
+                {canOpenMailbox(sessionEmail, draftMailbox) ? 'Draft created in Gmail.' : draftSavedNotice(draftMailbox)}
+              </span>
+              {canOpenMailbox(sessionEmail, draftMailbox) && (
+                <a href={draftUrl} target="_blank" rel="noopener noreferrer" style={{ ...uppercaseBtn, color: 'var(--paper)', background: 'var(--ink)', textDecoration: 'none' }}>
+                  Open in Gmail →
+                </a>
+              )}
               <button type="button" onClick={closePreview} disabled={drafting} style={{ ...uppercaseBtn, color: 'var(--ink-4)', background: 'transparent', border: '1px solid var(--rule)' }}>
                 Close
               </button>

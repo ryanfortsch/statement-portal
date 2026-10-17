@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
+import { canOpenMailbox, gmailUrl, mailboxOwnerLabel } from '@/lib/gmail-links';
 import {
   loadOwnerConfig, loadTaxCerts, loadRemittanceSheet, loadOwnerActionCounts as loadOwnerActionCountsAction,
   loadDepositReviewCounts, loadPeriodData, loadPeriodsList, loadLastSyncMap, loadMonthDataStatus,
@@ -2622,10 +2624,14 @@ function DashboardContent() {
   }, [previewPropertyId, selectedMonth, closeTasks, previewHouses, requestCandidates, statementIdBy]);
   const [draftingProperty, setDraftingProperty] = useState<string | null>(null);
   const [draftResult, setDraftResult] = useState<
-    | { url: string; property: string; attachedPdf: boolean; warnings: string[] }
+    | { url: string; mailbox: string | null; property: string; attachedPdf: boolean; warnings: string[] }
     | string
     | null
   >(null);
+  // The drafts land in the shared token's mailbox. The toasts link into it
+  // only for the session that owns it and otherwise say whose it is.
+  const sessionEmail = useSession().data?.user?.email;
+  const [draftMailbox, setDraftMailbox] = useState<string | null>(null);
   const [transferListOpen, setTransferListOpen] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [remittanceOpen, setRemittanceOpen] = useState(false);
@@ -2781,6 +2787,7 @@ function DashboardContent() {
         const propName = PROPERTIES[propertyId]?.name || propertyId;
         setDraftResult({
           url: data.draft_url,
+          mailbox: typeof data.mailbox === 'string' ? data.mailbox : null,
           property: propName,
           attachedPdf: !!data.attached_pdf,
           warnings: Array.isArray(data.warnings) ? data.warnings : [],
@@ -3302,6 +3309,7 @@ function DashboardContent() {
         if (data.success) {
           if (data.already_drafted) coveredByGroup++;
           else drafted++;
+          if (typeof data.mailbox === 'string') setDraftMailbox(data.mailbox);
           // Reflect the server-side stamp locally so the property card's
           // "drafted" state updates without a reload, same as the
           // single-property createGmailDraft flow does. A combined owner
@@ -3766,9 +3774,13 @@ function DashboardContent() {
             {draftResult.attachedPdf
               ? <> with the statement PDF attached. </>
               : <> (no PDF attached, see warnings). </>}
-            <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
-              Open in Gmail →
-            </a>
+            {canOpenMailbox(sessionEmail, draftResult.mailbox) ? (
+              <a href={draftResult.url} target="_blank" rel="noopener" style={{ color: 'var(--tide-deep)', textDecoration: 'underline' }}>
+                Open in Gmail →
+              </a>
+            ) : (
+              <>It is in {mailboxOwnerLabel(draftResult.mailbox)} Gmail drafts.</>
+            )}
             {draftResult.warnings.length > 0 && (
               <span style={{ display: 'block', marginTop: 4, color: 'var(--signal)', fontSize: 11 }}>
                 {draftResult.warnings.join(' · ')}
@@ -3795,15 +3807,18 @@ function DashboardContent() {
                 {bulkDraftResult.failed.length > 3 && ` +${bulkDraftResult.failed.length - 3} more`}
               </span>
             )}
-            {bulkDraftResult.drafted > 0 && (
+            {bulkDraftResult.drafted > 0 && canOpenMailbox(sessionEmail, draftMailbox) && (
               <a
-                href="https://mail.google.com/mail/u/0/#drafts"
+                href={gmailUrl(draftMailbox, 'drafts')}
                 target="_blank"
                 rel="noopener"
                 style={{ display: 'inline-block', marginLeft: 8, color: 'var(--tide-deep)', textDecoration: 'underline' }}
               >
                 Open Gmail drafts →
               </a>
+            )}
+            {bulkDraftResult.drafted > 0 && !canOpenMailbox(sessionEmail, draftMailbox) && (
+              <span style={{ marginLeft: 8 }}>They are in {mailboxOwnerLabel(draftMailbox)} Gmail drafts.</span>
             )}
           </Toast>
         )

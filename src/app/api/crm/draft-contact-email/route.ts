@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { gmailMailbox } from '@/lib/gmail-draft';
+import { gmailUrl } from '@/lib/gmail-links';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ALWAYS_CC, SEND_FROM } from '@/lib/properties';
 import type { WorkSlipRow, WorkSlipOwnerActionType } from '@/lib/work-types';
@@ -283,7 +285,10 @@ export async function POST(request: NextRequest) {
     }
 
     const draft = await draftRes.json();
-    const draftUrl = `https://mail.google.com/mail/u/0/#drafts/${draft.id}`;
+    // The draft is in the shared token's mailbox. Name it in the link and
+    // tell the caller whose it is, so only that session is offered a link.
+    const mailbox = await gmailMailbox('shared');
+    const draftUrl = gmailUrl(mailbox, `drafts/${draft.id}`);
 
     // Stamp owner_last_contacted_at on each included slip + flip
     // owner_status to 'sent'. Failure here doesn't fail the whole
@@ -303,6 +308,8 @@ export async function POST(request: NextRequest) {
       success: true,
       draft_id: draft.id,
       draft_url: draftUrl,
+      // Whose Gmail the draft is in; the client offers the link only to them.
+      mailbox,
       subject,
       recipients: emails,
       slip_count: slips.length,

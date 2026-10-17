@@ -19,6 +19,8 @@
 
 import { useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
 import type { RunsBoardData, MaintenanceRunCard, RosterPerson, VendorNeededSlip } from '@/lib/work-types';
 import { planRunsNow, publishRun, emailWorkOrder, markRunScheduled } from './runs-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
@@ -90,8 +92,11 @@ function WorkOrderComposer({
   const sendLock = useRef(false);
   const markLock = useRef(false);
   const [done, setDone] = useState<{
-    message: string; draftUrl: string; slipIds: string[]; vendorName: string; vendorOrganization: string | null;
+    message: string; draftUrl: string; mailboxAddress: string | null; slipIds: string[]; vendorName: string; vendorOrganization: string | null;
   } | null>(null);
+  // The draft lands in one mailbox (Dotti's when her token is configured).
+  // Only that session is handed the link; everyone else is told where it is.
+  const sessionEmail = useSession().data?.user?.email;
   const [error, setError] = useState('');
   // Close-out step: once the vendor confirms the day, one click stamps
   // every slip Scheduled + due + vendor-labeled.
@@ -156,11 +161,12 @@ function WorkOrderComposer({
         setDone({
           message: `Draft ready for ${snapshot.toEmail}: ${res.jobCount} jobs, ${res.photoCount} photos, cc Allie + Ryan${w}`,
           draftUrl: res.draftUrl,
+          mailboxAddress: res.mailboxAddress,
           slipIds: snapshot.slipIds,
           vendorName: snapshot.toName,
           vendorOrganization,
         });
-        window.open(res.draftUrl, '_blank', 'noopener');
+        if (canOpenMailbox(sessionEmail, res.mailboxAddress)) window.open(res.draftUrl, '_blank', 'noopener');
       } catch {
         setError('Could not confirm draft creation. Your note and recipient are retained. Check Gmail Drafts before retrying to avoid a duplicate.');
       } finally {
@@ -174,14 +180,18 @@ function WorkOrderComposer({
       <div style={{ borderTop: '1px solid var(--rule-soft)', paddingTop: 10, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: 'var(--positive)' }}>{done.message}</span>
-          <a
-            href={done.draftUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-          >
-            Review in Gmail →
-          </a>
+          {canOpenMailbox(sessionEmail, done.mailboxAddress) ? (
+            <a
+              href={done.draftUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Review in Gmail →
+            </a>
+          ) : (
+            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{draftSavedNotice(done.mailboxAddress)}</span>
+          )}
         </div>
         {marked ? (
           <span style={{ fontSize: 12, color: 'var(--positive)' }}>{marked}</span>

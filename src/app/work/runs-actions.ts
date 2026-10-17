@@ -98,7 +98,7 @@ export async function emailWorkOrder(args: {
   note?: string;
   visitDate?: string | null;
 }): Promise<
-  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; jobCount: number; photoCount: number; warnings: string[] }
+  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; mailboxAddress: string | null; jobCount: number; photoCount: number; warnings: string[] }
   | { ok: false; error: string }
 > {
   const session = await auth();

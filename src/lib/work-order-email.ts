@@ -103,7 +103,7 @@ type SlipForOrder = {
 };
 
 export type WorkOrderResult =
-  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; jobCount: number; photoCount: number; warnings: string[] }
+  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; mailboxAddress: string | null; jobCount: number; photoCount: number; warnings: string[] }
   | { ok: false; error: string };
 
 export async function draftWorkOrderEmail(args: {
@@ -316,6 +316,7 @@ export async function draftWorkOrderEmail(args: {
     ok: true,
     draftUrl: draft.draftUrl,
     mailbox: draft.mailbox,
+    mailboxAddress: draft.mailboxAddress,
     jobCount: ordered.length,
     photoCount: attachments.length,
     warnings,

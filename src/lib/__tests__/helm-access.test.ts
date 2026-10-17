@@ -389,7 +389,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
 
   test('/today keeps the prospect funnel and its footer count from staff', () => {
     const src = read('src/app/today/page.tsx');
-    assert.ok(src.includes('const [brief, owner] = await Promise.all([loadDailyBrief(), isOwnerSession()]);'));
+    assert.ok(src.includes('const [brief, owner, session] = await Promise.all([loadDailyBrief(), isOwnerSession(), auth()]);'));
     assert.ok(src.includes('if (owner && brief.activeProspects.length) {'), 'the Prospects section is owners only');
     assert.ok(src.includes('{owner && <span>{brief.totals.activeProspects} prospects in funnel</span>}'), 'the footer count is owners only');
   });
@@ -435,5 +435,71 @@ describe('no card or link on a staff page lands on /not-available', () => {
     for (const word of ['statements', 'revenue', 'forecast', 'books', 'payments', 'contracts', 'prospects', 'projections', 'owner messaging', 'quotes', 'creative pay', 'rate card']) {
       assert.ok(src.includes(word), `/not-available should mention ${word}`);
     }
+  });
+});
+
+describe('every Gmail link carries its mailbox and renders for that mailbox only', () => {
+  // No surface may build a first-signed-in-account link any more; the
+  // mailbox comes from gmailMailbox() and the link from gmailUrl().
+  const GMAIL_SURFACES = [
+    'src/components/ForMeFeed.tsx',
+    'src/app/today/page.tsx',
+    'src/app/api/work/draft-owner-email/route.ts',
+    'src/app/api/draft-email/route.ts',
+    'src/app/api/draft-onboarding-email/route.ts',
+    'src/app/api/crm/draft-contact-email/route.ts',
+    'src/lib/gmail-draft.ts',
+    'src/app/work/RunsRail.tsx',
+    'src/app/work/[id]/SlipOwnerActionEditor.tsx',
+    'src/app/statements/page.tsx',
+    'src/lib/use-owner-email-draft.ts',
+    'src/app/properties/[id]/PropertyOnboardingLink.tsx',
+  ];
+  for (const file of GMAIL_SURFACES) {
+    test(`${file} builds no /u/0/ link`, () => {
+      assert.ok(!read(file).includes('mail.google.com/mail/u/0/'), `${file} still links the first signed-in account`);
+    });
+  }
+
+  test('the draft routes name the mailbox and the helper asks Gmail whose it is', () => {
+    for (const file of ['src/app/api/work/draft-owner-email/route.ts', 'src/app/api/draft-email/route.ts', 'src/app/api/draft-onboarding-email/route.ts', 'src/app/api/crm/draft-contact-email/route.ts']) {
+      const src = read(file);
+      assert.ok(src.includes("const mailbox = await gmailMailbox('shared');"), `${file} must resolve the mailbox`);
+      assert.ok(src.includes('const draftUrl = gmailUrl(mailbox, `drafts/${draft.id}`);'), `${file} must build the link with the mailbox`);
+      assert.ok(src.includes('      mailbox,'), `${file} must return the mailbox`);
+    }
+    const helper = read('src/lib/gmail-draft.ts');
+    assert.ok(helper.includes("fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile'"), 'the mailbox is asked of Gmail, never assumed');
+    assert.ok(helper.includes('draftUrl: gmailUrl(mailboxAddress, `drafts/${draft.id}`),'));
+  });
+
+  test('the feed and /today link into the inbox for its owner only', () => {
+    const feed = read('src/components/ForMeFeed.tsx');
+    assert.ok(feed.includes('const mail = { mailbox: gmailMailbox, canOpen: canOpenMailbox(email, gmailMailbox) };'));
+    assert.ok(feed.includes('{mail.canOpen ? (\n            <a href={gmailUrl(mail.mailbox, `inbox/${e.threadId}`)}'), 'the sender links only when the session owns the mailbox');
+    assert.ok(feed.includes('{e.draftId && mail.canOpen && ('), 'Reply drafted links only when the session owns the mailbox');
+    const today = read('src/app/today/page.tsx');
+    assert.ok(today.includes("href={mail.canOpen ? gmailUrl(mail.mailbox, 'inbox') : undefined}"), 'the Emails heading links only for the mailbox owner');
+    assert.ok(today.includes('{e.draftId && mail.canOpen ? ('));
+  });
+
+  test('a draft made from a page opens and links only for the mailbox owner, and says where it went otherwise', () => {
+    const hook = read('src/lib/use-owner-email-draft.ts');
+    assert.ok(hook.includes('const canOpen = made && canOpenMailbox(sessionEmail, result.mailbox);'));
+    assert.ok(hook.includes('if (canOpenMailbox(sessionEmail, mailbox)) open(data.draft_url);'));
+    assert.ok(hook.includes('const savedIn = made && !canOpen ? draftSavedNotice(result.mailbox) : \'\';'));
+    for (const file of ['src/app/properties/[id]/PropertyDraftOwnerEmailButton.tsx', 'src/app/crm/[id]/ContactDraftEmailButton.tsx', 'src/app/work/QueueClient.tsx']) {
+      assert.ok(/savedIn/.test(read(file)), `${file} must say where the draft went`);
+    }
+    const editor = read('src/app/work/[id]/SlipOwnerActionEditor.tsx');
+    assert.ok(editor.includes('if (data?.draft_url && canOpenMailbox(sessionEmail, mailbox)) {'));
+    const rail = read('src/app/work/RunsRail.tsx');
+    assert.ok(rail.includes("if (canOpenMailbox(sessionEmail, res.mailboxAddress)) window.open(res.draftUrl, '_blank', 'noopener');"));
+    assert.ok(rail.includes('{canOpenMailbox(sessionEmail, done.mailboxAddress) ? ('));
+    const onboarding = read('src/app/properties/[id]/PropertyOnboardingLink.tsx');
+    assert.ok(onboarding.includes('{canOpenMailbox(sessionEmail, draftMailbox) && ('));
+    const statements = read('src/app/statements/page.tsx');
+    assert.ok(statements.includes('{canOpenMailbox(sessionEmail, draftResult.mailbox) ? ('));
+    assert.ok(statements.includes('{bulkDraftResult.drafted > 0 && canOpenMailbox(sessionEmail, draftMailbox) && ('));
   });
 });
