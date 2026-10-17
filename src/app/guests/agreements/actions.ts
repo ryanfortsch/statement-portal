@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { archiveToDrive, isDriveArchiveConfigured } from '@/lib/drive-archive';
 import {
@@ -312,7 +313,8 @@ export async function submitAgreementSignature(formData: FormData): Promise<void
  * Agreements / <year>. Idempotent; requires the guest signature first.
  */
 export async function countersignAgreement(formData: FormData): Promise<void> {
-  await requireStaff();
+  // Countersigning binds Rising Tide to the agreement: an owner's act.
+  await requireOwnerEmail();
   const id = str(formData, 'id');
   if (!id) throw new Error('Missing agreement id');
 

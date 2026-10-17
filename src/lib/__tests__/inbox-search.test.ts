@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { approvalSearchRow, approvalSearchStatus, mergeInboxSearch, searchInbox, matchesInboxText, loadInboxSearch, reviewCountsByConversation } from '../inbox-search.ts';
+import { approvalSearchRow, approvalSearchStatus, mergeInboxSearch, searchInbox, matchesInboxText, loadInboxSearch, inboxAudiencesFor, reviewCountsByConversation } from '../inbox-search.ts';
 
 test('saved status distinguishes drafts, scheduled sends and actual decisions', () => {
   assert.equal(approvalSearchStatus({ id: '1', status: 'pending', draft: 'Reply' }, true).status, 'Draft ready');
@@ -70,4 +70,17 @@ test('conversation review counts exclude scheduled sends and require a conversat
     { id: '5', status: 'pending' },
   ]);
   assert.deepEqual([...counts], [['a', 2]]);
+});
+
+test('a staff search never reads the owner feed; an owner search reads all four', async () => {
+  assert.deepEqual([...inboxAudiencesFor('owner')], ['guests', 'owners', 'cleaners', 'contractors']);
+  assert.deepEqual([...inboxAudiencesFor('staff')], ['guests', 'cleaners', 'contractors']);
+  const asked: string[] = [];
+  const result = await loadInboxSearch(async (audience, recent) => {
+    asked.push(audience + (recent ? ':recent' : ''));
+    return { ok: true, data: { approvals: [{ id: audience, status: 'pending', draft: 'Reply' }] } };
+  }, inboxAudiencesFor('staff'));
+  assert.ok(!asked.some(a => a.startsWith('owners')), 'the owner feed must not even be requested');
+  assert.ok(result.rows.every(r => r.audience !== 'owners'));
+  assert.equal(result.rows.length, 3);
 });

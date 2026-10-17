@@ -209,7 +209,10 @@ describe('the money server actions refuse a staff session', () => {
     ],
     'src/app/fieldwork/hiring/actions.ts': ['inviteApplicant', 'declineApplicant', 'reopenApplicant'],
     'src/app/fieldwork/roster/rate-card-actions.ts': ['saveRateCardAction', 'resetRateCardAction'],
-    'src/app/fieldwork/shoots/actions.ts': ['payDeliveryBase', 'setAssetQualifies'],
+    // All five creative pay actions: the base pay and the qualifying call,
+    // plus the three that pay or re-price a top-up (found on staffEmail()
+    // by the 2026-10-17 audit).
+    'src/app/fieldwork/shoots/actions.ts': ['payDeliveryBase', 'setAssetQualifies', 'payAssetTopup', 'setAssetTopupOverride', 'setShootPaidAdjustment'],
   };
 
   for (const [file, names] of Object.entries(gated)) {
@@ -554,5 +557,40 @@ describe('owner money on the pages staff keep renders for owners only (part two)
     assert.ok(OWNER_PATH_PREFIXES.includes('/cost-analysis'));
     const mod = HELM_MODULES.find((m) => m.id === 'cost-analysis');
     assert.equal(mod?.access, 'owner', 'the module must be flagged so nav and search hide it');
+  });
+});
+
+describe('the data behind the page gate refuses a staff session', () => {
+  // A page the proxy bounces is not enough when its feed is a shared /api
+  // route or a server action reachable from a page staff keep.
+  test('the owner messaging feed, its count and the search panel refuse the owners audience for staff', () => {
+    const queue = read('src/app/api/messaging/queue/route.ts');
+    assert.ok(queue.includes("if ((await sessionRole()) !== 'owner') {"), 'the queue must check the role for the owners audience');
+    assert.ok(queue.includes("return NextResponse.json({ error: 'Owners only' }, { status: 403 });"));
+    const count = read('src/app/api/messaging/pending-count/route.ts');
+    assert.ok(count.includes("owner ? listOwnerApprovals() : Promise.resolve(null),"), 'the owner feed is not read for staff');
+    assert.ok(count.includes('const owners = !owner ? 0 :'), 'the owners count is zero for staff');
+    const search = read('src/app/api/messaging/search/route.ts');
+    assert.ok(search.includes('const audiences = inboxAudiencesFor(roleForEmail(session.user.email));'));
+    assert.ok(search.includes('loadInboxSearch(listInboxSearchApprovals, audiences)'));
+  });
+
+  test('countersigning an agreement and sending a campaign are owner acts', () => {
+    const agreements = read('src/app/guests/agreements/actions.ts');
+    const countersign = agreements.match(/export async function countersignAgreement[\s\S]*?(?=\nexport async function |$)/);
+    assert.ok(countersign && countersign[0].includes('await requireOwnerEmail();'), 'countersignAgreement must require an owner');
+    const campaigns = read('src/app/guests/campaigns/actions.ts');
+    const send = campaigns.match(/export async function sendCampaign\(formData[\s\S]*?(?=\nexport async function |$)/);
+    assert.ok(send && send[0].includes('await requireOwnerEmail();'), 'sendCampaign must require an owner');
+    const test_ = campaigns.match(/export async function sendCampaignTest[\s\S]*?(?=\nexport async function |$)/);
+    assert.ok(test_ && !test_[0].includes('requireOwnerEmail'), 'the test send stays open to staff');
+  });
+
+  test('the installment actions require an owner', () => {
+    const src = read('src/app/properties/[id]/installment-actions.ts');
+    for (const name of ['loadMultiMonthData', 'dismissInstallmentSuggestion', 'restoreInstallmentSuggestion']) {
+      const m = src.match(new RegExp(`export async function ${name}\\b[\\s\\S]*?(?=\\nexport async function |$)`));
+      assert.ok(m && m[0].includes('await requireOwnerEmail();'), `${name} must require an owner`);
+    }
   });
 });

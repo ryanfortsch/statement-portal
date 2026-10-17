@@ -1,6 +1,7 @@
 'use server';
 
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 
 /**
  * Server-side reads/writes for the multi-month installment suggester
@@ -8,8 +9,13 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
  * guesty_reservations / reservation_installments /
  * installment_suggestion_dismissals via the anon key; those tables are
  * losing their anon policies in the RLS lockdown, so the queries move
- * behind server actions. Identical queries, same shapes. Access control
- * is proxy.ts's default-deny staff SSO on the property pages, unchanged.
+ * behind server actions. Identical queries, same shapes.
+ *
+ * Owners only, each one: the rows carry a stay's net and the split writes
+ * through /api/installments, an owner-only route, so a staff session that
+ * reached the action from any page is refused here rather than after the
+ * work of filling in a split. (The section itself renders for owners
+ * only since 2026-10-17.)
  */
 
 export type MultiMonthGuestyRow = {
@@ -47,6 +53,7 @@ export async function loadMultiMonthData(propertyId: string): Promise<{
   installments: InstallmentRow[];
   dismissedCodes: string[];
 }> {
+  await requireOwnerEmail();
   const todayIso = new Date().toISOString().slice(0, 10);
   const { data: rows } = await supabaseAdmin
     .from('guesty_reservations')
@@ -80,6 +87,7 @@ export async function loadMultiMonthData(propertyId: string): Promise<{
 
 /** Dismiss the installment suggestion for one booking (team-wide). */
 export async function dismissInstallmentSuggestion(code: string, propertyId: string): Promise<void> {
+  await requireOwnerEmail();
   await supabaseAdmin
     .from('installment_suggestion_dismissals')
     .upsert({ confirmation_code: code, property_id: propertyId }, { onConflict: 'confirmation_code' });
@@ -87,5 +95,6 @@ export async function dismissInstallmentSuggestion(code: string, propertyId: str
 
 /** Restore a dismissed suggestion by deleting its dismissal row. */
 export async function restoreInstallmentSuggestion(code: string): Promise<void> {
+  await requireOwnerEmail();
   await supabaseAdmin.from('installment_suggestion_dismissals').delete().eq('confirmation_code', code);
 }

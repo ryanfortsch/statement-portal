@@ -34,8 +34,9 @@ test('late pre-action count cannot overwrite a post-action count', async () => {
   } finally { globalThis.fetch = original; }
 });
 
-function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0 } = {}) {
+function route({ guestFailed = false, digestFailed = false, configured = true, ownerHolds = 0, role = 'owner', ownerPending = false } = {}) {
   const queries = [];
+  const reads = { owner: 0 };
   const db = { from(table) { queries.push(['from',table]); return this; }, select(...a) { queries.push(['select',...a]); return this; }, eq(...a) { queries.push(['eq',...a]); return this; }, gte(...a) { queries.push(['gte',...a]); return this; }, order(...a) { queries.push(['order',...a]); return this; }, limit(...a) { queries.push(['limit',...a]); return this; }, then(done) { return Promise.resolve(digestFailed ? { error: {} } : { data: [{ id: 'visible' }] }).then(done); } };
   const ok = (...status) => ({ ok: true, data: { approvals: status.map(status => ({ status })) } });
   const mocks = {
@@ -46,9 +47,12 @@ function route({ guestFailed = false, digestFailed = false, configured = true, o
     // Owner blocks waiting on "clean after?" ride on the Cleaners badge; null
     // means the mirror could not be read.
     '@/lib/owner-hold-questions': { countPendingOwnerHoldQuestions: async () => ownerHolds },
+    // The signed-in role: a staff login has no Owners tab, so the owner feed
+    // is never read for it and counts as nothing.
+    '@/lib/helm-access-server': { sessionRole: async () => role },
     '@/lib/stay-concierge': { isStayConciergeConfigured: () => configured,
       listApprovals: async () => guestFailed ? { ok: false } : ok('pending','scheduled','pending'),
-      listOwnerApprovals: async () => ok('scheduled'),
+      listOwnerApprovals: async () => { reads.owner++; return ownerPending ? ok('pending', 'scheduled') : ok('scheduled'); },
       listCleanerApprovals: async () => ok('pending'),
       listContractorApprovals: async () => ok('pending'),
     },
@@ -56,8 +60,17 @@ function route({ guestFailed = false, digestFailed = false, configured = true, o
   const code = ts.transpileModule(readFileSync(new URL('../src/app/api/messaging/pending-count/route.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   const module = { exports: {} };
   new Function('require','module','exports',code)(id => { assert.ok(id in mocks, id); return mocks[id]; }, module, module.exports);
-  return { GET: module.exports.GET, queries };
+  return { GET: module.exports.GET, queries, reads };
 }
+
+test('a staff login never reads the owner feed and its badge counts no owner drafts', async () => {
+  const owner = route({ ownerPending: true });
+  assert.deepEqual(await owner.GET(), { count: 6, guests: 2, owners: 1, cleaners: 2, contractors: 1 });
+  assert.equal(owner.reads.owner, 1);
+  const staff = route({ role: 'staff', ownerPending: true });
+  assert.deepEqual(await staff.GET(), { count: 5, guests: 2, owners: 0, cleaners: 2, contractors: 1 });
+  assert.equal(staff.reads.owner, 0, 'the owner feed must not be requested for staff');
+});
 
 test('counts exclude scheduled sends and count only the visible regional digest card', async () => {
   const { GET, queries } = route(); const data = await GET();

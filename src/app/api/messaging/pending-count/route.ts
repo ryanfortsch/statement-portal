@@ -38,8 +38,13 @@ async function pendingDigestCount(): Promise<number | null> {
 }
 
 import { countPendingOwnerHoldQuestions } from '@/lib/owner-hold-questions';
+import { sessionRole } from '@/lib/helm-access-server';
 
 export async function GET() {
+  // A staff login has no Owners tab: its feed is not read and counts as
+  // nothing, so neither the tab pill nor the masthead badge leaks how many
+  // owner drafts wait.
+  const owner = (await sessionRole()) === 'owner';
   // Owner blocks waiting on "clean after?" sit on the cleaner page above
   // the digest, so they count on the Cleaners badge like a pending digest.
   if (!isStayConciergeConfigured()) {
@@ -49,7 +54,7 @@ export async function GET() {
   }
   const [guestRes, ownerRes, cleanerRes, contractorRes, digests, ownerHolds] = await Promise.all([
     listApprovals(),
-    listOwnerApprovals(),
+    owner ? listOwnerApprovals() : Promise.resolve(null),
     listCleanerApprovals(),
     listContractorApprovals(),
     pendingDigestCount(),
@@ -76,7 +81,7 @@ export async function GET() {
   // whatever filter the page added -- not to invent a new definition here.
   const notScheduled = (a: { status: string }) => a.status !== 'scheduled';
   const guests = guestRes.ok ? guestRes.data.approvals.filter(notScheduled).length : null;
-  const owners = ownerRes.ok ? ownerRes.data.approvals.filter(notScheduled).length : null;
+  const owners = !owner ? 0 : ownerRes?.ok ? ownerRes.data.approvals.filter(notScheduled).length : null;
   const cleaners = cleanerRes.ok && digests !== null && ownerHolds !== null
     ? cleanerRes.data.approvals.filter(notScheduled).length + digests + ownerHolds
     : null;

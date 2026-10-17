@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
+import { requireOwnerEmail } from '@/lib/helm-access-server';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { renderEmail } from '@/lib/email-render';
 import { unsubscribeUrl } from '@/lib/guests-unsubscribe-token';
@@ -277,8 +278,9 @@ export async function sendCampaignTest(formData: FormData): Promise<void> {
  * jobs or switch to Resend Broadcasts with audience mirroring.
  */
 export async function sendCampaign(formData: FormData): Promise<void> {
-  const session = await auth();
-  if (!session?.user?.email) throw new Error('Not signed in');
+  // Sending to the whole list is the one Growth action with blast radius:
+  // owners only. Drafting, segments and the test send stay open to staff.
+  await requireOwnerEmail();
 
   const id = formData.get('id') as string;
   if (!id) throw new Error('Missing campaign id');
