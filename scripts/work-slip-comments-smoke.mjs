@@ -21,6 +21,7 @@ for (const [name, path] of [
   ['comments', 'src/app/work/[id]/SlipComments.tsx'],
   ['close', 'src/app/work/[id]/SlipClosePanel.tsx'],
   ['SnoozeButton', 'src/app/work/[id]/SnoozeButton.tsx'],
+  ['slip-controls', 'src/app/work/[id]/slip-controls.ts'],
   ['unsaved-work', 'src/lib/unsaved-work.ts'],
 ]) await writeFile(join(scratch, name + '.js'), compile(await readFile(join(root, path), 'utf8')));
 await writeFile(join(scratch, 'actions.js'), `
@@ -62,6 +63,7 @@ await new Promise((done,reject)=>{
     resolve:{modules:[join(root,'node_modules')],alias:{
       '../actions':join(scratch,'actions.js'),
       '@/lib/use-soft-refresh':join(scratch,'refresh.js'),
+      './slip-controls':join(scratch,'slip-controls.js'),
       '@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
       '@/lib/team':join(scratch,'team.js'),
     }},performance:{hints:false},

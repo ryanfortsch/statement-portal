@@ -17,6 +17,7 @@ const scratch=await mkdtemp(join(tmpdir(),'helm-editor-recovery-'));
 const compile=source=>ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 for(const [name,path] of [
   ['owner','src/app/work/[id]/SlipOwnerActionEditor.tsx'],
+  ['slip-controls','src/app/work/[id]/slip-controls.ts'],['back','src/app/work/[id]/BackToBoardLink.tsx'],['gmail-links','src/lib/gmail-links.ts'],
   ['crm','src/app/crm/[id]/ContactDetail.tsx'],
   ['ContactMeetings','src/app/crm/[id]/ContactMeetings.tsx'],
   ['task','src/app/work/tasks/[id]/TaskDetail.tsx'],
@@ -45,6 +46,7 @@ await writeFile(join(scratch,'actions.js'),`
   export const deleteRoomAction=args=>save('deleteRoom',args);
 `);
 await writeFile(join(scratch,'refresh.js'),'export const useSoftRefresh=()=>()=>{window.refreshes++;};');
+await writeFile(join(scratch,'session.js'),"export const useSession=()=>({data:{user:{email:'staff@example.test'}},status:'authenticated',update:async()=>null});");
 await writeFile(join(scratch,'meetings-core.js'),"export const todayET=()=>'2026-09-01',defaultImportant=t=>t==='owner',meetingWhen=(m,today)=>(m.date===today?'Today':m.date)+(m.time?' '+m.time:'');");
 await writeFile(join(scratch,'router.js'),'export const useRouter=()=>({push:url=>window.navigations.push(url),refresh:()=>window.refreshes++});');
 await writeFile(join(scratch,'link.js'),compile(`import React from 'react'; export default function Link({href,onClick,children,...props}){return <a {...props} href={href} onClick={e=>{onClick?.(e);if(!e.defaultPrevented)window.navigations.push(href);e.preventDefault();}}>{children}</a>}`));
@@ -104,6 +106,7 @@ await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{
     '../actions':join(scratch,'actions.js'),'../../actions':join(scratch,'actions.js'),'./actions':join(scratch,'actions.js'),'./onboarding-actions':join(scratch,'actions.js'),
     '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
+    './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'next-auth/react':join(scratch,'session.js'),
     '@/lib/team':join(scratch,'team.js'),'@/lib/meetings-core':join(scratch,'meetings-core.js'),'@/components/TeamPicker':join(scratch,'picker.js'),
     '@/lib/crm':join(scratch,'crm-types.js'),'@/lib/playbook':join(scratch,'playbook-types.js'),
     '@/lib/property-rooms-shared':join(scratch,'room-types.js'),'@/components/Markdown':join(scratch,'markdown.js'),
