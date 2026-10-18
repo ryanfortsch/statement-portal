@@ -26,6 +26,7 @@ import { cancelBookingWithReason, updateBooking } from './actions';
 import { cancelStayConfirm } from '@/lib/irreversible-confirms';
 import { DeleteBookingButton } from './DeleteBookingButton';
 import { houseRange } from '@/lib/house-date';
+import { stripeLookupHref } from '@/lib/stripe-lookup-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +97,16 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   const title = isBlock ? `${booking.hold_kind ? cap(booking.hold_kind) : 'Hold'}${booking.notes ? `: ${booking.notes}` : ''}` : booking.guest_name ?? `${CHANNEL_LABELS[booking.channel] ?? booking.channel} stay`;
 
   const writeScope = await loadHomeWriteScope(booking.property_id);
+  // Did this guest pay: the Stripe lookup prefilled with their email and the
+  // stay's window. Owners only, like the lookup itself; a hold has no guest.
+  const lookupHref = owner && !isBlock
+    ? stripeLookupHref({
+        email: booking.guest_email ?? guest?.email ?? null,
+        name: booking.guest_name,
+        bookedAt: booking.booked_at,
+        checkOut: booking.check_out,
+      })
+    : null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -127,6 +138,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
           <Link href={`/channels/${booking.property_id}`} style={ghostButton}>{property?.name ?? 'Property'} hub →</Link>
           <Link href={`/channels/${booking.property_id}/calendar?month=${booking.check_in.slice(0, 7)}`} style={ghostButton}>Month grid →</Link>
           {guest && <Link href={`/channels/bookings?guest=${guest.id}`} style={ghostButton}>Guest&apos;s stays →</Link>}
+          {lookupHref && <Link href={lookupHref} style={ghostButton}>Stripe lookup →</Link>}
         </div>
       </section>
 
