@@ -20,6 +20,8 @@ import { OnSite } from './OnSite';
 import { FieldShell } from '../../FieldShell';
 import { PacketRouteMap } from '../../PacketRouteMap';
 import { CopyCode } from '../../CopyCode';
+import { StopReceipt } from './StopReceipt';
+import { loadPacketReceipts } from '@/lib/field-receipts';
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { AutoRefresh } from '@/components/AutoRefresh';
 
@@ -743,6 +745,10 @@ export default async function PacketPage({
     packet.status === 'claimed' &&
     (await loadOfficeAssignedPacketIds([packet.id]).catch(() => new Set<string>())).has(packet.id);
   const working = isMine && (isWorkingStatus(packet.status)) && packet.stops.length > 0;
+  // The stop's one receipt rail, open while this trip's payout can still
+  // move (the same statuses a receipt can be homed onto, never once paid).
+  const receiptsOpen = isMine && !packet.paid_at && ['claimed', 'in_progress', 'submitted', 'approved'].includes(packet.status);
+  const tripReceipts = receiptsOpen ? await loadPacketReceipts(packetId).catch(() => []) : [];
   const pct = packet.stops.length ? Math.round((doneCount / packet.stops.length) * 100) : 0;
   // Every route starts at the supply closet: home bins + flagged-low consumables
   // for inspections, plus the parts each work slip needs for maintenance.
@@ -1082,6 +1088,15 @@ export default async function PacketPage({
                     {s.property.supply_closet_location}
                   </div>
                 </details>
+              )}
+              {/* The one receipt rail for this stop, task or no task. */}
+              {receiptsOpen && (
+                <StopReceipt
+                  packetId={packet.id}
+                  stopId={s.id}
+                  existing={tripReceipts.filter((r) => r.propertyId === s.property_id).map((r) => ({ title: r.title, cents: r.expenseCents }))}
+                  chipStyle={chip}
+                />
               )}
             </div>
           ) : null;

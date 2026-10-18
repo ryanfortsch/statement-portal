@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { PhotoUploader } from '@/components/PhotoUploader';
+import { ReceiptAmountField } from '@/components/ReceiptAmountField';
 import { completeBoardSlip } from '../actions';
 
 function SubmitBtn({ label }: { label: string }) {
@@ -32,28 +33,6 @@ const quietBtn: React.CSSProperties = {
   padding: '8px 4px',
 };
 
-/** "$ receipt total": what they spent out of pocket for the house. Rides the
- *  trip they are on (or just finished) at that home; otherwise the office
- *  folds it into their next payout. Same rail as a packet task completion, so
- *  a receipt filed from the board is never just a number in a description. */
-function ReceiptField({ hint }: { hint: string }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--ink-3)', flexWrap: 'wrap' }}>
-      <span style={{ color: 'var(--ink-4)' }}>$</span>
-      <input
-        type="number"
-        name="expense_dollars"
-        min={0}
-        step={0.01}
-        inputMode="decimal"
-        placeholder="0.00"
-        style={{ width: 110, font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px' }}
-      />
-      {hint}
-    </label>
-  );
-}
-
 /** Mark-done for one board slip: one tap; note + photo opt-in (same manners as
  *  the packet task completion — never gate a quick fix on prose). */
 export function BoardSlipDone({ slipId }: { slipId: string }) {
@@ -72,7 +51,12 @@ export function BoardSlipDone({ slipId }: { slipId: string }) {
             placeholder="What you did (optional)"
             style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical', marginTop: 8 }}
           />
-          <ReceiptField hint="receipt total, if you bought something (add the receipt photo above)" />
+          <div style={{ marginTop: 8 }}>
+            {/* The portal's one receipt field. A board slip's receipt rides
+                the trip they are on (or just finished) at that home;
+                otherwise the office adds it to their next payout. */}
+            <ReceiptAmountField where="rides your trip at this home, else your next payout" />
+          </div>
         </div>
       )}
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>

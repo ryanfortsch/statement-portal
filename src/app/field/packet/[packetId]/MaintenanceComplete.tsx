@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import { useFieldFormDraft, FieldDraftStatus } from '@/components/FieldFormDraft';
 import { useFormStatus } from 'react-dom';
 import { PhotoUploader, useClearPhotoDraft } from '@/components/PhotoUploader';
+import { ReceiptAmountField } from '@/components/ReceiptAmountField';
 import { completeMaintenanceTask, checkFieldTaskCompletion } from '../../actions';
 
 /**
@@ -132,23 +133,15 @@ export function MaintenanceComplete({
             placeholder={placeholder ?? 'What you did (optional)'}
             style={{ width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px', resize: 'vertical', marginTop: 8 }}
           />
-          {/* Receipt reimbursement: what they spent out of pocket (drain-o,
-              batteries). Rides the payout automatically once entered. */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--ink-3)' }}>
-            <span style={{ color: 'var(--ink-4)' }}>$</span>
-            <input
-              type="number"
-              name="expense_dollars"
-              value={expense}
-              onChange={e => setExpense(e.target.value)}
-              min={0}
-              step={0.01}
-              inputMode="decimal"
-              placeholder="0.00"
-              style={{ width: 110, font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '8px 10px' }}
-            />
-            receipt total, if you bought something (add the receipt photo above)
-          </label>
+          {/* Receipts go through the stop's one "Add a receipt" chip now, so
+              a purchase is entered once per stop. A draft typed here before
+              the chip existed keeps its amount (and submits it) rather than
+              losing it. */}
+          {expense && (
+            <div style={{ marginTop: 8 }}>
+              <ReceiptAmountField value={expense} onChange={setExpense} where="added to this trip's payout" />
+            </div>
+          )}
         </div>
       )}
 
