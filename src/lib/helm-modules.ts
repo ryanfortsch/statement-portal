@@ -208,15 +208,15 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'operations',
     section: 'operations',
   },
-  // A Turnovers tab (TurnoverTabs). The crew's own side of the schedule:
-  // Cape Ann Elite's bookings, read from the Jobber reminder texts they
-  // send the Quo line, against our checkouts day by day.
+  // Not a tab any more: each checkout's cleaner verdict prints on its board
+  // row. What is left is the crew's visits no row can show, reached from
+  // the board and the home feed's "Cleanings to check".
   {
     id: 'cleanings',
     href: '/turnovers/cleanings',
     number: '02c',
-    title: 'Cleanings',
-    description: "Cape Ann Elite's own cleaning schedule (A-1 Maintenance), read from the Jobber reminders they text the Quo line, checked against our checkouts day by day. Also the strip on the home page.",
+    title: 'From Cape Ann Elite',
+    description: "Cape Ann Elite's visits the turnover board cannot show: a cleaning booked where nobody checks out, and days they have not announced yet. Read from the Jobber reminders they text the Quo line.",
     status: 'active',
     primary: false,
     hidden: true,
