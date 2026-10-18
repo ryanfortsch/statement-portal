@@ -412,6 +412,12 @@ td:has(.rt-info-icon:focus-within) {
   .rt-insights-6 > div:nth-child(odd) { border-right: 1px solid var(--rule) !important; }
   .rt-insights-6 > div:nth-last-child(-n+2) { border-bottom: none; }
 
+  /* Close strip: step, name, count and Open on one line; what holds the
+     step up wraps to its own line under the name. */
+  .rt-close-step { grid-template-columns: 22px 1fr auto auto !important; row-gap: 4px; }
+  .rt-close-step > :nth-child(4) { grid-column: 2 / -1; grid-row: 2; }
+  .rt-close-step > :nth-child(5) { grid-column: 4; grid-row: 1; }
+
   /* Close-out top strip: stack date + total + button */
   .rt-closeout-top { grid-template-columns: 1fr !important; gap: 12px !important; }
   .rt-closeout-top > div:nth-child(2) { display: none; }

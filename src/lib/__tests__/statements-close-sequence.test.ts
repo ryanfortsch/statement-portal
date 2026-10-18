@@ -49,3 +49,40 @@ describe('one property is one place', () => {
     }
   });
 });
+
+describe('the close strip is the sequence', () => {
+  const dashboard = fn('DashboardContent');
+  const card = fn('PropertyCard');
+  const strip = dashboard.slice(dashboard.indexOf('THE CLOSE, IN ORDER'), dashboard.indexOf('MONTHLY INPUTS'));
+
+  test('five fixed steps, in order', () => {
+    const labels = [...strip.matchAll(/label: '([^']+)',\n\s+done:/g)].map(m => m[1]);
+    assert.deepEqual(labels, ['Inputs on file', 'Synced', 'Reviewed', 'Drafted', 'Sent']);
+  });
+
+  test('ready to draft is its own count, not done', () => {
+    assert.match(strip, /const readyToDraft = props\.filter\(p => !drafted\(p\) && inputsOk\(p\) && syncedOk\(p\) && reviewedOk\(p\)\);/);
+    assert.ok(strip.includes('ready to draft'), 'the Drafted step no longer says how many are ready');
+  });
+
+  test('Open lands on the bank rows with the queue unfolded, not just the card', () => {
+    assert.match(strip, /bankRows\(p\) > 0 \? 'bank'/, 'Reviewed no longer lands on the bank section first');
+    assert.match(card, /if \(focusSection === 'bank'\) setBankOpenToken\(focusToken\);/);
+    assert.match(card, /openToken=\{bankOpenToken\}/, 'the card no longer unfolds its bank queue');
+    for (const section of ['sources', 'drift', 'recon', 'bank', 'flags', 'send']) {
+      assert.ok(card.includes(`stmt-\${prop.property_id}-${section}`), `the card lost its ${section} anchor`);
+    }
+    const review = read('src/components/BankDepositReview.tsx');
+    assert.match(review, /useState\(openToken > 0\)/, 'the queue mounts folded even when the strip asked it open');
+  });
+
+  test('the duplicate status line, the Performance block and the tile captions are gone', () => {
+    assert.ok(!/of \{props\.length\} drafted/.test(dashboard), 'the status line under the tiles is back');
+    assert.ok(!card.includes('title="Performance"'), 'the Performance block is back');
+    for (const tile of ['Properties', 'Stays', 'Revenue', 'Mgmt Fees', 'Cleaning', 'Owner Payouts']) {
+      const line = dashboard.split('\n').find(l => l.includes(`<Insight label="${tile}"`));
+      assert.ok(line, `the ${tile} tile is gone`);
+      assert.ok(!line.includes('sub='), `the ${tile} tile has its caption back`);
+    }
+  });
+});

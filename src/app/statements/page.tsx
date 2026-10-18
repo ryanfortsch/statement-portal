@@ -761,6 +761,13 @@ const PIPELINE_OWNED_GAP_TYPES = new Set([
 const isPipelineOwnedGap = (gapType: string) =>
   gapType.startsWith('stripe_') || PIPELINE_OWNED_GAP_TYPES.has(gapType);
 
+/**
+ * Flags that name a file the statement was built without. The close
+ * strip's "Inputs on file" step counts a statement missing one; its Open
+ * lands on the flag, where Fill Gap uploads the file.
+ */
+const INPUT_GAP_TYPES = new Set(['missing_bank_csv', 'no_platform_match', 'unresolved_guest_names']);
+
 // Response shapes returned by /api/fill-gap -- discriminated by file_type.
 type BankChange = { guest: string; status_before: string; status_after: string; deposit_amount: number | null; adjusted_revenue: number | null; changed: boolean };
 // adjusted_revenue_after is NULLABLE: a row whose money the operator owns
@@ -1304,34 +1311,79 @@ function Insight({ label, value, sub, accent, last }: { label: string; value: st
 }
 
 /**
- * One clickable segment of the month review strip. Clicking expands every
- * affected property card and jumps to the first one, so close-out review
- * never starts with an expand-and-hunt through twelve cards.
+ * One step of the close strip: its number (a tick once done), its name, a
+ * count out of the month's statements, what is holding it, and one Open
+ * that lands on the exact section of the first card that needs it. The
+ * first step not done is marked as the next one. A null count is unknown
+ * (a read failed), which never shows as a number.
  */
-function ReviewSegment({ count, label, sub, onOpen }: {
-  count: number;
+function CloseStep({ index, label, done, total, complete, next, details, onOpen }: {
+  index: number;
   label: string;
-  sub?: string;
-  onOpen: () => void;
+  done: number | null;
+  total: number;
+  complete: boolean;
+  next: boolean;
+  details: React.ReactNode[];
+  onOpen?: () => void;
 }) {
+  return (
+    <div className="rt-close-step" style={{
+      display: 'grid',
+      gridTemplateColumns: '22px 130px 64px 1fr auto',
+      alignItems: 'baseline',
+      columnGap: 12,
+      padding: '7px 0',
+      borderTop: index > 1 ? '1px dotted var(--rule)' : 'none',
+      fontSize: 12,
+    }}>
+      <span className="font-mono" style={{ fontSize: 11, color: complete ? 'var(--positive)' : next ? 'var(--signal)' : 'var(--ink-4)' }}>
+        {complete ? '✓' : index}
+      </span>
+      <span style={{ fontWeight: next ? 600 : 500, color: complete ? 'var(--ink-3)' : 'var(--ink)' }}>{label}</span>
+      <span className="font-mono tabular-nums" style={{ color: complete ? 'var(--positive)' : done === null ? 'var(--negative)' : 'var(--ink-2)' }}>
+        {done === null ? '?' : `${done}/${total}`}
+      </span>
+      <span className="flex items-baseline flex-wrap" style={{ gap: 14, minWidth: 0 }}>{details}</span>
+      {onOpen && !complete ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          style={{
+            border: `1px solid ${next ? 'var(--ink)' : 'var(--rule)'}`,
+            background: next ? 'var(--ink)' : 'transparent',
+            color: next ? 'var(--paper)' : 'var(--ink-3)',
+            fontSize: 10, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase',
+            padding: '4px 12px', cursor: 'pointer',
+          }}
+        >
+          Open
+        </button>
+      ) : <span />}
+    </div>
+  );
+}
+
+/** A clickable count inside a close step: lands on that kind of work only. */
+function StepLink({ alert, onClick, children }: { alert?: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
-      onClick={onOpen}
-      title="Expand the affected property cards"
+      onClick={onClick}
       style={{
-        background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-        display: 'flex', alignItems: 'baseline', gap: 7, textAlign: 'left',
+        background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
+        fontSize: 12, color: alert ? 'var(--negative)' : 'var(--ink-2)', fontWeight: alert ? 600 : 400,
+        textDecoration: 'underline', textDecorationColor: 'var(--rule)', textUnderlineOffset: 3,
       }}
     >
-      <span className="font-mono tabular-nums" style={{ fontSize: 15, color: 'var(--signal)' }}>{count}</span>
-      <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>{label}</span>
-      {sub && <span style={{ fontSize: 10, color: 'var(--ink-4)' }}>{sub}</span>}
-      <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
-        Open →
-      </span>
+      {children}
     </button>
   );
+}
+
+/** A plain line inside a close step: said, not clickable. */
+function StepNote({ alert, children }: { alert?: boolean; children: React.ReactNode }) {
+  return <span style={{ fontSize: 12, color: alert ? 'var(--negative)' : 'var(--ink-4)' }}>{children}</span>;
 }
 
 function EditorialButton({
@@ -1508,13 +1560,19 @@ function ReconciliationStrip({ recon }: { recon?: Reconciliation }) {
   );
 }
 
+/**
+ * The parts of an expanded card the close strip can land on. Each renders
+ * an element with id stmt-<property_id>-<section>.
+ */
+type CardSection = 'sources' | 'drift' | 'recon' | 'bank' | 'flags' | 'send';
+
 function PropertyCard({
   prop,
   month,
   ownerActionCount,
   onRefresh,
   reviewRefresh = 0,
-  forceExpand = 0,
+  focus,
   closeTask,
   closeTaskKnown,
   ownerGreeting,
@@ -1546,16 +1604,36 @@ function PropertyCard({
   // Bumped by the dashboard on every period reload so the deposit-review
   // queue refetches (syncs can land new pending rows).
   reviewRefresh?: number;
-  // Broadcast token from the month review strip. Nonzero means "open this
-  // card now"; it increments on every strip click so a re-click after a
-  // manual collapse re-opens the card.
-  forceExpand?: number;
+  // From the close strip: open this card at this section, with its queue
+  // unfolded. The token increments on every strip click, so a re-click
+  // after a manual collapse opens it again. Only the first card the click
+  // names scrolls.
+  focus?: { token: number; section: CardSection; scroll: boolean };
 }) {
   const [expanded, setExpanded] = useState(false);
+  const focusToken = focus?.token ?? 0;
+  const focusSection = focus?.section;
+  const focusScroll = !!focus?.scroll;
+  // Bumped when the strip lands on this card's bank rows, which unfolds
+  // the queue instead of leaving it folded inside the opened card.
+  const [bankOpenToken, setBankOpenToken] = useState(0);
+  const scrollTarget = useRef<string | null>(null);
   useEffect(() => {
+    if (focusToken === 0 || !focusSection) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (forceExpand > 0) setExpanded(true);
-  }, [forceExpand]);
+    setExpanded(true);
+    if (focusSection === 'bank') setBankOpenToken(focusToken);
+    if (focusScroll) scrollTarget.current = `stmt-${prop.property_id}-${focusSection}`;
+  }, [focusToken, focusSection, focusScroll, prop.property_id]);
+  useEffect(() => {
+    // Runs once the detail is in the DOM: the section anchors live inside it.
+    if (!expanded || !scrollTarget.current) return;
+    const id = scrollTarget.current;
+    scrollTarget.current = null;
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [expanded, focusToken]);
   const [generating, setGenerating] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -1622,7 +1700,6 @@ function PropertyCard({
 
   const gtySum = reservations.reduce((s, r) => s + r.guesty_rental_income, 0);
   const stripeSum = reservations.reduce((s, r) => s + r.stripe_fee, 0);
-  const adrNum = prop.nights_booked > 0 ? prop.rental_revenue / prop.nights_booked : 0;
 
   return (
     <div
@@ -1721,7 +1798,8 @@ function PropertyCard({
               this statement was last ingested. One-click adds them to the
               statement without a full re-ingest of all 3 files. */}
           {(prop.drift_bookings?.length || 0) > 0 && (
-            <div style={{
+            <div id={`stmt-${prop.property_id}-drift`} style={{
+              scrollMarginTop: 72,
               padding: '12px 14px',
               borderTop: '1px dotted var(--rule)',
               borderBottom: '1px dotted var(--rule)',
@@ -1791,7 +1869,8 @@ function PropertyCard({
           )}
 
           {/* Sources + bank verified */}
-          <div className="flex items-center gap-2 flex-wrap" style={{
+          <div id={`stmt-${prop.property_id}-sources`} className="flex items-center gap-2 flex-wrap" style={{
+            scrollMarginTop: 72,
             padding: '10px 0',
             borderTop: '1px dotted var(--rule)',
           }}>
@@ -1815,15 +1894,13 @@ function PropertyCard({
               Sits above the financials because it is the thing that says
               whether the financials can be trusted. Not a numbered section:
               it is a status surface, not part of the document. */}
-          <ReconciliationStrip recon={prop.reconciliation} />
+          <div id={`stmt-${prop.property_id}-recon`} style={{ scrollMarginTop: 72 }}>
+            <ReconciliationStrip recon={prop.reconciliation} />
+          </div>
 
-          {/* Financial summary + performance */}
-          <div className="rt-two-col" style={{
-            display: 'grid',
-            gridTemplateColumns: '1.15fr 1fr',
-            gap: 40,
-            padding: '20px 0 8px',
-          }}>
+          {/* Financial summary. The Performance block that sat beside it
+              (stays, nights, fee, ADR) repeated the header and this table. */}
+          <div style={{ padding: '20px 0 8px', maxWidth: 560 }}>
             <div>
               <SectionHead num="01" title="Financials" meta={`Net ${fmt(prop.owner_payout)}`} />
               <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12, color: 'var(--ink-2)' }}>
@@ -1845,21 +1922,12 @@ function PropertyCard({
                 </tbody>
               </table>
             </div>
-            <div>
-              <SectionHead num="02" title="Performance" />
-              <div className="rule-top rule-bottom" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                <Insight label="Stays" value={String(prop.num_stays)} />
-                <Insight label="Nights" value={String(prop.nights_booked)} last />
-                <Insight label="Mgmt Fee" value={fmtCompact(prop.management_fee)} accent />
-                <Insight label="ADR" value={adrNum > 0 ? fmtCompact(adrNum) : '—'} sub="avg. daily rate" last />
-              </div>
-            </div>
           </div>
 
           {/* Reservations */}
           {reservations.length > 0 && (
             <div style={{ marginTop: 28 }}>
-              <SectionHead num="03" title="Reservations" meta={`${reservations.length} stays`} />
+              <SectionHead num="02" title="Reservations" meta={`${reservations.length} stays`} />
               <div className="rt-scroll-x">
               <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
@@ -1981,7 +2049,7 @@ function PropertyCard({
           {/* Cleaning */}
           {cleaning.length > 0 && (
             <div style={{ marginTop: 28 }}>
-              <SectionHead num="04" title="Cleaning Charges" meta={`${fmt(prop.cleaning_total)} total`} />
+              <SectionHead num="03" title="Cleaning Charges" meta={`${fmt(prop.cleaning_total)} total`} />
               <div>
                 {cleaning.map((ce) => (
                   <div key={ce.id} className="flex items-center justify-between" style={{ padding: '10px 0', borderBottom: '1px dotted var(--rule)', fontSize: 12 }}>
@@ -2054,7 +2122,7 @@ function PropertyCard({
               total is the line itself. */}
           {(repairs.length > 0 || attributedDebits.length > 0) && (
             <div style={{ marginTop: 28 }}>
-              <SectionHead num="05" title="Repairs & Maintenance" meta={`${fmt(repairsCombined)} total`} />
+              <SectionHead num="04" title="Repairs & Maintenance" meta={`${fmt(repairsCombined)} total`} />
               <div>
                 {repairs.map((re) => (
                   <div key={re.id} className="flex items-center justify-between" style={{ padding: '10px 0', borderBottom: '1px dotted var(--rule)', fontSize: 12 }}>
@@ -2156,19 +2224,22 @@ function PropertyCard({
           {/* Unattributed bank deposits -- operator review queue. Shows
               nothing if there are no pending deposits for this property+month. */}
           {month && (
-            <BankDepositReview
-              propertyId={prop.property_id}
-              month={month}
-              reservations={(prop.reservations || []).map(r => ({ confirmation_code: r.confirmation_code, guest_name: r.guest_name }))}
-              refreshToken={`${reviewRefresh}:${queueToken}`}
-              onChanged={onRefresh}
-            />
+            <div id={`stmt-${prop.property_id}-bank`} style={{ scrollMarginTop: 72 }}>
+              <BankDepositReview
+                propertyId={prop.property_id}
+                month={month}
+                reservations={(prop.reservations || []).map(r => ({ confirmation_code: r.confirmation_code, guest_name: r.guest_name }))}
+                refreshToken={`${reviewRefresh}:${queueToken}`}
+                onChanged={onRefresh}
+                openToken={bankOpenToken}
+              />
+            </div>
           )}
 
           {/* Data Gaps */}
           {gaps.length > 0 && (
-            <div style={{ marginTop: 28 }}>
-              <SectionHead num="06" title="Data Gaps" meta={`${gaps.length} flag${gaps.length > 1 ? 's' : ''}`} signal />
+            <div id={`stmt-${prop.property_id}-flags`} style={{ marginTop: 28, scrollMarginTop: 72 }}>
+              <SectionHead num="05" title="Data Gaps" meta={`${gaps.length} flag${gaps.length > 1 ? 's' : ''}`} signal />
               <div>
                 {gaps.map((gap) => {
                   const fillable = gapFillType(gap.gap_type) !== null;
@@ -2382,7 +2453,7 @@ function PropertyCard({
               bottom of the page; now one property is one place. */}
           <div id={`stmt-${prop.property_id}-send`} style={{ marginTop: 28, scrollMarginTop: 72 }}>
             <SectionHead
-              num="07"
+              num="06"
               title="Send"
               meta={ownerEmailMissing ? 'no owner email on file' : `to ${ownerGreeting}`}
               signal={ownerEmailMissing}
@@ -2713,16 +2784,18 @@ function DashboardContent() {
     })();
     return () => { cancelled = true; };
   }, [selectedMonth, reviewRefresh, countsRefresh]);
-  // Broadcast from the month review strip: expand these property cards and
-  // jump to the first. The token forces a re-expand on repeat clicks.
-  const [cardExpand, setCardExpand] = useState<{ token: number; ids: string[] }>({ token: 0, ids: [] });
-  const focusCards = useCallback((ids: string[]) => {
-    if (ids.length === 0) return;
-    setCardExpand(prev => ({ token: prev.token + 1, ids }));
-    // Card headers are always in the DOM (only the detail is conditional),
-    // so the anchor exists before the expand state lands.
+  // Broadcast from the close strip: open these cards at these sections,
+  // queues unfolded, and land on the first. The token forces a re-open on
+  // repeat clicks after a manual collapse.
+  const [cardFocus, setCardFocus] = useState<{ token: number; targets: Record<string, CardSection>; first: string | null }>({ token: 0, targets: {}, first: null });
+  const focusSections = useCallback((targets: Array<[propertyId: string, section: CardSection]>) => {
+    if (targets.length === 0) return;
+    setCardFocus(prev => ({ token: prev.token + 1, targets: Object.fromEntries(targets), first: targets[0][0] }));
+  }, []);
+  // Month-level inputs live above the cards, not in one.
+  const scrollToId = useCallback((id: string) => {
     requestAnimationFrame(() => {
-      document.getElementById('stmt-' + ids[0])?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }, []);
   const [stripeSyncResult, setStripeSyncResult] = useState<
@@ -3799,9 +3872,7 @@ function DashboardContent() {
   const totalRevenue = props.reduce((s, p) => s + p.rental_revenue, 0);
   const totalMgmt = props.reduce((s, p) => s + p.management_fee, 0);
   const totalCleaning = props.reduce((s, p) => s + p.cleaning_total, 0);
-  const totalGaps = props.reduce((s, p) => s + (p.data_gaps?.filter(g => !g.resolved).length || 0), 0);
   const totalStays = props.reduce((s, p) => s + p.num_stays, 0);
-  const totalNights = props.reduce((s, p) => s + p.nights_booked, 0);
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -3998,8 +4069,11 @@ function DashboardContent() {
                     : 'Draft All'
                 }
                 meta={(() => {
+                  // "Ready to draft" is the strip's word for a reviewed
+                  // statement; Draft All drafts every one not yet drafted
+                  // (red confidence aside), reviewed or not, after a confirm.
                   const eligible = props.filter(p => p.confidence !== 'red' && !closeTasks[p.property_id]?.email_drafted_at).length;
-                  return eligible > 0 ? `${eligible} ready` : 'all drafted';
+                  return eligible > 0 ? `${eligible} not drafted` : 'all drafted';
                 })()}
                 icon={
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -4223,159 +4297,207 @@ function DashboardContent() {
           display: 'grid',
           gridTemplateColumns: 'repeat(6, 1fr)',
         }}>
-          <Insight label="Properties" value={String(props.length)} sub={`${totalNights} nights booked`} />
-          <Insight label="Stays" value={String(totalStays)} sub={props.length > 0 ? `${(totalStays / props.length).toFixed(1)} avg/property` : undefined} />
-          <Insight label="Revenue" value={fmtCompact(totalRevenue)} sub={totalNights > 0 ? `${fmtCompact(totalRevenue / totalNights)}/night` : undefined} />
-          <Insight label="Mgmt Fees" value={fmtCompact(totalMgmt)} sub={totalRevenue > 0 ? `${((totalMgmt / totalRevenue) * 100).toFixed(1)}% eff.` : undefined} accent />
-          <Insight label="Cleaning" value={fmtCompact(totalCleaning)} sub={totalStays > 0 ? `${fmtCompact(totalCleaning / totalStays)} avg/stay` : undefined} />
-          <Insight label="Owner Payouts" value={fmtCompact(totalPayout)} sub={totalRevenue > 0 ? `${((totalPayout / totalRevenue) * 100).toFixed(0)}% of revenue` : undefined} last />
+          <Insight label="Properties" value={String(props.length)} />
+          <Insight label="Stays" value={String(totalStays)} />
+          <Insight label="Revenue" value={fmtCompact(totalRevenue)} />
+          <Insight label="Mgmt Fees" value={fmtCompact(totalMgmt)} accent />
+          <Insight label="Cleaning" value={fmtCompact(totalCleaning)} />
+          <Insight label="Owner Payouts" value={fmtCompact(totalPayout)} last />
         </div>
-
-        {/* Workflow status -- always visible when there are properties.
-            Tells the operator at a glance: how many statements are
-            drafted / sent, and how many still have data gaps. The
-            financial Insights strip above answers "how much?"; this
-            answers "how far along?". Each segment colors itself: ink-4
-            when nothing's there, positive once work is done, signal
-            when gaps need attention. */}
-        {props.length > 0 && (() => {
-          const draftedCount = Object.values(closeTasks).filter(t => !!t.email_drafted_at).length;
-          const sentCount = Object.values(closeTasks).filter(t => !!t.email_sent_at).length;
-          const gappyCount = props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).length;
-          return (
-            <div className="flex items-center gap-5 flex-wrap" style={{ marginTop: 14, fontSize: 11 }}>
-              <span style={{ color: gappyCount > 0 ? 'var(--signal)' : 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {gappyCount > 0 && <IconWarning className="w-3.5 h-3.5 shrink-0" />}
-                <strong style={{ fontWeight: 600 }}>{totalGaps}</strong> data gap{totalGaps === 1 ? '' : 's'}
-                {gappyCount > 0 && (
-                  <span style={{ color: 'var(--ink-4)' }}>
-                    &middot; {gappyCount} propert{gappyCount === 1 ? 'y' : 'ies'}
-                  </span>
-                )}
-              </span>
-              <span style={{ color: draftedCount > 0 ? 'var(--positive)' : 'var(--ink-4)' }}>
-                <strong style={{ fontWeight: 600 }}>{draftedCount}</strong> of {props.length} drafted
-              </span>
-              <span style={{ color: sentCount > 0 ? 'var(--positive)' : 'var(--ink-4)' }}>
-                <strong style={{ fontWeight: 600 }}>{sentCount}</strong> sent
-              </span>
-            </div>
-          );
-        })()}
       </section>
 
-      {/* ─── MONTH REVIEW STRIP ─── the aggregate close-review queue.
-           Everything that used to require expanding cards one by one:
-           pending bank-review rows (deposits, debits, parked vendor
-           refunds), open data gaps, statements not yet sent. Each segment
-           expands the affected property cards and scrolls to the first,
-           so review starts from one line instead of a hunt. */}
+      {/* ─── THE CLOSE, IN ORDER ─── five fixed steps, each a count out of
+           the month's statements: Inputs on file, Synced, Reviewed, Drafted,
+           Sent. The first step not done is the next thing to do. Every Open
+           lands on the exact section of the first card that needs it, with
+           its queue unfolded, and opens the rest at the same section. */}
       {props.length > 0 && (() => {
-        const depositIds = props.filter(p => (depositReviewCounts.counts[p.property_id] || 0) > 0).map(p => p.property_id);
-        const depositCount = depositIds.reduce((s, id) => s + (depositReviewCounts.counts[id] || 0), 0);
-        const gapIds = props.filter(p => (p.data_gaps?.filter(g => !g.resolved).length || 0) > 0).map(p => p.property_id);
-        const driftIds = props.filter(p => (p.drift_bookings?.length || 0) > 0).map(p => p.property_id);
-        const driftCount = props.reduce((s, p) => s + (p.drift_bookings?.length || 0), 0);
-        const unsentIds = props.filter(p => !closeTasks[p.property_id]?.email_sent_at).map(p => p.property_id);
-        const failingSyncs = STATEMENT_SYNC_SOURCES.filter(s => lastSync[s]?.last_status === 'error');
-        const driftUnknown = props.some(p => p.drift_known === false);
-        const unmatchable = props.reduce((s, p) => s + (p.drift_unmatchable || 0), 0);
-        // Input completeness: the two must-do monthly uploads. Unknown
-        // (load failed / still loading) is never treated as OK or missing.
+        const n = props.length;
+        const openGaps = (p: PropertyStatement) => (p.data_gaps || []).filter(g => !g.resolved);
+        const bankRows = (p: PropertyStatement) => depositReviewCounts.counts[p.property_id] || 0;
+
+        // 1. Inputs on file: the month's two portfolio files, and each
+        // statement's own ingest (the Guesty PDF, and no flag naming a file
+        // it is still missing).
         const platformMissing = monthStatus ? !monthStatus.platform_csv.on_file : false;
         const bookingMissing = monthStatus?.booking_activity.known ? monthStatus.booking_activity.rows === 0 : false;
-        const gapsUnknown = props.some(p => p.gaps_known === false);
-        // Reconciliation is the close's real test. A statement whose
-        // reconciliation could not be built is unknown, and unknown blocks:
-        // it is not evidence the numbers are right.
-        const unreconciledIds = props.filter(p => p.reconciliation && !p.reconciliation.reconciled).map(p => p.property_id);
-        const reconUnknown = props.some(p => !p.reconciliation);
-        // `unmatchable` is deliberately NOT a term here. Those rows live in
-        // Guesty with no confirmation code; nothing the operator does in
-        // Helm can drive the count to zero, so gating the all-clear on it
-        // would make "Month is clear" unreachable forever -- the alarm
-        // fatigue this audit is trying to cure. It shows as a chip instead.
-        const clear = depositCount === 0 && totalGaps === 0 && driftCount === 0 && unsentIds.length === 0
-          && depositReviewCounts.known && !driftUnknown && !gapsUnknown
-          && failingSyncs.length === 0 && !platformMissing && !bookingMissing
-          && unreconciledIds.length === 0 && !reconUnknown;
-        const warnChip = (text: string, title?: string) => (
-          <span title={title} style={{ display: 'inline-flex', alignItems: 'baseline', gap: 7 }}>
-            <span style={{ fontSize: 12, color: 'var(--negative)', fontWeight: 600 }}>{text}</span>
-          </span>
-        );
+        const inputsUnknown = !monthStatus || !monthStatus.booking_activity.known;
+        const inputsOk = (p: PropertyStatement) => p.has_guesty_statement && !openGaps(p).some(g => INPUT_GAP_TYPES.has(g.gap_type));
+        const inputsMissing = props.filter(p => !inputsOk(p));
+
+        // 2. Synced: the feeds are healthy and no paid booking has landed
+        // in Guesty since the statement was built.
+        const failingSyncs = STATEMENT_SYNC_SOURCES.filter(src => lastSync[src]?.last_status === 'error');
+        const syncedOk = (p: PropertyStatement) => p.drift_known !== false && (p.drift_bookings?.length || 0) === 0;
+        const driftCards = props.filter(p => (p.drift_bookings?.length || 0) > 0);
+        const driftCount = driftCards.reduce((sum, p) => sum + (p.drift_bookings?.length || 0), 0);
+        const driftUnknown = props.some(p => p.drift_known === false);
+        // Revenue rows in Guesty with no confirmation code: nothing in Helm
+        // can match them, so they never block a step. Said, not counted.
+        const unmatchable = props.reduce((sum, p) => sum + (p.drift_unmatchable || 0), 0);
+
+        // 3. Reviewed: no bank row waiting, no open flag, reconciled.
+        const reviewedOk = (p: PropertyStatement) => !!p.reconciliation?.reconciled && p.gaps_known !== false
+          && openGaps(p).length === 0 && depositReviewCounts.known && bankRows(p) === 0;
+        const bankCards = props.filter(p => bankRows(p) > 0);
+        const bankCount = bankCards.reduce((sum, p) => sum + bankRows(p), 0);
+        const flagCards = props.filter(p => openGaps(p).length > 0);
+        const flagCount = flagCards.reduce((sum, p) => sum + openGaps(p).length, 0);
+        const unreconciledCards = props.filter(p => p.reconciliation && !p.reconciliation.reconciled);
+        const reviewUnknown = !depositReviewCounts.known || props.some(p => p.gaps_known === false || !p.reconciliation);
+        // The first section that holds the card back, in the order it is worked.
+        const reviewSection = (p: PropertyStatement): CardSection =>
+          bankRows(p) > 0 ? 'bank' : openGaps(p).length > 0 ? 'flags' : 'recon';
+
+        // 4 and 5. Drafted and Sent, from the close-out ticks.
+        const ticksKnown = !closeStateError;
+        const drafted = (p: PropertyStatement) => !!closeTasks[p.property_id]?.email_drafted_at;
+        const sent = (p: PropertyStatement) => !!closeTasks[p.property_id]?.email_sent_at;
+        // Ready to draft is not done: inputs on file, synced and reviewed,
+        // and no draft yet.
+        const readyToDraft = props.filter(p => !drafted(p) && inputsOk(p) && syncedOk(p) && reviewedOk(p));
+        const undrafted = props.filter(p => !drafted(p));
+        const draftedUnsent = props.filter(p => drafted(p) && !sent(p));
+        const unsent = props.filter(p => !sent(p));
+
+        const send = (list: PropertyStatement[]) => focusSections(list.map(p => [p.property_id, 'send'] as [string, CardSection]));
+        const steps: Array<{
+          label: string;
+          done: number | null;
+          complete: boolean;
+          details: React.ReactNode[];
+          open?: () => void;
+        }> = [
+          {
+            label: 'Inputs on file',
+            done: n - inputsMissing.length,
+            complete: inputsMissing.length === 0 && !platformMissing && !bookingMissing && !inputsUnknown,
+            details: [
+              platformMissing && <StepLink key="pc" alert onClick={() => scrollToId('inputs-guesty-csv')}>Guesty reservations CSV not uploaded</StepLink>,
+              bookingMissing && <StepLink key="bk" alert onClick={() => scrollToId('inputs-booking')}>Booking.com 5623 CSV not uploaded</StepLink>,
+              inputsUnknown && <StepNote key="iu" alert>month files unknown (the check did not load)</StepNote>,
+              inputsMissing.length > 0 && (
+                <StepLink key="im" onClick={() => focusSections(inputsMissing.map(p => [p.property_id, openGaps(p).some(g => INPUT_GAP_TYPES.has(g.gap_type)) ? 'flags' : 'sources']))}>
+                  {inputsMissing.length} statement{inputsMissing.length === 1 ? '' : 's'} missing a file
+                </StepLink>
+              ),
+            ],
+            open: platformMissing ? () => scrollToId('inputs-guesty-csv')
+              : bookingMissing ? () => scrollToId('inputs-booking')
+              : inputsMissing.length > 0 ? () => focusSections(inputsMissing.map(p => [p.property_id, openGaps(p).some(g => INPUT_GAP_TYPES.has(g.gap_type)) ? 'flags' : 'sources']))
+              : undefined,
+          },
+          {
+            label: 'Synced',
+            done: driftUnknown ? null : n - props.filter(p => !syncedOk(p)).length,
+            complete: !driftUnknown && driftCards.length === 0 && failingSyncs.length === 0,
+            details: [
+              failingSyncs.length > 0 && (
+                <StepLink key="fs" alert onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setSyncMenuOpen(true); }}>
+                  {failingSyncs.length} feed{failingSyncs.length === 1 ? '' : 's'} failing ({failingSyncs.join(', ')})
+                </StepLink>
+              ),
+              driftCount > 0 && (
+                <StepLink key="dr" onClick={() => focusSections(driftCards.map(p => [p.property_id, 'drift']))}>
+                  {driftCount} new paid booking{driftCount === 1 ? '' : 's'} not on a statement
+                </StepLink>
+              ),
+              driftUnknown && <StepNote key="du" alert>new-booking check did not load for a statement</StepNote>,
+              unmatchable > 0 && (
+                <StepNote key="um">
+                  {unmatchable} Guesty row{unmatchable === 1 ? '' : 's'} with no confirmation code (check in Guesty; does not hold up the close)
+                </StepNote>
+              ),
+            ],
+            open: driftCards.length > 0 ? () => focusSections(driftCards.map(p => [p.property_id, 'drift']))
+              : failingSyncs.length > 0 ? () => { window.scrollTo({ top: 0, behavior: 'smooth' }); setSyncMenuOpen(true); }
+              : undefined,
+          },
+          {
+            label: 'Reviewed',
+            done: reviewUnknown ? null : n - props.filter(p => !reviewedOk(p)).length,
+            complete: !reviewUnknown && props.every(reviewedOk),
+            details: [
+              bankCount > 0 && (
+                <StepLink key="bq" onClick={() => focusSections(bankCards.map(p => [p.property_id, 'bank']))}>
+                  {bankCount} bank row{bankCount === 1 ? '' : 's'} to review
+                </StepLink>
+              ),
+              flagCount > 0 && (
+                <StepLink key="fl" onClick={() => focusSections(flagCards.map(p => [p.property_id, 'flags']))}>
+                  {flagCount} open flag{flagCount === 1 ? '' : 's'}
+                </StepLink>
+              ),
+              unreconciledCards.length > 0 && (
+                <StepLink key="rc" onClick={() => focusSections(unreconciledCards.map(p => [p.property_id, 'recon']))}>
+                  {unreconciledCards.length} not reconciled
+                </StepLink>
+              ),
+              !depositReviewCounts.known && <StepNote key="bu" alert>bank row count did not load</StepNote>,
+              props.some(p => p.gaps_known === false) && <StepNote key="gu" alert>a flag list did not load</StepNote>,
+              props.some(p => !p.reconciliation) && <StepNote key="ru" alert>a reconciliation could not be computed</StepNote>,
+            ],
+            open: props.some(p => !reviewedOk(p))
+              ? () => focusSections(props.filter(p => !reviewedOk(p)).map(p => [p.property_id, reviewSection(p)]))
+              : undefined,
+          },
+          {
+            label: 'Drafted',
+            done: ticksKnown ? n - undrafted.length : null,
+            complete: ticksKnown && undrafted.length === 0,
+            details: [
+              ticksKnown && undrafted.length > 0 && (
+                readyToDraft.length > 0 ? (
+                  <StepLink key="rd" onClick={() => send(readyToDraft)}>
+                    {readyToDraft.length} ready to draft
+                  </StepLink>
+                ) : (
+                  <StepNote key="rd">none ready to draft yet</StepNote>
+                )
+              ),
+              !ticksKnown && <StepNote key="tu" alert>close-out ticks did not load</StepNote>,
+            ],
+            open: ticksKnown && undrafted.length > 0 ? () => send(readyToDraft.length > 0 ? readyToDraft : undrafted) : undefined,
+          },
+          {
+            label: 'Sent',
+            done: ticksKnown ? n - unsent.length : null,
+            complete: ticksKnown && unsent.length === 0,
+            details: [
+              ticksKnown && draftedUnsent.length > 0 && (
+                <StepLink key="du" onClick={() => send(draftedUnsent)}>
+                  {draftedUnsent.length} drafted, not marked sent
+                </StepLink>
+              ),
+            ],
+            open: ticksKnown && unsent.length > 0 ? () => send(draftedUnsent.length > 0 ? draftedUnsent : unsent) : undefined,
+          },
+        ];
+        const nextStep = steps.findIndex(st => !st.complete);
         return (
           <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 20 }}>
-            <div className="rule-top rule-bottom flex items-baseline flex-wrap" style={{ padding: '12px 0', gap: 26 }}>
-              <span className="eyebrow" style={{ color: clear ? 'var(--ink-4)' : 'var(--signal)' }}>
-                Close review
-              </span>
-              {clear ? (
-                <>
+            <div className="rule-top rule-bottom" style={{ padding: '10px 0' }}>
+              <div className="flex items-baseline justify-between flex-wrap" style={{ gap: 12, marginBottom: 6 }}>
+                <span className="eyebrow" style={{ color: nextStep < 0 ? 'var(--ink-4)' : 'var(--signal)' }}>The close</span>
+                {nextStep < 0 && (
                   <span className="font-serif" style={{ fontSize: 13, fontStyle: 'italic', color: 'var(--ink-3)' }}>
-                    Month is clear &middot; every statement reconciled, inputs on file, every queue empty, every statement sent.
+                    Month is clear &middot; inputs on file, synced, every statement reviewed, drafted and sent.
                   </span>
-                  {unmatchable > 0 && warnChip(
-                    `${unmatchable} Guesty row${unmatchable === 1 ? '' : 's'} with no confirmation code`,
-                    'These rows carry revenue but have no confirmation code, so nothing in Helm can match them to a stay. Check them in Guesty; they do not block the close.',
-                  )}
-                </>
-              ) : (
-                <>
-                  {failingSyncs.length > 0 && warnChip(
-                    `${failingSyncs.length} sync feed${failingSyncs.length === 1 ? '' : 's'} failing (${failingSyncs.join(', ')})`,
-                    'Statement inputs may be stale. Open the Sync menu for details.',
-                  )}
-                  {platformMissing && warnChip('Platform CSV not uploaded', 'No Guesty reservations CSV on file for this month. Upload it below.')}
-                  {bookingMissing && warnChip('Booking.com 5623 CSV not uploaded', 'No Booking.com deposits-account activity on file for this month. Upload it below.')}
-                  {!depositReviewCounts.known && warnChip('bank review counts unavailable', 'The pending-deposit count failed to load; the queue may not be empty.')}
-                  {props.some(p => p.gaps_known === false) && warnChip('gap list unavailable', 'The data-gaps read failed for at least one property, so a statement may be carrying flags this page cannot show.')}
-                  {driftUnknown && warnChip('new-booking check unavailable', 'The Guesty drift probe failed for at least one property, so bookings could be missing from a statement without showing here.')}
-                  {reconUnknown && warnChip('reconciliation unavailable', 'At least one statement could not be reconciled against its sources, so its numbers are unverified.')}
-                  {unmatchable > 0 && warnChip(
-                    `${unmatchable} Guesty row${unmatchable === 1 ? '' : 's'} with no confirmation code`,
-                    'These rows carry revenue but have no confirmation code, so nothing can match them to a stay or add them to a statement. Check them in Guesty.',
-                  )}
-                  {unreconciledIds.length > 0 && (
-                    <ReviewSegment
-                      count={unreconciledIds.length}
-                      label={`statement${unreconciledIds.length === 1 ? '' : 's'} not reconciled`}
-                      onOpen={() => focusCards(unreconciledIds)}
-                    />
-                  )}
-                  {depositCount > 0 && (
-                    <ReviewSegment
-                      count={depositCount}
-                      label={`bank row${depositCount === 1 ? '' : 's'} to review`}
-                      sub={`${depositIds.length} propert${depositIds.length === 1 ? 'y' : 'ies'}`}
-                      onOpen={() => focusCards(depositIds)}
-                    />
-                  )}
-                  {totalGaps > 0 && (
-                    <ReviewSegment
-                      count={totalGaps}
-                      label={`open data gap${totalGaps === 1 ? '' : 's'}`}
-                      sub={`${gapIds.length} propert${gapIds.length === 1 ? 'y' : 'ies'}`}
-                      onOpen={() => focusCards(gapIds)}
-                    />
-                  )}
-                  {driftCount > 0 && (
-                    <ReviewSegment
-                      count={driftCount}
-                      label={`new paid booking${driftCount === 1 ? '' : 's'} not on a statement`}
-                      sub={`${driftIds.length} propert${driftIds.length === 1 ? 'y' : 'ies'}`}
-                      onOpen={() => focusCards(driftIds)}
-                    />
-                  )}
-                  {unsentIds.length > 0 && (
-                    <ReviewSegment
-                      count={unsentIds.length}
-                      label={`statement${unsentIds.length === 1 ? '' : 's'} not yet sent`}
-                      onOpen={() => focusCards(unsentIds)}
-                    />
-                  )}
-                </>
-              )}
+                )}
+              </div>
+              {steps.map((st, i) => (
+                <CloseStep
+                  key={st.label}
+                  index={i + 1}
+                  label={st.label}
+                  done={st.done}
+                  total={n}
+                  complete={st.complete}
+                  next={i === nextStep}
+                  details={st.details.filter(Boolean)}
+                  onOpen={st.open}
+                />
+              ))}
             </div>
           </section>
         );
@@ -4384,16 +4506,20 @@ function DashboardContent() {
       {/* ─── MONTHLY INPUTS ─── the two once-a-month uploads, compact.
            Each card collapses to a one-line status row when its file is on
            file for the month and expands automatically when it isn't. */}
-      <PlatformCSVUploadCard
-        defaultMonth={selectedMonth || undefined}
-        status={monthStatus?.platform_csv ?? null}
-        onUploaded={() => { setCountsRefresh(n => n + 1); }}
-      />
-      <BookingDepositsUploadCard
-        defaultMonth={selectedMonth || undefined}
-        status={monthStatus?.booking_activity ?? null}
-        onUploaded={() => { setCountsRefresh(n => n + 1); }}
-      />
+      <div id="inputs-guesty-csv" style={{ scrollMarginTop: 72 }}>
+        <PlatformCSVUploadCard
+          defaultMonth={selectedMonth || undefined}
+          status={monthStatus?.platform_csv ?? null}
+          onUploaded={() => { setCountsRefresh(n => n + 1); }}
+        />
+      </div>
+      <div id="inputs-booking" style={{ scrollMarginTop: 72 }}>
+        <BookingDepositsUploadCard
+          defaultMonth={selectedMonth || undefined}
+          status={monthStatus?.booking_activity ?? null}
+          onUploaded={() => { setCountsRefresh(n => n + 1); }}
+        />
+      </div>
 
       {/* ─── CLOSE-OUT NOTES ─── per-month freeform notepad the operator
            drops context into throughout the month (cancellations, refunds,
@@ -4983,7 +5109,9 @@ function DashboardContent() {
                 ownerActionCount={ownerActionCounts[prop.property_id] ?? 0}
                 onRefresh={() => { void refreshStatement(prop.id, prop.property_name); }}
                 reviewRefresh={reviewRefresh}
-                forceExpand={cardExpand.ids.includes(prop.property_id) ? cardExpand.token : 0}
+                focus={cardFocus.targets[prop.property_id]
+                  ? { token: cardFocus.token, section: cardFocus.targets[prop.property_id], scroll: cardFocus.first === prop.property_id }
+                  : undefined}
                 closeTask={closeTasks[prop.property_id]}
                 closeTaskKnown={!closeStateError}
                 ownerGreeting={resolveCfg(prop.property_id)?.owner_greeting || prop.owner_name}
