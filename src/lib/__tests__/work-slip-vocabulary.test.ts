@@ -34,12 +34,13 @@ const LANE_WORDS = ['Maintenance', 'Supply', 'Owner', 'Office', 'Other'];
 /** The database names and the dead labels that used to leak into pickers. */
 const RETIRED_WORDS = ['Rising Tide', 'Inventory', 'Vendor', 'One-off'];
 
-/** Every surface where a person picks a category by hand. */
+/** Every surface where a person picks a category by hand. The slip page
+ *  no longer does: it asks Whose hands, with the lane words, and the
+ *  category follows (work-slip-whose-hands.test.ts). */
 const PICKERS = [
   'src/app/work/QueueClient.tsx',
   'src/app/properties/[id]/PropertyAddSlipButton.tsx',
   'src/app/inspections/[id]/Stepper.tsx',
-  'src/app/work/[id]/SlipCategoryEditor.tsx',
 ];
 
 describe('a slip category has one vocabulary', () => {
@@ -86,9 +87,10 @@ describe('a slip category has one vocabulary', () => {
     }
   });
 
-  test('the slip page header pill reads the same label record as the chips', () => {
+  test('the slip page header pill names the lane, the word its Whose hands chips use', () => {
     const page = read('src/app/work/[id]/page.tsx');
-    assert.ok(page.includes('WORK_SLIP_CATEGORY_LABELS[slip.category]'), 'the header pill no longer prints WORK_SLIP_CATEGORY_LABELS');
+    assert.ok(page.includes('label={LANE_LABELS[lane]}'), 'the header pill no longer prints the lane');
+    assert.ok(!page.includes('WORK_SLIP_CATEGORY_LABELS'), 'the slip page prints a second vocabulary for the same slip');
   });
 });
 

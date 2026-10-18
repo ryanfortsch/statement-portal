@@ -23,7 +23,7 @@
  * columns.
  */
 
-import type { WorkSlipRow } from './work-types';
+import type { RunScope, WorkSlipCategory, WorkSlipOwnerActionType, WorkSlipRow } from './work-types';
 import { suppliesLabel } from './inspection-supplies.ts';
 
 export type WorkLane = 'supply' | 'visit' | 'handyman' | 'pro' | 'owner' | 'office';
@@ -49,6 +49,17 @@ export const LANE_HINTS: Record<WorkLane, string> = {
   pro: 'Needs a licensed or specialty trade. The office books the appointment.',
   owner: 'Waiting on the owner. Nothing to do in the house until they answer.',
   office: 'Desk work for the office. Not for this visit.',
+};
+
+/** The short word each lane goes by on a chip: the "Whose hands" choice on
+ *  the slip page. The board's lane headers say the long form above. */
+export const LANE_CHOICE_LABELS: Record<WorkLane, string> = {
+  supply: 'Supply',
+  visit: 'This visit',
+  handyman: 'Handyman',
+  pro: 'Pro or vendor',
+  owner: 'Owner',
+  office: 'Office',
 };
 
 export type LaneSlip = Pick<WorkSlipRow, 'category' | 'title'> &
@@ -98,6 +109,68 @@ export function slipLane(s: LaneSlip): WorkLane {
   if (s.run_scope === 'handyman') return 'handyman';
   // 'inspector', and untriaged: a routine stop picks it up by default.
   return 'visit';
+}
+
+export type LaneChoiceSlip = LaneSlip & Partial<Pick<WorkSlipRow, 'owner_action_type'>>;
+
+/** The columns a "Whose hands" choice writes. */
+export type LaneChoicePatch = {
+  category: WorkSlipCategory;
+  run_scope?: RunScope;
+  owner_action_required: boolean;
+  owner_action_type?: WorkSlipOwnerActionType | null;
+  owner_action_notes?: null;
+  owner_status?: 'not_sent';
+};
+
+/**
+ * What picking a lane on the slip page writes: the category, run_scope and
+ * owner flag that slipLane() reads that same lane back off, so the slip page
+ * asks one question ("Whose hands") and the stored columns follow from the
+ * answer. Owner arms the owner-action rail as filing under Owner always has
+ * (category owner, an ask of Purchase unless one is set); leaving Owner
+ * withdraws the ask the way the Owner input un-flag does. The planner's
+ * pools read category maintenance plus run_scope, which is why This visit,
+ * Handyman and Pro all file as maintenance.
+ *
+ * Null when no write can put this slip in that lane: a supplies-check slip
+ * (from_supply_key) is a supply by provenance, so only Supply and Owner are
+ * open to it. work-slip-whose-hands.test.ts checks every choice reads back
+ * as itself.
+ */
+export function laneChoicePatch(lane: WorkLane, s: LaneChoiceSlip): LaneChoicePatch | null {
+  const leaveOwner = s.owner_action_required || s.category === 'owner'
+    ? { owner_action_required: false, owner_action_type: null, owner_action_notes: null, owner_status: 'not_sent' as const }
+    : { owner_action_required: false };
+  let patch: LaneChoicePatch;
+  switch (lane) {
+    case 'owner':
+      patch = { category: 'owner', owner_action_required: true, owner_action_type: s.owner_action_type ?? 'purchase' };
+      break;
+    case 'supply':
+      patch = { category: 'inventory', ...leaveOwner };
+      break;
+    case 'visit':
+      patch = { category: 'maintenance', run_scope: 'inspector', ...leaveOwner };
+      break;
+    case 'handyman':
+      patch = { category: 'maintenance', run_scope: 'handyman', ...leaveOwner };
+      break;
+    case 'pro':
+      patch = { category: 'maintenance', run_scope: 'pro', ...leaveOwner };
+      break;
+    case 'office':
+      // A legacy "Restock: ..." title under rising_tide reads as a supply
+      // (isSupplySlip), so desk work with that title files as Other.
+      patch = { category: /^restock:\s/i.test(s.title) ? 'other' : 'rising_tide', ...leaveOwner };
+      break;
+  }
+  return slipLane({ ...s, ...patch }) === lane ? patch : null;
+}
+
+/** The lanes a person can move this slip to, in walk order. */
+export function laneChoicesFor(s: LaneChoiceSlip): WorkLane[] {
+  return LANE_ORDER.filter((lane) => laneChoicePatch(lane, s) !== null);
 }
 
 /** A slip filed as "73 Rocky Neck: Fix the back door" reads as "Fix the

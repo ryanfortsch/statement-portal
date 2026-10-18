@@ -130,7 +130,11 @@ and the description is a pasted source or long, and `organize_group` for slips a
 object. It never writes title or description. `organized_at` is the once-only stamp: the sweep is
 `organized_at IS NULL`, and every operator lane edit (category, scope, owner flag) stamps it, so a
 human decision is never re-filed. Concierge-keyed, supplies-check, prep-rule and packet-backing
-slips are skipped; they have their own lanes and lifecycles.
+slips are skipped; they have their own lanes and lifecycles. On the slip page a person answers one
+question, **Whose hands**, with the six lane words; `laneChoicePatch` in `work-slip-lanes.ts` is
+what each answer writes (category, `run_scope`, owner flag), checked against `slipLane` so it
+always reads back as the lane picked (`work-slip-whose-hands.test.ts`), and `updateWorkSlipLane`
+is the one server writer. There is no separate category or scope picker on a slip.
 
 **Every home also carries a brief** (`property_work_briefs`, `src/lib/work-briefs.ts`): a one-line
 headline for the Work board's home header and three to seven bullets (`items`, each a lead naming

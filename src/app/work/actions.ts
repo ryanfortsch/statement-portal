@@ -10,12 +10,12 @@ import type {
   WorkSlipStatus,
   WorkSlipOwnerActionType,
   WorkSlipOwnerStatus,
-  RunScope,
   TaskScope,
   TaskPriority,
   TaskStatus,
 } from '@/lib/work-types';
 import { WORK_PRIORITIES } from '@/lib/work-types';
+import { LANE_ORDER, laneChoicePatch, slipLane, type LaneChoiceSlip, type WorkLane } from '@/lib/work-slip-lanes';
 
 const TASK_STATUSES: TaskStatus[] = ['open', 'in_progress', 'blocked', 'done', 'archived'];
 
@@ -291,89 +291,52 @@ export async function updateWorkSlipAssignment(args: {
   return { ok: true };
 }
 
-/**
- * Snooze a slip until a chosen date. The slip stays in its current
- * status; snoozed_until is a presentation hint that hides it from
- * the active queue / home / property page until the date passes.
- *
- * Pass null to un-snooze immediately (the row reappears in the
- * active queue right away).
- */
-/** Operator override for the AI's run_scope triage. The classifier only
- *  ever fills NULL scopes (guarded by .is('run_scope', null)), so a value
- *  set here sticks — a misclassification is one click from corrected and
- *  stays corrected. */
-export async function updateWorkSlipScope(args: {
-  id: string;
-  run_scope: RunScope | null;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
-  const session = await auth();
-  if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
-  if (args.run_scope !== null && !['inspector', 'handyman', 'pro'].includes(args.run_scope)) {
-    return { ok: false, error: 'Bad scope' };
-  }
-  const { error } = await supabase
-    .from('work_slips')
-    .update({
-      run_scope: args.run_scope,
-      // A cleared scope goes back through AI triage; a set one is the
-      // operator's word, so drop the AI's stale note either way.
-      run_scope_note: args.run_scope ? `Set by ${session.user.email.split('@')[0]}` : null,
-      // A lane decision by a person: the nightly organize pass never
-      // re-files a slip once organized_at is set (lib/organize-work-slips.ts).
-      ...laneSetBy(session.user.email),
-    })
-    .eq('id', args.id);
-  if (error) return { ok: false, error: error.message };
-  revalidatePath('/work');
-  revalidatePath(`/work/${args.id}`);
-  return { ok: true };
-}
-
 /** The stamp every human lane edit writes, so the organize pass skips the
  *  slip from then on and the slip page says who decided. */
 function laneSetBy(email: string): { organized_at: string; organize_note: string } {
   return { organized_at: new Date().toISOString(), organize_note: `Set by ${email.split('@')[0]}` };
 }
 
-/** Categories a person files by hand. vendor and ad_hoc belong to packet code. */
-const EDITABLE_CATEGORIES: WorkSlipCategory[] = ['maintenance', 'inventory', 'owner', 'rising_tide', 'other'];
-
 /**
- * Move a slip between lanes. Category is what every surface reads the lane
- * off (lib/work-slip-lanes.ts), so this is the one lever that moves a slip
- * on the board, the print sheet and the Field packet at once. Filing under
- * Owner arms the owner-action rail exactly as createWorkSlip does; leaving
- * Owner withdraws the ask the same way the Owner-input un-flag does, keeping
- * owner_last_contacted_at as history of any email sent.
+ * Whose hands a slip goes to: the one question the slip page asks about who
+ * does the work. The lane is never stored (lib/work-slip-lanes.ts derives it
+ * from category, run_scope and the owner flag), so a choice writes exactly
+ * the columns laneChoicePatch says that lane reads back off, and stamps
+ * organized_at like every operator lane edit: the nightly organize pass and
+ * the scope classifier never re-file a human's call. Tapping the lane the
+ * slip is already in only stamps it.
  */
-export async function updateWorkSlipCategory(args: {
+export async function updateWorkSlipLane(args: {
   id: string;
-  category: WorkSlipCategory;
+  lane: WorkLane;
   propertyId?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
-  if (!EDITABLE_CATEGORIES.includes(args.category)) return { ok: false, error: 'Bad category' };
+  if (!LANE_ORDER.includes(args.lane)) return { ok: false, error: 'Bad lane' };
 
   const { data: current, error: readErr } = await supabase
     .from('work_slips')
-    .select('category, owner_action_required, owner_action_type')
+    .select('category, title, run_scope, owner_action_required, owner_action_type, from_supply_key, from_guest_request_key')
     .eq('id', args.id)
     .maybeSingle();
   if (readErr) return { ok: false, error: readErr.message };
   if (!current) return { ok: false, error: 'Work slip not found' };
-  const row = current as { category: WorkSlipCategory; owner_action_required: boolean; owner_action_type: WorkSlipOwnerActionType | null };
+  const row = current as LaneChoiceSlip;
 
-  const patch: Record<string, unknown> = { category: args.category, ...laneSetBy(session.user.email) };
-  if (args.category === 'owner') {
-    patch.owner_action_required = true;
-    if (!row.owner_action_type) patch.owner_action_type = 'purchase';
-  } else if (row.category === 'owner' || row.owner_action_required) {
-    patch.owner_action_required = false;
-    patch.owner_action_type = null;
-    patch.owner_action_notes = null;
-    patch.owner_status = 'not_sent';
+  const stamp = laneSetBy(session.user.email);
+  let patch: Record<string, unknown>;
+  if (slipLane(row) === args.lane) {
+    patch = stamp;
+  } else {
+    const choice = laneChoicePatch(args.lane, row);
+    if (!choice) return { ok: false, error: 'This slip cannot go to that lane.' };
+    patch = {
+      ...choice,
+      // A scope a person set is final; the classifier only fills empty ones.
+      ...(choice.run_scope ? { run_scope_note: stamp.organize_note } : {}),
+      ...stamp,
+    };
   }
 
   const { error } = await supabase.from('work_slips').update(patch).eq('id', args.id);
@@ -467,6 +430,14 @@ export async function updateWorkSlipOwnerStatus(args: {
   return { ok: true };
 }
 
+/**
+ * Snooze a slip until a chosen date. The slip stays in its current
+ * status; snoozed_until is a presentation hint that hides it from
+ * the active queue / home / property page until the date passes.
+ *
+ * Pass null to un-snooze immediately (the row reappears in the
+ * active queue right away).
+ */
 export async function snoozeWorkSlip(args: {
   id: string;
   until: string | null;     // YYYY-MM-DD or null

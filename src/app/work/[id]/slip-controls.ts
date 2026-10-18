@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 
 /**
- * One idiom for every chip row on the slip page (Lane, Who does this, The
+ * One idiom for every chip row on the slip page (Whose hands, The
  * ask, Owner's answer): tap a chip to set it, tap the lit one again to clear
  * it where the field can be empty, and read the hint printed under the row.
  * Nothing load-bearing lives in a tooltip, which a phone never shows.

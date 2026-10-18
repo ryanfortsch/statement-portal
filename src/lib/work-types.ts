@@ -277,7 +277,7 @@ export const DEFAULT_WORK_SLIP_CATEGORY: WorkSlipCategory = 'maintenance';
 /** One clause per category, printed under the picker and under the slip
  *  page's chips (never only in a tooltip, which a phone does not show). */
 export const WORK_SLIP_CATEGORY_HINTS: Record<WorkSlipCategory, string> = {
-  maintenance: 'A fix or a check in the house. Who does it is decided under Who does this.',
+  maintenance: 'A fix or a check in the house. Who does it is set on the slip, under Whose hands.',
   inventory: 'A restock from the closet or a small purchase the office makes.',
   owner: 'The owner buys, approves or decides first.',
   vendor: 'A licensed or specialty trade the office books.',
