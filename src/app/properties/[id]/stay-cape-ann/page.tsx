@@ -3,6 +3,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmBreadcrumb } from '@/components/HelmBreadcrumb';
 import { HelmHero } from '@/components/HelmHero';
 import { auth } from '@/auth';
+import { roleForEmail } from '@/lib/helm-access';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { deriveStripeAccountKey, type ScaFormDraft, type ScaLaunchRow } from '@/lib/sca-launch';
@@ -39,6 +40,9 @@ export default async function StayCapeAnnLaunchPage({
 }) {
   const { id } = await params;
   const session = await auth();
+  // Steps 3 and 4 (payments, go-live, unlist) are owner acts; staff get the
+  // listing content, the preview and one line for payments.
+  const isOwner = roleForEmail(session?.user?.email) === 'owner';
   const property = await getProperty(id);
   if (!property) notFound();
 
@@ -78,7 +82,11 @@ export default async function StayCapeAnnLaunchPage({
         eyebrow="Helm · Properties"
         title="Stay Cape"
         emphasis="Ann"
-        description={`Put ${property.name} on staycapeann.com. Helm opens a reviewable pull request with the listing, surfaces a live preview, and walks you through wiring this property's own Stripe account. You approve to go live.`}
+        description={
+          isOwner
+            ? `Put ${property.name} on staycapeann.com. Helm opens a reviewable pull request with the listing, surfaces a live preview, and walks you through wiring this property's own Stripe account. You approve to go live.`
+            : `Put ${property.name} on staycapeann.com. Write the listing here and review the preview. An owner wires the payments and takes it live.`
+        }
         paddingTop={28}
       />
 
@@ -90,6 +98,7 @@ export default async function StayCapeAnnLaunchPage({
           defaults={defaults}
           githubConfigured={isGithubConfigured()}
           signedIn={!!session?.user?.email}
+          isOwner={isOwner}
         />
       </main>
     </div>
