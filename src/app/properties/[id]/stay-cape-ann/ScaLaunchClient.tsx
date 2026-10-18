@@ -23,6 +23,7 @@ import {
   draftScaCopyWithAi,
   openScaUpdatePr,
   publishScaUpdate,
+  adoptLiveScaListing,
 } from './actions';
 import { etStamp } from '@/lib/stable-time';
 
@@ -40,7 +41,31 @@ type Props = {
    * and their server actions refuse a staff session.
    */
   isOwner: boolean;
+  /**
+   * The listing as it reads on staycapeann.com now, from the live registry
+   * entry. A live listing opens on this rather than on its saved draft: the
+   * retired fleet tools (Bedroom photos, Listing Copy Studio) wrote the
+   * registry directly, so a saved draft can be older than the live page.
+   */
+  liveDraft?: ScaFormDraft | null;
+  /** On staycapeann.com but with no launch record in Helm: offer to open it here. */
+  adoptable?: boolean;
 };
+
+const newRoomKey = (): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `room-${Math.random().toString(36).slice(2)}`;
+
+/** Where the form starts: the live entry for a live listing with no update in flight, else the saved draft. */
+function startingForm(props: Props): { form: ScaFormDraft; fromLive: boolean } {
+  const row = props.initialRow;
+  const pendingUpdate = row?.status === 'live' && (row.branch_name?.startsWith('sca-update/') ?? false);
+  if (props.liveDraft && row?.status === 'live' && !pendingUpdate) {
+    return { form: normalize(props.liveDraft, props.defaults), fromLive: true };
+  }
+  return { form: normalize(row?.registry_entry ?? {}, props.defaults), fromLive: false };
+}
 
 type PreviewState = 'none' | 'pending' | 'success' | 'failure';
 
@@ -67,14 +92,26 @@ function normalize(d: Partial<ScaFormDraft>, base: ScaFormDraft): ScaFormDraft {
 }
 
 export function ScaLaunchClient(props: Props) {
-  const [form, setForm] = useState<ScaFormDraft>(() => normalize(props.initialRow?.registry_entry ?? {}, props.defaults));
+  const [start] = useState(() => startingForm(props));
+  const [form, setForm] = useState<ScaFormDraft>(start.form);
   const [row, setRow] = useState<ScaLaunchRow | null>(props.initialRow);
+  // A stable identity per bedroom, so removing an earlier room never hands a
+  // later room's upload (or failed upload) to its neighbour. Editor-only:
+  // never saved, never in the registry.
+  const [roomKeys, setRoomKeys] = useState<string[]>(() => (start.form.sleepingArrangements ?? []).map(newRoomKey));
+  const [failedSlots, setFailedSlots] = useState<Set<string>>(() => new Set());
+  // The saved draft, when the form opened on the live listing and the two differ.
+  const [savedDraftAside, setSavedDraftAside] = useState<ScaFormDraft | null>(() => {
+    if (!start.fromLive || !props.initialRow?.registry_entry) return null;
+    const saved = normalize(props.initialRow.registry_entry, props.defaults);
+    return JSON.stringify(saved) === JSON.stringify(start.form) ? null : saved;
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const busyRef = useRef(false);
   const [savedForm, setSavedForm] = useState(() => JSON.stringify(form));
-  const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(() => new Set());
+  const [uploadingSlots, setUploadingSlots] = useState<Set<string>>(() => new Set());
   const [previewState, setPreviewState] = useState<PreviewState>('none');
   const [previewSignature, setPreviewSignature] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -100,15 +137,19 @@ export function ScaLaunchClient(props: Props) {
   const hasContentPreview = status === 'pr_open' || hasPendingUpdate;
   const dirty = JSON.stringify(form) !== savedForm;
   const blocked = busy !== null || uploadingSlots.size > 0;
+  // A failed bedroom upload keeps the editor open (its Retry and Remove must
+  // work) but nothing saves or publishes until it is retried or removed.
+  const failedUploads = failedSlots.size > 0;
   const previewMatches = previewSignature !== null && scaDraftPreviewSignature(form) === previewSignature;
-  useUnsavedWorkGuard(dirty || blocked);
+  useUnsavedWorkGuard(dirty || blocked || failedUploads);
   const env = scaStripeEnvVarNames(form.stripeAccountKey || 'ACCOUNT_KEY');
   const webhookUrl = scaStripeWebhookUrl(form.stripeAccountKey || 'ACCOUNT_KEY');
   const paymentsReady = !!(row?.payment_publishable_set && row?.payment_secret_set && row?.payment_webhook_set);
   // What staff are told about payments: wired once the three wiring boxes are
   // ticked, unless the last probe found the booking page in demo mode
   // (bookings that collect nothing, 84 Thatcher).
-  const paymentsWired = paymentsReady && row?.payment_verify_signal !== 'demo_mode';
+  // An adopted listing has no ticked boxes, so a passing probe counts too.
+  const paymentsWired = (paymentsReady || row?.payment_verify_signal === 'wired') && row?.payment_verify_signal !== 'demo_mode';
 
   // Auto-poll the preview deploy while a PR is open and not yet resolved.
   useEffect(() => {
@@ -148,6 +189,40 @@ export function ScaLaunchClient(props: Props) {
 
   function set<K extends keyof ScaFormDraft>(key: K, value: ScaFormDraft[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+  /** Swap the whole form (the live listing, a saved draft); `saved` when it is what the database holds. */
+  function replaceForm(next: ScaFormDraft, saved: boolean) {
+    setForm(next);
+    setRoomKeys((next.sleepingArrangements ?? []).map(newRoomKey));
+    setUploadingSlots(new Set());
+    setFailedSlots(new Set());
+    if (saved) setSavedForm(JSON.stringify(next));
+  }
+  function addRoom() {
+    set('sleepingArrangements', [...(form.sleepingArrangements ?? []), { name: '', beds: '', photo: [] }]);
+    setRoomKeys((keys) => [...keys, newRoomKey()]);
+  }
+  function removeRoom(i: number) {
+    const key = roomKeys[i];
+    if (key && uploadingSlots.has(key)) return;
+    if (key && failedSlots.has(key) && !window.confirm('Remove this bedroom and its failed uploads?')) return;
+    setFailedSlots((prev) => {
+      if (!key || !prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    set('sleepingArrangements', (form.sleepingArrangements ?? []).filter((_, j) => j !== i));
+    setRoomKeys((keys) => keys.filter((_, j) => j !== i));
+  }
+  function setRoomFlag(setter: typeof setUploadingSlots, key: string, on: boolean) {
+    setter((prev) => {
+      if (prev.has(key) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
   }
   function errOf(path: string): string | undefined {
     return errors[path];
@@ -279,6 +354,19 @@ export function ScaLaunchClient(props: Props) {
       setNotice({ kind: 'ok', text: `Drafted from ${source}. Review it, then Save draft.` });
     });
 
+  const onAdopt = () =>
+    run('adopt', async () => {
+      const res = await adoptLiveScaListing(props.propertyId);
+      if (!res.ok) {
+        setNotice({ kind: 'err', text: res.error ?? 'Could not open the live listing' });
+        return;
+      }
+      setRow(res.row);
+      replaceForm(normalize(res.row.registry_entry ?? {}, props.defaults), true);
+      setSavedDraftAside(null);
+      setNotice({ kind: 'ok', text: 'This is the live listing. Edit it here, then Update live listing.' });
+    });
+
   const onOpenPr = () =>
     run('pr', async () => {
       setPreviewSignature(null);
@@ -380,6 +468,34 @@ export function ScaLaunchClient(props: Props) {
       else setNotice({ kind: 'err', text: res.error });
     });
 
+  // On staycapeann.com with no launch record in Helm (listed before Helm
+  // tracked launches, or by hand): open the live listing here first, so an
+  // edit starts from what guests see and never re-launches the home.
+  if (props.adoptable && (!row || row.status === 'draft')) {
+    return (
+      <div style={{ marginTop: 8 }}>
+        {notice && (
+          <div ref={noticeRef}>
+            <Banner kind={notice.kind}>{notice.text}</Banner>
+          </div>
+        )}
+        <section style={card}>
+          <div className="eyebrow">Live on staycapeann.com</div>
+          <h2 className="font-serif" style={sectionTitle}>{props.propertyName} is already on the site</h2>
+          <p style={hintStyle}>
+            Helm has no launch record for it yet{row?.status === 'draft' ? ', only an unlaunched draft, which this replaces' : ''}. Open the live
+            listing to edit its copy and bedroom photos here.
+          </p>
+          <div style={{ marginTop: 14 }}>
+            <button type="button" style={btnPrimary} disabled={busy !== null} onClick={onAdopt}>
+              {busy === 'adopt' ? 'Opening…' : 'Open the live listing'}
+            </button>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div style={{ marginTop: 8 }}>
       <StatusBar status={status} previewState={previewState} paymentsReady={paymentsReady} />
@@ -408,7 +524,24 @@ export function ScaLaunchClient(props: Props) {
         <p role="status" style={hintStyle}>
           {dirty ? 'Unsaved changes. Save your draft before leaving.' : 'No unsaved changes.'}
           {uploadingSlots.size > 0 ? ' Wait for the photo upload to finish before saving.' : ''}
+          {failedUploads ? ' Retry or remove the failed bedroom uploads before saving.' : ''}
         </p>
+        {savedDraftAside && (
+          <p role="status" style={{ ...hintStyle, color: 'var(--ink)' }}>
+            This form shows the listing as it reads on staycapeann.com. A draft saved here earlier differs from it.{' '}
+            <button
+              type="button"
+              style={{ ...btnBase, padding: '3px 9px', fontSize: 11 }}
+              onClick={() => {
+                if (dirty && !window.confirm('Replace your edits with the saved draft?')) return;
+                replaceForm(savedDraftAside, true);
+                setSavedDraftAside(null);
+              }}
+            >
+              Use the saved draft
+            </button>
+          </p>
+        )}
 
         {/* One column on a phone, two from 640px. The Stripe account key used
             to sit here beside the Guesty id; it names payment keys, so it
@@ -532,10 +665,12 @@ export function ScaLaunchClient(props: Props) {
         />
 
         <Repeatable
-          title="Sleeping arrangements (optional)"
+          id="sleeping"
+          title="Sleeping arrangements and bedroom photos (optional)"
           items={form.sleepingArrangements ?? []}
-          onAdd={() => set('sleepingArrangements', [...(form.sleepingArrangements ?? []), { name: '', beds: '', photo: [] }])}
-          onRemove={(i) => set('sleepingArrangements', (form.sleepingArrangements ?? []).filter((_, j) => j !== i))}
+          keys={roomKeys}
+          onAdd={addRoom}
+          onRemove={removeRoom}
           render={(s, i) => (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: 8 }}>
@@ -549,11 +684,8 @@ export function ScaLaunchClient(props: Props) {
                   onChange={(next) => updateAt('sleepingArrangements', i, { ...s, photo: next })}
                   folder={`sca/${props.propertyId}/bedrooms`}
                   disabled={blocked}
-                  onUploadingChange={(uploading) => setUploadingSlots((prev) => {
-                    const next = new Set(prev);
-                    if (uploading) next.add(i); else next.delete(i);
-                    return next;
-                  })}
+                  onUploadingChange={(uploading) => { if (roomKeys[i]) setRoomFlag(setUploadingSlots, roomKeys[i], uploading); }}
+                  onFailedUploadsChange={(count) => { if (roomKeys[i]) setRoomFlag(setFailedSlots, roomKeys[i], count > 0); }}
                 />
               </div>
             </>
@@ -584,14 +716,14 @@ export function ScaLaunchClient(props: Props) {
               source of truth), then open an update PR. The live page keeps serving the current copy until you publish.
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <button type="button" style={btnBase} disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
-              <button type="button" style={btnPrimary} disabled={busy !== null || !props.githubConfigured} onClick={onUpdateLive}>
+              <button type="button" style={btnBase} disabled={busy !== null || failedUploads} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
+              <button type="button" style={btnPrimary} disabled={busy !== null || failedUploads || !props.githubConfigured} onClick={onUpdateLive}>
                 {busy === 'update' ? 'Opening update PR…' : hasPendingUpdate ? 'Refresh update PR' : 'Update live listing →'}
               </button>
               {hasPendingUpdate && (
                 <>
                   {row?.pr_url && <a href={row.pr_url} target="_blank" rel="noreferrer" style={linkStyle}>Update PR ↗</a>}
-                  <button type="button" style={btnBase} disabled={blocked || !previewMatches} onClick={onPublishUpdate}>
+                  <button type="button" style={btnBase} disabled={blocked || failedUploads || !previewMatches} onClick={onPublishUpdate}>
                     {busy === 'publish' ? 'Publishing…' : 'Publish update'}
                   </button>
                 </>
@@ -603,8 +735,8 @@ export function ScaLaunchClient(props: Props) {
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 10, marginTop: 24, flexWrap: 'wrap' }}>
-            <button type="button" style={btnBase} disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
-            <button type="button" style={btnPrimary} disabled={busy !== null || !props.githubConfigured} onClick={onOpenPr}>
+            <button type="button" style={btnBase} disabled={busy !== null || failedUploads} onClick={onSave}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
+            <button type="button" style={btnPrimary} disabled={busy !== null || failedUploads || !props.githubConfigured} onClick={onOpenPr}>
               {busy === 'pr' ? 'Opening PR…' : prOpen ? 'Update preview PR' : 'Open preview PR →'}
             </button>
           </div>
@@ -802,12 +934,12 @@ export function ScaLaunchClient(props: Props) {
               <button
                 type="button"
                 style={{ ...btnPrimary, opacity: paymentsReady ? 1 : 0.5 }}
-                disabled={blocked || !prOpen || !paymentsReady || !previewMatches}
+                disabled={blocked || failedUploads || !prOpen || !paymentsReady || !previewMatches}
                 onClick={() => onGoLive(false)}
               >
                 {busy === 'golive' ? 'Merging…' : 'Approve & go live →'}
               </button>
-              <button type="button" style={{ ...btnBase, fontSize: 11 }} disabled={blocked || !prOpen || !previewMatches} onClick={() => onGoLive(true)}>
+              <button type="button" style={{ ...btnBase, fontSize: 11 }} disabled={blocked || failedUploads || !prOpen || !previewMatches} onClick={() => onGoLive(true)}>
                 Force go-live…
               </button>
               {previewState === 'failure' && (
@@ -970,23 +1102,28 @@ function CopyLine({ text, suffix }: { text: string; suffix?: string }) {
 }
 
 function Repeatable<T>({
+  id,
   title,
   items,
+  keys,
   onAdd,
   onRemove,
   render,
 }: {
+  id?: string;
   title: string;
   items: T[];
+  /** Stable React keys per item; index keys otherwise. */
+  keys?: string[];
   onAdd: () => void;
   onRemove: (i: number) => void;
   render: (item: T, i: number) => ReactNode;
 }) {
   return (
-    <div style={{ marginTop: 24 }}>
+    <div id={id} style={{ marginTop: 24, scrollMarginTop: 80 }}>
       <span style={labelStyle}>{title}</span>
       {items.map((item, i) => (
-        <div key={i} style={{ border: '1px solid var(--rule)', padding: 12, marginBottom: 8, position: 'relative' }}>
+        <div key={keys?.[i] ?? i} style={{ border: '1px solid var(--rule)', padding: 12, marginBottom: 8, position: 'relative' }}>
           {render(item, i)}
           <button type="button" style={{ ...btnBase, padding: '3px 9px', fontSize: 11, marginTop: 8 }} onClick={() => onRemove(i)}>Remove</button>
         </div>

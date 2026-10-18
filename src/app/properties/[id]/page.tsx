@@ -1939,7 +1939,7 @@ export default async function PropertyDetailPage({
                       ? 'Live, but the last payment probe found demo mode: bookings collect nothing. Check this property’s Stripe key.'
                       : scaLaunch.snapshot_refresh_error
                         ? 'Live on staycapeann.com. The last snapshot refresh failed, so the page may be stale.'
-                        : 'Live on staycapeann.com.'
+                        : 'Live on staycapeann.com. Its copy and bedroom photos are edited here.'
                     : scaLaunch?.status === 'pr_open'
                       ? 'Launch in review, a PR is open.'
                       : 'Launch this property on staycapeann.com.'
@@ -1957,14 +1957,8 @@ export default async function PropertyDetailPage({
                       : undefined
                 }
               />
-              {scaLaunch?.status === 'live' && (scaLaunch.guesty_listing_id || p.guesty_listing_id) && (
-                <GrowthTile
-                  eyebrow="Photos"
-                  title="Bedroom photos"
-                  description="Add or replace this listing's bedroom photos on staycapeann.com."
-                  href={`/properties/bedroom-photos?listing=${scaLaunch.guesty_listing_id ?? p.guesty_listing_id}&property=${p.id}`}
-                />
-              )}
+              {/* No Bedroom photos tile: the launcher's Sleeping arrangements
+                  carry the same uploader, on the live listing. */}
             </div>
           </section>
           {/* RATES & TAXES, LISTING, AUTOMATIONS: the Helm-native records

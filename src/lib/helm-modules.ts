@@ -405,20 +405,8 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'growth',
     section: 'properties',
   },
-  // Bedroom Photos is reached from the Properties surface.
-  // Registered here for search, surfaced in-context (hidden from menus).
-  {
-    id: 'bedroom-photos',
-    href: '/properties/bedroom-photos',
-    number: '05b',
-    title: 'Bedroom Photos',
-    description: 'Per-bedroom photo coverage across the fleet. Which rooms are shot, which still need the camera.',
-    status: 'active',
-    primary: false,
-    hidden: true,
-    group: 'growth',
-    section: 'properties',
-  },
+  // Bedroom Photos (05b) was retired into each home's Stay Cape Ann
+  // launcher on 2026-10-18; /properties/bedroom-photos redirects there.
   // Contracts register is a tab on the Properties surface.
   // Registered here for search, surfaced in-context (hidden from menus).
   {

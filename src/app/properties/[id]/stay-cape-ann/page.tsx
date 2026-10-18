@@ -6,8 +6,15 @@ import { auth } from '@/auth';
 import { roleForEmail } from '@/lib/helm-access';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
-import { deriveStripeAccountKey, type ScaFormDraft, type ScaLaunchRow } from '@/lib/sca-launch';
-import { isGithubConfigured } from '@/lib/github';
+import {
+  deriveStripeAccountKey,
+  registryEntryFor,
+  registryEntryToDraft,
+  type ScaFormDraft,
+  type ScaLaunchRow,
+} from '@/lib/sca-launch';
+import * as gh from '@/lib/github';
+import { SCA_REGISTRY_PATH, SCA_PROD_BRANCH } from '@/lib/sca-config';
 import { ScaLaunchClient } from './ScaLaunchClient';
 
 export const dynamic = 'force-dynamic';
@@ -33,6 +40,22 @@ async function getLaunch(id: string): Promise<ScaLaunchRow | null> {
   }
 }
 
+/**
+ * The listing as it reads on staycapeann.com now, or null when it is not on
+ * the site (or GitHub cannot be read, in which case the launcher opens on
+ * its saved draft as it always did).
+ */
+async function getLiveDraft(listingId: string, fallback: Parameters<typeof registryEntryToDraft>[2]): Promise<ScaFormDraft | null> {
+  if (!listingId || !gh.isGithubConfigured()) return null;
+  try {
+    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
+    const entry = file ? registryEntryFor(file.contentUtf8, listingId) : null;
+    return entry ? registryEntryToDraft(listingId, entry, fallback) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function StayCapeAnnLaunchPage({
   params,
 }: {
@@ -47,6 +70,14 @@ export default async function StayCapeAnnLaunchPage({
   if (!property) notFound();
 
   const launch = await getLaunch(id);
+  const listingId = String(launch?.guesty_listing_id || property.guesty_listing_id || '').trim();
+  // Only a live listing (or one Helm has no launch record for) needs the
+  // live read; a draft or a launch in review edits its own saved draft.
+  const liveDraft =
+    session?.user?.email && (!launch || launch.status === 'live' || launch.status === 'draft')
+      ? await getLiveDraft(listingId, { internalName: property.name, stripeAccountKey: deriveStripeAccountKey(property.id), rank: launch?.rank ?? 100 })
+      : null;
+  const adoptable = !!liveDraft && (!launch || launch.status === 'draft');
 
   // Defaults for a fresh draft, prefilled from the Helm property row.
   const defaults: ScaFormDraft = {
@@ -96,9 +127,11 @@ export default async function StayCapeAnnLaunchPage({
           propertyName={property.name}
           initialRow={launch}
           defaults={defaults}
-          githubConfigured={isGithubConfigured()}
+          githubConfigured={gh.isGithubConfigured()}
           signedIn={!!session?.user?.email}
           isOwner={isOwner}
+          liveDraft={liveDraft}
+          adoptable={adoptable}
         />
       </main>
     </div>

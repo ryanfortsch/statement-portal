@@ -123,12 +123,6 @@ export default async function PropertiesPage() {
         >
           Stay Cape Ann listing copy →
         </Link>
-        <Link
-          href="/properties/bedroom-photos"
-          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.03em' }}
-        >
-          Bedroom photos →
-        </Link>
       </div>
 
       {/* MAP — geographic portfolio view above the list. Click a pin to

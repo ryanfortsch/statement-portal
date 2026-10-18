@@ -10,6 +10,10 @@ import {
   applyEntryToRegistryJson,
   removeEntryFromRegistryJson,
   registryHasListing,
+  registryEntryFor,
+  registryEntryToDraft,
+  mergeRegistryEntry,
+  deriveStripeAccountKey,
   interpretBookProbe,
   type ScaFormDraft,
   type ScaLaunchRow,
@@ -411,6 +415,91 @@ export async function saveScaDraft(propertyId: string, draft: ScaFormDraft): Pro
 }
 
 /**
+ * The entry a PR writes: the form's fields over the listing's live entry when
+ * it has one, so what the launcher does not edit (nearbyOverrides, a dining
+ * pick's address, anything added in the stay-cape-ann repo) survives.
+ */
+function entryOverLive(registryRaw: string, form: Parameters<typeof buildRegistryEntry>[0]): Record<string, unknown> {
+  const built = buildRegistryEntry(form);
+  const live = registryEntryFor(registryRaw, form.guestyListingId);
+  return live ? mergeRegistryEntry(live, built) : (built as unknown as Record<string, unknown>);
+}
+
+/**
+ * Give a home that is already on staycapeann.com a launch record, read from
+ * its live registry entry. Homes listed before Helm tracked launches (or by
+ * hand in the stay-cape-ann repo) had none, so the launcher could not edit
+ * them and their bedroom photos lived on a separate fleet page. The public
+ * booking page is probed (no secret involved) so the payments line has
+ * evidence; the wiring checkboxes stay an owner's to tick.
+ */
+export async function adoptLiveScaListing(propertyId: string): Promise<ActionResult> {
+  const email = await requireEmail();
+  if (!email) return { ok: false, error: 'Not signed in' };
+  if (!gh.isGithubConfigured()) return { ok: false, error: 'GITHUB_TOKEN is not configured' };
+  const existing = await loadRow(propertyId);
+  if (existing && existing.status !== 'draft') {
+    return { ok: false, error: 'This home already has a launch record. Reload the page.' };
+  }
+  const { data: prop, error: propError } = await supabase
+    .from('properties')
+    .select('id, name, guesty_listing_id')
+    .eq('id', propertyId)
+    .maybeSingle();
+  if (propError) return { ok: false, error: propError.message };
+  if (!prop) return { ok: false, error: 'Property not found' };
+  const listingId = String(existing?.guesty_listing_id || prop.guesty_listing_id || '').trim();
+  if (!listingId) return { ok: false, error: 'This home has no Guesty listing ID yet.' };
+
+  try {
+    const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
+    const entry = file ? registryEntryFor(file.contentUtf8, listingId) : null;
+    if (!entry) return { ok: false, error: 'That listing is not on staycapeann.com.' };
+    const draft = registryEntryToDraft(listingId, entry, {
+      internalName: String(prop.name ?? ''),
+      stripeAccountKey: deriveStripeAccountKey(propertyId),
+      rank: 100,
+    });
+
+    let signal: PaymentVerifySignal | null = null;
+    try {
+      const res = await fetch(scaBookProbeUrl(listingId), { cache: 'no-store', redirect: 'follow' });
+      signal = interpretBookProbe(await res.text(), SCA_DEMO_MODE_SENTINEL);
+    } catch {
+      signal = null;
+    }
+
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('sca_launches').upsert(
+      {
+        property_id: propertyId,
+        guesty_listing_id: listingId,
+        stripe_account_key: draft.stripeAccountKey || null,
+        ical_url: draft.icalUrl || null,
+        rank: Number.isFinite(draft.rank) ? draft.rank : null,
+        registry_entry: draft,
+        status: 'live',
+        live_url: scaListingUrl(listingId),
+        payment_verify_signal: signal,
+        payment_verified_at: signal ? now : null,
+        branch_name: null,
+        pr_number: null,
+        pr_url: null,
+        preview_url: null,
+        created_by: existing?.created_by ?? email,
+      },
+      { onConflict: 'property_id' },
+    );
+    if (error) return { ok: false, error: error.message };
+    revalidate(propertyId);
+    const row = await loadRow(propertyId);
+    return row ? { ok: true, row } : { ok: false, error: 'Saved but could not reload' };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
  * Validate the draft, write the registry entry onto a branch (as a real user),
  * and open/refresh a PR. Surfaces the Vercel preview URL when available.
  */
@@ -451,7 +540,7 @@ export async function openScaPr(propertyId: string, draft: ScaFormDraft): Promis
       };
     }
 
-    const entry = buildRegistryEntry(form);
+    const entry = entryOverLive(file.contentUtf8, form);
     const newContent = applyEntryToRegistryJson(file.contentUtf8, form.guestyListingId, entry);
     const branch = `sca-launch/${propertyId}`;
     const commitMessage = `Launch ${form.internalName} (${form.publicName}) on Stay Cape Ann`;
@@ -540,7 +629,7 @@ export async function openScaUpdatePr(propertyId: string, draft: ScaFormDraft): 
     const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
     if (!file) return { ok: false, error: `Could not read ${SCA_REGISTRY_PATH} on ${SCA_PROD_BRANCH}` };
 
-    const entry = buildRegistryEntry(form);
+    const entry = entryOverLive(file.contentUtf8, form);
     const newContent = applyEntryToRegistryJson(file.contentUtf8, form.guestyListingId, entry);
     const branch = `sca-update/${propertyId}`;
     const commitMessage = `Update ${form.internalName} (${form.publicName}) on Stay Cape Ann`;

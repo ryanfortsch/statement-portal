@@ -202,26 +202,82 @@ export function buildRegistryEntry(form: z.infer<typeof scaFormSchema>): ScaRegi
     entry.extraFavorites = form.extraFavorites.map((f) => ({ ...f, category: 'dining' as const }));
   }
   if (form.sleepingArrangements && form.sleepingArrangements.length) {
-    const arr = form.sleepingArrangements
-      .map((s) => {
-        const o: { name?: string; beds?: string; photo?: string | string[] } = {};
-        if (s.name) o.name = s.name;
-        if (s.beds) o.beds = s.beds;
-        const photo = toPhotoField(Array.isArray(s.photo) ? s.photo : []);
-        if (photo !== undefined) o.photo = photo;
-        return o;
-      })
-      .filter((o) => Object.keys(o).length > 0);
+    // A room's place is its card's place on the site, so an empty room in the
+    // middle stays as {} (a placeholder card); only trailing empties drop.
+    const arr = buildSleepingArrangementsForRegistry(form.sleepingArrangements);
     if (arr.length) entry.sleepingArrangements = arr;
   }
   return entry;
 }
 
+/**
+ * The registry fields the launcher writes. Anything else on a live entry
+ * (nearbyOverrides, a dining pick's address) was put there by hand in the
+ * stay-cape-ann repo, and an update from Helm must carry it through untouched.
+ */
+const MANAGED_KEYS = [
+  'internalName', 'publicName', 'icalUrl', 'rank', 'stripeAccountKey', 'pitch', 'tagline', 'description',
+  'highlights', 'heroPhoto', 'rating', 'reviewCount', 'reviews', 'stayFavorite', 'extraFavorites', 'sleepingArrangements',
+] as const;
+const FAVORITE_KEYS = ['name', 'category', 'lat', 'lng', 'town', 'blurb'];
+const ROOM_KEYS = ['name', 'beds', 'photo'];
+const REVIEW_KEYS = ['name', 'date', 'rating', 'text'];
+
+function pickKeys(value: unknown, keys: readonly string[]): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const src = value as Record<string, unknown>;
+  return Object.fromEntries(keys.filter((k) => Object.prototype.hasOwnProperty.call(src, k)).map((k) => [k, src[k]]));
+}
+
+/** The part of a registry entry the launcher owns: what its preview check compares. */
+export function managedRegistryView(entry: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of MANAGED_KEYS) if (Object.prototype.hasOwnProperty.call(entry, k)) out[k] = entry[k];
+  if (out.stayFavorite !== undefined) out.stayFavorite = pickKeys(out.stayFavorite, FAVORITE_KEYS);
+  if (Array.isArray(out.extraFavorites)) out.extraFavorites = out.extraFavorites.map((f) => pickKeys(f, FAVORITE_KEYS));
+  if (Array.isArray(out.sleepingArrangements)) out.sleepingArrangements = out.sleepingArrangements.map((r) => pickKeys(r, ROOM_KEYS));
+  if (Array.isArray(out.reviews)) out.reviews = out.reviews.map((r) => pickKeys(r, REVIEW_KEYS));
+  return out;
+}
+
+/**
+ * Write the launcher's entry over a listing's live entry. The launcher's
+ * fields take the form's values (a field the form leaves empty is removed, so
+ * the site falls back to Guesty for it); every other field survives, and a
+ * dining pick that keeps its name keeps its own extra details.
+ */
+export function mergeRegistryEntry(live: Record<string, unknown>, next: ScaRegistryEntry): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...live };
+  const nextRec = next as unknown as Record<string, unknown>;
+  for (const k of MANAGED_KEYS) {
+    if (nextRec[k] === undefined) delete out[k];
+    else out[k] = nextRec[k];
+  }
+  const nameOf = (f: unknown): string =>
+    f && typeof f === 'object' ? String((f as { name?: unknown }).name ?? '').trim().toLowerCase() : '';
+  const keepDetails = (prev: unknown, cur: unknown): unknown =>
+    prev && cur && typeof prev === 'object' && typeof cur === 'object' && nameOf(prev) && nameOf(prev) === nameOf(cur)
+      ? { ...(prev as Record<string, unknown>), ...(cur as Record<string, unknown>) }
+      : cur;
+  if (out.stayFavorite !== undefined) out.stayFavorite = keepDetails(live.stayFavorite, out.stayFavorite);
+  if (Array.isArray(out.extraFavorites)) {
+    const prev = Array.isArray(live.extraFavorites) ? live.extraFavorites : [];
+    out.extraFavorites = out.extraFavorites.map((f) => keepDetails(prev.find((p) => nameOf(p) === nameOf(f)), f));
+  }
+  return out;
+}
+
 type RawRegistry = { description?: string; listings?: Record<string, unknown> };
 
-/** Compare registry content independent of object-key order, retaining array order. */
+/**
+ * Compare the launcher's part of a registry entry (managedRegistryView),
+ * independent of object-key order, retaining array order. Fields the launcher
+ * does not write are outside the comparison, so preserving them never reads
+ * as "your form differs from the preview".
+ */
 export function scaPreviewSignature(listingId: string, entry: unknown): string | null {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  entry = managedRegistryView(entry as Record<string, unknown>);
   const canonical = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(canonical);
     if (value && typeof value === 'object') {
@@ -268,7 +324,7 @@ export function nextRank(raw: string): number {
 export function applyEntryToRegistryJson(
   raw: string,
   guestyListingId: string,
-  entry: ScaRegistryEntry,
+  entry: ScaRegistryEntry | Record<string, unknown>,
 ): string {
   const obj = parseRegistry(raw);
   if (!obj.listings) obj.listings = {};
@@ -337,25 +393,63 @@ export function buildSleepingArrangementsForRegistry(
   return mapped.slice(0, end);
 }
 
-/**
- * Set (or clear) one listing's `sleepingArrangements`, preserving every other
- * field on the entry, and re-serialize with the registry's 2-space + trailing
- * newline format so the diff is exactly the changed field. Throws if the
- * listing isn't already in the registry — this tool edits live listings only.
- */
-export function applySleepingArrangementsToRegistryJson(
-  raw: string,
-  guestyListingId: string,
-  arrangements: Array<{ name?: string; beds?: string; photo?: string | string[] }>,
-): string {
+/** Read one listing's entry from the raw registry JSON, or null when absent. */
+export function registryEntryFor(raw: string, guestyListingId: string): Record<string, unknown> | null {
   const obj = parseRegistry(raw);
-  if (!obj.listings || !Object.prototype.hasOwnProperty.call(obj.listings, guestyListingId)) {
-    throw new Error('That listing is not in the Stay Cape Ann registry yet.');
-  }
-  const entry = obj.listings[guestyListingId] as Record<string, unknown>;
-  if (arrangements.length) entry.sleepingArrangements = arrangements;
-  else delete entry.sleepingArrangements;
-  return JSON.stringify(obj, null, 2) + '\n';
+  const id = guestyListingId.trim();
+  if (!id || !obj.listings || !Object.prototype.hasOwnProperty.call(obj.listings, id)) return null;
+  const entry = obj.listings[id];
+  return entry && typeof entry === 'object' && !Array.isArray(entry) ? (entry as Record<string, unknown>) : null;
+}
+
+/**
+ * The launcher form for a listing that is already on staycapeann.com, read
+ * back from its live registry entry. The inverse of buildRegistryEntry, so a
+ * live listing opens on exactly what guests see (the copy, the dining picks,
+ * every bedroom photo) rather than on a draft saved before an edit made
+ * elsewhere. Unknown fields are left out; missing ones take the form's
+ * defaults, and the launcher's validation names anything a launch requires.
+ */
+export function registryEntryToDraft(
+  guestyListingId: string,
+  entry: Record<string, unknown>,
+  fallback: Pick<ScaFormDraft, 'internalName' | 'stripeAccountKey' | 'rank'>,
+): ScaFormDraft {
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+  const fav = (v: unknown): ScaFormDraft['stayFavorite'] => {
+    const f = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+    return { name: str(f.name), town: str(f.town), blurb: str(f.blurb), lat: num(f.lat), lng: num(f.lng) };
+  };
+  const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+  const highlights = list(entry.highlights).map(str).filter((h) => h.trim());
+  const draft: ScaFormDraft = {
+    guestyListingId: guestyListingId.trim(),
+    internalName: str(entry.internalName) || fallback.internalName,
+    publicName: str(entry.publicName),
+    icalUrl: str(entry.icalUrl),
+    stripeAccountKey: str(entry.stripeAccountKey) || fallback.stripeAccountKey,
+    rank: typeof entry.rank === 'number' && Number.isFinite(entry.rank) ? entry.rank : fallback.rank,
+    pitch: str(entry.pitch),
+    tagline: str(entry.tagline),
+    description: str(entry.description),
+    highlights: [...highlights, '', '', ''].slice(0, Math.max(3, highlights.length)),
+    stayFavorite: fav(entry.stayFavorite),
+    extraFavorites: list(entry.extraFavorites).map(fav),
+    sleepingArrangements: list(entry.sleepingArrangements).map((v) => {
+      const s = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+      const photo = Array.isArray(s.photo) ? s.photo.map(str).filter(Boolean) : str(s.photo) ? [str(s.photo)] : [];
+      return { name: str(s.name), beds: str(s.beds), photo };
+    }),
+    reviews: list(entry.reviews).map((v) => {
+      const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+      return { name: str(r.name), date: str(r.date), rating: typeof r.rating === 'number' ? r.rating : 5, text: str(r.text) };
+    }),
+  };
+  if (typeof entry.rating === 'number') draft.rating = entry.rating;
+  if (typeof entry.reviewCount === 'number') draft.reviewCount = entry.reviewCount;
+  if (str(entry.heroPhoto)) draft.heroPhoto = str(entry.heroPhoto);
+  return draft;
 }
 
 /** Remove an entry (the "unlist" path). No-op if absent. */
