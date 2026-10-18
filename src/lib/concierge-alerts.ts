@@ -331,7 +331,9 @@ export function conciergeAlertCopy(alert: Pick<ConciergeAlert, 'kind' | 'summary
       const said = grab(/wrote "(.+?)"\./i, s);
       return out(
         `${who ?? 'Someone'} texted the Owners line and matches no owner${said ? `: ${quoted(said, 80)}` : ''}; add their number to the owner it belongs to.`,
-        { label: 'Open CRM', href: '/crm' },
+        // The number triage card on the Inbox (Attach, New contact, Not
+        // ours) is where an unnamed number is filed since 2026-10-18.
+        { label: 'Open New numbers', href: '/messaging#new-numbers' },
         null,
       );
     }

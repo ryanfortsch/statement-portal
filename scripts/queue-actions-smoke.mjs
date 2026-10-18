@@ -16,7 +16,7 @@ for(const [name,path,extra=''] of [
   ['gmail-links','src/lib/gmail-links.ts'],
  ['operating-date','src/lib/operating-date.ts'],['work-board-view','src/lib/work-board-view.ts'],['work-week','src/lib/work-week.ts'],
   ['queue','src/app/work/QueueClient.tsx','\nexport {WorkSlipRowItem,TaskRowItem};'],
-  ['crm','src/app/crm/CrmListClient.tsx'],
+  ['triage','src/components/messaging/NumberTriage.tsx'],['newcontact','src/app/crm/NewContactModal.tsx'],
   ['runs','src/app/work/RunsRail.tsx','\nexport {WorkOrderComposer,RunCard,VendorGroup};'],
   ['picker','src/components/TeamPicker.tsx'],['unsaved','src/lib/unsaved-work.ts'],
   ['work-types','src/lib/work-types.ts'],['supplies','src/lib/inspection-supplies.ts'],['quo-lines','src/lib/quo-lines.ts'],
@@ -42,7 +42,7 @@ await writeFile(join(scratch,'team.js'),`export const TEAM_MEMBERS=[];export con
 await writeFile(join(scratch,'crm-types.js'),`export const CONTACT_TYPE_LABELS={owner:'Owner',lead:'Lead',vendor:'Vendor',other:'Other'};`);
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
-import {QueueClient,WorkSlipRowItem,TaskRowItem} from './queue.js';import {CrmListClient} from './crm.js';
+import {QueueClient,WorkSlipRowItem,TaskRowItem} from './queue.js';import {NumberTriage} from './triage.js';
 import {WorkOrderComposer,RunCard,VendorGroup} from './runs.js';import {hasUnsavedWork} from './unsaved.js';
 const params=new URLSearchParams(location.search),mode=params.get('mode');
 window.calls=[];window.navigations=[];window.refreshes=0;window.opened=[];window.closeCount=0;window.confirmations=[];window.confirmResult=false;window.guarded=hasUnsavedWork;
@@ -63,7 +63,7 @@ function Fixture(){
  return <>
  {mode==='queue'&&<section id="queue"><QueueClient workSlips={slips} snoozedSlips={[]} tasks={tasks} properties={properties} myEmail={me} slipCommentCounts={{}} taskCommentCounts={{}} reporterNames={{}}/></section>}
  {mode==='done'&&<section id="done"><section id="slip"><WorkSlipRowItem slip={slips[0]} selected={false} onToggleSelect={()=>{}} commentCount={0}/></section><section id="task"><TaskRowItem task={tasks[0]} selected={false} onToggleSelect={()=>{}} commentCount={0}/></section></section>}
- {mode==='crm'&&<section id="crm"><CrmListClient contacts={contacts} properties={properties} counts={{all:2,owner:2,vendor:0,lead:0,other:0}} lastTouchByContact={{}} unknownNumbers={unknownNumbers} guestByPhone={{}} suggestions={suggestions}/></section>}
+ {mode==='crm'&&<section id="crm"><NumberTriage contacts={contacts} properties={properties} unknownNumbers={unknownNumbers} guestByPhone={{}} suggestions={suggestions}/></section>}
  {mode==='composer'&&<section id="composer"><WorkOrderComposer slipIds={slipIds} visitDate={params.has('undated')?null:'2026-10-01'} roster={roster} contextLabel="Synthetic order" onClose={close}/></section>}
  {mode==='parents'&&<section id="parents"><section id="run"><RunCard run={initialRun} roster={roster}/></section><section id="vendor"><VendorGroup propertyName="Synthetic Home" slips={slips} roster={roster}/></section></section>}
  </>;
@@ -71,7 +71,7 @@ function Fixture(){
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
 await writeFile(join(scratch,'session.js'),"export const useSession=()=>({data:{user:{email:'staff@example.test'}},status:'authenticated',update:async()=>null});");
-const alias={'@/lib/gmail-links':'gmail-links','./gmail-links':'gmail-links','next-auth/react':'session','@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','./work-week.ts':'work-week','@/lib/work-slip-lanes':'work-slip-lanes','./organize-actions':'actions','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','./runs-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/components/TeamPicker':'picker','@/components/PhotoUploader':'empty','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','./inspection-supplies.ts':'supplies','@/lib/quo-lines':'quo-lines','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','next/navigation':'router','next/link':'link'};
+const alias={'@/app/crm/actions':'actions','@/app/crm/NewContactModal':'newcontact','@/lib/gmail-links':'gmail-links','./gmail-links':'gmail-links','next-auth/react':'session','@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','./work-week.ts':'work-week','@/lib/work-slip-lanes':'work-slip-lanes','./organize-actions':'actions','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','./runs-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/components/TeamPicker':'picker','@/components/PhotoUploader':'empty','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','./inspection-supplies.ts':'supplies','@/lib/quo-lines':'quo-lines','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','next/navigation':'router','next/link':'link'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Queue actions fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic action recovery</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -134,7 +134,7 @@ const crmRow=async(kind,index)=>{
  return '[data-test-row]';
 };
 await reset('crm');let row=await crmRow('phone',0);await edit(row+' select','contact-a');await click(row,'Attach',true);await waitCalls(1);assert.deepEqual((await calls())[0].args,{phone:'+19785550101',contactId:'contact-a'});
-assert.equal(await page.$eval(row+' select',e=>e.disabled),true);await click(row,'Add as new');assert.equal(await page.$('[role="dialog"]'),null);await click(row,'…');assert.equal((await calls()).length,1);
+assert.equal(await page.$eval(row+' select',e=>e.disabled),true);await click(row,'New contact');assert.equal(await page.$('[role="dialog"]'),null);await click(row,'…');assert.equal((await calls()).length,1);
 row=await crmRow('phone',1);await edit(row+' select','contact-b');await click(row,'Attach');await waitCalls(2);await finish(0,null,true);
 row=await crmRow('phone',0);await ready(row+' select');assert.equal(await value(row+' select'),'contact-a');await waitText('Could not confirm the link');row=await crmRow('phone',1);assert.equal(await page.$eval(row+' select',e=>e.disabled),true);assert.equal(await guard(),true);
 await finish(1,{ok:false,error:'Second link failed'});await ready(row+' select');await clean();assert.equal(await value(row+' select'),'contact-b');
@@ -143,22 +143,22 @@ row=await crmRow('phone',0);await click(row,'Attach');await waitCalls(3);assert.
 pass('existing-primary-phone success keeps its explanatory note and leaves the selected target intact');
 row=await crmRow('phone',1);await click(row,'Attach');await waitCalls(4);await finish(3,{ok:true,filled:true,contactName:'Contact b'});await page.waitForFunction(()=>document.querySelectorAll('#crm select[aria-label^="Attach "]').length===1);
 pass('confirmed phone-fill success removes only the matching unknown number');
-row=await crmRow('phone',0);await click(row,'Dismiss',true);await waitCalls(5);await finish(4,{ok:false,error:'Dismiss denied'});await ready(row+' select');await waitText('Dismiss denied');await click(row,'Dismiss');await waitCalls(6);await finish(5,null,true);await ready(row+' select');await waitText('Could not confirm dismissal');
-await click(row,'Dismiss');await waitCalls(7);await finish(6);await clean();await page.waitForFunction(()=>!document.querySelector('#crm select[aria-label^="Attach "]'));
+row=await crmRow('phone',0);await click(row,'Not ours',true);await waitCalls(5);await finish(4,{ok:false,error:'Dismiss denied'});await ready(row+' select');await waitText('Dismiss denied');await click(row,'Not ours');await waitCalls(6);await finish(5,null,true);await ready(row+' select');await waitText('Could not confirm Not ours');
+await click(row,'Not ours');await waitCalls(7);await finish(6);await clean();await page.waitForFunction(()=>!document.querySelector('#crm select[aria-label^="Attach "]'));
 pass('phone dismissal reports returned and thrown failures, prevents duplicate requests, and hides only confirmed dismissals');
 
 await reset('crm');row=await crmRow('suggestion',0);await edit(row+' select','vendor');const acceptLabel=await page.$eval(row+' button',e=>e.textContent.trim());await click(row,acceptLabel,true);await waitCalls(1);
-assert.deepEqual((await calls())[0],{kind:'accept',args:{id:'suggestion-a',contactType:'vendor'}});assert.equal(await page.$eval(row+' select',e=>e.disabled),true);await click(row,'Skip');assert.equal((await calls()).length,1);
-row=await crmRow('suggestion',1);await click(row,'Skip',true);await waitCalls(2);await finish(0,{ok:false,error:'Accept denied'});row=await crmRow('suggestion',0);await ready(row+' select');await waitText('Accept denied');assert.equal(await value(row+' select'),'vendor');
-row=await crmRow('suggestion',1);assert.equal(await page.$eval(row+' select',e=>e.disabled),true);await finish(1,null,true);await ready(row+' select');await waitText('Could not confirm Skip');await clean();
+assert.deepEqual((await calls())[0],{kind:'accept',args:{id:'suggestion-a',contactType:'vendor'}});assert.equal(await page.$eval(row+' select',e=>e.disabled),true);await click(row,'Not ours');assert.equal((await calls()).length,1);
+row=await crmRow('suggestion',1);await click(row,'Not ours',true);await waitCalls(2);await finish(0,{ok:false,error:'Accept denied'});row=await crmRow('suggestion',0);await ready(row+' select');await waitText('Accept denied');assert.equal(await value(row+' select'),'vendor');
+row=await crmRow('suggestion',1);assert.equal(await page.$eval(row+' select',e=>e.disabled),true);await finish(1,null,true);await ready(row+' select');await waitText('Could not confirm Not ours');await clean();
 pass('suggestion Accept and Skip share a per-row lock, preserve selected type, and independent rows recover separately');
 row=await crmRow('suggestion',0);await click(row,acceptLabel);await waitCalls(3);await finish(2,null,true);await ready(row+' select');await waitText('Check your contacts before retrying to avoid a duplicate');assert.equal(await value(row+' select'),'vendor');assert.deepEqual(await page.evaluate(()=>window.navigations),[]);
 pass('uncertain suggestion acceptance retains the type, warns against duplicates, and never retries or navigates automatically');
-row=await crmRow('suggestion',1);await click(row,'Skip');await waitCalls(4);row=await crmRow('suggestion',0);await click(row,acceptLabel);await waitCalls(5);await finish(4,{ok:true,contactId:'created-contact'});await waitText('Updated Suggestion a.');
+row=await crmRow('suggestion',1);await click(row,'Not ours');await waitCalls(4);row=await crmRow('suggestion',0);await click(row,acceptLabel);await waitCalls(5);await finish(4,{ok:true,contactId:'created-contact'});await waitText('Updated Suggestion a.');
 assert.equal(await page.$eval('a[href="/crm/created-contact"]',e=>e.target),'_blank');assert.deepEqual(await page.evaluate(()=>window.navigations),[]);assert.equal(await guard(),true);row=await crmRow('suggestion',0);assert.equal(await page.$eval(row+' select',e=>e.disabled),true);
 await finish(3,{ok:false,error:'Skip denied'});await ready(row+' select');await waitText('Skip denied');
 pass('confirmed acceptance offers an explicit contact link without interrupting another pending row or losing its failure');
-await click(row,'Skip');await waitCalls(6);await finish(5);await clean();await page.waitForFunction(()=>!document.querySelector('#crm select[aria-label^="Contact type for "]'));await waitText('Updated Suggestion a.');
+await click(row,'Not ours');await waitCalls(6);await finish(5);await clean();await page.waitForFunction(()=>!document.querySelector('#crm select[aria-label^="Contact type for "]'));await waitText('Updated Suggestion a.');
 pass('Skip success removes its own suggestion while the accepted-contact result remains available');
 
 const draftResult={ok:true,draftUrl:'https://example.test/synthetic-draft',mailboxAddress:'staff@example.test',jobCount:2,photoCount:3,warnings:['One synthetic warning']};
