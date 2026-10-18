@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import type { ContactType } from '@/lib/crm';
 import { createContact } from './actions';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { PropertyCheckboxes } from './PropertyCheckboxes';
 
 /**
  * The New contact form: a modal over /crm ("+ New contact") and over the
@@ -42,7 +43,8 @@ export function NewContactModal({
     linked_property_ids?: string[];
   }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
 }) {
-  const [type, setType] = useState<ContactType>(initialType ?? 'owner');
+  // The contact an operations manager adds most is a vendor or a cleaner.
+  const [type, setType] = useState<ContactType>(initialType ?? 'vendor');
   const [name, setName] = useState('');
   const [emails, setEmails] = useState('');
   const [phone, setPhone] = useState(initialPhone ?? '');
@@ -130,7 +132,7 @@ export function NewContactModal({
       >
         <div className="flex items-baseline justify-between" style={{ marginBottom: 20 }}>
           <h2 className="font-serif" style={{ fontSize: 24, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            {title ?? 'New Contact'}
+            {title ?? 'New contact'}
           </h2>
           <button
             type="button"
@@ -149,8 +151,8 @@ export function NewContactModal({
             <div style={{ flex: 1 }}>
               <Field label="Type *">
                 <select value={type} onChange={(e) => setType(e.target.value as ContactType)} style={selectStyle()}>
-                  <option value="owner">Owner</option>
                   <option value="vendor">Vendor</option>
+                  <option value="owner">Owner</option>
                   <option value="lead">Lead</option>
                   <option value="other">Other</option>
                 </select>
@@ -207,19 +209,10 @@ export function NewContactModal({
           </div>
 
           {properties.length > 0 && (
-            <Field label="Linked properties">
-              <select
-                multiple
-                value={linkedPropertyIds}
-                onChange={(e) => setLinkedPropertyIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
-                style={{ ...selectStyle(), minHeight: 100 }}
-              >
-                {properties.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              <p style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>Hold ⌘ to select multiple.</p>
-            </Field>
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>Linked properties</div>
+              <PropertyCheckboxes properties={properties} value={linkedPropertyIds} onChange={setLinkedPropertyIds} />
+            </div>
           )}
 
           <Field label="Tags (comma-separated)">
@@ -280,7 +273,7 @@ export function NewContactModal({
                 cursor: submitting ? 'wait' : 'pointer',
               }}
             >
-              {submitting ? 'Saving…' : (submitLabel ?? 'Create Contact')}
+              {submitting ? 'Saving…' : (submitLabel ?? 'Create contact')}
             </button>
           </div>
         </fieldset>

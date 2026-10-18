@@ -72,7 +72,7 @@ export function MarkContactedButton({ propertyId }: Props) {
         type="button"
         onClick={() => { if (!lock.current) setOpen((o) => !o); }}
         disabled={pending}
-        title="Record an off-thread touch (call, text, in person)"
+        title="Log activity off the thread (a call, a text, in person)"
         style={{
           background: 'transparent',
           border: '1px solid var(--rule)',

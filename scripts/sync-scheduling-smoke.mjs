@@ -12,7 +12,7 @@ const require=createRequire(import.meta.url),{webpack}=require('next/dist/compil
 const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-sync-scheduling-'));
 const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 for(const [name,path] of [
- ['gmail','src/app/crm/SyncGmailButton.tsx'],['quo','src/app/crm/SyncQuoButton.tsx'],['contacts','src/app/crm/SyncQuoContactsButton.tsx'],
+ ['crmrefresh','src/app/crm/RefreshCrmButton.tsx'],
  ['plan','src/app/turnovers/PlanButton.tsx'],['adhoc','src/app/fieldwork/packets/new/SendJobForm.tsx'],['jobkinds','src/lib/field-job-kinds.ts'],['offer','src/app/fieldwork/packets/OfferToPicker.tsx'],
  ['runs','src/app/work/RunsRail.tsx'],['done','src/app/properties/[id]/MarkSlipDoneButton.tsx'],['resolve','src/app/properties/[id]/ResolveFlagButton.tsx'],
  ['contacted','src/app/properties/[id]/MarkContactedButton.tsx'],['summary','src/lib/manual-sync-result.ts'],['unsaved','src/lib/unsaved-work.ts'],
@@ -38,7 +38,7 @@ await writeFile(join(scratch,'session.js'),`export const useSession=()=>({data:{
 await writeFile(join(scratch,'picker.js'),compile(`import React from 'react';export function TeamPicker({value,onChange}){return <select aria-label="Inspector" value={value??''} onChange={e=>onChange(e.target.value||null)}><option value="">Anyone</option><option value="original@example.test">Original</option><option value="new@example.test">New inspector</option></select>}`));
 await writeFile(join(scratch,'entry.js'),compile(`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
-import {SyncGmailButton} from './gmail.js';import {SyncQuoButton} from './quo.js';import {SyncQuoContactsButton} from './contacts.js';
+import {RefreshCrmButton} from './crmrefresh.js';
 import {PlanButton} from './plan.js';import {SendJobForm} from './adhoc.js';import {RunsRail} from './runs.js';
 import {MarkSlipDoneButton} from './done.js';import {ResolveFlagButton} from './resolve.js';import {MarkContactedButton} from './contacted.js';
 import {hasUnsavedWork} from './unsaved.js';import {save} from './actions.js';
@@ -52,7 +52,7 @@ const run={packetId:'packet-a',title:'Synthetic Run',status:'draft',suggested:tr
 function Fixture(){const [mounted,setMounted]=useState(true),[plan,setPlan]=useState(initialPlan);
  window.unmount=()=>setMounted(false);window.updatePlan=()=>setPlan({...initialPlan,plannedNotes:'Refreshed notes',plannedForDate:'2030-10-02'});if(!mounted)return null;
  return <>
- {(mode==='sync'||mode==='all')&&<section id="sync"><section id="gmail"><SyncGmailButton/></section><section id="quo"><SyncQuoButton/></section><section id="contacts"><SyncQuoContactsButton/></section></section>}
+ {(mode==='sync'||mode==='all')&&<section id="sync"><RefreshCrmButton/></section>}
  {(mode==='plan'||mode==='all')&&<section id="plan"><PlanButton {...plan} guestyReservationId="stay-a" propertyId="home-a" checkInDate="2030-10-05" checkOutDate="2030-09-29" myEmail="staff@example.test" variant={params.has('verb')?'verb':'chip'}/></section>}
  {(mode==='adhoc'||mode==='all')&&<section id="adhoc"><RedirectBoundary><SendJobForm trade="inspection" kinds={['inspection','adhoc','setup']} initialKind="adhoc" properties={properties} offerable={[{id:'crew-a',name:'Alex Synthetic'},{id:'crew-b',name:'Blair Synthetic'}]} contractors={[{id:'crew-a',name:'Alex Synthetic'}]}/></RedirectBoundary></section>}
  {mode==='runs'&&<section id="runs"><RunsRail standalone data={{runs:[run],roster:[],vendorNeeded:[],backlog:[],unclassifiedCount:0}}/></section>}
@@ -88,25 +88,23 @@ const gmail={ok:true,inserted:0,scanned:3,skipped:3,contacts:1,mailboxes:['synth
 const quo={ok:true,summary:{messages_inserted:0,calls_inserted:0,cleaning_completions_inserted:0,errors:[]}};
 const contacts={ok:true,suggestionsGenerated:0,inserted:0};
 
-for(const [scope,label,empty,partial,url] of [
- ['gmail','Sync Replies',gmail,{...gmail,errors:[{error:'Synthetic mailbox failure'}]},'/api/cron/sync-gmail-replies?hours=24'],
- ['quo','Sync Quo',quo,{...quo,summary:{...quo.summary,errors:['Synthetic phone failure']}},'/api/sync-quo'],
- ['contacts','Sync Contacts',contacts,{ok:true,suggestionsGenerated:3,inserted:1},'/api/sync-quo-contacts'],
-]){
- await reset('sync');await click('#'+scope,label,true);await waitCalls(1);assert.equal((await calls())[0].args.url,url);assert.equal(await beforeUnload(),true);assert.equal(await page.$eval('#'+scope+' button',e=>e.disabled),true);
- await finishFetch(0,partial);await ready('#'+scope+' button');await waitText('sync incomplete');assert.ok(await page.$('#'+scope+' [role="alert"]'));assert.doesNotMatch(await page.$eval('#'+scope,e=>e.innerText),/No new/);
- pass(scope+' sync reports partial failure honestly and rejects same-tick double clicks');
- await click('#'+scope,label);await waitCalls(2);await finishFetch(1,{});await ready('#'+scope+' button');await waitText('Could not confirm the sync result');
- await click('#'+scope,label);await waitCalls(3);await finishFetch(2,null,{badJson:true});await ready('#'+scope+' button');assert.ok(await page.$('#'+scope+' [role="alert"]'));
- pass(scope+' empty or malformed successful responses cannot become a clean zero');
- await click('#'+scope,label);await waitCalls(4);await finishFetch(3,{error:'Synthetic HTTP error'},{status:503});await ready('#'+scope+' button');await waitText('Synthetic HTTP error');
- await click('#'+scope,label);await waitCalls(5);await finish(4,null,true);await ready('#'+scope+' button');await waitText('Could not confirm the sync result');
- await click('#'+scope,label);await waitCalls(6);await finishFetch(5,empty);await ready('#'+scope+' button');await clean();assert.equal(await page.$('#'+scope+' [role="alert"]'),null);assert.ok(await page.$('#'+scope+' [role="status"]'));
- pass(scope+' HTTP and thrown failures unlock controls; explicit retry can report a genuine empty result');
-}
-await reset('sync');await click('#gmail','Sync Replies');await click('#quo','Sync Quo');await waitCalls(2);await finishFetch(0,{...gmail,inserted:2,errors:[{error:'Some failed'}]});await ready('#gmail button');assert.equal(await guard(),true);assert.equal(await page.evaluate(()=>window.refreshes),1);
-await finishFetch(1,{...quo,summary:{...quo.summary,cleaning_completions_inserted:1,errors:['Some failed']}});await clean();assert.equal(await page.evaluate(()=>window.refreshes),2);
-pass('partial captures refresh saved activity while each concurrent sync holds its own pending guard');
+// The CRM's one Refresh runs Gmail, Quo and the Quo address book at once
+// (fetches 0, 1, 2 of each click) and reports one line.
+const syncUrls=['/api/cron/sync-gmail-replies?hours=24','/api/sync-quo','/api/sync-quo-contacts'];
+await reset('sync');await click('#sync','Refresh',true);await waitCalls(3);assert.deepEqual((await calls()).map(c=>c.args.url),syncUrls);assert.equal(await beforeUnload(),true);assert.equal(await page.$eval('#sync button',e=>e.disabled),true);
+await finishFetch(0,{...gmail,errors:[{error:'Synthetic mailbox failure'}]});await finishFetch(1,quo);await finishFetch(2,contacts);await ready('#sync button');await waitText('sync incomplete');assert.ok(await page.$('#sync [role="alert"]'));
+pass('one Refresh runs all three syncs, reports a partial failure honestly and rejects same-tick double clicks');
+await click('#sync','Refresh');await waitCalls(6);await finishFetch(3,{});await finishFetch(4,null,{badJson:true});await finishFetch(5,{error:'Synthetic HTTP error'},{status:503});await ready('#sync button');
+await waitText('Could not confirm the sync result');await waitText('Synthetic HTTP error');assert.ok(await page.$('#sync [role="alert"]'));
+pass('empty, unreadable and HTTP-failed responses are said per source, never turned into a clean zero');
+await click('#sync','Refresh');await waitCalls(9);await finish(6,null,true);await finishFetch(7,quo);await finishFetch(8,contacts);await ready('#sync button');await waitText('Gmail: Could not confirm the sync result');
+pass('a thrown request unlocks the button and names its source');
+await click('#sync','Refresh');await waitCalls(12);await finishFetch(9,gmail);await finishFetch(10,quo);await finishFetch(11,contacts);await ready('#sync button');await clean();
+assert.equal(await page.$('#sync [role="alert"]'),null);assert.ok(await page.$('#sync [role="status"]'));const line=await page.$eval('#sync [role="status"]',e=>e.textContent);assert.match(line,/No new replies/);assert.match(line,/No new activity from Quo/);assert.match(line,/No new suggestions/);
+pass('explicit retry can report a genuine empty result, in one line');
+await reset('sync');await click('#sync','Refresh');await waitCalls(3);await finishFetch(0,{...gmail,inserted:2,errors:[{error:'Some failed'}]});assert.equal(await guard(),true);assert.equal(await page.evaluate(()=>window.refreshes),0);
+await finishFetch(1,{...quo,summary:{...quo.summary,cleaning_completions_inserted:1,errors:['Some failed']}});await finishFetch(2,contacts);await ready('#sync button');await clean();assert.equal(await page.evaluate(()=>window.refreshes),1);
+pass('partial captures refresh saved activity once, after every source has answered, and the guard holds until then');
 
 const openPlan=()=>page.$eval('#plan button',e=>e.click());
 for(const extra of ['&verb=1', '']){
@@ -173,9 +171,9 @@ await reset('shortcuts');await click('#contacted','I reached out');await click('
 await click('#contacted','Saved ✓');await click('#contacted','Email');await waitCalls(4);await finish(3,{ok:false,error:'Later email failed'});await clean();assert.doesNotMatch(await page.$eval('#contacted',e=>e.innerText),/Saved ✓/);await waitText('Retry Email');await click('#contacted','Dismiss');assert.equal(await page.$('#contacted [role="alert"]'),null);
 pass('I reached out retains the failed channel for retry and clears stale Saved feedback when a later update fails');
 
-await reset('all');await openPlan();await edit('#plan textarea','Independent inspection draft');await click('#gmail','Sync Replies');await waitCalls(1);await finishFetch(0,gmail);await ready('#gmail button');assert.equal(await guard(),true);await fillJob();await confirm(true);await click('#plan','Cancel');assert.equal(await guard(),true);await click('#adhoc','Discard changes');await clean();
+await reset('all');await openPlan();await edit('#plan textarea','Independent inspection draft');await click('#sync','Refresh');await waitCalls(3);await finishFetch(0,gmail);await finishFetch(1,quo);await finishFetch(2,contacts);await ready('#sync button');assert.equal(await guard(),true);await fillJob();await confirm(true);await click('#plan','Cancel');assert.equal(await guard(),true);await click('#adhoc','Discard changes');await clean();
 pass('sync completion and inspection discard cannot release an independent job draft guard');
-await click('#gmail','Sync Replies');await waitCalls(2);await page.evaluate(()=>window.unmount());await clean();await finish(1,null,true);
+await click('#sync','Refresh');await waitCalls(6);await page.evaluate(()=>window.unmount());await clean();await finish(3,null,true);await finish(4,null,true);await finish(5,null,true);
 pass('unmount releases pending guards and late responses cause no browser errors');
 
 assert.deepEqual(errors,[]);console.log('All '+checks+' sync and scheduling browser checks passed.');

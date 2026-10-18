@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeManualSync } from '../manual-sync-result.ts';
+import { summarizeManualSync, combineManualSyncs } from '../manual-sync-result.ts';
 
 const gmail = { ok: true, inserted: 0, scanned: 4, skipped: 4, contacts: 2, mailboxes: ['synthetic'], errors: [] };
 const quo = { ok: true, summary: { messages_inserted: 0, calls_inserted: 0, cleaning_completions_inserted: 0, errors: [] } };
@@ -34,11 +34,11 @@ describe('manual sync results', () => {
   });
   test('partial Quo captures refresh even when another phone failed', () => {
     const result = summarizeManualSync('quo', { ...quo, summary: { messages_inserted: 2, calls_inserted: 1, cleaning_completions_inserted: 4, errors: ['failed'] } });
-    assert.equal(result.warning, true); assert.equal(result.refresh, true); assert.match(result.message, /3 new touches and 4 cleaning signals/);
+    assert.equal(result.warning, true); assert.equal(result.refresh, true); assert.match(result.message, /3 new texts and calls and 4 cleaning signals/);
   });
   test('Quo reports messages, calls, and cleaning-only successes', () => {
     assert.equal(summarizeManualSync('quo', { ...quo, summary: { ...quo.summary, cleaning_completions_inserted: 1 } }).message, 'Captured 1 cleaning signal.');
-    assert.equal(summarizeManualSync('quo', { ...quo, summary: { ...quo.summary, calls_inserted: 1 } }).message, 'Captured 1 new touch.');
+    assert.equal(summarizeManualSync('quo', { ...quo, summary: { ...quo.summary, calls_inserted: 1 } }).message, 'Captured 1 new text or call.');
   });
   test('contact suggestions distinguish generated candidates from saved rows', () => {
     assert.deepEqual(summarizeManualSync('contacts', { ok: true, suggestionsGenerated: 0, inserted: 0 }), { message: 'No new suggestions.', warning: false, refresh: true });
@@ -55,4 +55,15 @@ describe('manual sync results', () => {
     }
     assert.throws(() => summarizeManualSync('contacts', { ok: true, suggestionsGenerated: 2 }), /Could not confirm/);
   });
+});
+
+test('the one Refresh reports one line, warns if any source did, refreshes if any captured', () => {
+  const clean = { message: 'No new replies (3 scanned, 3 already on file).', warning: false, refresh: false };
+  const captured = { message: 'Captured 2 new texts and calls.', warning: false, refresh: true };
+  const failed = { message: 'Quo address book: Could not confirm the sync result. Check the latest activity before retrying.', warning: true, refresh: false };
+  assert.deepEqual(combineManualSyncs([clean, captured]), { message: `${clean.message} · ${captured.message}`, warning: false, refresh: true });
+  const mixed = combineManualSyncs([clean, captured, failed]);
+  assert.equal(mixed.warning, true);
+  assert.equal(mixed.refresh, true);
+  assert.match(mixed.message, /Could not confirm the sync result/);
 });

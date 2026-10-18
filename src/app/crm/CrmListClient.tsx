@@ -6,9 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { ContactRow, ContactType } from '@/lib/crm';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { LastTouch } from './page';
-import { SyncGmailButton } from './SyncGmailButton';
-import { SyncQuoButton } from './SyncQuoButton';
-import { SyncQuoContactsButton } from './SyncQuoContactsButton';
+import { RefreshCrmButton } from './RefreshCrmButton';
 import { NewContactModal } from './NewContactModal';
 
 /**
@@ -79,9 +77,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
               fontFamily: 'inherit',
             }}
           />
-          <SyncGmailButton />
-          <SyncQuoButton />
-          <SyncQuoContactsButton />
+          <RefreshCrmButton />
           <button
             type="button"
             onClick={() => setShowNew(true)}
@@ -97,7 +93,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
               cursor: 'pointer',
             }}
           >
-            + New Contact
+            New contact
           </button>
         </div>
       </section>
@@ -114,7 +110,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
             }}
           >
             {contacts.length === 0
-              ? 'No contacts yet. Click "+ New Contact" to add one.'
+              ? 'No contacts yet. New contact adds one.'
               : 'No contacts match this filter.'}
           </div>
         ) : (
@@ -189,6 +185,8 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
       {showNew && (
         <NewContactModal
           properties={properties}
+          // The type pill that is on picks the type; a vendor otherwise.
+          initialType={filter === 'all' ? undefined : filter}
           onClose={() => setShowNew(false)}
           onCreated={(id) => {
             setShowNew(false);
