@@ -63,8 +63,8 @@ describe('one door for no reply', () => {
   test('Handled is the one word: toast, ledger, search, thread, strips, notes', () => {
     assert.equal(approvalSearchStatus({ id: '1', status: 'rejected' }, false).status, 'Handled');
     assert.equal(approvalSearchStatus({ id: '1', status: 'manual_sent' }, false).status, 'Handled');
-    assert.ok(read('src/app/messaging/UndoToast.tsx').includes("const LABEL = 'Handled'"), 'the toast says Handled');
-    const ledger = read('src/app/messaging/RecentDecisions.tsx');
+    assert.ok(read('src/components/messaging/card/UndoToast.tsx').includes("const LABEL = 'Handled'"), 'the toast says Handled');
+    const ledger = read('src/components/messaging/card/DecidedRecently.tsx');
     assert.ok(/rejected: 'Handled'/.test(ledger) && /manual_sent: 'Handled'/.test(ledger), 'Decided recently says Handled');
     const thread = read('src/app/messaging/Thread.tsx');
     assert.ok(/case 'manual_sent':\s*case 'rejected':\s*return 'handled'/.test(thread), 'the thread chip says handled');
@@ -76,7 +76,7 @@ describe('one door for no reply', () => {
   test('the guest handled drawer carries the reasons Reject folded into, one tap each', () => {
     const src = read('src/app/messaging/MessagingQueue.tsx');
     assert.ok(src.includes("['Already answered', 'Guest said thanks', 'Not worth a reply']"), 'the reasons are the fixed set the rollup reads back');
-    assert.ok(src.includes('onClick={() => handleMarkHandled({ reason })}'), 'a reason is one tap');
+    assert.ok(read('src/components/messaging/card/ApprovalCard.tsx').includes('onClick={() => markHandled({ reason })}'), 'a reason is one tap');
     assert.ok(src.includes("NO_REPLY_REASONS.filter((r) => r !== 'Guest said thanks')"), 'a proactive card drops the reason that needs a guest message');
   });
 });

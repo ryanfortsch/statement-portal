@@ -32,7 +32,11 @@ coachCleanerDraft=rec('coach'),editCleanerDraft=rec('edit'),redraftCleanerDraft=
 scheduleCleanerDraft=rec('schedule'),cancelCleanerSchedule=rec('cancel');
 export const approveOwnerDraft=rec('approve'),markOwnerHandled=rec('handled'),undoOwnerDecision=rec('undo'),
 coachOwnerDraft=rec('coach'),editOwnerDraft=rec('edit'),redraftOwnerDraft=rec('redraft'),
-scheduleOwnerDraft=rec('schedule'),cancelOwnerSchedule=rec('cancel');`);
+scheduleOwnerDraft=rec('schedule'),cancelOwnerSchedule=rec('cancel');
+export const approveDraft=rec('approve'),markHandled=rec('handled'),undoDecision=rec('undo'),coachDraft=rec('coach'),
+editDraft=rec('edit'),redraftDraft=rec('redraft'),scheduleDraft=rec('schedule'),cancelSchedule=rec('cancel'),dismissMaintenanceSlip=rec('dismiss');`);
+await writeFile(join(scratch,'role.js'),`export const useHelmRole=()=>window.role||'owner';`);
+await writeFile(join(scratch,'thread.js'),`import React from 'react';export function ThreadPanel(){return React.createElement('div',{id:'thread'},'Synthetic thread');}`);
 await writeFile(join(scratch,'navigation.js'),`export const useRouter=()=>({refresh(){window.refreshes=(window.refreshes||0)+1;}});`);
 await writeFile(join(scratch,'link.js'),`import React from 'react';export default function Link({href,children,...p}){return React.createElement('a',{href,...p},children);}`);
 await writeFile(join(scratch,'entry.tsx'),`
@@ -40,6 +44,7 @@ import React from 'react';import {createRoot} from 'react-dom/client';
 import {ContractorMessagingQueue} from '@/app/contractor-messaging/ContractorMessagingQueue';
 import {CleanerMessagingQueue} from '@/app/cleaner-messaging/CleanerMessagingQueue';
 import {OwnerMessagingQueue} from '@/app/owner-messaging/OwnerMessagingQueue';
+import {MessagingQueue} from '@/app/messaging/MessagingQueue';
 const mode=new URLSearchParams(location.search).get('mode')||'contractor';
 window.calls=[];
 const now=new Date().toISOString();
@@ -59,12 +64,24 @@ const ownerCards=[
   proposed_actions:[{kind:'work_slip',title:'Re-mount downstairs soap dispenser',priority:'normal'},{kind:'guest_message',why:'Tell the guest about the fix',body:'Someone will stop by to fix the soap dispenser.'}]},
  {...ownerBase,id:'reaction-card',owner_name:'Rae Owner',owner_text:'Loved “Thanks, all set”',draft:'',topic:'reaction',status:'pending',age_minutes:3,proposed_actions:[]},
 ];
-window.queue=mode==='cleaner'?cleanerCards:mode==='owner'?ownerCards:cards;
-window.fetch=async url=>new Response(JSON.stringify(String(url).includes('/api/messaging/queue')?{approvals:window.queue,context:{}}:{}),{headers:{'Content-Type':'application/json'}});
+const g={...base,conversation_id:'conv-1',listing_id:'home_a',listing_name:'Synthetic Cottage',reservation_id:'r1',guest_received_at:now,module:'airbnb2',channel:'Airbnb',check_in:'2026-10-20',check_out:'2026-10-24',topic:'question',status:'pending',age_minutes:30};
+const guestCards=[
+ {...g,id:'guest-card',guesty_message_id:'gm1',guest_first:'Gina',guest_text:'Can we bring our dog?',draft:'Hi Gina, yes, the pet fee is $75.',
+  addon:{label:'pet fee',amount_usd:75,payment_link_url:'https://pay.example.test/x',link_error:'',sms_body:'Here is the pet fee link: https://pay.example.test/x',guest_phone:'+15550199'},
+  handoff:{filed:false,audience:'cleaner',target_name:'Rosa',target_contact:'+15550101',reason:'a dog is coming',preview:'Vai ter um cachorro.',preview_english:'There will be a dog.',urgency:'soon',confidence:'high',create_error:'',preview_token:'tok'}},
+ {...g,id:'pre-card',guesty_message_id:'gm2',guest_first:'Paula',guest_text:'Is July 2027 open?',draft:'Thanks Paula, we will confirm July shortly.',topic:'prerelease_request',module:'email',channel:'Email'},
+ {...g,id:'manual-card',guesty_message_id:'trash-manual:x',guest_first:'Mo',guest_text:'',draft:'Trash goes out tonight.',topic:'trash_reminder',channel:'Direct'},
+ {...g,id:'inq-card',guesty_message_id:'gm4',guest_first:'Ivy',guest_text:'Price for 4 nights?',draft:'',topic:'rental_inquiry',
+  rental_inquiry:{check_in:'2026-11-01',check_out:'2026-11-05',guests:4,flexible:false,history_checked:true,checked_at:now,needs:[],decision:'Needs a price for 4 nights',homes:[]}},
+];
+const guestQuotes={'guest-card':{total:2,quotes:[{id:'q1',status:'sent',property_internal_name:'Synthetic Cottage',check_in:'2026-10-20',check_out:'2026-10-24',nights:4,total_cents:184000,leg_due:'',amount_due_cents:0,balance_due_on:'',guest_email:''}]}};
+window.queue=mode==='cleaner'?cleanerCards:mode==='owner'?ownerCards:mode==='guest'?guestCards:cards;
+window.role=new URLSearchParams(location.search).get('role')||'owner';
+window.fetch=async url=>new Response(JSON.stringify(String(url).includes('/api/messaging/queue')?{approvals:window.queue,context:mode==='guest'?guestQuotes:{}}:{}),{headers:{'Content-Type':'application/json'}});
 const homes=[{id:'home-a',name:'Synthetic Cottage'},{id:'home-b',name:'Synthetic Barn'}];
-createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='cleaner'?<CleanerMessagingQueue initialPending={cleanerCards} properties={homes}/>:mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:<ContractorMessagingQueue initialPending={cards} properties={homes} context={{}}/>}</main>);
+createRoot(document.getElementById('root')).render(<main id={mode}>{mode==='cleaner'?<CleanerMessagingQueue initialPending={cleanerCards} properties={homes}/>:mode==='owner'?<OwnerMessagingQueue initialPending={ownerCards}/>:mode==='guest'?<MessagingQueue initialPending={guestCards} initialQuotes={guestQuotes}/>:<ContractorMessagingQueue initialPending={cards} properties={homes} context={{}}/>}</main>);
 `);
-const alias={'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
+const alias={'@/components/useHelmRole':join(scratch,'role.js'),'./Thread':join(scratch,'thread.js'),'@':join(root,'src'),'./actions':join(scratch,'actions.js'),'next/navigation':join(scratch,'navigation.js'),'next/link':join(scratch,'link.js')};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.tsx'),output:{path:scratch,filename:'bundle.js'},
  resolve:{extensions:['.tsx','.ts','.js'],modules:[join(root,'node_modules')],alias},
  module:{rules:[{test:/\.tsx?$/,use:join(scratch,'ts-loader.cjs')}]},performance:{hints:false}});
@@ -163,6 +180,37 @@ try{
  assert.deepEqual((await calls())[1],{kind:'handled',args:['reaction-card',true,{reason:'Reaction, nothing to reply to'}]});
  await finish(1);await page.waitForSelector('.rt-undo-toast');
  pass('owners: a reaction clears in one tap, and the toast offers Undo');
+ // Guests: everything approving also does folds into one-line Also on approve.
+ await page.evaluate(()=>{window.calls=[];});await page.goto(origin+'/?mode=guest');await page.waitForSelector(card('guest-card'));
+ const gc=await text(card('guest-card'));
+ assert.match(gc,/Also on approve/);assert.match(gc,/2 quotes on file: sent · Synthetic Cottage/);
+ assert.match(gc,/Texts the pet fee payment link \(\$75\) to \+15550199/);assert.match(gc,/Note to Rosa: a dog is coming/);assert.match(gc,/Draft for approval/);
+ assert.ok(!gc.includes('Vai ter um cachorro.'),'the handoff words wait behind Details');
+ await click(card('guest-card'),'Details');assert.match(await text(card('guest-card')),/Vai ter um cachorro\./);
+ await page.$eval(card('guest-card')+' input[name="cleaner-guest-card"][type=radio]:nth-of-type(1)',e=>e);
+ await page.$$eval(card('guest-card')+' input[type=checkbox]',bs=>bs[0].click());
+ assert.match(await text(card('guest-card')),/Does not text the pet fee payment link/);
+ await click(card('guest-card'),'Approve & send');await waitCalls(1);
+ assert.deepEqual((await calls())[0],{kind:'approve',args:['guest-card',{sendAddonSms:false,cleanerAction:'draft',previewToken:''}]});await finish(0);
+ pass('guests: quote, payment link and Rosa note are one line each; the ticks ride on approve');
+ await page.screenshot({path:join(process.env.SMOKE_SHOTS||tmpdir(),'approval-card-guest.png'),fullPage:true});
+ const pr=await text(card('pre-card'));
+ assert.ok(pr.includes('Send a price')&&pr.includes('Send reply')&&pr.includes('Other options')&&!pr.includes('Coach the AI'),'a 2027 request leads with price and reply');
+ await click(card('pre-card'),'Other options');assert.ok((await text(card('pre-card'))).includes('Coach the AI'));
+ await click(card('pre-card'),'Send reply');await waitCalls(2);assert.equal((await calls())[1].kind,'approve');await finish(1);
+ pass('guests: a 2027 request leads with Send a price and Send reply; Other options opens the rest');
+ const mc=await text(card('manual-card'));assert.ok(mc.includes('Copy message')&&mc.includes('Mark sent')&&!mc.includes('Coach the AI'));
+ await click(card('manual-card'),'Mark sent');await waitCalls(3);
+ assert.deepEqual((await calls())[2],{kind:'handled',args:['manual-card',{sent_text:'Trash goes out tonight.'}]});await finish(2);
+ pass('guests: copy-to-send captures the draft as what was sent');
+ const ic=await text(card('inq-card'));assert.ok(ic.includes('Needs your decision')&&ic.includes('Set a price')&&ic.includes('Write reply'));
+ await click(card('inq-card'),'Write reply');await type(card('inq-card')+' textarea','For 4 nights it is $1,600.');await click(card('inq-card'),'Save');await waitCalls(4);
+ await finish(3);await page.waitForFunction(()=>document.body.textContent.includes('For 4 nights it is $1,600.')&&[...document.querySelectorAll('#approval-inq-card button')].some(b=>b.textContent.trim()==='Approve & send'));
+ pass('guests: an inquiry with no draft offers price, retry and write; a written reply gets the send button at once');
+ await page.goto(origin+'/?mode=guest&role=staff');await page.waitForSelector(card('pre-card'));
+ const st=await text(card('pre-card'));assert.ok(st.includes('Ask Ryan or Dotti to price this')&&!st.includes('Send a price'),'staff are told who prices');
+ assert.equal(await page.$('#approval-guest-card a[href^="/guests/quotes/"]'),null,'no quote links for staff');
+ pass('guests: staff see who prices, never a link that bounces');
  await page.goto(origin+'/?mode=contractor');await page.waitForSelector('#approval-slip-card');
  await page.setViewport({width:390,height:844});await page.reload();await page.waitForSelector('.rt-inbox-review-toggle');
  await page.$$eval('.rt-inbox-review-toggle',bs=>bs[0].click());

@@ -13,13 +13,29 @@ type Props = {
   onDismiss: () => void;
 };
 
-export function MaintenanceWorkPanel({ id, work, outcome, create, busy, dismissing, onCreateChange, onDismiss }: Props) {
+/** The work slip a guest's maintenance report implies: its state word and
+ *  whether it needs a look. Shared by the panel and the guest card's Also on
+ *  approve line. */
+export function maintenanceWorkState({ work, outcome, create }: Pick<Props, 'work' | 'outcome' | 'create'>) {
   const hasSlip = !!(work.slip_id || outcome?.id);
   const dismissed = work.status === 'dismissed' || outcome?.status === 'dismissed';
   const completed = outcome?.status === 'done';
   const error = workError(work);
-  return <InboxFollowup ariaLabel="Property work slip" title={`Work slip · ${outcome?.title || work.title}`} attention={!!error || !!outcome?.error || outcome?.status === 'blocked' || outcome?.status === 'unavailable'}
-    status={error || outcome?.error ? 'Needs review' : dismissed ? 'Dismissed' : completed ? 'Completed' : hasSlip ? outcome ? workStatus(outcome.status, outcome.assignee) : 'Created' : create ? 'Create when approved' : 'Skip'}>
+  return {
+    title: outcome?.title || work.title,
+    hasSlip,
+    dismissed,
+    completed,
+    error,
+    attention: !!error || !!outcome?.error || outcome?.status === 'blocked' || outcome?.status === 'unavailable',
+    status: error || outcome?.error ? 'Needs review' : dismissed ? 'Dismissed' : completed ? 'Completed' : hasSlip ? outcome ? workStatus(outcome.status, outcome.assignee) : 'Created' : create ? 'Create when approved' : 'Skip',
+  };
+}
+
+/** The slip's controls: create or skip before approve, open or dismiss after. */
+export function MaintenanceWorkControls({ id, work, outcome, create, busy, dismissing, onCreateChange, onDismiss }: Props) {
+  const { hasSlip, dismissed, completed, error } = maintenanceWorkState({ work, outcome, create });
+  return <>
     {outcome && (hasSlip || outcome.id)
       ? <WorkOutcomeDetails work={outcome} />
       : <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-1)' }}>{work.title}</p>}
@@ -37,5 +53,12 @@ export function MaintenanceWorkPanel({ id, work, outcome, create, busy, dismissi
       </fieldset>
     )}
     {error && !(outcome && (hasSlip || outcome.id)) && <p role="status" style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)' }}>{error}</p>}
+  </>;
+}
+
+export function MaintenanceWorkPanel(props: Props) {
+  const state = maintenanceWorkState(props);
+  return <InboxFollowup ariaLabel="Property work slip" title={`Work slip · ${state.title}`} attention={state.attention} status={state.status}>
+    <MaintenanceWorkControls {...props} />
   </InboxFollowup>;
 }

@@ -31,6 +31,10 @@ test('English text, an older concierge, or a failed translation shows nothing', 
 test('the guest card renders the English on both sides and under the editor', () => {
   const card = readFileSync(new URL('../../app/messaging/MessagingQueue.tsx', import.meta.url), 'utf8');
   assert.match(card, /<EnglishLine text=\{approval\.guest_text_english\} translating=\{approval\.guest_text_translating\} \/>/);
-  assert.match(card, /savedDraft == null && <EnglishLine text=\{approval\.draft_english\} translating=\{approval\.draft_translating\} \/>/);
+  assert.match(card, /english: <EnglishLine text=\{approval\.draft_english\} translating=\{approval\.draft_translating\} \/>/);
+  // The English is for the text that sends: the one card hides it while a
+  // just-saved edit has not come back as the server's draft.
+  const shared = readFileSync(new URL('../../components/messaging/card/ApprovalCard.tsx', import.meta.url), 'utf8');
+  assert.ok(shared.includes('{savedDraft == null && reply.english}'));
   assert.match(card, /<EnglishLine text=\{approval\.draft_english\} label="English, as drafted" \/>/);
 });
