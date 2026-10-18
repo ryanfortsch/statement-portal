@@ -25,6 +25,8 @@ import { operatingDate } from '@/lib/operating-date';
 import { expiredInquiriesOrFilter } from '@/lib/inquiry-expiry';
 import { STAY_STATUSES, findDoubleBookings, type DoubleBooking } from '@/lib/booking-conflicts';
 import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
+import { exportLiveSince, type ListingScopeRow } from '@/lib/listing-scope';
+import type { GuestyWriteScope } from '@/lib/guesty-writes';
 
 /**
  * channel_listings gained four columns in the PMS plumbing migration that
@@ -735,4 +737,42 @@ export async function listRecentSyncRunsWithListing(limit = 12): Promise<SyncRun
     const l = byId.get(r.channel_listing_id);
     return { ...r, channel: l?.channel ?? null, property_id: l?.property_id ?? null, display_name: l?.display_name ?? null };
   });
+}
+
+/**
+ * Who a Channels write reaches, for the sentence at the top of every
+ * Channels page (lib/guesty-writes). A fleet page counts the active homes
+ * Guesty runs where no OTA imports Helm's export yet; a home page asks the
+ * same of one home. A failed read is 'unknown', never a quiet "Helm runs it".
+ */
+export async function loadGuestyWriteScope(): Promise<GuestyWriteScope> {
+  if (!isConfigured) return { kind: 'unknown' };
+  try {
+    const [homes, ticks] = await Promise.all([
+      supabase.from('properties').select('id, calendar_authority').eq('is_active', true),
+      supabase.from('channel_listings').select('property_id, channel, is_active, export_subscribed, export_subscribed_at'),
+    ]);
+    if (homes.error || ticks.error) return { kind: 'unknown' };
+    const live = exportLiveSince((ticks.data ?? []) as ListingScopeRow[]);
+    const rows = (homes.data ?? []) as Array<{ id: string; calendar_authority: string | null }>;
+    const unreached = rows.filter((h) => h.calendar_authority !== 'helm' && !live.has(h.id)).length;
+    return { kind: 'fleet', total: rows.length, unreached };
+  } catch {
+    return { kind: 'unknown' };
+  }
+}
+
+export async function loadHomeWriteScope(propertyId: string): Promise<GuestyWriteScope> {
+  if (!isConfigured || !propertyId) return { kind: 'unknown' };
+  try {
+    const [home, ticks] = await Promise.all([
+      supabase.from('properties').select('calendar_authority').eq('id', propertyId).maybeSingle(),
+      supabase.from('channel_listings').select('property_id, channel, is_active, export_subscribed, export_subscribed_at').eq('property_id', propertyId),
+    ]);
+    if (home.error || ticks.error || !home.data) return { kind: 'unknown' };
+    const guestyRun = (home.data as { calendar_authority: string | null }).calendar_authority !== 'helm';
+    return { kind: 'home', guestyRun, otaReadsHelm: exportLiveSince((ticks.data ?? []) as ListingScopeRow[]).has(propertyId) };
+  } catch {
+    return { kind: 'unknown' };
+  }
 }

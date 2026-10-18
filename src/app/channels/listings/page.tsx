@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { loadGuestyWriteScope } from '@/lib/channels';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -58,9 +60,12 @@ export default async function ChannelsListingsPage({ searchParams }: { searchPar
   const shown = regionFilter ? fleet.filter((p) => p.region === regionFilter) : fleet;
   const wired = shown.filter((p) => (byProperty[p.id] ?? []).some((l) => l.is_active && l.ical_import_url && l.channel !== 'guesty')).length;
 
+  const writeScope = await loadGuestyWriteScope();
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
         eyebrow="Helm · Channels · Wiring"

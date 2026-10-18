@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { loadGuestyWriteScope } from '@/lib/channels';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -71,9 +73,12 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
   const shownFleet = regionFilter ? fleet.filter((p) => p.region === regionFilter) : fleet;
   const helmRunCount = fleet.filter((p) => p.calendar_authority === 'helm').length;
 
+  const writeScope = await loadGuestyWriteScope();
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
         eyebrow="Helm · Channels"

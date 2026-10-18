@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { loadGuestyWriteScope, loadHomeWriteScope } from '@/lib/channels';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -100,7 +102,7 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
   const guests = Math.max(1, Math.round(Number(one(sp.guests)) || 2));
   // The channel hub pre-fills a Guesty hold it asks to be re-entered.
   const presetNotes = one(sp.notes).slice(0, 500);
-  const presetHoldKind = ['owner', 'maintenance', 'other', 'ota'].includes(one(sp.hold_kind)) ? one(sp.hold_kind) : 'owner';
+  const presetHoldKind = ['owner', 'maintenance', 'other'].includes(one(sp.hold_kind)) ? one(sp.hold_kind) : 'owner';
   const conflict = conflictFromSearchParams(sp);
   const today = todayInEastern();
 
@@ -132,9 +134,12 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
   const defaultChannel: BookingChannel | '' = isBlock ? 'block' : channelChoices.includes(presetChannel) ? presetChannel : '';
   const money = (c: number) => (c / 100).toFixed(2);
 
+  const writeScope = property ? await loadHomeWriteScope(property.id) : await loadGuestyWriteScope();
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
         eyebrow={`Helm · Channels · New ${isBlock ? 'block' : 'booking'}`}
@@ -253,7 +258,6 @@ export default async function ChannelsBookingsNewPage({ searchParams }: { search
                   <option value="owner">Owner stay</option>
                   <option value="maintenance">Maintenance</option>
                   <option value="other">Other</option>
-                  <option value="ota">Channel block</option>
                 </select>
               </Field>
             )}

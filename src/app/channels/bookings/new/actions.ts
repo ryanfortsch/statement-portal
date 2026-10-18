@@ -27,7 +27,9 @@ import { writeDirectBookingFinance } from '@/lib/booking-finance-write';
  * page's money sub-record is not blank until Stripe settles.
  */
 
-const HOLD_KINDS = ['owner', 'maintenance', 'ota', 'other'] as const;
+// Hand-entered holds. 'ota' (a channel's own closure) is the feed imports'
+// to write, never an operator's pick.
+const HOLD_KINDS = ['owner', 'maintenance', 'other'] as const;
 type HoldKind = (typeof HOLD_KINDS)[number];
 
 const DIRECT_CHANNELS: ReadonlySet<BookingChannel> = new Set(['direct', 'manual']);
