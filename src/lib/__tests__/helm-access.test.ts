@@ -344,7 +344,9 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
   const STRIPS: Record<string, number> = {
     'src/components/MessagingTabs.tsx': 1,
     'src/components/FieldTabs.tsx': 1,
-    'src/components/FinancialsTabs.tsx': 5,
+    // Statements' href is built by statementsHref() to carry the month, so
+    // it is not a literal; the other four are.
+    'src/components/FinancialsTabs.tsx': 4,
     'src/components/GrowthTabs.tsx': 2,
     'src/components/WorkTabs.tsx': 0,
     'src/components/TurnoverTabs.tsx': 0,

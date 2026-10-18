@@ -27,6 +27,7 @@ import {
   type PortfolioTotals,
 } from '@/lib/revenue-snapshot';
 import { supabase, isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { pacingFactsLine, pacingToggleState } from '@/lib/revenue-pacing-line';
 import {
   loadProjectionBaselines,
   summarizeVsProjection,
@@ -52,13 +53,6 @@ async function readSyncStatus(): Promise<{ lastSyncedAt: Date | null; isStale: b
   const lastSyncedAt = data?.last_synced_at ? new Date(data.last_synced_at) : null;
   const isStale = !lastSyncedAt || (Date.now() - lastSyncedAt.getTime()) >= STALE_MS;
   return { lastSyncedAt, isStale };
-}
-
-/** "2026-05" -> "May 2026". For the pacing context line. */
-function formatPacingMonth(ym: string): string {
-  const [y, m] = ym.split('-').map((s) => parseInt(s, 10));
-  if (!y || !m) return ym;
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
 function formatRelative(date: Date | null): string {
@@ -156,12 +150,18 @@ export default async function RevenuePage({ searchParams }: PageProps) {
 
   const { snapshots, portfolio, pacing } = current;
 
-  // The target is the higher of two floors: the market benchmark, and where
-  // the month is on pace to finish on Rising Tide's own late-booking curve.
-  // The sentence names whichever bound, and the snapshot decides that on the
-  // unrounded values -- rebuilding the benchmark here from rounded fields
-  // picked the wrong floor whenever the two landed close together.
-  const paceDrivenTarget = !!pacing && pacing.targetSource === 'pickup' && pacing.pickupShare != null;
+  // One line of facts under the toggles instead of two paragraphs, and a
+  // Pacing toggle that is always there (disabled, with the reason, when
+  // there is nothing to project). See src/lib/revenue-pacing-line.ts.
+  const pacingLine = pacingFactsLine(pacing, { view, basis });
+  const pacingToggle = pacingToggleState(pacing, view);
+
+  // The one statement month this range is, if it is one, so the Money strip
+  // can open Statements on it (and Statements can come back here).
+  const statementsMonth =
+    preset === 'custom_month' || preset === 'last_month' || preset === 'this_month' || preset === 'mtd'
+      ? rangeStart.slice(0, 7)
+      : null;
   const priorPortfolio = priorFull?.portfolio ?? null;
 
   // Against-projection: the proposal each owner was shown, prorated to this
@@ -192,7 +192,7 @@ export default async function RevenuePage({ searchParams }: PageProps) {
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
-      <FinancialsTabs current="revenue" />
+      <FinancialsTabs current="revenue" month={statementsMonth} />
 
       <HelmHero
         eyebrow="Helm · Revenue"
@@ -213,62 +213,13 @@ export default async function RevenuePage({ searchParams }: PageProps) {
               <div className="flex items-baseline" style={{ gap: 14, flexWrap: 'wrap' }}>
                 <TimeRangePicker value={rangeValue} />
                 <BasisToggle value={basis} />
-                {((pacing && pacing.multiplier > 1) || view === 'pacing') && (
-                  <ViewToggle value={view} />
-                )}
+                <ViewToggle value={view} disabledNote={pacingToggle.enabled ? null : pacingToggle.note} />
               </div>
               <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>{rangeLabel}</span>
             </div>
-            {basis === 'nights' && (
-              <p
-                style={{
-                  marginTop: 12,
-                  fontSize: 12,
-                  color: 'var(--ink-3)',
-                  lineHeight: 1.5,
-                }}
-              >
-                Counting by nights stayed. A booking&rsquo;s money follows its nights, so a
-                stay with most of its nights in August stops landing entirely on September
-                just because it checked out there. Stays, cleaning and occupancy still count
-                at checkout. Owner statements recognize at checkout too, so these figures
-                will not tie to a statement.
-              </p>
-            )}
-            {/*
-              The pacing line renders whenever there is a month to describe,
-              NOT only when a projection is available. It used to share the
-              toggle's `multiplier > 1` gate, so a month already past its
-              target printed nothing at all: no toggle, no sentence, no
-              explanation. Blank space reads as a broken feature, and the one
-              fact worth having (the fleet is ahead of its benchmark) was the
-              one the page withheld.
-            */}
-            {pacing && (
-              <p
-                style={{
-                  marginTop: 12,
-                  fontSize: 12,
-                  color: 'var(--ink-3)',
-                  lineHeight: 1.5,
-                }}
-              >
-                Pacing {pacing.pacingPct.toFixed(0)}% so far in {formatPacingMonth(pacing.month)}.
-                Gloucester historical for {formatPacingMonth(pacing.month)} is{' '}
-                {pacing.historicalAvgPct.toFixed(0)}%.
-                {pacing.multiplier <= 1
-                  ? pacing.pacingPct <= 0
-                    ? ` No sellable night in ${formatPacingMonth(pacing.month)} is booked yet, so there is no pace to carry forward and no projection is applied.${basis === 'nights' ? ' Split by night.' : ''}`
-                    : ` Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that, putting the target at ${pacing.benchmarkPct.toFixed(0)}%, and the fleet is at or past it${pacing.pickupShare != null ? ' with nothing further due on its normal booking curve' : ''}. No projection is applied, so these are booked-so-far actuals.${basis === 'nights' ? ' Split by night.' : ''}`
-                  : ` ${
-                      paceDrivenTarget
-                        ? `By this day of the month Rising Tide has normally booked ${(pacing.pickupShare! * 100).toFixed(0)}% of the nights a month ends up selling, so ${formatPacingMonth(pacing.month)} is on pace to finish near ${pacing.targetPct.toFixed(0)}% rather than stopping where it stands.`
-                        : `Rising Tide captures ${(pacing.captureRatio * 100).toFixed(0)}% of that in ${formatPacingMonth(pacing.month)}, putting the target at ${pacing.targetPct.toFixed(0)}%.`
-                    }${
-                      view === 'pacing'
-                        ? ` Every home open for rental is projected toward that on current/future full months in range, whether or not it has a booking yet. The nights still open are priced at last year\u2019s Gloucester rate for the same weekday and holiday${pacing.openNightMarketRate != null ? ` (about $${Math.round(pacing.openNightMarketRate)} a night)` : ''}, times each home\u2019s achieved premium over market${pacing.fleetRateIndex != null ? ` (fleet ${pacing.fleetRateIndex.toFixed(2)}×)` : ''}, never at the booked ADR. Stays and cleaning follow the added nights.${basis === 'nights' ? ' Applied to each month\u2019s night share.' : ''}`
-                        : ` These figures are booked-so-far actuals. Switch to Pacing to see that projected.${basis === 'nights' ? ' Split by night.' : ''}`
-                    }`}
+            {pacingLine && (
+              <p style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+                {pacingLine}
               </p>
             )}
           </>
@@ -326,6 +277,10 @@ export default async function RevenuePage({ searchParams }: PageProps) {
             {snapshots.length} active
           </span>
         </div>
+        <SourceLegend
+          sources={snapshots.filter((s) => s.metrics.staysCount > 0 || (s.metrics.totalRevenue ?? 0) > 0).map((s) => s.source)}
+          basis={basis}
+        />
         <div
           style={{
             display: 'grid',
@@ -431,7 +386,7 @@ function ChannelStackBar({
         return (
           <div
             key={ch}
-            title={`${CHANNEL_LABEL[ch]} · ${fmtCurrency(mix[ch].revenue)} (${pct.toFixed(0)}%) · ${mix[ch].stays} ${mix[ch].stays === 1 ? 'stay' : 'stays'}`}
+            aria-label={`${CHANNEL_LABEL[ch]} ${pct.toFixed(0)}%`}
             style={{
               flex: `${mix[ch].revenue} 1 0%`,
               minWidth: 3,
@@ -535,8 +490,9 @@ function ChannelMixStrip({ mix, prior }: { mix: ChannelMix; prior: ChannelMix | 
   );
 }
 
-/** Slim per-property mix: stacked bar + one legend line. Detail rides the
- * bar segments' title tooltips. */
+/** Slim per-property mix: stacked bar + one legend line carrying what the
+ * bar's hover used to: share, amount and stays per channel, so a phone
+ * reads the same detail desktop did. */
 function CardChannelBar({ mix }: { mix: ChannelMix }) {
   const total = mixTotal(mix);
   if (total <= 0) return null;
@@ -556,9 +512,10 @@ function CardChannelBar({ mix }: { mix: ChannelMix }) {
         }}
       >
         {entries.map((ch) => (
-          <span key={ch} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <span key={ch} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
             <ChannelDot ch={ch} size={5} />
-            {CHANNEL_SHORT[ch]} {Math.round((mix[ch].revenue / total) * 100)}%
+            {CHANNEL_SHORT[ch]} {Math.round((mix[ch].revenue / total) * 100)}% · {fmtCurrency(mix[ch].revenue)}
+            {mix[ch].stays > 0 ? ` · ${mix[ch].stays} ${mix[ch].stays === 1 ? 'stay' : 'stays'}` : ''}
           </span>
         ))}
       </div>
@@ -585,16 +542,18 @@ function PortfolioStrip({
         borderTop: '1px solid var(--ink)',
         borderBottom: '1px solid var(--ink)',
         display: 'grid',
-        gridTemplateColumns: 'repeat(7, 1fr)',
+        gridTemplateColumns: 'repeat(6, 1fr)',
       }}
     >
       <Stat label="Stays" value={String(totals.totalStays)} delta={d('totalStays')} />
       <Stat label="Avg Occupancy" value={fmtPercent(totals.avgOccupancy)} delta={d('avgOccupancy')} />
       <Stat label="Avg ADR" value={fmtCurrency(totals.avgADR)} delta={d('avgADR')} accent />
-      <Stat label="Owner Revenue" value={fmtCurrency(totals.totalRevenue)} delta={d('totalRevenue')} />
+      <Stat label="Owner revenue" value={fmtCurrency(totals.totalRevenue)} delta={d('totalRevenue')} sub="after channel and card fees" />
       <Stat label="Owner Payout" value={fmtCurrency(totals.totalPayout)} delta={d('totalPayout')} accent />
-      <Stat label="Rising Tide" value={fmtCurrency(totals.totalManagementFee)} delta={d('totalManagementFee')} />
-      <Stat label="Portfolio Rev" value={fmtCurrency(totals.totalPortfolioRevenue)} delta={d('totalPortfolioRevenue')} last />
+      {/* The management fee, named. "Portfolio Rev" (the payout on homes
+          Rising Tide owns, in practice 3 Locust alone) left the strip on
+          2026-10-18; that home's card below still prints its payout. */}
+      <Stat label="Mgmt fee" value={fmtCurrency(totals.totalManagementFee)} delta={d('totalManagementFee')} last />
     </div>
   );
 }
@@ -691,22 +650,6 @@ function PropertyCard({
           >
             {snapshot.propertyName}
           </h3>
-          {snapshot.source !== 'computed' && (
-            <span
-              className="eyebrow"
-              style={{
-                color: SOURCE_COLOR[snapshot.source],
-                whiteSpace: 'nowrap',
-              }}
-              title={
-                (basis === 'nights' ? SOURCE_TITLE_NIGHTS[snapshot.source] : undefined) ??
-                SOURCE_TITLE[snapshot.source]
-              }
-            >
-              {(basis === 'nights' ? SOURCE_LABEL_NIGHTS[snapshot.source] : undefined) ??
-                SOURCE_LABEL[snapshot.source]}
-            </span>
-          )}
         </div>
         {delta != null && delta !== 0 && (
           <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-3)' }}>
@@ -734,12 +677,20 @@ function PropertyCard({
           <Metric label="Stays" value={String(m.staysCount)} />
           <Metric label="Occupancy" value={fmtPercent(m.occupancyPct)} />
           <Metric label="ADR" value={fmtCurrency(m.ADR)} accent />
-          <Metric label="Owner Revenue" value={fmtCurrency(m.totalRevenue)} />
+          <Metric label="Owner revenue" value={fmtCurrency(m.totalRevenue)} />
           <Metric
-            label={snapshot.isRisingTideOwned ? 'Mgmt Fee' : 'Rising Tide'}
+            label="Mgmt fee"
             value={snapshot.isRisingTideOwned ? '—' : fmtCurrency(m.managementFee)}
           />
-          <Metric label="Owner Payout" value={fmtCurrency(m.projectedOwnerPayout)} accent />
+          {/* Where the payout came from, as one word under it (it was a
+              hover-only chip in the card's corner). */}
+          <Metric
+            label="Owner Payout"
+            value={fmtCurrency(m.projectedOwnerPayout)}
+            accent
+            note={sourceWord(snapshot.source, basis)}
+            noteColor={SOURCE_COLOR[snapshot.source]}
+          />
         </dl>
       )}
       {!noData && <CardChannelBar mix={snapshot.channelMix} />}
@@ -781,13 +732,6 @@ function PropertyCard({
   );
 }
 
-const SOURCE_LABEL: Record<PropertySnapshot['source'], string> = {
-  statement: 'Statement',
-  pacing: 'Pacing',
-  booked: 'Booked',
-  computed: '',
-};
-
 const SOURCE_COLOR: Record<PropertySnapshot['source'], string> = {
   statement: 'var(--tide-deep)',
   pacing: 'var(--signal)',
@@ -795,25 +739,50 @@ const SOURCE_COLOR: Record<PropertySnapshot['source'], string> = {
   computed: 'var(--ink-3)',
 };
 
-// Under the nights basis the statement chip has to withdraw its claim: the
-// dollars are still the statement's, but they have been re-split across the
-// months the nights fall in, so the month total will not match the statement.
-const SOURCE_TITLE_NIGHTS: Partial<Record<PropertySnapshot['source'], string>> = {
-  statement: "Reconciled statement dollars, re-split by the nights they were earned on. Stays and cleaning are the statement's own. The month total will not match the statement.",
+/**
+ * The one word under a card's payout saying where its numbers came from.
+ * Under the nights basis a statement month says "reconciled": the dollars
+ * are the statement's, re-split by night, so the month will not match it.
+ */
+function sourceWord(source: PropertySnapshot['source'], basis: RevenueBasis): string | null {
+  if (source === 'statement') return basis === 'nights' ? 'reconciled' : 'statement';
+  if (source === 'pacing') return 'projected';
+  if (source === 'booked') return 'booked';
+  return null;
+}
+
+const SOURCE_MEANING: Record<string, string> = {
+  statement: 'the closed owner statement',
+  reconciled: 'statement dollars split by night',
+  booked: 'booked so far',
+  projected: 'booked plus open nights paced to target',
 };
 
-const SOURCE_LABEL_NIGHTS: Partial<Record<PropertySnapshot['source'], string>> = {
-  statement: 'Reconciled',
-};
+/** One line defining the words that appear on this page's cards. */
+function SourceLegend({ sources, basis }: { sources: PropertySnapshot['source'][]; basis: RevenueBasis }) {
+  const words = [...new Set(sources.map((s) => sourceWord(s, basis)).filter((w): w is string => !!w))];
+  if (words.length === 0) return null;
+  return (
+    <div style={{ fontSize: 11, color: 'var(--ink-3)', margin: '-6px 0 12px', lineHeight: 1.5 }}>
+      Payout from: {words.map((w) => `${w}, ${SOURCE_MEANING[w]}`).join(' · ')}
+    </div>
+  );
+}
 
-const SOURCE_TITLE: Record<PropertySnapshot['source'], string> = {
-  statement: 'From the monthly owner statement (canonical for closed months)',
-  pacing: 'Booked so far, plus the nights this home is open for rental carried toward Rising Tide\u2019s own occupancy benchmark and priced at last year\u2019s market rate × this home\u2019s achieved premium (projected)',
-  booked: 'Booked-so-far actuals only, no projection',
-  computed: '',
-};
-
-function Metric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+function Metric({
+  label,
+  value,
+  accent = false,
+  note,
+  noteColor,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  /** One word under the value (the payout's source). */
+  note?: string | null;
+  noteColor?: string;
+}) {
   return (
     <div>
       <dt className="eyebrow" style={{ marginBottom: 3 }}>{label}</dt>
@@ -828,6 +797,11 @@ function Metric({ label, value, accent = false }: { label: string; value: string
       >
         {value}
       </dd>
+      {note && (
+        <dd style={{ margin: '2px 0 0', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: noteColor ?? 'var(--ink-3)' }}>
+          {note}
+        </dd>
+      )}
     </div>
   );
 }
