@@ -99,16 +99,13 @@ export function fmtTouchDate(iso: string): string {
 
 /**
  * Standard "Sent {date} by {who}" status line built from a Gmail touch
- * entry. Falls back to "Marked sent {date}" if the touch lacks a from_user
- * (older entries that pre-dated multi-mailbox).
+ * entry ("by" is left off for older entries that pre-date multi-mailbox).
+ * A stage marked by hand reads "Done outside Helm" instead (DoneOutsideHelm).
  */
-export function gmailStatus(touch: GmailTouchEntry | undefined, fallback?: { sentAt?: string | null }): React.ReactNode {
+export function gmailStatus(touch: GmailTouchEntry | undefined): React.ReactNode {
   if (touch) {
     const by = touch.from_user ? ` by ${touch.from_user}` : '';
     return <>Sent {fmtTouchDate(touch.sent_at)}{by}</>;
-  }
-  if (fallback?.sentAt) {
-    return <>Marked sent {fmtTouchDate(fallback.sentAt)}</>;
   }
   return null;
 }
@@ -119,13 +116,13 @@ export function gmailStatus(touch: GmailTouchEntry | undefined, fallback?: { sen
  */
 export function lockedReason(p: ProjectionRow): React.ReactNode {
   const missing: string[] = [];
-  // Contract gate counts as cleared if the owner signed in-Helm OR a
-  // staff member manually marked it complete (deal closed elsewhere).
+  // Contract gate counts as cleared if the owner signed in-Helm OR the
+  // stage was marked done outside Helm (deal closed elsewhere).
   if (!p.contract_signed_at && !p.contract_marked_done_at) {
     missing.push('signed contract');
   }
-  // Onboarding counts as done if the owner submitted the form OR a staff
-  // member manually marked it complete.
+  // Onboarding counts as done if the owner submitted the form OR the
+  // stage was marked done outside Helm.
   if (!p.onboarding_submitted_at && !p.onboarding_marked_done_at) {
     missing.push('onboarding');
   }
