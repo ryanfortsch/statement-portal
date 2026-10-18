@@ -236,6 +236,13 @@ const nextConfig: NextConfig = {
         destination: '/guests/contacts',
         permanent: true,
       },
+      // Marketing Memory moved onto each home's property page as "How we
+      // sell it" (Guest & listing tab), 2026-10-18.
+      {
+        source: '/guests/marketing',
+        destination: '/properties',
+        permanent: true,
+      },
 
       // Query-param tabs promoted to real routes. Bare /guests stays the
       // Reviews lens; the Contacts and Agreements tabs get honest URLs.

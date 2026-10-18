@@ -30,20 +30,30 @@ test('prospect lost response does not become success', async () => { const f = p
 test('prospect success preserves inactive row, geocoding, and redirect', async () => { const f = prospect(); await assert.rejects(f.run(), /REDIRECT:\/properties\/synthetic_home/); assert.equal(f.writes[0].is_active, false); assert.equal(f.writes[0].kind, 'prospect'); assert.equal(f.writes[0].latitude, 42); assert.deepEqual(f.geo, ['123 Test Road, Rockport MA']); assert.deepEqual(f.paths, ['/properties', '/properties/prospects']); });
 test('optional town and failed geocoding retain existing defaults', async () => { const f = prospect(); f.data.set('city', ''); f.noGeocode(); await assert.rejects(f.run(), /REDIRECT:/); assert.equal(f.writes[0].city, 'Gloucester'); assert.equal(f.writes[0].latitude, null); });
 
-const pageSource = compile('../../app/guests/marketing/page.tsx');
-async function marketing(mode: string) {
-  const exports: { default?: () => Promise<unknown> } = {};
-  const React = require('react');
+// "How we sell it" (was the Marketing Memory page): a failed read must never
+// render a blank editable form, and a home with nothing written yet must.
+const loaderSource = compile('../how-we-sell-it.ts');
+async function howWeSellIt(mode: string) {
+  const exports: { loadHowWeSellIt?: (id: string) => Promise<{ ok: boolean; row?: unknown }> } = {};
+  const chain = { select: () => chain, eq: () => chain, maybeSingle: async () => {
+    if (mode === 'thrown') throw Error('Offline');
+    return { data: mode === 'row' ? { property_id: 'home', tagline: 'On the water' } : null, error: mode === 'returned' ? { message: 'Unavailable' } : null };
+  } };
   const deps: Record<string, unknown> = {
-    'react/jsx-runtime': require('react/jsx-runtime'),
-    'next/link': { default: (p: Record<string, unknown>) => React.createElement('a', p) },
-    '@/lib/property-scope': { CAPE_ANN_REGION: 'cape_ann' },
-    '@/lib/fleet': { listFleetProperties: async () => [{ id: 'home', name: 'Synthetic Home' }] },
-    '@/lib/supabase': { isConfigured: mode !== 'unconfigured', supabase: { from: () => ({ select: async () => { if (mode === 'thrown') throw Error('Offline'); return { data: mode === 'null' ? null : [], error: mode === 'returned' ? { message: 'Unavailable' } : null }; } }) } },
-    './MarketingMemoryEditor': { MarketingMemoryEditor: () => React.createElement('form', { 'data-editor': true }) },
+    './supabase-admin': { isServiceConfigured: mode !== 'unconfigured', supabaseAdmin: { from: (table: string) => { assert.equal(table, 'property_marketing'); return chain; } } },
   };
-  runInNewContext(pageSource, { exports, require: (name: string) => deps[name] ?? {} });
-  return require('react-dom/server').renderToStaticMarkup(await exports.default!());
+  runInNewContext(loaderSource, { exports, require: (name: string) => deps[name] ?? {} });
+  return exports.loadHowWeSellIt!('home');
 }
-for (const mode of ['unconfigured', 'thrown', 'returned', 'null']) test('marketing ' + mode + ' load shows retry with no blank editable form', async () => { const html = await marketing(mode); assert.match(html, /could not be loaded/); assert.match(html, /Retry loading/); assert.doesNotMatch(html, /data-editor/); });
-test('successful empty marketing query still allows a new memory', async () => { const html = await marketing('empty'); assert.match(html, /data-editor/); assert.doesNotMatch(html, /could not be loaded/); });
+for (const mode of ['unconfigured', 'thrown', 'returned']) test('how we sell it: ' + mode + ' read is a failure, not an empty form', async () => { assert.equal(JSON.stringify(await howWeSellIt(mode)), '{"ok":false}'); });
+test('how we sell it: nothing written yet still opens the editor', async () => { assert.equal(JSON.stringify(await howWeSellIt('null')), '{"ok":true,"row":null}'); });
+test('how we sell it: a saved row comes back', async () => { const r = await howWeSellIt('row'); assert.equal(r.ok, true); assert.equal((r.row as { tagline: string }).tagline, 'On the water'); });
+test('how we sell it reads and writes through the service-role client, never sleeps or bedrooms', () => {
+  const lib = readFileSync(new URL('../how-we-sell-it.ts', import.meta.url), 'utf8');
+  const action = readFileSync(new URL('../../app/properties/[id]/how-we-sell-it-actions.ts', import.meta.url), 'utf8');
+  assert.ok(lib.includes("from './supabase-admin'") && action.includes("from '@/lib/supabase-admin'"));
+  for (const src of [lib, action]) assert.ok(!src.includes("from '@/lib/supabase'") && !/\bsleeps\b|\bbedrooms:/.test(src.replace(/\/\*[\s\S]*?\*\//g, '')));
+  const context = readFileSync(new URL('../ai/campaign-context.ts', import.meta.url), 'utf8');
+  assert.ok(context.includes("select('id, title, bedrooms, max_occupancy')"), 'the campaign AI reads sleeps and bedrooms from the registry');
+  assert.ok(context.includes('sleeps: sizeById.get(p.id)?.sleeps ?? null,'));
+});

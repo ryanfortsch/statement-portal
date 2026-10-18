@@ -60,8 +60,6 @@ type MarketingRow = {
   primary_selling_point: string | null;
   selling_points: string[] | null;
   on_water: boolean;
-  bedrooms: number | null;
-  sleeps: number | null;
   best_for: string | null;
   notes: string | null;
 };
@@ -95,7 +93,9 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
   const windowEnd = windowEndDate.toISOString().slice(0, 10);
 
   const [propsResult, listingsResult, marketingResult, bookingsResult] = await Promise.all([
-    supabase.from('properties').select('id, title').eq('is_active', true),
+    // Sleeps and bedrooms are registry facts (max_occupancy, bedrooms); "How
+    // we sell it" no longer keeps a second copy to drift.
+    supabase.from('properties').select('id, title, bedrooms, max_occupancy').eq('is_active', true),
     supabase.from('guesty_listings').select('property_id, listing_id, hero_url'),
     supabase.from('property_marketing').select('*'),
     supabase
@@ -110,8 +110,10 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
   ]);
 
   const titleById = new Map<string, string | null>();
-  for (const row of (propsResult.data ?? []) as Array<{ id: string; title: string | null }>) {
+  const sizeById = new Map<string, { bedrooms: number | null; sleeps: number | null }>();
+  for (const row of (propsResult.data ?? []) as Array<{ id: string; title: string | null; bedrooms: number | null; max_occupancy: number | null }>) {
     titleById.set(row.id, row.title);
+    sizeById.set(row.id, { bedrooms: row.bedrooms ?? null, sleeps: row.max_occupancy ?? null });
   }
 
   const guestyByPropertyId = new Map<string, { listing_id: string; hero_url: string | null }>();
@@ -192,8 +194,8 @@ export async function loadDraftContext(args: { segmentId?: string | null }): Pro
               primarySellingPoint: m.primary_selling_point,
               sellingPoints: m.selling_points ?? [],
               onWater: m.on_water,
-              bedrooms: m.bedrooms,
-              sleeps: m.sleeps,
+              bedrooms: sizeById.get(p.id)?.bedrooms ?? null,
+              sleeps: sizeById.get(p.id)?.sleeps ?? null,
               bestFor: m.best_for,
               notes: m.notes,
             }
