@@ -32,7 +32,8 @@ export default async function NotAvailablePage({
         </h1>
         <p style={{ marginTop: 18, fontSize: 15.5, lineHeight: 1.6, color: 'var(--ink-3)', maxWidth: 560 }}>
           Owner statements, revenue, the forecast, cost analysis, the books and payments; contracts, prospects
-          and projections; owner messaging; guest quotes; creative pay and the contractor rate card.
+          and projections; owner messaging; guest quotes; AirDNA market data and competitors; creative pay
+          and the contractor rate card.
           All of it stays with Ryan and the back office. If you need something from here, ask Ryan.
         </p>
         {from && (

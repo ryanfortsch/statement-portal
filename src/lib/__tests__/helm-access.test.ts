@@ -84,6 +84,11 @@ describe('what a staff login may open', () => {
       // The company ledger and every contractor's pay print here.
       '/cost-analysis',
       '/cost-analysis/anything',
+      // Growth's owner chores: the AirDNA upload and the competitor
+      // roster with its owner-of-record research.
+      '/marketing/airdna',
+      '/competitors',
+      '/competitors/atlantic-vacation-homes',
     ]) {
       assert.ok(pathRequiresOwner(p), `${p} should be owners-only`);
     }
@@ -113,6 +118,8 @@ describe('what a staff login may open', () => {
       '/playbook',
       '/guests',
       '/guests/agreements',
+      '/guests/contacts',
+      '/marketing',
       // Prefix matching is by whole segment: a sibling that merely starts
       // with the same letters is not caught.
       '/statements-archive',
@@ -160,8 +167,15 @@ describe('what a staff login may open', () => {
       '/api/sync-stripe',
       '/api/books',
       '/api/vendor-w9',
+      '/api/airdna/ingest',
+      '/api/sync-competitors',
     ]) {
       assert.ok(apiRequiresOwner(p), `${p} should be owners-only`);
+    }
+    // The public market pages read the AirDNA aggregates, and the weekly
+    // competitor sync runs through the cron route.
+    for (const p of ['/api/markets/airdna/gloucester', '/api/cron/sync-competitors', '/api/cron/airdna-reminder']) {
+      assert.equal(apiRequiresOwner(p), false, `${p} should stay open`);
     }
     // What staff keep: the company-card upload on /cost-analysis, the
     // launch checklist's Stripe wiring check, the crons, uploads, search.
@@ -334,7 +348,7 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
     'src/components/MessagingTabs.tsx': 1,
     'src/components/FieldTabs.tsx': 1,
     'src/components/FinancialsTabs.tsx': 6,
-    'src/components/GrowthTabs.tsx': 1,
+    'src/components/GrowthTabs.tsx': 2,
     'src/components/WorkTabs.tsx': 0,
     'src/components/TurnoverTabs.tsx': 0,
     'src/app/properties/PropertiesTabBar.tsx': 2,
@@ -467,7 +481,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
 
   test('/not-available names every area the gate list covers', () => {
     const src = read('src/app/not-available/page.tsx').toLowerCase();
-    for (const word of ['statements', 'revenue', 'forecast', 'cost analysis', 'books', 'payments', 'contracts', 'prospects', 'projections', 'owner messaging', 'quotes', 'creative pay', 'rate card']) {
+    for (const word of ['statements', 'revenue', 'forecast', 'cost analysis', 'books', 'payments', 'contracts', 'prospects', 'projections', 'owner messaging', 'quotes', 'airdna', 'competitors', 'creative pay', 'rate card']) {
       assert.ok(src.includes(word), `/not-available should mention ${word}`);
     }
   });
@@ -596,6 +610,21 @@ describe('owner money on the pages staff keep renders for owners only (part two)
     assert.ok(record.includes('const owner = await isOwnerSession();'));
     assert.ok(/\{owner && \(\n\s*<>\n\s*<div className="eyebrow" style=\{\{ marginTop: 4 \}\}>Money on the booking row<\/div>/.test(record), 'the money inputs are owners only');
     assert.ok(record.includes('{!owner ? ('), 'the booking_finance sub-record is owners only');
+  });
+
+  test('AirDNA and Competitors are gated, flagged, and linked for owners only', () => {
+    for (const id of ['airdna', 'competitors']) {
+      assert.equal(HELM_MODULES.find((m) => m.id === id)?.access, 'owner', `${id} must be flagged`);
+    }
+    const marketing = read('src/app/marketing/page.tsx');
+    const at = marketing.indexOf('href="/marketing/airdna"');
+    assert.ok(at > 0, 'the AirDNA link is found');
+    assert.ok(marketing.slice(Math.max(0, at - 200), at).includes('{owner && ('), 'the AirDNA link on Marketing renders for owners only');
+    const actions = read('src/app/competitors/actions.ts');
+    for (const name of ['setListingAddress', 'clearListingAddress']) {
+      const m = actions.match(new RegExp(`export async function ${name}\\b[\\s\\S]*?(?=\\nexport async function |$)`));
+      assert.ok(m && m[0].includes('await requireOwnerEmail()'), `${name} must require an owner`);
+    }
   });
 
   test('/cost-analysis is gated as a page and flagged in the atlas', () => {

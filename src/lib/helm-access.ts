@@ -79,6 +79,11 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
   '/owner-messaging',
   // Guest pricing is set by the owners.
   '/guests/quotes',
+  // Owner chores in Growth: the AirDNA comps upload (its reminder texts the
+  // owner) and the competitor roster, whose owner-of-record research is
+  // prospecting.
+  '/marketing/airdna',
+  '/competitors',
   // The creative pay ledger and the contractor rate card.
   '/fieldwork/shoots',
   '/fieldwork/rate-card',
@@ -128,6 +133,11 @@ export const OWNER_API_PREFIXES: readonly string[] = [
   '/api/draft-onboarding-email',
   '/api/sync-prospect-mail',
   '/api/vendor-w9',
+  // The AirDNA upload and the competitor sync behind the two owner pages.
+  // The public market pages read /api/markets/airdna, which stays open, and
+  // the weekly competitor cron imports the sync in process.
+  '/api/airdna',
+  '/api/sync-competitors',
 ];
 
 function matchesPrefix(pathname: string, prefix: string): boolean {
