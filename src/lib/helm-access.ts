@@ -94,10 +94,11 @@ export const OWNER_PATH_PREFIXES: readonly string[] = [
  * Everything that writes `owner_payout` is in here.
  *
  * Deliberately NOT here: /api/ingest-overhead (the company card upload,
- * reached from the Actuals section of /forecast, an owner page),
- * /api/stripe-account-check (the launch checklist's wiring
- * check, part of property onboarding) and the cron routes (re-running a
- * stuck feed is an operations duty).
+ * reached from the Actuals section of /forecast, an owner page) and the
+ * cron routes (re-running a stuck feed is an operations duty).
+ * /api/stripe-account-check moved in on 2026-10-18: it names the Stripe
+ * account a property's key reaches and counts its charges, and the launch
+ * page now shows it to owners only.
  */
 export const OWNER_API_PREFIXES: readonly string[] = [
   '/api/ingest',
@@ -120,6 +121,7 @@ export const OWNER_API_PREFIXES: readonly string[] = [
   '/api/period-notes',
   '/api/installments',
   '/api/sync-stripe',
+  '/api/stripe-account-check',
   '/api/sync-invoices',
   '/api/payments',
   '/api/books',

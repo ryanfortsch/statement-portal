@@ -7,7 +7,15 @@ import {
   setLaunchStepField,
   activateProperty,
 } from './actions';
-import { LAUNCH_WHO_LABELS, type LaunchStep, type LaunchStepRow, type LaunchStepStatus } from '@/lib/launch-checklist';
+import {
+  LAUNCH_STATUS_CHOICES,
+  LAUNCH_WHO_LABELS,
+  normalizeLaunchStatus,
+  openStepTitle,
+  type LaunchStep,
+  type LaunchStepRow,
+  type LaunchStepStatus,
+} from '@/lib/launch-checklist';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
@@ -62,10 +70,13 @@ function deepLinkFor(
 ): { href: string; label: string; external: boolean } | null {
   switch (action) {
     case 'edit_field':
+      return { href: `/properties/${propertyId}/edit`, label: 'Open property edit', external: false };
     case 'set_listing_match':
     case 'set_bank_last4':
     case 'set_tax_cert':
-      return { href: `/properties/${propertyId}/edit`, label: 'Open property edit', external: false };
+      // The row's inline editor writes the column; a second way to set the
+      // same field on another page is one too many.
+      return null;
     case 'set_external_title':
       return { href: `/properties/${propertyId}/stay-cape-ann`, label: 'Open Stay Cape Ann', external: false };
     case 'generate_copy':
@@ -96,13 +107,7 @@ function deepLinkFor(
   }
 }
 
-const STATUS_OPTIONS: Array<{ value: LaunchStepStatus; label: string }> = [
-  { value: 'todo', label: 'To-do' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'done', label: 'Done' },
-  { value: 'skipped', label: 'Skipped' },
-  { value: 'n_a', label: 'N/A' },
-];
+const STATUS_OPTIONS = LAUNCH_STATUS_CHOICES;
 
 /**
  * One row in the launch checklist. The page renders these inside phase
@@ -159,12 +164,12 @@ export function LaunchStepCard({
 
   // Effective status: the operator's manual choice wins; otherwise the
   // derivation flag from the page bumps a todo row up to done.
-  const manualStatus: LaunchStepStatus = row?.status ?? 'todo';
+  const manualStatus: LaunchStepStatus = normalizeLaunchStatus(row?.status);
   const status: LaunchStepStatus =
     autoResolved && manualStatus === 'todo' ? 'done' : manualStatus;
   const isAuto = step.auto || (autoResolved && manualStatus === 'todo');
   const isDone = status === 'done';
-  const isSkipped = status === 'skipped' || status === 'n_a';
+  const isSkipped = status === 'n_a';
   const isResolved = isDone || isSkipped;
   const link = deepLinkFor(step.action, propertyId);
 
@@ -230,7 +235,7 @@ export function LaunchStepCard({
                   textDecoration: isSkipped ? 'line-through' : 'none',
                 }}
               >
-                {step.title}
+                {isResolved ? step.title : openStepTitle(step)}
               </span>
               {nextUp && <Tag tone="signal">Next up</Tag>}
               {step.required && !isResolved && !nextUp && <Tag tone="signal">Required</Tag>}

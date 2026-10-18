@@ -3,6 +3,7 @@ import {
   LAUNCH_PHASES,
   LAUNCH_WHO_LABELS,
   launchBoardGroup,
+  openStepTitle,
   requiredOpenSteps,
   type LaunchStep,
 } from '@/lib/launch-checklist';
@@ -44,7 +45,7 @@ function attentionFlags(load: LaunchLoad): string[] {
     flags.push('One flat nightly price across the next 60 days: PriceLabs is not pushing to this listing.');
   }
   if (open.has('code_roster_entry')) {
-    flags.push('Not on Helm\'s roster yet: the /book page 404s and fallbacks skip it. Ask Ryan for the entry.');
+    flags.push('Book page does not resolve yet; ask Systems for the roster entry.');
   }
   if (open.has('guesty_listing_match') && !load.ctx.property.guesty_listing_id) {
     flags.push('No Guesty listing id on the record: syncs cannot attribute its reservations.');
@@ -237,7 +238,7 @@ function RequiredOpen({ steps, propertyId }: { steps: LaunchStep[]; propertyId: 
         {steps.map((step) => (
           <li key={step.key} style={{ fontSize: 13.5, lineHeight: 1.4 }}>
             <Link href={`/properties/${propertyId}/launch#step-${step.key}`} style={{ color: 'var(--ink)', textDecoration: 'none' }}>
-              {step.title}
+              {openStepTitle(step)}
             </Link>
             <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
               {LAUNCH_WHO_LABELS[step.who]}
@@ -257,7 +258,7 @@ function NextStep({ step, phase, propertyId }: { step: LaunchStep; phase: string
         href={`/properties/${propertyId}/launch#step-${step.key}`}
         style={{ display: 'inline-block', marginTop: 3, fontSize: 14, color: 'var(--ink)', textDecoration: 'none', lineHeight: 1.4 }}
       >
-        {step.title}
+        {openStepTitle(step)}
       </Link>
       <div style={{ marginTop: 2, fontSize: 11.5, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
         {phase} · {LAUNCH_WHO_LABELS[step.who]}

@@ -175,8 +175,9 @@ describe('what a staff login may open', () => {
       assert.equal(apiRequiresOwner(p), false, `${p} should stay open`);
     }
     // What staff keep: the company-card upload route (its page, Forecast's Actuals, is owner-only), the
-    // launch checklist's Stripe wiring check, the crons, uploads, search.
-    for (const p of ['/api/ingest-overhead', '/api/stripe-account-check', '/api/cron/sync-guesty', '/api/upload', '/api/search', '/api/ask', '/api/work']) {
+    // crons, uploads, search. The launch checklist's Stripe account check is owners only since 2026-10-18.
+    assert.ok(apiRequiresOwner('/api/stripe-account-check'), 'the Stripe account check is owners only');
+    for (const p of ['/api/ingest-overhead', '/api/cron/sync-guesty', '/api/upload', '/api/search', '/api/ask', '/api/work']) {
       assert.equal(apiRequiresOwner(p), false, `${p} should stay open to staff`);
     }
     assert.ok(OWNER_API_PREFIXES.includes('/api/ingest'));

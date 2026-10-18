@@ -5,7 +5,7 @@ import { HelmFooter } from '@/components/HelmFooter';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { loadLaunchForFleet, type LaunchLoad } from '@/lib/launch-context';
-import type { LaunchSummary } from '@/lib/launch-checklist';
+import { openStepTitle, type LaunchSummary } from '@/lib/launch-checklist';
 import { ComingOnline } from './ComingOnline';
 import { AddProspectHomeForm } from './AddProspectHomeForm';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
@@ -303,7 +303,7 @@ function PropertyRow({
             <span
               title={
                 launch.requiredRemaining > 0
-                  ? `${launch.requiredRemaining} required Launch step${launch.requiredRemaining === 1 ? '' : 's'} open${launch.next ? `. Next: ${launch.next.title}` : ''}`
+                  ? `${launch.requiredRemaining} required Launch step${launch.requiredRemaining === 1 ? '' : 's'} open${launch.next ? `. Next: ${openStepTitle(launch.next)}` : ''}`
                   : 'All required Launch steps are done; not yet marked live'
               }
               style={{
