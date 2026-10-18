@@ -5,6 +5,8 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { CopyableUrl } from '../listings/CopyableUrl';
 import { getFleetProperty } from '@/lib/fleet';
 import { regionLabel } from '@/lib/property-scope';
@@ -168,15 +170,25 @@ export default async function ChannelsPropertyPage({
   const flipNote = one(sp.flip_note);
   const flipError = one(sp.flip_error);
 
+  // On a home Guesty runs the hub is a read surface: the badge, the feed
+  // rows, the export links and the upcoming stays. The cutover runbook (the
+  // panel, its preflight ledger, the attention panel) opens behind Prepare
+  // cutover, for owners: on its own when a cutover is underway or a flip
+  // just reported back. A Helm-run home shows everything.
+  const owner = await isOwnerSession();
+  const prepare = one(sp.prepare) === '1' || !!(flipped || flipError || flipNote);
+  const runbook = helmRun || (owner && (prepare || cutoverUnderway));
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={{ kind: 'home', guestyRun: !helmRun, otaReadsHelm: cutoverUnderway }} />
 
       <HelmHero
         eyebrow={`Helm · Channels · ${property.name}`}
         title={property.name}
         emphasis={property.title ?? ''}
-        description={`${[...new Set([property.address, property.city, regionLabel(property.region)].filter(Boolean))].join(' · ')}. Who runs this home today, what each OTA sees and when, and exactly what would break if you flipped it.`}
+        description={[...new Set([property.address, property.city, regionLabel(property.region)].filter(Boolean))].join(' · ')}
         belowDescription={
           <div style={{ marginTop: 14 }}>
             <Badge badge={badge} />
@@ -190,24 +202,31 @@ export default async function ChannelsPropertyPage({
           <Link href={`/properties/${propertyId}`} style={ghostButton}>Property record →</Link>
           <Link href={`/channels/${propertyId}/calendar?month=${monthKey(ym.year, ym.month)}`} style={ghostButton}>Month grid →</Link>
           <Link href={`/book/${propertyId}`} target="_blank" style={ghostButton}>Public booking page ↗</Link>
+          {!helmRun && owner && !runbook && (
+            <Link href={`/channels/${propertyId}?prepare=1#cutover`} style={ghostButton}>Prepare cutover</Link>
+          )}
+          {!helmRun && runbook && !cutoverUnderway && (
+            <Link href={`/channels/${propertyId}`} style={ghostButton}>Close cutover</Link>
+          )}
           <span style={{ flex: 1 }} />
           <Link href={`/channels/bookings/new?property=${propertyId}`} style={primaryButton}>+ Booking</Link>
           <Link href={`/channels/bookings/new?property=${propertyId}&type=block`} style={secondaryButton}>+ Block</Link>
         </div>
       </section>
 
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
+      {runbook && <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 40 }}>
         <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
           <Stat label="Stays this month" value={String(stats.bookingsThisMonth)} />
           <Stat label="Upcoming" value={String(upcoming.length)} sub="next 400 days" />
           <Stat label="Occupancy · 30d" value={`${stats.occupancyNext30}%`} sub={`${stats.bookedNightsNext30}/30 nights`} />
           <Stat label="Feeds importing" value={`${activeDirectFeeds.length}`} sub={`${feeds.filter((f) => f.is_active).length} channel rows`} last />
         </div>
-      </section>
+      </section>}
 
-      {carry && (helmRun || cutoverUnderway) && <AttentionPanel carry={carry} propertyId={propertyId} helmRun={helmRun} unfiltered={anonPulls} now={now} />}
+      {runbook && carry && (helmRun || cutoverUnderway) && <AttentionPanel carry={carry} propertyId={propertyId} helmRun={helmRun} unfiltered={anonPulls} now={now} />}
 
       {/* ── Cutover panel ─────────────────────────────────────────────── */}
+      {runbook && (
       <section id="cutover" className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
         <div className="eyebrow" style={{ marginBottom: 14, color: helmRun ? 'var(--positive)' : 'var(--signal)' }}>Cutover</div>
         <div style={{ borderTop: `2px solid ${helmRun ? 'var(--positive)' : 'var(--signal)'}`, paddingTop: 20 }}>
@@ -381,8 +400,10 @@ export default async function ChannelsPropertyPage({
           </div>
         </div>
       </section>
+      )}
 
       {/* ── Month grid ────────────────────────────────────────────────── */}
+      {runbook && (
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
           <div className="eyebrow">Calendar</div>
@@ -397,6 +418,7 @@ export default async function ChannelsPropertyPage({
           <PropertyMonthCalendar row={rowVM} weeks={grid.weeks.map((w) => w.map((c) => c.date))} monthStart={grid.start} monthEnd={grid.end} today={today} monthLabel={grid.label} compact />
         </div>
       </section>
+      )}
 
       {/* ── Feed health ───────────────────────────────────────────────── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
@@ -451,7 +473,7 @@ export default async function ChannelsPropertyPage({
         )}
       </section>
 
-      {recent.length > 0 && (
+      {runbook && recent.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
           <div className="eyebrow" style={{ marginBottom: 14 }}>Recent · last {recent.length}</div>
           <BookingsTable bookings={recent} today={today} dimmed />
@@ -459,6 +481,8 @@ export default async function ChannelsPropertyPage({
       )}
 
       {/* ── Automation sends ──────────────────────────────────────────── */}
+      {runbook && (
+        <>
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Automation sends · next 14 days</div>
         {sends.length === 0 ? (
@@ -501,6 +525,8 @@ export default async function ChannelsPropertyPage({
           <Tile href={`/properties/${propertyId}?tab=guest#automations`} title="Automations" body={property.automations_enabled ? 'On for this home. Fleet defaults with per-property overrides; sends need approval unless a rule says auto.' : 'Off for this home. Review the fleet rules and overrides before the flip.'} last />
         </div>
       </section>
+        </>
+      )}
 
       <HelmFooter module={`Channels · ${property.name}`} right={badge.label} />
     </div>

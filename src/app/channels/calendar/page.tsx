@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { loadGuestyWriteScope } from '@/lib/channels';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
@@ -158,9 +160,12 @@ export default async function ChannelsCalendarPage({ searchParams }: { searchPar
 
   const staysInWindow = bookings.filter((b) => b.status === 'confirmed' || b.status === 'completed').length;
 
+  const writeScope = await loadGuestyWriteScope();
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
         eyebrow="Helm · Channels · Multi-calendar"

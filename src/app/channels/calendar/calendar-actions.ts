@@ -150,11 +150,13 @@ export type CreateBlockInput = {
   checkIn: string;
   /** YYYY-MM-DD, exclusive (the morning the hold ends). */
   checkOut: string;
-  holdKind: 'owner' | 'maintenance' | 'ota' | 'other';
+  holdKind: 'owner' | 'maintenance' | 'other';
   note?: string | null;
 };
 
-const HOLD_KINDS = new Set(['owner', 'maintenance', 'ota', 'other']);
+// Hand-entered holds. 'ota' (a channel's own closure) is the feed imports'
+// to write, never an operator's pick.
+const HOLD_KINDS = new Set(['owner', 'maintenance', 'other']);
 
 export async function createBlockAction(input: CreateBlockInput): Promise<CalendarActionResult & { bookingId?: string }> {
   try {

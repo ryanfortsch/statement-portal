@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { loadHomeWriteScope } from '@/lib/channels';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -115,9 +117,12 @@ export default async function PropertyMonthGridPage({
   const saved = one(sp.saved);
   const error = one(sp.error);
 
+  const writeScope = await loadHomeWriteScope(propertyId);
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
         eyebrow={`Helm · Channels · ${property.name} · Calendar`}

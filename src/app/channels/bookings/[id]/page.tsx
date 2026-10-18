@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { loadHomeWriteScope } from '@/lib/channels';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -92,9 +94,12 @@ export default async function BookingDetailPage({ params, searchParams }: { para
   const feedMoves = events.filter((e) => e.kind === 'feed_moved' || e.kind === 'dates_changed');
   const title = isBlock ? `${booking.hold_kind ? cap(booking.hold_kind) : 'Hold'}${booking.notes ? `: ${booking.notes}` : ''}` : booking.guest_name ?? `${CHANNEL_LABELS[booking.channel] ?? booking.channel} stay`;
 
+  const writeScope = await loadHomeWriteScope(booking.property_id);
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
         eyebrow={`Helm · Channels · ${isBlock ? 'Hold' : 'Booking'}`}

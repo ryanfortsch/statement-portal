@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { GuestyWritesNotice } from '@/components/channels/GuestyWritesNotice';
+import { loadGuestyWriteScope, loadHomeWriteScope } from '@/lib/channels';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { listFleetProperties, type FleetProperty } from '@/lib/fleet';
@@ -68,9 +70,12 @@ export default async function ChannelsBookingsPage({ searchParams }: { searchPar
     return `/channels/bookings?${q.toString()}`;
   };
 
+  const writeScope = propertyId ? await loadHomeWriteScope(propertyId) : await loadGuestyWriteScope();
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <GuestyWritesNotice scope={writeScope} />
 
       <HelmHero
         eyebrow="Helm · Channels · Bookings"
