@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { CutoverPreflightError, flipToHelm, revertToGuesty } from '@/lib/cutover';
 import { echoFingerprint } from '@/lib/cutover-carryover';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -67,6 +68,13 @@ export async function flipCalendarAuthorityAction(formData: FormData) {
   let outcome: Record<string, string>;
 
   if (target === 'helm') {
+    // The hub shows Prepare cutover and the Flip form to owners only (#1913);
+    // a server action posts to whatever page rendered it, so the action
+    // checks too. The revert stays open to staff: it is on every Helm-run
+    // home's hub, and it is the way back.
+    if (!(await isOwnerSession())) {
+      redirect(hubUrl(propertyId, { flip_error: 'Only an owner can flip a home to Helm.' }));
+    }
     if (confirm !== propertyId) {
       redirect(hubUrl(propertyId, { flip_error: `Type the property id (${propertyId}) exactly to confirm the flip.` }));
     }
