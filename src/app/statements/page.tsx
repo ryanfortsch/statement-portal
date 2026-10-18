@@ -25,7 +25,7 @@ import { closeTaskPatchRow } from '@/lib/close-task-write';
 import { revenueSignal } from '@/lib/guesty-revenue-signal';
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { isStatementMonth, previousCalendarMonth, statementsHref, statementsUploadHref } from '@/lib/statements-month';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
@@ -2828,7 +2828,14 @@ function DashboardContent() {
   // The month lives in the URL (/statements?month=YYYY-MM). The select
   // pushes it; the effect below loads whatever the URL names, which also
   // makes Back and Forward step between months.
-  const router = useRouter();
+  //
+  // Written with the native history API, not router.push/replace. Next
+  // 16.2.4 patches pushState/replaceState to a synchronous restore, while a
+  // router navigation is async: dispatched while one of this page's server
+  // actions is pending, a later action can finish with the state from
+  // before the navigation and put the old URL back (seen live: a link to a
+  // month with no statements kept its ?month= after the page moved on). On
+  // the select that would load the old month again.
   const searchParams = useSearchParams();
   const urlMonth = searchParams.get('month');
   // A link to a month with no statements yet lands on the newest month
@@ -3530,12 +3537,12 @@ function DashboardContent() {
     (async () => {
       if (isStatementMonth(live) && !known) {
         setMissingMonth(live);
-        router.replace(statementsHref(target), { scroll: false });
+        window.history.replaceState(null, '', statementsHref(target));
       }
       if (target === shownMonthRef.current || target === requestedMonthRef.current) return;
       await loadPeriod(target);
     })();
-  }, [urlMonth, periods, loadPeriod, router]);
+  }, [urlMonth, periods, loadPeriod]);
 
   async function syncInvoices() {
     if (!selectedMonth) return;
@@ -3934,11 +3941,11 @@ function DashboardContent() {
             value={shownMonth}
             onChange={(e) => {
               if (e.target.value === '__new__') {
-                router.push(statementsUploadHref(previousCalendarMonth()));
+                window.location.assign(statementsUploadHref(previousCalendarMonth()));
                 return;
               }
               setMissingMonth(null);
-              router.push(statementsHref(e.target.value), { scroll: false });
+              window.history.pushState(null, '', statementsHref(e.target.value));
             }}
             aria-label="Statement period"
             className="font-serif"
@@ -4277,7 +4284,7 @@ function DashboardContent() {
         <Toast
           tone="tide"
           onDismiss={() => setMissingMonth(null)}
-          action={{ label: `Upload ${monthLong(missingMonth)}`, onClick: () => router.push(statementsUploadHref(missingMonth)) }}
+          action={{ label: `Upload ${monthLong(missingMonth)}`, onClick: () => window.location.assign(statementsUploadHref(missingMonth)) }}
         >
           There are no statements for {monthLabel(missingMonth)} yet, so this is {monthLabel(selectedMonth)}.
         </Toast>
