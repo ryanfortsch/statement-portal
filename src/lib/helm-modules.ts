@@ -4,8 +4,9 @@
  * The home page is Ask Helm + signal tiles + the For Me feed; it does not
  * render this list as cards. Discovery runs through the masthead (the
  * seven `primary: true` small-caps tabs: Work, Turnovers, Field, Messaging,
- * Properties, Money, Growth), the "More" menu (now the Library, a small
- * shelf of reference modules), and Cmd+K search, all of which read from
+ * Properties, Money, Growth; staff get five, see `access` and `masthead`),
+ * the "More" menu (now the Library, a small shelf of reference modules),
+ * and Cmd+K search, all of which read from
  * here. The masthead's active tab derives from the pathname via
  * activeModuleIdForPathname, not from a per-page prop.
  *
@@ -79,6 +80,14 @@ export type HelmModule = {
    * The two lists must agree: the test in helm-access.test.ts checks it.
    */
   access?: 'owner';
+  /**
+   * `'owner'` makes a primary module a masthead tab for owners only; a staff
+   * login finds it in the More menu instead. Unlike `access`, nothing is
+   * gated: the route, its search entry and its pages stay open to staff.
+   * Growth carries it (2026-10-18): nothing under it is a daily operations
+   * duty, so it is a shelf for staff and a section for owners.
+   */
+  masthead?: 'owner';
 };
 
 import type { HelmRole } from '@/lib/helm-access';
@@ -86,6 +95,11 @@ import type { HelmRole } from '@/lib/helm-access';
 /** Whether a role gets to see a module in the nav and in search. */
 export function moduleVisibleTo(m: HelmModule, role: HelmRole): boolean {
   return m.access !== 'owner' || role === 'owner';
+}
+
+/** Whether a module is a masthead tab for this role (not just reachable). */
+function onMastheadFor(m: HelmModule, role: HelmRole): boolean {
+  return m.primary && moduleVisibleTo(m, role) && (m.masthead !== 'owner' || role === 'owner');
 }
 
 export const HELM_MODULES: HelmModule[] = [
@@ -584,6 +598,8 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Growth: site traffic, conversions, top sources, and Core Web Vitals for both Rising Tide sites. Refreshed nightly.',
     status: 'active',
     primary: true,
+    // A masthead tab for owners; staff reach it from More.
+    masthead: 'owner',
     group: 'growth',
   },
   // AirDNA is reached from the Marketing surface. Registered here for
@@ -833,9 +849,12 @@ export const PRIMARY_MODULES = HELM_MODULES
     return ai - bi;
   });
 
-/** The masthead tabs a role gets: staff lose the Money tab. */
+/**
+ * The masthead tabs a role gets. Staff lose the Money tab (owner-gated) and
+ * the Growth tab (`masthead: 'owner'`, which moves it to their More menu).
+ */
 export function primaryModulesFor(role: HelmRole): HelmModule[] {
-  return PRIMARY_MODULES.filter((m) => moduleVisibleTo(m, role));
+  return PRIMARY_MODULES.filter((m) => onMastheadFor(m, role));
 }
 
 // The mobile menu (HelmMobileMenu) no longer keeps its own ranked list.
@@ -855,8 +874,10 @@ export function primaryModulesFor(role: HelmRole): HelmModule[] {
  * routes still resolve and Cmd+K search still finds them.
  */
 export function getGroupedOverflowModules(role: HelmRole = 'owner'): { group: HelmGroup; label: string; modules: HelmModule[] }[] {
-  const primaryIds = new Set(PRIMARY_MODULES.map((m) => m.id));
-  const overflow = HELM_MODULES.filter((m) => !primaryIds.has(m.id) && !m.hidden && moduleVisibleTo(m, role));
+  // A primary module that is not on this role's masthead (Growth for staff)
+  // lands here instead, so it is demoted, never lost.
+  const mastheadIds = new Set(primaryModulesFor(role).map((m) => m.id));
+  const overflow = HELM_MODULES.filter((m) => !mastheadIds.has(m.id) && !m.hidden && moduleVisibleTo(m, role));
 
   const statusRank: Record<HelmModule['status'], number> = {
     active: 0,
@@ -875,8 +896,9 @@ export function getGroupedOverflowModules(role: HelmRole = 'owner'): { group: He
 }
 
 // The "More" menu is now the Library: a small shelf of reference modules.
-// Pinned in this exact reading order, regardless of group.
-const OVERFLOW_PRIORITY = ['playbook', 'crm', 'channels', 'search'];
+// Pinned in this exact reading order, regardless of group. 'marketing' only
+// reaches the list for staff, whose masthead has no Growth tab.
+const OVERFLOW_PRIORITY = ['playbook', 'crm', 'channels', 'marketing', 'search'];
 
 /**
  * The flat "More" menu list both the desktop dropdown and the mobile sheet
