@@ -1,13 +1,10 @@
 import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/guests';
 import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from '@/lib/guests-types';
 import { getLastGuestySyncStatus } from '@/lib/guests-guesty-sync';
 import { syncFromGuesty } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
 import { AddGuestContactForm } from './AddGuestContactForm';
-import { GuestsTabBar } from '../GuestsTabBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,30 +51,7 @@ export default async function GuestContactsPage({
     : null;
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="guests" />
-
-      {/* HERO */}
-      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Guests</div>
-        <h1 className="font-serif" style={{
-          fontSize: 44,
-          lineHeight: 1.05,
-          fontWeight: 300,
-          letterSpacing: '-0.02em',
-          color: 'var(--ink)',
-          maxWidth: 720,
-        }}>
-          The list, <em style={{ color: 'var(--tide-deep)', fontWeight: 400 }}>kept close.</em>
-        </h1>
-        <p style={{ marginTop: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--ink-3)', maxWidth: 580 }}>
-          Subscribers, segments, and campaigns. Where The Weekly lives, where new signups land, and where every send is logged.
-        </p>
-      </section>
-
-      <GuestsTabBar active="contacts" />
-
+    <div className="flex-1 flex flex-col">
       {/* STATS STRIP */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 36 }}>
         <div

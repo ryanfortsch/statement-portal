@@ -11,21 +11,21 @@ import {
 } from '@/lib/reviews';
 
 /**
- * The Reviews view, rendered as the "Reviews" tab inside /guests.
+ * The Reviews tab of the Growth strip, at the bare /guests.
  *
- * This is the former standalone /reviews page body, lifted into a
- * component so Guests and Reviews live as two tabs of one section
- * rather than two top-level menu items. All filter links and the
- * filter form point back at bare /guests so navigating within the
- * tab keeps you on the tab. /reviews now redirects here.
+ * All filter links and the filter form point back at bare /guests so
+ * navigating within the tab keeps you on the tab. /reviews redirects here.
+ * The window defaults to 30 days, the same window the Marketing page's
+ * five-star tile reads, so a quiet week never opens on zeros.
  */
 
-// Reviews is the default lens, so its links are the bare /guests path.
+// Reviews lives at the bare /guests path, so its links do too.
 const TAB_BASE = '/guests';
 
 const VALID_RATINGS: ReviewListFilters['rating'][] = ['5', 'below'];
 const VALID_WINDOWS = [7, 30, 90, 365] as const;
 type WindowDays = (typeof VALID_WINDOWS)[number];
+const DEFAULT_WINDOW: WindowDays = 30;
 
 export type ReviewsTabParams = {
   rating?: string;
@@ -70,7 +70,7 @@ export async function ReviewsTab({ params }: { params: ReviewsTabParams }) {
   const daysParam = Number(params.days);
   const days: WindowDays = (VALID_WINDOWS as readonly number[]).includes(daysParam)
     ? (daysParam as WindowDays)
-    : 7;
+    : DEFAULT_WINDOW;
 
   const [stats, reviews, channels, propertyOptions] = await Promise.all([
     getReviewWindowStats(days),

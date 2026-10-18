@@ -37,7 +37,6 @@ async function marketing(mode: string) {
   const deps: Record<string, unknown> = {
     'react/jsx-runtime': require('react/jsx-runtime'),
     'next/link': { default: (p: Record<string, unknown>) => React.createElement('a', p) },
-    '@/components/HelmMasthead': { HelmMasthead: () => null }, '@/components/MarketingTabs': { MarketingTabs: () => null },
     '@/lib/property-scope': { CAPE_ANN_REGION: 'cape_ann' },
     '@/lib/fleet': { listFleetProperties: async () => [{ id: 'home', name: 'Synthetic Home' }] },
     '@/lib/supabase': { isConfigured: mode !== 'unconfigured', supabase: { from: () => ({ select: async () => { if (mode === 'thrown') throw Error('Offline'); return { data: mode === 'null' ? null : [], error: mode === 'returned' ? { message: 'Unavailable' } : null }; } }) } },

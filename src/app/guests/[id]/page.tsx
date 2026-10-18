@@ -1,7 +1,5 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { getContact, listContactEvents, listContactStays, type ContactStay } from '@/lib/guests';
 import { displayName, formatTagLabel } from '@/lib/guests-types';
 import { listReviewsForContact, type ReviewRow } from '@/lib/reviews';
@@ -25,14 +23,11 @@ export default async function ContactDetailPage({ params }: { params: Promise<{ 
   const stays = await listContactStays({ email: contact.email, guesty_guest_id: contact.guesty_guest_id });
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="guests" />
-
+    <div className="flex-1 flex flex-col">
       {/* HEADER */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
-          <Link href="/guests/contacts" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Guests</Link>
+          <Link href="/guests/contacts" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Contacts</Link>
         </div>
         <h1 className="font-serif" style={{
           fontSize: 36,

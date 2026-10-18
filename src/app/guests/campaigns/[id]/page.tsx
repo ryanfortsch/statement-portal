@@ -1,7 +1,5 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { listSegments } from '@/lib/guests';
 import {
   getCampaign,
@@ -58,10 +56,7 @@ export default async function CampaignDetailPage({
   });
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="guests" />
-
+    <div className="flex-1 flex flex-col">
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 48, paddingBottom: 24, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
           <Link href="/guests/campaigns" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Campaigns</Link>

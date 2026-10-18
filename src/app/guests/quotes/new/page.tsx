@@ -1,6 +1,4 @@
 import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { listQuotableProperties } from '@/lib/sca-quotes';
 import { isIsoDay } from '@/lib/sca-quotes-types';
 import { QuoteComposer, type QuotePrefill } from '../QuoteComposer';
@@ -48,10 +46,7 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="guests" />
-
+    <div className="flex-1 flex flex-col">
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
           <Link href="/guests/quotes" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>

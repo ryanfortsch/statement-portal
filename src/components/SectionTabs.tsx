@@ -9,12 +9,12 @@ import { useHelmRole } from './useHelmRole';
 /**
  * The one tab-strip primitive for Helm's section sub-navigation. Every
  * per-section strip (WorkTabs, TurnoverTabs, MessagingTabs, FinancialsTabs,
- * MarketingTabs, FieldTabs, GuestsTabBar) is a thin wrapper that hands this
+ * GrowthTabs, FieldTabs) is a thin wrapper that hands this
  * component its tab array; the markup lives here once so the strips cannot
  * drift apart visually.
  *
  * Role-aware: a tab the proxy would bounce never renders. A staff login
- * sees no Owners tab in Messaging, no Quotes tab in Guests and none of the
+ * sees no Owners tab in Messaging, no Quotes tab in Growth and none of the
  * Money strip, because each of those hrefs sits behind OWNER_PATH_PREFIXES.
  * The gate list decides (`roleMayOpen`), not a flag per tab, so a strip
  * cannot list a tab the proxy turns away. The root layout hands the server
