@@ -168,260 +168,299 @@ export async function loadPeriodData(month: string): Promise<
 
   const { data: props, error: propsError } = await supabaseAdmin
     .from('property_statements').select('*').eq('period_id', periodData.id).order('property_name');
-  // Feed health once for the whole period: the Stripe and invoice lanes
-  // report unknown when their sync is failing, since a silent sync is not
-  // a clean one. Read here with the error kept, not through loadLastSyncMap,
-  // which swallows its error and returns an empty map that would read as
-  // every feed healthy.
+  const feeds = await readFeedHealth();
+  if (propsError) return { error: propsError.message || JSON.stringify(propsError) };
+
+  const enriched = await Promise.all(
+    (props || []).map((prop: { id: string; property_id: string }) => enrichStatement(prop, month, feeds)),
+  );
+
+  return { period: periodData as Row, props: enriched as Row[] };
+}
+
+/**
+ * One statement, enriched exactly as loadPeriodData enriches each of its
+ * statements. A card action re-reads only the statement it touched through
+ * this, so the dashboard can refresh that card in place instead of
+ * reloading all twenty behind a full-page spinner. Read-only, and the same
+ * code path as the month load (enrichStatement), so the two cannot drift.
+ */
+export async function loadStatementData(month: string, statementId: string): Promise<
+  { error: string } | { prop: Row }
+> {
+  const { data: periodData, error: periodError } = await supabaseAdmin
+    .from('statement_periods').select('id').eq('month', month).single();
+  if (periodError) return { error: periodError.message || JSON.stringify(periodError) };
+  const { data: prop, error: propError } = await supabaseAdmin
+    .from('property_statements').select('*').eq('id', statementId).eq('period_id', periodData.id).maybeSingle();
+  if (propError) return { error: propError.message || JSON.stringify(propError) };
+  if (!prop) return { error: `statement ${statementId} is not on ${month}` };
+  const feeds = await readFeedHealth();
+  return { prop: await enrichStatement(prop as { id: string; property_id: string }, month, feeds) };
+}
+
+type FeedHealth = { syncMap: Record<string, { last_status: string | null }>; feedsKnown: boolean };
+
+/**
+ * Feed health once per load: the Stripe and invoice lanes report unknown
+ * when their sync is failing, since a silent sync is not a clean one. Read
+ * here with the error kept, not through loadLastSyncMap, which swallows its
+ * error and returns an empty map that would read as every feed healthy.
+ */
+async function readFeedHealth(): Promise<FeedHealth> {
   const syncRead = await supabaseAdmin.from('sync_status').select('source, last_status');
   const feedsKnown = !syncRead.error;
   if (syncRead.error) console.error('sync_status read failed:', syncRead.error.message);
   const syncMap: Record<string, { last_status: string | null }> = {};
   for (const r of (syncRead.data || []) as { source: string; last_status: string | null }[]) syncMap[r.source] = { last_status: r.last_status };
-  if (propsError) return { error: propsError.message || JSON.stringify(propsError) };
+  return { syncMap, feedsKnown };
+}
 
+/**
+ * The per-statement enrichment: reservations, cleaning, repairs,
+ * attributions, gaps, the drift probe, installments and the reconciliation.
+ * Read-only. Shared by the month load and the single-statement refresh.
+ */
+async function enrichStatement(
+  prop: { id: string; property_id: string },
+  month: string,
+  { syncMap, feedsKnown }: FeedHealth,
+): Promise<Row> {
   const monthStart = `${month}-01`;
   const [y, m] = month.split('-').map(Number);
   const monthEndExclusive = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
-
-  const enriched = await Promise.all(
-    (props || []).map(async (prop: { id: string; property_id: string }) => {
-      // The pure payout formula over this statement's rows, through the SAME
-      // loader the write path uses, so the payout lane is literally "what the
-      // write path would write" against what is stored. Never rejects the
-      // batch: a failed load is a null recompute, which the lane reports as
-      // unknown.
-      const recomputePromise = loadStatementInputs(supabaseAdmin, prop.id)
-        .then(loaded => ({ ok: true as const, totals: computeStatementTotals(loaded.inputs) }))
-        .catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
-      const [resResult, cleanResult, repairResult, debitResult, gapResult, guestyResResult, recompute] = await Promise.all([
-        supabaseAdmin.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
-        supabaseAdmin.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
-        supabaseAdmin.from('repair_events').select('*').eq('property_statement_id', prop.id).order('bank_charge_date'),
-        // Both halves of the attribution queue, split by direction below.
-        //
-        // Debits are the other half of the Repairs & Maint. line: a charge
-        // that did not classify as a known maintenance vendor, so it went to
-        // the review queue and was deducted by hand, with no repair_events
-        // row to show for it.
-        //
-        // Deposits are add-on revenue billed on the Gross Revenue line, and
-        // the Reservations table needs them by confirmation code so a stay's
-        // Net Rev matches what the owner's copy prints for that guest.
-        //
-        // Keys on property+month, not on the statement id, because the
-        // attribution is made against the month rather than against a
-        // particular statement row.
-        supabaseAdmin
-          .from('bank_deposit_attributions')
-          .select('id, deposit_date, amount, label, description, direction, attributed_reservation_code')
-          .eq('property_id', prop.property_id)
-          .eq('month', month)
-          .eq('status', 'attributed')
-          .order('deposit_date'),
-        supabaseAdmin.from('data_gaps').select('*').eq('property_statement_id', prop.id),
-        supabaseAdmin
-          .from('guesty_reservations')
-          // Revenue candidacy is any of the three signal columns, not
-          // total_paid alone: an SCA direct stay has total_paid NULL
-          // (Guesty never saw the money) and PostgREST's .gt() drops NULL,
-          // so a total_paid filter hid every one of them from this banner.
-          .select(`confirmation_code, guest_name, check_out, ${REVENUE_SIGNAL_COLUMNS}`)
-          .eq('property_id', prop.property_id)
-          // Confirmed only. An INQUIRY carries a host_payout because Guesty
-          // quoted a price, not because a guest booked -- August 2026 held 57
-          // of them, none with a confirmation code. Counting those as drift
-          // (or as unmatchable money) is a permanent false alarm.
-          .eq('status', CONFIRMED_STATUS)
-          .gte('check_out', monthStart)
-          .lt('check_out', monthEndExclusive)
-          .or(REVENUE_SIGNAL_OR),
-        recomputePromise,
-      ]);
-      // A failed reservations read would empty existingCodes and make every
-      // Guesty row look like drift, so both reads must have succeeded before
-      // any drift number is believable. Absence of data is not a fact:
-      // unknown drift renders as a warning, never as a confident zero.
-      const driftKnown = !guestyResResult.error && !resResult.error;
-      if (guestyResResult.error || resResult.error) {
-        console.error(
-          `drift probe unusable for ${prop.property_id}:`,
-          guestyResResult.error?.message || resResult.error?.message,
-        );
-      }
-      const existingCodes = new Set(
-        (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean),
-      );
-      const guestyRows = driftKnown ? (guestyResResult.data || []) : [];
-      let driftBookings = guestyRows.filter(
-        (g: { confirmation_code: string | null }) => g.confirmation_code && !existingCodes.has(g.confirmation_code),
-      );
-      // A CONFIRMED booking with no confirmation code. Nothing can match or
-      // add such a row -- every matcher is code-keyed -- so it would be
-      // money that is simply invisible. The probe is now status-scoped, so
-      // this counts only genuine breakage: in live August 2026 data every
-      // one of the 112 confirmed rows carried a code, and the 57 code-less
-      // rows were all inquiries. This chip should normally read zero.
-      const driftUnmatchable = guestyRows.filter(
-        (g: { confirmation_code: string | null }) => !g.confirmation_code,
-      ).length;
-      // The gap list is the delivery channel for every warning the pipeline
-      // raises (missing Stripe key, unreadable fee, unpriceable booking,
-      // post-send override). A discarded error here would render an empty
-      // Data Gaps section on a statement that actually has critical flags --
-      // the fail-open failure mode this whole phase exists to retire.
-      if (gapResult.error) {
-        console.error(`data_gaps read failed for ${prop.property_id}:`, gapResult.error.message);
-      }
-      // The stored attributed_debits_total / add_ons_revenue still drive
-      // every number, so a failed read here costs the itemized rows, not the
-      // total. Say so in the log rather than letting the section quietly
-      // under-report.
-      if (debitResult.error) {
-        console.error(`attributions read failed for ${prop.property_id}:`, debitResult.error.message);
-      }
-      type AttributionRow = {
-        id: string; deposit_date: string | null; amount: number;
-        label: string | null; description: string | null;
-        direction: string | null; attributed_reservation_code: string | null;
-      };
-      const attributions = (debitResult.data || []) as AttributionRow[];
-      // Default 'deposit' matches loadAddOnTotals: the column arrived after
-      // the table did, and a null there has always meant a credit.
-      const isDebit = (a: AttributionRow) => (a.direction || 'deposit') === 'debit';
-      // Installment splits, for two things at once.
-      //
-      // For the statement's own stays: a sliced stay is allowed to differ
-      // from the PDF (the Helm lane). For the DRIFT candidates: a confirmed
-      // stay that is split, with no slice for THIS month, is correctly
-      // absent from this statement, not missing from it. Kate Bacon's
-      // 35-night Direct stay checks out August 1 and is recognized entirely
-      // on June and July, so August is a sliceless month for it by design
-      // (#1406); before this the probe called it a missing August booking.
-      // The exclusion is applied to driftBookings itself so the month
-      // strip, the card banner and the reconciliation lane agree on one
-      // population.
-      //
-      // A failed read is null for the Helm lane (unknown, blocks) and leaves
-      // drift UNFILTERED, which can only over-report. Fail closed in the
-      // direction that shows more, never less.
-      const codes = (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean) as string[];
-      const driftCandidateCodes = driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[];
-      // PDF stays absent from the statement: ingest declines some by design
-      // and the operator removes some on purpose. The engine needs to know
-      // which absences are excused, and that takes the same installment read
-      // plus a Guesty status read for the absent codes.
-      const pdfStaysRaw = (prop as unknown as { pdf_stays?: unknown }).pdf_stays;
-      const pdfStays = Array.isArray(pdfStaysRaw)
-        ? (pdfStaysRaw as { code: string; check_out: string; rental_income: number }[]).filter(p => p && typeof p.code === 'string')
-        : null;
-      const onStatement = new Set(codes);
-      const pdfOnlyCodes = (pdfStays || []).map(p => p.code).filter(c => !onStatement.has(c));
-      let splitCodes: Set<string> | null = null;
-      let excused: { splitElsewhere: Set<string>; cancelled: Set<string>; sliceHere: Set<string> } | null = null;
-      let excuseFailure: 'installments' | 'guesty' | null = null;
-      try {
-        const byCode = await loadInstallmentsForCodes(supabaseAdmin, [...codes, ...driftCandidateCodes, ...pdfOnlyCodes]);
-        const splitElsewhereOf = (list: string[]) => new Set(list.filter(c => {
-          const rows = byCode.get(c) || [];
-          return rows.length > 0 && !rows.some(r => r.month === month);
-        }));
-        splitCodes = new Set(codes.filter(c => (byCode.get(c) || []).length > 0));
-        const driftSplitElsewhere = splitElsewhereOf(driftCandidateCodes);
-        if (driftSplitElsewhere.size > 0) {
-          driftBookings = driftBookings.filter((g: { confirmation_code: string | null }) => !g.confirmation_code || !driftSplitElsewhere.has(g.confirmation_code));
-        }
-        // A PDF stay the operator removed as cancelled leaves no record of
-        // its own (the removal deletes the row and its gap), so the excuse
-        // is read from Guesty: the booking is cancelled there.
-        // An absent PDF stay with a slice due THIS month is missing whatever
-        // its checkout says: the operator split it after ingest, and only a
-        // re-ingest books the slice. Checked before the out-of-month excuse.
-        const sliceHere = new Set(pdfOnlyCodes.filter(c => (byCode.get(c) || []).some(r => r.month === month)));
-        let cancelled = new Set<string>();
-        if (pdfOnlyCodes.length > 0) {
-          const { data: cx, error: cxErr } = await supabaseAdmin
-            .from('guesty_reservations')
-            .select('confirmation_code, status')
-            .in('confirmation_code', pdfOnlyCodes);
-          if (cxErr) { excuseFailure = 'guesty'; throw new Error(`guesty status read failed: ${cxErr.message}`); }
-          cancelled = new Set((cx || []).filter((g: { status: string | null }) => (g.status || '').toLowerCase().startsWith('cancel')).map((g: { confirmation_code: string }) => g.confirmation_code));
-        }
-        excused = { splitElsewhere: splitElsewhereOf(pdfOnlyCodes), cancelled, sliceHere };
-      } catch (e) {
-        if (!excuseFailure) excuseFailure = 'installments';
-        console.error(`${excuseFailure} read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
-      }
-      if (!recompute.ok) console.error(`recompute failed for ${prop.property_id}:`, recompute.error);
-
-      // Reconciliation needs the rows themselves. Without them there is
-      // nothing to hold against anything, so the result is absent and the
-      // page shows it as unknown, never as reconciled.
-      let reconciliation: Reconciliation | undefined;
-      if (!resResult.error && !cleanResult.error) {
-        const st = prop as unknown as {
-          rental_revenue: number | null; management_fee: number | null; cleaning_total: number | null;
-          repairs_total: number | null; add_ons_revenue: number | null; attributed_debits_total: number | null;
-          reserve_holdback: number | null; owner_payout: number | null; num_stays: number | null;
-          nights_booked: number | null; has_bank_csv: boolean | null;
-          pdf_stay_count: number | null;
-        };
-        const feedState = (src: string): 'ok' | 'error' | 'unknown' => {
-          const st = syncMap[src]?.last_status;
-          return st === 'ok' ? 'ok' : st === 'error' ? 'error' : 'unknown';
-        };
-        try {
-          reconciliation = reconcileStatement({
-            month,
-            statement: {
-              rental_revenue: st.rental_revenue, management_fee: st.management_fee, cleaning_total: st.cleaning_total,
-              repairs_total: st.repairs_total, add_ons_revenue: st.add_ons_revenue, attributed_debits_total: st.attributed_debits_total,
-              reserve_holdback: st.reserve_holdback, owner_payout: st.owner_payout, num_stays: st.num_stays,
-              nights_booked: st.nights_booked, has_bank_csv: !!st.has_bank_csv,
-              pdf_stay_count: st.pdf_stay_count ?? null,
-              pdf_stays: pdfStays === null ? null : pdfStays.map(p => ({ code: p.code, check_out: String(p.check_out || ''), rental_income: Number(p.rental_income) || 0 })),
-            },
-            reservations: resResult.data || [],
-            cleaningEvents: cleanResult.data || [],
-            gaps: (gapResult.data || []) as { gap_type: string; severity: string | null; resolved: boolean | null }[],
-            gapsKnown: !gapResult.error,
-            driftCodes: driftKnown
-              ? driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[]
-              : null,
-            splitCodes,
-            excused,
-            excuseFailure,
-            feeds: { stripe: feedState('stripe'), invoices: feedState('gmail-invoices') },
-            feedsKnown,
-            recomputed: recompute.ok ? {
-              rental_revenue: recompute.totals.rental_revenue, management_fee: recompute.totals.management_fee,
-              cleaning_total: recompute.totals.cleaning_total, owner_payout: recompute.totals.owner_payout,
-              num_stays: recompute.totals.num_stays, nights_booked: recompute.totals.nights_booked,
-            } : null,
-          });
-        } catch (e) {
-          console.error(`reconciliation failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
-        }
-      }
-
-      return {
-        ...prop,
-        reconciliation,
-        reservations: resResult.data || [],
-        cleaning_events: cleanResult.data || [],
-        repair_events: repairResult.data || [],
-        attributed_debits: attributions.filter(isDebit),
-        attributed_addons: attributions.filter(a => !isDebit(a)),
-        data_gaps: gapResult.data || [],
-        gaps_known: !gapResult.error,
-        drift_bookings: driftBookings,
-        drift_known: driftKnown,
-        drift_unmatchable: driftUnmatchable,
-      };
-    })
+  // The pure payout formula over this statement's rows, through the SAME
+  // loader the write path uses, so the payout lane is literally "what the
+  // write path would write" against what is stored. Never rejects the
+  // batch: a failed load is a null recompute, which the lane reports as
+  // unknown.
+  const recomputePromise = loadStatementInputs(supabaseAdmin, prop.id)
+    .then(loaded => ({ ok: true as const, totals: computeStatementTotals(loaded.inputs) }))
+    .catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+  const [resResult, cleanResult, repairResult, debitResult, gapResult, guestyResResult, recompute] = await Promise.all([
+    supabaseAdmin.from('reservations').select('*').eq('property_statement_id', prop.id).order('check_out'),
+    supabaseAdmin.from('cleaning_events').select('*').eq('property_statement_id', prop.id),
+    supabaseAdmin.from('repair_events').select('*').eq('property_statement_id', prop.id).order('bank_charge_date'),
+    // Both halves of the attribution queue, split by direction below.
+    //
+    // Debits are the other half of the Repairs & Maint. line: a charge
+    // that did not classify as a known maintenance vendor, so it went to
+    // the review queue and was deducted by hand, with no repair_events
+    // row to show for it.
+    //
+    // Deposits are add-on revenue billed on the Gross Revenue line, and
+    // the Reservations table needs them by confirmation code so a stay's
+    // Net Rev matches what the owner's copy prints for that guest.
+    //
+    // Keys on property+month, not on the statement id, because the
+    // attribution is made against the month rather than against a
+    // particular statement row.
+    supabaseAdmin
+      .from('bank_deposit_attributions')
+      .select('id, deposit_date, amount, label, description, direction, attributed_reservation_code')
+      .eq('property_id', prop.property_id)
+      .eq('month', month)
+      .eq('status', 'attributed')
+      .order('deposit_date'),
+    supabaseAdmin.from('data_gaps').select('*').eq('property_statement_id', prop.id),
+    supabaseAdmin
+      .from('guesty_reservations')
+      // Revenue candidacy is any of the three signal columns, not
+      // total_paid alone: an SCA direct stay has total_paid NULL
+      // (Guesty never saw the money) and PostgREST's .gt() drops NULL,
+      // so a total_paid filter hid every one of them from this banner.
+      .select(`confirmation_code, guest_name, check_out, ${REVENUE_SIGNAL_COLUMNS}`)
+      .eq('property_id', prop.property_id)
+      // Confirmed only. An INQUIRY carries a host_payout because Guesty
+      // quoted a price, not because a guest booked -- August 2026 held 57
+      // of them, none with a confirmation code. Counting those as drift
+      // (or as unmatchable money) is a permanent false alarm.
+      .eq('status', CONFIRMED_STATUS)
+      .gte('check_out', monthStart)
+      .lt('check_out', monthEndExclusive)
+      .or(REVENUE_SIGNAL_OR),
+    recomputePromise,
+  ]);
+  // A failed reservations read would empty existingCodes and make every
+  // Guesty row look like drift, so both reads must have succeeded before
+  // any drift number is believable. Absence of data is not a fact:
+  // unknown drift renders as a warning, never as a confident zero.
+  const driftKnown = !guestyResResult.error && !resResult.error;
+  if (guestyResResult.error || resResult.error) {
+    console.error(
+      `drift probe unusable for ${prop.property_id}:`,
+      guestyResResult.error?.message || resResult.error?.message,
+    );
+  }
+  const existingCodes = new Set(
+    (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean),
   );
+  const guestyRows = driftKnown ? (guestyResResult.data || []) : [];
+  let driftBookings = guestyRows.filter(
+    (g: { confirmation_code: string | null }) => g.confirmation_code && !existingCodes.has(g.confirmation_code),
+  );
+  // A CONFIRMED booking with no confirmation code. Nothing can match or
+  // add such a row -- every matcher is code-keyed -- so it would be
+  // money that is simply invisible. The probe is now status-scoped, so
+  // this counts only genuine breakage: in live August 2026 data every
+  // one of the 112 confirmed rows carried a code, and the 57 code-less
+  // rows were all inquiries. This chip should normally read zero.
+  const driftUnmatchable = guestyRows.filter(
+    (g: { confirmation_code: string | null }) => !g.confirmation_code,
+  ).length;
+  // The gap list is the delivery channel for every warning the pipeline
+  // raises (missing Stripe key, unreadable fee, unpriceable booking,
+  // post-send override). A discarded error here would render an empty
+  // Data Gaps section on a statement that actually has critical flags --
+  // the fail-open failure mode this whole phase exists to retire.
+  if (gapResult.error) {
+    console.error(`data_gaps read failed for ${prop.property_id}:`, gapResult.error.message);
+  }
+  // The stored attributed_debits_total / add_ons_revenue still drive
+  // every number, so a failed read here costs the itemized rows, not the
+  // total. Say so in the log rather than letting the section quietly
+  // under-report.
+  if (debitResult.error) {
+    console.error(`attributions read failed for ${prop.property_id}:`, debitResult.error.message);
+  }
+  type AttributionRow = {
+    id: string; deposit_date: string | null; amount: number;
+    label: string | null; description: string | null;
+    direction: string | null; attributed_reservation_code: string | null;
+  };
+  const attributions = (debitResult.data || []) as AttributionRow[];
+  // Default 'deposit' matches loadAddOnTotals: the column arrived after
+  // the table did, and a null there has always meant a credit.
+  const isDebit = (a: AttributionRow) => (a.direction || 'deposit') === 'debit';
+  // Installment splits, for two things at once.
+  //
+  // For the statement's own stays: a sliced stay is allowed to differ
+  // from the PDF (the Helm lane). For the DRIFT candidates: a confirmed
+  // stay that is split, with no slice for THIS month, is correctly
+  // absent from this statement, not missing from it. Kate Bacon's
+  // 35-night Direct stay checks out August 1 and is recognized entirely
+  // on June and July, so August is a sliceless month for it by design
+  // (#1406); before this the probe called it a missing August booking.
+  // The exclusion is applied to driftBookings itself so the month
+  // strip, the card banner and the reconciliation lane agree on one
+  // population.
+  //
+  // A failed read is null for the Helm lane (unknown, blocks) and leaves
+  // drift UNFILTERED, which can only over-report. Fail closed in the
+  // direction that shows more, never less.
+  const codes = (resResult.data || []).map((r: { confirmation_code: string | null }) => r.confirmation_code).filter(Boolean) as string[];
+  const driftCandidateCodes = driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[];
+  // PDF stays absent from the statement: ingest declines some by design
+  // and the operator removes some on purpose. The engine needs to know
+  // which absences are excused, and that takes the same installment read
+  // plus a Guesty status read for the absent codes.
+  const pdfStaysRaw = (prop as unknown as { pdf_stays?: unknown }).pdf_stays;
+  const pdfStays = Array.isArray(pdfStaysRaw)
+    ? (pdfStaysRaw as { code: string; check_out: string; rental_income: number }[]).filter(p => p && typeof p.code === 'string')
+    : null;
+  const onStatement = new Set(codes);
+  const pdfOnlyCodes = (pdfStays || []).map(p => p.code).filter(c => !onStatement.has(c));
+  let splitCodes: Set<string> | null = null;
+  let excused: { splitElsewhere: Set<string>; cancelled: Set<string>; sliceHere: Set<string> } | null = null;
+  let excuseFailure: 'installments' | 'guesty' | null = null;
+  try {
+    const byCode = await loadInstallmentsForCodes(supabaseAdmin, [...codes, ...driftCandidateCodes, ...pdfOnlyCodes]);
+    const splitElsewhereOf = (list: string[]) => new Set(list.filter(c => {
+      const rows = byCode.get(c) || [];
+      return rows.length > 0 && !rows.some(r => r.month === month);
+    }));
+    splitCodes = new Set(codes.filter(c => (byCode.get(c) || []).length > 0));
+    const driftSplitElsewhere = splitElsewhereOf(driftCandidateCodes);
+    if (driftSplitElsewhere.size > 0) {
+      driftBookings = driftBookings.filter((g: { confirmation_code: string | null }) => !g.confirmation_code || !driftSplitElsewhere.has(g.confirmation_code));
+    }
+    // A PDF stay the operator removed as cancelled leaves no record of
+    // its own (the removal deletes the row and its gap), so the excuse
+    // is read from Guesty: the booking is cancelled there.
+    // An absent PDF stay with a slice due THIS month is missing whatever
+    // its checkout says: the operator split it after ingest, and only a
+    // re-ingest books the slice. Checked before the out-of-month excuse.
+    const sliceHere = new Set(pdfOnlyCodes.filter(c => (byCode.get(c) || []).some(r => r.month === month)));
+    let cancelled = new Set<string>();
+    if (pdfOnlyCodes.length > 0) {
+      const { data: cx, error: cxErr } = await supabaseAdmin
+        .from('guesty_reservations')
+        .select('confirmation_code, status')
+        .in('confirmation_code', pdfOnlyCodes);
+      if (cxErr) { excuseFailure = 'guesty'; throw new Error(`guesty status read failed: ${cxErr.message}`); }
+      cancelled = new Set((cx || []).filter((g: { status: string | null }) => (g.status || '').toLowerCase().startsWith('cancel')).map((g: { confirmation_code: string }) => g.confirmation_code));
+    }
+    excused = { splitElsewhere: splitElsewhereOf(pdfOnlyCodes), cancelled, sliceHere };
+  } catch (e) {
+    if (!excuseFailure) excuseFailure = 'installments';
+    console.error(`${excuseFailure} read failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
+  }
+  if (!recompute.ok) console.error(`recompute failed for ${prop.property_id}:`, recompute.error);
 
-  return { period: periodData as Row, props: enriched as Row[] };
+  // Reconciliation needs the rows themselves. Without them there is
+  // nothing to hold against anything, so the result is absent and the
+  // page shows it as unknown, never as reconciled.
+  let reconciliation: Reconciliation | undefined;
+  if (!resResult.error && !cleanResult.error) {
+    const st = prop as unknown as {
+      rental_revenue: number | null; management_fee: number | null; cleaning_total: number | null;
+      repairs_total: number | null; add_ons_revenue: number | null; attributed_debits_total: number | null;
+      reserve_holdback: number | null; owner_payout: number | null; num_stays: number | null;
+      nights_booked: number | null; has_bank_csv: boolean | null;
+      pdf_stay_count: number | null;
+    };
+    const feedState = (src: string): 'ok' | 'error' | 'unknown' => {
+      const st = syncMap[src]?.last_status;
+      return st === 'ok' ? 'ok' : st === 'error' ? 'error' : 'unknown';
+    };
+    try {
+      reconciliation = reconcileStatement({
+        month,
+        statement: {
+          rental_revenue: st.rental_revenue, management_fee: st.management_fee, cleaning_total: st.cleaning_total,
+          repairs_total: st.repairs_total, add_ons_revenue: st.add_ons_revenue, attributed_debits_total: st.attributed_debits_total,
+          reserve_holdback: st.reserve_holdback, owner_payout: st.owner_payout, num_stays: st.num_stays,
+          nights_booked: st.nights_booked, has_bank_csv: !!st.has_bank_csv,
+          pdf_stay_count: st.pdf_stay_count ?? null,
+          pdf_stays: pdfStays === null ? null : pdfStays.map(p => ({ code: p.code, check_out: String(p.check_out || ''), rental_income: Number(p.rental_income) || 0 })),
+        },
+        reservations: resResult.data || [],
+        cleaningEvents: cleanResult.data || [],
+        gaps: (gapResult.data || []) as { gap_type: string; severity: string | null; resolved: boolean | null }[],
+        gapsKnown: !gapResult.error,
+        driftCodes: driftKnown
+          ? driftBookings.map((g: { confirmation_code: string | null }) => g.confirmation_code).filter(Boolean) as string[]
+          : null,
+        splitCodes,
+        excused,
+        excuseFailure,
+        feeds: { stripe: feedState('stripe'), invoices: feedState('gmail-invoices') },
+        feedsKnown,
+        recomputed: recompute.ok ? {
+          rental_revenue: recompute.totals.rental_revenue, management_fee: recompute.totals.management_fee,
+          cleaning_total: recompute.totals.cleaning_total, owner_payout: recompute.totals.owner_payout,
+          num_stays: recompute.totals.num_stays, nights_booked: recompute.totals.nights_booked,
+        } : null,
+      });
+    } catch (e) {
+      console.error(`reconciliation failed for ${prop.property_id}:`, e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return {
+    ...prop,
+    reconciliation,
+    reservations: resResult.data || [],
+    cleaning_events: cleanResult.data || [],
+    repair_events: repairResult.data || [],
+    attributed_debits: attributions.filter(isDebit),
+    attributed_addons: attributions.filter(a => !isDebit(a)),
+    data_gaps: gapResult.data || [],
+    gaps_known: !gapResult.error,
+    drift_bookings: driftBookings,
+    drift_known: driftKnown,
+    drift_unmatchable: driftUnmatchable,
+  };
 }
 
 /** The month picker's period list, newest first. */
@@ -509,13 +548,22 @@ export async function loadMonthDataStatus(month: string): Promise<MonthDataStatu
   };
 }
 
-/** Close-checklist rows plus the period's funds-sent date. */
-export async function loadCloseState(periodId: string): Promise<{ tasks: Row[]; funds_sent_date: string | null }> {
-  const [{ data: tasks }, { data: periodRow }] = await Promise.all([
+/**
+ * Close-checklist rows plus the period's funds-sent date. A failed read
+ * comes back as `error`, never as an empty list: no rows reads as "nothing
+ * drafted, nothing sent", and Draft All would then draft every owner email
+ * a second time.
+ */
+export async function loadCloseState(periodId: string): Promise<{ tasks: Row[]; funds_sent_date: string | null; error: string | null }> {
+  const [{ data: tasks, error: tasksErr }, { data: periodRow, error: periodErr }] = await Promise.all([
     supabaseAdmin.from('close_tasks').select('*').eq('period_id', periodId),
     supabaseAdmin.from('statement_periods').select('funds_sent_date').eq('id', periodId).single(),
   ]);
-  return { tasks: (tasks || []) as Row[], funds_sent_date: (periodRow?.funds_sent_date as string | null) ?? null };
+  return {
+    tasks: (tasks || []) as Row[],
+    funds_sent_date: (periodRow?.funds_sent_date as string | null) ?? null,
+    error: tasksErr?.message || periodErr?.message || null,
+  };
 }
 
 /** Persist the funds-sent date on the period. */

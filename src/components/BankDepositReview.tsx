@@ -83,14 +83,19 @@ function inferStripeLabel(description: string | null): string {
 }
 
 export function BankDepositReview({
-  propertyId, month, reservations, refreshToken = 0,
+  propertyId, month, reservations, refreshToken = 0, onChanged,
 }: {
   propertyId: string;
   month: string;
   reservations: ReservationOption[];
-  // Bump to force a refetch (the dashboard increments it on every period
+  // Change to force a refetch (the dashboard changes it on every period
   // reload so charges queued by a just-finished sync appear immediately).
-  refreshToken?: number;
+  refreshToken?: number | string;
+  // Fired after a row is attributed, un-attributed or dismissed, so the
+  // dashboard can re-read this statement and the month counts in place.
+  // The dashboard loads its data client-side: router.refresh() alone left
+  // the card's payout and the strip's counts stale until a reload.
+  onChanged?: () => void;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<Deposit[] | null>(null);
@@ -192,7 +197,8 @@ export function BankDepositReview({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       setItems(prev => (prev || []).filter(d => d.id !== dep.id));
-      router.refresh();
+      if (onChanged) onChanged();
+      else router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -212,7 +218,8 @@ export function BankDepositReview({
       if (!res.ok) throw new Error(data.error || 'Undo failed');
       // Flip in place: clear attribution and move back to pending.
       setItems(prev => (prev || []).map(d => d.id === dep.id ? { ...d, status: 'pending', attributed_reservation_code: null, label: null } : d));
-      router.refresh();
+      if (onChanged) onChanged();
+      else router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Undo failed');
     } finally {
@@ -231,6 +238,7 @@ export function BankDepositReview({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Dismiss failed');
       setItems(prev => (prev || []).filter(d => d.id !== dep.id));
+      onChanged?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Dismiss failed');
     } finally {
