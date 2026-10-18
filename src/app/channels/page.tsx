@@ -14,7 +14,9 @@ import {
   listRecentSyncRunsWithListing,
   findBookingConflicts,
   listOpenInquiries,
+  listExpiredInquiries,
   type BookingConflict,
+  type ExpiredInquiry,
   type ChannelListingEx,
   type IcalSyncSummary,
   type SyncRunWithListing,
@@ -24,6 +26,8 @@ import { CHANNEL_LABELS, STATUS_LABELS, type Booking, type BookingChannel, type 
 import { conflictFromSearchParams, describeConflict } from '@/lib/bookings-write-core';
 import { authorityBadge, importFreshness, pullFreshness, relativeAge, sourceGlyph, type Freshness } from '@/lib/calendar-model';
 import { setBookingStatus } from './inquiry-actions';
+import { expiredInquiryNote } from '@/lib/inquiry-expiry';
+import { operatingDate } from '@/lib/operating-date';
 import { SyncNowButton, BackfillButton } from './SyncButtons';
 
 export const dynamic = 'force-dynamic';
@@ -44,14 +48,18 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
   const regionFilter = one(sp.region).trim();
   const conflictParam = conflictFromSearchParams(sp);
   const now = new Date();
+  // Open vs expired is one rule (src/lib/inquiry-expiry.ts) on the Eastern
+  // operating date: the pending count is the open ones only.
+  const today = operatingDate(now);
 
-  const [stats, listings, upcoming, recentRuns, conflicts, inquiries, fleet, syncSummary] = await Promise.all([
+  const [stats, listings, upcoming, recentRuns, conflicts, inquiries, expiredInquiries, fleet, syncSummary] = await Promise.all([
     safe(getChannelStats, null),
     safe(listChannelListings, [] as ChannelListingEx[]),
     safe(() => listUpcomingBookings(14), [] as Booking[]),
     safe(() => listRecentSyncRunsWithListing(10), [] as SyncRunWithListing[]),
     safe(() => findBookingConflicts(365), [] as BookingConflict[]),
-    safe(listOpenInquiries, [] as Booking[]),
+    safe(() => listOpenInquiries(today), [] as Booking[]),
+    safe(() => listExpiredInquiries(today), { rows: [] as ExpiredInquiry[], total: 0 }),
     safe(() => listFleetProperties(), [] as FleetProperty[]),
     safe(getIcalSyncSummary, null as IcalSyncSummary | null),
   ]);
@@ -97,7 +105,9 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
           )}
           <StatsStrip stats={stats} fleetCount={fleet.length} helmRunCount={helmRunCount} />
           <ActionsBar listingsCount={listings.length} />
-          {inquiries.length > 0 && <InquiriesBlock inquiries={inquiries} nameOf={nameOf} now={now} />}
+          {(inquiries.length > 0 || expiredInquiries.total > 0) && (
+            <InquiriesBlock inquiries={inquiries} expired={expiredInquiries} nameOf={nameOf} now={now} />
+          )}
           {conflicts.length > 0 && <ConflictsBlock conflicts={conflicts} nameOf={nameOf} />}
           <CoverageGrid fleet={shownFleet} regions={regions} regionFilter={regionFilter} listings={listings} pulls={pulls} now={now} />
           <UpcomingBlock bookings={upcoming} nameOf={nameOf} />
@@ -384,42 +394,96 @@ function UpcomingBlock({ bookings, nameOf }: { bookings: Booking[]; nameOf: Map<
   );
 }
 
-function InquiriesBlock({ inquiries, nameOf, now }: { inquiries: Booking[]; nameOf: Map<string, string>; now: Date }) {
+const INQUIRY_ROWS_SHOWN = 8;
+
+function InquiriesBlock({
+  inquiries,
+  expired,
+  nameOf,
+  now,
+}: {
+  inquiries: Booking[];
+  expired: { rows: ExpiredInquiry[]; total: number };
+  nameOf: Map<string, string>;
+  now: Date;
+}) {
+  const shown = inquiries.slice(0, INQUIRY_ROWS_SHOWN);
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-      <div className="eyebrow" style={{ marginBottom: 14, color: 'var(--signal)' }}>Direct inquiries · {inquiries.length} pending</div>
-      <div style={{ borderTop: '2px solid var(--signal)', borderBottom: '1px solid var(--rule)' }}>
-        {inquiries.slice(0, 8).map((b, i) => (
-          <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 1fr auto', gap: 12, padding: '14px 0', alignItems: 'baseline', borderBottom: i === inquiries.length - 1 ? 'none' : '1px solid var(--rule)' }}>
-            <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              {b.check_in} → {b.check_out}
-            </span>
-            <Link href={`/channels/bookings/${b.id}`} className="font-serif" style={{ fontSize: 15, color: 'var(--ink)', textDecoration: 'none' }}>
-              {nameOf.get(b.property_id) ?? b.property_id}
-            </Link>
-            <span style={{ fontSize: 13, color: 'var(--ink)' }}>{b.guest_name ?? '-'}</span>
-            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-              {b.guest_email ?? ''}{b.guest_phone ? ` · ${b.guest_phone}` : ''}
-              <span style={{ marginLeft: 8, color: 'var(--ink-4)' }}>asked {relativeAge(b.created_at, now)}</span>
-            </span>
-            <span style={{ display: 'inline-flex', gap: 6 }}>
-              <form action={setBookingStatus} title="Confirm: the database refuses it if the nights were taken meanwhile">
-                <input type="hidden" name="id" value={b.id} />
-                <input type="hidden" name="status" value="confirmed" />
-                <SubmitButton label="Confirm" busyLabel="Confirming…" style={chipPrimary} />
-              </form>
-              <form action={setBookingStatus} title="Decline: soft cancel with reason 'declined'">
-                <input type="hidden" name="id" value={b.id} />
-                <input type="hidden" name="status" value="cancelled" />
-                <SubmitButton label="Decline" busyLabel="Declining…" spinnerTone="ink" style={chipGhost} />
-              </form>
-            </span>
-          </div>
-        ))}
+      <div className="eyebrow" style={{ marginBottom: 14, color: inquiries.length > 0 ? 'var(--signal)' : 'var(--ink-3)' }}>
+        Direct inquiries · {inquiries.length > 0 ? `${inquiries.length} pending` : 'none pending'}
       </div>
-      <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5, maxWidth: 720 }}>
-        An inquiry holds no nights until it is confirmed. Confirm runs through the locked writer, so a request whose nights were sold meanwhile is refused with the conflicting stay named here.
-      </p>
+      {shown.length > 0 && (
+        <div style={{ borderTop: '2px solid var(--signal)', borderBottom: '1px solid var(--rule)' }}>
+          {shown.map((b, i) => (
+            <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr 1fr auto', gap: 12, padding: '14px 0', alignItems: 'baseline', borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--rule)' }}>
+              <span className="font-mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                {b.check_in} → {b.check_out}
+              </span>
+              <Link href={`/channels/bookings/${b.id}`} className="font-serif" style={{ fontSize: 15, color: 'var(--ink)', textDecoration: 'none' }}>
+                {nameOf.get(b.property_id) ?? b.property_id}
+              </Link>
+              <span style={{ fontSize: 13, color: 'var(--ink)' }}>{b.guest_name ?? '-'}</span>
+              <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                {b.guest_email ?? ''}{b.guest_phone ? ` · ${b.guest_phone}` : ''}
+                <span style={{ marginLeft: 8, color: 'var(--ink-4)' }}>asked {relativeAge(b.created_at, now)}</span>
+              </span>
+              <span style={{ display: 'inline-flex', gap: 6 }}>
+                <form action={setBookingStatus} title="Confirm: the database refuses it if the nights were taken meanwhile">
+                  <input type="hidden" name="id" value={b.id} />
+                  <input type="hidden" name="status" value="confirmed" />
+                  <SubmitButton label="Confirm" busyLabel="Confirming…" style={chipPrimary} />
+                </form>
+                <form action={setBookingStatus} title="Decline: soft cancel with reason 'declined'">
+                  <input type="hidden" name="id" value={b.id} />
+                  <input type="hidden" name="status" value="cancelled" />
+                  <SubmitButton label="Decline" busyLabel="Declining…" spinnerTone="ink" style={chipGhost} />
+                </form>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {shown.length > 0 && (
+        <p style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5, maxWidth: 720 }}>
+          An inquiry holds no nights until it is confirmed. Confirm runs through the locked writer, so a request whose nights were sold meanwhile is refused with the conflicting stay named here.
+        </p>
+      )}
+      {inquiries.length > shown.length && (
+        <div style={{ marginTop: 10, fontSize: 12 }}>
+          <Link href="/channels/bookings?status=inquiry" style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+            All {inquiries.length} pending →
+          </Link>
+        </div>
+      )}
+      {/* Past their check-in: nothing left to confirm. A fold away, never
+          deleted (src/lib/inquiry-expiry.ts). Each row opens its record. */}
+      {expired.total > 0 && (
+        <details style={{ marginTop: 14 }}>
+          <summary style={{ fontSize: 12, color: 'var(--ink-3)', cursor: 'pointer', padding: '6px 0' }}>
+            Expired · {expired.total}
+          </summary>
+          <div style={{ borderBottom: '1px solid var(--rule)' }}>
+            {expired.rows.map((b) => (
+              <div key={b.id} style={{ display: 'grid', gridTemplateColumns: '150px 1fr 1fr auto', gap: 12, padding: '10px 0', alignItems: 'baseline', borderTop: '1px solid var(--rule)', color: 'var(--ink-3)' }}>
+                <span className="font-mono" style={{ fontSize: 11 }}>
+                  {b.check_in} → {b.check_out}
+                </span>
+                <Link href={`/channels/bookings/${b.id}`} className="font-serif" style={{ fontSize: 14, color: 'var(--ink-2)', textDecoration: 'none' }}>
+                  {nameOf.get(b.property_id) ?? b.property_id}
+                </Link>
+                <span style={{ fontSize: 13 }}>{b.guest_name ?? '-'}</span>
+                <span style={{ fontSize: 12 }}>{expiredInquiryNote(b)}</span>
+              </div>
+            ))}
+          </div>
+          {expired.total > expired.rows.length && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-4)' }}>
+              Showing the {expired.rows.length} most recent of {expired.total}.
+            </div>
+          )}
+        </details>
+      )}
     </section>
   );
 }
