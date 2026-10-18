@@ -25,6 +25,7 @@ import { authorityBadge, channelColor, relativeAge, sourceGlyph } from '@/lib/ca
 import { cancelBookingWithReason, updateBooking } from './actions';
 import { cancelStayConfirm } from '@/lib/irreversible-confirms';
 import { DeleteBookingButton } from './DeleteBookingButton';
+import { houseRange } from '@/lib/house-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,7 +106,7 @@ export default async function BookingDetailPage({ params, searchParams }: { para
         eyebrow={`Helm · Channels · ${isBlock ? 'Hold' : 'Booking'}`}
         title={title}
         emphasis={`at ${property?.name ?? booking.property_id}.`}
-        description={`${booking.check_in} to ${booking.check_out} · ${booking.nights ?? '?'} night${booking.nights === 1 ? '' : 's'} · ${CHANNEL_LABELS[booking.channel] ?? booking.channel} · ${glyph.label}${booking.external_confirmation_code ? ` · ${booking.external_confirmation_code}` : ''}`}
+        description={`${houseRange(booking.check_in, booking.check_out)} · ${booking.nights ?? '?'} night${booking.nights === 1 ? '' : 's'} · ${CHANNEL_LABELS[booking.channel] ?? booking.channel} · ${glyph.label}${booking.external_confirmation_code ? ` · ${booking.external_confirmation_code}` : ''}`}
         belowDescription={
           <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ display: 'inline-block', width: 10, height: 10, background: channelColor(booking.channel, isBlock) }} />

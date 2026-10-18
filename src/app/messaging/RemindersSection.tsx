@@ -15,6 +15,7 @@ import {
   polishProactiveAction,
 } from './reminders-actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { houseDay, houseRange } from '@/lib/house-date';
 
 const WEEKDAYS = [
   { v: '0', label: 'Mon' },
@@ -427,7 +428,7 @@ function CreateForm({
                   .filter((r) => r.in_house)
                   .map((r) => (
                     <option key={r.reservation_id} value={r.reservation_id} disabled={!r.conversation_id}>
-                      {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · here until {r.check_out}
+                      {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · here until {houseDay(r.check_out)}
                       {r.conversation_id ? '' : ' (no thread)'}
                     </option>
                   ))}
@@ -439,7 +440,7 @@ function CreateForm({
                   .filter((r) => !r.in_house)
                   .map((r) => (
                     <option key={r.reservation_id} value={r.reservation_id} disabled={!r.conversation_id}>
-                      {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · {r.check_in}→{r.check_out}
+                      {r.guest_first || r.guest_full || 'Guest'} · {r.property_name} · {houseRange(r.check_in, r.check_out)}
                       {r.conversation_id ? '' : ' (no thread)'}
                     </option>
                   ))}
@@ -566,7 +567,7 @@ function CreateForm({
       {picked && (
         <div style={{ fontSize: 11, color: 'var(--ink-4)', marginBottom: 12 }}>
           {mode === 'recurring'
-            ? `Runs ${picked.effective_start || picked.check_in} → ${picked.check_out}${picked.in_house ? ' (from today through checkout)' : ' (the stay window)'}`
+            ? `Runs ${houseRange(picked.effective_start || picked.check_in, picked.check_out)}${picked.in_house ? ' (from today through checkout)' : ' (the stay window)'}`
             : 'Fires once on the chosen date'}
           {picked.channel ? ` · sends via ${picked.channel}` : ''}.
         </div>

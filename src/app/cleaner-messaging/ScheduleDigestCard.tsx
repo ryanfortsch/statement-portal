@@ -42,6 +42,7 @@ import {
   ensureTomorrowDraft,
   saveDigestNote,
 } from '../turnovers/schedule/actions';
+import { houseDay } from '@/lib/house-date';
 
 /**
  * The daily cleaner-schedule digest card: Helm-native (unlike the
@@ -249,7 +250,7 @@ function Proposals({ day }: { day: ScheduleDay }) {
               {': '}
               {p.adjusted_checkout_time ? `checkout ${formatTime12(p.adjusted_checkout_time)}` : ''}
               {p.adjusted_checkout_time && p.adjusted_check_out ? ', ' : ''}
-              {p.adjusted_check_out ? `until ${p.adjusted_check_out}` : ''}
+              {p.adjusted_check_out ? `until ${houseDay(p.adjusted_check_out)}` : ''}
               {p.evidence && (
                 <span style={{ color: 'var(--ink-3)' }}>
                   {' '}
