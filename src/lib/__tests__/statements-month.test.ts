@@ -48,11 +48,19 @@ describe('every door names its month', () => {
   const page = read('src/app/statements/page.tsx');
 
   test('the select writes the URL and the page loads what the URL names', () => {
-    assert.match(page, /router\.push\(statementsHref\(e\.target\.value\), \{ scroll: false \}\)/, 'the month select no longer writes ?month=');
-    assert.match(page, /router\.push\(statementsUploadHref\(previousCalendarMonth\(\)\)\)/, '"+ New month…" no longer carries the previous calendar month');
+    assert.match(page, /window\.history\.pushState\(null, '', statementsHref\(e\.target\.value\)\)/, 'the month select no longer writes ?month=');
+    assert.match(page, /window\.location\.assign\(statementsUploadHref\(previousCalendarMonth\(\)\)\)/, '"+ New month…" no longer carries the previous calendar month');
     // The live address bar, not the hook snapshot (#1200's flicker).
     assert.match(page, /const live = new URLSearchParams\(window\.location\.search\)\.get\('month'\);/);
-    assert.match(page, /\}, \[urlMonth, periods, loadPeriod, router\]\);/, 'the URL effect no longer re-runs when the URL month changes');
+    assert.match(page, /\}, \[urlMonth, periods, loadPeriod\]\);/, 'the URL effect no longer re-runs when the URL month changes');
+  });
+
+  test('the month is written with the native history API, never an async router navigation', () => {
+    // A router.push/replace dispatched while a server action is pending can
+    // be undone when a later action finishes with the pre-navigation state;
+    // Next's patched pushState/replaceState restore synchronously.
+    assert.ok(!/\brouter\.(push|replace)\(/.test(page), 'the page navigates through the router again');
+    assert.ok(!page.includes('useRouter'), 'the page holds a router again');
   });
 
   test('the upload page defaults to the previous calendar month and returns to the month it processed', () => {
