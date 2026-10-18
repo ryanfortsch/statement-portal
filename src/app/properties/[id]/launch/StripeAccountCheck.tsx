@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { prettyPropertyId } from '@/lib/home-label';
 
 /**
@@ -14,8 +14,10 @@ import { prettyPropertyId } from '@/lib/home-label';
  * weeks: a valid key from someone else's account syncs cleanly with
  * charges_found=0.
  *
- * Auto-runs scoped to this property on mount (two Stripe reads, cheap);
- * "Check all keys" widens to the whole fleet on demand.
+ * Runs on a button, never on load (it is two Stripe reads per visit and
+ * prints a charge count), and renders for owners only; the API route is
+ * owner-gated too. "Check this key" reads this property, "Check all keys"
+ * the whole fleet.
  */
 
 type AccountCheckRow = {
@@ -41,7 +43,7 @@ type CheckResponse = {
 export function StripeAccountCheck({ propertyId }: { propertyId: string }) {
   const [scoped, setScoped] = useState<CheckResponse | null>(null);
   const [fleet, setFleet] = useState<CheckResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [fleetLoading, setFleetLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,18 +54,16 @@ export function StripeAccountCheck({ propertyId }: { propertyId: string }) {
     return (await res.json()) as CheckResponse;
   }, [propertyId]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const onCheckThis = () => {
+    setLoading(true);
+    setError(null);
     run(false)
-      .then((data) => { if (!cancelled) { setScoped(data); setLoading(false); } })
+      .then((data) => { setScoped(data); setLoading(false); })
       .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          setLoading(false);
-        }
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [run]);
+  };
 
   const onCheckFleet = () => {
     setFleetLoading(true);
@@ -100,6 +100,26 @@ export function StripeAccountCheck({ propertyId }: { propertyId: string }) {
             charges.
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={onCheckThis}
+          disabled={loading}
+          style={{
+            fontSize: 11,
+            letterSpacing: '.14em',
+            textTransform: 'uppercase',
+            color: 'var(--paper)',
+            background: 'var(--ink)',
+            border: '1px solid var(--ink)',
+            padding: '7px 12px',
+            fontWeight: 500,
+            cursor: loading ? 'wait' : 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {loading ? 'Checking…' : scoped ? 'Check again' : 'Check this key'}
+        </button>
         <button
           type="button"
           onClick={onCheckFleet}
@@ -119,6 +139,7 @@ export function StripeAccountCheck({ propertyId }: { propertyId: string }) {
         >
           {fleetLoading ? 'Checking…' : 'Check all keys'}
         </button>
+        </div>
       </div>
 
       {error && (
@@ -131,7 +152,7 @@ export function StripeAccountCheck({ propertyId }: { propertyId: string }) {
         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-4)' }}>Checking this property&apos;s key…</div>
       )}
 
-      {!loading && !error && !row && (
+      {scoped && !loading && !error && !row && (
         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-2, var(--ink))', lineHeight: 1.55 }}>
           {refusedSk ? (
             <>

@@ -8,8 +8,10 @@ import {
   LAUNCH_STEPS,
   LAUNCH_PHASES,
   LAUNCH_WHO_LABELS,
+  openStepTitle,
   type LaunchStepRow,
 } from '@/lib/launch-checklist';
+import { isOwnerSession } from '@/lib/helm-access-server';
 import { loadLaunchForProperty } from '@/lib/launch-context';
 import { ensureLaunchStepsSeeded } from './actions';
 import { LaunchStepCard } from './LaunchStepCard';
@@ -50,6 +52,9 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
   const { id } = await params;
   const p = await getProperty(id);
   if (!p) notFound();
+  // The Stripe account check reads which account a key reaches and its
+  // charge count: owner money mechanics, so owners only, and on a button.
+  const owner = await isOwnerSession();
 
   // Backstop seed: if this property was created before the launch checklist
   // existed, or if new steps have been added to LAUNCH_STEPS since the
@@ -163,7 +168,7 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
                   className="font-serif"
                   style={{ fontSize: 20, color: 'var(--ink)', textDecoration: 'none' }}
                 >
-                  {next.title} ↓
+                  {openStepTitle(next)} ↓
                 </a>
                 <span style={{ fontSize: 11.5, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
                   {nextPhase?.label ?? ''} · {LAUNCH_WHO_LABELS[next.who]}
@@ -219,8 +224,9 @@ export default async function PropertyLaunchPage({ params }: { params: Promise<P
               {/* Stripe account-identity check rides the Financial phase:
                   it verifies the stripe_auto_payouts step's key reaches the
                   RIGHT account (3 Windward's was minted from the wrong one
-                  and synced clean at 0 charges). Read-only diagnostic. */}
-              {phase.key === 'financial' && <StripeAccountCheck propertyId={p.id} />}
+                  and synced clean at 0 charges). Read-only diagnostic, owners
+                  only, run on a button rather than on every load. */}
+              {phase.key === 'financial' && owner && <StripeAccountCheck propertyId={p.id} />}
             </PhaseSection>
           );
         })}

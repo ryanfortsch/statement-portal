@@ -35,6 +35,28 @@ import {
 
 export type LaunchStepStatus = 'todo' | 'in_progress' | 'done' | 'skipped' | 'n_a';
 
+/**
+ * The one status control on a Launch row (2026-10-18): Done, Not done, Does
+ * not apply. "In progress" and "Skipped" were never explained and nobody
+ * could tell Skipped from N/A, so they go: migration
+ * 20261018220000_launch_status_three.sql maps the rows and
+ * normalizeLaunchStatus maps anything a previous deployment still writes
+ * during the skew window. The column's check constraint keeps all five for
+ * that window.
+ */
+export const LAUNCH_STATUS_CHOICES: ReadonlyArray<{ value: LaunchStepStatus; label: string }> = [
+  { value: 'done', label: 'Done' },
+  { value: 'todo', label: 'Not done' },
+  { value: 'n_a', label: 'Does not apply' },
+];
+
+/** in_progress reads as not done, skipped as does not apply. */
+export function normalizeLaunchStatus(status: LaunchStepStatus | string | null | undefined): LaunchStepStatus {
+  if (status === 'done' || status === 'n_a') return status;
+  if (status === 'skipped') return 'n_a';
+  return 'todo';
+}
+
 export type LaunchStepPhase =
   | 'identity'
   | 'financial'
@@ -58,6 +80,9 @@ export type LaunchStep = {
   phase: LaunchStepPhase;
   /** Display title. */
   title: string;
+  /** What the operator sees while the step is open, when that reads
+   *  better than the title (openStepTitle). */
+  openTitle?: string;
   /** Required steps block activation. Optional ones are nice-to-have. */
   required: boolean;
   /** Who does the work. See the module comment. */
@@ -289,12 +314,13 @@ export const LAUNCH_STEPS: ReadonlyArray<LaunchStep> = [
   {
     key: 'code_roster_entry',
     phase: 'integrations',
-    title: 'Listed in Helm\'s roster',
+    title: 'Book page resolves',
+    openTitle: 'Book page does not resolve yet; ask Systems',
     required: true,
     who: 'systems',
     description:
-      'Ask for the entry: id, internal name, address, owner names, emails, fee, bank last4, listing_match, tax cert. Helm ticks this itself once the entry ships.',
-    why: 'The DB row drives statements, syncs and the cleaner schedule, but /book/<id> and the code-side fallbacks still read this roster. 36 Granite, 16 Waterman, 79 Main and 4 Middle went live without an entry.',
+      'Systems adds the home to Helm\'s roster: id, internal name, address, owner names, emails, fee, bank last4, listing match, tax cert. Helm ticks this itself once the entry ships.',
+    why: 'The roster is src/lib/properties.ts (PROPERTIES). The DB row drives statements, syncs and the cleaner schedule, but /book/<id> and the code-side fallbacks still read the roster. 36 Granite, 16 Waterman, 79 Main and 4 Middle went live without an entry.',
   },
   {
     key: 'seam_lock_paired',
@@ -357,6 +383,11 @@ export const LAUNCH_PHASES: ReadonlyArray<{ key: LaunchStepPhase; label: string;
   { key: 'owner', label: 'Owner-facing', blurb: 'Welcome, statement template.' },
   { key: 'launch', label: 'Launch', blurb: 'Stamp the go-live date.' },
 ];
+
+/** The step's name where it is listed as open (the board, Next up). */
+export function openStepTitle(step: Pick<LaunchStep, 'title' | 'openTitle'>): string {
+  return step.openTitle ?? step.title;
+}
 
 /** A step's resolved-status (any of done | skipped | n_a). */
 export function isStepResolved(status: LaunchStepStatus | undefined | null): boolean {
@@ -560,7 +591,7 @@ export function resolveLaunchSteps(
   const byKey = new Map(rows.map((r) => [r.step_key, r]));
   return LAUNCH_STEPS.map((step) => {
     const row = byKey.get(step.key) ?? null;
-    const manual: LaunchStepStatus = row?.status ?? 'todo';
+    const manual: LaunchStepStatus = normalizeLaunchStatus(row?.status);
     if (isStepResolved(manual)) {
       return { step, row, status: manual, resolved: true, auto: false };
     }

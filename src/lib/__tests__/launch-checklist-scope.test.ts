@@ -91,9 +91,10 @@ test('a manual status wins over the n_a derive', () => {
   const byKey = new Map(resolveLaunchSteps(rows, c).map((e) => [e.step.key, e]));
   assert.equal(byKey.get('sca_page_live')!.status, 'done');
   assert.equal(byKey.get('sca_page_live')!.auto, false);
-  // in_progress is not todo, so derivation does not touch it.
-  assert.equal(byKey.get('code_roster_entry')!.status, 'in_progress');
-  assert.equal(byKey.get('code_roster_entry')!.resolved, false);
+  // In progress is retired (2026-10-18) and reads as not done, so the
+  // derive applies to it like any open row.
+  assert.equal(byKey.get('code_roster_entry')!.status, 'n_a');
+  assert.equal(byKey.get('code_roster_entry')!.auto, true);
   // The untouched ones still go n_a.
   assert.equal(byKey.get('guesty_listing_match')!.status, 'n_a');
 });

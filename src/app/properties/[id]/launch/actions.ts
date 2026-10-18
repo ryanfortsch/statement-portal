@@ -47,13 +47,9 @@ const FIELD_ACTION_COLUMN: Record<string, 'title' | 'tax_cert_id' | 'bank_last4'
  * service role needed.
  */
 
-const VALID_STATUSES: ReadonlyArray<LaunchStepStatus> = [
-  'todo',
-  'in_progress',
-  'done',
-  'skipped',
-  'n_a',
-];
+// The three a Launch row offers (LAUNCH_STATUS_CHOICES); in_progress and
+// skipped are retired.
+const VALID_STATUSES: ReadonlyArray<LaunchStepStatus> = ['todo', 'done', 'n_a'];
 
 const VALID_STEP_KEYS = new Set(LAUNCH_STEPS.map((s) => s.key));
 
