@@ -10,7 +10,6 @@ import { Stat } from '@/components/Stat';
 import { computeDateRange } from '@/lib/revenue-date-range';
 import { computeRevenueSnapshot } from '@/lib/revenue-snapshot';
 import { loadOperationsData } from '@/lib/operations';
-import { getReviewWindowStats } from '@/lib/reviews';
 import { TeamActivity } from '@/components/TeamActivity';
 import { HomeFeedTabs } from '@/components/HomeFeedTabs';
 import { ForMeFeed } from '@/components/ForMeFeed';
@@ -21,21 +20,19 @@ import { AiStatusBanner } from '@/components/AiStatusBanner';
 import { ConciergeAlertsLine } from '@/components/ConciergeAlerts';
 import { isOwnerSession } from '@/lib/helm-access-server';
 import { operatingDate } from '@/lib/operating-date';
+import { workWeekEnd } from '@/lib/work-week';
 
 export const dynamic = 'force-dynamic';
 // Today's signals read live from Supabase per request, so don't cache.
 export const revalidate = 0;
 
 type DashboardStats = {
-  activeProperties: number | null;
-  totalProperties: number | null;
   latestMonth: string | null;
   latestStatus: string | null;
   totalPayout: number;
   statementsAvailable: boolean;
-  reviewsAvailable: boolean;
-  /** Sum of owner_payout for the period BEFORE latestMonth. Used for the
-   *  delta on the Today's Signals strip. null when there's no prior period. */
+  /** Sum of owner_payout for the period BEFORE latestMonth. null when
+   *  there's no prior period. */
   priorPayout: number | null;
   statementsCount: number;
   /** Actual booked-so-far owner payout for the CURRENT month, recognized
@@ -49,34 +46,18 @@ type DashboardStats = {
    *  a real, plausible number for the wrong month, with nothing saying the
    *  live figure never loaded. */
   currentMonthActualPayout: CurrentPayout;
-  // Operational signals
-  activeSlips: number | null;
-  highPrioritySlips: number | null;
-  ownerActionSlips: number | null;
-  activeTasks: number | null;
-  /** Planned (next 7) + Completed (past 7) inspections, summed for the
-   *  home tile so a walked inspection without a prior plan row still
-   *  counts. null when Supabase isn't configured. */
-  inspectionsThisWeek: number | null;
-  inspectionsPlanned: number | null;
-  inspectionsCompleted: number | null;
-  // Reviews (rolling 30-day window from the reviews table). Trailing 30
-  // days is more stable than a calendar week and matches how Dotti
-  // thinks about review trend.
-  //
-  // Scoped to Helm-managed properties and rated reviews only (see
-  // getReviewWindowStats), so total is the count of real, five-star-
-  // eligible reviews. Personal-property reviews and empty Guesty
-  // placeholder rows are excluded, and the rate is fiveStar / total
-  // over that clean set.
-  reviews30dTotal: number;
-  reviews30dFiveStar: number;
-  reviews30dBelowFive: number;
+  /** Open slips scheduled and open tasks due by the end of this week,
+   *  overdue included (lib/work-week.ts). null when the read failed. */
+  weekWork: number | null;
+  /** The overdue part of weekWork. */
+  overdueWork: number | null;
+  /** Turnovers (check-ins) in the next seven days, the same rows /turnovers
+   *  shows. null when the shared operations read failed. */
+  turnovers: number | null;
 };
 
-/** Operations data for the home page, fetched once and shared by the
- *  inspections tile (turnover counts) and the occupancy calendar under
- *  Today's Signals. '7d' matches the /turnovers default calendar window. */
+/** Operations data for the home page: the turnover count behind the
+ *  "Turnovers · next 7 days" signal. '7d' matches the /turnovers default. */
 type HomeOps = Awaited<ReturnType<typeof loadOperationsData>> | null;
 
 async function loadHomeOps(): Promise<HomeOps> {
@@ -98,23 +79,18 @@ type CurrentPayout =
   | { status: 'unconfigured' }
   | { status: 'failed' };
 
-async function getDashboardStats(ops: HomeOps): Promise<DashboardStats> {
-  const [propertyStats, helmStats, opsStats, actualPayout, reviews] = await Promise.all([
-    getPropertyStats(),
-    getHelmStats(),
-    getOperationalStats(ops),
-    getCurrentMonthActualPayout(),
-    getReviewWindowStats(30, { strict: true }).catch(() => null),
+async function getDashboardStats(ops: HomeOps, owner: boolean): Promise<DashboardStats> {
+  const [helmStats, work, actualPayout] = await Promise.all([
+    // The payout tile is owner money: a staff page never reads it.
+    owner ? getHelmStats() : Promise.resolve(EMPTY_HELM_STATS),
+    getWeekWork(),
+    owner ? getCurrentMonthActualPayout() : Promise.resolve<CurrentPayout>({ status: 'unconfigured' }),
   ]);
   return {
-    ...propertyStats,
     ...helmStats,
-    ...opsStats,
+    ...work,
     currentMonthActualPayout: actualPayout,
-    reviewsAvailable: reviews !== null,
-    reviews30dTotal: reviews?.total ?? 0,
-    reviews30dFiveStar: reviews?.fiveStar ?? 0,
-    reviews30dBelowFive: reviews?.belowFive ?? 0,
+    turnovers: ops ? ops.totalCount : null,
   };
 }
 
@@ -144,105 +120,53 @@ async function getCurrentMonthActualPayout(): Promise<CurrentPayout> {
 const ACTIVE_SLIP_STATUSES = ['open', 'in_progress', 'scheduled'];
 const ACTIVE_TASK_STATUSES = ['open', 'in_progress', 'blocked'];
 
-async function getOperationalStats(ops: HomeOps) {
-  if (!isHelmConfigured) {
-    return {
-      activeSlips: null,
-      highPrioritySlips: null,
-      ownerActionSlips: null,
-      activeTasks: null,
-      inspectionsThisWeek: null,
-      inspectionsPlanned: null,
-      inspectionsCompleted: null,
-    };
-  }
+/**
+ * Open work due this week: slips scheduled and tasks due on or before the
+ * sixth day from today (Gloucester), overdue included, snoozed slips left
+ * out. Four head counts, no rows.
+ */
+async function getWeekWork(): Promise<{ weekWork: number | null; overdueWork: number | null }> {
+  if (!isHelmConfigured) return { weekWork: null, overdueWork: null };
   try {
     const today = operatingDate();
-
-    const [
-      slipResult,
-      highResult,
-      ownerResult,
-      taskResult,
-    ] = await Promise.all([
+    const weekEnd = workWeekEnd(today);
+    const slips = () =>
       supabase
         .from('work_slips')
         .select('*', { count: 'exact', head: true })
         .in('status', ACTIVE_SLIP_STATUSES)
-        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`),
-      supabase
-        .from('work_slips')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ACTIVE_SLIP_STATUSES)
-        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
-        .eq('priority', 'high'),
-      supabase
-        .from('work_slips')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ACTIVE_SLIP_STATUSES)
-        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`)
-        .eq('owner_action_required', true),
+        .or(`snoozed_until.is.null,snoozed_until.lte.${today}`);
+    const tasks = () =>
       supabase
         .from('tasks')
         .select('*', { count: 'exact', head: true })
-        .in('status', ACTIVE_TASK_STATUSES),
+        .in('status', ACTIVE_TASK_STATUSES);
+    const [slipWeek, slipLate, taskWeek, taskLate] = await Promise.all([
+      slips().lte('scheduled_date', weekEnd),
+      slips().lt('scheduled_date', today),
+      tasks().lte('due_date', weekEnd),
+      tasks().lt('due_date', today),
     ]);
-
-    // Inspection counts come from the shared loadHomeOps fetch — the same
-    // source /turnovers uses, so the home tile and the turnovers page
-    // agree. Counting plan rows directly under-counts because most
-    // check-ins don't have a plan row yet (the plan is created when
-    // someone clicks Plan a walk).
-    const opsTotal = ops?.totalCount ?? 0;
-    const opsDone = ops?.inspectionDoneCount ?? 0;
-    // ops is null only when the shared fetch failed; keep the tile on "—"
-    // rather than implying a real zero.
-    const upcoming = ops ? Math.max(0, opsTotal - opsDone) : null;
-
-    return {
-      activeSlips: availableCount(slipResult),
-      highPrioritySlips: availableCount(highResult),
-      ownerActionSlips: availableCount(ownerResult),
-      activeTasks: availableCount(taskResult),
-      inspectionsThisWeek: upcoming,
-      inspectionsPlanned: upcoming,
-      inspectionsCompleted: ops ? opsDone : null,
-    };
+    const parts = [availableCount(slipWeek), availableCount(slipLate), availableCount(taskWeek), availableCount(taskLate)];
+    if (parts.some((n) => n === null)) return { weekWork: null, overdueWork: null };
+    const [sw, sl, tw, tl] = parts as number[];
+    return { weekWork: sw + tw, overdueWork: sl + tl };
   } catch {
-    return {
-      activeSlips: null,
-      highPrioritySlips: null,
-      ownerActionSlips: null,
-      activeTasks: null,
-      inspectionsThisWeek: null,
-      inspectionsPlanned: null,
-      inspectionsCompleted: null,
-    };
+    return { weekWork: null, overdueWork: null };
   }
 }
 
-async function getPropertyStats() {
-  if (!isHelmConfigured) return { activeProperties: null, totalProperties: null };
-  try {
-    const [{ count: total }, { count: active }] = await Promise.all([
-      supabase.from('properties').select('*', { count: 'exact', head: true }),
-      supabase.from('properties').select('*', { count: 'exact', head: true }).eq('is_active', true),
-    ]);
-    return { activeProperties: active ?? null, totalProperties: total ?? null };
-  } catch {
-    return { activeProperties: null, totalProperties: null };
-  }
-}
+const EMPTY_HELM_STATS = {
+  latestMonth: null as string | null,
+  latestStatus: null as string | null,
+  totalPayout: 0,
+  statementsAvailable: false,
+  priorPayout: null as number | null,
+  statementsCount: 0,
+};
 
 async function getHelmStats() {
-  const empty = {
-    latestMonth: null as string | null,
-    latestStatus: null as string | null,
-    totalPayout: 0,
-    statementsAvailable: false,
-    priorPayout: null as number | null,
-    statementsCount: 0,
-  };
+  const empty = EMPTY_HELM_STATS;
   if (!isHelmConfigured) return empty;
   try {
     // "Latest" here means "the most recent CLOSED-OUT month," i.e., the
@@ -301,11 +225,11 @@ async function getHelmStats() {
 }
 
 export default async function HelmHome() {
-  // The headline payout tile is owner money. Staff get the other three
+  // The headline payout tile is owner money. Staff get the two work
   // signals and no tile that links to /revenue, which would bounce them.
   const owner = await isOwnerSession();
   const ops = await loadHomeOps();
-  const stats = await getDashboardStats(ops);
+  const stats = await getDashboardStats(ops, owner);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
@@ -332,71 +256,44 @@ export default async function HelmHome() {
         />
       </div>
 
-      {/* SIGNALS STRIP — what needs attention today, with the headline payout pinned right */}
+      {/* SIGNALS: the two numbers that change what you do today, each
+          saying its window, and the month's payout for owners. */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 56 }}>
-        {(stats.activeSlips === null || stats.highPrioritySlips === null || stats.inspectionsPlanned === null || !stats.reviewsAvailable || stats.currentMonthActualPayout.status === 'failed') && (
+        {(stats.weekWork === null || stats.turnovers === null || stats.currentMonthActualPayout.status === 'failed') && (
           <p role="status" style={{ fontSize: 14, color: 'var(--negative)', marginBottom: 16 }}>
-            Some information couldn’t be loaded. Unavailable data does not mean there’s nothing to do. <RetryDashboard />
+            Some numbers did not load. <RetryDashboard />
           </p>
         )}
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Today&rsquo;s signals</div>
         <div
           className="rt-helm-stat-strip"
           style={{
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
             display: 'grid',
-            gridTemplateColumns: `repeat(${owner ? 4 : 3}, 1fr)`,
+            gridTemplateColumns: `repeat(${owner ? 3 : 2}, 1fr)`,
           }}
         >
           <Stat
-            label="Open Work Slips"
-            value={stats.activeSlips != null ? String(stats.activeSlips) : 'Unavailable'}
+            label="Open work · this week"
+            value={stats.weekWork != null ? String(stats.weekWork) : 'Unavailable'}
             sub={
-              stats.highPrioritySlips == null ? 'priority data unavailable' : stats.highPrioritySlips > 0
-                ? `${stats.highPrioritySlips} high priority`
-                : 'no high-priority slips'
+              stats.overdueWork == null
+                ? 'could not count'
+                : stats.overdueWork > 0
+                  ? `${stats.overdueWork} overdue`
+                  : 'nothing overdue'
             }
-            href={
-              stats.highPrioritySlips != null && stats.highPrioritySlips > 0
-                ? '/work?filter=high'
-                : '/work'
-            }
+            href={stats.overdueWork != null && stats.overdueWork > 0 ? '/work?filter=overdue' : '/work'}
             size="hero"
-            accent={stats.highPrioritySlips != null && stats.highPrioritySlips > 0}
+            accent={stats.overdueWork != null && stats.overdueWork > 0}
           />
           <Stat
-            label="Upcoming Inspections"
-            value={stats.inspectionsPlanned != null ? String(stats.inspectionsPlanned) : 'Unavailable'}
-            sub="next 7 days"
+            label="Turnovers · next 7 days"
+            value={stats.turnovers != null ? String(stats.turnovers) : 'Unavailable'}
+            sub="All turnovers →"
             href="/turnovers"
             size="hero"
-          />
-          <Stat
-            label="Five-Star Reviews"
-            value={
-              // Numerator and denominator are both Helm-managed, rated
-              // reviews (see getReviewWindowStats), so this matches the
-              // FIVE-STAR cell on the Reviews tab exactly.
-              !stats.reviewsAvailable ? 'Unavailable' : stats.reviews30dTotal > 0
-                ? `${stats.reviews30dFiveStar}/${stats.reviews30dTotal}`
-                : '—'
-            }
-            sub={(() => {
-              if (!stats.reviewsAvailable) return 'review data unavailable';
-              if (stats.reviews30dTotal === 0) return 'no reviews in last 30 days';
-              const rate = Math.round(
-                (stats.reviews30dFiveStar / stats.reviews30dTotal) * 100,
-              );
-              return `${rate}% five-star · last 30 days`;
-            })()}
-            href="/guests?days=30"
-            size="hero"
             last={!owner}
-            accent={
-              stats.reviews30dTotal > 0 &&
-              stats.reviews30dFiveStar === stats.reviews30dTotal
-            }
           />
           {owner && (
           <Stat
@@ -418,7 +315,7 @@ export default async function HelmHome() {
             })()}
             sub={(() => {
               const p = stats.currentMonthActualPayout;
-              if (p.status === 'failed') return 'could not load — retry, or open Revenue';
+              if (p.status === 'failed') return 'could not load; retry, or open Revenue';
               if (p.status === 'ok') {
                 return stats.latestMonth && stats.totalPayout > 0
                   ? `booked so far · ${formatMonth(stats.latestMonth)} closed ${formatCurrency(stats.totalPayout)}`

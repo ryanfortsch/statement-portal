@@ -16,6 +16,7 @@ import {
   type SiteFilter,
 } from '@/lib/marketing/queries';
 import { isConfigured as isHelmConfigured } from '@/lib/supabase';
+import { getReviewWindowStats } from '@/lib/reviews';
 import Link from 'next/link';
 import { FilterBar } from './FilterBar';
 import { TrafficLineChart } from './Charts';
@@ -38,7 +39,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
   const range = rangeForDays(days);
   const prevRange = previousRange(days);
 
-  const [sites, current, previous, traffic, topSources, topPages, unknownLandings, speed, lastUpdated] = await Promise.all([
+  const [sites, current, previous, traffic, topSources, topPages, unknownLandings, speed, lastUpdated, reviews] = await Promise.all([
     getSites(),
     getStatTotals(site, range),
     getStatTotals(site, prevRange),
@@ -48,6 +49,10 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
     getTopUnknownLandings(site, range),
     getLatestSpeedInsights(site),
     getLastUpdated(),
+    // Five-star reviews over the same window, moved here from the home page
+    // (2026-10-18): a rate over weeks is growth, not today's work. Null on a
+    // failed read so the tile says so instead of showing a quiet zero.
+    getReviewWindowStats(days, { strict: true }).catch(() => null),
   ]);
 
   return (
@@ -89,7 +94,7 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
             borderTop: '1px solid var(--ink)',
             borderBottom: '1px solid var(--ink)',
             display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
+            gridTemplateColumns: 'repeat(6, 1fr)',
           }}
         >
           <Stat
@@ -122,6 +127,19 @@ export default async function MarketingPage({ searchParams }: { searchParams: Se
             info="Largest Contentful Paint, p75. Time until the largest visible piece of content paints in the viewport. Google's Core Web Vital thresholds: ≤2.5s good, ≤4s needs work, >4s poor. Pulled from Vercel Speed Insights (real-user measurements)."
             value={lcpDisplay(speed)}
             sub={lcpStatus(speed)}
+          />
+          <Stat
+            label="Five-star reviews"
+            info="Rated reviews of the homes Helm manages, across every channel, in the selected window. Same count as the Reviews tab."
+            value={!reviews ? 'Unavailable' : reviews.total > 0 ? `${reviews.fiveStar}/${reviews.total}` : '0'}
+            sub={
+              !reviews
+                ? 'could not load'
+                : reviews.total > 0
+                  ? `${Math.round((reviews.fiveStar / reviews.total) * 100)}% five-star · last ${days} days`
+                  : `no reviews · last ${days} days`
+            }
+            href={`/guests?days=${days}`}
             last
           />
         </div>
@@ -247,6 +265,7 @@ function Stat({
   sub,
   accent,
   last,
+  href,
 }: {
   label: string;
   info?: string;
@@ -255,6 +274,8 @@ function Stat({
   sub?: string;
   accent?: boolean;
   last?: boolean;
+  /** The value and sub line link here (the label keeps its info tip). */
+  href?: string;
 }) {
   const display = typeof value === 'number' ? num(value) : value;
   const deltaText = delta == null ? null : `${delta >= 0 ? '+' : ''}${delta.toFixed(0)}%`;
@@ -267,26 +288,37 @@ function Stat({
         {label}
         {info && <InfoTip tip={info} />}
       </div>
-      <div
-        className="font-serif tabular-nums"
-        style={{
-          fontSize: 28,
-          fontWeight: 400,
-          color: accent ? 'var(--signal)' : 'var(--ink)',
-          lineHeight: 1.05,
-        }}
-      >
-        {display}
-      </div>
-      {deltaText && (
-        <div style={{ marginTop: 6, fontSize: 11, color: deltaColor, fontWeight: 500 }}>
-          {deltaText} <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>vs prev period</span>
+      <StatBody href={href}>
+        <div
+          className="font-serif tabular-nums"
+          style={{
+            fontSize: 28,
+            fontWeight: 400,
+            color: accent ? 'var(--signal)' : 'var(--ink)',
+            lineHeight: 1.05,
+          }}
+        >
+          {display}
         </div>
-      )}
-      {sub && !deltaText && (
-        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>
-      )}
+        {deltaText && (
+          <div style={{ marginTop: 6, fontSize: 11, color: deltaColor, fontWeight: 500 }}>
+            {deltaText} <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>vs prev period</span>
+          </div>
+        )}
+        {sub && !deltaText && (
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>
+        )}
+      </StatBody>
     </div>
+  );
+}
+
+function StatBody({ href, children }: { href?: string; children: React.ReactNode }) {
+  if (!href) return <>{children}</>;
+  return (
+    <Link href={href} style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+      {children}
+    </Link>
   );
 }
 
