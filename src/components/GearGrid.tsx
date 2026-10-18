@@ -9,7 +9,7 @@ type Row = { propertyId: string; propertyName: string; cells: Record<string, str
  * The guest-gear matrix (per Ryan: "very simple grid... clean, simple"):
  * homes down the side, gear across the top, each cell the item's location.
  * Blank cell = the home doesn't have one. Cells save on click-away; clearing
- * a cell removes the item. Shared by the office (/work/gear) and the field
+ * a cell removes the item. Shared by the office (/properties/guest-gear) and the field
  * property-work board, each passing its own gated save action.
  */
 export function GearGrid({

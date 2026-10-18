@@ -291,7 +291,7 @@ export async function saveGearCellField(propertyId: string, itemKey: string, loc
   const { upsertGearCell } = await import('@/lib/property-gear');
   const res = await upsertGearCell(propertyId, itemKey, location, `${contractor.full_name} (Field)`);
   revalidatePath('/field/property-work');
-  revalidatePath('/work/gear');
+  revalidatePath('/properties/guest-gear');
   return res;
 }
 

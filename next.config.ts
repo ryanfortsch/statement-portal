@@ -145,6 +145,14 @@ const nextConfig: NextConfig = {
         destination: '/messaging/team?audience=contractors',
         permanent: true,
       },
+      // The guest gear grid moved from Work to Properties (2026-10-18): it is
+      // a fact about the homes, not daily work. Bookmarks and the old Work
+      // tab land on the same grid.
+      {
+        source: '/work/gear',
+        destination: '/properties/guest-gear',
+        permanent: true,
+      },
       // /today retired into the home (2026-10-18): today's stays are a home
       // section under the feed, the emails were already on it. Old morning
       // texts and bookmarks still carry the link, so it lands on the home.
