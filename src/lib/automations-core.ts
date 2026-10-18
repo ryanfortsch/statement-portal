@@ -102,7 +102,8 @@ export type AutomationBooking = {
   cancelled_at?: string | null;
 };
 
-/** The guest-facing times from property_rate_plans (never the cleaner guidance on properties). */
+/** The guest-facing times: check-in from the rate plan, checkout from the House
+ *  policy on properties (never default_checkin_time, the cleaner deadline). */
 export type StayPlanLike = {
   checkin_time: string | null;
   checkout_time: string | null;
@@ -384,8 +385,8 @@ export const MERGE_FIELD_HELP: Record<MergeField, string> = {
   check_in_short: 'Oct 16',
   check_out_long: 'Sunday, October 18',
   check_out_short: 'Oct 18',
-  check_in_time: 'From the rate plan',
-  check_out_time: 'Rate plan, or the paid late checkout',
+  check_in_time: 'Guest check-in, from the rate plan',
+  check_out_time: 'Guest checkout from House policy, or the paid late checkout',
   nights: 'Night count',
   door_code: 'Stay code, else the smart lock code, else the key location (masked until sent)',
   wifi_name: 'Network name',
@@ -571,7 +572,8 @@ export function arrivalWhen(checkIn: string, at: Date, timeZone: string = DEFAUL
  * "Reserved") yield no name so the template reports it missing rather than
  * greeting "Reserved". The door code is the stay's own code when a lock is
  * mapped and one is live, then the property's smart lock code, then the key
- * location. Times come from the rate plan, never the cleaner guidance.
+ * location. Times are the guest's (check-in from the rate plan, checkout from
+ * House policy), never the cleaner deadline.
  */
 export function buildMergeContext(input: MergeInput): MergeContext {
   const { booking, guest, property, plan, adjustment, access } = input;

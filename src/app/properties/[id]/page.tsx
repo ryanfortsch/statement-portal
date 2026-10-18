@@ -501,6 +501,16 @@ export default async function PropertyDetailPage({
   // null-safe so a missing migration on a preview env degrades to an empty
   // panel instead of a 500.
   const helmRun = isHelmRun(p as unknown as { calendar_authority?: string | null });
+  // The House policy columns, which the rate plan and the listing record read
+  // (src/lib/house-policy.ts). Both panels show them and link back to Facts.
+  const housePolicyValues = {
+    checkout: p.default_checkout_time,
+    maxOccupancy: p.max_occupancy,
+    pets: p.pet_policy,
+    quietHours: p.quiet_hours,
+    cancellation: p.cancellation_policy,
+    houseRules: p.house_rules,
+  };
   const pmsRegion = ((p as unknown as { region?: string | null }).region ?? null) as string | null;
   const pmsToday = todayInEastern();
   const [pricing, listingRecord, automationsView] = await Promise.all([
@@ -1340,8 +1350,25 @@ export default async function PropertyDetailPage({
         })()}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '10px 24px', fontSize: 13, alignItems: 'baseline', maxWidth: 760 }}>
+          {/* Check-in is two values with two names: the guest's (the rate
+              plan's, what a guest is told) and the cleaner deadline (when the
+              home must be ready). The rate plan and the listing record read
+              every other row here (src/lib/house-policy.ts). */}
+          <div className="eyebrow">Guest check-in</div>
+          {pricing?.plan ? (
+            <div style={{ color: 'var(--ink)', lineHeight: 1.55 }}>{pricing.plan.checkin_time}</div>
+          ) : helmRun ? (
+            <Link
+              href={`/properties/${p.id}?tab=guest#rates`}
+              style={{ color: 'var(--signal)', textDecoration: 'none', fontSize: 12 }}
+            >
+              Set on the rate plan &rarr;
+            </Link>
+          ) : (
+            <div style={{ color: 'var(--ink-3)', lineHeight: 1.55 }}>Guesty tells the guest</div>
+          )}
           {([
-            ['Turnover deadline', p.default_checkin_time, 'times'],
+            ['Cleaner deadline', p.default_checkin_time, 'times'],
             ['Guest checkout', p.default_checkout_time, 'times'],
             ['Quiet hours', p.quiet_hours, 'policy'],
             ['Max occupancy', p.max_occupancy != null ? `${p.max_occupancy} guests` : null, 'policy'],
@@ -2220,6 +2247,7 @@ export default async function PropertyDetailPage({
               helmRun={helmRun}
               region={pmsRegion}
               today={pmsToday}
+              housePolicy={housePolicyValues}
             />
           </CollapsibleSection>
           <CollapsibleSection
@@ -2237,6 +2265,7 @@ export default async function PropertyDetailPage({
               consumers={FIELD_CONSUMERS}
               helmRun={helmRun}
               registry={{ title: p.title ?? null, bedrooms: p.bedrooms ?? null, bathrooms: p.bathrooms ?? null }}
+              housePolicy={housePolicyValues}
             />
           </CollapsibleSection>
           <CollapsibleSection

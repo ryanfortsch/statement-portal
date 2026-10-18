@@ -37,10 +37,14 @@ test('a failed rental-period read never reads as open year-round', () => {
   assert.ok(!/catch\s*\{[\s\S]*return \[\];/.test(fn), 'the fail-open catch is back');
 });
 
-test('the guest AI reads a Helm-run home\'s checkout from its rate plan, like the automations', () => {
+test('the guest AI reads checkout from the one store the automations read', () => {
+  // Since 2026-10-18 the House policy checkout on properties is the one guest
+  // checkout (src/lib/house-policy.ts); the rate plan's copy is retired. The
+  // automations merge it through loadGuestTimes, and kb-facts sends the same.
   const src = read('src/app/api/kb-facts/route.ts');
-  assert.ok(src.includes(".select('property_id, checkin_time, checkout_time')"));
-  assert.ok(src.includes('check_out_time: checkoutByProp.get(p.id) ?? normalizeTime(p.default_checkout_time) ?? \'\','));
+  assert.ok(src.includes(".select('property_id, checkin_time')"), 'the plan read is the guest check-in only');
+  assert.ok(src.includes("check_out_time: normalizeTime(p.default_checkout_time) ?? '',"));
+  assert.ok(read('src/lib/property-rates.ts').includes(".from('properties').select('id, default_checkout_time')"));
 });
 
 test('reviews-to-slips has no schedule of its own, and CLAUDE.md counts the crons that exist', () => {

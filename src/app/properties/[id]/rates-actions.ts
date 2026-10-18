@@ -66,8 +66,6 @@ function hhmm(fd: FormData, key: string, fallback: string): string {
   return `${String(h).padStart(2, '0')}:${m[2]}`;
 }
 
-const CANCELLATION_KEYS = new Set(['sca_50_30', 'flexible', 'moderate', 'strict', 'non_refundable', 'custom']);
-
 async function actor(): Promise<string | null> {
   const session = await auth();
   return session?.user?.email ?? null;
@@ -86,7 +84,6 @@ export async function saveRatePlanAction(propertyId: string, _prev: RatesFormSta
       .getAll('weekend_days')
       .map((v) => parseInt(String(v), 10))
       .filter((d) => Number.isFinite(d) && d >= 0 && d <= 6);
-    const key = str(fd, 'cancellation_policy_key');
     const patch: RatePlanPatch = {
       property_id: propertyId,
       currency: str(fd, 'currency') || 'USD',
@@ -106,14 +103,11 @@ export async function saveRatePlanAction(propertyId: string, _prev: RatesFormSta
       advance_notice_hours: intOrNull(fd, 'advance_notice_hours', 0, 8760) ?? 24,
       booking_window_days: intOrNull(fd, 'booking_window_days', 0, 3650) ?? 365,
       turnover_buffer_days: intOrNull(fd, 'turnover_buffer_days', 0, TURNOVER_BUFFER_MAX_DAYS) ?? 0,
+      // The guest check-in is the one policy value the plan still owns.
+      // Checkout, occupancy, pets, quiet hours, cancellation and house rules
+      // are the House policy columns on properties and are not written here
+      // (src/lib/house-policy.ts).
       checkin_time: hhmm(fd, 'checkin_time', '16:00'),
-      checkout_time: hhmm(fd, 'checkout_time', '11:00'),
-      max_occupancy: intOrNull(fd, 'max_occupancy', 1, 100),
-      pets_allowed: fd.get('pets_allowed') === 'on',
-      quiet_hours: textOrNull(fd, 'quiet_hours'),
-      cancellation_policy_key: CANCELLATION_KEYS.has(key) ? key : 'sca_50_30',
-      cancellation_terms: textOrNull(fd, 'cancellation_terms'),
-      house_rules: textOrNull(fd, 'house_rules'),
     };
     await upsertRatePlan(patch, by);
     revalidatePath(`/properties/${propertyId}`);

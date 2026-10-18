@@ -25,6 +25,7 @@
 //   6. property_tax_config            upsert to confirm
 //   7. property_notes                 'Arrival and parking', guest_facing, Keycode line removed
 //   8. properties.parking             filled only when empty
+//      properties house policy        checkout, occupancy, cancellation, house rules; empty only
 //   9. a verification report
 //
 // Never printed, never written: door codes, lock codes, wifi. The mapper in
@@ -545,6 +546,48 @@ async function fillParking(sb: SupabaseClient, row: RegistryRow, dry: boolean, l
   log.push({ table: 'properties.parking', action: 'set', detail: PARKING_TEXT });
 }
 
+// ── Step 8b: house policy, filled only where empty ─────────────────────────
+
+/**
+ * The House policy columns on properties are the one store the rate plan and
+ * the listing record read (src/lib/house-policy.ts). The seed's own plan and
+ * content copies of these are no longer read, so the export's answers land
+ * here, and only on a blank: an operator's own answer always wins.
+ */
+async function fillHousePolicy(sb: SupabaseClient, seed: HelmSeed, dry: boolean, log: StepLog[]) {
+  const current = unwrap(
+    await sb
+      .from('properties')
+      .select('default_checkout_time, max_occupancy, cancellation_policy, house_rules')
+      .eq('id', PROPERTY_ID)
+      .maybeSingle(),
+    'house policy read',
+  ) as Record<string, unknown> | null;
+  const empty = (v: unknown) => v == null || String(v).trim() === '';
+  const offered: Row = {
+    default_checkout_time: seed.ratePlan.checkout_time,
+    max_occupancy: seed.ratePlan.max_occupancy ?? seed.content.accommodates,
+    cancellation_policy: seed.ratePlan.cancellation_terms,
+    house_rules: seed.content.house_rules ?? seed.ratePlan.house_rules,
+  };
+  const patch: Row = {};
+  for (const [col, value] of Object.entries(offered)) {
+    if (!empty(value) && empty(current?.[col])) patch[col] = value;
+  }
+  const cols = Object.keys(patch);
+  if (cols.length === 0) {
+    log.push({ table: 'properties (house policy)', action: 'left alone', detail: 'already set or nothing to offer' });
+    return;
+  }
+  if (dry) {
+    log.push({ table: 'properties (house policy)', action: 'would set', detail: cols.join(', ') });
+    return;
+  }
+  const { error } = await sb.from('properties').update(patch).eq('id', PROPERTY_ID);
+  if (error) fail(`properties house policy update: ${error.message}`);
+  log.push({ table: 'properties (house policy)', action: 'set', detail: cols.join(', ') });
+}
+
 // ── Step 9: verification report ─────────────────────────────────────────────
 
 function isoToday(): string {
@@ -671,6 +714,7 @@ async function main() {
   await confirmSeedRow(sb, 'property_tax_config', seed.taxConfig as unknown as Row, args.dry, args.forcePlan, log);
   await upsertArrivalNote(sb, arrivalNoteBody(customFieldText), args.dry, args.forceContent, log);
   await fillParking(sb, registry, args.dry, log);
+  await fillHousePolicy(sb, seed, args.dry, log);
   await report(sb, seed, args.dry, photos, drift, log);
 
   if (photos.failed.length) process.exit(2);

@@ -22,6 +22,7 @@ import { supabaseAdmin, isServiceConfigured } from './supabase-admin.ts';
 import type { PropertyRoom, RoomBed } from './property-rooms-shared.ts';
 import type { RatePlanRow } from './rate-plan.ts';
 import { CAPE_ANN_REGION } from './property-scope.ts';
+import { applyHousePolicyToListing, HOUSE_POLICY_COLS, type HousePolicy } from './house-policy.ts';
 
 // ── Row shapes ──────────────────────────────────────────────────────────────
 
@@ -127,7 +128,9 @@ export const FIELD_CONSUMERS: Record<string, ListingConsumer[]> = {
   neighborhood: [SCA, OTA],
   // toScaListing does not read house rules, notes, property type or the
   // bed count (it counts beds from the rooms): SCA is named only where the
-  // output changes with the field (round 13, pinned by a test).
+  // output changes with the field (round 13, pinned by a test). House rules
+  // and accommodates are read from the House policy columns on properties
+  // (src/lib/house-policy.ts); the editor shows them, it does not edit them.
   house_rules: [OTA],
   notes: [OTA],
   property_type: [OTA],
@@ -554,8 +557,21 @@ export async function getListingRecord(propertyId: string): Promise<ListingRecor
   if (!isServiceConfigured || !propertyId) return null;
   const property = await readPropertyFacts(propertyId);
   if (!property) return null;
-  const [content, photos, rooms] = await Promise.all([getListingContent(propertyId), getListingPhotos(propertyId), readRooms(propertyId)]);
-  return { property, content, photos, rooms };
+  const [content, photos, rooms, policy] = await Promise.all([
+    getListingContent(propertyId),
+    getListingPhotos(propertyId),
+    readRooms(propertyId),
+    readHousePolicy(propertyId),
+  ]);
+  // House rules and occupancy are read from the House policy columns on
+  // properties (src/lib/house-policy.ts), never the retired copies on this row.
+  return { property, content: content ? applyHousePolicyToListing(content, policy) : null, photos, rooms };
+}
+
+async function readHousePolicy(propertyId: string): Promise<HousePolicy | null> {
+  const { data, error } = await supabaseAdmin.from('properties').select(HOUSE_POLICY_COLS).eq('id', propertyId).maybeSingle();
+  if (error || !data) return null;
+  return data as unknown as HousePolicy;
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────

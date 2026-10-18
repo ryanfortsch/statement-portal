@@ -13,13 +13,16 @@ import {
 } from './rates-actions';
 import type { RateDayRow, RatePlanRow, TaxConfigRow } from '@/lib/rate-plan';
 import { regionLabel } from '@/lib/property-scope';
+import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
 
 /**
  * The property page's Rates & taxes section (Guest & listing tab): Guesty's Pricing & policies, Tax
  * configuration and Calendar rules on one screen.
  *
  *   - property_rate_plans editor (nightly, fees, discounts, the direct markup
- *     as a visible number, stay rules, guest times, policies)
+ *     as a visible number, stay rules, the guest check-in). Checkout,
+ *     occupancy, pets, quiet hours, cancellation and house rules are the
+ *     House policy columns on properties and are read, not edited, here
  *   - property_tax_config editor (jurisdiction, rates, what it applies to,
  *     the long-stay exemption, channels that collect their own)
  *   - a seasons tool that bulk-writes property_rate_days, and a clear tool
@@ -32,14 +35,6 @@ import { regionLabel } from '@/lib/property-scope';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const CHANNELS = ['direct', 'sca', 'airbnb', 'vrbo', 'booking_com', 'manual'];
-const CANCELLATION_OPTIONS: Array<{ id: string; label: string }> = [
-  { id: 'sca_50_30', label: 'Stay Cape Ann standard (50% past 30 days)' },
-  { id: 'flexible', label: 'Flexible' },
-  { id: 'moderate', label: 'Moderate' },
-  { id: 'strict', label: 'Strict' },
-  { id: 'non_refundable', label: 'Non-refundable' },
-  { id: 'custom', label: 'Custom (terms below)' },
-];
 
 const dollars = (cents: number | null | undefined): string => (cents == null ? '' : (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2));
 const money = (cents: number, currency = 'USD'): string =>
@@ -54,9 +49,12 @@ export function RatesPanel({
   helmRun,
   region,
   today,
+  housePolicy,
 }: {
   propertyId: string;
   plan: RatePlanRow | null;
+  /** The House policy columns on properties, which the plan reads. */
+  housePolicy: HousePolicyValues;
   tax: TaxConfigRow | null;
   /** Overrides from today forward (a year), for the summary strip. */
   days: RateDayRow[];
@@ -67,7 +65,7 @@ export function RatesPanel({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28, paddingBottom: 8 }}>
       <ReachBanner helmRun={helmRun} hasPlan={!!plan} hasTax={!!tax} region={region} />
-      <PlanForm propertyId={propertyId} plan={plan} />
+      <PlanForm propertyId={propertyId} plan={plan} housePolicy={housePolicy} />
       <TaxForm propertyId={propertyId} tax={tax} region={region} />
       <OverridesStrip days={days} plan={plan} today={today} />
       <SeasonsTool propertyId={propertyId} today={today} hasPlan={!!plan} />
@@ -101,7 +99,7 @@ function ReachBanner({ helmRun, hasPlan, hasTax, region }: { helmRun: boolean; h
 
 // ── Rate plan ───────────────────────────────────────────────────────────────
 
-function PlanForm({ propertyId, plan }: { propertyId: string; plan: RatePlanRow | null }) {
+function PlanForm({ propertyId, plan, housePolicy }: { propertyId: string; plan: RatePlanRow | null; housePolicy: HousePolicyValues }) {
   const action = saveRatePlanAction.bind(null, propertyId);
   const [state, formAction, pending] = useActionState<RatesFormState, FormData>(action, { error: null });
   const weekendDays = new Set(plan?.weekend_days ?? [5, 6]);
@@ -150,9 +148,6 @@ function PlanForm({ propertyId, plan }: { propertyId: string; plan: RatePlanRow 
         <Field label="Security deposit" hint="held, not charged">
           <input name="security_deposit" inputMode="decimal" defaultValue={dollars(plan?.security_deposit_cents)} style={input} />
         </Field>
-        <Field label="Max occupancy" hint="a quote above this is flagged">
-          <input name="max_occupancy" inputMode="numeric" defaultValue={plan?.max_occupancy ?? ''} style={input} />
-        </Field>
       </Group>
 
       <Group label="Discounts and markup">
@@ -185,38 +180,17 @@ function PlanForm({ propertyId, plan }: { propertyId: string; plan: RatePlanRow 
         </Field>
       </Group>
 
-      <Group label="Guest times and house">
-        <Field label="Check-in" hint="guest-facing; cleaner guidance lives on the registry">
+      <Group label="Guest check-in">
+        <Field label="Guest check-in" hint="what the guest is told; the cleaner deadline is on Facts, House policy">
           <input name="checkin_time" defaultValue={plan?.checkin_time ?? '16:00'} placeholder="16:00" style={input} />
-        </Field>
-        <Field label="Checkout">
-          <input name="checkout_time" defaultValue={plan?.checkout_time ?? '11:00'} placeholder="11:00" style={input} />
-        </Field>
-        <Field label="Pets">
-          <label style={chip}>
-            <input type="checkbox" name="pets_allowed" defaultChecked={plan?.pets_allowed ?? false} /> Pets allowed
-          </label>
-        </Field>
-        <Field label="Quiet hours" hint="free text, e.g. 10 PM to 8 AM">
-          <input name="quiet_hours" defaultValue={plan?.quiet_hours ?? ''} style={input} />
         </Field>
       </Group>
 
-      <Group label="Policies" wide>
-        <Field label="Cancellation" hint="the key staycapeann.com prints">
-          <select name="cancellation_policy_key" defaultValue={plan?.cancellation_policy_key ?? 'sca_50_30'} style={input}>
-            {CANCELLATION_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>{o.label}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Cancellation terms" hint="shown to the guest when the key is custom" wide>
-          <textarea name="cancellation_terms" rows={3} defaultValue={plan?.cancellation_terms ?? ''} style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
-        </Field>
-        <Field label="House rules" hint="the policy copy; the guest-facing listing text lives in the Listing section" wide>
-          <textarea name="house_rules" rows={3} defaultValue={plan?.house_rules ?? ''} style={{ ...input, resize: 'vertical', fontFamily: 'inherit' }} />
-        </Field>
-      </Group>
+      <HousePolicyReadout
+        propertyId={propertyId}
+        values={housePolicy}
+        fields={['checkout', 'maxOccupancy', 'pets', 'quietHours', 'cancellation', 'houseRules']}
+      />
 
       <FormFooter state={state} pending={pending} label="Save rate plan" busy="Saving…" />
     </form>

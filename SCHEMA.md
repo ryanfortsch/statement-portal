@@ -186,10 +186,12 @@ All service role only. Money is integer cents.
   rates, `weekend_days`, guests included and extra-guest rate, cleaning /
   pet / deposit fees, weekly and monthly discounts, `direct_markup_pct`
   (Guesty's invisible +6% Standard Rate, made visible), min / max nights,
-  advance notice, booking window, turnover buffer, guest-facing check-in
-  and check-out times (`properties.default_checkin_time` is cleaner
-  guidance, not this), occupancy, pets, quiet hours, cancellation policy
-  key and terms, house rules.
+  advance notice, booking window, turnover buffer, and the GUEST check-in
+  (`checkin_time`; `properties.default_checkin_time` is the cleaner
+  deadline, a different value). Its checkout, occupancy, pets, quiet hours,
+  cancellation and house rules columns are retired (2026-10-18) and not
+  read: every loader overlays the House policy columns on `properties`
+  (`src/lib/house-policy.ts`), which are the one store.
 - **`property_rate_days`**: per-night overrides keyed `(property_id, date)`:
   `nightly_cents` (null = plan default), `min_nights`, `cta`, `ctd`,
   `closed`, `note`, `source` (`operator` | `seed` | `pricelabs` | `rule`).
@@ -201,9 +203,11 @@ All service role only. Money is integer cents.
   listing's own tax config are what the statements pipeline and live Guesty
   quotes use today; changing a rate still means all of them agree.
 - **`property_listing_content`**: the guest-facing listing record (title,
-  summary, space, access, neighborhood, rules, type, rooms and beds,
-  amenities, `hero_photo_id`, `source` = `helm` | `guesty_seed` |
-  `ai_draft`). This is what Helm feeds staycapeann.com and, later, an OTA
+  summary, space, access, neighborhood, type, rooms and beds, amenities,
+  `hero_photo_id`, `source` = `helm` | `guesty_seed` | `ai_draft`). Its
+  `house_rules` and `accommodates` are retired (2026-10-18); the loader
+  reads `properties.house_rules` and `properties.max_occupancy`. This is
+  what Helm feeds staycapeann.com and, later, an OTA
   push layer. `properties.title` stays the external title; this table
   holds the long-form copy.
 - **`property_listing_photos`**: one row per photo with the Helm-owned Blob

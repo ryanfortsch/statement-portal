@@ -40,6 +40,7 @@ import { recordOutboundSms, recordOutboundEmail, ensureOtaThreadForBooking } fro
 import { otaChannelOfBooking, otaThreadUrl } from '@/lib/helm-inbox-core';
 import { RECIPIENT_COLS, shapeRecipient, type ScheduleRecipient } from '@/lib/cleaner-digest-core';
 import { civicForProperty } from '@/lib/civic';
+import { loadGuestTimes } from '@/lib/property-rates';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { toE164Phone } from '@/lib/guests-identity-core';
 import {
@@ -254,13 +255,14 @@ async function loadPropertyRow(propertyId: string): Promise<PropertyRow | null> 
   return data as unknown as PropertyRow;
 }
 
+/**
+ * The guest times {{check_in_time}} and {{check_out_time}} merge from: the
+ * rate plan's guest check-in and the House policy checkout on properties,
+ * the same value the guest AI quotes (src/lib/house-policy.ts).
+ */
 async function loadPlan(propertyId: string): Promise<StayPlanLike> {
-  const { data } = await supabaseAdmin
-    .from('property_rate_plans')
-    .select('checkin_time, checkout_time')
-    .eq('property_id', propertyId)
-    .maybeSingle();
-  return (data as StayPlanLike) ?? null;
+  const times = (await loadGuestTimes([propertyId])).get(propertyId);
+  return times ? { checkin_time: times.checkin, checkout_time: times.checkout } : null;
 }
 
 async function loadLockMapped(propertyId: string): Promise<boolean> {
