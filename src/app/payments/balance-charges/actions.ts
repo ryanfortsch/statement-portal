@@ -99,27 +99,27 @@ export async function chargeBalance(formData: FormData): Promise<void> {
   if (!operatorEmail) redirect('/auth/signin');
 
   const id = String(formData.get('id') || '').trim();
-  if (!id) redirect('/statements/balance-charges');
+  if (!id) redirect('/payments/balance-charges');
 
   const { data } = await supabase.from('balance_charges').select('*').eq('id', id).maybeSingle();
   const row = data as ChargeRow | null;
-  if (!row) redirect('/statements/balance-charges');
+  if (!row) redirect('/payments/balance-charges');
 
   // Chargeable states: scheduled (first attempt), failed (operator retry),
   // charging (recovery from a crash mid-attempt - a prior attempt may have
   // already charged, so we search Stripe before re-firing, below).
   if (!['scheduled', 'failed', 'charging'].includes(row.status)) {
-    redirect(`/statements/balance-charges#row-${id}`);
+    redirect(`/payments/balance-charges#row-${id}`);
   }
   const isRecovery = row.status === 'charging';
   const todayIso = new Date().toISOString().slice(0, 10);
   if (row.charge_after > todayIso) {
-    redirect(`/statements/balance-charges?err=not_due#row-${id}`);
+    redirect(`/payments/balance-charges?err=not_due#row-${id}`);
   }
 
   const stripeKey = getStripeKeysMap()[row.property_id];
   if (!stripeKey) {
-    redirect(`/statements/balance-charges?err=no_key#row-${id}`);
+    redirect(`/payments/balance-charges?err=no_key#row-${id}`);
   }
 
   // Atomic claim: only one caller moves this row into 'charging'. The
@@ -133,7 +133,7 @@ export async function chargeBalance(formData: FormData): Promise<void> {
     .eq('status', row.status)
     .select('id');
   if (!claimed || claimed.length === 0) {
-    redirect(`/statements/balance-charges#row-${id}`);
+    redirect(`/payments/balance-charges#row-${id}`);
   }
 
   // Guest-facing text on the Stripe receipt: external title, never the
@@ -284,6 +284,6 @@ export async function chargeBalance(formData: FormData): Promise<void> {
     );
   }
 
-  revalidatePath('/statements/balance-charges');
-  redirect(`/statements/balance-charges#row-${id}`);
+  revalidatePath('/payments/balance-charges');
+  redirect(`/payments/balance-charges#row-${id}`);
 }

@@ -120,7 +120,7 @@ describe('each control still asks', () => {
     assert.ok(codes.includes('window.confirm(revokeCodeConfirm(b.guest_name, b.check_in, b.check_out))'));
     const rates = read('src/app/properties/[id]/RatesPanel.tsx');
     assert.ok(rates.includes('clearRatesConfirm(') && rates.includes('if (!window.confirm(msg)) e.preventDefault();'));
-    const charges = read('src/app/statements/balance-charges/page.tsx');
+    const charges = read('src/app/payments/balance-charges/page.tsx');
     assert.equal(charges.split('confirm={balanceChargeConfirm(').length - 1, 2, 'both charge buttons ask');
   });
 });

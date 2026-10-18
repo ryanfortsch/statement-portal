@@ -9,7 +9,7 @@ import { supabaseAdmin as supabase, isServiceConfigured as isConfigured } from '
  * When a booking deposit paid through a save_card payment link (see
  * /api/payment-links), the guest's card is attached to a Customer in the
  * property's own Stripe account. The concierge's deposit-paid sweep POSTs
- * the balance plan here; the row surfaces on /statements/balance-charges
+ * the balance plan here; the row surfaces on /payments/balance-charges
  * once charge_after arrives, where the operator's one click fires the
  * off-session PaymentIntent. Nothing in this route touches Stripe - it only
  * records the plan.
@@ -160,6 +160,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: insert.error.message }, { status: 500 });
   }
 
-  revalidatePath('/statements/balance-charges');
+  revalidatePath('/payments/balance-charges');
   return NextResponse.json({ ok: true, id: (insert.data as { id: string }).id, deduped: false });
 }

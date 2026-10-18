@@ -139,7 +139,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/achieved-rates",
   // Stay-concierge bridge: registers a saved-card balance charge when a
   // far-future booking deposit turns paid (the operator later fires the
-  // off-session charge from /statements/balance-charges). Self-guards via
+  // off-session charge from /payments/balance-charges). Self-guards via
   // STAY_CONCIERGE_KEY.
   "/api/balance-charges",
   // Bridge: staycapeann.com reads a custom quote when the guest opens

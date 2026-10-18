@@ -139,6 +139,20 @@ export const HELM_MODULES: HelmModule[] = [
     access: 'owner',
   },
   {
+    id: 'balance-charges',
+    href: '/payments/balance-charges',
+    number: '01',
+    title: 'Balance charges',
+    description:
+      "Far-future booking balances, charged to the card the guest saved at deposit once their charge date arrives. One confirm per charge, in the property's own Stripe account.",
+    status: 'active',
+    primary: false,
+    hidden: true,
+    section: 'financials',
+    group: 'money',
+    access: 'owner',
+  },
+  {
     id: 'statements',
     href: '/statements',
     number: '01',

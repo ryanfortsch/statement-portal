@@ -153,6 +153,14 @@ const nextConfig: NextConfig = {
         destination: '/',
         permanent: true,
       },
+      // Balance charges moved under Payments (2026-10-18): it charges a
+      // guest's saved card, a payments job, not a step of the statement
+      // close. The concierge's older balance work slips carry the old link.
+      {
+        source: '/statements/balance-charges',
+        destination: '/payments/balance-charges',
+        permanent: true,
+      },
 
       // ─── IA rename (2026-08-20): URL honesty pass ───────────────────
       // /operations became /turnovers, the contractor-facing lenses moved
