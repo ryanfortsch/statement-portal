@@ -5,6 +5,7 @@ import {
   AGREEMENT_KIND_LABEL,
   AGREEMENT_STATUS_LABEL,
   agreementStatus,
+  agreementAuditSentences,
   agreementVoidability,
   type GuestAgreementRow,
 } from '@/lib/agreement-types';
@@ -225,14 +226,19 @@ export default async function AgreementDetailPage({ params }: { params: Promise<
           {a.guest_signed_at && (
             <>
               <div className="eyebrow" style={{ marginBottom: 12 }}>Audit</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.8, fontFamily: 'var(--font-mono), monospace' }}>
-                <div>signed_name: {a.guest_signed_name}</div>
-                <div>signed_at: {a.guest_signed_at}</div>
-                {a.guest_signed_ip && <div>ip: {a.guest_signed_ip}</div>}
-                {a.guest_email_sent_at && <div>signed_copy_emailed: {a.guest_email_sent_at}</div>}
-                {a.countersigned_at && <div>countersigned_at: {a.countersigned_at}</div>}
-                {a.executed_email_sent_at && <div>executed_emailed: {a.executed_email_sent_at}</div>}
-              </div>
+              <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, maxWidth: 640, margin: 0 }}>
+                {agreementAuditSentences(a).join(' ')}
+              </p>
+              <details style={{ marginTop: 10 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--ink-3)' }}>Show ids</summary>
+                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.8, fontFamily: 'var(--font-mono), monospace' }}>
+                  <div>Signed at {a.guest_signed_at}</div>
+                  {a.guest_signed_ip && <div>From IP {a.guest_signed_ip}</div>}
+                  {a.guest_signed_user_agent && <div>Browser {a.guest_signed_user_agent}</div>}
+                  {a.countersigned_at && <div>Countersigned at {a.countersigned_at}</div>}
+                  <div>Agreement {a.id}</div>
+                </div>
+              </details>
             </>
           )}
           {a.internal_notes && (

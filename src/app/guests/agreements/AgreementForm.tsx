@@ -3,10 +3,11 @@ import { DEFAULT_UTILITIES, type GuestAgreementRow } from '@/lib/agreement-types
 
 /**
  * Shared create/edit form for guest rental agreements. Server-rendered,
- * no client state: kind-specific dials (utilities, snow removal, etc.)
- * are always visible with a "mid-term only" hint — the section builder
- * ignores them for short-term agreements, so a stray checkbox can't leak
- * into the wrong document.
+ * no client state. The mid-term dials (utilities, snow removal, etc.) show
+ * only while Mid-term is the picked kind, by a CSS :has() rule in
+ * globals.css (.rt-agreement-form / .rt-agreement-midterm). The section
+ * builder also ignores them for short-term agreements, so a stray checkbox
+ * still cannot leak into the wrong document.
  */
 export function AgreementForm({
   action,
@@ -36,7 +37,7 @@ export function AgreementForm({
   const clauseRows = Math.min(8, Math.max(3, clauses.length + 2));
 
   return (
-    <form action={action} style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
+    <form action={action} className="rt-agreement-form" style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
       {d && <input type="hidden" name="id" value={d.id} />}
 
       {/* ── Property ── */}
@@ -162,7 +163,7 @@ export function AgreementForm({
       </FormBlock>
 
       {/* ── Mid-term dials ── */}
-      <FormBlock title="Mid-term dials" hint="Only rendered on mid-term agreements; ignored for short-term.">
+      <FormBlock title="Mid-term dials" className="rt-agreement-midterm">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="eyebrow" style={{ fontSize: 10, marginBottom: 2 }}>Utilities included in the rental fee</div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
@@ -252,9 +253,9 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
-function FormBlock({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function FormBlock({ title, hint, className, children }: { title: string; hint?: string; className?: string; children: React.ReactNode }) {
   return (
-    <section>
+    <section className={className}>
       <div style={{ borderBottom: '1px solid var(--ink)', paddingBottom: 8, marginBottom: 16 }}>
         <span
           className="font-serif"
