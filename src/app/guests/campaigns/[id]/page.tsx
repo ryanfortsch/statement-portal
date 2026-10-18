@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { listSegments } from '@/lib/guests';
 import {
+  campaignSendProgress,
+  campaignSentContactIds,
   getCampaign,
   getSegment,
   resolveSegmentRecipients,
@@ -10,9 +12,24 @@ import { renderEmail } from '@/lib/email-render';
 import {
   updateDraftCampaign,
   sendCampaignTest,
+  reviewCampaignSend,
   sendCampaign,
+  resetStuckCampaign,
 } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
+import { AutoRefresh } from '@/components/AutoRefresh';
+import { isOwnerSession } from '@/lib/helm-access-server';
+import {
+  campaignFromLine,
+  campaignSendMissing,
+  campaignSendStopped,
+  recipientsLabel,
+} from '@/lib/campaign-send';
+
+const FROM_DEFAULTS = {
+  name: 'Stay Cape Ann',
+  email: process.env.RESEND_FROM_EMAIL || 'hello@staycapeann.com',
+};
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +38,7 @@ export default async function CampaignDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ test_sent?: string; drafted?: string }>;
+  searchParams: Promise<{ test_sent?: string; drafted?: string; review?: string; changed?: string }>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -30,18 +47,29 @@ export default async function CampaignDetailPage({
   const campaign = await getCampaign(id);
   if (!campaign) notFound();
 
-  const [segments, segment] = await Promise.all([
+  const [segments, segment, progress, isOwner] = await Promise.all([
     listSegments(),
     campaign.segment_id ? getSegment(campaign.segment_id) : Promise.resolve(null),
+    campaignSendProgress(campaign.id),
+    isOwnerSession(),
   ]);
-
-  const recipientCount = segment
-    ? (await resolveSegmentRecipients(segment, { emailOnly: true })).length
-    : 0;
 
   const isDraft = campaign.status === 'draft';
   const isSent = campaign.status === 'sent';
   const isSending = campaign.status === 'sending';
+
+  // The live count is who a send would reach now: a draft reset after a
+  // stopped send skips the people the first run already reached, and so
+  // does sendCampaign, so the two numbers agree.
+  const matched = segment && isDraft ? await resolveSegmentRecipients(segment, { emailOnly: true }) : [];
+  const alreadySent = isDraft && progress.sentCount > 0 ? await campaignSentContactIds(campaign.id) : null;
+  const recipientCount = alreadySent ? matched.filter((r) => !alreadySent.has(r.id)).length : matched.length;
+  const reviewing = isDraft && sp.review === '1';
+  const missing = campaignSendMissing(campaign, recipientCount);
+  const lastActivity = [campaign.updated_at, progress.lastSentAt].filter(Boolean).sort().pop() ?? null;
+  const sendStopped = isSending && campaignSendStopped(lastActivity);
+  // Mirrors resetStuckCampaign: everyone got it and only the closing write was lost.
+  const allOut = (campaign.recipient_count ?? 0) > 0 && progress.sentCount >= (campaign.recipient_count ?? 0);
 
   // Preview rendering. Use a fake unsubscribe URL so the component can
   // render without sweating tokens.
@@ -94,15 +122,50 @@ export default async function CampaignDetailPage({
             <Stat label="Unsubs" value={String(campaign.unsubscribed_count)} accent={campaign.unsubscribed_count > 0} last />
           </div>
           <p style={{ marginTop: 12, fontSize: 12, color: 'var(--ink-3)' }}>
-            Sent {campaign.sent_at ? new Date(campaign.sent_at).toLocaleString('en-US') : ''}
+            Sent {campaign.sent_at ? new Date(campaign.sent_at).toLocaleString('en-US', { timeZone: 'America/New_York' }) : ''}
           </p>
         </section>
       )}
 
       {isSending && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
-          <div style={{ borderLeft: '3px solid var(--signal)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13 }}>
-            Send is in flight. This page will refresh when complete.
+          <div style={{ borderLeft: '3px solid var(--signal)', padding: '12px 16px', background: 'var(--paper-2)', fontSize: 13, display: 'grid', gap: 10 }}>
+            {sendStopped ? (
+              <>
+                {allOut ? (
+                  <span>
+                    Every email went out ({progress.sentCount} of {campaign.recipient_count}), but the send stopped before it recorded the finish.
+                    {isOwner ? ' Mark it sent to close it.' : ' An owner can mark it sent.'}
+                  </span>
+                ) : (
+                  <span>
+                    This send stopped after {progress.sentCount} of {campaign.recipient_count ?? progress.sentCount}.
+                    {' '}Nothing has gone out for over ten minutes.
+                    {isOwner
+                      ? ' Put it back to draft to send the rest; nobody gets it twice.'
+                      : ' An owner can put it back to draft to send the rest.'}
+                  </span>
+                )}
+                {isOwner && (
+                  <form action={resetStuckCampaign}>
+                    <input type="hidden" name="id" value={campaign.id} />
+                    <SubmitButton
+                      label={allOut ? 'Mark sent' : 'Back to draft'}
+                      busyLabel="Saving…"
+                      style={secondaryButtonStyle}
+                      spinnerTone="ink"
+                    />
+                  </form>
+                )}
+              </>
+            ) : (
+              <>
+                <span>
+                  Sending now: {progress.sentCount} of {campaign.recipient_count ?? '…'} so far. This page refreshes every ten seconds until it finishes.
+                </span>
+                <AutoRefresh intervalMs={10000} />
+              </>
+            )}
           </div>
         </section>
       )}
@@ -136,7 +199,20 @@ export default async function CampaignDetailPage({
       {/* COMPOSER + PREVIEW */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, flex: 1, width: '100%' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
-          {/* LEFT: form */}
+          {/* LEFT: the review panel (step two of a send), else the form */}
+          {reviewing ? (
+            <ReviewPanel
+              campaignId={campaign.id}
+              audience={segment?.name ?? null}
+              recipientCount={recipientCount}
+              alreadySent={progress.sentCount}
+              subject={campaign.subject}
+              from={campaignFromLine(campaign.from_name, campaign.from_email, FROM_DEFAULTS)}
+              missing={missing}
+              changed={sp.changed === '1'}
+              isOwner={isOwner}
+            />
+          ) : (
           <form
             action={updateDraftCampaign}
             style={{ display: 'grid', gap: 18 }}
@@ -211,43 +287,13 @@ export default async function CampaignDetailPage({
                   </option>
                 ))}
               </select>
-              {segment && (
+              {segment && isDraft && (
                 <p style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-3)' }}>
-                  <strong>{recipientCount}</strong> recipient{recipientCount === 1 ? '' : 's'} match this segment right now.
+                  <strong>{recipientCount}</strong> recipient{recipientCount === 1 ? '' : 's'} match this segment right now
+                  {alreadySent ? ', not counting the people the last send reached' : ''}.
                 </p>
               )}
             </Field>
-
-            {/* SEND BUTTONS. These submit the SAME parent form but route
-                to different server actions via formAction. Nested <form>s
-                here would be silently flattened by browsers and the
-                buttons would secretly trigger the outer Save Draft action
-                instead. The send actions auto-persist form values before
-                sending so no separate Save click is needed. */}
-            {isDraft && (
-              <div style={{ display: 'grid', gap: 10, padding: '14px 0', borderTop: '1px solid var(--rule)', borderBottom: '1px solid var(--rule)' }}>
-                <div className="eyebrow">Send</div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <SubmitButton
-                    formAction={sendCampaignTest}
-                    style={secondaryButtonStyle}
-                    spinnerTone="ink"
-                    label="Send test to me"
-                    busyLabel="Sending test…"
-                  />
-                  <SubmitButton
-                    formAction={sendCampaign}
-                    style={dangerButtonStyle}
-                    disabled={!campaign.subject || !campaign.body_text || !campaign.segment_id}
-                    label={<>Send to {recipientCount > 0 ? recipientCount : '0'} recipient{recipientCount === 1 ? '' : 's'} →</>}
-                    busyLabel="Sending…"
-                  />
-                </div>
-                <p style={{ fontSize: 11, color: 'var(--ink-3)', margin: 0 }}>
-                  Test sends arrive with a [TEST] subject prefix and don&rsquo;t lock the campaign. Both buttons use the latest values in this form. No separate Save click needed.
-                </p>
-              </div>
-            )}
 
             <Field label="Body (Markdown)">
               <textarea
@@ -263,12 +309,37 @@ export default async function CampaignDetailPage({
               </p>
             </Field>
 
+            {/* The foot of the form. Every button saves the form first; they
+                route to different server actions via formAction on the SAME
+                form (nested <form>s would be flattened by the browser and
+                trigger the outer action). Nothing here reaches the list:
+                Review and send opens the panel that does. */}
             {isDraft && (
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                <SubmitButton label="Save draft" busyLabel="Saving…" formAction={updateDraftCampaign} style={primaryButtonStyle} />
+              <div style={{ display: 'grid', gap: 10, paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <SubmitButton label="Save draft" busyLabel="Saving…" formAction={updateDraftCampaign} style={primaryButtonStyle} />
+                  <SubmitButton
+                    formAction={sendCampaignTest}
+                    style={secondaryButtonStyle}
+                    spinnerTone="ink"
+                    label="Send test to me"
+                    busyLabel="Sending test…"
+                  />
+                  <SubmitButton
+                    formAction={reviewCampaignSend}
+                    style={secondaryButtonStyle}
+                    spinnerTone="ink"
+                    label="Review and send →"
+                    busyLabel="Saving…"
+                  />
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--ink-3)', margin: 0 }}>
+                  Each button saves this form first. A test arrives with a [TEST] subject prefix and doesn&rsquo;t lock the campaign. Review and send shows who gets it before anything goes out.
+                </p>
               </div>
             )}
           </form>
+          )}
 
           {/* RIGHT: live preview */}
           <div>
@@ -304,6 +375,87 @@ export default async function CampaignDetailPage({
           </span>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/**
+ * Step two of a send. Everything here is the SAVED campaign, which is what
+ * goes out; the preview beside it renders the same row. The button repeats
+ * the count and posts it, and sendCampaign refuses a count the list no
+ * longer matches.
+ */
+function ReviewPanel({
+  campaignId,
+  audience,
+  recipientCount,
+  alreadySent,
+  subject,
+  from,
+  missing,
+  changed,
+  isOwner,
+}: {
+  campaignId: string;
+  audience: string | null;
+  recipientCount: number;
+  alreadySent: number;
+  subject: string | null;
+  from: string;
+  missing: string[];
+  changed: boolean;
+  isOwner: boolean;
+}) {
+  const ready = missing.length === 0;
+  return (
+    <div style={{ display: 'grid', gap: 18, alignContent: 'start' }}>
+      <div className="eyebrow">Review and send</div>
+      <h2 className="font-serif" style={{ fontSize: 26, lineHeight: 1.15, fontWeight: 300, margin: 0 }}>
+        {ready ? <>This emails {recipientsLabel(recipientCount)}.</> : 'Not ready to send yet.'}
+      </h2>
+      {changed && (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--signal)' }}>
+          The list changed since you reviewed it. This is the count now.
+        </p>
+      )}
+      <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'max-content 1fr', columnGap: 18, rowGap: 10, fontSize: 14 }}>
+        <dt className="eyebrow" style={{ alignSelf: 'baseline' }}>Audience</dt>
+        <dd style={{ margin: 0 }}>
+          {audience ?? 'None picked'}
+          {audience && <> &middot; {recipientsLabel(recipientCount)} right now</>}
+          {alreadySent > 0 && (
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+              {alreadySent} already got it before the last send stopped; they are skipped.
+            </span>
+          )}
+        </dd>
+        <dt className="eyebrow" style={{ alignSelf: 'baseline' }}>Subject</dt>
+        <dd style={{ margin: 0 }}>{subject?.trim() || 'None yet'}</dd>
+        <dt className="eyebrow" style={{ alignSelf: 'baseline' }}>From</dt>
+        <dd style={{ margin: 0 }}>{from}</dd>
+      </dl>
+      {!ready && (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-3)' }}>
+          Still needs {missing.join(', ')}. Go back to editing to add it.
+        </p>
+      )}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid var(--rule)' }}>
+        {ready && isOwner && (
+          <form action={sendCampaign}>
+            <input type="hidden" name="id" value={campaignId} />
+            <input type="hidden" name="confirm_count" value={String(recipientCount)} />
+            <SubmitButton label={<>Send to {recipientsLabel(recipientCount)}</>} busyLabel="Sending…" style={dangerButtonStyle} />
+          </form>
+        )}
+        <Link href={`/guests/campaigns/${campaignId}`} style={{ ...secondaryButtonStyle, textDecoration: 'none' }}>
+          Back to editing
+        </Link>
+      </div>
+      {ready && !isOwner && (
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-3)' }}>
+          An owner sends to the list. Send a test to yourself, then hand it over.
+        </p>
+      )}
     </div>
   );
 }
