@@ -83,7 +83,7 @@ function inferStripeLabel(description: string | null): string {
 }
 
 export function BankDepositReview({
-  propertyId, month, reservations, refreshToken = 0, onChanged,
+  propertyId, month, reservations, refreshToken = 0, onChanged, openToken = 0,
 }: {
   propertyId: string;
   month: string;
@@ -96,6 +96,10 @@ export function BankDepositReview({
   // The dashboard loads its data client-side: router.refresh() alone left
   // the card's payout and the strip's counts stale until a reload.
   onChanged?: () => void;
+  // Nonzero = unfold the two review queues. The close strip's Open sets it
+  // when it lands on this card's bank rows: opening the card alone left the
+  // pending money folded one more click down.
+  openToken?: number;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<Deposit[] | null>(null);
@@ -103,12 +107,18 @@ export function BankDepositReview({
   // Collapsed by default so the queue doesn't dominate the property card.
   // Click the header to expand the review list. Three independent toggles
   // for deposits-pending / debits-pending / already-attributed.
-  const [expanded, setExpanded] = useState(false);
-  const [debitsExpanded, setDebitsExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(openToken > 0);
+  const [debitsExpanded, setDebitsExpanded] = useState(openToken > 0);
   const [sweepsExpanded, setSweepsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (openToken === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setExpanded(true);
+    setDebitsExpanded(true);
+  }, [openToken]);
 
   const load = useCallback(async () => {
     setError(null);
