@@ -17,7 +17,6 @@ import type { ProjectionRow } from '@/lib/projections-types';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
-type Mode = 'interpret' | 'precise';
 type Step = 'input' | 'preview' | 'applied';
 
 /**
@@ -30,11 +29,17 @@ type Acceptance = {
   overrides: boolean[];
 };
 
-const EDITABLE_FIELDS: readonly EditableField[] = Object.keys(FIELD_DESCRIPTORS) as EditableField[];
-
+/**
+ * The owner's written asks become proposed contract edits: paste the
+ * email, text or call notes, Claude maps each ask to an edit, the reader
+ * accepts, refines or drops each one, and the accepted set is applied by
+ * applyContractRedlines through the same lock-checked writer as the edit
+ * form's Contract terms section. Section 06 of that form is where a term is
+ * typed directly; this panel has no field editor of its own. Not rendered
+ * once the owner has signed (the page prints the terms-locked notice).
+ */
 export function ContractRedlinesPanel({ projection }: { projection: ProjectionRow }) {
   const softRefresh = useSoftRefresh();
-  const [mode, setMode] = useState<Mode>('interpret');
   const [step, setStep] = useState<Step>('input');
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -48,13 +53,7 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
     failures: { summary: string }[];
   } | null>(null);
 
-  // Interpret-mode input state
   const [text, setText] = useState('');
-
-  // Precise-mode input state: field-only builder (clause authoring needs
-  // clause IDs which precise-mode users don't have — Interpret is the
-  // path for clause edits in this v1).
-  const [draftFieldChanges, setDraftFieldChanges] = useState<DraftFieldChange[]>([]);
 
   const [edits, setEdits] = useState<ContractRedlineEdits | null>(null);
 
@@ -66,18 +65,11 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
   const resetAll = () => {
     setStep('input');
     setText('');
-    setDraftFieldChanges([]);
     setEdits(null);
     setAcceptance({ fieldChanges: [], overrides: [] });
     setOriginalText('');
     setIterationText('');
     setError(null);
-  };
-
-  const switchMode = (next: Mode) => {
-    if (next === mode) return;
-    setMode(next);
-    resetAll();
   };
 
   const interpretRequest = () => {
@@ -94,20 +86,6 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
       setIterationText('');
       setStep('preview');
     });
-  };
-
-  const stagePreciseEdits = () => {
-    setError(null);
-    const built = buildPreciseEdits(draftFieldChanges);
-    if (!built) {
-      setError('Add at least one field change first.');
-      return;
-    }
-    setEdits(built);
-    setAcceptance(initAcceptance(built));
-    setOriginalText('');
-    setIterationText('');
-    setStep('preview');
   };
 
   const iterate = () => {
@@ -182,26 +160,14 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
         )}
       </div>
 
-      {step === 'input' && <ModeToggle mode={mode} onChange={switchMode} />}
-
       <p style={ledeStyle}>
-        {mode === 'interpret'
-          ? 'Paste what the owner sent — email, text, call notes. Claude maps the request to in-place contract edits with action types (replace, modify, rename, delete, add). Preview, refine, and apply.'
-          : 'Quick path for column-only edits (term dates, fees, day-counts). Clause edits should go through Interpret since they need clause-ID targeting.'}
+        Paste what the owner sent: an email, a text, call notes. Claude turns each ask into a proposed edit to the
+        contract; accept, refine or drop each one before it is applied. To type a term yourself, use Contract terms
+        under Edit prospect details.
       </p>
 
-      {step === 'input' && mode === 'interpret' && (
+      {step === 'input' && (
         <InterpretInput text={text} setText={setText} onInterpret={interpretRequest} pending={pending} />
-      )}
-
-      {step === 'input' && mode === 'precise' && (
-        <PreciseEditor
-          projection={projection}
-          fieldChanges={draftFieldChanges}
-          setFieldChanges={setDraftFieldChanges}
-          onStage={stagePreciseEdits}
-          pending={pending}
-        />
       )}
 
       {step === 'preview' && edits && (
@@ -213,7 +179,7 @@ export function ContractRedlinesPanel({ projection }: { projection: ProjectionRo
             setAcceptance={setAcceptance}
           />
 
-          {mode === 'interpret' && originalText && (
+          {originalText && (
             <div style={refineBlockStyle}>
               <div className="eyebrow" style={{ ...eyebrowStyle, marginBottom: 4 }}>Need to refine?</div>
               <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
@@ -316,7 +282,7 @@ function AppliedConfirmation({
         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>at {formatTime(at)}</span>
       </div>
       <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>
-        Applied <strong>{selectedCount - failures.length}</strong> {selectedCount - failures.length === 1 ? 'edit' : 'edits'} ({effectiveTally}) — body edits land in place, no Rider.
+        Applied <strong>{selectedCount - failures.length}</strong> {selectedCount - failures.length === 1 ? 'edit' : 'edits'} ({effectiveTally}). Body edits land in place, no Rider.
       </p>
 
       {failures.length > 0 && (
@@ -373,13 +339,13 @@ function AppliedConfirmation({
 function summarizeOverride(o: ContractOverrideEditT): string {
   switch (o.action) {
     case 'replace':
-      return `${o.targetId} — full clause swap`;
+      return `${o.targetId}: full clause swap`;
     case 'modify':
-      return `${o.targetId} — "${truncate(o.find, 30)}" → "${truncate(o.replaceWith, 30)}"`;
+      return `${o.targetId}: "${truncate(o.find, 30)}" → "${truncate(o.replaceWith, 30)}"`;
     case 'rename':
       return `${o.targetId} → "${o.newTitle}"`;
     case 'delete':
-      return `${o.targetId} — removed`;
+      return `${o.targetId}: removed`;
     case 'add':
       return `${o.title ?? o.newId} (anchored)`;
   }
@@ -393,32 +359,7 @@ function formatTime(d: Date): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: GLOUCESTER_TZ });
 }
 
-// ─── Mode toggle + Interpret input ──────────────────────────────────────────
-
-function ModeToggle({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
-  return (
-    <div role="tablist" aria-label="Redline input mode" style={toggleWrapStyle}>
-      <button
-        role="tab"
-        aria-selected={mode === 'interpret'}
-        type="button"
-        onClick={() => onChange('interpret')}
-        style={mode === 'interpret' ? toggleActiveStyle : toggleInactiveStyle}
-      >
-        Interpret
-      </button>
-      <button
-        role="tab"
-        aria-selected={mode === 'precise'}
-        type="button"
-        onClick={() => onChange('precise')}
-        style={mode === 'precise' ? toggleActiveStyle : toggleInactiveStyle}
-      >
-        Precise (fields only)
-      </button>
-    </div>
-  );
-}
+// ─── Interpret input ────────────────────────────────────────────────────────
 
 function InterpretInput({
   text,
@@ -457,178 +398,6 @@ function InterpretInput({
       </div>
     </>
   );
-}
-
-// ─── Precise editor (fields only in v1) ────────────────────────────────────
-
-type DraftFieldChange = {
-  field: EditableField | '';
-  newValueText: string;
-  reason: string;
-};
-
-function PreciseEditor({
-  projection,
-  fieldChanges,
-  setFieldChanges,
-  onStage,
-  pending,
-}: {
-  projection: ProjectionRow;
-  fieldChanges: DraftFieldChange[];
-  setFieldChanges: React.Dispatch<React.SetStateAction<DraftFieldChange[]>>;
-  onStage: () => void;
-  pending: boolean;
-}) {
-  const addFieldChange = () =>
-    setFieldChanges((prev) => [...prev, { field: '', newValueText: '', reason: '' }]);
-  const updateFieldChange = (i: number, patch: Partial<DraftFieldChange>) =>
-    setFieldChanges((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const removeFieldChange = (i: number) =>
-    setFieldChanges((prev) => prev.filter((_, j) => j !== i));
-
-  const projectionAsRecord = projection as unknown as Record<string, string | number | null>;
-
-  return (
-    <>
-      <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 14, marginTop: 14 }}>
-        <div className="eyebrow" style={{ ...eyebrowStyle, marginBottom: 4 }}>Field changes</div>
-        <p style={{ margin: '0 0 10px', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          Pick a contract field and set its new value. Clause-level edits should go through Interpret.
-        </p>
-        {fieldChanges.length === 0 ? (
-          <p style={builderEmptyStyle}>No field changes staged yet.</p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {fieldChanges.map((row, i) => (
-              <FieldChangeBuilderRow
-                key={i}
-                row={row}
-                current={row.field ? projectionAsRecord[row.field] ?? null : null}
-                onChange={(patch) => updateFieldChange(i, patch)}
-                onRemove={() => removeFieldChange(i)}
-              />
-            ))}
-          </div>
-        )}
-        <button type="button" onClick={addFieldChange} style={addRowButtonStyle} disabled={pending}>
-          + Add field change
-        </button>
-      </div>
-
-      <div style={actionsRowStyle}>
-        <button
-          type="button"
-          onClick={onStage}
-          disabled={pending || fieldChanges.length === 0}
-          style={primaryButtonStyle}
-        >
-          Preview {fieldChanges.length} {fieldChanges.length === 1 ? 'edit' : 'edits'}
-        </button>
-        <span style={hintStyle}>No AI — direct field edits go straight to preview.</span>
-      </div>
-    </>
-  );
-}
-
-function FieldChangeBuilderRow({
-  row,
-  current,
-  onChange,
-  onRemove,
-}: {
-  row: DraftFieldChange;
-  current: string | number | null;
-  onChange: (patch: Partial<DraftFieldChange>) => void;
-  onRemove: () => void;
-}) {
-  const descriptor = row.field ? FIELD_DESCRIPTORS[row.field as EditableField] : null;
-  return (
-    <div style={builderRowStyle}>
-      <div style={{ display: 'grid', gridTemplateColumns: '180px 120px 1fr 1fr auto', gap: 8, alignItems: 'center' }}>
-        <select
-          value={row.field}
-          onChange={(e) => onChange({ field: (e.target.value || '') as EditableField | '' })}
-          style={selectStyle}
-        >
-          <option value="">Choose field…</option>
-          {EDITABLE_FIELDS.map((f) => (
-            <option key={f} value={f}>
-              {FIELD_DESCRIPTORS[f].label}
-            </option>
-          ))}
-        </select>
-        <span style={{ fontSize: 11, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
-          {row.field
-            ? `now: ${formatFieldValueForPreview(row.field as EditableField, current ?? null)}`
-            : ''}
-        </span>
-        <input
-          type="text"
-          value={row.newValueText}
-          onChange={(e) => onChange({ newValueText: e.target.value })}
-          placeholder={descriptor ? placeholderForKind(descriptor.kind) : 'New value'}
-          style={inputStyle}
-        />
-        <input
-          type="text"
-          value={row.reason}
-          onChange={(e) => onChange({ reason: e.target.value })}
-          placeholder="Reason (optional)"
-          style={inputStyle}
-        />
-        <button type="button" onClick={onRemove} style={removeButtonStyle} aria-label="Remove">
-          ×
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function placeholderForKind(kind: 'date' | 'money' | 'integer' | 'percent'): string {
-  switch (kind) {
-    case 'date': return 'YYYY-MM-DD';
-    case 'money': return 'Dollars (e.g. 7500)';
-    case 'integer': return 'Whole number';
-    case 'percent': return '22 or 0.22';
-  }
-}
-
-function buildPreciseEdits(fieldChanges: DraftFieldChange[]): ContractRedlineEdits | null {
-  const built = fieldChanges
-    .filter((r) => r.field && r.newValueText.trim() !== '')
-    .map((r) => {
-      const field = r.field as EditableField;
-      const kind = FIELD_DESCRIPTORS[field].kind;
-      let newValue: string | number;
-      if (kind === 'date') {
-        newValue = r.newValueText.trim();
-      } else {
-        const cleaned = r.newValueText.replace(/[^0-9.\-]/g, '');
-        const n = Number(cleaned);
-        if (!Number.isFinite(n)) newValue = r.newValueText.trim();
-        else if (kind === 'percent') newValue = n > 1 ? n / 100 : n;
-        else if (kind === 'integer') newValue = Math.round(n);
-        else newValue = n;
-      }
-      return {
-        field,
-        new_value: newValue,
-        ownerAsk: '(staff-authored, no owner ask)',
-        ourPosition: 'restructure' as RedlinePosition,
-        positionDetail: r.reason.trim() || 'Manual precise-mode edit.',
-        reviewPriority: 'normal' as const,
-        sensitiveSection: false,
-      };
-    });
-
-  if (built.length === 0) return null;
-
-  return {
-    field_changes: built,
-    contract_overrides: [],
-    summary: `Staff-authored precise edits: ${built.length} field ${built.length === 1 ? 'change' : 'changes'}.`,
-  };
 }
 
 // ─── Preview ────────────────────────────────────────────────────────────────
@@ -1058,16 +827,7 @@ const panelHeadStyle: React.CSSProperties = { display: 'flex', alignItems: 'flex
 const eyebrowStyle: React.CSSProperties = { fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'var(--ink-3)', fontWeight: 600 };
 const titleStyle: React.CSSProperties = { fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: '4px 0 0' };
 const ledeStyle: React.CSSProperties = { margin: '14px 0 14px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 760 };
-const toggleWrapStyle: React.CSSProperties = { display: 'inline-flex', border: '1px solid var(--ink)', marginTop: 10 };
-const toggleActiveStyle: React.CSSProperties = { background: 'var(--ink)', color: 'var(--paper)', fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', padding: '10px 18px', border: 'none', cursor: 'pointer' };
-const toggleInactiveStyle: React.CSSProperties = { background: 'transparent', color: 'var(--ink)', fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', padding: '10px 18px', border: 'none', cursor: 'pointer' };
 const textareaStyle: React.CSSProperties = { width: '100%', border: '1px solid var(--rule)', borderBottom: '1px solid var(--ink)', background: 'transparent', color: 'var(--ink)', fontSize: 13, padding: '10px 12px', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.55, resize: 'vertical' };
-const inputStyle: React.CSSProperties = { border: '1px solid var(--rule)', borderBottom: '1px solid var(--ink)', background: 'transparent', color: 'var(--ink)', fontSize: 12, padding: '8px 10px', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' };
-const selectStyle: React.CSSProperties = { ...inputStyle };
-const builderRowStyle: React.CSSProperties = { padding: '10px 12px', border: '1px solid var(--rule)', background: 'var(--paper)' };
-const builderEmptyStyle: React.CSSProperties = { margin: 0, fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' };
-const addRowButtonStyle: React.CSSProperties = { marginTop: 10, background: 'transparent', color: 'var(--ink-3)', fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', padding: '10px 14px', border: '1px dashed var(--rule)', cursor: 'pointer' };
-const removeButtonStyle: React.CSSProperties = { background: 'transparent', color: 'var(--ink-3)', fontSize: 18, lineHeight: 1, padding: '4px 8px', border: 'none', cursor: 'pointer' };
 const actionsRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 };
 const primaryButtonStyle: React.CSSProperties = { background: 'var(--ink)', color: 'var(--paper)', fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', padding: '13px 22px', border: '1px solid var(--ink)', cursor: 'pointer', textDecoration: 'none' };
 const secondaryButtonStyle: React.CSSProperties = { background: 'transparent', color: 'var(--ink-3)', fontSize: 11, fontWeight: 500, letterSpacing: '.18em', textTransform: 'uppercase', padding: '13px 18px', border: '1px solid var(--rule)', cursor: 'pointer' };

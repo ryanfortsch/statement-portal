@@ -7,6 +7,7 @@ import { ProjectionForm } from '@/components/projections/ProjectionForm';
 import { DownloadPdfButton } from '@/components/projections/DownloadPdfButton';
 import { ContractRedlinesPanel } from '@/components/projections/ContractRedlinesPanel';
 import { RedlinesDisclosure } from '@/components/projections/RedlinesDisclosure';
+import { ContractTermsLockedNotice } from '@/components/projections/ContractTermsLockedNotice';
 import { DeleteProspectButton } from '@/components/projections/DeleteProspectButton';
 import { ResetContractButton } from '@/components/projections/ResetContractButton';
 import { InactivePanel } from '@/components/projections/ProspectInactiveControls';
@@ -488,29 +489,7 @@ export default async function ProjectionDetailPage({
             </span>
           </summary>
           <div style={{ paddingTop: 18 }}>
-            {projection.contract_signed_at && (
-              <p
-                role={termsLockedNotice ? 'alert' : undefined}
-                style={{
-                  margin: '0 0 18px',
-                  padding: '10px 14px',
-                  fontSize: 12,
-                  lineHeight: 1.55,
-                  maxWidth: 680,
-                  border: `1px solid ${termsLockedNotice ? 'var(--negative)' : 'var(--rule)'}`,
-                  background: 'var(--paper-2)',
-                  color: 'var(--ink)',
-                }}
-              >
-                {termsLockedNotice && (
-                  <><strong>Not saved.</strong> These would have changed the signed contract: {termsLockedNotice}.{' '}</>
-                )}
-                The owner signed on {fmtTouchDate(projection.contract_signed_at)}, so the contract terms are locked: the
-                owner&rsquo;s name, the address, the fee, deposit and balance, availability, sale notice, term dates and
-                clauses. Everything else here still saves. To change a term, withdraw the signature in the Signing panel
-                above; the owner then signs again at the same link.
-              </p>
-            )}
+            {projection.contract_signed_at && <ContractTermsLockedNotice held={termsLockedNotice} othersSave />}
             {/* The `key` is set to projection.updated_at so the form fully
                 remounts whenever the row's updated_at advances (after Save or
                 applyContractRedlines). Without that, the form inputs use
@@ -758,9 +737,9 @@ function GuideAndContractStageBody({
         </div>
         <DeliverableActions projectionId={projectionId} type="contract" openSlug="contract" downloadLabel="Download Contract" />
         {projection.contract_signed_at ? (
-          <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55, maxWidth: 560 }}>
-            Redlines are closed: the owner has signed these terms. Withdraw the signature below to reopen them.
-          </p>
+          <div style={{ marginTop: 14 }}>
+            <ContractTermsLockedNotice />
+          </div>
         ) : (
           <RedlinesDisclosure>
             <ContractRedlinesPanel projection={projection} />
