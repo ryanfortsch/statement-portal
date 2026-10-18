@@ -13,7 +13,7 @@ const root=process.cwd(),scratch=await mkdtemp(join(tmpdir(),'helm-queue-actions
 const compile=s=>ts.transpileModule(s,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 for(const [name,path] of [['stabletime','src/lib/stable-time.ts'],['owner-draft','src/lib/use-owner-email-draft.ts'],['draft-guard','src/lib/use-draft-navigation-guard.ts']])await writeFile(join(scratch,name+'.js'),compile(await readFile(join(root,path),'utf8')));
 for(const [name,path,extra=''] of [
-  ['gmail-links','src/lib/gmail-links.ts'],
+  ['gmail-links','src/lib/gmail-links.ts'],['copy-email','src/lib/copy-email.ts'],['copied-notice','src/components/CopiedEmailNotice.tsx'],['always-cc','src/lib/always-cc.ts'],
  ['operating-date','src/lib/operating-date.ts'],['work-board-view','src/lib/work-board-view.ts'],['work-week','src/lib/work-week.ts'],
   ['queue','src/app/work/QueueClient.tsx','\nexport {WorkSlipRowItem,TaskRowItem};'],
   ['triage','src/components/messaging/NumberTriage.tsx'],['newcontact','src/app/crm/NewContactModal.tsx'],['propcheck','src/app/crm/PropertyCheckboxes.tsx'],
@@ -47,6 +47,7 @@ import {WorkOrderComposer,RunCard,VendorGroup} from './runs.js';import {hasUnsav
 const params=new URLSearchParams(location.search),mode=params.get('mode');
 window.calls=[];window.navigations=[];window.refreshes=0;window.opened=[];window.closeCount=0;window.confirmations=[];window.confirmResult=false;window.guarded=hasUnsavedWork;
 window.confirm=m=>{window.confirmations.push(m);return window.confirmResult;};window.open=url=>{window.opened.push(url);return null;};
+window.clipboardText=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>{if(params.has('noclip'))throw Error('Synthetic clipboard refusal');window.clipboardText=t;}}});
 const now='2026-09-01T12:00:00Z',me='me@example.test';
 const properties=[{id:'synthetic-home',name:'Synthetic Home',city:'Gloucester',title:null,is_active:true}];
 const slips=['a','b'].map(id=>({id:'slip-'+id,title:'Slip '+id,property_id:'synthetic-home',category:'maintenance',priority:'normal',status:'open',assigned_to_type:'unassigned',created_at:now}));
@@ -64,14 +65,14 @@ function Fixture(){
  {mode==='queue'&&<section id="queue"><QueueClient workSlips={slips} snoozedSlips={[]} tasks={tasks} properties={properties} myEmail={me} slipCommentCounts={{}} taskCommentCounts={{}} reporterNames={{}}/></section>}
  {mode==='done'&&<section id="done"><section id="slip"><WorkSlipRowItem slip={slips[0]} selected={false} onToggleSelect={()=>{}} commentCount={0}/></section><section id="task"><TaskRowItem task={tasks[0]} selected={false} onToggleSelect={()=>{}} commentCount={0}/></section></section>}
  {mode==='crm'&&<section id="crm"><NumberTriage contacts={contacts} properties={properties} unknownNumbers={unknownNumbers} guestByPhone={{}} suggestions={suggestions}/></section>}
- {mode==='composer'&&<section id="composer"><WorkOrderComposer slipIds={slipIds} visitDate={params.has('undated')?null:'2026-10-01'} roster={roster} contextLabel="Synthetic order" onClose={close}/></section>}
+ {mode==='composer'&&<section id="composer"><WorkOrderComposer slipIds={slipIds} visitDate={params.has('undated')?null:'2026-10-01'} roster={roster} contextLabel="Synthetic order" onClose={close} myMailbox={params.has('copy')?null:'staff@example.test'}/></section>}
  {mode==='parents'&&<section id="parents"><section id="run"><RunCard run={initialRun} roster={roster}/></section><section id="vendor"><VendorGroup propertyName="Synthetic Home" slips={slips} roster={roster}/></section></section>}
  </>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
 await writeFile(join(scratch,'session.js'),"export const useSession=()=>({data:{user:{email:'staff@example.test'}},status:'authenticated',update:async()=>null});");
-const alias={'@/lib/stable-time':'stabletime','./PropertyCheckboxes':'propcheck','../PropertyCheckboxes':'propcheck','@/app/crm/actions':'actions','@/app/crm/NewContactModal':'newcontact','@/lib/gmail-links':'gmail-links','./gmail-links':'gmail-links','next-auth/react':'session','@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','./work-week.ts':'work-week','@/lib/work-slip-lanes':'work-slip-lanes','./organize-actions':'actions','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','./runs-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/components/TeamPicker':'picker','@/components/PhotoUploader':'empty','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','./inspection-supplies.ts':'supplies','@/lib/quo-lines':'quo-lines','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','next/navigation':'router','next/link':'link'};
+const alias={'@/lib/copy-email':'copy-email','./copy-email':'copy-email','@/components/CopiedEmailNotice':'copied-notice','@/lib/always-cc':'always-cc','@/lib/stable-time':'stabletime','./PropertyCheckboxes':'propcheck','../PropertyCheckboxes':'propcheck','@/app/crm/actions':'actions','@/app/crm/NewContactModal':'newcontact','@/lib/gmail-links':'gmail-links','./gmail-links':'gmail-links','next-auth/react':'session','@/lib/operating-date':'operating-date','@/lib/work-board-view':'work-board-view','./work-week.ts':'work-week','@/lib/work-slip-lanes':'work-slip-lanes','./organize-actions':'actions','@/lib/use-owner-email-draft':'owner-draft','./use-draft-navigation-guard':'draft-guard','./unsaved-work':'unsaved','./actions':'actions','./runs-actions':'actions','@/lib/use-soft-refresh':'refresh','@/lib/unsaved-work':'unsaved','@/lib/team':'team','@/components/TeamPicker':'picker','@/components/PhotoUploader':'empty','@/lib/crm':'crm-types','@/lib/work-types':'work-types','@/lib/inspection-supplies':'supplies','./inspection-supplies.ts':'supplies','@/lib/quo-lines':'quo-lines','./SyncGmailButton':'empty','./SyncQuoButton':'empty','./SyncQuoContactsButton':'empty','next/navigation':'router','next/link':'link'};
 await new Promise((resolve,reject)=>{const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:Object.fromEntries(Object.entries(alias).map(([k,v])=>[k,join(scratch,v+'.js')]))},performance:{hints:false}});compiler.run((err,stats)=>compiler.close(()=>err||stats?.hasErrors()?reject(err||Error(stats.toString({all:false,errors:true}))):resolve()));});
 if(process.argv.includes('--compile-only')){console.log('Queue actions fixture compiled.');await rm(scratch,{recursive:true,force:true});process.exit(0);}
 const server=createServer(async(req,res)=>{if(req.method!=='GET'){res.writeHead(405).end();return;}res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'");if(req.url==='/bundle.js'){res.setHeader('Content-Type','text/javascript; charset=utf-8');res.end(await readFile(join(scratch,'bundle.js')));}else{res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<!doctype html><title>Synthetic action recovery</title><style>body{font:14px system-ui;--ink:#222;--paper:#fff;--rule:#ccc}section{margin:20px}button{margin:4px}input,textarea,select{margin:4px}</style><div id="root"></div><script src="/bundle.js"></script>');}});
@@ -167,7 +168,7 @@ pass('confirmed acceptance offers an explicit contact link without interrupting 
 await click(row,'Not ours');await waitCalls(6);await finish(5);await clean();await page.waitForFunction(()=>!document.querySelector('#crm select[aria-label^="Contact type for "]'));await waitText('Updated Suggestion a.');
 pass('Skip success removes its own suggestion while the accepted-contact result remains available');
 
-const draftResult={ok:true,draftUrl:'https://example.test/synthetic-draft',mailboxAddress:'staff@example.test',jobCount:2,photoCount:3,warnings:['One synthetic warning']};
+const draftResult={ok:true,mode:'draft',draftUrl:'https://example.test/synthetic-draft',mailboxAddress:'staff@example.test',cc:['allie@risingtidestr.com','ryan@risingtidestr.com'],jobCount:2,photoCount:3,warnings:['One synthetic warning']};
 await reset('composer');assert.equal(await guard(),false);await edit('#composer select','custom');await edit('#composer input[placeholder="Name"]','Custom Vendor');await edit('#composer input[type="email"]','custom@example.test');await edit('#composer textarea','Exact note\nTiming and parts');assert.equal(await beforeUnload(),true);
 await click('#composer','Cancel');assert.equal(await page.evaluate(()=>window.closeCount),0);await click('#composer','Create Gmail draft',true);await waitCalls(1);
 assert.equal(await page.$$eval('#composer input,#composer textarea,#composer select',es=>es.every(e=>e.matches(':disabled'))),true);await confirm(true);await click('#composer','Cancel');assert.equal(await page.evaluate(()=>window.closeCount),0);
@@ -189,6 +190,18 @@ pass('scheduling recovers from a lost response, retries the current date, and re
 await reset('composer','&undated=1');await click('#composer','Create Gmail draft');await waitCalls(1);await page.evaluate(()=>window.changeRoster());await finish(0,draftResult);await waitText('Draft ready');await click('#composer','Mark scheduled');await waitCalls(2);
 assert.deepEqual((await calls())[1].args,{slipIds:['slip-a','slip-b'],scheduledDate:null,vendorName:'Original Vendor',vendorOrganization:'Original Company'});await finish(1,{ok:true,updated:0,label:'Vendor: Original Vendor'});await clean();await waitText('0 slips scheduled');
 pass('scheduling uses the confirmed draft’s original vendor and slip IDs even if refreshed props change, preserving undated scheduling and zero-count results');
+
+const copyResult={ok:true,mode:'copy',to:'vendor@example.test',cc:['allie@risingtidestr.com','ryan@risingtidestr.com'],subject:'Work order: Synthetic Home (2 jobs)',text:'Hi Original,\n\nWork order for Synthetic Home.',jobCount:2,photoCount:1,warnings:[]};
+await reset('composer','&copy=1');await waitText('Helm has no Gmail for you');await waitText('cc allie@ + ryan@');assert.equal(await page.$$eval('#composer button',bs=>bs.some(b=>b.textContent.trim()==='Create Gmail draft')),false);
+await click('#composer','Copy email',true);await waitCalls(1);assert.equal((await calls())[0].kind,'draft');await finish(0,copyResult);await waitText('Copied for vendor@example.test: 2 jobs, 1 photo links, cc allie@ + ryan@');await waitText('Paste it into a new email');await clean();
+assert.equal(await page.evaluate(()=>window.clipboardText),'To: vendor@example.test\nCc: allie@risingtidestr.com, ryan@risingtidestr.com\nSubject: Work order: Synthetic Home (2 jobs)\n\nHi Original,\n\nWork order for Synthetic Home.');
+assert.deepEqual(await page.evaluate(()=>window.opened),[]);await waitText('Vendor confirmed?');
+pass('with no Gmail for the session the composer says so, copies the email once, opens nothing, and keeps the scheduling step');
+await reset('composer','&copy=1&noclip=1');await click('#composer','Copy email');await waitCalls(1);await finish(0,copyResult);await waitText('Ready to copy for vendor@example.test');await waitText('The browser did not allow copying');
+assert.equal(await value('#composer textarea[aria-label="Email to copy"]'),'To: vendor@example.test\nCc: allie@risingtidestr.com, ryan@risingtidestr.com\nSubject: Work order: Synthetic Home (2 jobs)\n\nHi Original,\n\nWork order for Synthetic Home.');
+pass('a refused clipboard shows the whole email to select by hand');
+await reset('composer');await waitText('Drafts in your Gmail (staff@example.test)');
+pass('with a Gmail for the session the composer names whose draft it will be');
 
 await reset('composer');await edit('#composer textarea','Discard this note');await confirm(true);await click('#composer','Cancel');await clean();assert.equal(await page.evaluate(()=>window.closeCount),1);
 pass('explicit composer discard releases its refresh guard without any draft request');

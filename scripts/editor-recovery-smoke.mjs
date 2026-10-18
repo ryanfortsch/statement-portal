@@ -17,7 +17,7 @@ const scratch=await mkdtemp(join(tmpdir(),'helm-editor-recovery-'));
 const compile=source=>ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 for(const [name,path] of [['stabletime','src/lib/stable-time.ts'],
   ['owner','src/app/work/[id]/SlipOwnerActionEditor.tsx'],
-  ['slip-controls','src/app/work/[id]/slip-controls.ts'],['back','src/app/work/[id]/BackToBoardLink.tsx'],['gmail-links','src/lib/gmail-links.ts'],
+  ['slip-controls','src/app/work/[id]/slip-controls.ts'],['copy-email','src/lib/copy-email.ts'],['copied-notice','src/components/CopiedEmailNotice.tsx'],['back','src/app/work/[id]/BackToBoardLink.tsx'],['gmail-links','src/lib/gmail-links.ts'],
   ['crm','src/app/crm/[id]/ContactDetail.tsx'],['propcheck','src/app/crm/PropertyCheckboxes.tsx'],
   ['ContactMeetings','src/app/crm/[id]/ContactMeetings.tsx'],
   ['task','src/app/work/tasks/[id]/TaskDetail.tsx'],['work-types','src/lib/work-types.ts'],
@@ -78,6 +78,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
   window.calls=[];window.refreshes=0;window.navigations=[];window.opened=[];window.confirmations=[];window.confirmResult=false;window.guarded=hasUnsavedWork;
   window.confirm=message=>{window.confirmations.push(message);return window.confirmResult;};
   window.open=(...args)=>{window.opened.push(args);return null;};
+  window.clipboardText=null;Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>{window.clipboardText=t;}}});
   window.fetch=(url,options)=>{
     if(url!=='/api/work/draft-owner-email')throw Error('Unexpected request '+url);
     return save('email',JSON.parse(options.body)).then(r=>({ok:r.ok,status:r.status||200,json:async()=>r.data||{draft_url:'https://mail.google.com/mail/u/0/#drafts/synthetic',mailbox:'staff@example.test'}}));
@@ -93,7 +94,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
     const [mounted,setMounted]=useState(true);window.unmount=()=>setMounted(false);
     if(!mounted)return null;
     return <>
-      {(mode==='owner'||mode==='all')&&<section id="owner"><SlipOwnerActionEditor slipId="synthetic-slip" propertyId="synthetic-home" initialType="approve" initialNotes="Original owner notes" ownerStatus={p.get('answer')||'not_sent'} ownerLastContactedAt={p.has('contacted')?now:null} collapsed={p.has('collapsed')}/></section>}
+      {(mode==='owner'||mode==='all')&&<section id="owner"><SlipOwnerActionEditor slipId="synthetic-slip" propertyId="synthetic-home" initialType="approve" initialNotes="Original owner notes" ownerStatus={p.get('answer')||'not_sent'} ownerLastContactedAt={p.has('contacted')?now:null} collapsed={p.has('collapsed')} myMailbox={p.has('copy')?null:'me@example.test'}/></section>}
       {(mode==='crm'||mode==='all')&&<section id="crm"><ContactDetail contact={contact} touches={touches} properties={properties} linkedSlips={[]} meetings={{upcoming:[],past:[]}} myEmail={me}/></section>}
       {(mode==='task'||mode==='all')&&<section id="task"><TaskDetail task={task} comments={comments} properties={properties} myEmail={me}/></section>}
       {(mode==='playbook'||mode==='all')&&<section id="playbook"><PlaybookEditor mode={p.has('new')?'new':'edit'} initial={p.has('new')?undefined:entry} properties={properties}/></section>}
@@ -106,7 +107,7 @@ await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),'./PropertyCheckboxes':join(scratch,'propcheck.js'),'../PropertyCheckboxes':join(scratch,'propcheck.js'),
     '../actions':join(scratch,'actions.js'),'../../actions':join(scratch,'actions.js'),'./actions':join(scratch,'actions.js'),'./onboarding-actions':join(scratch,'actions.js'),
     '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
-    './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/slip-controls':join(scratch,'slip-controls.js'),'@/lib/work-types':join(scratch,'work-types.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'next-auth/react':join(scratch,'session.js'),
+    './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/slip-controls':join(scratch,'slip-controls.js'),'@/lib/work-types':join(scratch,'work-types.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'@/lib/copy-email':join(scratch,'copy-email.js'),'@/components/CopiedEmailNotice':join(scratch,'copied-notice.js'),'next-auth/react':join(scratch,'session.js'),
     '@/lib/team':join(scratch,'team.js'),'@/lib/meetings-core':join(scratch,'meetings-core.js'),'@/components/TeamPicker':join(scratch,'picker.js'),
     '@/lib/crm':join(scratch,'crm-types.js'),'@/lib/playbook':join(scratch,'playbook-types.js'),
     '@/lib/property-rooms-shared':join(scratch,'room-types.js'),'@/components/Markdown':join(scratch,'markdown.js'),
@@ -222,6 +223,12 @@ try{
   assert.equal(await page.evaluate(()=>window.calls.length),1);await click('owner','Draft owner email');await waitCalls(2);await finish(1);await clean();
   assert.equal(await page.evaluate(()=>window.opened.length),1);
   pass('owner email drafting blocks duplicate clicks and exposes lost responses without automatically creating another draft');
+
+  await reset('owner','&copy=1');await waitText('one email to send from your own mail');await click('owner','Copy owner email',true);await waitCalls(1);
+  await finish(0,{ok:true,data:{success:true,mailbox:null,copy:{to:['owner@example.test'],cc:['ryan@risingtidestr.com'],subject:'Synthetic home - one item needs your input',body:'Hi there,'}}});
+  await waitText('Copied. Paste it into a new email');await clean();assert.equal(await page.evaluate(()=>window.opened.length),0);
+  assert.equal(await page.evaluate(()=>window.clipboardText),'To: owner@example.test\nCc: ryan@risingtidestr.com\nSubject: Synthetic home - one item needs your input\n\nHi there,');
+  pass('with no Gmail for the session the slip page copies the owner email and opens nothing');
 
   const touchSummary='#crm input[placeholder^="e.g. Discussed"]';
   const touchNotes='#crm textarea[placeholder^="Notes (optional)"]';

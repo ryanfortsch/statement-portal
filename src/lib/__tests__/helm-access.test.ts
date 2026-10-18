@@ -510,7 +510,9 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
   }
 
   test('the draft routes name the mailbox and the helper asks Gmail whose it is', () => {
-    for (const file of ['src/app/api/work/draft-owner-email/route.ts', 'src/app/api/draft-email/route.ts', 'src/app/api/draft-onboarding-email/route.ts', 'src/app/api/crm/draft-contact-email/route.ts']) {
+    // The owner-email route drafts in the sender's own Gmail through the
+    // helper instead (work-drafts-own-mailbox.test.ts).
+    for (const file of ['src/app/api/draft-email/route.ts', 'src/app/api/draft-onboarding-email/route.ts', 'src/app/api/crm/draft-contact-email/route.ts']) {
       const src = read(file);
       assert.ok(src.includes("const mailbox = await gmailMailbox('shared');"), `${file} must resolve the mailbox`);
       assert.ok(src.includes('const draftUrl = gmailUrl(mailbox, `drafts/${draft.id}`);'), `${file} must build the link with the mailbox`);
@@ -540,7 +542,9 @@ describe('every Gmail link carries its mailbox and renders for that mailbox only
     assert.ok(editor.includes('if (data?.draft_url && canOpenMailbox(sessionEmail, mailbox)) {'));
     const rail = read('src/app/work/RunsRail.tsx');
     assert.ok(rail.includes("if (canOpenMailbox(sessionEmail, res.mailboxAddress)) window.open(res.draftUrl, '_blank', 'noopener');"));
-    assert.ok(rail.includes('{canOpenMailbox(sessionEmail, done.mailboxAddress) ? ('));
+    // After a copy the rail shows the copy notice first; a draft's link still
+    // renders only for its mailbox's owner.
+    assert.ok(rail.includes('canOpenMailbox(sessionEmail, done.mailboxAddress) ? ('));
     const onboarding = read('src/app/properties/[id]/PropertyOnboardingLink.tsx');
     assert.ok(onboarding.includes('{canOpenMailbox(sessionEmail, draftMailbox) && ('));
     const statements = read('src/app/statements/page.tsx');

@@ -4,6 +4,8 @@ import { useRef, useState, useTransition } from 'react';
 import { useSession } from 'next-auth/react';
 import type { WorkSlipOwnerActionType, WorkSlipOwnerStatus } from '@/lib/work-types';
 import { canOpenMailbox, draftSavedNotice } from '@/lib/gmail-links';
+import { copiedEmailText, parseCopiedEmail, writeClipboard } from '@/lib/copy-email';
+import { CopiedEmailNotice } from '@/components/CopiedEmailNotice';
 import { updateWorkSlipOwnerAction, updateWorkSlipOwnerStatus } from '../actions';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
@@ -26,6 +28,9 @@ type Props = {
   /** Quiet-row mode: the slip isn't flagged yet, render one "+ Owner input"
    *  line that arms the flag. The full editor renders in its own section. */
   collapsed?: boolean;
+  /** The session's own Gmail for the owner email, or null when Helm holds
+   *  none for them: the email is then copied, not drafted. */
+  myMailbox?: string | null;
 };
 
 const TYPE_OPTIONS: { value: WorkSlipOwnerActionType; label: string; hint: string }[] = [
@@ -57,6 +62,7 @@ export function SlipOwnerActionEditor({
   ownerStatus,
   ownerLastContactedAt,
   collapsed = false,
+  myMailbox,
 }: Props) {
   const softRefresh = useSoftRefresh();
   const [type, setType] = useState<WorkSlipOwnerActionType | null>(initialType);
@@ -71,6 +77,9 @@ export function SlipOwnerActionEditor({
   // mailbox: the draft is made for the owner to send, so staff may draft it,
   // but only the mailbox's owner gets it opened.
   const [draftNotice, setDraftNotice] = useState<string | null>(null);
+  // Copy instead of Create when Helm holds no Gmail for this session.
+  const [copied, setCopied] = useState<{ text: string; ok: boolean } | null>(null);
+  const copyMode = myMailbox === null || !!copied;
   const sessionEmail = useSession().data?.user?.email;
   const [attempt, setAttempt] = useState<OwnerChange | null>(null);
   const saving = useRef(false);
@@ -167,6 +176,13 @@ export function SlipOwnerActionEditor({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setErr(data?.error || `Failed (${res.status})`);
+        return;
+      }
+      const copy = parseCopiedEmail(data?.copy);
+      if (copy) {
+        const text = copiedEmailText(copy);
+        setCopied({ text, ok: await writeClipboard(text) });
+        softRefresh();
         return;
       }
       const mailbox = typeof data?.mailbox === 'string' ? data.mailbox : null;
@@ -304,14 +320,17 @@ export function SlipOwnerActionEditor({
             disabled={drafting || pending || notesDirty || attempt !== null}
             style={solidBtnStyle}
           >
-            {drafting ? 'Drafting…' : 'Draft owner email'}
+            {copyMode ? (drafting ? 'Copying…' : 'Copy owner email') : (drafting ? 'Drafting…' : 'Draft owner email')}
           </button>
           <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
             {status === 'sent' && ownerLastContactedAt
-              ? `Asked ${formatDate(ownerLastContactedAt)}, awaiting reply. Drafting again re-bundles.`
-              : 'Bundles every flagged item at this property into one Gmail draft.'}
+              ? `Asked ${formatDate(ownerLastContactedAt)}, awaiting reply. ${copyMode ? 'Copying' : 'Drafting'} again re-bundles.`
+              : copyMode
+                ? 'Bundles every flagged item at this property into one email to send from your own mail.'
+                : `Bundles every flagged item at this property into one draft in your Gmail${myMailbox ? ` (${myMailbox})` : ''}.`}
           </span>
         </div>
+        {copied && <div style={{ marginTop: 8 }}><CopiedEmailNotice copied={copied} /></div>}
         {(notesDirty || attempt) && <p style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8 }}>Save or discard your unfinished changes before drafting the owner email.</p>}
 
         <div style={{ marginTop: 14 }}>

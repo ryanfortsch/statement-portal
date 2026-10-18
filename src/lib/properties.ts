@@ -692,10 +692,9 @@ export type HelmPropertyRow = {
 };
 
 /** Emails always CC'd when a statement is sent out from the portal. */
-export const ALWAYS_CC = [
-  'allie@risingtidestr.com',
-  'ryan@risingtidestr.com',
-];
+// The pair every owner-facing draft copies. Lives in its own small module
+// so a client component can read it without bundling this file.
+export { ALWAYS_CC, alwaysCcFor } from './always-cc.ts';
 
 /**
  * 24-hour local contacts posted on every property's Information Note.

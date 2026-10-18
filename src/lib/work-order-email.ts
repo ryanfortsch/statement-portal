@@ -3,10 +3,11 @@
  * to a roster recipient — "email Anthony the punch list for 84 Thatcher."
  *
  * Mirrors the statement workflow end to end: this creates a Gmail DRAFT
- * (never sends) with FROM Dotti and CC Allie + Ryan (ALWAYS_CC), and the
- * operator reviews and hits Send in Gmail itself. The draft lands in
- * Dotti's mailbox when GMAIL_REFRESH_TOKEN_DOTTI is configured, otherwise
- * in the shared statements mailbox where statement drafts already live.
+ * (never sends) FROM the person composing it and CC the rest of ALWAYS_CC
+ * (Allie + Ryan, alwaysCcFor), and the sender reviews and hits Send in Gmail itself. The
+ * draft lands in the sender's OWN mailbox (sessionMailbox in gmail-draft.ts);
+ * when Helm holds no Gmail token for them, the same email is composed for
+ * them to copy (photos as links) and nothing is drafted in anyone else's.
  *
  * The body groups jobs by property, numbers them, and the slip photos are
  * attached with filenames that match the job numbers ("02-side-door-lock-1
@@ -22,18 +23,12 @@
 
 import 'server-only';
 import { fieldDb } from '@/lib/field-db';
-import { createGmailDraft, type GmailAttachment } from '@/lib/gmail-draft';
+import { createGmailDraft, type GmailAttachment, type MailboxKey } from '@/lib/gmail-draft';
 import { MAINTENANCE_CODE, maintenanceCodeEnabled } from '@/lib/maintenance-code';
-import { ALWAYS_CC } from '@/lib/properties';
+import { alwaysCcFor } from '@/lib/properties';
 import { dayClearReport, type DayClearInfo } from '@/lib/maintenance-runs';
 import type { RosterPerson } from '@/lib/work-types';
 
-/** The work-order envelope. From Dotti (the operator sending vendor work),
- *  CC the same pair the statement workflow always copies. The From header
- *  sticks once the drafting mailbox has dotti@ as a send-as alias — the
- *  same aspirational-From caveat as SEND_FROM on statements. */
-const FROM_NAME = 'Dotti Maguire';
-const FROM_EMAIL = 'dotti@risingtidestr.com';
 
 /** Raw photo budget per email. Gmail's raw-message ceiling is 35MB and
  *  base64 inflates ~33%; 15MB of raw bytes leaves comfortable headroom. */
@@ -103,7 +98,8 @@ type SlipForOrder = {
 };
 
 export type WorkOrderResult =
-  | { ok: true; draftUrl: string; mailbox: 'dotti' | 'shared'; mailboxAddress: string | null; jobCount: number; photoCount: number; warnings: string[] }
+  | { ok: true; mode: 'draft'; draftUrl: string; mailbox: MailboxKey; mailboxAddress: string | null; cc: string[]; jobCount: number; photoCount: number; warnings: string[] }
+  | { ok: true; mode: 'copy'; to: string; cc: string[]; subject: string; text: string; jobCount: number; photoCount: number; warnings: string[] }
   | { ok: false; error: string };
 
 export async function draftWorkOrderEmail(args: {
@@ -115,6 +111,11 @@ export async function draftWorkOrderEmail(args: {
   /** "Tue, Aug 11" style target-day line for run emails. */
   visitDate?: string | null;
   sentByEmail: string;
+  /** The From line: the person sending. */
+  senderName: string;
+  /** The sender's own Gmail (sessionMailbox), or null to compose the email
+   *  for them to copy, with every photo as a link. */
+  mailbox: MailboxKey | null;
 }): Promise<WorkOrderResult> {
   const toEmail = args.toEmail.trim();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(toEmail)) {
@@ -183,7 +184,8 @@ export async function draftWorkOrderEmail(args: {
     });
   });
 
-  const fetched = await mapPool(plan, FETCH_CONCURRENCY, async (p) => {
+  // Copying: nothing is attached, every photo rides as a link.
+  const fetched = args.mailbox === null ? plan.map(() => null) : await mapPool(plan, FETCH_CONCURRENCY, async (p) => {
     try {
       const res = await fetch(p.url, { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) return null;
@@ -204,7 +206,7 @@ export async function draftWorkOrderEmail(args: {
     const f = fetched[i];
     if (!f) {
       unattached.push({ filename: plan[i].filename, url: plan[i].url });
-      warnings.push(`Could not fetch ${plan[i].filename}; linked in the body instead`);
+      if (args.mailbox !== null) warnings.push(`Could not fetch ${plan[i].filename}; linked in the body instead`);
       continue;
     }
     if (f.buf.length > budget) {
@@ -214,7 +216,7 @@ export async function draftWorkOrderEmail(args: {
     budget -= f.buf.length;
     attachments.push({ filename: f.filename, contentType: f.contentType, content: f.buf });
   }
-  if (unattached.length > 0 && !warnings.some((w) => w.includes('linked in the body'))) {
+  if (args.mailbox !== null && unattached.length > 0 && !warnings.some((w) => w.includes('linked in the body'))) {
     warnings.push(`${unattached.length} photo(s) over the attachment budget; linked in the body instead`);
   }
 
@@ -259,22 +261,28 @@ export async function draftWorkOrderEmail(args: {
     visitDate: args.visitDate ?? null,
     dayReport,
     lockedPropIds,
+    linksOnly: args.mailbox === null,
   });
+  // From the sender, cc the rest of the pair the statement workflow copies.
+  const cc = alwaysCcFor(args.sentByEmail);
 
-  let draft: Awaited<ReturnType<typeof createGmailDraft>>;
-  try {
-    draft = await createGmailDraft({
-      from: `${FROM_NAME} <${FROM_EMAIL}>`,
-      to: [toEmail],
-      cc: ALWAYS_CC,
-      subject,
-      body: text,
-      attachments,
-    });
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  let draft: Awaited<ReturnType<typeof createGmailDraft>> | null = null;
+  if (args.mailbox !== null) {
+    try {
+      draft = await createGmailDraft({
+        from: `${args.senderName} <${args.sentByEmail}>`,
+        to: [toEmail],
+        cc,
+        subject,
+        body: text,
+        attachments,
+        mailbox: args.mailbox,
+      });
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    if (!draft.ok) return { ok: false, error: draft.error };
   }
-  if (!draft.ok) return { ok: false, error: draft.error };
 
   // Audit: a comment on every slip, and a CRM touch when the recipient is
   // a contact (the CRM draft flow stamps at draft time too). Best-effort.
@@ -285,7 +293,9 @@ export async function draftWorkOrderEmail(args: {
         ordered.map((s) => ({
           work_slip_id: s.id,
           author_email: args.sentByEmail,
-          body: `Work order drafted in Gmail for ${args.toName} (${toEmail}), cc ${ALWAYS_CC.join(', ')}.`,
+          body: draft
+            ? `Work order drafted in Gmail for ${args.toName} (${toEmail}), cc ${cc.join(', ')}.`
+            : `Work order for ${args.toName} (${toEmail}) copied to send by hand, cc ${cc.join(', ')}.`,
         })),
       );
   } catch {
@@ -304,7 +314,7 @@ export async function draftWorkOrderEmail(args: {
         touched_at: new Date().toISOString(),
         channel: 'email',
         direction: 'outbound',
-        summary: `Drafted: ${subject}`,
+        summary: draft ? `Drafted: ${subject}` : `Copied to send: ${subject}`,
         by_email: args.sentByEmail,
       });
     }
@@ -312,11 +322,16 @@ export async function draftWorkOrderEmail(args: {
     /* non-fatal */
   }
 
+  if (!draft) {
+    return { ok: true, mode: 'copy', to: toEmail, cc, subject, text, jobCount: ordered.length, photoCount: unattached.length, warnings };
+  }
   return {
     ok: true,
+    mode: 'draft',
     draftUrl: draft.draftUrl,
     mailbox: draft.mailbox,
     mailboxAddress: draft.mailboxAddress,
+    cc,
     jobCount: ordered.length,
     photoCount: attachments.length,
     warnings,
@@ -338,6 +353,8 @@ function composeBody(args: {
   dayReport: Map<string, DayClearInfo> | null;
   /** Properties in this order whose door keypad carries the maintenance code. */
   lockedPropIds: Set<string>;
+  /** Copying by hand: every photo is a link, none is attached. */
+  linksOnly?: boolean;
 }): { subject: string; text: string } {
   const propertyIds = [...new Set(args.slips.map((s) => s.property_id))];
   const firstProp = args.props.get(propertyIds[0]);
@@ -405,7 +422,7 @@ function composeBody(args: {
   }
 
   if (args.unattached.length > 0) {
-    lines.push('Photos too large to attach (links):');
+    lines.push(args.linksOnly ? 'Photos (links, numbered to match the jobs):' : 'Photos too large to attach (links):');
     for (const u of args.unattached) lines.push(`  ${u.filename}: ${u.url}`);
     lines.push('');
   }
@@ -413,7 +430,11 @@ function composeBody(args: {
     lines.push(args.note.trim());
     lines.push('');
   }
-  lines.push('Attached photos are numbered to match the jobs. Reply here with any questions or to confirm scheduling.');
+  lines.push(
+    args.linksOnly
+      ? 'Reply here with any questions or to confirm scheduling.'
+      : 'Attached photos are numbered to match the jobs. Reply here with any questions or to confirm scheduling.',
+  );
   lines.push('');
   lines.push('Thanks,');
   lines.push('Rising Tide Team');

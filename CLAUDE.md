@@ -853,7 +853,11 @@ Set in Vercel. `.env.local.example` documents a fraction of what the code reads 
 - **Stripe**: `STRIPE_KEYS_JSON`, `STRIPE_KEYS_JSON_EXTRA`, `STRIPE_KEY_<PROPERTY_ID>`
 - **Gmail**: `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (bare = Allie's
   mailbox), plus `_DOTTI` / `_RYAN` / `_ALLIE` variants for identity-specific sends. These are
-  **not** the SSO credentials.
+  **not** the SSO credentials. Work orders and owner emails draft in the signed-in person's own
+  mailbox: `sessionMailbox()` in `gmail-draft.ts` picks the token whose Gmail profile address is
+  the session's, and with none the surface offers Copy instead of Create (`lib/copy-email.ts`).
+  Production holds the bare token and `_DOTTI` only (checked 2026-10-18), so Ryan and staff copy
+  until a token is minted for them.
 - **Email out**: `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_AUDIENCE_ID`, `RESEND_WEBHOOK_SECRET`
 - **Quo**: `QUO_API_KEY`, `QUO_WEBHOOK_SECRET`, `QUO_WEBHOOK_SECRETS`, `QUO_FROM_NUMBER` (24/7 line
   override), `QUO_GUEST_FROM_NUMBER`, `QUO_OWNER_FROM_NUMBER`
