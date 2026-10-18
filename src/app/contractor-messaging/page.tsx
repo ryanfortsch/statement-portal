@@ -15,11 +15,14 @@ import { InboxBottomTools } from '@/components/InboxBottomTools';
 import {
   isStayConciergeConfigured,
   listContractorApprovals,
-  listRecentContractorApprovals,
+  listDecidedTeamApprovals,
   explainError,
+  type ContractorApproval,
 } from '@/lib/stay-concierge';
+import { DecidedRecently } from '@/components/messaging/card/DecidedRecently';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import { ContractorMessagingQueue } from './ContractorMessagingQueue';
+import { undoContractorDecision } from './actions';
 import { loadContractorApprovalContext } from '@/lib/contractor-approval-context';
 import {
   fetchProactiveReminders,
@@ -99,13 +102,10 @@ async function loadProperties(): Promise<{ id: string; name: string }[]> {
   }
 }
 
-// Urgent boundary: the contractor queue + proactive panel. recent is fetched
-// for parity with the cleaner page (the strip is not rendered yet) but never
-// gates anything the operator sees.
+// Urgent boundary: the contractor queue.
 async function QueueSection() {
-  const [pending, , properties] = await Promise.all([
+  const [pending, properties] = await Promise.all([
     listContractorApprovals(),
-    listRecentContractorApprovals(24),
     loadProperties(),
   ]);
   if (!pending.ok) return <NotReachable message={explainError(pending.error)} retry />;
@@ -114,6 +114,25 @@ async function QueueSection() {
   const propertyNames = new Map(properties.map((p) => [p.id, p.name]));
   const approvalContext = await loadContractorApprovalContext(pending.data.approvals, propertyNames).catch(() => ({}));
   return <ContractorMessagingQueue initialPending={pending.data.approvals} properties={properties} context={approvalContext} />;
+}
+
+// Handled cards from the last 12 hours that Undo can still reach, a quiet
+// ledger under the queue. The toast is the moment-of-decision undo; this is
+// the fallback for anything older. Nothing when there is nothing to undo.
+async function DecidedSection() {
+  const res = await listDecidedTeamApprovals<ContractorApproval>('contractor', 12);
+  if (!res.ok) return null;
+  const items = res.data.approvals
+    .filter((a) => a.reversible)
+    .map((a) => ({
+      id: a.id,
+      status: a.status,
+      name: a.contractor_name || a.contractor_contact || 'Contractor',
+      quote: a.contractor_text,
+      at: a.resolved_at || a.created_at,
+      decidedBy: a.decided_by,
+    }));
+  return <DecidedRecently items={items} undo={undoContractorDecision} />;
 }
 
 // Proactive messages sit at the foot of the page, out of the queue's way.
@@ -149,6 +168,9 @@ export default function ContractorMessagingPage() {
     <Shell>
       <Suspense fallback={<QueueSkeleton />}>
         <QueueSection />
+      </Suspense>
+      <Suspense fallback={null}>
+        <DecidedSection />
       </Suspense>
       <Suspense fallback={null}><RecentMessageOutcomesSection audience="contractors" /></Suspense>
       <ContractorProactive />

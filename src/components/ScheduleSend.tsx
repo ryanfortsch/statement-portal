@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { LoadingLabel } from '@/components/messaging/card/buttons';
 
 import {
   horizonYmd,
@@ -12,12 +13,10 @@ import {
 } from '@/lib/schedule-time';
 
 /**
- * Shared send-later (time delay) controls for the Owners / Cleaners /
- * Contractors messaging queues, ported from the guest queue's schedule
- * element. MessagingQueue.tsx still keeps its own private copy of the CHROME
- * (it shipped first, and a divergence there is visible on screen); both now
- * import their date math from lib/schedule-time.ts, because a divergence in
- * THAT is silent and lands a message on the wrong day.
+ * Send-later (time delay) controls for every messaging queue, rendered by the
+ * one approval card (components/messaging/card). The date math lives in
+ * lib/schedule-time.ts, because a divergence THERE is silent and lands a
+ * message on the wrong day.
  *
  * The pieces: a welded split "Approve & send" button whose narrow chevron
  * opens the SchedulePopover (relative presets + an at-a-set-time picker),
@@ -44,8 +43,9 @@ export function SplitSendButton({
   toggleDisabled,
   toggleTitle,
   loading,
-  loadingLabel = 'Sending…',
+  loadingLabel = 'Sending',
   open,
+  title,
 }: {
   label?: string;
   onApprove: () => void;
@@ -57,6 +57,8 @@ export function SplitSendButton({
   loading?: boolean;
   loadingLabel?: string;
   open?: boolean;
+  /** Hover text on the send segment, where its label could mislead. */
+  title?: string;
 }) {
   const seg = (extra: React.CSSProperties): React.CSSProperties => ({
     background: disabled && !loading ? 'var(--ink-4)' : 'var(--ink)',
@@ -77,9 +79,10 @@ export function SplitSendButton({
         onClick={onApprove}
         disabled={disabled}
         aria-busy={loading || undefined}
+        title={title}
         style={seg({ padding: '13px 20px', borderRight: 'none' })}
       >
-        {loading ? loadingLabel : label}
+        {loading ? <LoadingLabel label={loadingLabel} /> : label}
       </button>
       <button
         type="button"

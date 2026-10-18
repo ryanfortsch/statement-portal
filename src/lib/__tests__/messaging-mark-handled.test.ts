@@ -16,10 +16,12 @@ const read = (repoPath: string): string =>
 
 describe('Mark handled, streamlined', () => {
   test('no queue hides its exits in a More actions menu', () => {
+    const card = read('src/components/messaging/card/ApprovalCard.tsx');
+    assert.ok(card.includes('className="rt-message-quiet"'), 'the one card lost its quiet exits');
     for (const q of ['src/app/messaging/MessagingQueue.tsx', 'src/app/owner-messaging/OwnerMessagingQueue.tsx', 'src/app/cleaner-messaging/CleanerMessagingQueue.tsx', 'src/app/contractor-messaging/ContractorMessagingQueue.tsx']) {
       const src = read(q);
       assert.ok(!src.includes('<summary>More actions</summary>'), `${q} still hides Mark handled in a menu`);
-      assert.ok(src.includes('className="rt-message-quiet"'), `${q} lost the quiet exits on the card`);
+      assert.ok(src.includes('className="rt-message-quiet"') || src.includes('<ApprovalCard'), `${q} lost the quiet exits on the card`);
     }
   });
 
@@ -32,12 +34,23 @@ describe('Mark handled, streamlined', () => {
     assert.ok(!/>\s*Skip\s*</.test(src), 'no Skip: the three reasons cover it');
   });
 
-  test('owners, cleaners, contractors: the button asks once', () => {
+  test('owners, cleaners, contractors: one tap with Undo on the one card, else the button asks once', () => {
+    // Since 2026-10-18 the concierge keeps an undo for every audience (#88),
+    // so a queue on the one card gets the guest flow: a reason in one tap,
+    // then the toast. A queue not yet moved keeps the two-tap button.
     const confirm = read('src/components/HandledConfirm.tsx');
     assert.ok(confirm.includes("armed ? 'Sure? Mark handled' : 'Mark handled'"));
-    assert.ok(/if \(!armed\) \{\s*setArmed\(true\);\s*return;\s*\}/.test(confirm), 'the first tap only arms');
     for (const q of ['src/app/owner-messaging/OwnerMessagingQueue.tsx', 'src/app/cleaner-messaging/CleanerMessagingQueue.tsx', 'src/app/contractor-messaging/ContractorMessagingQueue.tsx']) {
-      assert.ok(read(q).includes('<HandledConfirm'), `${q} does not use the two-tap button`);
+      const src = read(q);
+      if (src.includes('<ApprovalCard')) {
+        assert.ok(src.includes('handledReasons='), `${q} renders the card without its reasons`);
+        assert.ok(/undo=\{undo\w+Decision\}/.test(src), `${q} renders the queue without its undo`);
+      } else {
+        assert.ok(src.includes('<HandledConfirm'), `${q} does not use the two-tap button`);
+      }
     }
+    const card = read('src/components/messaging/card/ApprovalCard.tsx');
+    assert.ok(card.includes('onClick={() => markHandled({ reason })}'), 'a reason is one tap on the card');
+    assert.ok(card.includes('onDecided({ id, name, property });'), 'the undo toast follows a Mark handled');
   });
 });
