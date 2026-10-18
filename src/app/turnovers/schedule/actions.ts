@@ -2,7 +2,8 @@
 
 /**
  * Server actions for the cleaner checkout schedule: the digest card on
- * /cleaner-messaging and the schedule workroom at /turnovers/schedule.
+ * /cleaner-messaging, the schedule workroom at /turnovers/schedule, and
+ * the recipient and default-times forms on /turnovers/settings.
  *
  * House landing rules: every exit is a redirect back to where the acted-on
  * thing lives, anchored, with ?err=<code> carrying failures.
@@ -31,6 +32,9 @@ import { saveOperatorNote, resolveNoteBlock, withOperatorNote } from '@/lib/clea
 const CARD = '/cleaner-messaging';
 const CARD_ANCHOR = `${CARD}#schedule-digest`;
 const PAGE = '/turnovers/schedule';
+/** Cleaner settings: who gets the daily text and each home's default
+ *  times. The recipient and default-times actions land back here. */
+const SETTINGS = '/turnovers/settings';
 
 /** The digest region a form is about. Defaults to Cape Ann, which is the
  *  only region the /cleaner-messaging card ever posts. */
@@ -291,7 +295,10 @@ export async function toggleRecipientAction(formData: FormData): Promise<void> {
   }
   revalidatePath(CARD);
   revalidatePath(PAGE);
-  redirect(backTarget(formData, '#schedule-recipients'));
+  revalidatePath(SETTINGS);
+  // The card's own "Texts to" row posts back=card; the settings page posts
+  // nothing and lands on its recipients section.
+  redirect(String(formData.get('back') || '') === 'card' ? `${CARD}#schedule-recipients` : `${SETTINGS}#schedule-recipients`);
 }
 
 // ─── adjustments (schedule workroom + card proposals) ─────────────────
@@ -524,18 +531,19 @@ export async function saveDefaultTimesAction(formData: FormData): Promise<void> 
   const propertyId = String(formData.get('propertyId') || '');
   const checkout = normalizeTime(String(formData.get('checkoutTime') || ''));
   const checkin = normalizeTime(String(formData.get('checkinTime') || ''));
-  if (!propertyId) redirect(`${PAGE}?err=bad_property`);
-  if (!checkout || !checkin) redirect(`${PAGE}?err=bad_time#times-${propertyId}`);
+  if (!propertyId) redirect(`${SETTINGS}?err=bad_property`);
+  if (!checkout || !checkin) redirect(`${SETTINGS}?err=bad_time#times-${propertyId}`);
 
   const { data } = await supabase
     .from('properties')
     .update({ default_checkout_time: checkout, default_checkin_time: checkin })
     .eq('id', propertyId)
     .select('id');
-  if (!data || data.length === 0) redirect(`${PAGE}?err=save_failed#times-${propertyId}`);
+  if (!data || data.length === 0) redirect(`${SETTINGS}?err=save_failed#times-${propertyId}`);
   revalidatePath(PAGE);
+  revalidatePath(SETTINGS);
   revalidatePath(CARD);
-  redirect(`${PAGE}?saved=1#times-${propertyId}`);
+  redirect(`${SETTINGS}?saved=1#times-${propertyId}`);
 }
 
 /** Cron freshness guard: a visit before the cron has drafted tomorrow
@@ -562,7 +570,7 @@ export async function ensureTomorrowDraft(formData?: FormData): Promise<void> {
 // ─── recipients ───────────────────────────────────────────────────────
 
 /**
- * Add or edit a cleaner_schedule_recipients row from the schedule page, so
+ * Add or edit a cleaner_schedule_recipients row on Cleaner settings, so
  * Luana can be added without SQL. Fields: phone (required; stored E.164),
  * displayName, region, propertyIds (multi; none = every home in region),
  * language (pt|en), enabled, and originalPhone when editing (phone is the
@@ -577,10 +585,10 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
   const anchor = '&at=recipients#schedule-recipients';
   const originalPhone = String(formData.get('originalPhone') || '').trim();
   const digits = normalizePhone(String(formData.get('phone') || ''));
-  if (digits.length !== 10) redirect(`${PAGE}?err=bad_phone${anchor}`);
+  if (digits.length !== 10) redirect(`${SETTINGS}?err=bad_phone${anchor}`);
   const phone = `+1${digits}`;
   const displayName = String(formData.get('displayName') || '').trim().slice(0, 80);
-  if (!displayName) redirect(`${PAGE}?err=bad_name${anchor}`);
+  if (!displayName) redirect(`${SETTINGS}?err=bad_name${anchor}`);
   const language = normalizeLanguage(String(formData.get('language') || ''));
   const enabled = String(formData.get('enabled') || '') === 'true';
 
@@ -596,13 +604,13 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
   if (propertyIds.length > 0) {
     const { data } = await supabase.from('properties').select('id, region').in('id', propertyIds);
     const known = new Map(((data ?? []) as Array<{ id: string; region: string | null }>).map((p) => [p.id, p.region]));
-    if (propertyIds.some((id) => !known.has(id))) redirect(`${PAGE}?err=bad_property${anchor}`);
+    if (propertyIds.some((id) => !known.has(id))) redirect(`${SETTINGS}?err=bad_property${anchor}`);
     // The digest is drafted and sent per region, to that region's
     // recipients: a recipient scoped to homes must be in their region, and
     // to one region only. Saved under the form's default (Cape Ann) with a
     // Bridgeport home, the cleaner was texted "no checkouts" every night.
     const regions = new Set(propertyIds.map((id) => known.get(id) || CAPE_ANN_REGION));
-    if (regions.size > 1) redirect(`${PAGE}?err=mixed_region${anchor}`);
+    if (regions.size > 1) redirect(`${SETTINGS}?err=mixed_region${anchor}`);
     propertyRegion = [...regions][0] ?? null;
   }
 
@@ -616,7 +624,7 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
     ...Object.keys(REGION_LABELS),
     ...((regionRows ?? []) as Array<{ id: string }>).map((r) => r.id),
   ]);
-  if (!knownRegions.has(region)) redirect(`${PAGE}?err=bad_region${anchor}`);
+  if (!knownRegions.has(region)) redirect(`${SETTINGS}?err=bad_region${anchor}`);
 
   const now = new Date().toISOString();
   const fields = { phone, display_name: displayName, region, property_ids: propertyIds, language, enabled, updated_at: now };
@@ -627,17 +635,18 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
       .update(fields)
       .eq('phone', originalPhone)
       .select('phone');
-    if (error) redirect(`${PAGE}?err=${error.code === '23505' ? 'phone_taken' : 'save_failed'}${anchor}`);
-    if (!data || data.length === 0) redirect(`${PAGE}?err=recipient_gone${anchor}`);
+    if (error) redirect(`${SETTINGS}?err=${error.code === '23505' ? 'phone_taken' : 'save_failed'}${anchor}`);
+    if (!data || data.length === 0) redirect(`${SETTINGS}?err=recipient_gone${anchor}`);
   } else {
     const { error } = await supabase
       .from('cleaner_schedule_recipients')
       .insert({ ...fields, portal_token: randomBytes(8).toString('hex'), created_at: now });
-    if (error) redirect(`${PAGE}?err=${error.code === '23505' ? 'phone_taken' : 'save_failed'}${anchor}`);
+    if (error) redirect(`${SETTINGS}?err=${error.code === '23505' ? 'phone_taken' : 'save_failed'}${anchor}`);
   }
   revalidatePath(PAGE);
+  revalidatePath(SETTINGS);
   revalidatePath(CARD);
-  redirect(`${PAGE}?saved=recipient${anchor}`);
+  redirect(`${SETTINGS}?saved=recipient${anchor}`);
 }
 
 // ─── owner blocks: clean after? ────────────────────────────────────────

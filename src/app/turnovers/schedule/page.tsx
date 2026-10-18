@@ -29,7 +29,6 @@ import {
   tomorrowET,
   type DigestRow,
   type RecipientBody,
-  type ScheduleRecipient,
 } from '@/lib/cleaner-digest';
 import {
   loadVendorAppointments,
@@ -44,19 +43,17 @@ import {
   setNoCleanAction,
   applyProposalAction,
   dismissProposalAction,
-  saveRecipientAction,
-  saveDefaultTimesAction,
   ensureTomorrowDraft,
   skipDigestAction,
   decideOwnerHoldAction,
 } from './actions';
-import { RecipientToggle } from './RecipientToggle';
 
 /**
  * The checkout-schedule workroom: the operator's view of the same merged
  * truth Rosa's page renders. Seven days out, every stay adjustable inline
  * (late checkout time, extension date, note), mined proposals to apply or
- * dismiss, digest history, recipients, and per-property default times.
+ * dismiss, and each region's digest preview. Recipients and per-property
+ * default times live on /turnovers/settings (Cleaner settings).
  *
  * The moment a change lands here it is live on the cleaner page and in
  * the next digest (or the current one: an unedited approve re-composes).
@@ -80,10 +77,10 @@ function fmtDayHead(date: string, today: string): string {
 }
 
 // ─── outcome notices ──────────────────────────────────────────────────
-// Every action in ./actions.ts lands back here with ?err=<code> or a
-// success param. A digest exit also carries region=<region> and a recipient
-// save at=recipients, so the notice renders in the section the anchor
-// scrolls to; everything else renders in the page head.
+// Every action in ./actions.ts that lands here carries ?err=<code> or a
+// success param. A digest exit also carries region=<region>, so the notice
+// renders in that region's card; everything else renders in the page head.
+// Recipient and default-times saves land on /turnovers/settings instead.
 
 const ERR_COPY: Record<string, string> = {
   bad_time: 'That time did not parse - use HH:MM or "11am".',
@@ -91,13 +88,6 @@ const ERR_COPY: Record<string, string> = {
   nothing_set: 'Set a time or a date (or both) before saving.',
   date_before_checkin: 'Checkout cannot land before check-in.',
   bad_stay: 'That stay could not be read from the form.',
-  bad_phone: 'That phone did not parse - ten digits, US.',
-  bad_name: 'A recipient needs a display name.',
-  bad_property: 'One of those property ids is not in the registry.',
-  bad_region: 'That region is not in the registry.',
-  mixed_region: 'Those homes are in different regions. A recipient gets one region\'s digest: add one row per region.',
-  phone_taken: 'A recipient with that phone already exists.',
-  recipient_gone: 'That recipient no longer exists.',
   save_failed: 'That did not save.',
   proposal_gone: 'That proposal was already applied or dismissed.',
   apply_failed: 'The proposal did not apply; the standing adjustment is unchanged.',
@@ -387,79 +377,6 @@ function StayRow({
   );
 }
 
-/**
- * Add / edit form for one cleaner_schedule_recipients row. No homes
- * selected means every home in the region; a selection means exactly those
- * homes, whatever region they sit in. Phone is the primary key, so an edit
- * carries the original as a hidden field.
- */
-function RecipientForm({
-  recipient,
-  regions,
-  properties,
-}: {
-  recipient: ScheduleRecipient | null;
-  regions: string[];
-  properties: Array<{ id: string; name: string; region: string | null }>;
-}) {
-  const byRegion = new Map<string, Array<{ id: string; name: string }>>();
-  for (const p of properties) {
-    const key = p.region || CAPE_ANN_REGION;
-    if (!byRegion.has(key)) byRegion.set(key, []);
-    byRegion.get(key)!.push({ id: p.id, name: p.name });
-  }
-  const labelStyle: React.CSSProperties = { fontSize: 11, color: 'var(--ink-4)', display: 'flex', flexDirection: 'column', gap: 4 };
-  return (
-    <form action={saveRecipientAction} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-      {recipient && <input type="hidden" name="originalPhone" value={recipient.phone} />}
-      <label style={labelStyle}>
-        Phone
-        <input name="phone" defaultValue={recipient?.phone ?? ''} placeholder="(978) 555-0100" required style={{ ...inputStyle, width: 150 }} />
-      </label>
-      <label style={labelStyle}>
-        Name
-        <input name="displayName" defaultValue={recipient?.display_name ?? ''} placeholder="First name" required style={{ ...inputStyle, fontFamily: 'inherit', width: 140 }} />
-      </label>
-      <label style={labelStyle}>
-        Region
-        <select name="region" defaultValue={recipient?.region ?? CAPE_ANN_REGION} style={{ ...inputStyle, fontFamily: 'inherit', width: 170 }}>
-          {regions.map((r) => (
-            <option key={r} value={r}>{regionLabel(r)}</option>
-          ))}
-        </select>
-      </label>
-      <label style={labelStyle}>
-        Homes (none = every home in region)
-        <select name="propertyIds" multiple defaultValue={recipient?.property_ids ?? []} size={5} style={{ ...inputStyle, fontFamily: 'inherit', minWidth: 220 }}>
-          {[...byRegion.entries()].map(([region, homes]) => (
-            <optgroup key={region} label={regionLabel(region)}>
-              {homes.map((h) => (
-                <option key={h.id} value={h.id}>{h.name}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </label>
-      <label style={labelStyle}>
-        Language
-        <select name="language" defaultValue={recipient?.language ?? 'pt'} style={{ ...inputStyle, fontFamily: 'inherit', width: 130 }}>
-          <option value="pt">Português</option>
-          <option value="en">English</option>
-        </select>
-      </label>
-      <label style={{ ...labelStyle, flexDirection: 'row', alignItems: 'center', gap: 6, paddingBottom: 8 }}>
-        <input type="checkbox" name="enabled" value="true" defaultChecked={recipient?.enabled ?? false} />
-        enabled
-      </label>
-      <SubmitButton
-        label={recipient ? 'Save' : 'Add recipient'}
-        busyLabel="Saving..."
-        style={{ fontSize: 12, fontWeight: 600, padding: '8px 16px', background: 'var(--ink)', color: 'var(--paper)', border: 'none', borderRadius: 5, cursor: 'pointer' }}
-      />
-    </form>
-  );
-}
-
 export default async function CheckoutSchedulePage({
   searchParams,
 }: {
@@ -476,17 +393,9 @@ export default async function CheckoutSchedulePage({
   // (225 Washington, 2026-10-08).
   const digestDateRaw = first(sp.digest) || '';
   const digestDate = /^\d{4}-\d{2}-\d{2}$/.test(digestDateRaw) ? digestDateRaw : null;
-  // Where the outcome belongs: a region's digest section, the recipients
-  // section, or the page head (see the notice helpers above).
+  // Where the outcome belongs: a region's digest section or the page head
+  // (see the notice helpers above).
   const noticeRegion = first(sp.region) || null;
-  const recipientNotice =
-    first(sp.at) === 'recipients'
-      ? err
-        ? ({ tone: 'bad', text: ERR_COPY[err] ?? `Error: ${err}` } satisfies Notice)
-        : first(sp.saved)
-          ? ({ tone: 'ok', text: 'Recipient saved.' } satisfies Notice)
-          : null
-      : null;
   const regionNotice = noticeRegion
     ? digestNotice({ err, sent: first(sp.sent), failed: first(sp.failed), skipped: first(sp.skipped) })
     : null;
@@ -545,19 +454,14 @@ export default async function CheckoutSchedulePage({
   } catch {
     // No answers to show.
   }
-  // Every active managed home, all regions: the recipient form's picker and
-  // the region options. The Cape Ann filter below is for the default-times
-  // list, which is the Cape Ann crew's, and it stays.
+  // Every active managed home, all regions, for naming a recipient's scope
+  // under each preview. The Cape Ann filter is the crew the day sections
+  // and the vendor reconcile are about.
   const allProps = ((propsRes.data ?? []) as Array<{ id: string; name: string; default_checkout_time: string | null; default_checkin_time: string | null; is_active: boolean | null; kind: string | null; region: string | null }>)
     .filter((p) => p.is_active !== false && p.kind !== 'hq');
   const timeProps = allProps.filter((p) => isCapeAnnOps(p));
   const propNames = new Map(timeProps.map((p) => [p.id, p.name]));
   const allPropNames = new Map(allProps.map((p) => [p.id, p.name]));
-  const regionOptions = [...new Set([
-    CAPE_ANN_REGION,
-    ...allProps.map((p) => p.region || CAPE_ANN_REGION),
-    ...recipients.map((r) => r.region),
-  ])].sort((a, b) => (a === CAPE_ANN_REGION ? -1 : b === CAPE_ANN_REGION ? 1 : a.localeCompare(b)));
 
   // One digest card per region: Cape Ann always, then every region with an
   // enabled recipient. Each card previews exactly what each recipient will
@@ -586,12 +490,12 @@ export default async function CheckoutSchedulePage({
     vendorByDate.set(day.date, reconcileDay(day, vendorData.rows, vendorData.horizon, propNames));
   }
   const enabledRecipient = recipients.find((r) => r.enabled) ?? recipients[0];
-  // A digest or recipient outcome renders in its own section; the head
-  // takes the rest, and a digest outcome whose region card is not on the
-  // page any more (or an older link with no region) falls back to it.
+  // A digest outcome renders in its region's card; the head takes the
+  // rest, and a digest outcome whose region card is not on the page any
+  // more (or an older link with no region) falls back to it.
   const regionCardShown = !!noticeRegion && regionCards.some((c) => c.region === noticeRegion);
   const pageNotice: Notice | null =
-    recipientNotice || regionCardShown
+    regionCardShown
       ? null
       : (noticeRegion ? regionNotice : null) ??
         headNotice({
@@ -778,7 +682,10 @@ export default async function CheckoutSchedulePage({
               {region === noticeRegion && <NoticeLine notice={regionNotice} />}
               <div style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.6 }}>
                 {enabledHere.length === 0 && (
-                  <span>No enabled recipient in {regionLabel(region)}. Nothing can be sent here until one is added below.</span>
+                  <span>
+                    No enabled recipient in {regionLabel(region)}. Nothing can be sent here until one is added on{' '}
+                    <Link href="/turnovers/settings#schedule-recipients" style={{ color: 'inherit' }}>Cleaner settings</Link>.
+                  </span>
                 )}
                 {digest && digest.operator_note && (
                   // What the crew receives is the rendered note (lib/cleaner-note),
@@ -871,89 +778,13 @@ export default async function CheckoutSchedulePage({
         );
       })}
 
-      <Section id="schedule-recipients" title="Who gets the daily text" eyebrow="Via Quo, after your approval" paddingTop={8} paddingBottom={12}>
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          <NoticeLine notice={recipientNotice} style={{ padding: '10px 0 0' }} />
-          {recipients.length === 0 && (
-            <div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '14px 0' }}>
-              No recipients yet. Add one below.
-            </div>
-          )}
-          {recipients.map((r) => (
-            <div key={r.phone} id={`recipient-${r.phone.replace(/\D/g, '')}`} style={{ borderTop: '1px solid var(--rule)', scrollMarginTop: 100 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', flexWrap: 'wrap' }}>
-                <RecipientToggle phone={r.phone} name={r.display_name} enabled={r.enabled} />
-                <span style={{ fontFamily: 'var(--font-mono), monospace', fontSize: 12, color: 'var(--ink-3)' }}>{r.phone}</span>
-                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {regionLabel(r.region)} · {describeRecipientScope(r, regionLabel, (id) => allPropNames.get(id) ?? id)}
-                </span>
-                <span className="eyebrow" style={{ fontSize: 10 }}>{r.language === 'en' ? 'English' : 'Português'}</span>
-                <a
-                  href={portalLink(r.portal_token)}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-                >
-                  live page
-                </a>
-              </div>
-              <details style={{ marginTop: -6 }}>
-                <summary style={{ cursor: 'pointer', listStyle: 'none', fontSize: 11, color: 'var(--ink-4)', padding: '0 0 8px' }}>
-                  edit scope, language, phone ▾
-                </summary>
-                <div style={{ padding: '4px 0 16px' }}>
-                  <RecipientForm recipient={r} regions={regionOptions} properties={allProps} />
-                </div>
-              </details>
-            </div>
-          ))}
-          <details style={{ borderTop: '1px solid var(--rule)' }}>
-            <summary style={{ padding: '10px 0', cursor: 'pointer', listStyle: 'none', fontSize: 13, fontWeight: 600 }}>
-              + Add a recipient
-            </summary>
-            <div style={{ padding: '4px 0 16px' }}>
-              <RecipientForm recipient={null} regions={regionOptions} properties={allProps} />
-            </div>
-          </details>
-        </div>
-      </Section>
-
-      <Section title="Default times per property" eyebrow="When no adjustment is set" paddingTop={8}>
-        <div style={{ borderTop: '1px solid var(--ink)' }}>
-          {timeProps.map((p) => (
-            <form
-              key={p.id}
-              id={`times-${p.id}`}
-              action={saveDefaultTimesAction}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: '1px solid var(--rule)', flexWrap: 'wrap', scrollMarginTop: 100 }}
-            >
-              <input type="hidden" name="propertyId" value={p.id} />
-              <span style={{ fontSize: 13, fontWeight: 600, minWidth: 150 }}>{p.name}</span>
-              <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                Checkout (guest)
-                <input name="checkoutTime" defaultValue={p.default_checkout_time ?? ''} placeholder="10:00" style={{ ...inputStyle, width: 84 }} />
-              </label>
-              {/* default_checkin_time is the CLEANER's finish target, not the
-                  guest's 4 PM check-in (lib/onboarding-catalog.ts, #1294). The
-                  old label "in" with a 16:00 placeholder invited a new hire to
-                  "correct" it and move the crew's target an hour later. */}
-              <label style={{ fontSize: 11, color: 'var(--ink-4)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                Cleaner finish target
-                <input name="checkinTime" defaultValue={p.default_checkin_time ?? ''} placeholder="15:00" style={{ ...inputStyle, width: 84 }} />
-              </label>
-              <SubmitButton
-                label="Save"
-                busyLabel="..."
-                spinnerTone="ink"
-                style={{ fontSize: 11, padding: '5px 12px', background: 'transparent', color: 'var(--ink)', border: '1px solid var(--rule)', borderRadius: 4, cursor: 'pointer' }}
-              />
-            </form>
-          ))}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8 }}>
-          Blank = Guesty&rsquo;s listing default.
-        </div>
-      </Section>
+      <div className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 8, paddingBottom: 24 }}>
+        {/* Who gets the text and each home's default times moved to their
+            own page so this one is the days. */}
+        <Link href="/turnovers/settings" style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+          Cleaner settings →
+        </Link>
+      </div>
 
       <div style={{ flex: 1 }} />
       <HelmFooter left="Turnovers · Checkout schedule" right="Source: bookings + Helm adjustments" />

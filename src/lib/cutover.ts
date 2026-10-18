@@ -496,9 +496,9 @@ export function evaluateCutoverPreflight(facts: CutoverFacts): CutoverPreflight 
     detail:
       covering.length > 0
         ? `${covering.map((r) => r.display_name).join(', ')} ${covering.length === 1 ? 'receives' : 'receive'} the checkout digest for this home.`
-        : `No enabled cleaner_schedule_recipients row in region ${region} covers this home (property_ids containing it, or '{}'). Add the cleaner on the schedule page; a row for this home filed under another region never receives its digest.`,
+        : `No enabled cleaner_schedule_recipients row in region ${region} covers this home (property_ids containing it, or '{}'). Add the cleaner on Cleaner settings; a row for this home filed under another region never receives its digest.`,
     acknowledgement: false,
-    href: '/turnovers/schedule',
+    href: '/turnovers/settings#schedule-recipients',
   });
 
   // 7. automations reviewed (acknowledgement)
