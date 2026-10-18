@@ -1057,3 +1057,73 @@ Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
 excluded. Staff/cleaner binding and history, populated portal access fields,
 agreement approval/payment behavior, production channel access and pricing
 propagation remain unresolved. No live cutover is implied.
+
+
+### Access-field audit and shared release rehearsal, October 18
+
+The scoped property review found **Lock code populated** in Calderwood's
+Check-in and check-out policy. Door code, entry instructions, additional entry
+instructions, luggage storage, checkout instructions and departure instructions
+were not configured. Location & details showed Wifi name/password, house manual
+and parking instructions as not configured. Only label/presence states were
+returned from the DOM. No code value, WiFi credential or customer record was
+printed, saved, added to fixtures or copied into the review page.
+
+Combined with the October 17 portal configuration, this identifies an actual
+populated access field selected for the portal's after-form-submission section.
+It still does not prove when a particular guest sees it. No guest form was
+submitted and no guest session was used. Guest-visible timing and existing
+manual-hold effects remain unverified. Before migration, check text, photos,
+manuals and attachments for embedded credentials as well as dedicated code
+fields; a field-only filter cannot establish safe non-code content.
+
+The staff editor was checked at full desktop width after its narrow layout
+appeared clipped. It still rendered only Booking confirmation and Add message,
+while the list had four existing notices. No message was created to probe that
+state, and the disabled Save was not used. The viewport was reset. Exact staff
+and cleaner bindings remain unresolved; prior list titles do not establish a
+recipient. The published Open API documentation index did not expose a workflow
+or automated-message read endpoint during this check, so no guessed private API
+or broadened customer-data request was attempted.
+
+**Implemented policy rehearsal**
+
+`src/lib/calderwood-rehearsal/access-release.ts` separates three review decisions:
+
+- Non-code portal information requires a completed form and fresh evidence bound
+  to the current property, reservation and revision.
+- Code-message timing preserves the existing one-hour-before-arrival offset.
+  Form completion is not added as a new message prerequisite. A verified current
+  credential and explicitly clear hold state are required for a review candidate.
+- Portal code disclosure requires both the form and the same code timing/hold
+  decision. Completing the form cannot bypass release time or a manual hold.
+
+Nonconfirmed or ended stays, unverified/invalid clocks, mismatched revisions,
+missing evidence, stale/future observations and unknown holds withhold the
+applicable decisions. Changing dates with matching new evidence does not clear
+an existing hold. The synthetic five-minute evidence limit is illustrative,
+not an approved production freshness policy.
+
+The new `AccessReleaseRehearsal.tsx` panel is included in the existing protected
+message-hold rehearsal, and linked from the Calderwood workflow inventory. Ten
+fictional scenarios show these decisions without loading a code or customer
+record. `canSend` and `canReveal` remain false in every result. This is not a
+public portal, token/session authorization, message-history reconciler, live
+hold controller or production credential store. Its output must not be used as
+an authorization grant. Existing sending/history and ownership checks remain
+separate. A hold cannot retract a credential already disclosed elsewhere.
+
+The initial focused test run caught an expected-string mismatch between ISO
+representations with and without milliseconds; the assertion was corrected to
+compare the normalized release instant. No policy failure was bypassed.
+All 1,977 tests passed in 240 suites, including nine new behavioral tests.
+Nonincremental TypeScript, targeted ESLint and diff checks passed. Hosted
+acceptance for this batch is recorded in draft PR #1714.
+
+Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
+`e601eeaf`; remote main verified as
+`418b6045f0a44cfce4b6051e7ae99105963a086f`. Changes are the pure access-release
+review, its focused tests, the new rehearsal component and insertion in
+`HoldRehearsal.tsx`, the inventory update/link and this document. Existing
+contract notes remain excluded. No live message, Guesty save, database mutation,
+new subscription or production setting change occurred.

@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 const workflows = [
   {
     name: 'Calderwood Messaging', count: 4,
@@ -70,7 +72,7 @@ export default function MessageWorkflowCoverage() {
         </div>
         <div>
           <dt className="font-medium">Property information and access</dt>
-          <dd className="mt-1 text-slate-600">Additional information unlocks after form submission. Selected categories include WiFi, house rules and access-code fields. Actual populated values and guest visibility still need checking against the 3 PM code message and any manual hold.</dd>
+          <dd className="mt-1 text-slate-600">Additional information unlocks after form submission. Selected categories include WiFi, house rules and access-code fields. The October 18 property review found a populated lock-code field. Its actual guest visibility still needs checking against the 3 PM code message and any manual hold. The code itself was not copied into this review.</dd>
         </div>
         <div>
           <dt className="font-medium">Separate agreement email</dt>
@@ -81,6 +83,7 @@ export default function MessageWorkflowCoverage() {
           <dd className="mt-1 text-slate-600">GuestVerify and Upsells are selected only for properties covered by those add-ons. Calderwood’s coverage and charges are unverified. A deposit described in the agreement does not prove a payment hold was created.</dd>
         </div>
       </dl>
+      <p className="mt-4 text-sm"><Link className="underline" href="/channels/staging/automation-rehearsal#access-release-rehearsal">Try fictional code-release scenarios</Link></p>
     </details>
     <p className="text-xs text-slate-500">All day-based offsets still require daylight-saving queue checks. No workflow, recipient, attachment, schedule or send permission is changed here.</p>
   </section>;

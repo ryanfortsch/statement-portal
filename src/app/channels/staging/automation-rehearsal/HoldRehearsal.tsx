@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { PersistentHoldRehearsal } from './PersistentHoldRehearsal';
 import { MessageScheduleRehearsal } from './MessageScheduleRehearsal';
+import { AccessReleaseRehearsal } from './AccessReleaseRehearsal';
 import { AutomationHoldControls } from '@/components/AutomationHoldControls';
 import { holdReleaseBlockReason } from '@/lib/automation-hold-control';
 
@@ -36,6 +37,7 @@ export function HoldRehearsal() {
       <p role="status" aria-live="polite">{notice}</p>
     </section>
     <p>This checks the shared controls and booking explanations. Competing worker actions are tested separately.</p>
+    <AccessReleaseRehearsal />
     <PersistentHoldRehearsal />
     <MessageScheduleRehearsal />
   </main>;
