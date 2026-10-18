@@ -97,7 +97,7 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/inspections` | Property inspection runs |
 | `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger), trades (the outside vendor directory), close (the field's handoff before the statement close; staff add items, owners file them through the receipt path) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
-| `/work` | Work slips per property plus team tasks. `/work/gear` tracks guest gear |
+| `/work` | Work slips per property plus office to-dos (the `tasks` table). A slip belongs to a house; an office to-do does not. Both share one priority scale (Low / Normal / High), the close verbs (Mark done, Dismiss, Reopen) and a page where each field saves on its own. `/work/gear` tracks guest gear |
 | `/properties` | Property registry. The largest module: 26 pages |
 | `/properties/contracts` | Owner agreements, renewal mechanics, notice deadlines |
 | `/properties/prospects` | Prospect funnel. Generates projection decks and partnership guides |

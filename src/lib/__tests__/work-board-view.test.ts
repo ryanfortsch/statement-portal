@@ -24,7 +24,7 @@ test('overdue and blocked work outrank routine backlog, on slips and tasks', () 
     { ...base, id: 'routine' },
     { ...base, id: 'unassigned', assigned_to_email: null },
     { ...base, id: 'high', priority: 'high' as const },
-    { ...base, id: 'today', due_date: today, priority: 'medium' as const },
+    { ...base, id: 'today', due_date: today, priority: 'normal' as const },
     { ...base, id: 'blocked', status: 'blocked' as const },
     { ...base, id: 'overdue', scheduled_date: '2026-09-29' },
   ];
@@ -49,7 +49,7 @@ test('owners and named vendors are never counted as unassigned', () => {
 test('filter counts describe separate actionable sets without inventing a combined total', () => {
   const items = [
     { ...base, status: 'blocked' as const, scheduled_date: '2026-09-29', assigned_to_email: null, assigned_to_type: 'unassigned' as const },
-    { ...base, due_date: today, priority: 'medium' as const },
+    { ...base, due_date: today, priority: 'normal' as const },
     { ...base, scheduled_date: today, assigned_to_email: null, assigned_to_type: 'owner' as const },
     { ...base, scheduled_date: '2026-10-01', assigned_to_email: null, assigned_to_label: 'Example HVAC' },
   ];

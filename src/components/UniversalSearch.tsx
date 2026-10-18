@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { SearchResults } from '@/lib/search';
 import { CONTACT_TYPE_LABELS } from '@/lib/crm';
+import { displayNameForEmail } from '@/lib/team';
 import { categoryLabel, excerptFor } from '@/lib/playbook';
 
 type FlatItem = {
@@ -127,10 +128,10 @@ export function UniversalSearch({ placeholder = 'Search Helm or jump to a pageâ€
     }
     for (const t of results.tasks) {
       items.push({
-        group: 'Tasks',
+        group: 'Office to-dos',
         href: `/work/tasks/${t.id}`,
         primary: t.title,
-        secondary: t.scope === 'corporate' ? 'Corporate' : 'Property',
+        secondary: t.assigned_to_email ? displayNameForEmail(t.assigned_to_email) : 'Unassigned',
         pill: t.priority,
         pillColor: t.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)',
       });

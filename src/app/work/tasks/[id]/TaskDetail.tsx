@@ -1,16 +1,22 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
-import Link from 'next/link';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import {
   type TaskRow,
   type TaskCommentRow,
-  type TaskScope,
   type TaskPriority,
   type TaskStatus,
+  OFFICE_TODO_LABEL,
+  TASK_CLOSED_STATUSES,
+  TASK_DISMISSED_STATUS,
+  TASK_PICKER_STATUSES,
+  TASK_STATUS_LABELS,
+  WORK_PRIORITIES,
+  WORK_PRIORITY_LABELS,
 } from '@/lib/work-types';
 import { updateTask, deleteTask, addTaskComment, deleteTaskComment } from '../../actions';
 import { BackToBoardLink } from '../../[id]/BackToBoardLink';
+import { chipHintStyle, chipStyle, smallGhostButton } from '../../[id]/slip-controls';
 import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
@@ -26,73 +32,156 @@ type Props = {
   myEmail: string;
 };
 
+/** The fields the page saves one at a time, each on its own gesture. */
+type FieldKey = 'title' | 'description' | 'priority' | 'status' | 'assigned_to_email' | 'due_date';
+type FieldValue = string | null;
+
+const FIELD_LABELS: Record<FieldKey, string> = {
+  title: 'Title',
+  description: 'Description',
+  priority: 'Priority',
+  status: 'Status',
+  assigned_to_email: 'Assignment',
+  due_date: 'Due date',
+};
+
+/** A pause in typing this long writes the description. */
+const DESCRIPTION_AUTOSAVE_MS = 1200;
+
+const STATUS_HINTS: Partial<Record<TaskStatus, string>> = {
+  open: 'Not started.',
+  in_progress: 'Someone is on it.',
+  blocked: 'Waiting on something outside the office. Say what in a comment.',
+};
+
+/**
+ * One office to-do: desk work that belongs to no house (work at a house is
+ * a work slip). The page works the way a slip's page does: every field
+ * saves on its own (a chip on tap, the assignee and due date on pick, the
+ * title on Save, the description as you type), closing is Mark done or
+ * Dismiss in Wrap up, comments carry short names, and the back link
+ * restores the board on the Office to-dos tab. There is no form-wide Save.
+ */
 export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   const softRefresh = useSoftRefresh();
   const [isPending, startTransition] = useTransition();
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<string | null>(null);
 
-  // Form state
-  const [title, setTitle] = useState(task.title);
+  // The confirmed to-do: what the server last accepted, field by field.
+  const [saved, setSaved] = useState<TaskRow>(task);
+  const [saving, setSaving] = useState<FieldKey | null>(null);
+  const [fieldError, setFieldError] = useState<{ key: FieldKey; message: string; value: FieldValue } | null>(null);
+  const lock = useRef(false);
+
+  // Title: Edit, then Save or Cancel, as on a slip.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const titleInput = useRef<HTMLInputElement>(null);
+
+  // Description: saves itself after a pause in typing or on leaving the box.
   const [description, setDescription] = useState(task.description ?? '');
-  const [scope, setScope] = useState<TaskScope>(task.scope);
-  const [priority, setPriority] = useState<TaskPriority>(task.priority);
-  const [status, setStatus] = useState<TaskStatus>(task.status);
-  const [assignedToEmail, setAssignedToEmail] = useState<string | null>(task.assigned_to_email ?? null);
-  const [dueDate, setDueDate] = useState(task.due_date ?? '');
-  const [propertyIds, setPropertyIds] = useState<string[]>(task.property_ids ?? []);
-  const [tagsInput, setTagsInput] = useState((task.tags ?? []).join(', '));
+  const [descriptionSaved, setDescriptionSaved] = useState(false);
+  const [autosaveHeld, setAutosaveHeld] = useState(false);
+  const descriptionDirty = description.trim() !== (saved.description ?? '').trim();
+
+  // Delete asks once, in words, on the page.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deletingTask = useRef(false);
 
   // Comments
   const [commentList, setCommentList] = useState<TaskCommentRow[]>(comments);
   const [commentBody, setCommentBody] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
-  const saving = useRef(false);
   const posting = useRef(false);
-  const deletingTask = useRef(false);
   const deletingComments = useRef(new Set<string>());
   const [commentDeletePending, setCommentDeletePending] = useState<string[]>([]);
   const [commentDeleteErrors, setCommentDeleteErrors] = useState<Record<string, string>>({});
-  const snapshot = JSON.stringify([title, description, scope, priority, status, assignedToEmail, dueDate, propertyIds, tagsInput]);
-  const [savedSnapshot, setSavedSnapshot] = useState(snapshot);
-  const dirty = snapshot !== savedSnapshot;
-  useUnsavedWorkGuard(dirty || submitting || commentBody !== '' || commentSubmitting || commentDeletePending.length > 0 || deleting);
 
-  async function save() {
-    if (saving.current || deletingTask.current) return;
-    saving.current = true;
-    setError(null);
-    setSavedAt(null);
-    setSubmitting(true);
-    const submittedSnapshot = snapshot;
-    const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean);
+  const titleDirty = editingTitle && titleDraft.trim() !== saved.title;
+  useUnsavedWorkGuard(
+    titleDirty || descriptionDirty || saving !== null || fieldError !== null ||
+    commentBody !== '' || commentSubmitting || commentDeletePending.length > 0 || deleting,
+  );
+
+  const isClosed = TASK_CLOSED_STATUSES.includes(saved.status);
+  const busy = saving !== null || deleting;
+
+  async function saveField(key: FieldKey, value: FieldValue): Promise<boolean> {
+    if (lock.current || deletingTask.current) return false;
+    lock.current = true;
+    setSaving(key);
+    setFieldError(null);
     try {
-      const res = await updateTask({
-      id: task.id,
-      title,
-      description: description || null,
-      scope,
-      property_ids: scope === 'property' ? propertyIds : null,
-      assigned_to_email: assignedToEmail,
-      priority,
-      status,
-      due_date: dueDate || null,
-      tags: tags.length > 0 ? tags : null,
-      });
-      if (!res.ok) { setError(res.error); return; }
-      setSavedSnapshot(submittedSnapshot);
-      setSavedAt(new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }));
+      const res = await updateTask({ id: task.id, [key]: value } as Parameters<typeof updateTask>[0]);
+      if (!res.ok) {
+        setFieldError({ key, message: res.error, value });
+        return false;
+      }
+      const stored = typeof value === 'string' ? value.trim() || null : value;
+      setSaved((prev) => ({ ...prev, [key]: stored }) as TaskRow);
       softRefresh();
+      return true;
     } catch {
-      setError('Could not confirm the task save. Your edits are kept. Retry to apply them.');
+      setFieldError({ key, message: 'Could not confirm the change. Showing the last confirmed value.', value });
+      return false;
     } finally {
-      saving.current = false;
-      setSubmitting(false);
+      lock.current = false;
+      setSaving(null);
     }
   }
+
+  async function retryField() {
+    if (!fieldError) return;
+    if (fieldError.key === 'title') return saveTitle();
+    if (fieldError.key === 'description') return saveDescription();
+    await saveField(fieldError.key, fieldError.value);
+  }
+
+  function beginTitleEdit() {
+    setTitleDraft(saved.title);
+    setEditingTitle(true);
+    setTimeout(() => {
+      titleInput.current?.focus();
+      titleInput.current?.select();
+    }, 0);
+  }
+
+  async function saveTitle() {
+    const next = titleDraft.trim();
+    if (!next) return;
+    if (next === saved.title) {
+      setEditingTitle(false);
+      if (fieldError?.key === 'title') setFieldError(null);
+      return;
+    }
+    if (await saveField('title', next)) setEditingTitle(false);
+  }
+
+  async function saveDescription() {
+    // Another field's save holds the lock: wait for the next pause or blur
+    // rather than treat the skip as a failure.
+    if (lock.current) return;
+    const submitted = description;
+    const ok = await saveField('description', submitted);
+    if (ok) setDescriptionSaved(true);
+    else setAutosaveHeld(true);
+  }
+
+  // Keep the autosave timer on the latest saveDescription() without
+  // re-arming it on every render (a ref written in render trips the lint rule).
+  const saveDescriptionRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    saveDescriptionRef.current = saveDescription;
+  });
+  useEffect(() => {
+    if (!descriptionDirty || saving !== null || autosaveHeld || deleting) return;
+    const timer = setTimeout(() => {
+      void saveDescriptionRef.current();
+    }, DESCRIPTION_AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [description, descriptionDirty, saving, autosaveHeld, deleting]);
 
   async function postComment() {
     if (posting.current || deletingTask.current || !commentBody.trim()) return;
@@ -138,167 +227,253 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
   }
 
   function handleDelete() {
-    if (deletingTask.current || saving.current || posting.current || deletingComments.current.size) return;
-    if (!confirm('Delete this task and its comments? This cannot be undone.')) return;
+    if (deletingTask.current || lock.current || posting.current || deletingComments.current.size) return;
     deletingTask.current = true;
     // Dedicated flag: the shared transition also covers comment removal,
     // and the Delete button shouldn't read "Deleting…" during those.
     setDeleting(true);
+    setDeleteError(null);
     startTransition(async () => {
       try {
         await deleteTask({ id: task.id });
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to delete');
+        setDeleteError(e instanceof Error ? e.message : 'Failed to delete');
         setDeleting(false);
         deletingTask.current = false;
       }
     });
   }
 
-  return (
-    <div className="max-w-[860px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%', flex: 1 }}>
-      {/* Back to the board as it was left, on the Tasks tab, the same way a
-          slip's back link restores its view. */}
-      <BackToBoardLink fallbackHref="/work?tab=tasks" tab="tasks" />
+  const propertyNames = (saved.property_ids ?? [])
+    .map((id) => properties.find((p) => p.id === id)?.name ?? id);
 
-      <fieldset disabled={submitting || deleting} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-      {/* HERO */}
-      <section style={{ paddingTop: 24, paddingBottom: 24 }}>
-        <div className="eyebrow" style={{ marginBottom: 12 }}>
-          Helm &middot; Task &middot; {scope === 'corporate' ? 'Corporate' : 'Property'}
+  // A status error prints beside the control that made it: Wrap up for
+  // Mark done, Dismiss and Reopen, the status chips for the rest.
+  const closeVerbError = fieldError?.key === 'status' &&
+    (TASK_CLOSED_STATUSES.includes(fieldError.value as TaskStatus) || (fieldError.value === 'open' && isClosed));
+
+  function errorFor(key: FieldKey, where: 'chips' | 'wrap' = 'chips') {
+    if (fieldError?.key !== key) return null;
+    if (key === 'status' && (where === 'wrap') !== closeVerbError) return null;
+    return (
+      <div role="alert" style={{ marginTop: 8, fontSize: 12, color: 'var(--negative)' }}>
+        {FIELD_LABELS[key]}: {fieldError.message}
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          <button type="button" disabled={busy} onClick={() => void retryField()} style={smallGhostButton}>Retry</button>
+          <button type="button" disabled={busy} onClick={() => setFieldError(null)} style={smallGhostButton}>Dismiss</button>
         </div>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          maxLength={200}
-          className="font-serif"
-          style={{
-            width: '100%',
-            background: 'transparent',
-            border: 'none',
-            borderBottom: '1px solid var(--rule)',
-            padding: '6px 0',
-            fontSize: 36,
-            fontWeight: 300,
-            letterSpacing: '-0.02em',
-            color: 'var(--ink)',
-            outline: 'none',
-          }}
-        />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, width: '100%' }}>
+        {/* Back to the board as it was left, on the Office to-dos tab, the
+            same way a slip's back link restores its view. */}
+        <BackToBoardLink fallbackHref="/work?tab=tasks" tab="tasks" />
+      </div>
+
+      {/* HERO */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 14 }}>
+          <div className="eyebrow">{OFFICE_TODO_LABEL}</div>
+          {!editingTitle && (
+            <button type="button" onClick={beginTitleEdit} disabled={busy} style={quietButton(saving === 'title')}>
+              {saving === 'title' ? 'Saving…' : 'Edit Title'}
+            </button>
+          )}
+        </div>
+        {editingTitle ? (
+          <div>
+            <input
+              ref={titleInput}
+              type="text"
+              value={titleDraft}
+              disabled={busy}
+              maxLength={200}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); void saveTitle(); }
+                if (e.key === 'Escape' && !busy) { setEditingTitle(false); if (fieldError?.key === 'title') setFieldError(null); }
+              }}
+              aria-label="To-do title"
+              className="font-serif"
+              style={{ ...TITLE_STYLE, display: 'block', width: '100%', background: 'transparent', border: 'none', borderBottom: '1px dashed var(--ink-3)', padding: 0, outline: 'none' }}
+            />
+            <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
+              <button type="button" onClick={() => void saveTitle()} disabled={busy || !titleDraft.trim()} style={smallSolidButton}>
+                {saving === 'title' ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEditingTitle(false); if (fieldError?.key === 'title') setFieldError(null); }}
+                disabled={busy}
+                style={smallGhostButton}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <h1 className="font-serif" style={TITLE_STYLE}>{saved.title}</h1>
+        )}
+        {errorFor('title')}
         <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 14 }}>
-          <Pill color={statusColor(status)}>{status.replace('_', ' ')}</Pill>
-          <Pill color={priorityColor(priority)}>{priority}</Pill>
-          <Pill color="var(--ink-3)">{scope}</Pill>
+          <Pill color={statusColor(saved.status)} label={(TASK_STATUS_LABELS[saved.status] ?? saved.status).toUpperCase()} solid />
+          <Pill color={priorityColor(saved.priority)} label={`${WORK_PRIORITY_LABELS[saved.priority] ?? saved.priority} priority`} />
         </div>
       </section>
 
-      {/* CORE */}
-      <Section title="Detail">
-        <Field label="Description">
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={4}
-            style={textareaStyle()}
-            placeholder="Acceptance criteria, links, context…"
-          />
-        </Field>
-
-        <div className="flex gap-3">
-          <div style={{ flex: 1 }}>
-            <Field label="Scope">
-              <select value={scope} onChange={(e) => setScope(e.target.value as TaskScope)} style={selectStyle()}>
-                <option value="corporate">Corporate</option>
-                <option value="property">Property</option>
-              </select>
-            </Field>
-          </div>
-          <div style={{ flex: 1 }}>
-            <Field label="Priority">
-              <select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)} style={selectStyle()}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </Field>
-          </div>
-          <div style={{ flex: 1 }}>
-            <Field label="Status">
-              <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)} style={selectStyle()}>
-                <option value="open">Open</option>
-                <option value="in_progress">In progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-                <option value="archived">Archived</option>
-              </select>
-            </Field>
-          </div>
-        </div>
-
-        {scope === 'property' && (
-          <Field label="Properties">
-            <select
-              multiple
-              value={propertyIds}
-              onChange={(e) => setPropertyIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
-              style={{ ...selectStyle(), minHeight: 140 }}
-            >
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <p style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>Hold ⌘ to select multiple.</p>
-          </Field>
-        )}
-
-        <div className="flex gap-3">
-          <div style={{ flex: 1 }}>
-            <Field label="Assignee">
+      {/* STAT GRID: created, due and who, the last two editable in place. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+        <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            <StatCell label="Created">
+              <div className="font-serif" style={{ fontSize: 18, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>
+                {formatDate(task.created_at)}
+              </div>
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>{displayNameForEmail(task.created_by_email)}</div>
+            </StatCell>
+            <StatCell label="Due">
+              <input
+                type="date"
+                aria-label="Due date"
+                value={saved.due_date ?? ''}
+                disabled={busy}
+                onChange={(e) => void saveField('due_date', e.target.value || null)}
+                style={{ ...inputStyle(), padding: '6px 10px' }}
+              />
+              {saving === 'due_date' && <div role="status" style={statusLine}>Saving due date…</div>}
+              {errorFor('due_date')}
+            </StatCell>
+            <StatCell label="Assigned" last>
               <TeamPicker
-                value={assignedToEmail}
-                onChange={setAssignedToEmail}
+                value={saved.assigned_to_email}
+                onChange={(next) => void saveField('assigned_to_email', next?.trim() || null)}
                 myEmail={myEmail}
                 placeholder="Unassigned"
+                disabled={busy}
               />
-            </Field>
-          </div>
-          <div style={{ flex: 1 }}>
-            <Field label="Due date">
-              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} style={inputStyle()} />
-            </Field>
+              {saving === 'assigned_to_email' && <div role="status" style={statusLine}>Saving assignment…</div>}
+              {errorFor('assigned_to_email')}
+            </StatCell>
           </div>
         </div>
+      </section>
 
-        <Field label="Tags (comma-separated)">
-          <input
-            type="text"
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="e.g. marketing, hires"
-            style={inputStyle()}
-          />
-        </Field>
+      {/* DETAILS: the description saves as you type. */}
+      <Section title="Details" eyebrow="What's needed">
+        <textarea
+          value={description}
+          aria-label="Description"
+          // An autosave must not lock the box mid-sentence; other saves do.
+          disabled={deleting || (saving !== null && saving !== 'description')}
+          onChange={(e) => {
+            setDescription(e.target.value);
+            setDescriptionSaved(false);
+            setAutosaveHeld(false);
+          }}
+          onBlur={() => {
+            if (descriptionDirty && saving === null) void saveDescription();
+          }}
+          rows={4}
+          placeholder="Links, context, what done looks like… Saves as you type."
+          style={textareaStyle()}
+        />
+        {(saving === 'description' || (descriptionSaved && !descriptionDirty)) && (
+          <div role="status" style={statusLine}>{saving === 'description' ? 'Saving…' : 'Saved.'}</div>
+        )}
+        {errorFor('description')}
+        {propertyNames.length > 0 && (
+          <p style={{ ...chipHintStyle, marginTop: 14 }}>Filed against {propertyNames.join(', ')}.</p>
+        )}
+        {(saved.tags ?? []).length > 0 && (
+          <p style={chipHintStyle}>Tags: {(saved.tags ?? []).join(', ')}</p>
+        )}
       </Section>
 
-      </fieldset>
+      {/* WHERE IT STANDS: the slip page's chip idiom. */}
+      <Section title="Where it stands" eyebrow={isClosed ? TASK_STATUS_LABELS[saved.status] : `${WORK_PRIORITY_LABELS[saved.priority] ?? saved.priority} priority`}>
+        <div className="eyebrow" style={{ marginBottom: 8 }}>Priority</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {WORK_PRIORITIES.map((p) => (
+            <button
+              key={p}
+              type="button"
+              aria-pressed={saved.priority === p}
+              disabled={busy}
+              onClick={() => { if (saved.priority !== p) void saveField('priority', p as TaskPriority); }}
+              style={chipStyle(saved.priority === p, busy)}
+            >
+              {WORK_PRIORITY_LABELS[p]}
+            </button>
+          ))}
+        </div>
+        {errorFor('priority')}
+        {!isClosed && (
+          <>
+            <div className="eyebrow" style={{ marginTop: 20, marginBottom: 8 }}>Status</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {TASK_PICKER_STATUSES.map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  aria-pressed={saved.status === st}
+                  disabled={busy}
+                  onClick={() => { if (saved.status !== st) void saveField('status', st); }}
+                  style={chipStyle(saved.status === st, busy)}
+                >
+                  {TASK_STATUS_LABELS[st]}
+                </button>
+              ))}
+            </div>
+            {STATUS_HINTS[saved.status] && <p style={chipHintStyle}>{STATUS_HINTS[saved.status]}</p>}
+          </>
+        )}
+        {errorFor('status', 'chips')}
+      </Section>
+
+      {/* WRAP UP: the operator's verbs, the same ones a slip has. */}
+      <Section
+        title="Wrap up"
+        eyebrow={saved.status === 'done' ? 'Completed' : saved.status === TASK_DISMISSED_STATUS ? 'Dismissed' : 'When it’s handled'}
+      >
+        <div className="flex items-center gap-3 flex-wrap">
+          {isClosed ? (
+            <>
+              <button type="button" onClick={() => void saveField('status', 'open')} disabled={busy} style={ghostButton()}>
+                {saving === 'status' ? 'Saving…' : 'Reopen'}
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
+                {saved.status === TASK_DISMISSED_STATUS
+                  ? 'Dismissed: closed without doing it. Reopen puts it back on the list.'
+                  : 'Reopen puts it back on the list.'}
+              </span>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => void saveField('status', 'done')} disabled={busy} style={solidButton()}>
+                {saving === 'status' ? 'Saving…' : 'Mark Done'}
+              </button>
+              <button type="button" onClick={() => void saveField('status', TASK_DISMISSED_STATUS)} disabled={busy} style={ghostButton()}>
+                Dismiss
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Dismiss closes it without doing it: a duplicate, or no longer needed.</span>
+            </>
+          )}
+        </div>
+        {errorFor('status', 'wrap')}
+      </Section>
+
       {/* COMMENTS */}
-      <Section title={`Comments · ${commentList.length}`}>
+      <Section title="Comments" eyebrow={`${commentList.length} ${commentList.length === 1 ? 'comment' : 'comments'}`}>
         {commentList.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--ink-4)' }}>No comments yet. First one sets the tone.</p>
+          <p style={{ fontSize: 13, color: 'var(--ink-4)', margin: 0 }}>No comments yet.</p>
         ) : (
           <div className="flex flex-col gap-3">
             {commentList.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  padding: '12px 14px',
-                  border: '1px solid var(--rule)',
-                  background: 'var(--paper-2)',
-                }}
-              >
+              <div key={c.id} style={{ padding: '12px 14px', border: '1px solid var(--rule)', background: 'var(--paper-2)' }}>
                 <div className="flex items-baseline justify-between" style={{ marginBottom: 6 }}>
                   <span style={{ fontSize: 11, letterSpacing: '.08em', color: 'var(--ink-3)' }}>
                     <span style={{ fontWeight: 600 }}>{c.author_email ? displayNameForEmail(c.author_email) : 'You'}</span> &middot; {formatTimestamp(c.created_at)}
@@ -307,18 +482,10 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
                     type="button"
                     onClick={() => removeComment(c)}
                     disabled={deleting || commentDeletePending.includes(c.id)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: 10,
-                      color: 'var(--ink-4)',
-                      letterSpacing: '.14em',
-                      textTransform: 'uppercase',
-                    }}
-                    title="Delete"
+                    aria-label="Delete comment"
+                    style={smallGhostButton}
                   >
-                    {commentDeletePending.includes(c.id) ? 'Deleting…' : '✕'}
+                    {commentDeletePending.includes(c.id) ? 'Deleting…' : 'Delete'}
                   </button>}
                 </div>
                 <p style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap', margin: 0 }}>{c.body}</p>
@@ -329,7 +496,8 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
         )}
 
         <div style={{ marginTop: 14 }}>
-          <Field label="Add a comment">
+          <label style={{ display: 'block' }}>
+            <div className="eyebrow" style={{ marginBottom: 6 }}>Add a comment</div>
             <textarea
               value={commentBody}
               disabled={commentSubmitting || deleting}
@@ -338,130 +506,111 @@ export function TaskDetail({ task, comments, properties, myEmail }: Props) {
               placeholder="What's the latest?"
               style={textareaStyle()}
             />
-          </Field>
-          <div className="flex justify-end" style={{ marginTop: 8 }}>
+          </label>
+          <div className="flex justify-end" style={{ marginTop: 8, gap: 8 }}>
+            {commentBody && <button type="button" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }} style={ghostButton()}>Discard comment draft</button>}
             <button
               type="button"
               onClick={postComment}
               disabled={deleting || commentSubmitting || !commentBody.trim()}
-              style={{ ...primaryBtn(), opacity: commentBody.trim() ? 1 : 0.5 }}
+              style={{ ...solidButton(), opacity: commentBody.trim() ? 1 : 0.5 }}
             >
               {commentSubmitting ? 'Posting…' : 'Post comment'}
             </button>
           </div>
           {commentError && <p role="alert" style={{ color: 'var(--negative)', fontSize: 12 }}>{commentError} <a href={`/work/tasks/${task.id}`} target="_blank" rel="noopener noreferrer">View saved comments</a></p>}
-          {commentBody && <button type="button" disabled={commentSubmitting || deleting} onClick={() => { setCommentBody(''); setCommentError(null); }} style={{ ...ghostBtn(), marginTop: 8 }}>Discard comment draft</button>}
         </div>
       </Section>
 
-      {/* AUDIT */}
-      <Section title="Audit">
-        <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 32px', fontSize: 12, color: 'var(--ink-3)' }}>
-          <Detail term="Created by" definition={task.created_by_email} />
-          <Detail term="Created at" definition={formatTimestamp(task.created_at)} />
-          <Detail term="Updated at" definition={formatTimestamp(task.updated_at)} />
-          <Detail term="Task ID" definition={task.id} mono />
-        </dl>
-      </Section>
-
-      {error && (
-        <div
-          style={{
-            marginTop: 24,
-            padding: '10px 14px',
-            borderLeft: '3px solid var(--negative)',
-            background: 'var(--paper-2)',
-            fontSize: 12,
-            color: 'var(--negative)',
-          }}
-        >
-          {error}
+      {/* DELETE: asks once, in words, and says it is for good. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+        <div style={{ borderTop: '1px solid var(--rule)', paddingTop: 18 }}>
+          {confirmingDelete ? (
+            <div role="group" aria-label="Confirm delete" className="flex items-center gap-3 flex-wrap">
+              <span style={{ fontSize: 13, color: 'var(--ink)' }}>
+                Delete this to-do{commentList.length > 0 ? ` and its ${commentList.length} comment${commentList.length === 1 ? '' : 's'}` : ''}? This cannot be undone.
+              </span>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting || isPending || saving !== null || commentSubmitting || commentDeletePending.length > 0}
+                style={{ ...dangerButton(), background: 'var(--negative)', color: 'var(--paper)' }}
+              >
+                {deleting ? 'Deleting…' : 'Delete for good'}
+              </button>
+              <button type="button" onClick={() => setConfirmingDelete(false)} disabled={deleting} style={ghostButton()}>
+                Keep it
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={busy || isPending || commentSubmitting || commentDeletePending.length > 0}
+              style={dangerButton()}
+            >
+              Delete to-do
+            </button>
+          )}
+          {deleteError && <div role="alert" style={{ marginTop: 10, fontSize: 12, color: 'var(--negative)' }}>{deleteError}</div>}
         </div>
-      )}
-
-      <div
-        className="flex items-center justify-between flex-wrap gap-3"
-        style={{
-          marginTop: 32,
-          paddingTop: 18,
-          borderTop: '1px solid var(--ink)',
-        }}
-      >
-        <button type="button" onClick={handleDelete} disabled={deleting || isPending || submitting || commentSubmitting || commentDeletePending.length > 0} style={dangerBtn()}>
-          {deleting ? 'Deleting…' : 'Delete task'}
-        </button>
-        <div className="flex items-center gap-3">
-          {savedAt && !dirty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Saved {savedAt}</span>}
-          {dirty && <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Unsaved changes</span>}
-          <Link href="/work?tab=tasks" style={ghostBtn()}>Cancel</Link>
-          <button type="button" onClick={save} disabled={submitting || deleting} style={primaryBtn()}>
-            {submitting ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
-      </div>
-    </div>
+      </section>
+    </>
   );
 }
 
 // ─── Sub-components ──────────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+const TITLE_STYLE: React.CSSProperties = {
+  fontSize: 38,
+  lineHeight: 1.05,
+  fontWeight: 300,
+  letterSpacing: '-0.02em',
+  color: 'var(--ink)',
+  maxWidth: 720,
+  margin: 0,
+};
+
+const statusLine: React.CSSProperties = { marginTop: 6, fontSize: 11, color: 'var(--ink-4)' };
+
+function Section({ title, eyebrow, children }: { title: string; eyebrow: string; children: React.ReactNode }) {
   return (
-    <section style={{ marginTop: 36 }}>
-      <h2
-        className="font-serif"
-        style={{
-          fontSize: 18,
-          fontWeight: 500,
-          letterSpacing: '-0.01em',
-          color: 'var(--ink)',
-          margin: 0,
-          marginBottom: 14,
-          paddingBottom: 8,
-          borderBottom: '1px solid var(--rule)',
-        }}
-      >
-        {title}
-      </h2>
-      <div className="flex flex-col gap-4">{children}</div>
+    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 48, width: '100%' }}>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
+        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+          {title}
+        </h2>
+        <span className="eyebrow">{eyebrow}</span>
+      </div>
+      <div style={{ borderTop: '1px solid var(--ink)', paddingTop: 18 }}>{children}</div>
     </section>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function StatCell({ label, children, last = false }: { label: string; children: React.ReactNode; last?: boolean }) {
   return (
-    <label style={{ display: 'block' }}>
-      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
+    <div style={{ padding: '20px 22px', borderRight: last ? 'none' : '1px solid var(--rule)' }}>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
       {children}
-    </label>
-  );
-}
-
-function Detail({ term, definition, mono = false }: { term: string; definition: string; mono?: boolean }) {
-  return (
-    <div>
-      <dt className="eyebrow" style={{ marginBottom: 4 }}>{term}</dt>
-      <dd className={mono ? 'font-mono' : ''} style={{ color: 'var(--ink)', fontSize: mono ? 11 : 13, margin: 0 }}>
-        {definition}
-      </dd>
     </div>
   );
 }
 
-function Pill({ color, children }: { color: string; children: React.ReactNode }) {
+function Pill({ color, label, solid = false }: { color: string; label: string; solid?: boolean }) {
   return (
     <span
       style={{
+        background: solid ? color : 'transparent',
+        color: solid ? 'var(--paper)' : color,
+        border: `1.5px solid ${color}`,
+        padding: '4px 12px',
         fontSize: 10,
-        letterSpacing: '.16em',
+        letterSpacing: '.18em',
         textTransform: 'uppercase',
         fontWeight: 700,
-        color,
-        border: `1px solid ${color}`,
-        padding: '4px 10px',
       }}
     >
-      {children}
+      {label}
     </span>
   );
 }
@@ -472,7 +621,7 @@ function statusColor(s: TaskStatus): string {
     case 'in_progress': return 'var(--tide-deep)';
     case 'blocked': return 'var(--negative)';
     case 'archived': return 'var(--ink-4)';
-    default: return 'var(--ink)';
+    default: return 'var(--ink-3)';
   }
 }
 
@@ -481,6 +630,14 @@ function priorityColor(p: TaskPriority): string {
     case 'high': return 'var(--negative)';
     case 'low': return 'var(--ink-4)';
     default: return 'var(--ink-3)';
+  }
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: GLOUCESTER_TZ });
+  } catch {
+    return iso;
   }
 }
 
@@ -515,50 +672,53 @@ function textareaStyle(): React.CSSProperties {
   return { ...inputStyle(), fontFamily: 'inherit', resize: 'vertical' };
 }
 
-function selectStyle(): React.CSSProperties {
-  return {
-    ...inputStyle(),
-    cursor: 'pointer',
-    appearance: 'none',
-    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
-    backgroundRepeat: 'no-repeat',
-    backgroundPosition: 'right 10px center',
-    backgroundSize: '16px',
-    paddingRight: 32,
-  };
+const smallSolidButton: React.CSSProperties = {
+  background: 'var(--ink)',
+  color: 'var(--paper)',
+  border: '1px solid var(--ink)',
+  padding: '5px 14px',
+  fontSize: 10,
+  letterSpacing: '.16em',
+  textTransform: 'uppercase',
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+function quietButton(busy: boolean): React.CSSProperties {
+  return { ...smallGhostButton, cursor: busy ? 'wait' : 'pointer' };
 }
 
-function primaryBtn(): React.CSSProperties {
+function solidButton(): React.CSSProperties {
   return {
     background: 'var(--ink)',
     color: 'var(--paper)',
-    border: 'none',
-    padding: '10px 18px',
+    border: '1.5px solid var(--ink)',
+    padding: '10px 22px',
     fontSize: 11,
-    letterSpacing: '.16em',
+    letterSpacing: '.18em',
     textTransform: 'uppercase',
     fontWeight: 600,
     cursor: 'pointer',
+    minHeight: 42,
   };
 }
 
-function ghostBtn(): React.CSSProperties {
+function ghostButton(): React.CSSProperties {
   return {
     background: 'transparent',
-    border: '1px solid var(--rule)',
-    padding: '10px 16px',
-    fontSize: 11,
-    letterSpacing: '.16em',
-    textTransform: 'uppercase',
     color: 'var(--ink-3)',
+    border: '1px solid var(--rule)',
+    padding: '10px 18px',
+    fontSize: 11,
+    letterSpacing: '.18em',
+    textTransform: 'uppercase',
+    fontWeight: 500,
     cursor: 'pointer',
-    textDecoration: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
+    minHeight: 42,
   };
 }
 
-function dangerBtn(): React.CSSProperties {
+function dangerButton(): React.CSSProperties {
   return {
     background: 'transparent',
     border: '1px solid var(--negative)',
@@ -568,5 +728,6 @@ function dangerBtn(): React.CSSProperties {
     textTransform: 'uppercase',
     color: 'var(--negative)',
     cursor: 'pointer',
+    minHeight: 42,
   };
 }

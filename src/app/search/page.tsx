@@ -113,7 +113,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
             name="q"
             defaultValue={q}
             autoFocus
-            placeholder="Properties, owners, slips, tasks…"
+            placeholder="Properties, owners, slips, to-dos…"
             style={{
               width: '100%',
               maxWidth: 640,
@@ -132,12 +132,12 @@ export default async function SearchPage({ searchParams }: PageProps) {
             {q.length < 2
               ? 'Type at least two characters.'
               : total === 0
-                ? 'No matches across properties, contacts, slips, tasks, or the playbook.'
+                ? 'No matches across properties, contacts, slips, office to-dos, or the playbook.'
                 : `${total} result${total === 1 ? '' : 's'}: ${[
                     results.properties.length && `${results.properties.length} propert${results.properties.length === 1 ? 'y' : 'ies'}`,
                     results.contacts.length && `${results.contacts.length} contact${results.contacts.length === 1 ? '' : 's'}`,
                     results.slips.length && `${results.slips.length} slip${results.slips.length === 1 ? '' : 's'}`,
-                    results.tasks.length && `${results.tasks.length} task${results.tasks.length === 1 ? '' : 's'}`,
+                    results.tasks.length && `${results.tasks.length} to-do${results.tasks.length === 1 ? '' : 's'}`,
                     results.playbook.length && `${results.playbook.length} playbook`,
                   ].filter(Boolean).join(', ')}`}
           </p>
@@ -184,13 +184,13 @@ export default async function SearchPage({ searchParams }: PageProps) {
         )}
 
         {results.tasks.length > 0 && (
-          <ResultGroup title="Tasks" count={results.tasks.length}>
+          <ResultGroup title="Office to-dos" count={results.tasks.length}>
             {results.tasks.map((t) => (
               <Row
                 key={t.id}
                 href={`/work/tasks/${t.id}`}
                 primary={t.title}
-                secondary={`${t.scope === 'corporate' ? 'Corporate' : 'Property'} · ${t.assigned_to_email ? displayNameForEmail(t.assigned_to_email) : 'Unassigned'}`}
+                secondary={t.assigned_to_email ? displayNameForEmail(t.assigned_to_email) : 'Unassigned'}
                 pill={t.priority}
                 pillColor={t.priority === 'high' ? 'var(--negative)' : 'var(--ink-4)'}
               />

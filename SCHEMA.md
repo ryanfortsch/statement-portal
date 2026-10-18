@@ -412,8 +412,13 @@ live in `property_access` and per-stay `guest_access_codes`.
 
 ## Work / inspections
 
-- `work_slips` + `tasks`: the Work module. Slips are property-scoped;
-  tasks span properties or are corporate. Both have priority + claimer.
+- `work_slips` + `tasks`: the Work module. A slip belongs to one house;
+  a task is an office to-do and belongs to none (`scope` is `corporate` for
+  every to-do filed since 2026-10-18; four older done rows carry
+  `property_ids`). Both have priority + claimer on one scale, low / normal /
+  high: the `task_priority` enum still holds `medium`, which nothing writes
+  since `20261018200100_task_priority_normal_rows.sql`. A task's `archived`
+  status is how Dismiss is stored and reads as Dismissed.
   `organized_at` / `organize_note` / `organize_group` / `organize_group_label`
   belong to the nightly organize pass (`lib/organize-work-slips.ts`): the
   once-only stamp, the one line of why, and the cluster key for slips about

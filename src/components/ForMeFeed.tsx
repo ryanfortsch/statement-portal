@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
-import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES } from '@/lib/work-types';
+import { ACTIVE_WORK_SLIP_STATUSES, ACTIVE_TASK_STATUSES, OFFICE_TODO_LABEL } from '@/lib/work-types';
 import { loadDailyBrief, type BriefEmail, type BriefInboundTouch, type BriefCleaningFlag, type BriefInspection, type BriefStay } from '@/lib/daily-brief';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
 import { loadShootBoard, shootPaySummary } from '@/lib/creative-shoots';
@@ -556,13 +556,10 @@ function MyWorkRow({ item }: { item: MyWork }) {
     if (item.actionSummary) {
       sublineBits.push(<span style={{ color: 'var(--ink-2)' }}>{item.actionSummary}</span>);
     }
+    // An office to-do belongs to no house; the tag says so, and only a
+    // to-do filed against homes before 2026-10-18 prints their names.
     const propLabel = formatPropertyList(item.propertyNames);
     if (propLabel) sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{propLabel}</span>);
-    else if (item.scope && item.scope !== 'property') {
-      // Corporate / team task with no property: label it so the row
-      // doesn't read as missing context.
-      sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{prettyScope(item.scope)}</span>);
-    }
     if (item.dueDate) sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>Due {formatDueDate(item.dueDate)}</span>);
   } else if (item.propertyName) {
     sublineBits.push(<span style={{ color: 'var(--ink-3)' }}>{item.propertyName}</span>);
@@ -587,7 +584,7 @@ function MyWorkRow({ item }: { item: MyWork }) {
             {item.title}
           </span>
           <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--ink-4)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-            {item.kind === 'slip' ? 'Work slip' : 'Task'}
+            {item.kind === 'slip' ? 'Work slip' : OFFICE_TODO_LABEL}
           </span>
         </div>
         {sublineBits.length > 0 && (
@@ -664,12 +661,6 @@ function formatPropertyList(names: string[] | undefined): string | null {
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} + 1 other`;
   return `${names[0]} + ${names.length - 1} others`;
-}
-
-function prettyScope(scope: string): string {
-  if (scope === 'corporate') return 'Team';
-  if (scope === 'team') return 'Team';
-  return scope.charAt(0).toUpperCase() + scope.slice(1);
 }
 
 /**
