@@ -184,7 +184,7 @@ export function PropertyOnboardingLink({
           button, then the one line of status or hint. It used to be three
           stacked rows with a paragraph beside the first button. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, rowGap: 8, flexWrap: 'wrap' }}>
-        <span className="eyebrow" style={{ marginRight: 4 }}>Owner onboarding intake</span>
+        <span className="eyebrow" style={{ marginRight: 4 }}>Owner intake form</span>
 
         {!token ? (
           <button
@@ -193,7 +193,7 @@ export function PropertyOnboardingLink({
             disabled={pending}
             style={{ ...uppercaseBtn, color: 'var(--paper)', background: 'var(--ink)', border: '1px solid var(--ink)', cursor: pending ? 'wait' : 'pointer' }}
           >
-            {pending ? 'Generating…' : 'Generate onboarding link'}
+            {pending ? 'Generating…' : 'Generate intake link'}
           </button>
         ) : (
           <>

@@ -11,11 +11,8 @@
  * So this reads the alias map out of the page and asserts the whole history
  * is covered, and that the destinations are tabs that actually exist.
  *
- * It also guards the pair that has to agree across two files: the Setup
- * "Edit field" links send `return=setup`, and RETURN_TABS in
- * properties/actions.ts allowlists what a save is allowed to return to. If
- * those drift, saving from a Setup deep link lands the operator on Facts
- * instead of where they came from.
+ * It also guards RETURN_TABS in properties/actions.ts, the allowlist of
+ * tabs an edit-form save may return to: every one must be a live tab.
  *
  * Run: npm test
  */
@@ -29,13 +26,14 @@ const read = (repoPath: string): string =>
 const PAGE = 'src/app/properties/[id]/page.tsx';
 const ACTIONS = 'src/app/properties/actions.ts';
 
-/** The four that survive, plus the one that comes and goes. */
-const LIVE_TABS = new Set(['now', 'facts', 'owner', 'guest', 'setup']);
+/** The four that survive. Setup retired 2026-10-18 (Launch is the one list). */
+const LIVE_TABS = new Set(['now', 'facts', 'owner', 'guest']);
 
 /** Every name this route has answered to, across both restructures. */
 const HISTORIC_TABS = [
   'today',
   'onboarding',
+  'setup',
   'operations',
   'people',
   'growth',
@@ -82,7 +80,7 @@ describe('property tab aliases', () => {
     }
     // The six that are gone must not linger as panels, or a stale link would
     // reach a panel with no tab button to return from.
-    for (const dead of ['today', 'onboarding', 'operations', 'people', 'growth', 'records']) {
+    for (const dead of ['today', 'onboarding', 'setup', 'operations', 'people', 'growth', 'records']) {
       assert.ok(!src.includes(`<TabSection tab="${dead}">`), `<TabSection tab="${dead}"> still exists`);
     }
   });
@@ -98,16 +96,4 @@ describe('property tab aliases', () => {
     }
   });
 
-  test('the Setup edit-return value is one RETURN_TABS accepts', () => {
-    const page = read(PAGE);
-    const m = page.match(/return=([a-z]+)\$\{hash/);
-    assert.ok(m, 'editHrefWithReturn no longer sets a return tab');
-    const sent = m[1];
-    const allowed = read(ACTIONS).match(/const RETURN_TABS = new Set\(\[([^\]]*)\]\)/);
-    assert.ok(allowed);
-    assert.ok(
-      allowed[1].includes(`'${sent}'`),
-      `Setup sends return=${sent} but RETURN_TABS does not allow it, so a save lands on the fallback tab`,
-    );
-  });
 });

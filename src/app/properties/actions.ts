@@ -146,7 +146,7 @@ export async function updatePropertyWithState(
   // Land back on the tab the operator came from (the onboarding hub's
   // "Edit field" deep links carry ?return=setup via a hidden input).
   // Allowlisted so a tampered value can't smuggle in a junk redirect.
-  const RETURN_TABS = new Set(['now', 'facts', 'owner', 'guest', 'setup']);
+  const RETURN_TABS = new Set(['now', 'facts', 'owner', 'guest']);
   const ret = String(formData.get('return_tab') ?? '');
   const tab = RETURN_TABS.has(ret) ? ret : 'facts';
   redirect(`/properties/${id}?tab=${tab}`);

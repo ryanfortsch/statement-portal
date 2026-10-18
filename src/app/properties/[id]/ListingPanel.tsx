@@ -13,7 +13,7 @@ import {
   type ListingActionResult,
   type ListingFormState,
 } from './listing-actions';
-import { RoomsEditor } from './RoomsEditor';
+import Link from 'next/link';
 import type { ListingContentRow, ListingPhotoRow } from '@/lib/listing-content';
 import type { PropertyRoom } from '@/lib/property-rooms-shared';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
@@ -69,10 +69,16 @@ export function ListingPanel({ propertyId, content, photos, rooms, bedSummaryTex
 
       <ContentForm propertyId={propertyId} content={content} catalog={catalog} consumers={consumers} registry={registry} housePolicy={housePolicy} />
 
+      {/* Rooms are a fact about the house: edited once, on Facts. */}
       <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <SectionHead title="Rooms and beds" note={bedSummaryText || 'no beds on file'} />
         <ConsumedBy who={consumers.rooms} />
-        <RoomsEditor propertyId={propertyId} rooms={rooms} />
+        <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
+          {rooms.length === 0 ? 'No rooms on file.' : `${rooms.length} ${rooms.length === 1 ? 'room' : 'rooms'} on file.`}{' '}
+          <Link href={`/properties/${propertyId}?tab=facts#rooms`} style={{ color: 'var(--tide-deep)', textDecoration: 'none' }}>
+            Edit on Facts &rarr;
+          </Link>
+        </div>
       </section>
 
       <Gallery propertyId={propertyId} photos={photos} consumers={consumers} />

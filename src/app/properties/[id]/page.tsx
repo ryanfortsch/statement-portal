@@ -10,8 +10,6 @@ import { HomeGuideCustomizeForm } from '@/components/properties/HomeGuideCustomi
 import { PhotoThumbs } from '@/components/PhotoUploader';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase, isServiceConfigured as isHelmConfigured } from '@/lib/supabase-admin';
-import { getStripeKeysMap } from '@/lib/stripe-sync';
-import { getFleetCoverage } from '@/lib/stay-concierge';
 import { formatUsPhone, telHref } from '@/lib/phone';
 import { getOwnerPortfolio } from '@/lib/owner-portfolio';
 import { getPropertyAccess } from '@/lib/property-access';
@@ -65,7 +63,6 @@ import { ResolveFlagButton } from './ResolveFlagButton';
 import { InlineField } from './InlineField';
 import { PropertyMasthead, type PropertyAlert } from './PropertyMasthead';
 import { OwnersEditor } from './OwnersEditor';
-import { OnboardingItemToggle } from './OnboardingItemToggle';
 import { RoomsEditor } from './RoomsEditor';
 import { RentalSeasonPanel } from './RentalSeasonPanel';
 import { getPropertyRooms } from '@/lib/property-rooms';
@@ -77,14 +74,6 @@ import { getListingRecord, bedSummary, AMENITY_CATALOG, FIELD_CONSUMERS } from '
 import { getAutomationsPanelView } from '@/lib/automations';
 import { isHelmRun } from '@/lib/property-scope';
 import { shiftIsoDay, todayInEastern } from '@/lib/sca-quotes-types';
-import { getOnboardingItemRows } from '@/lib/onboarding-items';
-import { hasOrderChecklistState } from '@/lib/order-checklist-db';
-import {
-  ONBOARDING_STAGES,
-  ONBOARDING_ITEMS,
-  itemsForStage,
-  type OnboardingDeriveContext,
-} from '@/lib/onboarding-catalog';
 import type { OwnerCard } from '@/app/properties/actions';
 import { roleForEmail } from '@/lib/helm-access';
 
@@ -146,20 +135,6 @@ async function getScaLaunchStatus(id: string): Promise<ScaLaunchStatus | null> {
   } catch {
     return null;
   }
-}
-
-/**
- * Setup "Edit field" deep links carry ?return=setup so the edit page's save
- * redirect lands back on that tab instead of the default ?tab=facts (query
- * goes BEFORE any #anchor). The value is allowlisted by RETURN_TABS in
- * properties/actions.ts; the two must agree or a save silently lands on
- * Facts instead of where the operator came from.
- */
-function editHrefWithReturn(href: string): string {
-  if (!href.includes('/edit')) return href;
-  const [path, hash] = href.split('#');
-  const sep = path.includes('?') ? '&' : '?';
-  return `${path}${sep}return=setup${hash ? `#${hash}` : ''}`;
 }
 
 /**
@@ -425,7 +400,10 @@ export default async function PropertyDetailPage({
   const TAB_ALIASES: Record<string, string> = {
     // the six this replaces
     today: 'now',
-    onboarding: 'setup',
+    // Setup and its catalog retired 2026-10-18; Launch is the one list and
+    // its chip is on Now.
+    onboarding: 'now',
+    setup: 'now',
     operations: 'facts',
     people: 'owner',
     growth: 'guest',
@@ -444,7 +422,7 @@ export default async function PropertyDetailPage({
   const p = await getProperty(id);
   if (!p) notFound();
 
-  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, onboardingRows, contractFacts, propertyContracts, orderChecklistTouched, rentalPeriods, fleetCoverage, workBrief] = await Promise.all([
+  const [statements, propertyFlags, recentInspections, openSlips, latestOwnerContact, crmContactsFull, crmTouchesByContact, propertyNotices, propertyNotes, documents, session, scaLaunch, launchLoad, ownerPortfolio, climateProfile, guestCodeView, propertyCleaners, propertyRooms, contractFacts, propertyContracts, rentalPeriods, workBrief] = await Promise.all([
     getRecentStatements(p.id),
     getPropertyFlags(p.id),
     getRecentInspections(p.id),
@@ -476,15 +454,9 @@ export default async function PropertyDetailPage({
     getGuestCodeView(p.id),
     getPropertyCleaners(p.id, { region: (p as unknown as { region?: string | null }).region ?? null }),
     getPropertyRooms(p.id),
-    getOnboardingItemRows(p.id),
     getContractFacts(p.projection_id ?? null),
     getPropertyContracts(p.id),
-    hasOrderChecklistState(p.id),
     getRentalPeriods(p.id),
-    // Guest messaging's own view of this home (crosswalk + KB + blanks),
-    // bounded to 3s and null on any failure so the page never waits on the
-    // Mac Mini. Feeds the "Guest messaging knows this home" onboarding item.
-    getFleetCoverage().then((r) => (r.ok ? r.data : null)).catch(() => null),
     getWorkBrief(p.id),
   ]);
   const myEmail = session?.user?.email ?? '';
@@ -607,74 +579,23 @@ export default async function PropertyDetailPage({
   // summary, so the chip and the launch page never disagree (the
   // 1/18-vs-5/18 mismatch came from two copies of this calc).
   const launchProgress = launchLoad.summary;
-  const launchCleanerMapped = launchLoad.ctx.hasQuoCleanerMapping;
 
-  // Onboarding catalog: effective status per item. A manual operator row
-  // always wins; an untouched item falls back to live-data derivation
-  // (same manual-beats-derived rule as the launch checklist).
-  const onboardingCtx: OnboardingDeriveContext = {
-    p,
-    roomsCount: propertyRooms.length,
-    bedroomsOnFile: propertyRooms.filter((r) => r.room_type === 'bedroom').length,
-    bedroomsWithBeds: propertyRooms.filter((r) => r.room_type === 'bedroom' && (r.details?.beds?.length ?? 0) > 0).length,
-    roomsWithQuirks: propertyRooms.filter((r) => (r.details?.quirks?.length ?? 0) > 0).length,
-    guestFacingNotes: propertyNotes.filter((n) => n.guest_facing).length,
-    opsNotes: propertyNotes.filter((n) => !n.guest_facing).length,
-    documentsCount: visibleDocuments.length,
-    locksMapped: guestCodeView.locks.length,
-    climateConfigured: !!climateProfile?.enabled,
-    cleanerMapped: launchCleanerMapped,
-    scaLive: scaLaunch?.status === 'live',
-    scaPaymentSignal: scaLaunch?.payment_verify_signal ?? null,
-    contractExecuted: contractFacts.executed,
-    contractTermStart: contractFacts.termStart,
-    contractTermEnd: contractFacts.termEnd,
-    stripeKeyConfigured: !!getStripeKeysMap()[p.id],
-    conciergeCoverage: (() => {
-      const c = fleetCoverage?.properties?.[p.id];
-      return c ? { kb: !!c.kb, crosswalk: !!c.crosswalk, todos: Number(c.todos) || 0 } : null;
-    })(),
-    // Same query, already run by the launch loader above. A second copy
-    // here meant one pricing fact moved two different progress counters.
-    forwardDistinctPrices: launchLoad.ctx.forwardDistinctPrices,
-    orderChecklistTouched,
-  };
-  const onboardingStatus = new Map<string, { status: 'todo' | 'done' | 'n_a'; derived: boolean }>();
-  for (const item of ONBOARDING_ITEMS) {
-    const row = onboardingRows.get(item.key);
-    if (row && row.status !== 'todo') {
-      onboardingStatus.set(item.key, { status: row.status, derived: false });
-    } else if (item.derive && item.derive(onboardingCtx)) {
-      onboardingStatus.set(item.key, { status: 'done', derived: true });
-    } else {
-      onboardingStatus.set(item.key, { status: 'todo', derived: false });
-    }
-  }
-  const onboardingResolved = [...onboardingStatus.values()].filter((s) => s.status !== 'todo').length;
   /**
-   * Setup is the only tab with a retirement condition.
+   * An established home (a first guest has arrived, or the go-live date is
+   * stamped) keeps its Launch chip on Now only while Coming online still
+   * lists a required step open (src/lib/launch-checklist.ts). The keying is
+   * the predicate launch-checklist already uses, NOT activated_at alone:
+   * that column is null on purpose across the legacy fleet.
    *
-   * A house that has earned for seasons should not wear onboarding
-   * furniture, and 16 Waterman wearing a permanent "27%" is what that looked
-   * like. The gate is the predicate launch-checklist already uses, NOT
-   * activated_at alone: that column is null on purpose across the legacy
-   * fleet, so keying on it would hide Setup on every home we onboarded
-   * before it existed.
-   *
-   * Once retired, the readiness number is still reachable: the launch page
-   * keeps it, and a footer line on Facts links there. The fleet-level view
-   * of who is half-done belongs on /properties, not on one record.
+   * There is no Setup tab any more. Its 108-item catalog was a second list
+   * under a third name; Launch is the one list (migration
+   * 20261018180000 moved its hand ticks into Launch step notes).
    */
-  const showSetup = !(p.activated_at || launchLoad.ctx.firstStayStarted);
-  // The launch checklist chip (Now) and its Facts footer line: always while
-  // the home is being brought online; on an established home only while the
-  // onboarding board still lists a required step open, never once the board
-  // calls it complete or does not track it (src/lib/launch-checklist.ts).
+  const established = !!(p.activated_at || launchLoad.ctx.firstStayStarted);
   const showLaunchChecklist = launchChecklistVisible(
-    !showSetup,
+    established,
     launchBoardGroup(launchLoad.rows.length > 0, launchProgress),
   );
-  const onboardingTotal = ONBOARDING_ITEMS.length;
 
   // Internal-first display: the address-without-suffix name as the hero,
   // the external "Stay at ..." marketing title (if any) as a quieter
@@ -886,11 +807,6 @@ export default async function PropertyDetailPage({
           // records) are sections of this tab; the badge is sends waiting
           // on an approval there.
           { id: 'guest', label: 'Guest & listing', badge: automationsView?.counts.awaiting || undefined },
-          // Setup leaves the strip once the house is established. The
-          // onboarding percentage badge is gone with it: it counted N/A as
-          // progress and could not reach 100 (108 items, 48 derives), so it
-          // was the one badge in Helm that never cleared.
-          ...(showSetup ? [{ id: 'setup', label: 'Setup', badge: `${onboardingResolved}/${onboardingTotal}` }] : []),
         ]}
       >
         {/* ════════════ NOW ════════════ */}
@@ -905,8 +821,8 @@ export default async function PropertyDetailPage({
                 href={`/properties/${p.id}/launch`}
                 title={
                   launchProgress.allDone
-                    ? 'Launch checklist complete'
-                    : `Launch checklist: ${launchProgress.done} of ${launchProgress.total} resolved`
+                    ? 'Launch complete'
+                    : `Launch: ${launchProgress.done} of ${launchProgress.total} resolved`
                 }
                 className="rt-action-link"
                 style={{
@@ -916,7 +832,7 @@ export default async function PropertyDetailPage({
                   color: launchProgress.allDone ? 'var(--positive)' : 'var(--ink)',
                 }}
               >
-                Launch checklist
+                Launch
                 <span style={{ fontFamily: 'var(--font-mono-dash), ui-monospace, monospace', fontSize: 10 }}>
                   {launchProgress.done}/{launchProgress.total}
                 </span>
@@ -1124,137 +1040,6 @@ export default async function PropertyDetailPage({
 
         </TabSection>
 
-        {/* ════════════ SETUP ════════════ */}
-        <TabSection tab="setup">
-          {/* The full lot-to-listing pipeline. Auto-derived items resolve
-              themselves from live data (bank on file, lock mapped, KB
-              seeded); the rest are operator toggles.
-
-              The walkthrough mic used to sit here, a tab away from the other
-              one, both writing through the same apply action. There is one
-              box now, on Today: say the walk into it and Helm routes it to
-              the room-by-room parser. */}
-          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 22, paddingBottom: 8, width: '100%' }}>
-            <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6, maxWidth: 720 }}>
-              Walking the house?{' '}
-              <Link
-                href={`/properties/${p.id}?tab=now`}
-                style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-              >
-                Dictate it into the capture box on Now
-              </Link>
-              . Room by room is recognised on its own; everything it finds lands in the stages below.
-            </p>
-          </section>
-
-          {ONBOARDING_STAGES.map((stage) => {
-            const items = itemsForStage(stage.id);
-            if (items.length === 0) return null;
-            const resolved = items.filter((it) => onboardingStatus.get(it.key)?.status !== 'todo').length;
-            return (
-              <CollapsibleSection
-                key={stage.id}
-                id={`onboarding-${stage.id}`}
-                title={stage.title}
-                summary={`${resolved} of ${items.length}`}
-                defaultOpen={stage.id === 'physical'}
-              >
-                <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
-                  {stage.blurb}
-                </p>
-                {stage.id === 'physical' && (
-                  <div style={{ marginBottom: 20 }}>
-                    <RoomsEditor propertyId={p.id} rooms={propertyRooms} />
-                  </div>
-                )}
-                <div style={{ borderTop: '1px solid var(--ink)' }}>
-                  {items.map((item) => {
-                    const st = onboardingStatus.get(item.key) ?? { status: 'todo' as const, derived: false };
-                    const note = onboardingRows.get(item.key)?.note ?? null;
-                    return (
-                      <div
-                        key={item.key}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'baseline',
-                          gap: 14,
-                          padding: '11px 0',
-                          borderBottom: '1px solid var(--rule)',
-                          opacity: st.status === 'n_a' ? 0.55 : 1,
-                        }}
-                      >
-                        <span
-                          aria-hidden
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            flexShrink: 0,
-                            alignSelf: 'center',
-                            background:
-                              st.status === 'done' ? 'var(--positive)' :
-                              st.status === 'n_a' ? 'var(--ink-4)' :
-                              'transparent',
-                            border: st.status === 'todo' ? '1.5px solid var(--rule)' : 'none',
-                          }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 14, color: 'var(--ink)', textDecoration: st.status === 'n_a' ? 'line-through' : 'none' }}>
-                            {item.title}
-                            {item.href && (
-                              <Link
-                                href={editHrefWithReturn(item.href.replace('{id}', p.id))}
-                                style={{ marginLeft: 10, fontSize: 11, letterSpacing: '.08em', color: 'var(--tide-deep)', textDecoration: 'none' }}
-                              >
-                                {item.hrefLabel ?? 'Open'} →
-                              </Link>
-                            )}
-                          </div>
-                          {(item.why || item.description) && (
-                            <div style={{ marginTop: 2, fontSize: 11.5, color: 'var(--ink-4)', lineHeight: 1.45, maxWidth: 640 }}>
-                              {item.description}
-                              {item.description && item.why ? ' ' : ''}
-                              {item.why}
-                            </div>
-                          )}
-                          {note && (
-                            <div style={{ marginTop: 3, fontSize: 11.5, color: 'var(--tide-deep)', lineHeight: 1.45 }}>
-                              {note}
-                            </div>
-                          )}
-                        </div>
-                        <OnboardingItemToggle
-                          propertyId={p.id}
-                          itemKey={item.key}
-                          status={st.status}
-                          derived={st.derived}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </CollapsibleSection>
-            );
-          })}
-
-          {/* Go-live gates: the launch checklist, embedded read-only so the
-              onboarding hub is one place. The launch page stays the surface
-              for acting on these (inline editors, activation gate). */}
-          <CollapsibleSection
-            id="onboarding-golive"
-            title="Go-live gates"
-            summary={`${launchProgress.done} of ${launchProgress.total}${launchProgress.allDone ? ' · live' : ''}`}
-          >
-            <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.5, maxWidth: 720 }}>
-              The activation gates that flip this property live: statements matching, turnover SMS
-              attribution, and the rest of the launch checklist.
-            </p>
-            <Link href={`/properties/${p.id}/launch`} style={primaryActionStyle}>
-              Open launch checklist →
-            </Link>
-          </CollapsibleSection>
-        </TabSection>
-
         {/* ════════════ FACTS ════════════ */}
         <TabSection tab="facts">
       {/* THE FACT SHEET, open: seven groups shaped by the question they
@@ -1326,6 +1111,18 @@ export default async function PropertyDetailPage({
             </Fragment>
           ))}
         </div>
+      </CollapsibleSection>
+
+      {/* ROOMS AND BEDS: property_rooms, the one store the listing, the
+          sleeping arrangements and the walkthrough read. It lived inside the
+          retired Setup catalog and inside Listing; it is a fact about the
+          house, so it is edited here and Listing shows it. */}
+      <CollapsibleSection
+        id="rooms"
+        title="Rooms and beds"
+        summary={bedSummary(propertyRooms).text || 'no rooms on file'}
+      >
+        <RoomsEditor propertyId={p.id} rooms={propertyRooms} />
       </CollapsibleSection>
 
       <CollapsibleSection
@@ -1567,22 +1364,6 @@ export default async function PropertyDetailPage({
         </div>
       </CollapsibleSection>
 
-      {/* Setup has retired off the strip for this house, so the readiness
-          number needs somewhere to still be reachable. One line, not a tab. */}
-      {!showSetup && showLaunchChecklist && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-            Setup is complete for {p.name}.{' '}
-            <Link
-              href={`/properties/${p.id}/launch`}
-              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-            >
-              Open the launch checklist
-            </Link>{' '}
-            to review the {onboardingResolved} of {onboardingTotal} items on record.
-          </p>
-        </section>
-      )}
 
       {/* TOOLS: the launchers, as one quiet line at the foot of the tab.
           They are navigation, not content, and as tiles they pushed the
@@ -1591,6 +1372,10 @@ export default async function PropertyDetailPage({
         <ToolLink href={`/properties/${p.id}/edit`}>Edit all facts</ToolLink>
         <ToolLink href={`/channels/${p.id}`}>Channels ({helmRun ? 'Helm runs the calendar' : 'Guesty runs the calendar'})</ToolLink>
         <ToolLink href={`/properties/${p.id}/layout`}>Inspection layout</ToolLink>
+        {/* Reachable on every home, before and after it goes live. It used to
+            hang off two Setup catalog items and vanished with the tab. */}
+        <ToolLink href={`/properties/${p.id}/order-checklist`}>Outfitting order</ToolLink>
+        <ToolLink href={`/properties/${p.id}/launch`}>Launch</ToolLink>
         {/* A helm-run home has no live Guesty listing to fill from. */}
         {!helmRun && <PropertyBackfillButton propertyId={p.id} />}
       </ToolsLine>

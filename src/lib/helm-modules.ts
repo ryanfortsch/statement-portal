@@ -422,10 +422,12 @@ export const HELM_MODULES: HelmModule[] = [
   },
   {
     id: 'property-onboarding',
-    href: '/properties/onboarding',
+    // A section of the Properties roster since 2026-10-18; the old board
+    // route redirects to the anchor.
+    href: '/properties#coming-online',
     number: '05d',
-    title: 'Onboarding board',
-    description: 'Every home in flight: launch-checklist progress, what is next and who owns it, and the live homes still carrying open go-live steps (Guesty cleaning automation, PriceLabs, the code roster).',
+    title: 'Coming online',
+    description: 'Every home on a Launch list: progress, what is next and who owns it, and the live homes still carrying open required steps (Guesty cleaning automation, PriceLabs, the roster).',
     status: 'active',
     primary: false,
     hidden: true,

@@ -70,19 +70,26 @@ describe('requiredOpenSteps', () => {
   });
 });
 
-describe('one rule on the page and the board', () => {
-  test('the Now chip and the Facts footer line are both gated', () => {
+describe('one rule on the page and Coming online', () => {
+  test('the Now chip is gated, and it is the one door on the record', () => {
     const src = read('src/app/properties/[id]/page.tsx');
-    assert.ok(src.includes('launchChecklistVisible(\n    !showSetup,\n    launchBoardGroup(launchLoad.rows.length > 0, launchProgress),\n  )'));
+    assert.ok(src.includes('launchChecklistVisible(\n    established,\n    launchBoardGroup(launchLoad.rows.length > 0, launchProgress),\n  )'));
     assert.ok(src.includes('{showLaunchChecklist && ('), 'the Now chip');
-    assert.ok(src.includes('{!showSetup && showLaunchChecklist && ('), 'the Facts footer line');
+    // The Facts footer line and the Setup tab's Go-live gates fold were two
+    // more doors to the same list; both are gone.
+    assert.ok(!src.includes('Setup is complete for'), 'the Facts footer line is back');
+    assert.ok(!src.includes('Go-live gates'), 'the Go-live gates fold is back');
+    assert.ok(!src.includes('<TabSection tab="setup">'), 'the Setup tab is back');
   });
-  test('the board groups with the same rule, lists only required open steps for loose ends, and has no stat strip', () => {
-    const src = read('src/app/properties/onboarding/page.tsx');
+  test('Coming online groups with the same rule, lists only required open steps for loose ends, and has no stat strip', () => {
+    const src = read('src/app/properties/ComingOnline.tsx');
     assert.ok(src.includes('launchBoardGroup(r.load.rows.length > 0, r.load.summary)'));
     assert.ok(src.includes('requiredOpenSteps(load.effective)'));
-    assert.ok(/rows=\{looseEnds\}[\s\S]{0,120}requiredOnly/.test(src));
+    assert.ok(/looseEnds\.map\(\(r\) => \([\s\S]{0,80}requiredOnly/.test(src));
     assert.ok(!src.includes('Open required steps'), 'the group counts say it');
     assert.ok(!src.includes('rt-helm-stat-strip'));
+    // It sits on the roster, and the old board route only redirects there.
+    assert.ok(read('src/app/properties/page.tsx').includes('<ComingOnline properties={managedActive} loads={launchByProperty} />'));
+    assert.ok(read('src/app/properties/onboarding/page.tsx').includes("redirect('/properties#coming-online')"));
   });
 });
