@@ -5,17 +5,18 @@ import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { dismissConciergeAttention } from '@/lib/stay-concierge';
 
-const DISMISSIBLE_TYPES = new Set(['slip', 'task', 'email', 'inbound', 'plink-paid', 'plink-unpaid', 'concierge']);
+const DISMISSIBLE_TYPES = new Set(['slip', 'task', 'email', 'inbound', 'plink-paid', 'plink-unpaid']);
 
 /**
- * Clear an item off the signed-in user's home "For Me" feed. Records a
- * per-user dismissal (view-only — it does NOT change the underlying slip,
- * task, or email) so the item stays cleared across reloads. The feed
- * excludes dismissals and backfills the next item from the pool.
+ * Hide an item from the signed-in user's home "For Me" feed: the feed's ×,
+ * and its only meaning. Records a per-user dismissal (view-only: it does
+ * NOT change the underlying slip, task, email or link) so the item stays
+ * hidden across reloads. The feed excludes dismissals and backfills the next
+ * item from the pool.
  *
- * Writes via the service role (bypasses RLS); reads happen on the page with
- * the anon client. Reports failures if the table is missing or there is no
- * session. The caller displays failed dismissals and offers retry.
+ * Writes via the service role (bypasses RLS). Reports failures if the table
+ * is missing or there is no session. The caller displays failed dismissals
+ * and offers retry.
  */
 export async function dismissFeedItem(itemType: string, itemId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!DISMISSIBLE_TYPES.has(itemType) || !itemId) return { ok: false, error: 'This item cannot be cleared.' };
@@ -23,16 +24,6 @@ export async function dismissFeedItem(itemType: string, itemId: string): Promise
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, error: 'Sign in again to clear this item.' };
-
-  // A concierge alert (ConciergeAlerts) clears for everyone, on the
-  // concierge: an alert somebody handled is handled. The rest of the feed is
-  // per-user and view-only.
-  if (itemType === 'concierge') {
-    const result = await dismissConciergeAttention(itemId, email);
-    if (!result.ok || !result.data.ok) return { ok: false, error: 'Could not clear this alert. Try again.' };
-    revalidatePath('/');
-    return { ok: true };
-  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -52,5 +43,22 @@ export async function dismissFeedItem(itemType: string, itemId: string): Promise
   }
 
   revalidatePath('/');
+  return { ok: true };
+}
+
+/**
+ * Clear a concierge alert for everyone, on the concierge: an alert somebody
+ * handled is handled. Its own action, and its own words on the button, so
+ * the feed's × only ever means "hide it from me".
+ */
+export async function clearConciergeAlert(itemKey: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!itemKey) return { ok: false, error: 'This alert cannot be cleared.' };
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return { ok: false, error: 'Sign in again to clear this alert.' };
+  const result = await dismissConciergeAttention(itemKey, email);
+  if (!result.ok || !result.data.ok) return { ok: false, error: 'Could not clear this alert. Try again.' };
+  revalidatePath('/');
+  revalidatePath('/messaging');
   return { ok: true };
 }

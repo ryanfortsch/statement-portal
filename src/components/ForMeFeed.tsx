@@ -19,6 +19,7 @@ import { dueWording, handoffMonths, inNagWindow, monthName } from '@/lib/close-h
 import { loadHandoffItems } from '@/lib/close-handoff-db';
 import { loadOwnerHoldQuestions, type OwnerHoldQuestionCard } from '@/lib/owner-hold-questions';
 import { HoldRow } from '@/app/cleaner-messaging/OwnerHoldQuestionsCard';
+import { homeFeedOrder, windowPayments, type FeedSection } from '@/lib/home-feed-order';
 
 type MyWork = {
   id: string;
@@ -66,20 +67,18 @@ const REPLY_WINDOW = 6;
 const GLANCE_WINDOW = 6;
 
 /**
- * The "For Me" home feed: the signal worth surfacing, with the noise
- * already filtered out. Reuses the daily-brief AI triage (the same engine
- * /today renders) read from cache — no live classification on page load.
+ * The "For Me" home feed: the signed-in person's day, in the order it is
+ * worked (lib/home-feed-order.ts). My work, walks and meetings; then what is
+ * waiting on my reply; then the clock-bound team items (an owner block's
+ * "clean after?", a cleaning to check) and the team's unassigned work; then
+ * the office queues; then guest payments. Owners keep the "clean after?"
+ * card first. The mail is the daily-brief triage read from cache, with no
+ * live classification on page load.
  *
- * Order of attention:
- *   1. On your plate — work slips and tasks assigned to the signed-in user.
- *   2. Needs your reply — emails the triage flagged needs_reply, plus
- *      inbound contact messages (texts/emails) still awaiting a response.
- *   3. A headingless run of glance-worthy emails (triage 'fyi') underneath.
- *
- * Each item has a × to clear it from the feed (view-only; recorded per user
- * in home_feed_dismissals). Cleared items drop out and the next from the
- * pool backfills. Notifications and promotions never reach here; the triage
- * drops them upstream.
+ * One × with one meaning: it hides a row from your own feed and changes
+ * nothing else (recorded per user in home_feed_dismissals), and the next
+ * from the pool backfills. A card that clears by being answered (an owner
+ * block, a cleaning flag, an office queue, a Stripe key to fix) has no ×.
  */
 export async function ForMeFeed() {
   let needsReply: BriefEmail[] = [];
@@ -104,16 +103,25 @@ export async function ForMeFeed() {
 
   const session = await auth();
   const email = session?.user?.email ?? '';
+  const role = roleForEmail(email);
+  const owner = role === 'owner';
   // Links into the mailbox the brief read render only for the person who
   // owns it; everyone else gets the sender, the summary and the subject.
   const mail = { mailbox: gmailMailbox, canOpen: canOpenMailbox(email, gmailMailbox) };
+  // The triaged mail is one owner's inbox. It waits on the owners, or on
+  // whoever's mailbox it is; a staff login's replies are the team's texts.
+  if (!owner && !mail.canOpen) {
+    needsReply = [];
+    fyi = [];
+  }
   const [{ work: allWork, mode: workMode }, dismissed, plannedWalks, queueCards, paymentCards, meetingCards, ownerHolds] = await Promise.all([
     loadMyWork(email),
     loadDismissals(email),
     loadPlannedWalks(email),
     loadQueueCards(email),
     loadPaymentLinkCards(),
-    loadMeetingCards(),
+    // Owners see every meeting on the calendar; staff see the ones they logged.
+    owner ? loadMeetingCards() : email ? loadMeetingCards(new Date(), { createdBy: email }) : Promise.resolve([]),
     // Owner blocks nobody has answered "clean after?" for. No clear
     // button: answering is the clear, on the buttons right here.
     loadOwnerHoldQuestions(supabase).catch(() => null),
@@ -122,13 +130,14 @@ export async function ForMeFeed() {
   const ownerHoldToday = ownerHolds?.today ?? todayET();
 
   // Guest payment links: paid this week (the "did they pay?" answer) and
-  // still open past a day (the "they haven't" answer). Both clear with ×.
-  const paidLinks = paymentCards.paid.filter((c) => !dismissed.has(`plink-paid:${c.row.request_key}`));
+  // still open past a day (the "they haven't" answer). Both hide with ×.
+  // A property whose Stripe key will not let Helm read payments is one row
+  // with no ×: it clears itself once the key is fixed and the next sweep
+  // reads it. The feed shows a few, unpaid first; the rest fold into "N more".
   const overdueLinks = paymentCards.overdue.filter((c) => !dismissed.has(`plink-unpaid:${c.row.request_key}`));
-  // A property whose Stripe key will not let Helm read payments: one card,
-  // no ×, clears itself once the key is fixed and the next sweep reads it.
+  const paidLinks = paymentCards.paid.filter((c) => !dismissed.has(`plink-paid:${c.row.request_key}`));
   const keyProblems = paymentCards.keyProblems;
-  const hasPayments = paidLinks.length + overdueLinks.length + keyProblems.length > 0;
+  const payments = windowPayments(overdueLinks, keyProblems, paidLinks);
 
   // Drop cleared items, then pick the window (tasks first, slips spread
   // across properties) so clearing one reveals the next.
@@ -143,23 +152,186 @@ export async function ForMeFeed() {
 
   const glance = fyi.filter((e) => !dismissed.has(`email:${e.id}`)).slice(0, GLANCE_WINDOW);
 
-  const hasReplyItems = replyTotal > 0;
-  const hasWalks = plannedWalks.length > 0;
-  const hasMeetings = meetingCards.length > 0;
-  const nothing =
-    ownerHoldAsks.length === 0 &&
-    !hasMeetings &&
-    !hasReplyItems &&
-    workFiltered.length === 0 &&
-    glance.length === 0 &&
-    !hasWalks &&
-    queueCards.length === 0 &&
-    cleaningFlags.length === 0 &&
-    !hasPayments;
+  // Each section, or null when it has nothing to show. The page renders them
+  // in the order of the signed-in person's day (lib/home-feed-order.ts).
+  const sections: Record<FeedSection, React.ReactNode> = {
+    // ON YOUR PLATE: work assigned to you. The header links to the board
+    // filtered to "mine"; the feed shows a few and backfills as you clear.
+    work:
+      workMode === 'assigned' && myWork.length > 0 ? (
+        <>
+          <SectionHeaderLink href="/work?filter=mine" title="On your plate" eyebrow={`${workFiltered.length} assigned`} />
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {myWork.map((w) => (
+              <MyWorkRow key={`${w.kind}-${w.id}`} item={w} />
+            ))}
+          </div>
+        </>
+      ) : null,
+
+    // PLANNED WALKS: inspection plans assigned to you, today and the next
+    // few days. A walk has a fixed clock; the row lands on the walk's own
+    // pipeline row.
+    walks:
+      plannedWalks.length > 0 ? (
+        <>
+          <SectionHeaderLink href="/turnovers" title="Planned walks" eyebrow={`${plannedWalks.length} upcoming`} />
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {plannedWalks.map((w) => (
+              <PlannedWalkRow key={w.id} walk={w} />
+            ))}
+          </div>
+        </>
+      ) : null,
+
+    // MEETINGS: sit-downs logged on a CRM contact page, today and tomorrow
+    // in Gloucester. The card leaves on its own once the day passes.
+    meetings:
+      meetingCards.length > 0 ? (
+        <>
+          <SectionHeaderLink
+            href="/crm"
+            title="Meetings"
+            eyebrow={meetingCards.length === 1 ? '1 coming up' : `${meetingCards.length} coming up`}
+          />
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {meetingCards.map((m) => (
+              <MeetingFeedRow key={m.id} meeting={m} />
+            ))}
+          </div>
+        </>
+      ) : null,
+
+    // NEEDS YOUR REPLY: triaged mail flagged for a reply and texts or
+    // emails from a contact still waiting on us; then, with no heading, the
+    // mail worth a glance.
+    replies:
+      replyTotal > 0 || glance.length > 0 ? (
+        <>
+          {replyTotal > 0 && (
+            <>
+              <SectionHeaderLink href="/today" title="Needs your reply" eyebrow={`${replyTotal} waiting`} />
+              <div style={{ borderTop: '1px solid var(--ink)' }}>
+                {replyEmails.map((e) => (
+                  <EmailItem key={e.id} email={e} mail={mail} />
+                ))}
+                {replyInbound.map((t) => (
+                  <InboundItem key={inboundId(t)} touch={t} />
+                ))}
+              </div>
+            </>
+          )}
+          {glance.length > 0 && (
+            <div style={{ marginTop: replyTotal > 0 ? 28 : 0, borderTop: '1px solid var(--rule)' }}>
+              {glance.map((e) => (
+                <EmailItem key={e.id} email={e} mail={mail} dim />
+              ))}
+            </div>
+          )}
+        </>
+      ) : null,
+
+    // OWNER BLOCKS TO ANSWER: Guesty holds for the owner with no "clean
+    // after?" answer yet. The stay is on the cleaner schedule meanwhile;
+    // the buttons are the same ones as on the cleaner messaging card, and
+    // answering is the clear.
+    holds:
+      ownerHoldAsks.length > 0 ? (
+        <>
+          <SectionHeaderLink
+            href="/cleaner-messaging#owner-holds"
+            title="Owner blocks · clean after?"
+            eyebrow={`${ownerHoldAsks.length} to answer`}
+            subline="On the cleaner schedule until you say otherwise."
+          />
+          <div style={{ borderTop: '2px solid var(--signal)' }}>
+            {ownerHoldAsks.map((c) => (
+              <HoldRow key={`${c.propertyId}|${c.checkIn}`} card={c} today={ownerHoldToday} back="home" />
+            ))}
+          </div>
+        </>
+      ) : null,
+
+    // CLEANINGS TO CHECK: a guest leaving and no cleaner booked, or a
+    // cleaner booked before the guest is out or after the next one is in.
+    // Today through the day after tomorrow, as far as the vendor announces.
+    // A flag clears itself once the vendor's schedule catches up.
+    cleanings:
+      cleaningFlags.length > 0 ? (
+        <>
+          <SectionHeaderLink href="/turnovers/cleanings" title="Cleanings to check" eyebrow={`${cleaningFlags.length} to check`} />
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {cleaningFlags.map((f) => (
+              <CleaningFlagRow key={`${f.date}|${f.propertyId}`} flag={f} />
+            ))}
+          </div>
+        </>
+      ) : null,
+
+    // UNASSIGNED WORK: when nothing is assigned to you, the team's
+    // unclaimed backlog, spread across homes, after the clock-bound items.
+    unassigned:
+      workMode === 'unassigned' && myWork.length > 0 ? (
+        <>
+          <SectionHeaderLink href="/work?filter=unclaimed" title="Unassigned work" eyebrow={`${workFiltered.length} unassigned`} />
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {myWork.map((w) => (
+              <MyWorkRow key={`${w.kind}-${w.id}`} item={w} />
+            ))}
+          </div>
+        </>
+      ) : null,
+
+    // IN THE QUEUES: one row per office queue with work stacked up. A row
+    // renders only while its count is nonzero, so the block disappears on
+    // its own when the queues are clear.
+    queues:
+      queueCards.length > 0 ? (
+        <>
+          <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
+            <h2 style={sectionHeadingStyle}>In the queues</h2>
+            <span className="eyebrow">{queueCards.length} waiting</span>
+          </div>
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {queueCards.map((c) => (
+              <QueueRow key={c.id} card={c} />
+            ))}
+          </div>
+        </>
+      ) : null,
+
+    // PAYMENTS: guest payment links (late checkouts, pets, extra nights,
+    // deposits) still open after a day, and ones just paid. Helm is the
+    // alert for a link, per the team-notification policy.
+    payments:
+      overdueLinks.length + keyProblems.length + paidLinks.length > 0 ? (
+        <>
+          <SectionHeaderLink
+            href={PAYMENTS_HREF}
+            title="Payments"
+            eyebrow={paymentsEyebrow(paidLinks.length, overdueLinks.length, keyProblems.length)}
+          />
+          <div style={{ borderTop: '1px solid var(--ink)' }}>
+            {payments.overdue.map((c) => (
+              <PaymentLinkFeedRow key={c.row.request_key} card={c} />
+            ))}
+            {payments.problems.map((k) => (
+              <PaymentKeyProblemRow key={k.propertyId} problem={k} owner={owner} />
+            ))}
+            {payments.paid.map((c) => (
+              <PaymentLinkFeedRow key={c.row.request_key} card={c} />
+            ))}
+            {payments.more > 0 && <MoreRow href={PAYMENTS_HREF} text={`${payments.more} more`} />}
+          </div>
+        </>
+      ) : null,
+  };
+
+  const shown = homeFeedOrder(role).filter((key) => sections[key] != null);
 
   return (
     <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 80, width: '100%' }}>
-      {nothing ? (
+      {shown.length === 0 ? (
         <div
           style={{
             borderTop: '1px solid var(--ink)',
@@ -180,204 +352,13 @@ export async function ForMeFeed() {
         </div>
       ) : (
         <>
-          {/* QUEUE PRESSURE - one row per operator queue with work stacked up
-              (creative approvals and pay owed, field packets submitted for
-              review, statements still unsent for the last closed month). Each
-              row links to its board; a row only renders while its count is
-              nonzero, so the block disappears on its own when the queues are
-              clear. */}
-          {/* CLEANINGS TO CHECK — a house with a guest leaving and no cleaner
-              booked, or a cleaner booked before the guest is out or after
-              the next one is in. Today through the day after tomorrow, which
-              is as far as the vendor announces. Same read as the strip above
-              and the cleanings page; no clear button, because a flag clears
-              itself the moment the vendor's schedule catches up. First,
-              because Jobber books about two days out: this is the one
-              section with a clock on it. */}
-          {/* OWNER BLOCKS TO ANSWER - Guesty holds for the owner with no
-              "clean after?" answer yet. The stay is on the cleaner schedule
-              meanwhile; the buttons here are the same ones as on the cleaner
-              messaging card. Ahead of everything, because it is a question
-              the operator asked to be served loudly (2026-10-08). */}
-          {ownerHoldAsks.length > 0 && (
-            <div style={{ marginBottom: 36 }}>
-              <SectionHeaderLink
-                href="/cleaner-messaging#owner-holds"
-                title="Owner blocks · clean after?"
-                eyebrow={`${ownerHoldAsks.length} to answer`}
-                subline="On the cleaner schedule until you say otherwise."
-              />
-              <div style={{ borderTop: '2px solid var(--signal)' }}>
-                {ownerHoldAsks.map((c) => (
-                  <HoldRow key={`${c.propertyId}|${c.checkIn}`} card={c} today={ownerHoldToday} back="home" />
-                ))}
-              </div>
+          {shown.map((key) => (
+            <div key={key} data-feed-section={key} style={{ marginBottom: 36 }}>
+              {sections[key]}
             </div>
-          )}
+          ))}
 
-          {cleaningFlags.length > 0 && (
-            <div style={{ marginBottom: 36 }}>
-              <SectionHeaderLink
-                href="/turnovers/cleanings"
-                title="Cleanings to check"
-                eyebrow={`${cleaningFlags.length} to check`}
-              />
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {cleaningFlags.map((f) => (
-                  <CleaningFlagRow key={`${f.date}|${f.propertyId}`} flag={f} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {queueCards.length > 0 && (
-            <div style={{ marginBottom: 36 }}>
-              <div className="flex items-baseline justify-between" style={{ marginBottom: 12 }}>
-                <h2 style={sectionHeadingStyle}>In the queues</h2>
-                <span className="eyebrow">{queueCards.length} waiting</span>
-              </div>
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {queueCards.map((c) => (
-                  <QueueRow key={c.id} card={c} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* PAYMENTS — guest payment links (late checkouts, pets, extra
-              nights, deposits) that just got paid, and ones still open after a
-              day. This is the alert for a link, per the team-notification
-              policy: Helm is the surface, nothing texts or emails the team.
-              Paid rows say so and clear with ×; unpaid rows carry Nudge
-              (re-text the link from the GUESTS line) and Cancel (turn it off
-              in Stripe). */}
-          {hasPayments && (
-            <div style={{ marginBottom: 36 }}>
-              <SectionHeaderLink
-                href="/messaging/send?tab=charge#payment-links"
-                title="Payments"
-                eyebrow={paymentsEyebrow(paidLinks.length, overdueLinks.length, keyProblems.length)}
-              />
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {paidLinks.map((c) => (
-                  <PaymentLinkFeedRow key={c.row.request_key} card={c} />
-                ))}
-                {overdueLinks.map((c) => (
-                  <PaymentLinkFeedRow key={c.row.request_key} card={c} />
-                ))}
-                {keyProblems.map((k) => (
-                  <PaymentKeyProblemRow key={k.propertyId} problem={k} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* MEETINGS — sit-downs with an owner, prospect or vendor logged on
-              the CRM contact page, today and tomorrow in Gloucester. Fixed
-              clock, so it sits with the walks, above work that can shift. No
-              clear button: the card leaves on its own once the day passes.
-              Important ones were also texted the evening before by
-              /api/cron/meeting-reminders; this card shows either way. */}
-          {hasMeetings && (
-            <div style={{ marginBottom: 36 }}>
-              <SectionHeaderLink
-                href="/crm"
-                title="Meetings"
-                eyebrow={meetingCards.length === 1 ? '1 coming up' : `${meetingCards.length} coming up`}
-              />
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {meetingCards.map((m) => (
-                  <MeetingFeedRow key={m.id} meeting={m} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* PLANNED WALKS — inspection plans assigned to you for today or
-              the next few days. Sits above "On your plate" because a walk
-              has a fixed clock (you have to be on the property at a specific
-              time) and slips/tasks can shift. Replaces the equivalent
-              section that used to live on the orphan /me page. */}
-          {hasWalks && (
-            <div style={{ marginBottom: 36 }}>
-              <SectionHeaderLink
-                href="/turnovers"
-                title="Planned walks"
-                eyebrow={`${plannedWalks.length} upcoming`}
-              />
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {plannedWalks.map((w) => (
-                  <PlannedWalkRow key={w.id} walk={w} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ON YOUR PLATE — work assigned to you, or unassigned work as a
-              fallback when you have nothing assigned. The whole header row
-              is a link to the broader view (/work filtered to "mine" or
-              "unclaimed") so a click goes to the full backlog. The cleared
-              feed shows 4 at a time; dismissing one revalidates the page
-              and the next from the 20-item pool slides in. */}
-          {myWork.length > 0 && (
-            <div style={{ marginBottom: hasReplyItems ? 36 : 12 }}>
-              <SectionHeaderLink
-                href={workMode === 'assigned' ? '/work?filter=mine' : '/work?filter=unclaimed'}
-                title={workMode === 'assigned' ? 'On your plate' : 'Unassigned work'}
-                eyebrow={
-                  workMode === 'assigned'
-                    ? `${workFiltered.length} assigned`
-                    : `${workFiltered.length} unassigned`
-                }
-                subline={
-                  workMode === 'unassigned'
-                    ? "Nothing assigned to you right now. Showing the team's unclaimed backlog."
-                    : undefined
-                }
-              />
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {myWork.map((w) => (
-                  <MyWorkRow key={`${w.kind}-${w.id}`} item={w} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* NEEDS YOUR REPLY */}
-          {hasReplyItems && (
-            <div style={{ marginBottom: 12 }}>
-              <SectionHeaderLink
-                href="/today"
-                title="Needs your reply"
-                eyebrow={`${replyTotal} waiting`}
-              />
-              <div style={{ borderTop: '1px solid var(--ink)' }}>
-                {replyEmails.map((e) => (
-                  <EmailItem key={e.id} email={e} mail={mail} />
-                ))}
-                {replyInbound.map((t) => (
-                  <InboundItem key={inboundId(t)} touch={t} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Glance-worthy mail — same items that used to live under
-              "Worth a glance", now with no heading per request. */}
-          {glance.length > 0 && (
-            <div
-              style={{
-                marginTop: hasReplyItems || myWork.length > 0 ? 28 : 0,
-                borderTop: '1px solid var(--rule)',
-              }}
-            >
-              {glance.map((e) => (
-                <EmailItem key={e.id} email={e} mail={mail} dim />
-              ))}
-            </div>
-          )}
-
-          <div style={{ marginTop: 24 }}>
+          <div>
             <Link href="/today" style={openBriefLinkStyle}>
               Open full brief →
             </Link>
@@ -629,9 +610,8 @@ function MyWorkRow({ item }: { item: MyWork }) {
 /**
  * Clickable section header for the For Me feed. The whole header row
  * (title + count eyebrow with arrow) is one link to the broader view; an
- * optional subline sits beneath the title to explain unusual states (e.g.
- * "nothing assigned to you — showing unclaimed"). The link uses
- * inherited color so it reads as a heading, not a blue underlined link.
+ * optional subline sits beneath the title. The link uses inherited color
+ * so it reads as a heading, not a blue underlined link.
  */
 function SectionHeaderLink({
   href,
@@ -859,7 +839,7 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
   const isToday = walk.plannedFor === today;
   const isPast = !!walk.plannedFor && walk.plannedFor < today;
   const dotColor = isPast ? 'var(--negative)' : isToday ? 'var(--signal)' : 'var(--tide-deep)';
-  const label = isPast ? 'overdue' : isToday ? 'today' : walk.plannedFor ?? 'upcoming';
+  const label = isPast ? 'overdue' : isToday ? 'today' : walk.plannedFor ? plainDate(walk.plannedFor) : 'upcoming';
   // Land on the walk's own row, not the top of the board: the pipeline is
   // filtered to the home and widened to a range that holds the check-in,
   // and the row anchor scrolls to it. A plan with no stay behind it falls
@@ -877,7 +857,7 @@ function PlannedWalkRow({ walk }: { walk: PlannedWalk }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, color: 'var(--ink)' }}>{walk.propertyName}</div>
         <div style={{ marginTop: 3, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.06em' }}>
-          Walk {label} · check-in {walk.checkinDate}
+          Walk {label} · check-in {plainDate(walk.checkinDate)}
           {walk.notes ? ` · ${walk.notes}` : ''}
         </div>
       </div>
@@ -1084,6 +1064,15 @@ function QueueRow({ card }: { card: QueueCard }) {
   );
 }
 
+/** "Sat, Oct 18" for a YYYY-MM-DD, read at noon so no zone moves the day. */
+function plainDate(iso: string): string {
+  return new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 function formatAge(ageHours: number): string {
   if (ageHours < 1) return 'just now';
   if (ageHours < 24) return `${ageHours}h ago`;
@@ -1125,6 +1114,9 @@ const openBriefLinkStyle: React.CSSProperties = {
 };
 
 // ── Payments ──────────────────────────────────────────────────────
+
+/** Where every payment row and the section header land: the Charge tab's ledger. */
+const PAYMENTS_HREF = '/messaging/send?tab=charge#payment-links';
 
 type PaymentCard = { row: PaymentLinkRow; propertyName: string; status: 'paid' | 'overdue' };
 
@@ -1188,7 +1180,7 @@ function paymentsEyebrow(paid: number, overdue: number, cantCheck: number): stri
     .join(' · ');
 }
 
-function PaymentKeyProblemRow({ problem }: { problem: PaymentKeyProblem }) {
+function PaymentKeyProblemRow({ problem, owner }: { problem: PaymentKeyProblem; owner: boolean }) {
   const links = `${problem.openLinks} open link${problem.openLinks === 1 ? '' : 's'}`;
   return (
     <div style={feedRowStyle}>
@@ -1201,11 +1193,10 @@ function PaymentKeyProblemRow({ problem }: { problem: PaymentKeyProblem }) {
           <span style={{ flexShrink: 0, fontSize: 11, color: 'var(--signal)' }}>{links}</span>
         </div>
         <div style={{ marginTop: 3, fontSize: 11, fontWeight: 500, color: 'var(--ink-3)', lineHeight: 1.4 }}>
-          Its restricted Stripe key needs Checkout Sessions read. Fix it in Stripe; nothing changes in Vercel, and
-          the next sweep reads these links.
+          {owner ? "The home's Stripe key can't read payments." : "Ask Ryan to fix the home's Stripe key."}
         </div>
         <div style={{ display: 'flex', gap: 14, marginTop: 6 }}>
-          {problem.fixUrl ? (
+          {owner && problem.fixUrl ? (
             <a
               href={problem.fixUrl}
               target="_blank"
@@ -1216,7 +1207,7 @@ function PaymentKeyProblemRow({ problem }: { problem: PaymentKeyProblem }) {
             </a>
           ) : null}
           <Link
-            href="/messaging/send?tab=charge#payment-links"
+            href={PAYMENTS_HREF}
             style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ink-3)', textDecoration: 'none' }}
           >
             See the links →
@@ -1224,6 +1215,15 @@ function PaymentKeyProblemRow({ problem }: { problem: PaymentKeyProblem }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** The last row of a capped section: how many more, linking to the rest. */
+function MoreRow({ href, text }: { href: string; text: string }) {
+  return (
+    <Link href={href} style={{ ...feedRowStyle, alignItems: 'center', textDecoration: 'none', color: 'inherit' }}>
+      <span className="eyebrow" style={{ color: 'var(--tide-deep)' }}>{text} →</span>
+    </Link>
   );
 }
 
@@ -1236,17 +1236,13 @@ function PaymentLinkFeedRow({ card }: { card: PaymentCard }) {
     : `${who} hasn't paid ${money(row.amount_cents)} yet`;
   const when = paid ? ageLabel(row.paid_at) : `${row.sent_at ? 'sent' : 'made'} ${ageLabel(row.sent_at || row.created_at)}`;
   const sublineBits = [row.label, card.propertyName].filter(Boolean);
-  if (paid) sublineBits.push('lands on the statement through the extras queue');
-  else if (row.nudge_count > 0) sublineBits.push(`nudged ${row.nudge_count}x`);
+  if (!paid && row.nudge_count > 0) sublineBits.push(`nudged ${row.nudge_count}x`);
   return (
     <div style={feedRowStyle}>
       <span aria-hidden style={{ ...dotStyle, background: paid ? 'var(--tide-deep)' : 'var(--signal)' }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
-          <Link
-            href="/messaging/send?tab=charge#payment-links"
-            style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', textDecoration: 'none' }}
-          >
+          <Link href={PAYMENTS_HREF} style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)', textDecoration: 'none' }}>
             {headline}
           </Link>
           <span style={{ flexShrink: 0, fontSize: 11, color: paid ? 'var(--ink-4)' : 'var(--signal)' }}>{when}</span>
