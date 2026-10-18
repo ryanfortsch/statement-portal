@@ -1,4 +1,4 @@
-/** Actual assignment, routing, snooze, and TeamPicker components in React
+/** Actual assignment, Whose hands, snooze, and TeamPicker components in React
  * and Chromium. Server actions and the roster use synthetic data only. */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -19,7 +19,7 @@ const compile = source => ts.transpileModule(source, { compilerOptions: {
 } }).outputText;
 for (const [name, path] of [
   ['assignment', 'src/app/work/[id]/SlipAssignEditor.tsx'],
-  ['scope', 'src/app/work/[id]/SlipScopeEditor.tsx'],
+  ['lane', 'src/app/work/[id]/SlipLaneEditor.tsx'],
   ['snooze', 'src/app/work/[id]/SnoozeButton.tsx'],
   ['slip-controls', 'src/app/work/[id]/slip-controls.ts'],
   ['picker', 'src/components/TeamPicker.tsx'],
@@ -28,10 +28,14 @@ for (const [name, path] of [
 await writeFile(join(scratch, 'actions.js'), `
   const save = (kind,args) => new Promise((resolve,reject) => window.calls.push({kind,args,resolve,reject}));
   export const updateWorkSlipAssignment = args => save('assignment',args);
-  export const updateWorkSlipScope = args => save('scope',args);
+  export const updateWorkSlipLane = args => save('lane',args);
   export const snoozeWorkSlip = args => save('snooze',args);
 `);
 await writeFile(join(scratch, 'refresh.js'), 'export const useSoftRefresh = () => () => {window.refreshes++;};');
+await writeFile(join(scratch, 'lanes.js'), `
+  export const LANE_CHOICE_LABELS={supply:'Supply',visit:'This visit',handyman:'Handyman',pro:'Pro or vendor',owner:'Owner',office:'Office'};
+  export const LANE_HINTS={supply:'Supply hint.',visit:'Visit hint.',handyman:'Handyman hint.',pro:'Pro hint.',owner:'Owner hint.',office:'Office hint.'};
+`);
 await writeFile(join(scratch, 'team.js'), `
   export const TEAM_MEMBERS = [{email:'teammate@example.test',name:'Synthetic teammate',short:'Teammate',initials:'ST',role:'inspector',active:true}];
   export const getTeamMember = email => TEAM_MEMBERS.find(m=>m.email===email)||null;
@@ -42,7 +46,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
   import React, {useState} from 'react';
   import {createRoot} from 'react-dom/client';
   import {SlipAssignEditor} from './assignment.js';
-  import {SlipScopeEditor} from './scope.js';
+  import {SlipLaneEditor} from './lane.js';
   import {SnoozeButton} from './snooze.js';
   import {hasUnsavedWork} from './unsaved-work.js';
   window.calls=[];window.refreshes=0;window.guarded=hasUnsavedWork;
@@ -53,7 +57,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
     window.unmount=()=>setMounted(false);window.disableSnooze=()=>setDisabled(true);
     return mounted&&<>
       <section id="assignment"><SlipAssignEditor slipId="synthetic-slip" initialAssignedToEmail="original@example.test" myEmail="me@example.test"/></section>
-      <section id="scope"><SlipScopeEditor slipId="synthetic-slip" initialScope={params.has('emptyScope')?null:'inspector'} initialNote="Original routing note"/></section>
+      <section id="lane"><SlipLaneEditor slipId="synthetic-slip" propertyId="synthetic-home" initialLane="visit" choices={params.has('supplyKeyed')?['supply','owner']:['supply','visit','handyman','pro','owner','office']}/></section>
       <section id="snooze"><fieldset disabled={disabled}><SnoozeButton slipId="synthetic-slip" initialSnoozedUntil={params.has('active')?null:'2026-10-01'}/></fieldset></section>
       <button id="outside">Outside</button>
     </>;
@@ -70,6 +74,7 @@ await new Promise((done,reject)=>{
       './slip-controls':join(scratch,'slip-controls.js'),
       '@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
       '@/lib/team':join(scratch,'team.js'),
+      '@/lib/work-slip-lanes':join(scratch,'lanes.js'),
     }},performance:{hints:false},
   });
   compiler.run((error,stats)=>compiler.close(()=>error||stats?.hasErrors()
@@ -140,7 +145,7 @@ try{
   const ready=section=>page.waitForFunction(section=>!document.querySelector('#'+section+' button').matches(':disabled'),{},section);
   const beforeUnload=()=>page.evaluate(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;});
   const assignee=()=>page.$eval('#assignment button',b=>b.textContent);
-  const scopes=()=>page.$$eval('#scope button[aria-pressed="true"]',bs=>bs.map(b=>b.textContent));
+  const lanes=()=>page.$$eval('#lane button[aria-pressed="true"]',bs=>bs.map(b=>b.textContent));
   const date=()=>page.$eval('#snooze input',input=>input.value);
   const trigger=()=>page.$eval('#snooze button',b=>b.textContent);
   const custom=async(value)=>{
@@ -193,34 +198,37 @@ try{
   assert.equal(await page.$('#assignment [role="alert"]'),null);
   pass('a new assignment replaces a failed target without a stale error or retry');
 
-  for(const [label,value] of [['Inspector','inspector'],['Handyman','handyman'],['Pro / vendor','pro']]){
-    await reset('?emptyScope=1');await click('scope',label,{twice:true});await waitCalls(1);
-    assert.deepEqual(await scopes(),[]);assert.equal(await guard(),true);
-    assert.equal(await page.$$eval('#scope button',bs=>bs.every(b=>b.disabled)),true);
-    await finish(0,{ok:false,error:'Synthetic routing failure'});await waitText('Synthetic routing failure');await ready('scope');
-    assert.deepEqual(await scopes(),[]);await waitText('Original routing note');
-    await click('scope','Retry routing');await waitCalls(2);await finish(1,null,true);
-    await waitText('Could not confirm the routing change.');await ready('scope');
+  for(const [label,value] of [['Supply','supply'],['Handyman','handyman'],['Pro or vendor','pro'],['Owner','owner'],['Office','office']]){
+    await reset();await click('lane',label,{twice:true});await waitCalls(1);
+    assert.deepEqual(await lanes(),['This visit']);assert.equal(await guard(),true);
+    assert.equal(await page.$$eval('#lane button',bs=>bs.every(b=>b.disabled)),true);
+    assert.deepEqual(await page.evaluate(()=>window.calls[0].args),{id:'synthetic-slip',lane:value,propertyId:'synthetic-home'});
+    await finish(0,{ok:false,error:'Synthetic lane failure'});await waitText('Synthetic lane failure');await ready('lane');
+    assert.deepEqual(await lanes(),['This visit']);await waitText('Showing the last confirmed lane.');await waitText('Visit hint.');
+    await click('lane','Retry');await waitCalls(2);await finish(1,null,true);
+    await waitText('Could not confirm the change.');await ready('lane');
     assert.equal(await page.evaluate(()=>window.calls.length),2);
-    await click('scope','Retry routing',{twice:true});await waitCalls(3);await finish(2);await waitClean();
-    assert.deepEqual(await scopes(),[label]);
-    assert.deepEqual(await page.evaluate(()=>window.calls.map(c=>c.args.run_scope)),Array(3).fill(value));
-    assert.equal(await page.$eval('#scope',s=>s.textContent.includes('Original routing note')),false);
-    pass(label+' handles returned and thrown failures, duplicate taps, and explicit retry');
+    await click('lane','Retry',{twice:true});await waitCalls(3);await finish(2);await waitClean();
+    assert.deepEqual(await lanes(),[label]);
+    assert.deepEqual(await page.evaluate(()=>window.calls.map(c=>c.args.lane)),Array(3).fill(value));
+    assert.equal(await page.evaluate(()=>window.refreshes),1);
+    pass('Whose hands '+label+' handles returned and thrown failures, duplicate taps, and explicit retry, then refreshes once');
   }
 
-  await reset();await click('scope','Inspector');await waitCalls(1);await finish(0,null,true);
-  await waitText('Could not confirm the routing change.');await ready('scope');assert.deepEqual(await scopes(),['Inspector']);
-  await waitText('Original routing note');await click('scope','Retry routing');await waitCalls(2);await finish(1);await waitClean();
-  assert.deepEqual(await scopes(),[]);await waitText('Not decided yet.');
-  assert.deepEqual(await page.evaluate(()=>window.calls.map(c=>c.args.run_scope)),[null,null]);
-  assert.equal(await page.$eval('#scope',s=>s.textContent.includes('Original routing note')),false);
-  pass('clearing routing retries null without toggling back and clears its stale note only on success');
+  await reset();await click('lane','This visit',{twice:true});
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  assert.equal(await page.evaluate(()=>window.calls.length),0);assert.deepEqual(await lanes(),['This visit']);assert.equal(await guard(),false);
+  pass('the lit lane is a no-op: a slip is always in a lane, so there is nothing to clear');
 
-  await reset();await click('scope','Handyman');await waitCalls(1);await finish(0,{ok:false,error:'Scope failed'});await ready('scope');
-  await click('scope','Dismiss');await waitClean();assert.deepEqual(await scopes(),['Inspector']);
-  await click('scope','Pro / vendor');await waitCalls(2);await finish(1);await waitClean();assert.deepEqual(await scopes(),['Pro / vendor']);
-  pass('routing can dismiss a failed choice or save a different destination');
+  await reset();await click('lane','Handyman');await waitCalls(1);await finish(0,{ok:false,error:'Lane failed'});await ready('lane');
+  await click('lane','Dismiss');await waitClean();assert.deepEqual(await lanes(),['This visit']);
+  await click('lane','Pro or vendor');await waitCalls(2);await finish(1);await waitClean();assert.deepEqual(await lanes(),['Pro or vendor']);
+  await waitText('Pro hint.');
+  pass('a failed lane choice can be dismissed or replaced by a different lane');
+
+  await reset('?supplyKeyed=1');
+  assert.deepEqual(await page.$$eval('#lane button',bs=>bs.map(b=>b.textContent)),['Supply','Owner']);
+  pass('a slip offers only the lanes the server says it can reach');
 
   await reset();await snoozeCustom('2026-10-10');await waitCalls(1);
   assert.equal(await date(),'2026-10-10');assert.equal(await guard(),true);assert.equal(await beforeUnload(),true);
@@ -285,31 +293,31 @@ try{
   pass('the surrounding completion panel can still disable every snooze control');
 
   await reset();await custom('pending@example.test');await waitCalls(1);
-  await click('scope','Handyman');await waitCalls(2);await snoozeCustom('2026-10-10');await waitCalls(3);
+  await click('lane','Handyman');await waitCalls(2);await snoozeCustom('2026-10-10');await waitCalls(3);
   // React may entangle overlapping transitions, leaving all controls pending
   // until the final action settles. Check confirmed values independently.
   await finish(0);await page.waitForFunction(()=>document.querySelector('#assignment button').textContent.includes('pending@example.test'));
   assert.equal(await page.$('#assignment [role="status"]'),null);assert.equal(await guard(),true);
-  await finish(1);await page.waitForFunction(()=>document.querySelector('#scope button[aria-pressed="true"]').textContent==='Handyman');
-  assert.equal(await page.$('#scope [role="status"]'),null);assert.equal(await guard(),true);
+  await finish(1);await page.waitForFunction(()=>document.querySelector('#lane button[aria-pressed="true"]').textContent==='Handyman');
+  assert.equal(await page.$('#lane [role="status"]'),null);assert.equal(await guard(),true);
   await finish(2,{ok:false,error:'Snooze still needs retry'});await ready('snooze');assert.equal(await guard(),true);
   await click('snooze','Dismiss');await waitClean();
   pass('one successful editor cannot release another editor’s pending or failed selection guard');
 
-  await reset();await click('scope','Handyman');await waitCalls(1);await snoozeCustom('2026-10-10');await waitCalls(2);
+  await reset();await click('lane','Handyman');await waitCalls(1);await snoozeCustom('2026-10-10');await waitCalls(2);
   await finish(1);await waitText('Snoozed until 2026-10-10');assert.equal(await guard(),true);
   assert.equal(await page.$('#snooze input'),null);assert.equal(await page.evaluate(()=>window.refreshes),1);
-  await finish(0,{ok:false,error:'Routing still needs retry'});await waitText('Routing still needs retry');await ready('scope');
-  assert.equal(await guard(),true);await click('scope','Dismiss');await waitClean();
+  await finish(0,{ok:false,error:'Routing still needs retry'});await waitText('Routing still needs retry');await ready('lane');
+  assert.equal(await guard(),true);await click('lane','Dismiss');await waitClean();
   pass('a confirmed snooze shows its date while another editor is still pending or failed');
 
-  await reset();await click('scope','Handyman');await waitCalls(1);await snoozeCustom('2026-10-10');await waitCalls(2);
+  await reset();await click('lane','Handyman');await waitCalls(1);await snoozeCustom('2026-10-10');await waitCalls(2);
   await finish(1,{ok:false,error:'Snooze failed before routing finished'});await waitText('Snooze failed before routing finished');
   assert.equal(await trigger(),'Snoozed until 2026-10-01');assert.equal(await date(),'2026-10-10');assert.equal(await guard(),true);
   await finish(0);await ready('snooze');await click('snooze','Dismiss');await waitClean();
   pass('a failed snooze shows the last confirmed date even while a different request remains pending');
 
-  await reset();await custom('pending@example.test');await click('scope','Handyman');await snoozeCustom('2026-10-10');await waitCalls(3);
+  await reset();await custom('pending@example.test');await click('lane','Handyman');await snoozeCustom('2026-10-10');await waitCalls(3);
   await page.evaluate(()=>window.unmount());await waitClean();
   await finish(0);await finish(1,null,true);await finish(2,{ok:false,error:'Late snooze error'});
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));

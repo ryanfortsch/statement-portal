@@ -1966,16 +1966,18 @@ function primaryBtn(): React.CSSProperties {
   };
 }
 
-/** Run the organize pass now instead of waiting for the night. The action
- *  answers at once with how many slips the pass has not seen; the model
- *  calls run after the response, so the note tells the operator to check
- *  back rather than spinning on a minutes-long pass. */
-/** How often the button asks how many slips the background pass still has
- *  to file, and how long it keeps asking. The pass itself runs under a
- *  230-second budget (lib/organize-work-slips.ts), then rewrites the briefs. */
+/** How often the Organize button asks how many slips the background pass
+ *  still has to file, and how long it keeps asking. The pass itself runs
+ *  under a 230-second budget (lib/organize-work-slips.ts), then rewrites
+ *  the briefs. */
 const ORGANIZE_POLL_MS = 10_000;
 const ORGANIZE_WATCH_MS = 5 * 60_000;
 
+/** Run the organize pass now instead of waiting for the night. The action
+ *  answers at once with how many slips the pass has not seen and the model
+ *  calls run after the response; the button then watches the count fall
+ *  and reports on the board what it filed ("Filed 12 slips into lanes."),
+ *  never "check back". */
 function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
   const softRefresh = useSoftRefresh();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -2006,11 +2008,11 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
       const filed = Math.max(0, started - left);
       if (left === 0 || Date.now() - startedAt > ORGANIZE_WATCH_MS) {
         setWatching(false);
-        setNote(left === 0 ? `Organized ${plural(filed)}.` : `Organized ${filed} of ${plural(started)}. The nightly pass takes the rest.`);
+        setNote(left === 0 ? `Filed ${plural(filed)} into lanes.` : `Filed ${filed} of ${plural(started)} into lanes. The nightly pass takes the rest.`);
         softRefresh();
         return;
       }
-      if (filed > 0) setNote(`Organizing… ${filed} of ${started} filed.`);
+      if (filed > 0) setNote(`Filing… ${filed} of ${started} in lanes.`);
       watch(started, startedAt);
     }, ORGANIZE_POLL_MS);
   }
@@ -2028,9 +2030,9 @@ function OrganizeButton({ onReviewStale }: { onReviewStale?: () => void }) {
           return;
         }
         if (res.pending === 0) {
-          setNote('Every open slip is already organized.');
+          setNote('Every open slip is already in a lane.');
         } else {
-          setNote(`Organizing ${plural(res.pending)}…`);
+          setNote(`Filing ${plural(res.pending)} into lanes…`);
           setWatching(true);
           watch(res.pending, Date.now());
         }

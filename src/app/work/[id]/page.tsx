@@ -3,20 +3,16 @@ import { notFound } from 'next/navigation';
 import { auth } from '@/auth';
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
 import type { WorkSlipRow, WorkSlipCommentRow } from '@/lib/work-types';
-import {
-  WORK_SLIP_CATEGORY_LABELS,
-} from '@/lib/work-types';
 import { BackToBoardLink } from './BackToBoardLink';
 import { SlipPhotoEditor } from './SlipPhotoEditor';
 import { SlipAssignEditor } from './SlipAssignEditor';
-import { SlipScopeEditor } from './SlipScopeEditor';
 import { SlipComments } from './SlipComments';
 import { SlipTitleEditor } from './SlipTitleEditor';
 import { SlipBringListEditor } from './SlipBringListEditor';
 import { SlipClosePanel } from './SlipClosePanel';
 import { SlipOwnerActionEditor } from './SlipOwnerActionEditor';
-import { SlipCategoryEditor } from './SlipCategoryEditor';
-import { LANE_LABELS, slipLane } from '@/lib/work-slip-lanes';
+import { SlipLaneEditor } from './SlipLaneEditor';
+import { LANE_LABELS, laneChoicesFor, slipLane } from '@/lib/work-slip-lanes';
 import { operatingDate } from '@/lib/operating-date';
 
 export const dynamic = 'force-dynamic';
@@ -127,6 +123,11 @@ export default async function WorkSlipDetailPage({
   const backFallbackHref = `/work?open=${slip.property_id}${isSnoozed ? '&filter=snoozed' : ''}#prop-${slip.property_id}`;
 
   const hasPhotos = (slip.photo_urls ?? []).length > 0;
+  const lane = slipLane(slip);
+  // The AI's one line of why, when a person has not decided since.
+  const scopeNote = slip.run_scope_note && !slip.run_scope_note.startsWith('Set by') && ['visit', 'handyman', 'pro'].includes(lane)
+    ? slip.run_scope_note
+    : null;
 
   return (
     <>
@@ -146,7 +147,7 @@ export default async function WorkSlipDetailPage({
         <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 14 }}>
           <Pill color={statusColor} label={slip.status.replace('_', ' ').toUpperCase()} solid />
           <Pill color={priorityColor} label={`${slip.priority.toUpperCase()} priority`} />
-          <Pill color="var(--ink-4)" label={WORK_SLIP_CATEGORY_LABELS[slip.category] ?? slip.category} />
+          <Pill color="var(--ink-4)" label={LANE_LABELS[lane]} />
         </div>
       </section>
 
@@ -272,22 +273,29 @@ export default async function WorkSlipDetailPage({
         </Section>
       )}
 
-      {/* LANE — whose hands this goes to. Category is what the board, the
-          print sheet and the Field packet read the lane off; the nightly
+      {/* WHOSE HANDS: the one question about who does the work. The six
+          lane words are the choices; each writes the category, run_scope
+          and owner flag the board, the print sheet and the Field packet
+          read the lane back off (lib/work-slip-lanes.ts). The nightly
           organize pass files new slips here once and never touches a slip
           a person has moved. */}
       <Section
-        title="Lane"
+        title="Whose hands"
         eyebrow={
           slip.organized_at
-            ? `${LANE_LABELS[slipLane(slip)]} · ${slip.organize_note?.startsWith('Set by') ? slip.organize_note : `organized by Helm ${formatDate(slip.organized_at)}`}`
-            : `${LANE_LABELS[slipLane(slip)]} · not yet organized`
+            ? `${LANE_LABELS[lane]} · ${slip.organize_note?.startsWith('Set by') ? slip.organize_note : `organized by Helm ${formatDate(slip.organized_at)}`}`
+            : `${LANE_LABELS[lane]} · not yet organized`
         }
       >
-        <SlipCategoryEditor slipId={slip.id} propertyId={slip.property_id} initialCategory={slip.category} />
+        <SlipLaneEditor slipId={slip.id} propertyId={slip.property_id} initialLane={lane} choices={laneChoicesFor(slip)} />
         {slip.organize_note && !slip.organize_note.startsWith('Set by') && (
           <p style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, margin: '12px 0 0' }}>
             {slip.organize_note}
+          </p>
+        )}
+        {scopeNote && scopeNote !== slip.organize_note && (
+          <p style={{ fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.5, margin: '8px 0 0' }}>
+            {scopeNote}
           </p>
         )}
         {slip.organize_group_label && (
@@ -296,17 +304,6 @@ export default async function WorkSlipDetailPage({
           </p>
         )}
       </Section>
-
-      {/* WHO DOES THIS — maintenance-run triage */}
-      {slip.category === 'maintenance' && (
-        <Section title="Who does this" eyebrow={slip.run_scope ? 'Decided' : 'Not decided yet'}>
-          <SlipScopeEditor
-            slipId={slip.id}
-            initialScope={slip.run_scope ?? null}
-            initialNote={slip.run_scope_note ?? null}
-          />
-        </Section>
-      )}
 
       {/* OWNER INPUT — same shape as Photos: a full section only when the
           slip is flagged; arming it lives in the quiet row below. This is
