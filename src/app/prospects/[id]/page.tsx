@@ -1370,11 +1370,10 @@ function DeliverableActions({
 
 /** Public-link row used by Signed + Onboarding stages — code box + Open ↗. */
 function LinkRow({ link }: { link: string }) {
-  // The link is an absolute path (e.g. /contract/<token>). For the
-  // Copy button we want the FULL URL with protocol+host so paste-into-
-  // email yields a clickable link. resolve at server-render time via
-  // the public site domain — falls back to the relative path if the
-  // env var isn't set (dev / local).
+  // The link is a path (e.g. /contract/<token>). The box shows, and Copy
+  // puts on the clipboard, the same FULL URL with protocol and host, so
+  // what the reader sees is what lands in the email. Resolved at render
+  // time from the public site domain.
   const base = process.env.NEXT_PUBLIC_HELM_ORIGIN || 'https://helm.risingtidestr.com';
   const fullUrl = link.startsWith('http') ? link : `${base}${link}`;
   return (
@@ -1392,7 +1391,7 @@ function LinkRow({ link }: { link: string }) {
           whiteSpace: 'nowrap',
         }}
       >
-        {link}
+        {fullUrl}
       </code>
       <CopyLinkButton text={fullUrl} />
       <Link

@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
- * Hits POST /api/sync-prospect-mail to scan Allie's sent folder for each
- * prospect with an email and update their gmail_touches column. Refreshes the
+ * Hits POST /api/sync-prospect-mail to scan the configured mailboxes' sent
+ * mail (src/lib/prospect-mailboxes.ts) for each prospect with an email and
+ * update their gmail_touches column. Refreshes the
  * server component on completion so the badges re-render with the new state.
  */
 export function SyncGmailButton({ projectionId }: { projectionId?: string }) {
