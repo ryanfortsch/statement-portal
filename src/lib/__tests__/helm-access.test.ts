@@ -400,7 +400,7 @@ describe('no card or link on a staff page lands on /not-available', () => {
     assert.ok(src.includes('{owner && <span>{brief.totals.activeProspects} prospects in funnel</span>}'), 'the footer count is owners only');
   });
 
-  test('the concierge strip drops the owner-line alerts for staff', () => {
+  test('the concierge alerts drop the owner-line alerts for staff', () => {
     const src = read('src/components/ConciergeAlerts.tsx');
     assert.ok(src.includes("const items = conciergeAlertsFor(role ?? 'staff', res.data.items);"));
   });

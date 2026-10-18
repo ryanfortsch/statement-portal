@@ -11,7 +11,7 @@
  * component only fetches when a thread is opened.
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { matchesInboxText } from '@/lib/inbox-search';
 import { Section } from '@/components/Section';
 import type { ConversationSummary } from '@/lib/stay-concierge';
@@ -34,6 +34,8 @@ const isHelmRow = (c: Pick<ConversationSummary, 'conversation_id'>) => c.convers
 type Props = {
   initialConversations: InboxConversation[];
   initialError: string | null;
+  /** A thread to open on arrival (`/messaging?open=<id>`). */
+  initialOpenId?: string | null;
 };
 
 const DEFAULT_VISIBLE = 8;
@@ -53,12 +55,20 @@ const STAY_CHIP: Record<string, { label: string; tone: string }> = {
   checked_out: { label: 'Checked out', tone: 'var(--ink-4)' },
 };
 
-export function ConversationsBrowser({ initialConversations, initialError }: Props) {
+export function ConversationsBrowser({ initialConversations, initialError, initialOpenId = null }: Props) {
   const [query, setQuery] = useState('');
   const [reviewOnly, setReviewOnly] = useState(false);
   const [filter, setFilter] = useState<StayFilter>('all');
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [showAll, setShowAll] = useState(false);
+
+  // The list streams in after the page, so the browser's own jump to
+  // #conversations has already passed by the time it exists: bring the
+  // asked-for thread into view once it has mounted.
+  useEffect(() => {
+    if (!initialOpenId) return;
+    document.getElementById(`conversation-${initialOpenId}`)?.scrollIntoView({ block: 'start' });
+  }, [initialOpenId]);
 
   const matching = useMemo(() => initialConversations.filter(c =>
     (filter === 'all' || c.stay_status === filter) && matchesInboxText(query, [c.guest_full, c.property_name, prettifySlug(c.listing_id), c.channel, c.last_preview])
@@ -84,7 +94,7 @@ export function ConversationsBrowser({ initialConversations, initialError }: Pro
 
   if (initialError && initialConversations.length === 0) {
     return (
-      <Section title="Conversations" eyebrow="live from Guesty and Helm" paddingTop={36}>
+      <Section id="conversations" title="Conversations" eyebrow="live from Guesty and Helm" paddingTop={36}>
         <div style={{ borderTop: '1px solid var(--rule)', padding: '16px 0', fontSize: 13, color: 'var(--ink-3)' }}>
           {initialError}
         </div>
@@ -94,6 +104,7 @@ export function ConversationsBrowser({ initialConversations, initialError }: Pro
 
   return (
     <Section
+      id="conversations"
       title="Conversations"
       eyebrow={`${initialConversations.length} guests · in house, upcoming & recent`}
       paddingTop={36}
@@ -252,7 +263,9 @@ export function ConversationRow({
         : 'Direct-booked guest: Guesty cannot deliver a reply here. Use the SMS / WhatsApp flow.';
   return (
     <li
+      id={variant === 'thread' ? `conversation-${c.conversation_id}` : undefined}
       style={{
+        scrollMarginTop: 100,
         borderBottom: '1px solid var(--rule)',
         background: selected ? 'var(--paper-2)' : 'transparent',
         borderLeft: selected ? '3px solid var(--signal)' : '3px solid transparent',
