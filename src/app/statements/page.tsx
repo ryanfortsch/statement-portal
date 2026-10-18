@@ -688,14 +688,18 @@ function ConfidenceIndicator({ level }: { level: string }) {
   return <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />;
 }
 
-function CheckTask({ label, done, onToggle }: { label: string; done: boolean; onToggle: (next: boolean) => void }) {
+function CheckTask({ label, done, onToggle, disabled }: { label: string; done: boolean; onToggle: (next: boolean) => void; disabled?: boolean }) {
   return (
     <button
+      type="button"
       onClick={() => onToggle(!done)}
+      disabled={disabled}
+      aria-pressed={done}
       title={label}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 6,
-        background: 'transparent', border: 'none', cursor: 'pointer',
+        background: 'transparent', border: 'none', cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
         fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
         color: done ? 'var(--positive)' : 'var(--ink-4)',
         padding: 4,
@@ -1511,10 +1515,31 @@ function PropertyCard({
   onRefresh,
   reviewRefresh = 0,
   forceExpand = 0,
+  closeTask,
+  closeTaskKnown,
+  ownerGreeting,
+  ownerEmailMissing,
+  onCloseTaskField,
+  onMarkSent,
+  onPreview,
 }: {
   prop: PropertyStatement;
   month: string;
   ownerActionCount: number;
+  // The Send section: this home's owner email and transfers. It used to be
+  // a row in a close-out grid ten cards below the card, so one property's
+  // close lived in two places.
+  closeTask: CloseTask | undefined;
+  // false = the close-out ticks did not load; they show, but cannot be
+  // ticked until they do.
+  closeTaskKnown: boolean;
+  ownerGreeting: string;
+  ownerEmailMissing: boolean;
+  onCloseTaskField: (patch: Partial<CloseTask>) => void;
+  // "Statement sent" has its own door (markStatementSent): unticking it
+  // unfreezes the statement and must leave a trace.
+  onMarkSent: (next: boolean) => void;
+  onPreview: () => void;
   // Re-read THIS statement and the strip counts, in place. The card stays
   // mounted, so it stays open and the page stays where it was scrolled.
   onRefresh: () => void;
@@ -1640,6 +1665,15 @@ function PropertyCard({
                     {prop.drift_bookings!.length} new
                   </span>
                 )}
+                {closeTask?.email_sent_at ? (
+                  <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--positive)' }}>
+                    Sent
+                  </span>
+                ) : closeTask?.email_drafted_at ? (
+                  <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--tide-deep)' }}>
+                    Drafted
+                  </span>
+                ) : null}
                 {ownerActionCount > 0 && (
                   <Link
                     href="/work?filter=owner-action"
@@ -2342,6 +2376,110 @@ function PropertyCard({
               onSuccess={() => { setFillingGap(null); refreshWithQueue(); }}
             />
           )}
+
+          {/* Send: the owner email and the two transfers for this home, in
+              the order they happen. Was a row in the close-out grid at the
+              bottom of the page; now one property is one place. */}
+          <div id={`stmt-${prop.property_id}-send`} style={{ marginTop: 28, scrollMarginTop: 72 }}>
+            <SectionHead
+              num="07"
+              title="Send"
+              meta={ownerEmailMissing ? 'no owner email on file' : `to ${ownerGreeting}`}
+              signal={ownerEmailMissing}
+            />
+            {!closeTaskKnown && (
+              <div style={{ fontSize: 11, color: 'var(--negative)', marginBottom: 6 }}>
+                The close-out ticks did not load. Retry from the notice at the top of the page.
+              </div>
+            )}
+            <div className="flex items-center flex-wrap" style={{ gap: 14, padding: '8px 0', borderTop: '1px dotted var(--rule)', borderBottom: '1px dotted var(--rule)', fontSize: 12 }}>
+              <select
+                value={closeTask?.email_template || 'monthly'}
+                onChange={(e) => onCloseTaskField({ email_template: e.target.value as EmailTemplate })}
+                disabled={!closeTaskKnown}
+                aria-label="Email template"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--rule)',
+                  fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
+                  color: 'var(--ink-3)',
+                  padding: '5px 20px 5px 8px',
+                  appearance: 'none',
+                  cursor: 'pointer',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 4px center',
+                  backgroundSize: '12px',
+                }}
+              >
+                <option value="monthly">Monthly</option>
+                <option value="touch_base">Touch-base</option>
+                <option value="year_end">Year-end</option>
+              </select>
+              {/* Opt-in: fold the curated owner-request section into the
+                  email. Persists like the template picker, so Draft All
+                  honors it too. Curate the items in Preview. */}
+              <CheckTask
+                label={ownerActionCount > 0 ? `Owner requests (${ownerActionCount})` : 'Owner requests'}
+                done={!!closeTask?.email_include_work_slips}
+                disabled={!closeTaskKnown}
+                onToggle={(next) => onCloseTaskField({ email_include_work_slips: next })}
+              />
+              <button
+                type="button"
+                onClick={onPreview}
+                style={{
+                  border: '1px solid var(--rule)',
+                  background: 'transparent', color: 'var(--ink-3)',
+                  fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
+                  padding: '5px 12px', cursor: 'pointer',
+                }}
+              >
+                Preview
+              </button>
+              <CheckTask
+                label="Drafted"
+                done={!!closeTask?.email_drafted_at}
+                disabled={!closeTaskKnown}
+                onToggle={(next) => onCloseTaskField({ email_drafted_at: next ? new Date().toISOString() : null })}
+              />
+              {/* Statement sent -- the moment of finality. Stamped by hand
+                  after the operator hits send in Gmail (Helm only creates
+                  the draft, never sends). Ticking it also fires the Drive
+                  archive: the statement PDF lands in Helm Records /
+                  Statements / and its link shows beside the tick. */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <CheckTask
+                  label="Statement sent"
+                  done={!!closeTask?.email_sent_at}
+                  disabled={!closeTaskKnown}
+                  onToggle={(next) => onMarkSent(next)}
+                />
+                {closeTask?.statement_drive_url && (
+                  <a
+                    href={closeTask.statement_drive_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 10, color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+                  >
+                    PDF in Drive
+                  </a>
+                )}
+              </span>
+              <CheckTask
+                label="Owner paid"
+                done={!!closeTask?.owner_transfer_done_at}
+                disabled={!closeTaskKnown}
+                onToggle={(next) => onCloseTaskField({ owner_transfer_done_at: next ? new Date().toISOString() : null })}
+              />
+              <CheckTask
+                label="Mgmt swept"
+                done={!!closeTask?.mgmt_sweep_done_at}
+                disabled={!closeTaskKnown}
+                onToggle={(next) => onCloseTaskField({ mgmt_sweep_done_at: next ? new Date().toISOString() : null })}
+              />
+            </div>
+          </div>
 
           {/* Actions */}
           <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 24 }}>
@@ -4846,6 +4984,13 @@ function DashboardContent() {
                 onRefresh={() => { void refreshStatement(prop.id, prop.property_name); }}
                 reviewRefresh={reviewRefresh}
                 forceExpand={cardExpand.ids.includes(prop.property_id) ? cardExpand.token : 0}
+                closeTask={closeTasks[prop.property_id]}
+                closeTaskKnown={!closeStateError}
+                ownerGreeting={resolveCfg(prop.property_id)?.owner_greeting || prop.owner_name}
+                ownerEmailMissing={(resolveCfg(prop.property_id)?.owner_emails.length ?? 0) === 0}
+                onCloseTaskField={(patch) => { void saveCloseTaskField(prop.property_id, patch); }}
+                onMarkSent={(next) => markStatementSent(prop, next)}
+                onPreview={() => setPreviewPropertyId(prop.property_id)}
               />
             ))}
             <div style={{ borderTop: '1px solid var(--ink)' }} />
@@ -4853,7 +4998,9 @@ function DashboardContent() {
         )}
       </main>
 
-      {/* ─── CLOSE-OUT PANEL ─── */}
+      {/* ─── CLOSE-OUT PANEL ─── the month-level controls only: the
+           funds-sent date, the three transfer sheets and Finalize. Each
+           home's email and transfer ticks live on its card, under Send. */}
       {props.length > 0 && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 32 }}>
           <div className="rule-top" style={{ paddingTop: 20 }}>
@@ -4869,7 +5016,7 @@ function DashboardContent() {
                 Close out <em style={{ color: 'var(--tide-deep)' }}>{monthLong(selectedMonth)}</em>
               </h2>
               <span style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '.14em' }}>
-                Execution
+                The month
               </span>
             </div>
 
@@ -4880,8 +5027,6 @@ function DashboardContent() {
               gap: 20,
               alignItems: 'center',
               padding: '10px 0',
-              borderBottom: '1px dotted var(--rule)',
-              marginBottom: 12,
             }}>
               <div>
                 <div className="eyebrow" style={{ marginBottom: 4 }}>Funds sent</div>
@@ -4993,134 +5138,6 @@ function DashboardContent() {
                   </button>
                 )}
               </div>
-            </div>
-
-            {/* Per-property rows */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {props.map((p) => {
-                const cfg = resolveCfg(p.property_id);
-                const task = closeTasks[p.property_id];
-                const tmpl = (task?.email_template || 'monthly') as EmailTemplate;
-                const emailsMissing = !cfg || cfg.owner_emails.length === 0;
-                return (
-                  <div key={p.id} className="rt-closeout-row" style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1.6fr 1.2fr auto auto auto auto auto auto auto',
-                    gap: 16,
-                    alignItems: 'center',
-                    padding: '10px 0',
-                    borderBottom: '1px dotted var(--rule)',
-                    fontSize: 12,
-                  }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="font-serif" style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{p.property_name}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 2 }}>
-                        {cfg?.owner_greeting || p.owner_name}
-                        {emailsMissing && (
-                          <span style={{ color: 'var(--signal)', marginLeft: 6, letterSpacing: '.08em', textTransform: 'uppercase', fontSize: 9 }}>
-                            &middot; no email
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div className="tabular-nums font-serif" style={{ fontSize: 14, color: 'var(--ink)' }}>{fmtCompact(p.owner_payout)}</div>
-                      <div style={{ fontSize: 10, color: 'var(--signal)' }}>+ {fmtCompact(p.management_fee)} mgmt</div>
-                    </div>
-                    <select
-                      value={tmpl}
-                      onChange={(e) => saveCloseTaskField(p.property_id, { email_template: e.target.value as EmailTemplate })}
-                      style={{
-                        background: 'transparent',
-                        border: '1px solid var(--rule)',
-                        fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase',
-                        color: 'var(--ink-3)',
-                        padding: '5px 20px 5px 8px',
-                        appearance: 'none',
-                        cursor: 'pointer',
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23506068' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
-                        backgroundRepeat: 'no-repeat',
-                        backgroundPosition: 'right 4px center',
-                        backgroundSize: '12px',
-                      }}
-                    >
-                      <option value="monthly">Monthly</option>
-                      <option value="touch_base">Touch-base</option>
-                      <option value="year_end">Year-end</option>
-                    </select>
-                    {/* Opt-in: fold the curated owner-request section into
-                        the email. Persists like the template picker, so
-                        Draft All honors it too. Curate the items in
-                        Preview. */}
-                    <CheckTask
-                      label={
-                        (ownerActionCounts[p.property_id] ?? 0) > 0
-                          ? `Owner requests (${ownerActionCounts[p.property_id]})`
-                          : 'Owner requests'
-                      }
-                      done={!!task?.email_include_work_slips}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_include_work_slips: next })}
-                    />
-                    <button
-                      onClick={() => setPreviewPropertyId(p.property_id)}
-                      style={{
-                        border: '1px solid var(--rule)',
-                        background: 'transparent', color: 'var(--ink-3)',
-                        fontSize: 10, fontWeight: 500, letterSpacing: '.12em', textTransform: 'uppercase',
-                        padding: '5px 12px', cursor: 'pointer',
-                      }}
-                    >
-                      Preview
-                    </button>
-                    <CheckTask
-                      label="Drafted"
-                      done={!!task?.email_drafted_at}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { email_drafted_at: next ? new Date().toISOString() : null })}
-                    />
-                    {/* Statement sent -- the moment of finality. Stamped
-                        manually after the operator hits send in Gmail
-                        (Helm only creates the draft, never sends). This is
-                        the document becoming a matter of record; the
-                        workflow status strip's "sent" count reads off it.
-                        Ticking it also fires the Drive archive — the
-                        statement PDF lands in Helm Records / Statements /
-                        and a Drive link surfaces below the checkbox. */}
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
-                      <CheckTask
-                        label="Statement sent"
-                        done={!!task?.email_sent_at}
-                        onToggle={(next) => markStatementSent(p, next)}
-                      />
-                      {task?.statement_drive_url && (
-                        <a
-                          href={task.statement_drive_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            fontSize: 9,
-                            color: 'var(--ink-4)',
-                            textDecoration: 'none',
-                            letterSpacing: '.1em',
-                            textTransform: 'uppercase',
-                          }}
-                        >
-                          ↗ Drive
-                        </a>
-                      )}
-                    </div>
-                    <CheckTask
-                      label="Owner paid"
-                      done={!!task?.owner_transfer_done_at}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { owner_transfer_done_at: next ? new Date().toISOString() : null })}
-                    />
-                    <CheckTask
-                      label="Mgmt swept"
-                      done={!!task?.mgmt_sweep_done_at}
-                      onToggle={(next) => saveCloseTaskField(p.property_id, { mgmt_sweep_done_at: next ? new Date().toISOString() : null })}
-                    />
-                  </div>
-                );
-              })}
             </div>
           </div>
         </section>
