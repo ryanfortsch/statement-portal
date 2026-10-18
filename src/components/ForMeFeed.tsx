@@ -980,7 +980,9 @@ async function loadPacketQueue(): Promise<QueueCard[]> {
     const cards: QueueCard[] = data.map((p) => ({
       id: `queue-packet-${p.id}`,
       href: `/fieldwork/packets/${p.id}`,
-      text: `Field: approve ${p.title}${p.stop_count ? ` · ${p.stop_count} stop${p.stop_count === 1 ? '' : 's'}` : ''}`,
+      // A planned packet's title already counts its stops ("Gloucester ·
+      // 2 stops"); say it once.
+      text: `Field: approve ${p.title}${p.stop_count && !/\bstops?\b/i.test(p.title) ? ` · ${p.stop_count} stop${p.stop_count === 1 ? '' : 's'}` : ''}`,
     }));
     const more = (count ?? data.length) - data.length;
     if (more > 0) {

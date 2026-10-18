@@ -74,3 +74,8 @@ describe('one × with one meaning', () => {
     }
   });
 });
+
+test('a packet row says its stop count once', () => {
+  const feed = read('src/components/ForMeFeed.tsx');
+  assert.ok(feed.includes('p.stop_count && !/\\bstops?\\b/i.test(p.title)'), 'a title that already counts its stops is not counted again');
+});
