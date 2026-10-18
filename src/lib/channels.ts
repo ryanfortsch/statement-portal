@@ -88,6 +88,32 @@ export function shapeListing(raw: Record<string, unknown>): ChannelListingEx {
   };
 }
 
+/**
+ * Live imported OTA closures per feed (channel_listings.id -> count): the
+ * rows retiring a feed or saving its URL blank would cancel (the same filter
+ * as retireFeedHolds in app/channels/listings/actions.ts), so the confirm on
+ * those controls can name the count. Booking.com's are counted too; the
+ * confirm says they are kept.
+ */
+export async function liveFeedClosureCounts(): Promise<Map<string, number>> {
+  const rows = await selectAllPaged<{ channel_listing_id: string }>(
+    (from, to) =>
+      supabase
+        .from('bookings')
+        .select('id, channel_listing_id')
+        .eq('source', 'ical_import')
+        .eq('status', 'block')
+        .eq('hold_kind', 'ota')
+        .not('channel_listing_id', 'is', null)
+        .order('id')
+        .range(from, to),
+    { label: 'live feed closures' },
+  );
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.channel_listing_id, (out.get(r.channel_listing_id) ?? 0) + 1);
+  return out;
+}
+
 export async function listChannelListingsByProperty(): Promise<Record<string, ChannelListingEx[]>> {
   const all = await listChannelListings();
   const map: Record<string, ChannelListingEx[]> = {};

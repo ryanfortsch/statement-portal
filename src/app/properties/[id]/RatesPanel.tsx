@@ -13,6 +13,7 @@ import {
 } from './rates-actions';
 import type { RateDayRow, RatePlanRow, TaxConfigRow } from '@/lib/rate-plan';
 import { regionLabel } from '@/lib/property-scope';
+import { clearRatesConfirm } from '@/lib/irreversible-confirms';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
 
 /**
@@ -68,7 +69,7 @@ export function RatesPanel({
       <PlanForm propertyId={propertyId} plan={plan} housePolicy={housePolicy} />
       <TaxForm propertyId={propertyId} tax={tax} region={region} />
       <OverridesStrip days={days} plan={plan} today={today} />
-      <SeasonsTool propertyId={propertyId} today={today} hasPlan={!!plan} />
+      <SeasonsTool propertyId={propertyId} today={today} hasPlan={!!plan} days={days} />
       <QuoteTester propertyId={propertyId} today={today} hasPlan={!!plan} guestsIncluded={plan?.guests_included ?? 2} />
     </div>
   );
@@ -307,7 +308,7 @@ function Cell({ label, value, hint }: { label: string; value: string; hint?: str
 
 // ── Seasons ─────────────────────────────────────────────────────────────────
 
-function SeasonsTool({ propertyId, today, hasPlan }: { propertyId: string; today: string; hasPlan: boolean }) {
+function SeasonsTool({ propertyId, today, hasPlan, days }: { propertyId: string; today: string; hasPlan: boolean; days: RateDayRow[] }) {
   const write = writeSeasonAction.bind(null, propertyId);
   const clear = clearSeasonAction.bind(null, propertyId);
   const [wState, writeAction, writing] = useActionState<RatesFormState, FormData>(write, { error: null });
@@ -367,7 +368,17 @@ function SeasonsTool({ propertyId, today, hasPlan }: { propertyId: string; today
         </Field>
         <FormFooter state={wState} pending={writing} label="Write season" busy="Writing…" />
       </form>
-      <form action={clearAction} style={{ display: 'flex', flexDirection: 'column', gap: 14, border: '1px solid var(--rule)', padding: '16px 18px' }}>
+      <form
+        action={clearAction}
+        // Clearing deletes every override in the range, PriceLabs seeds
+        // included, and nothing brings them back: ask once, with the count.
+        onSubmit={(e) => {
+          const fd = new FormData(e.currentTarget);
+          const msg = clearRatesConfirm(String(fd.get('from') ?? ''), String(fd.get('to') ?? ''), days, today);
+          if (!window.confirm(msg)) e.preventDefault();
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 14, border: '1px solid var(--rule)', padding: '16px 18px' }}
+      >
         <div className="eyebrow">Clear overrides</div>
         <Group label="">
           <Field label="From" required>
@@ -377,7 +388,7 @@ function SeasonsTool({ propertyId, today, hasPlan }: { propertyId: string; today
             <input name="to" type="date" style={input} required />
           </Field>
         </Group>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Every override in the range goes; the plan's own rate and rules return. Seeded PriceLabs days go too.</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Every override in the range goes; the plan&apos;s own rate and rules return. Seeded PriceLabs days go too.</div>
         <FormFooter state={cState} pending={clearing} label="Clear range" busy="Clearing…" ghost />
       </form>
     </div>

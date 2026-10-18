@@ -113,7 +113,10 @@ export async function updateBooking(formData: FormData) {
 export async function cancelBookingWithReason(formData: FormData) {
   const id = String(formData.get('id') || '').trim();
   if (!id) throw new Error('Missing booking id');
-  const reason = nullableStr(formData.get('reason')) ?? nullableStr(formData.get('cancel_reason')) ?? 'operator';
+  // A reason is required (audit 2026-10-17): "operator" was the default, so
+  // a one-click cancel left no word on why a confirmed stay went.
+  const reason = nullableStr(formData.get('reason')) ?? nullableStr(formData.get('cancel_reason'));
+  if (!reason || reason.length < 3) throw new Error('Say why this is being cancelled; the reason goes on the record.');
   const actor = await actorEmail();
   const row = await cancelBooking(id, { reason, actor });
   revalidateBooking(id, row.property_id);
