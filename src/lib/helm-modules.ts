@@ -786,13 +786,16 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     group: 'relationships',
   },
-  // Channels is the Helm-native PMS: un-parked with the per-property Guesty
-  // cutover (properties.calendar_authority). Pinned in the Library via
-  // OVERFLOW_PRIORITY. The three lenses below are tabs on the Channels
-  // surface, so they are hidden from the nav lists and registered only so
+  // Channels is the Helm-native PMS, and until a Cape Ann home is Helm-run
+  // (calendar_authority is guesty for every one; 65 Calderwood is a
+  // read-only pilot) a write there reaches no OTA. So it is off the More
+  // menu (hidden, 2026-10-18): a home's Channels link on its property page
+  // and Cmd+K reach it, and the route stays. Un-hide it when a Cape Ann home
+  // is flipped. Its pages light the Properties tab (section), since they are
+  // reached from a home. The three lenses below are registered only so
   // Cmd+K resolves "multi-calendar", "channel wiring" and "bookings"
-  // straight to the page. routePrefixes alone covers routing, not search
-  // vocabulary; searchPages matches title / description / id.
+  // straight to the page; searchPages matches title / description / id and
+  // ignores `hidden`.
   {
     id: 'channels',
     href: '/channels',
@@ -801,7 +804,9 @@ export const HELM_MODULES: HelmModule[] = [
     description: 'Listings, rates, calendars, bookings, and the per-property cutover from Guesty.',
     status: 'active',
     primary: false,
+    hidden: true,
     group: 'operations',
+    section: 'properties',
   },
   {
     id: 'channels-calendar',
@@ -813,7 +818,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
-    section: 'channels',
+    section: 'properties',
   },
   {
     id: 'channels-listings',
@@ -826,7 +831,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
-    section: 'channels',
+    section: 'properties',
   },
   {
     id: 'channels-bookings',
@@ -838,7 +843,7 @@ export const HELM_MODULES: HelmModule[] = [
     primary: false,
     hidden: true,
     group: 'operations',
-    section: 'channels',
+    section: 'properties',
   },
   // No 'soon' placeholders at the moment. The status + group machinery
   // stays: a future not-built entry renders dimmed and inert in the menus.
@@ -912,7 +917,8 @@ export function getGroupedOverflowModules(role: HelmRole = 'owner'): { group: He
 
 // The "More" menu is now the Library: a small shelf of reference modules.
 // Pinned in this exact reading order, regardless of group. 'marketing' only
-// reaches the list for staff, whose masthead has no Growth tab.
+// reaches the list for staff, whose masthead has no Growth tab; 'channels'
+// only once it is un-hidden (a Cape Ann home Helm-run).
 const OVERFLOW_PRIORITY = ['playbook', 'crm', 'channels', 'marketing', 'search'];
 
 /**

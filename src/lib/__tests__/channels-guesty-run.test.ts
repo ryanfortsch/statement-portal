@@ -17,6 +17,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { guestyWritesSentence, GUESTY_HOME_SENTENCE } from '../guesty-writes.ts';
+import { HELM_MODULES, getOverflowModulesFlat, activeModuleIdForPathname } from '../helm-modules.ts';
 
 const root = new URL('../../../', import.meta.url);
 const read = (repoPath: string): string => readFileSync(new URL(repoPath, root), 'utf8');
@@ -154,5 +155,27 @@ describe('fewer Channels pages', () => {
     }
     const before = page.slice(0, at);
     assert.ok(before.includes('>Threads</div>') && before.includes('Automation sends for this stay'), 'threads and sends stay on the record');
+  });
+});
+
+describe('Channels off the More menu until a Cape Ann home is Helm-run', () => {
+  test('no role finds Channels in More, and the route stays', () => {
+    const channels = HELM_MODULES.find((m) => m.id === 'channels');
+    assert.equal(channels?.hidden, true, 'Channels is hidden from the nav lists');
+    assert.equal(channels?.href, '/channels');
+    assert.equal(channels?.status, 'active', 'the route and search stay');
+    for (const role of ['owner', 'staff'] as const) {
+      assert.ok(!getOverflowModulesFlat(role).some((m) => m.id.startsWith('channels')), `${role} still sees Channels in More`);
+    }
+  });
+
+  test('Channels pages light the Properties tab, where a home reaches them', () => {
+    for (const p of ['/channels', '/channels/21_horton', '/channels/calendar', '/channels/bookings/abc']) {
+      assert.equal(activeModuleIdForPathname(p), 'properties', p);
+    }
+  });
+
+  test('each home links its channel hub from its property page', () => {
+    assert.ok(read('src/app/properties/[id]/page.tsx').includes('<ToolLink href={`/channels/${p.id}`}>Channels ('));
   });
 });
