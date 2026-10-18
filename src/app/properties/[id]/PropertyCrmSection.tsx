@@ -148,7 +148,7 @@ function ContactCard({
           }}
         >
           <div className="eyebrow" style={{ marginBottom: 8 }}>
-            Recent touches
+            Recent activity
           </div>
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {recent.map((t) => (
@@ -174,7 +174,7 @@ function ContactCard({
         </div>
       ) : lastTouch ? null : (
         <p style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-4)', fontStyle: 'italic' }}>
-          No touches logged yet.
+          No activity logged yet.
         </p>
       )}
     </div>

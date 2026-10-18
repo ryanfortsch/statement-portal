@@ -144,7 +144,7 @@ export async function addContactTouch(args: {
     })
     .select('id')
     .single();
-  if (error || !data) return { ok: false, error: error?.message || 'Failed to log touch' };
+  if (error || !data) return { ok: false, error: error?.message || 'Could not log this activity' };
 
   revalidatePath(`/crm/${args.contact_id}`);
   revalidatePath('/crm');

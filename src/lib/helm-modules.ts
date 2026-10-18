@@ -781,7 +781,7 @@ export const HELM_MODULES: HelmModule[] = [
     href: '/crm',
     number: '07',
     title: 'CRM',
-    description: 'Owners, vendors, leads. Every touch logged in one place.',
+    description: 'Owners, vendors, leads. Every call, text, email and visit logged in one place, as each contact\'s activity.',
     status: 'active',
     primary: false,
     group: 'relationships',

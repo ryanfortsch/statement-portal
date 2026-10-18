@@ -60,3 +60,43 @@ describe('/crm opens on the list', () => {
     assert.ok(page.slice(at, at + 300).includes('.range(from, to)'));
   });
 });
+
+describe('the CRM list and the contact page', () => {
+  test('one Refresh replaces the three sync buttons', () => {
+    const list = read('src/app/crm/CrmListClient.tsx');
+    assert.ok(list.includes('<RefreshCrmButton />'));
+    for (const old of ['SyncGmailButton', 'SyncQuoButton', 'SyncQuoContactsButton']) assert.ok(!list.includes(old), `${old} is still on the list`);
+    const button = read('src/app/crm/RefreshCrmButton.tsx');
+    for (const url of ['/api/cron/sync-gmail-replies?hours=24', '/api/sync-quo', '/api/sync-quo-contacts']) assert.ok(button.includes(url), `Refresh runs ${url}`);
+    assert.ok(button.includes('combineManualSyncs(await Promise.all(SOURCES.map(runOne)))'), 'one line for all three');
+  });
+
+  test('New contact starts as a Vendor, or as the type pill that is on', () => {
+    assert.ok(read('src/app/crm/NewContactModal.tsx').includes("useState<ContactType>(initialType ?? 'vendor')"));
+    assert.ok(read('src/app/crm/CrmListClient.tsx').includes("initialType={filter === 'all' ? undefined : filter}"));
+  });
+
+  test('linked properties are checkboxes, with no Mac-only hint', () => {
+    for (const f of ['src/app/crm/NewContactModal.tsx', 'src/app/crm/[id]/ContactDetail.tsx']) {
+      const src = read(f);
+      assert.ok(src.includes('<PropertyCheckboxes properties={properties} value={linkedPropertyIds} onChange={setLinkedPropertyIds} />'), `${f} uses checkboxes`);
+      assert.ok(!src.includes('multiple') && !src.includes('Hold ⌘'), `${f} still has the multi-select`);
+    }
+  });
+
+  test('Touches is Activity everywhere it is read', () => {
+    const detail = read('src/app/crm/[id]/ContactDetail.tsx');
+    assert.ok(detail.includes('>\n            Activity\n          </h2>') && detail.includes("'Log activity'"));
+    for (const [f, old] of [
+      ['src/app/crm/[id]/ContactDetail.tsx', '>\n            Touches\n'],
+      ['src/app/crm/[id]/ContactDetail.tsx', 'Log Touch'],
+      ['src/app/crm/[id]/ContactDetail.tsx', 'No touches'],
+      ['src/app/properties/[id]/PropertyCrmSection.tsx', 'Recent touches'],
+      ['src/app/properties/[id]/PropertyCrmSection.tsx', 'No touches'],
+      ['src/app/properties/[id]/PropertyActivity.tsx', "'Contact touch'"],
+      ['src/lib/manual-sync-result.ts', 'new touches'],
+    ] as const) {
+      assert.ok(!read(f).includes(old), `${f} still says ${old}`);
+    }
+  });
+});

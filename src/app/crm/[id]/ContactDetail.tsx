@@ -17,6 +17,7 @@ import { ContactMeetings } from './ContactMeetings';
 import type { ContactMeetingRow } from '@/lib/meetings-core';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { PropertyCheckboxes } from '../PropertyCheckboxes';
 
 type PropertyMini = { id: string; name: string };
 
@@ -399,19 +400,10 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
               </div>
 
               {properties.length > 0 && (
-                <Field label="Linked properties">
-                  <select
-                    multiple
-                    value={linkedPropertyIds}
-                    onChange={(e) => setLinkedPropertyIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
-                    style={{ ...selectStyle(), minHeight: 100 }}
-                  >
-                    {properties.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                  <p style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)' }}>Hold ⌘ to select multiple.</p>
-                </Field>
+                <div>
+                  <div className="eyebrow" style={{ marginBottom: 6 }}>Linked properties</div>
+                  <PropertyCheckboxes properties={properties} value={linkedPropertyIds} onChange={setLinkedPropertyIds} />
+                </div>
               )}
 
               <Field label="Tags (comma-separated)">
@@ -587,11 +579,11 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
         </section>
       )}
 
-      {/* TOUCHES LOG */}
+      {/* ACTIVITY: every call, text, email and visit with this contact */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 80, width: '100%', flex: 1 }}>
         <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
           <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-            Touches
+            Activity
           </h2>
           <span className="eyebrow">{touchList.length} logged</span>
         </div>
@@ -639,7 +631,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
                   height: 'fit-content',
                 }}
               >
-                {touchSubmitting ? 'Logging…' : 'Log Touch'}
+                {touchSubmitting ? 'Logging…' : 'Log activity'}
               </button>
             </div>
             <textarea
@@ -662,7 +654,7 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
 
           {touchList.length === 0 ? (
             <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-              No touches logged yet. Use the form above to record the first one.
+              No activity logged yet.
             </div>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
@@ -742,8 +734,8 @@ export function ContactDetail({ contact, touches, properties, linkedSlips, meeti
                         type="button"
                         onClick={() => removeTouch(t.id)}
                         disabled={deleting || touchDeletePending.includes(t.id)}
-                        aria-label="Delete touch"
-                        title="Delete (only you can delete your own touches)"
+                        aria-label="Delete activity"
+                        title="Delete (only you can delete what you logged)"
                         style={{
                           background: 'none',
                           border: 'none',

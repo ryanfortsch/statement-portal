@@ -18,7 +18,7 @@ const compile=source=>ts.transpileModule(source,{compilerOptions:{target:ts.Scri
 for(const [name,path] of [
   ['owner','src/app/work/[id]/SlipOwnerActionEditor.tsx'],
   ['slip-controls','src/app/work/[id]/slip-controls.ts'],['back','src/app/work/[id]/BackToBoardLink.tsx'],['gmail-links','src/lib/gmail-links.ts'],
-  ['crm','src/app/crm/[id]/ContactDetail.tsx'],
+  ['crm','src/app/crm/[id]/ContactDetail.tsx'],['propcheck','src/app/crm/PropertyCheckboxes.tsx'],
   ['ContactMeetings','src/app/crm/[id]/ContactMeetings.tsx'],
   ['task','src/app/work/tasks/[id]/TaskDetail.tsx'],
   ['playbook','src/app/playbook/PlaybookEditor.tsx'],
@@ -103,7 +103,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
   createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
 await new Promise((done,reject)=>{
-  const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{
+  const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{'./PropertyCheckboxes':join(scratch,'propcheck.js'),'../PropertyCheckboxes':join(scratch,'propcheck.js'),
     '../actions':join(scratch,'actions.js'),'../../actions':join(scratch,'actions.js'),'./actions':join(scratch,'actions.js'),'./onboarding-actions':join(scratch,'actions.js'),
     '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
     './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'next-auth/react':join(scratch,'session.js'),
@@ -227,24 +227,24 @@ try{
   const touchNotes='#crm textarea[placeholder^="Notes (optional)"]';
   const touchRows=()=>page.$$eval('#crm li',lis=>lis.map(li=>li.textContent));
   const deleteTouch=(summary,twice=false)=>page.$$eval('#crm li',(lis,summary,twice)=>{
-    const b=lis.find(li=>li.textContent.includes(summary))?.querySelector('button[aria-label="Delete touch"]');
+    const b=lis.find(li=>li.textContent.includes(summary))?.querySelector('button[aria-label="Delete activity"]');
     if(!b)throw Error('Missing activity delete '+summary);b.click();if(twice)b.click();
   },summary,twice);
   await reset('crm');await edit(touchSummary,'  Discussed repairs  ');await edit(touchNotes,'  Keep this call detail.\nFollow up Friday.  ');
-  assert.equal(await guard(),true);await click('crm','Log Touch',true);await waitCalls(1);
+  assert.equal(await guard(),true);await click('crm','Log activity',true);await waitCalls(1);
   assert.equal(await page.$eval(touchSummary,e=>e.disabled),true);assert.equal(await page.$eval(touchNotes,e=>e.disabled),true);
   assert.equal((await touchRows()).length,4);assert.equal(await field(touchSummary),'  Discussed repairs  ');
   await finish(0,{ok:false,error:'Activity failed'});await waitText('Activity failed');await ready(touchSummary);
   assert.equal(await field(touchNotes),'  Keep this call detail.\nFollow up Friday.  ');
-  await click('crm','Log Touch');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm whether this activity was logged.');await ready(touchSummary);
+  await click('crm','Log activity');await waitCalls(2);await finish(1,null,true);await waitText('Could not confirm whether this activity was logged.');await ready(touchSummary);
   assert.equal(await page.evaluate(()=>window.calls.length),2);assert.equal((await touchRows()).length,4);
-  await click('crm','Log Touch');await waitCalls(3);await finish(2,{ok:true,id:'touch-new'});await clean();
+  await click('crm','Log activity');await waitCalls(3);await finish(2,{ok:true,id:'touch-new'});await clean();
   assert.equal(await field(touchSummary),'');assert.equal(await field(touchNotes),'');assert.equal((await touchRows()).length,5);
   assert.deepEqual(await args(2),{contact_id:'synthetic-contact',channel:'email',summary:'Discussed repairs',notes:'Keep this call detail.\nFollow up Friday.'});
   pass('CRM activity retains exact drafts after returned/thrown errors and only inserts a confirmed row');
 
   await reset('crm');await deleteTouch('Activity a',true);await waitCalls(1);assert.equal((await touchRows()).length,4);
-  await edit(touchSummary,'New activity during deletion');await click('crm','Log Touch');await waitCalls(2);await finish(1,{ok:true,id:'touch-new'});await ready(touchSummary);
+  await edit(touchSummary,'New activity during deletion');await click('crm','Log activity');await waitCalls(2);await finish(1,{ok:true,id:'touch-new'});await ready(touchSummary);
   assert.equal(await guard(),true);await finish(0,{ok:false,error:'Delete failed after new activity'});await waitText('Delete failed after new activity');await clean();
   assert.equal((await touchRows()).length,5);assert.ok((await touchRows()).some(t=>t.includes('New activity during deletion')));
   await deleteTouch('Activity a');await waitCalls(3);await finish(2,null,true);await waitText('Could not confirm deletion.');await clean();
@@ -260,7 +260,7 @@ try{
   pass('out-of-order CRM deletes cannot resurrect removed rows; inbound and other authors remain protected');
 
   await reset('crm');await edit(touchNotes,'Only notes so far');assert.equal(await guard(),true);
-  assert.equal(await disabled('crm','Log Touch'),true);await click('crm','Discard activity draft');await clean();
+  assert.equal(await disabled('crm','Log activity'),true);await click('crm','Discard activity draft');await clean();
   assert.equal(await field(touchNotes),'');assert.equal(await beforeUnload(),false);
   pass('partial CRM activity drafts can be explicitly discarded without sending a request');
 
@@ -418,7 +418,7 @@ try{
   pass('saving or discarding one domain cannot release another editor’s unsaved-work guard');
 
   await reset('all');await click('owner','Edit');await edit('#owner textarea','Pending owner note');await click('owner','Save');
-  await edit(touchSummary,'Pending CRM activity');await click('crm','Log Touch');
+  await edit(touchSummary,'Pending CRM activity');await click('crm','Log activity');
   await edit(taskTitle,'Pending task');await click('task','Save changes');await edit(taskComment,'Pending comment');await click('task','Post comment');
   await edit(bookBody,'Pending procedure');await click('playbook','Save changes');await editRoom('Room a');await edit(roomNotes,'Pending room');await click('rooms','Save room');await waitCalls(6);
   await page.evaluate(()=>window.unmount());await clean();

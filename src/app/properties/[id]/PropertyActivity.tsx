@@ -66,7 +66,7 @@ export const KIND_LABEL: Record<ActivityKind, string> = {
   'property-note-created': 'Note added',
   'property-note-resolved': 'Note resolved',
   'property-contacted': 'Owner contacted',
-  'contact-touch': 'Contact touch',
+  'contact-touch': 'Contact activity',
 };
 
 /**

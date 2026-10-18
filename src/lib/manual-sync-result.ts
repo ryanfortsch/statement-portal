@@ -41,11 +41,11 @@ export function summarizeManualSync(kind: ManualSyncKind, value: unknown): Manua
     const inserted = count(summary.messages_inserted) + count(summary.calls_inserted);
     const cleanings = count(summary.cleaning_completions_inserted), failed = errors(summary.errors);
     if (failed) return {
-      message: `Quo sync incomplete: ${inserted} new touches and ${cleanings} cleaning signals captured; ${failed} error${failed === 1 ? '' : 's'}. Some activity may be missing.`,
+      message: `Quo sync incomplete: ${inserted} new texts and calls and ${cleanings} cleaning signals captured; ${failed} error${failed === 1 ? '' : 's'}. Some activity may be missing.`,
       warning: true, refresh: inserted > 0 || cleanings > 0,
     };
     const parts: string[] = [];
-    if (inserted) parts.push(`${inserted} new ${inserted === 1 ? 'touch' : 'touches'}`);
+    if (inserted) parts.push(`${inserted} new ${inserted === 1 ? 'text or call' : 'texts and calls'}`);
     if (cleanings) parts.push(`${cleanings} cleaning ${cleanings === 1 ? 'signal' : 'signals'}`);
     return { message: parts.length ? `Captured ${parts.join(', ')}.` : 'No new activity from Quo (last 14 days).', warning: false, refresh: !!parts.length };
   }
@@ -55,4 +55,18 @@ export function summarizeManualSync(kind: ManualSyncKind, value: unknown): Manua
     warning: true, refresh: true,
   };
   return { message: inserted ? `${inserted} suggestion${inserted === 1 ? '' : 's'} generated.` : 'No new suggestions.', warning: false, refresh: true };
+}
+
+/**
+ * The CRM's one Refresh runs the three syncs at once (Gmail replies, Quo
+ * texts and calls, the Quo address book) and reports one line. A source
+ * that failed or came back incomplete makes the whole line a warning; any
+ * source that captured something refreshes the page once.
+ */
+export function combineManualSyncs(results: ManualSyncResult[]): ManualSyncResult {
+  return {
+    message: results.map((r) => r.message).join(' · '),
+    warning: results.some((r) => r.warning),
+    refresh: results.some((r) => r.refresh),
+  };
 }
