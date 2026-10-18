@@ -10,10 +10,11 @@ import {
   CHART_OF_ACCOUNTS,
   BOOKS_PROPERTY_LABELS,
   accountsListForEntity,
-  currentQuarter,
 } from '@/lib/books';
+import { applyBooksFilter, parseBooksFilter, quarterOptions, type BooksFilter } from '@/lib/books-review-filter';
 import { UploadCsv } from './UploadCsv';
 import { BooksReviewSection } from './BooksReviewSection';
+import { BooksFilterBar } from './BooksFilterBar';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,12 +23,14 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PU
 const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabaseKey || 'placeholder');
 
 /**
- * Per-entity Books drill-in. The operator lands here from the Books
- * index, picks a Chase CSV to ingest into one of this entity's accounts,
- * and sees the latest categorized + uncategorized ledger rows.
+ * One LLC's ledger: upload a Chase CSV into one of its accounts, run the AI
+ * categorizer, and review its proposals. /books lands on the Rising Tide
+ * ledger; the switcher under the title moves between the three entities and
+ * the chart of accounts sits behind its own link.
  *
- * Phase 1b-i (this PR): ingestion + raw transaction list.
- * Phase 1b-ii (next): AI categorizer + inline review (dropdown editor).
+ * The review table is filtered by the link (books-review-filter.ts):
+ * unreviewed only by default, a quarter, a description search. Categorize
+ * and Accept act on the same filtered rows.
  */
 
 type AccountRow = {
@@ -74,55 +77,96 @@ async function loadAccountsForEntity(entityId: string): Promise<{ accounts: Acco
   }
 }
 
-async function loadRecentTransactions(entityId: string, limit = 100): Promise<TxnRow[]> {
+/** Rows matching the review filter, unreviewed first then newest, plus how many match in all. */
+async function loadFilteredTransactions(entityId: string, filter: BooksFilter, limit = 100): Promise<{ rows: TxnRow[]; matching: number }> {
   try {
-    const { data } = await supabase
-      .from('ledger_transactions')
-      .select('id, account_id, txn_date, description, amount, category_key, ai_category_key, ai_confidence, ai_reasoning, reviewed, source')
-      .eq('entity_id', entityId)
-      .order('reviewed', { ascending: true })       // unreviewed first
-      .order('txn_date', { ascending: false })
-      .limit(limit);
-    return (data || []) as TxnRow[];
+    const [rowsRes, countRes] = await Promise.all([
+      applyBooksFilter(
+        supabase
+          .from('ledger_transactions')
+          .select('id, account_id, txn_date, description, amount, category_key, ai_category_key, ai_confidence, ai_reasoning, reviewed, source')
+          .eq('entity_id', entityId),
+        filter,
+      )
+        .order('reviewed', { ascending: true })       // unreviewed first
+        .order('txn_date', { ascending: false })
+        .limit(limit),
+      applyBooksFilter(
+        supabase.from('ledger_transactions').select('id', { count: 'exact', head: true }).eq('entity_id', entityId),
+        filter,
+      ),
+    ]);
+    return { rows: (rowsRes.data || []) as TxnRow[], matching: countRes.count ?? (rowsRes.data || []).length };
   } catch {
-    return [];
+    return { rows: [], matching: 0 };
   }
 }
 
-async function loadEntitySummary(entityId: string): Promise<{
+/**
+ * Entity-wide counts and the batch-action counts for the filtered set.
+ * Count queries, never a row dump: PostgREST caps a bare select at 1000
+ * rows with no error (CLAUDE.md watch-out 1), and a year of one LLC's bank
+ * and card rows runs to thousands.
+ */
+async function loadEntitySummary(entityId: string, filter: BooksFilter): Promise<{
   total: number;
   unreviewed: number;
   uncategorized: number;
-  pending_high_confidence: number;
+  filtered_uncategorized: number;
+  filtered_high_confidence: number;
   date_range: { min: string; max: string } | null;
 }> {
-  const { data } = await supabase
-    .from('ledger_transactions')
-    .select('reviewed, category_key, ai_category_key, ai_confidence, txn_date')
-    .eq('entity_id', entityId);
-  const rows = (data || []) as { reviewed: boolean; category_key: string | null; ai_category_key: string | null; ai_confidence: string | null; txn_date: string }[];
-  const total = rows.length;
-  const unreviewed = rows.filter((r) => !r.reviewed).length;
-  const uncategorized = rows.filter((r) => !r.ai_category_key && !r.category_key).length;
-  const pendingHighConfidence = rows.filter((r) => !r.reviewed && !r.category_key && r.ai_confidence === 'high' && !!r.ai_category_key).length;
-  const dates = rows.map((r) => r.txn_date).sort();
+  const count = () => supabase.from('ledger_transactions').select('id', { count: 'exact', head: true }).eq('entity_id', entityId);
+  const edge = (ascending: boolean) =>
+    supabase.from('ledger_transactions').select('txn_date').eq('entity_id', entityId).order('txn_date', { ascending }).limit(1);
+  const [total, unreviewed, uncategorized, fUncategorized, fHigh, oldest, newest] = await Promise.all([
+    count(),
+    count().eq('reviewed', false),
+    count().is('ai_category_key', null).is('category_key', null),
+    applyBooksFilter(count().is('ai_category_key', null).is('category_key', null), filter),
+    applyBooksFilter(
+      count().eq('reviewed', false).is('category_key', null).eq('ai_confidence', 'high').not('ai_category_key', 'is', null),
+      filter,
+    ),
+    edge(true),
+    edge(false),
+  ]);
+  const min = (oldest.data?.[0] as { txn_date: string } | undefined)?.txn_date;
+  const max = (newest.data?.[0] as { txn_date: string } | undefined)?.txn_date;
   return {
-    total,
-    unreviewed,
-    uncategorized,
-    pending_high_confidence: pendingHighConfidence,
-    date_range: dates.length > 0 ? { min: dates[0], max: dates[dates.length - 1] } : null,
+    total: total.count ?? 0,
+    unreviewed: unreviewed.count ?? 0,
+    uncategorized: uncategorized.count ?? 0,
+    filtered_uncategorized: fUncategorized.count ?? 0,
+    filtered_high_confidence: fHigh.count ?? 0,
+    date_range: min && max ? { min, max } : null,
   };
+}
+
+/** Unreviewed rows per entity, for the switcher. */
+async function loadUnreviewedByEntity(): Promise<Record<string, number | null>> {
+  const ids = Object.keys(LLC_ENTITIES);
+  const counts = await Promise.all(ids.map((id) =>
+    supabase.from('ledger_transactions').select('id', { count: 'exact', head: true }).eq('entity_id', id).eq('reviewed', false),
+  ));
+  return Object.fromEntries(ids.map((id, i) => [id, counts[i].error ? null : counts[i].count ?? 0]));
 }
 
 function fmtDate(iso: string): string {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 }
 
-export default async function BookEntityPage({ params }: { params: Promise<{ entity_id: string }> }) {
+export default async function BookEntityPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ entity_id: string }>;
+  searchParams: Promise<{ all?: string | string[]; quarter?: string | string[]; q?: string | string[] }>;
+}) {
   const { entity_id } = await params;
   const entity = LLC_ENTITIES[entity_id];
   if (!entity) notFound();
+  const filter = parseBooksFilter(await searchParams);
 
   const { accounts, tableReady } = await loadAccountsForEntity(entity_id);
   // If the DB doesn't have accounts seeded yet, fall back to the lib's
@@ -145,11 +189,14 @@ export default async function BookEntityPage({ params }: { params: Promise<{ ent
         property_id: a.property_id || null,
       }));
 
-  const txns = tableReady ? await loadRecentTransactions(entity_id) : [];
-  const summary = tableReady
-    ? await loadEntitySummary(entity_id)
-    : { total: 0, unreviewed: 0, uncategorized: 0, pending_high_confidence: 0, date_range: null };
-  const quarter = currentQuarter();
+  const [{ rows: txns, matching }, summary, unreviewedByEntity] = tableReady
+    ? await Promise.all([loadFilteredTransactions(entity_id, filter), loadEntitySummary(entity_id, filter), loadUnreviewedByEntity()])
+    : [
+        { rows: [] as TxnRow[], matching: 0 },
+        { total: 0, unreviewed: 0, uncategorized: 0, filtered_uncategorized: 0, filtered_high_confidence: 0, date_range: null },
+        {} as Record<string, number | null>,
+      ];
+  const entities = Object.values(LLC_ENTITIES).sort((a, b) => a.sort - b.sort);
 
   // Account lookup map for the review table's bank-column rendering.
   const accountInfoMap: Record<string, { last4: string | null; label: string | null }> = {};
@@ -175,7 +222,7 @@ export default async function BookEntityPage({ params }: { params: Promise<{ ent
       <FinancialsTabs current="books" />
 
       <HelmHero
-        eyebrow={`Helm · Financials · LLC Accounting · ${quarter}`}
+        eyebrow="Helm · LLC Accounting"
         title={entity.short}
         emphasis="ledger."
         description={entity.blurb}
@@ -183,10 +230,39 @@ export default async function BookEntityPage({ params }: { params: Promise<{ ent
         paddingBottom={16}
       />
 
-      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 8 }}>
-        <Link href="/books" style={{ fontSize: 11, color: 'var(--ink-4)', textDecoration: 'none', letterSpacing: '.08em', textTransform: 'uppercase' }}>
-          ← All entities
-        </Link>
+      {/* Entity switcher + the chart of accounts behind a link. */}
+      <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 4 }}>
+        <nav aria-label="Entities" className="flex items-baseline flex-wrap" style={{ gap: '10px 22px', paddingBottom: 6 }}>
+          {entities.map((e) => {
+            const active = e.id === entity_id;
+            const n = unreviewedByEntity[e.id];
+            return (
+              <Link
+                key={e.id}
+                href={`/books/${e.id}`}
+                aria-current={active ? 'page' : undefined}
+                style={{
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                  color: active ? 'var(--ink)' : 'var(--ink-3)',
+                  textDecoration: active ? 'underline' : 'none',
+                  textDecorationColor: 'var(--signal)',
+                  textDecorationThickness: 2,
+                  textUnderlineOffset: 7,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {e.short}
+                {n != null && n > 0 && (
+                  <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--signal)', fontWeight: 500 }}>{n} to review</span>
+                )}
+              </Link>
+            );
+          })}
+          <Link href="/books/accounts" style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
+            Chart of accounts →
+          </Link>
+        </nav>
       </section>
 
       {!tableReady && (
@@ -242,17 +318,20 @@ export default async function BookEntityPage({ params }: { params: Promise<{ ent
       {/* ── REVIEW TABLE + ACTION BAR ── */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingTop: 20, paddingBottom: 40, flex: 1 }}>
         <div className="eyebrow" style={{ marginBottom: 10 }}>Categorize &amp; review</div>
+        <BooksFilterBar key={filter.q} filter={filter} quarters={quarterOptions(summary.date_range)} matching={matching} />
         <BooksReviewSection
+          key={JSON.stringify(filter)}
           entityId={entity_id}
+          filter={filter}
           initialTransactions={txns}
           accounts={accountInfoMap}
           coaOptions={coaOptions}
-          pendingUncategorized={summary.uncategorized}
-          pendingHighConfidence={summary.pending_high_confidence}
+          pendingUncategorized={summary.filtered_uncategorized}
+          pendingHighConfidence={summary.filtered_high_confidence}
         />
-        {txns.length >= 100 && (
-          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 10, fontStyle: 'italic' }}>
-            Showing the 100 most recent (unreviewed first). Categorize cycles through everything; the table refreshes between batches.
+        {matching > txns.length && (
+          <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 10 }}>
+            Showing {txns.length} of {matching}, unreviewed first, newest first.
           </div>
         )}
       </section>

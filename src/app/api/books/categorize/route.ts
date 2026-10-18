@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { LLC_ENTITIES } from '@/lib/books';
+import { applyBooksFilter, parseBooksFilter } from '@/lib/books-review-filter';
 import {
   categorizeTransactions,
   type CategorizableTransaction,
@@ -18,6 +19,8 @@ import {
  *   - only_uncategorized: default true. When false, re-categorizes rows
  *     that already have ai_category_key but not category_key (useful for
  *     re-running after a chart-of-accounts edit).
+ *   - quarter, q: optional, the review table's filter ("2026-Q3", a
+ *     description search), so a click categorizes the rows on screen.
  *
  * Writes the AI's proposal to ledger_transactions.ai_category_key /
  * ai_confidence. NEVER touches category_key (that's the operator's
@@ -51,6 +54,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const entityId: string = body.entity_id || '';
     const requestedLimit: number = typeof body.limit === 'number' ? body.limit : 200;
     const onlyUncategorized: boolean = body.only_uncategorized !== false;
+    // The review table's quarter and search; reviewed state is not a filter here.
+    const scope = parseBooksFilter({ all: '1', quarter: body.quarter, q: body.q });
 
     if (!entityId || !LLC_ENTITIES[entityId]) {
       return NextResponse.json({ error: `Unknown entity_id: ${entityId}` }, { status: 400 });
@@ -67,6 +72,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (onlyUncategorized) {
       query = query.is('ai_category_key', null).is('category_key', null);
     }
+    query = applyBooksFilter(query, scope);
     const { data: txnsRaw, error: txnsErr } = await query;
     if (txnsErr) {
       return NextResponse.json({ error: `Failed to load transactions: ${txnsErr.message}` }, { status: 500 });

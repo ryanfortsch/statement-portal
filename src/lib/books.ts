@@ -59,7 +59,7 @@ export const LLC_ENTITIES: Record<string, LlcEntity> = {
     short: 'Goose of Astoria',
     kind: 'holding',
     property_ids: ['3246_ne_27th', '3_locust'],
-    blurb: 'Holding entity — owns 3246 NE 27th Terrace (Lighthouse Point FL) and 3 Locust Lane (Gloucester MA).',
+    blurb: 'Holding entity. Owns 3246 NE 27th Terrace (Lighthouse Point FL) and 3 Locust Lane (Gloucester MA).',
     sort: 1,
   },
   goose_calderwood: {
@@ -68,7 +68,7 @@ export const LLC_ENTITIES: Record<string, LlcEntity> = {
     short: 'Goose of Calderwood',
     kind: 'holding',
     property_ids: ['65_calderwood'],
-    blurb: 'Holding entity — owns 65 Calderwood Lane (Fairfield CT). 11 Rockholm appears on the 2025 QB books (its own ~$52.7k mortgage interest) but is no longer owned by this entity, so it stays in the chart of accounts for historical categorization only.',
+    blurb: 'Holding entity. Owns 65 Calderwood Lane (Fairfield CT). 11 Rockholm appears on the 2025 QB books (its own ~$52.7k mortgage interest) but is no longer owned by this entity, so it stays in the chart of accounts for historical categorization only.',
     sort: 2,
   },
 };

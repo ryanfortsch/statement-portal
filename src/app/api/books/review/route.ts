@@ -2,6 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
 import { LLC_ENTITIES } from '@/lib/books';
 import { isValidCategoryKey } from '@/lib/books-categorizer';
+import { applyBooksFilter, parseBooksFilter } from '@/lib/books-review-filter';
+import { selectAllPaged } from '@/lib/paged-select';
 
 /**
  * Review actions on the ledger.
@@ -18,10 +20,12 @@ import { isValidCategoryKey } from '@/lib/books-categorizer';
  *     Clears category_key, reviewed=false. AI proposal stays put.
  *
  *   action = 'accept_high_confidence'
- *     Batch. Body: { entity_id }
+ *     Batch. Body: { entity_id, quarter?, q? }
  *     For all rows in this entity where reviewed=false AND ai_confidence='high'
  *     AND ai_category_key IS NOT NULL: copy ai_category_key -> category_key,
- *     set reviewed=true. Skips rows with category_key already set.
+ *     set reviewed=true. Skips rows with category_key already set. quarter
+ *     and q narrow it to the review table's filter. Every candidate is read,
+ *     not the first 1000.
  */
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -93,17 +97,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // update could be a single SQL UPDATE, but Supabase's REST client
       // doesn't let us SET category_key = ai_category_key in one go
       // without a function. Do it in two passes: load, then update.
-      const { data: candidates, error: loadErr } = await supabase
-        .from('ledger_transactions')
-        .select('id, ai_category_key')
-        .eq('entity_id', entityId)
-        .eq('reviewed', false)
-        .eq('ai_confidence', 'high')
-        .not('ai_category_key', 'is', null)
-        .is('category_key', null)
-        .limit(1000);
-      if (loadErr) return NextResponse.json({ error: loadErr.message }, { status: 500 });
-      const rows = (candidates || []) as { id: string; ai_category_key: string }[];
+      const scope = parseBooksFilter({ all: '1', quarter: body.quarter, q: body.q });
+      let rows: { id: string; ai_category_key: string }[];
+      try {
+        rows = await selectAllPaged<{ id: string; ai_category_key: string }>(
+          (from, to) =>
+            applyBooksFilter(
+              supabase
+                .from('ledger_transactions')
+                .select('id, ai_category_key')
+                .eq('entity_id', entityId)
+                .eq('reviewed', false)
+                .eq('ai_confidence', 'high')
+                .not('ai_category_key', 'is', null)
+                .is('category_key', null),
+              scope,
+            )
+              .order('id', { ascending: true })
+              .range(from, to),
+          { label: 'accept high confidence' },
+        );
+      } catch (loadErr) {
+        return NextResponse.json({ error: loadErr instanceof Error ? loadErr.message : String(loadErr) }, { status: 500 });
+      }
 
       let accepted = 0;
       const now = new Date().toISOString();
@@ -117,11 +133,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       for (const [key, ids] of byKey.entries()) {
         if (!isValidCategoryKey(entityId, key)) continue;
-        const { error: updErr } = await supabase
-          .from('ledger_transactions')
-          .update({ category_key: key, reviewed: true, reviewed_at: now })
-          .in('id', ids);
-        if (!updErr) accepted += ids.length;
+        // Chunked: with the 1000-row cap gone one category can carry
+        // thousands of ids, too many for one URL's in() list.
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          const { error: updErr } = await supabase
+            .from('ledger_transactions')
+            .update({ category_key: key, reviewed: true, reviewed_at: now })
+            .in('id', chunk);
+          if (!updErr) accepted += chunk.length;
+        }
       }
       return NextResponse.json({ success: true, action, entity_id: entityId, candidates: rows.length, accepted });
     }

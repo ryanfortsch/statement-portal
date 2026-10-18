@@ -42,7 +42,19 @@ export function UploadCsv({ accounts }: { accounts: AccountOption[] }) {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // A dropped file goes through the same check as a chosen one: a CSV.
+  function takeFile(f: File | null | undefined) {
+    if (!f) return;
+    if (!/\.csv$/i.test(f.name) && f.type !== 'text/csv') {
+      setError(`${f.name} is not a CSV. Export the activity from Chase as CSV.`);
+      return;
+    }
+    setError(null);
+    setFile(f);
+  }
 
   const selectedAccount = accounts.find((a) => a.id === accountId);
 
@@ -79,9 +91,9 @@ export function UploadCsv({ accounts }: { accounts: AccountOption[] }) {
   return (
     <div style={{ borderTop: '1px solid var(--ink)', borderBottom: '1px solid var(--ink)', padding: '20px 0', margin: '20px 0' }}>
       <div className="eyebrow" style={{ marginBottom: 14 }}>Upload Chase CSV</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr auto', gap: 16, alignItems: 'end' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end' }}>
         {/* Account picker */}
-        <div>
+        <div style={{ flex: '2 1 220px', minWidth: 0 }}>
           <label style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-4)', display: 'block', marginBottom: 6 }}>
             Account
           </label>
@@ -103,34 +115,40 @@ export function UploadCsv({ accounts }: { accounts: AccountOption[] }) {
           >
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.kind === 'credit_card' ? '💳' : '🏦'} {a.institution} ⋯{a.last4} · {a.label || '(unlabeled)'}
+                {a.kind === 'credit_card' ? 'Card' : 'Bank'} · {a.institution} ⋯{a.last4} · {a.label || '(unlabeled)'}
               </option>
             ))}
           </select>
         </div>
 
-        {/* File picker */}
-        <div>
+        {/* File picker: click to choose, or drop a file on it */}
+        <div style={{ flex: '3 1 260px', minWidth: 0 }}>
           <label style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.16em', textTransform: 'uppercase', color: 'var(--ink-4)', display: 'block', marginBottom: 6 }}>
             CSV
           </label>
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            border: '1px solid var(--rule)', background: file ? 'var(--paper-2)' : 'transparent',
-            padding: '7px 12px', cursor: 'pointer', fontSize: 12, color: 'var(--ink-2)',
-          }}>
+          <label
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); takeFile(e.dataTransfer.files?.[0]); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              border: dragging ? '1px dashed var(--signal)' : '1px solid var(--rule)',
+              background: file || dragging ? 'var(--paper-2)' : 'transparent',
+              padding: '7px 12px', cursor: 'pointer', fontSize: 12, color: 'var(--ink-2)',
+            }}
+          >
             <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
             </svg>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {file ? file.name : 'Drop or click to pick a CSV'}
+              {file ? file.name : dragging ? 'Drop it here' : 'Drop a CSV here, or choose one'}
             </span>
             <input
               ref={fileRef}
               type="file"
               accept=".csv,text/csv"
               className="hidden"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              onChange={(e) => takeFile(e.target.files?.[0])}
             />
           </label>
         </div>

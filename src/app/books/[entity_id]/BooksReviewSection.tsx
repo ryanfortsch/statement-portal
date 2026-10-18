@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import type { BooksFilter } from '@/lib/books-review-filter';
 
 /**
  * The interactive review section on /books/[entity_id]: action buttons
@@ -14,12 +15,15 @@ import { useRouter } from 'next/navigation';
  *   - coaOptions: chart-of-accounts list for THIS entity (key/name/type)
  *
  * UX choices:
- *   - Categorize: max 200 per click (server-side cap). The button shows
- *     a count of uncategorized + a status during the run.
- *   - Accept high-confidence: shows the candidate count up-front. One
- *     click flips all to reviewed=true with their AI category.
- *   - Per-row dropdown: optimistic local update on Confirm; full
- *     router.refresh() on batch actions to pull in any AI proposals.
+ *   - Categorize: max 200 per click (server-side cap), over the rows the
+ *     filter shows (quarter and search). The button shows the count.
+ *   - Accept high-confidence: the filtered candidate count up-front. One
+ *     click flips them to reviewed=true with their AI category.
+ *   - Per row: Confirm accepts the AI's proposal as it stands (the API takes
+ *     ai_category_key when no key is sent); picking another category in the
+ *     select confirms that one instead; Undo puts a reviewed row back.
+ *     Optimistic local update; router.refresh() on batch actions pulls in
+ *     the new proposals, and fresh server rows replace the local copy.
  */
 
 type Txn = {
@@ -61,6 +65,16 @@ type AcceptResult = {
   error?: string;
 };
 
+/** The account type as a word for the select's group labels. */
+const TYPE_WORD: Record<string, string> = {
+  income: 'Income',
+  expense: 'Expense',
+  cogs: 'Cost of goods',
+  equity: 'Equity',
+  other_income: 'Other income',
+  other_expense: 'Other expense',
+};
+
 function fmtAmount(n: number): string {
   const s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return n < 0 ? `−$${s}` : `$${s}`;
@@ -72,6 +86,7 @@ function fmtDate(iso: string): string {
 
 export function BooksReviewSection({
   entityId,
+  filter,
   initialTransactions,
   accounts,
   coaOptions,
@@ -79,6 +94,8 @@ export function BooksReviewSection({
   pendingHighConfidence,
 }: {
   entityId: string;
+  /** The rows on screen; the batch actions act on the same set. */
+  filter: BooksFilter;
   initialTransactions: Txn[];
   accounts: Record<string, AcctInfo>;
   coaOptions: CoaOption[];
@@ -87,6 +104,15 @@ export function BooksReviewSection({
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<Txn[]>(initialTransactions);
+  // A router.refresh() (after Categorize or Accept) hands down fresh rows;
+  // take them over the local copy. Adjusted during render, React's pattern
+  // for state that follows a prop.
+  const [seen, setSeen] = useState(initialTransactions);
+  if (seen !== initialTransactions) {
+    setSeen(initialTransactions);
+    setRows(initialTransactions);
+  }
+  const scope = { quarter: filter.quarter ?? undefined, q: filter.q || undefined };
   const [categorizing, setCategorizing] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -120,7 +146,7 @@ export function BooksReviewSection({
       const res = await fetch('/api/books/categorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_id: entityId, limit: 200 }),
+        body: JSON.stringify({ entity_id: entityId, limit: 200, ...scope }),
       });
       const data: CategorizeResult = await res.json();
       if (!res.ok || data.error) {
@@ -144,7 +170,7 @@ export function BooksReviewSection({
       const res = await fetch('/api/books/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'accept_high_confidence', entity_id: entityId }),
+        body: JSON.stringify({ action: 'accept_high_confidence', entity_id: entityId, ...scope }),
       });
       const data: AcceptResult = await res.json();
       if (!res.ok || data.error) {
@@ -160,16 +186,24 @@ export function BooksReviewSection({
     }
   }
 
-  async function confirmRow(id: string, key: string) {
+  /**
+   * Confirm a row. With a key, that category; without one, the AI's own
+   * proposal as it stands (the API takes ai_category_key when no key is
+   * sent), which is the one-click accept a correct proposal needs.
+   */
+  async function confirmRow(id: string, key?: string) {
     // Optimistic update: flip row to reviewed locally so the table feels
     // responsive. The fetch refreshes the server tree in the background.
     const prevRow = rows.find((r) => r.id === id);
-    setRows((cur) => cur.map((r) => (r.id === id ? { ...r, category_key: key, reviewed: true } : r)));
+    const chosen = key ?? prevRow?.ai_category_key ?? null;
+    setRows((cur) => cur.map((r) => (r.id === id ? { ...r, category_key: chosen, reviewed: true } : r)));
     try {
       const res = await fetch('/api/books/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'confirm', transaction_id: id, category_key: key }),
+        body: key
+          ? JSON.stringify({ action: 'confirm', transaction_id: id, category_key: key })
+          : JSON.stringify({ action: 'confirm', transaction_id: id }),
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -195,11 +229,11 @@ export function BooksReviewSection({
       const data = await res.json();
       if (!res.ok || data.error) {
         setRows((cur) => cur.map((r) => (r.id === id ? prevRow || r : r)));
-        flashStatus('negative', data.error || 'Unconfirm failed');
+        flashStatus('negative', data.error || 'Undo failed');
       }
     } catch (err) {
       setRows((cur) => cur.map((r) => (r.id === id ? prevRow || r : r)));
-      flashStatus('negative', err instanceof Error ? err.message : 'Unconfirm failed');
+      flashStatus('negative', err instanceof Error ? err.message : 'Undo failed');
     }
   }
 
@@ -248,9 +282,11 @@ export function BooksReviewSection({
           {accepting ? 'Accepting…' : pendingHighConfidence === 0 ? 'No high-confidence proposals' : `Accept ${pendingHighConfidence} high-confidence`}
         </button>
 
-        <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 'auto', lineHeight: 1.4 }}>
-          Categorize runs the AI over up to 200 uncategorized rows per click. Re-click for more.
-        </span>
+        {(filter.quarter || filter.q) && (
+          <span style={{ fontSize: 11, color: 'var(--ink-4)', marginLeft: 'auto', lineHeight: 1.4 }}>
+            Acting on {[filter.quarter, filter.q && `"${filter.q}"`].filter(Boolean).join(' · ')}
+          </span>
+        )}
       </div>
 
       {statusMsg && statusTone && (
@@ -273,10 +309,13 @@ export function BooksReviewSection({
           textAlign: 'center',
           border: '1px dashed var(--rule)',
         }}>
-          No transactions yet. Upload a Chase CSV above to get started.
+          {filter.unreviewedOnly || filter.quarter || filter.q
+            ? 'Nothing matches. Untick Unreviewed only, or clear the quarter or search.'
+            : 'No transactions yet. Upload a Chase CSV above to get started.'}
         </div>
       ) : (
-        <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12 }}>
+        <div style={{ overflowX: 'auto' }}>
+        <table className="w-full tabular-nums" style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 720 }}>
           <thead>
             <tr style={{ fontSize: 9, fontWeight: 600, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>
               <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Date</th>
@@ -284,7 +323,7 @@ export function BooksReviewSection({
               <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Acct</th>
               <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Amount</th>
               <th style={{ textAlign: 'left', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Category</th>
-              <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>—</th>
+              <th style={{ textAlign: 'right', padding: '8px 6px', borderBottom: '1px solid var(--ink)' }}>Review</th>
             </tr>
           </thead>
           <tbody>
@@ -307,7 +346,7 @@ export function BooksReviewSection({
                     )}
                   </td>
                   <td style={{ padding: '6px 6px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-4)' }}>{acctLabel}</td>
-                  <td style={{ padding: '6px 6px', textAlign: 'right', color: t.amount < 0 ? 'var(--negative)' : 'var(--positive)' }}>
+                  <td style={{ padding: '6px 6px', textAlign: 'right', whiteSpace: 'nowrap', color: t.amount < 0 ? 'var(--negative)' : 'var(--positive)' }}>
                     {fmtAmount(t.amount)}
                   </td>
                   <td style={{ padding: '6px 6px' }}>
@@ -333,7 +372,7 @@ export function BooksReviewSection({
                       {topLevel.map((p) => {
                         const children = (optionGroups.get(p.key) || []).sort((a, b) => a.name.localeCompare(b.name));
                         return (
-                          <optgroup key={p.key} label={`${p.name} (${p.type})`}>
+                          <optgroup key={p.key} label={`${p.name} · ${TYPE_WORD[p.type] ?? p.type}`}>
                             <option value={p.key}>{p.name}</option>
                             {children.map((c) => (
                               <option key={c.key} value={c.key}>{`    └ ${c.name}`}</option>
@@ -357,20 +396,30 @@ export function BooksReviewSection({
                     {t.reviewed ? (
                       <button
                         onClick={() => unconfirmRow(t.id)}
-                        title="Mark unreviewed"
+                        title="Put this row back to unreviewed"
                         style={{
                           background: 'transparent', border: 'none',
-                          color: 'var(--ink-4)', cursor: 'pointer',
-                          fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase',
-                          fontWeight: 500,
+                          color: 'var(--ink-3)', cursor: 'pointer',
+                          fontSize: 11, textDecoration: 'underline',
                         }}
                       >
-                        ✓ reviewed
+                        Undo
+                      </button>
+                    ) : t.ai_category_key ? (
+                      <button
+                        onClick={() => confirmRow(t.id)}
+                        title="Accept the AI's category as it stands"
+                        style={{
+                          background: 'var(--ink)', color: 'var(--paper)',
+                          border: '1px solid var(--ink)', cursor: 'pointer',
+                          fontSize: 10, fontWeight: 600, letterSpacing: '.12em', textTransform: 'uppercase',
+                          padding: '4px 10px',
+                        }}
+                      >
+                        Confirm
                       </button>
                     ) : (
-                      <span style={{ fontSize: 10, color: 'var(--signal)', letterSpacing: '.14em', textTransform: 'uppercase', fontWeight: 600 }}>
-                        needs review
-                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Pick a category</span>
                     )}
                   </td>
                 </tr>
@@ -378,6 +427,7 @@ export function BooksReviewSection({
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
