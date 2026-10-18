@@ -169,7 +169,12 @@ export function MessagingQueue({ initialPending, initialQuotes }: Props) {
 
   return (
     <>
-    {followupNotice && <p role="status" style={{ padding: 14, border: '1px solid var(--rule)', color: 'var(--signal)' }}>{followupNotice} <button type="button" onClick={() => setFollowupNotice(null)}>Dismiss</button></p>}
+    {followupNotice && (
+      <p role="status" className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', margin: '14px auto 0', fontSize: 13, color: 'var(--signal)', display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
+        <span>{followupNotice}</span>
+        <button type="button" className="rt-quiet-btn" onClick={() => setFollowupNotice(null)}>Dismiss</button>
+      </p>
+    )}
     <Section
       id="needs-review"
       title={title}
@@ -250,7 +255,13 @@ function ApprovalCard({
   // learning consumers, which require that field to be non-empty, skipped
   // every one. The moment she decides a draft is not worth editing is the
   // sharpest judgment in the system and it was being filed as a null.
+  //
+  // 2026-10-18: Mark handled sits on the card (no More actions menu) and its
+  // drawer is one row of one-tap reasons. Pasting what she sent is an option
+  // under them, not the headline; a reason is still recorded with it.
   const [showHandled, setShowHandled] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
+  const [markingReason, setMarkingReason] = useState<string | null>(null);
   const [sentText, setSentText] = useState('');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   // Coaching is the one action whose work outlives its request: the service
@@ -321,6 +332,7 @@ function ApprovalCard({
     setScheduleCustom(false);
     setEditing(false);
     setShowHandled(false);
+    setShowPaste(false);
   };
 
   // Dismiss the schedule menu on Escape or a click outside this card.
@@ -540,7 +552,7 @@ function ApprovalCard({
    *  behavior exactly, which is what Skip sends. */
   const handleMarkHandled = (capture?: { sent_text?: string; reason?: string }) => {
     setError(null);
-    setShowHandled(false);
+    setMarkingReason(capture?.sent_text ? 'paste' : capture?.reason ?? null);
     setPendingAction('mark-handled');
     startTransition(async () => {
       const res = await markHandled(approval.id, capture);
@@ -548,8 +560,10 @@ function ApprovalCard({
         if (res.stale) { onResolved(); return; }
         setError(res.error);
         setPendingAction(null);
+        setMarkingReason(null);
         return;
       }
+      setShowHandled(false);
       onDecided({ id: approval.id, guest: guestLabel, property: propertyLabel });
       onResolved();
     });
@@ -1460,7 +1474,7 @@ function ApprovalCard({
             )}
             {inquiryState?.pricing && <SecondaryButton onClick={handleRedraft} disabled={busy} loading={pendingAction === 'redraft'} loadingLabel="Drafting">Recheck & draft</SecondaryButton>}
             <SecondaryButton onClick={startEdit} disabled={busy}>Write reply</SecondaryButton>
-            <SecondaryButton onClick={() => setShowHandled(v => !v)} disabled={busy}>Mark handled</SecondaryButton>
+            <SecondaryButton onClick={toggleHandled} disabled={busy}>{showHandled ? 'Cancel' : 'Mark handled'}</SecondaryButton>
           </>
         ) : isPrereleaseRequest && !showMore ? (
           <>
@@ -1571,10 +1585,9 @@ function ApprovalCard({
                 apart from the send controls: one dark button, one outlined,
                 then the quiet exits. Equal boxes read as equal choices, which
                 they are not. Mark handled is the one door for "no reply"; the
-                drawer it opens asks why. */}
-            <details className="rt-message-options">
-              <summary>More actions</summary>
-              <div className="rt-message-options-body">
+                drawer it opens asks why, one tap. Visible on the card since
+                2026-10-18; it used to hide behind a More actions menu. */}
+            <div className="rt-message-quiet">
               <QuietButton
                 onClick={handleRedraft}
                 disabled={busy}
@@ -1603,8 +1616,7 @@ function ApprovalCard({
                   Fewer options
                 </button>
               )}
-              </div>
-            </details>
+            </div>
           </>
         )}
       </footer>
@@ -1624,93 +1636,72 @@ function ApprovalCard({
       )}
 
       {showHandled && (
-        <div
-          style={{
-            marginTop: 14,
-            border: '1px solid var(--rule)',
-            background: 'var(--paper)',
-            padding: '12px 14px',
-          }}
-        >
-          <div className="eyebrow" style={{ color: 'var(--ink-3)', marginBottom: 8 }}>
-            What did you do instead?
-          </div>
-          <label
-            htmlFor={`sent-${approval.id}`}
-            style={{ display: 'block', fontSize: 12, color: 'var(--ink-3)', marginBottom: 6 }}
-          >
-            If you replied somewhere else, paste it here. The AI learns your wording from
-            this, and it is the only way it ever sees the answer you actually gave.
-          </label>
-          <textarea
-            id={`sent-${approval.id}`}
-            value={sentText}
-            onChange={(e) => setSentText(e.target.value)}
-            rows={3}
-            placeholder="Paste what you sent, or leave blank"
-            style={{
-              width: '100%',
-              padding: 10,
-              border: '1px solid var(--rule)',
-              background: 'var(--paper-2)',
-              fontFamily: 'inherit',
-              fontSize: 14,
-              lineHeight: 1.55,
-              color: 'var(--ink)',
-              resize: 'vertical',
-            }}
-          />
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-            <PrimaryButton
-              onClick={() => handleMarkHandled({ sent_text: sentText })}
-              disabled={busy || sentText.trim().length < 25}
-              loading={pendingAction === 'mark-handled'}
-              loadingLabel="Saving"
-            >
-              Save what I sent
-            </PrimaryButton>
-            {sentText.trim().length > 0 && sentText.trim().length < 25 && (
-              <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>
-                A few more words: under 25 characters is not enough to learn from.
-              </span>
-            )}
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: 18,
-              alignItems: 'center',
-              marginTop: 12,
-              paddingTop: 10,
-              borderTop: '1px solid var(--rule-soft)',
-              flexWrap: 'wrap',
-            }}
-          >
-            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-              Or nothing was needed
-            </span>
+        <div className="rt-handled-panel" role="group" aria-label="Mark handled">
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="eyebrow" style={{ color: 'var(--ink-3)', marginRight: 4 }}>Why?</span>
             {noReplyReasons.map((reason) => (
-              <button
+              <SecondaryButton
                 key={reason}
-                type="button"
                 onClick={() => handleMarkHandled({ reason })}
                 disabled={busy}
-                className="rt-quiet-btn"
+                loading={pendingAction === 'mark-handled' && markingReason === reason}
+                loadingLabel="Marking"
               >
                 {reason}
-              </button>
+              </SecondaryButton>
             ))}
             <button
               type="button"
-              onClick={() => handleMarkHandled()}
-              disabled={busy}
               className="rt-quiet-btn"
+              onClick={() => setShowPaste((v) => !v)}
+              aria-expanded={showPaste}
+              disabled={busy}
               style={{ marginLeft: 'auto' }}
-              title="Clear it without telling us anything."
+              title="The AI learns your wording from what you actually sent."
             >
-              Skip
+              {showPaste ? 'Hide' : 'Paste what you sent'}
             </button>
           </div>
+          {showPaste && (
+            <div style={{ marginTop: 10 }}>
+              <label htmlFor={`sent-${approval.id}`} className="sr-only">What you sent</label>
+              <textarea
+                id={`sent-${approval.id}`}
+                value={sentText}
+                onChange={(e) => setSentText(e.target.value)}
+                rows={3}
+                autoFocus
+                placeholder="Paste the reply you sent in Guesty, by text or by email"
+                style={{
+                  width: '100%',
+                  padding: 10,
+                  border: '1px solid var(--rule)',
+                  background: 'var(--paper-2)',
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  lineHeight: 1.55,
+                  color: 'var(--ink)',
+                  resize: 'vertical',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+                {/* Already answered is the reason; the text is what the AI
+                    learns from. The service keeps a capture of 25 characters
+                    or more and still marks a shorter one handled. */}
+                <PrimaryButton
+                  onClick={() => handleMarkHandled({ sent_text: sentText, reason: 'Already answered' })}
+                  disabled={busy || !sentText.trim()}
+                  loading={pendingAction === 'mark-handled' && markingReason === 'paste'}
+                  loadingLabel="Marking"
+                >
+                  Save and mark handled
+                </PrimaryButton>
+                {sentText.trim().length > 0 && sentText.trim().length < 25 && (
+                  <span style={{ fontSize: 11, color: 'var(--ink-4)' }}>Too short to learn from; it still marks the card handled.</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

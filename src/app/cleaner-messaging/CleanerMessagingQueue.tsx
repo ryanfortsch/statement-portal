@@ -2,6 +2,7 @@
 
 import { Fragment } from 'react';
 import { InboxFollowup } from '@/components/InboxFollowup';
+import { HandledConfirm } from '@/components/HandledConfirm';
 
 import { MobileInboxReview } from '@/components/MobileInboxReview';
 
@@ -520,18 +521,16 @@ function CleanerApprovalCard({
                     : 'Coach the AI'}
               </SecondaryButton>
             )}
-            <details className="rt-message-options">
-              <summary>More actions</summary>
-              <div className="rt-message-options-body">
-                <SecondaryButton
-              onClick={() => run('mark-handled', () => markCleanerHandled(approval.id))}
-              disabled={busy}
-              title="You replied elsewhere, or no reply is needed. Clears the card without sending."
-            >
-              {pendingAction === 'mark-handled' ? 'Marking…' : 'Mark handled'}
-            </SecondaryButton>
-              </div>
-            </details>
+            {/* On the card, not in a menu (2026-10-18); asks once, since
+                this queue has no undo. */}
+            <div className="rt-message-quiet">
+              <HandledConfirm
+                onConfirm={() => run('mark-handled', () => markCleanerHandled(approval.id))}
+                disabled={busy}
+                loading={pendingAction === 'mark-handled'}
+                title="You replied elsewhere, or no reply is needed. Clears the card without sending."
+              />
+            </div>
           </>
         )}
       </footer>
