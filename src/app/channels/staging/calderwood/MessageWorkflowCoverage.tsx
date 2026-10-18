@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import WorkflowHandoffRehearsal from './WorkflowHandoffRehearsal';
 
 const workflows = [
   {
@@ -62,6 +63,7 @@ export default function MessageWorkflowCoverage() {
         </div>)}
       </dl>
     </details>)}</div>
+    <WorkflowHandoffRehearsal />
     <details className="rounded-lg border p-4">
       <summary className="cursor-pointer text-sm font-medium">Guest portal and agreement dependencies</summary>
       <p className="mt-3 text-sm text-slate-600">Reviewed from the existing Stay Collections app and agreement email on October 17. Configuration shows what is enabled, not what a particular guest has received.</p>

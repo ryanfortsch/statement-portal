@@ -1127,3 +1127,69 @@ review, its focused tests, the new rehearsal component and insertion in
 `HoldRehearsal.tsx`, the inventory update/link and this document. Existing
 contract notes remain excluded. No live message, Guesty save, database mutation,
 new subscription or production setting change occurred.
+
+
+### Full workflow obligation review, October 18
+
+The earlier handoff helper covers the six recurring guest/cleaner messages. It
+cannot stand in for the full October 17 inventory. The new
+`src/lib/calderwood-rehearsal/workflow-handoff.ts` reviews all twenty configured
+templates, retaining separate direct-booking SMS/email obligations, both staff
+arrival notices, the alteration notice and the Website agreement attachment.
+The local template keys are audit identifiers, not Guesty provider template IDs.
+
+Source scope uses explicitly reviewed UI labels only. Website has sixteen
+potentially applicable templates, Manual and Direct - stay cape ann fifteen,
+and another verified source eleven. These counts include event-dependent
+obligations; they do not mean those messages are all pending on a stay. Unknown
+source mapping leaves all twenty unresolved. No API-source mapping was invented.
+Old history or queued evidence outside a newly selected source scope requires
+review instead of silently disappearing.
+
+A caller must provide trusted, validated evidence. Each obligation needs an
+occurrence, binding revision and complete recipient set. The binding revision
+must represent verified property/source applicability, transport, recipients,
+content and any attachment approval; an arbitrary string is not independent
+proof. The alteration occurrence must be verified, not generated for every date
+change. Actual future times and source expiry must be supplied by a verified
+adapter. This module does not calculate or replace Guesty's schedule. It is a
+pure internal review contract, not a validator for untrusted HTTP input.
+
+Snapshots bind to property, reservation, booking revision and source, with an
+explicit freshness limit and complete history/queue coverage. Each recipient
+has separate sent, queued, uncertain and source-sender-stop evidence. Missing,
+duplicate, extra or mismatched occurrence/recipient records require review.
+Unrecognized templates invalidate the claim of complete inventory coverage.
+Sent SMS cannot suppress an unsent email; a partial recipient outcome never
+permits a whole-message replay. Current snapshots preserve previously sent
+history after a booking revision, while stale snapshots require reconciliation.
+Holds survive moves. Queued copies conflicting with held, cancelled, sent or
+stopped state require resolution with the existing sender. Due/overdue times and
+missing or invalid expiry cannot create catch-up candidates.
+
+The new `WorkflowHandoffRehearsal.tsx` panel is embedded in the protected
+Calderwood inventory. Eleven selectable fictional evidence situations expose
+all twenty rows, per-recipient differences and source exclusions. It defaults
+to unverified source and missing evidence. Its sample timestamps and five-minute
+freshness policy are illustrative. It does not read real reservations, call an
+API, persist evidence, change a queue or send. Every result has `canSend: false`.
+The six-message helper remains available as the earlier bounded rehearsal;
+neither helper is connected to the production automation sender.
+
+Validation: fourteen new behavioral tests cover inventory separation, verified
+source scope, identity/revision/freshness, per-recipient outcomes, transport
+separation, holds/cancellations, source changes, unknown templates, sender drain
+and no catch-up. Initial TypeScript and lint checks found a readonly-map deletion
+in the fictional fixture builder and an unescaped JSX apostrophe; both were
+corrected. The final full suite passed all 1,991 tests in 240 suites;
+nonincremental TypeScript, targeted ESLint and diff checks passed. Hosted
+acceptance is recorded in draft PR #1714.
+
+Handoff: branch `codex/channex-staging-pilot`, base `a148b0e6`, prior commit
+`a645ed18`; remote main verified as
+`25a5346a2ce43b0cd08dca9f210ea4a7b3ee7ed8`. This batch changes the full-workflow
+review module, its tests, the new review panel, its inventory insertion and this
+document. Existing contract notes remain excluded. Production evidence adapters,
+recipient bindings, portal behavior, agreement approval, sender ownership and
+live channel delivery remain outstanding. No new service, subscription, live
+message or production setting is involved.
