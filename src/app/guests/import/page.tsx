@@ -1,6 +1,4 @@
 import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { importContactsFromCsv } from '../actions';
 import { SubmitButton } from '@/components/SubmitButton';
 
@@ -8,10 +6,7 @@ export const dynamic = 'force-dynamic';
 
 export default function GuestImportPage() {
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="guests" />
-
+    <div className="flex-1 flex flex-col">
       {/* HERO */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Helm &middot; Guests &middot; Import</div>

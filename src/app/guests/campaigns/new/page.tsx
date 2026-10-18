@@ -1,6 +1,4 @@
 import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { listSegments } from '@/lib/guests';
 import { TONE_OPTIONS } from '@/lib/ai/brand-voice';
 import { CampaignCreationForms } from './CampaignCreationForms';
@@ -12,10 +10,7 @@ export default async function NewCampaignPage() {
   const insider = segments.find((s) => s.name === 'Insider List');
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="guests" />
-
+    <div className="flex-1 flex flex-col">
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 28, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
           <Link href="/guests/campaigns" style={{ color: 'var(--ink-3)', textDecoration: 'none' }}>← Campaigns</Link>

@@ -1,6 +1,4 @@
 import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { getCompetitor, listCompetitors, summarizeCompetitor } from '@/lib/competitors';
@@ -20,10 +18,7 @@ export default async function CompetitorsIndex() {
   const totalSleeps = competitors.reduce((s, c) => s + c.totalSleeps, 0);
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="competitors" />
-
+    <div className="flex-1 flex flex-col">
       <HelmHero
         eyebrow="Helm · Competitors"
         title="Who else manages"

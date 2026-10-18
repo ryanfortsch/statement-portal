@@ -664,30 +664,30 @@ export const HELM_MODULES: HelmModule[] = [
     // The company ledger, payroll and contractor pay print here: owner money.
     access: 'owner',
   },
-  // Guests is now a TAB inside Marketing (see MarketingTabs). Hidden from the
-  // nav lists so it doesn't duplicate the Marketing entry; GuestsTabBar still
-  // handles the Reviews/Contacts/Agreements sub-tabs underneath.
+  // The tabs of the one Growth strip (GrowthTabs, rendered by the Growth
+  // layouts): Marketing, Reviews, Contacts, Agreements, Quotes, Competitors.
+  // Hidden from the nav lists so they don't duplicate the Growth entry;
+  // registered for search. Reviews lives at the bare /guests (the id stays
+  // 'guests' so old references resolve), and the word Guests no longer
+  // names it.
   {
     id: 'guests',
     href: '/guests',
     number: '13',
-    title: 'Guests',
-    description: 'Guest-facing subscriber list, segments, and campaigns. The Weekly, ad-hoc broadcasts, welcome journeys. Replaces Squarespace contacts.',
+    title: 'Reviews',
+    description: 'Every guest review Guesty synced: stars, the public text and the private feedback, by home and channel, over 7, 30, 90 days or a year.',
     status: 'active',
     primary: false,
     hidden: true,
     group: 'growth',
     section: 'marketing',
   },
-  // Contacts and Agreements are the other two Guests lenses, now real
-  // routes under /guests. Registered here for search, surfaced in-context
-  // (hidden from menus).
   {
     id: 'guest-contacts',
     href: '/guests/contacts',
     number: '13a',
     title: 'Guest Contacts',
-    description: 'The guest contact list. Subscribers, segments, and per-guest history behind the campaigns.',
+    description: 'The guest contact list: subscribers, campaigns, and each guest\'s record. Where The Weekly is sent from.',
     status: 'active',
     primary: false,
     hidden: true,
@@ -719,10 +719,6 @@ export const HELM_MODULES: HelmModule[] = [
     section: 'marketing',
     access: 'owner',
   },
-  // Reviews is not a module of its own - it's the "Reviews" tab inside
-  // the Guests section (/guests?tab=reviews). /reviews redirects there.
-  // Competitors is surfaced as a tab of the Growth strip, so it's hidden
-  // from the nav lists; route + search still resolve.
   {
     id: 'competitors',
     href: '/competitors',

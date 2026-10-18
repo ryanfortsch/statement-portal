@@ -1,7 +1,5 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { MarketingTabs } from '@/components/MarketingTabs';
 import { SubmitButton } from '@/components/SubmitButton';
 import { getQuoteById, quoteGuestUrl } from '@/lib/sca-quotes';
 import {
@@ -53,10 +51,7 @@ export default async function QuoteDetailPage({ params }: { params: Promise<{ id
   const extrasTotal = q.extra_lines.reduce((s, l) => s + l.cents, 0);
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <MarketingTabs current="guests" />
-
+    <div className="flex-1 flex flex-col">
       {/* Header */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 56, paddingBottom: 24, width: '100%' }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>
