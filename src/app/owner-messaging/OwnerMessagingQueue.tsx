@@ -33,6 +33,7 @@ import {
 import { splitOwnerText, parseTapback } from './conversation';
 import { Envelope, InboundSubject } from './Envelope';
 import { ProposedActions } from './ProposedActions';
+import { HandledConfirm } from '@/components/HandledConfirm';
 
 type Props = { initialPending: OwnerApproval[] };
 
@@ -577,18 +578,16 @@ const OwnerApprovalCard = memo(function OwnerApprovalCard({
                       ? 'Cancel coaching'
                       : 'Coach the AI'}
                 </SecondaryButton>
-                <details className="rt-message-options">
-              <summary>More actions</summary>
-              <div className="rt-message-options-body">
-                <SecondaryButton
-                  onClick={doHandled}
-                  disabled={busy}
-                  title="You replied elsewhere, or no reply is needed. Clears the card without sending; ticked follow-up work still files."
-                >
-                  {pendingAction === 'mark-handled' ? 'Marking…' : 'Mark handled'}
-                </SecondaryButton>
-              </div>
-            </details>
+                {/* On the card, not in a menu (2026-10-18); asks once, since
+                    the owner queue has no undo. */}
+                <div className="rt-message-quiet">
+                  <HandledConfirm
+                    onConfirm={doHandled}
+                    disabled={busy}
+                    loading={pendingAction === 'mark-handled'}
+                    title="You replied elsewhere, or no reply is needed. Clears the card without sending; ticked follow-up work still files."
+                  />
+                </div>
               </>
             )}
           </footer>

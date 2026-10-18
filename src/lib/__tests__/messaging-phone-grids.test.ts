@@ -42,10 +42,10 @@ describe('phone grids, dead CSS, em dashes', () => {
     }
   });
 
-  test('one .rt-message-options rule per phone block, the dead one gone', () => {
+  test('the More actions menu and its styles are gone; the quiet group has one phone rule', () => {
     const css = read('src/app/globals.css');
-    assert.ok(!css.includes('.rt-message-options { flex-basis: 100%; margin-left: 0; border-top: 1px solid var(--rule); }'), 'the overridden rule is dead and must stay deleted');
-    assert.equal((css.match(/^\s+\.rt-message-options \{/gm) ?? []).length, 1, 'exactly one phone rule for the options');
+    assert.ok(!css.includes('rt-message-options'), 'no rule for the retired menu');
+    assert.equal((css.match(/^\s+\.rt-message-quiet \{/gm) ?? []).length, 1, 'exactly one phone rule for the quiet exits');
   });
 
   test('no rendered string in the messaging cluster carries an em dash', () => {

@@ -1127,15 +1127,15 @@ td:has(.rt-info-icon:focus-within) {
 .rt-section-actions { flex-wrap: wrap; min-width: 0; }
 .rt-tab-strip { position: relative; scrollbar-width: thin; scroll-padding-inline: 12px; }
 .rt-tab-strip > a { display: inline-flex; align-items: center; min-height: 44px; flex-shrink: 0; }
-.rt-message-options { margin-left: auto; }
-.rt-message-options > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-size: 12px; color: var(--ink-3); gap: 8px; list-style: none; }
-.rt-message-options > summary::after { content: '+'; }
-.rt-message-options[open] > summary::after { content: '−'; }
-.rt-message-options > summary::-webkit-details-marker { display: none; }
-.rt-message-options-body { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 4px 0; }
+/* A card's quiet exits (Redraft, Mark handled) sit on the card, right of the
+   send controls; no More actions menu since 2026-10-18. */
+.rt-message-quiet { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.rt-quiet-btn[data-armed] { color: var(--signal); text-decoration-color: var(--signal); font-weight: 700; }
+/* Mark handled's reasons: one row, one tap each. */
+.rt-handled-panel { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--rule); background: var(--paper); }
 .rt-message-card { min-width: 0; overflow-wrap: anywhere; }
 .rt-disclosure-summary:focus-visible, .rt-tab-strip > a:focus-visible,
-.rt-message-options > summary:focus-visible, .rt-inline-action:focus-visible {
+.rt-inline-action:focus-visible {
   outline: 2px solid var(--ink); outline-offset: 3px;
 }
 /* Use the menu before the full desktop masthead runs out of room. */
@@ -1149,7 +1149,7 @@ td:has(.rt-info-icon:focus-within) {
   .rt-section-tabs a { min-height: 44px; }
   .rt-message-card { padding: 14px !important; }
   .rt-message-actions { gap: 8px !important; }
-  .rt-message-options-body .rt-quiet-btn { min-height: 44px; }
+  .rt-message-quiet .rt-quiet-btn { min-height: 44px; }
   .rt-section-actions { gap: 8px !important; }
   .rt-mobile-menu-trigger { min-height: 44px; }
   .rt-mobile-menu-header button { min-width: 44px; min-height: 44px; }
@@ -1209,8 +1209,8 @@ td:has(.rt-info-icon:focus-within) {
   .rt-message-actions > .rt-split-send > button:first-child { flex: 1; }
   .rt-message-actions > .rt-split-send > button:last-child { min-width: 44px; }
   .rt-message-actions > button, .rt-message-actions > a { min-height: 44px; letter-spacing: .08em !important; padding: 10px 12px !important; }
-  .rt-message-options { flex-basis: auto; margin-left: auto; border-top: 0; }
-  .rt-message-options-body { justify-content: flex-end; }
+  .rt-message-quiet { flex-basis: 100%; justify-content: flex-end; }
+  .rt-handled-panel .rt-quiet-btn { margin-left: 0 !important; min-height: 44px; }
   .rt-message-card header .eyebrow { letter-spacing: .08em; }
 }
 
