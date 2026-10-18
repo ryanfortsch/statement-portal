@@ -16,7 +16,7 @@ import {
   sendAgreementStaffAlert,
 } from '@/lib/agreement-email';
 import { agreementPdfFilename } from '@/lib/agreement-pdf';
-import type { AgreementCustomClause, GuestAgreementRow } from '@/lib/agreement-types';
+import { agreementVoidability, type AgreementCustomClause, type GuestAgreementRow } from '@/lib/agreement-types';
 
 /**
  * Server actions for guest rental agreements (Stay Cape Ann).
@@ -387,15 +387,32 @@ export async function countersignAgreement(formData: FormData): Promise<void> {
   revalidatePath('/guests/agreements');
 }
 
-/** Void an agreement (superseded / cancelled). The signing link stops working. */
+/**
+ * Void an agreement (superseded / cancelled). The signing link stops working.
+ * Refuses an executed one (agreementVoidability), and the write itself is
+ * guarded on countersigned_at so a countersign landing after the read wins.
+ */
 export async function voidAgreement(formData: FormData): Promise<void> {
   await requireStaff();
   const id = str(formData, 'id');
   if (!id) throw new Error('Missing agreement id');
-  await supabaseAdmin
+  const { data: existing } = await supabaseAdmin
+    .from('guest_agreements')
+    .select('id, voided_at, countersigned_at, guest_signed_at, sent_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (!existing) throw new Error('Agreement not found');
+  const voidable = agreementVoidability(existing);
+  if (!voidable.ok) throw new Error(voidable.reason);
+  const { data: voided, error } = await supabaseAdmin
     .from('guest_agreements')
     .update({ voided_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .is('countersigned_at', null)
+    .is('voided_at', null)
+    .select('id');
+  if (error) throw new Error(error.message);
+  if (!voided?.length) throw new Error('This agreement changed a moment ago. Reload the page to see where it stands.');
   revalidatePath(`/guests/agreements/${id}`);
   revalidatePath('/guests/agreements');
 }
