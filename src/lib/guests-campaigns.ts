@@ -114,7 +114,23 @@ export async function campaignSentContactIds(campaignId: string): Promise<Set<st
   return new Set(rows.map((r) => r.contact_id));
 }
 
-export async function countSegmentRecipients(segment: GuestSegment): Promise<number> {
-  const recipients = await resolveSegmentRecipients(segment, { emailOnly: true });
-  return recipients.length;
+/**
+ * How many subscribed contacts a segment reaches right now: the count the
+ * new-campaign Audience select prints beside each segment. A head count, so
+ * it reads past PostgREST's 1,000-row page. Null when the count could not be
+ * read, so the select says nothing rather than a wrong zero.
+ */
+export async function countSegmentRecipients(segment: GuestSegment): Promise<number | null> {
+  let q = supabase
+    .from('audience_contacts')
+    .select('id', { count: 'exact', head: true })
+    .in('status', segment.status_in.length ? segment.status_in : ['subscribed']);
+  if (segment.required_tags.length > 0) q = q.contains('tags', segment.required_tags);
+  if (segment.excluded_tags.length > 0) q = q.not('tags', 'ov', '{' + segment.excluded_tags.join(',') + '}');
+  const { count, error } = await q;
+  if (error) {
+    console.error('[guests-campaigns] countSegmentRecipients failed', error);
+    return null;
+  }
+  return count ?? 0;
 }

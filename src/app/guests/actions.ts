@@ -100,36 +100,36 @@ function parseLooseDate(raw: string): string | null {
   return d.toISOString();
 }
 
-export type ImportResult = {
-  attempted: number;
-  inserted: number;
-  updated: number;
-  skipped: number;
-  parseErrors: string[];
-  dbErrors: string[];
-};
+/** What an import reports back inline on Contacts' Manage list menu. */
+export type ImportOutcome =
+  | { ok: true; rows: number; imported: number; problems: string[] }
+  | { ok: false; error: string };
 
-export async function importContactsFromCsv(formData: FormData): Promise<void> {
+/**
+ * Import a Squarespace Profiles CSV into the contact list, from the file
+ * input under Contacts' Manage list menu. A bad file is answered inline
+ * (no thrown error, no redirect), so the operator keeps the page.
+ */
+export async function importContactsFromCsv(formData: FormData): Promise<ImportOutcome> {
   const session = await auth();
   if (!session?.user?.email) throw new Error('Not signed in');
 
   const file = formData.get('csv');
-  if (!(file instanceof File)) throw new Error('No file uploaded');
-  if (file.size === 0) throw new Error('Empty file');
-  if (file.size > 10 * 1024 * 1024) throw new Error('File too large (max 10MB)');
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: 'Pick a CSV file first.' };
+  if (file.size > 10 * 1024 * 1024) return { ok: false, error: 'That file is over 10 MB.' };
 
   const text = await file.text();
   const { rows, errors } = parseSquarespaceCsv(text);
 
   if (rows.length === 0) {
-    throw new Error('No valid contact rows found in CSV. Parse errors: ' + errors.join('; '));
+    return { ok: false, error: 'No contacts found in that file. It needs an Email column.' };
   }
 
   // Upsert in batches (Postgres is fine with one big batch but smaller chunks
   // give cleaner error reporting if something fails midway).
   const BATCH = 200;
   let inserted = 0;
-  let dbErrorMsgs: string[] = [];
+  const dbErrorMsgs: string[] = [];
 
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
@@ -159,7 +159,10 @@ export async function importContactsFromCsv(formData: FormData): Promise<void> {
   });
 
   revalidatePath('/guests/contacts');
-  redirect(`/guests/contacts?imported=${inserted}`);
+  if (inserted === 0 && dbErrorMsgs.length > 0) {
+    return { ok: false, error: 'Nothing was saved. Try again, and ask Ryan if it keeps failing.' };
+  }
+  return { ok: true, rows: rows.length, imported: inserted, problems: [...errors, ...dbErrorMsgs] };
 }
 
 export async function unsubscribeContact(formData: FormData): Promise<void> {

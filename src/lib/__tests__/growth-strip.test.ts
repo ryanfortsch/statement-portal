@@ -105,3 +105,63 @@ describe('the Growth layouts own the chrome', () => {
     assert.ok(src.includes(': DEFAULT_WINDOW;'));
   });
 });
+
+describe('Contacts: two verbs and one menu', () => {
+  test('the toolbar is Add contact, New campaign and Manage list, and nothing else', () => {
+    const page = read('src/app/guests/contacts/page.tsx');
+    assert.ok(page.includes('<AddGuestContactForm />'));
+    assert.ok(page.includes('New campaign'));
+    assert.ok(page.includes('<ManageListMenu lastGuestySync={lastGuestySyncRel} />'));
+    for (const gone of ['/guests/import', '/guests/segments', 'Recent Campaigns', 'listCampaigns', 'listSegments', 'Import CSV', 'imported=']) {
+      assert.ok(!page.includes(gone), `Contacts should no longer carry ${gone}`);
+    }
+    assert.ok(read('src/app/guests/contacts/AddGuestContactForm.tsx').includes('Add contact'));
+  });
+
+  test('the menu holds the campaigns archive, the CSV file input and the Guesty sync', () => {
+    const menu = read('src/app/guests/contacts/ManageListMenu.tsx');
+    assert.ok(menu.includes('href="/guests/campaigns"'));
+    assert.ok(menu.includes('type="file"') && menu.includes('importContactsFromCsv(data)'), 'the import is a file input in the menu');
+    assert.ok(menu.includes('action={syncFromGuesty}'));
+    assert.ok(menu.includes('Helm also runs it every morning.'), 'the sync says the schedule already does it');
+    assert.ok(menu.includes('/playbook/import-guest-contacts-from-a-csv'), 'the column map is in the Playbook');
+  });
+
+  test('the import answers inline instead of throwing or redirecting', () => {
+    const actions = read('src/app/guests/actions.ts');
+    const m = actions.match(/export async function importContactsFromCsv[\s\S]*?(?=\nexport async function |$)/);
+    assert.ok(m, 'importContactsFromCsv is found');
+    assert.ok(m![0].includes('Promise<ImportOutcome>'));
+    assert.ok(!m![0].includes('redirect('), 'no redirect flash in the URL');
+    assert.ok(!/throw new Error\('(No file|Empty file|File too large|No valid)/.test(m![0]), 'a bad file is an inline answer');
+  });
+
+  test('Segments and Import are not pages; their URLs redirect', () => {
+    assert.ok(!existsSync(new URL('src/app/guests/segments/page.tsx', root)));
+    assert.ok(!existsSync(new URL('src/app/guests/import/page.tsx', root)));
+    const config = read('next.config.ts');
+    assert.ok(/source: '\/guests\/segments',\n\s*destination: '\/guests\/campaigns\/new',/.test(config));
+    assert.ok(/source: '\/guests\/import',\n\s*destination: '\/guests\/contacts',/.test(config));
+  });
+
+  test('the new-campaign Audience select carries each segment with who it reaches', () => {
+    const form = read('src/app/guests/campaigns/new/CampaignCreationForms.tsx');
+    assert.ok(form.includes('Audience'));
+    assert.ok(!form.includes('Send to'), 'Send to is the send page\'s word, not the draft page\'s');
+    assert.ok(form.includes("{s.name}{s.count != null ? ` · ${s.count.toLocaleString('en-US')}"));
+    const page = read('src/app/guests/campaigns/new/page.tsx');
+    assert.ok(page.includes('countSegmentRecipients(s)'));
+    const count = read('src/lib/guests-campaigns.ts');
+    assert.ok(count.includes(".select('id', { count: 'exact', head: true })"), 'a head count, so it reads past 1,000 rows');
+  });
+
+  test('the column map is a Playbook entry', () => {
+    const sql = read('supabase/migrations/20261018190000_playbook_guest_list_import.sql');
+    assert.ok(sql.includes("'import-guest-contacts-from-a-csv'"));
+    for (const column of ['Email', 'First Name', 'Subscriber Since', 'Subscriber Source', 'Mailing Lists', 'Accepts Marketing']) {
+      assert.ok(sql.includes(`**${column}`), `the entry names ${column}`);
+    }
+    assert.ok(sql.includes('on conflict (slug) do nothing'), 'additive and idempotent');
+    assert.ok(!sql.includes('—'), 'no em dashes');
+  });
+});

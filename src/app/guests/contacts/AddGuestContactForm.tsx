@@ -13,8 +13,8 @@ export function AddGuestContactForm() {
   useDraftNavigationGuard(Object.values(draft).some(Boolean), pending);
   return (
           <details style={{ position: 'relative' }}>
-            <summary style={{ ...secondaryButtonStyle, cursor: 'pointer', listStyle: 'none' }}>
-              + Add Contact
+            <summary style={{ ...primaryButtonStyle, cursor: 'pointer', listStyle: 'none' }}>
+              Add contact
             </summary>
             <form
               action={manuallyAddContact}
@@ -27,12 +27,12 @@ export function AddGuestContactForm() {
               }}
               style={{
                 position: 'absolute',
-                right: 0,
+                left: 0,
                 top: 'calc(100% + 8px)',
                 background: 'var(--paper)',
                 border: '1px solid var(--ink)',
                 padding: 16,
-                width: 320,
+                width: 'min(320px, calc(100vw - 32px))',
                 zIndex: 10,
                 display: 'grid',
                 gap: 8,
@@ -71,19 +71,6 @@ const primaryButtonStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   padding: '10px 18px',
   border: 'none',
-  cursor: 'pointer',
-  textDecoration: 'none',
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  background: 'transparent',
-  color: 'var(--ink)',
-  fontSize: 11,
-  fontWeight: 500,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '10px 18px',
-  border: '1px solid var(--ink)',
   cursor: 'pointer',
   textDecoration: 'none',
 };

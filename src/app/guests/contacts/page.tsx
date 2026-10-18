@@ -1,10 +1,9 @@
 import Link from 'next/link';
-import { getGuestStats, listContacts, listSegments, listCampaigns } from '@/lib/guests';
+import { getGuestStats, listContacts } from '@/lib/guests';
 import { displayName, formatTagLabel, type GuestContact, type GuestStatus } from '@/lib/guests-types';
 import { getLastGuestySyncStatus } from '@/lib/guests-guesty-sync';
-import { syncFromGuesty } from '../actions';
-import { SubmitButton } from '@/components/SubmitButton';
 import { AddGuestContactForm } from './AddGuestContactForm';
+import { ManageListMenu } from './ManageListMenu';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +16,6 @@ type SearchParams = {
   q?: string;
   tag?: string;
   status?: GuestStatus | 'all';
-  imported?: string;
   synced?: string;
   updated?: string;
   scanned?: string;
@@ -33,16 +31,13 @@ export default async function GuestContactsPage({
   const search = sp.q?.trim() || '';
   const tag = sp.tag?.trim() || '';
   const status = (sp.status as GuestStatus | 'all' | undefined) || 'all';
-  const justImported = sp.imported ? Number(sp.imported) : 0;
   const syncedInserted = sp.synced ? Number(sp.synced) : 0;
   const syncedUpdated = sp.updated ? Number(sp.updated) : 0;
   const syncedScanned = sp.scanned ? Number(sp.scanned) : 0;
 
-  const [stats, contacts, segments, campaigns, guestySync] = await Promise.all([
+  const [stats, contacts, guestySync] = await Promise.all([
     getGuestStats(),
     listContacts({ search, tag, status, limit: 200 }),
-    listSegments(),
-    listCampaigns(),
     getLastGuestySyncStatus(),
   ]);
 
@@ -69,23 +64,6 @@ export default async function GuestContactsPage({
         </div>
       </section>
 
-      {/* JUST IMPORTED FLASH */}
-      {justImported > 0 && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
-          <div
-            style={{
-              borderLeft: '3px solid var(--positive, #2d6b50)',
-              padding: '12px 16px',
-              background: 'var(--paper-2, #f4f0e6)',
-              fontSize: 13,
-              color: 'var(--ink)',
-            }}
-          >
-            Imported <strong>{justImported}</strong> contacts. The list below is now sorted by signup date.
-          </div>
-        </section>
-      )}
-
       {/* JUST SYNCED FROM GUESTY FLASH */}
       {(syncedInserted > 0 || syncedUpdated > 0 || syncedScanned > 0) && (
         <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 24 }}>
@@ -103,34 +81,15 @@ export default async function GuestContactsPage({
         </section>
       )}
 
-      {/* ACTIONS BAR */}
+      {/* TOOLBAR: two verbs, and the list's own chores under one menu */}
       <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 32 }}>
         <div className="flex items-center gap-3 flex-wrap">
-          <Link href="/guests/import" style={primaryButtonStyle}>
-            Import CSV →
-          </Link>
-          <form action={syncFromGuesty} title="Pull guest emails from Guesty into the contact list">
-            <SubmitButton
-              label={<>Sync from Guesty{lastGuestySyncRel ? ` · ${lastGuestySyncRel}` : ''}</>}
-              busyLabel="Syncing from Guesty…"
-              style={secondaryButtonStyle}
-              spinnerTone="ink"
-            />
-          </form>
-          <Link href="/guests/campaigns" style={secondaryButtonStyle}>
-            Campaigns ({campaigns.length})
-          </Link>
+          <AddGuestContactForm />
           <Link href="/guests/campaigns/new" style={secondaryButtonStyle}>
-            New Campaign
-          </Link>
-          <Link href="/guests/segments" style={secondaryButtonStyle}>
-            Segments ({segments.length})
-          </Link>
-          <Link href="/guests/marketing" style={secondaryButtonStyle}>
-            Marketing Memory
+            New campaign
           </Link>
           <span style={{ flex: 1 }} />
-          <AddGuestContactForm />
+          <ManageListMenu lastGuestySync={lastGuestySyncRel} />
         </div>
       </section>
 
@@ -210,7 +169,7 @@ export default async function GuestContactsPage({
           stats.totalContacts === 0 ? (
             <EmptyBlock
               body="No contacts yet."
-              hint="Import your Squarespace export to start the list."
+              hint="Import a CSV or sync from Guesty, both under Manage list."
             />
           ) : (
             <EmptyBlock body="No contacts match this filter." />
@@ -224,46 +183,6 @@ export default async function GuestContactsPage({
         )}
       </section>
 
-      {/* CAMPAIGNS PEEK */}
-      {campaigns.length > 0 && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 56, width: '100%' }}>
-          <div className="flex items-baseline justify-between" style={{ marginBottom: 14 }}>
-            <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-              Recent Campaigns
-            </h2>
-            <Link href="/guests/campaigns" style={{ fontSize: 11, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.18em', textTransform: 'uppercase' }}>
-              All →
-            </Link>
-          </div>
-          <div style={{ borderTop: '1px solid var(--ink)' }}>
-            {campaigns.slice(0, 5).map((c) => (
-              <Link
-                key={c.id}
-                href={`/guests/campaigns/${c.id}`}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '120px 1fr auto auto',
-                  gap: 24,
-                  padding: '16px 0',
-                  borderBottom: '1px solid var(--rule)',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                }}
-              >
-                <span className="eyebrow">{c.status}</span>
-                <span style={{ fontSize: 14, color: 'var(--ink)' }}>{c.name}</span>
-                <span className="tabular-nums" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {c.recipient_count != null ? `${c.recipient_count} recipients` : ''}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {c.sent_at ? new Date(c.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Draft'}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* FOOTER */}
       <footer style={{ borderTop: '1px solid var(--ink)' }}>
         <div className="max-w-[1100px] mx-auto px-10 flex items-center justify-between" style={{
@@ -273,7 +192,7 @@ export default async function GuestContactsPage({
           textTransform: 'uppercase',
           color: 'var(--ink-4)',
         }}>
-          <span>Rising Tide &middot; Guests</span>
+          <span>Rising Tide &middot; Contacts</span>
           <span style={{ fontStyle: 'italic', textTransform: 'none', letterSpacing: 0, color: 'var(--ink-3)', fontSize: 11 }}>
             Source: Helm &middot; Delivery: Resend
           </span>
@@ -448,19 +367,6 @@ const selectStyle: React.CSSProperties = {
   ...inputStyle,
   cursor: 'pointer',
   paddingRight: 28,
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  background: 'var(--ink)',
-  color: 'var(--paper)',
-  fontSize: 11,
-  fontWeight: 600,
-  letterSpacing: '.18em',
-  textTransform: 'uppercase',
-  padding: '10px 18px',
-  border: 'none',
-  cursor: 'pointer',
-  textDecoration: 'none',
 };
 
 const secondaryButtonStyle: React.CSSProperties = {
