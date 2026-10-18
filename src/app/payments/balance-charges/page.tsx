@@ -115,7 +115,7 @@ export default async function BalanceChargesPage({
       <HelmMasthead />
       <FinancialsTabs current="payments" />
       <HelmHero
-        eyebrow="Helm · Payments"
+        eyebrow="Helm · Stripe"
         title="Balance charges"
         description="Far-future balances, charged to the card the guest saved at deposit once their date arrives."
       />
@@ -123,7 +123,7 @@ export default async function BalanceChargesPage({
       <main className="max-w-[1100px] mx-auto px-10 pb-20 flex-1" style={{ width: '100%' }}>
         <div style={{ marginBottom: 24 }}>
           <Link href="/payments" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-            ← Payments
+            ← Stripe lookup
           </Link>
         </div>
 

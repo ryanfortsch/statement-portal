@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { HelmHero } from '@/components/HelmHero';
@@ -7,10 +8,14 @@ import { lookupPayments } from '@/lib/stripe-payments-lookup';
 import { BUSINESS_TZ } from '@/lib/payments-lookup-core';
 import { getActivePropertiesForStatements } from '@/lib/properties';
 import { PaymentsSearchForm } from './PaymentsSearchForm';
+import { SearchingNotice } from './SearchingNotice';
 
 /**
- * Payments: what has actually been paid, read live from the properties'
- * own Stripe accounts.
+ * Stripe lookup: what has actually been paid, read live from the properties'
+ * own Stripe accounts. Named for what it does since 2026-10-18 ("Payments"
+ * collided with payment links and the home feed's Payments cards). Reached
+ * from the Money strip, the guest card in Messaging and the booking record
+ * (owners only), each prefilled with the guest's email and dates.
  *
  * Guesty cannot answer this. A Stay Cape Ann booking is paid into the
  * property's own Stripe account, so Guesty reports $0 paid on every one of
@@ -41,6 +46,11 @@ function money(n: number, currency: string): string {
 
 function day(iso: string): string {
   if (!iso) return '';
+  // A bare YYYY-MM-DD (the search window's ends) is a calendar day, not an
+  // instant: read in Cape Ann time it printed the day before.
+  if (ISO_DAY.test(iso)) {
+    return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  }
   const d = new Date(iso);
   // Cape Ann time, so an evening payment is not printed under tomorrow.
   return Number.isNaN(d.getTime())
@@ -64,7 +74,6 @@ export default async function PaymentsPage({
   // this page exists to prevent.
   const fleet = await getActivePropertiesForStatements();
   const names = new Map(fleet.map((p) => [p.id, p.name]));
-  const propertyLabel = (id: string) => names.get(id) || id.replace(/_/g, ' ');
   const email = one(sp.email);
   const q = one(sp.q);
   const propertyId = one(sp.property_id);
@@ -76,17 +85,77 @@ export default async function PaymentsPage({
   // load should not scan every account. A date range on its own is a real
   // question ("what came in last week"), so it counts.
   const asked = !!(email || q || propertyId || ISO_DAY.test(from) || ISO_DAY.test(to));
-  const result = asked
-    ? await lookupPayments({
-        propertyIds: propertyId ? [propertyId] : [],
-        rosterIds: fleet.map((p) => p.id),
-        email: email || undefined,
-        text: q || undefined,
-        from: ISO_DAY.test(from) ? from : undefined,
-        to: ISO_DAY.test(to) ? to : undefined,
-        includeUnsuccessful,
-      })
-    : null;
+  const search = { email, q, propertyId, from, to, includeUnsuccessful };
+  // A new search gets a fresh boundary, so its fallback shows while Stripe
+  // is read (up to two minutes across every account) instead of the page
+  // sitting on the browser spinner.
+  const searchKey = JSON.stringify(search);
+
+  return (
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+      <HelmMasthead />
+      <FinancialsTabs current="payments" />
+      <HelmHero
+        eyebrow="Helm · Stripe"
+        title="Stripe"
+        emphasis="lookup."
+        description="Did this guest pay? Read live from each home's own Stripe account; Guesty shows $0 paid on every direct booking."
+      />
+
+      <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
+        <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--ink-3)' }}>
+          Saved-card balances for far-future stays are charged from{' '}
+          <Link href="/payments/balance-charges" style={{ color: 'var(--tide-deep)' }}>Balance charges</Link>.
+        </div>
+        <PaymentsSearchForm
+          properties={fleet.map((p) => ({ id: p.id, name: p.name }))}
+          initial={search}
+        />
+
+        {!asked && (
+          <p className="eyebrow" style={{ color: 'var(--ink-3)', marginTop: 28 }}>
+            Search by the guest&apos;s email for the surest answer. A name or part of a
+            description works too.
+          </p>
+        )}
+
+        {asked && (
+          <Suspense key={searchKey} fallback={<SearchingNotice accounts={propertyId ? 1 : fleet.length} />}>
+            <LookupResults
+              search={search}
+              rosterIds={fleet.map((p) => p.id)}
+              names={Object.fromEntries(names)}
+            />
+          </Suspense>
+        )}
+      </section>
+
+      <HelmFooter module="Stripe lookup" right="Read-only · straight from Stripe" />
+    </div>
+  );
+}
+
+/** The search itself, streamed behind SearchingNotice. */
+async function LookupResults({
+  search,
+  rosterIds,
+  names,
+}: {
+  search: { email: string; q: string; propertyId: string; from: string; to: string; includeUnsuccessful: boolean };
+  rosterIds: string[];
+  names: Record<string, string>;
+}) {
+  const { email, q, propertyId, from, to, includeUnsuccessful } = search;
+  const propertyLabel = (id: string) => names[id] || id.replace(/_/g, ' ');
+  const result = await lookupPayments({
+    propertyIds: propertyId ? [propertyId] : [],
+    rosterIds,
+    email: email || undefined,
+    text: q || undefined,
+    from: ISO_DAY.test(from) ? from : undefined,
+    to: ISO_DAY.test(to) ? to : undefined,
+    includeUnsuccessful,
+  });
 
   // One dated list, so sort across properties. Grouping by slug under date
   // headers reads as chronological and is not.
@@ -101,34 +170,6 @@ export default async function PaymentsPage({
   const total = held.reduce((s, r) => s + r.amount - r.refunded, 0);
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-      <FinancialsTabs current="payments" />
-      <HelmHero
-        eyebrow="Helm · Money"
-        title="What was"
-        emphasis="actually paid."
-        description="Read straight from each property's own Stripe account. Guesty shows $0 paid on every direct booking because the money never passes through it, so this is the only place that answers the question honestly."
-      />
-
-      <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
-        <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--ink-3)' }}>
-          Saved-card balances for far-future stays are charged from{' '}
-          <Link href="/payments/balance-charges" style={{ color: 'var(--tide-deep)' }}>Balance charges</Link>.
-        </div>
-        <PaymentsSearchForm
-          properties={fleet.map((p) => ({ id: p.id, name: p.name }))}
-          initial={{ email, q, propertyId, from, to, includeUnsuccessful }}
-        />
-
-        {!asked && (
-          <p className="eyebrow" style={{ color: 'var(--ink-3)', marginTop: 28 }}>
-            Search by the guest&apos;s email for the surest answer. A name or part of a
-            description works too.
-          </p>
-        )}
-
-        {result && (
           <>
             <div className="eyebrow" style={{ color: 'var(--ink-3)', margin: '28px 0 14px' }}>
               {held.length === 0
@@ -216,10 +257,5 @@ export default async function PaymentsPage({
               </div>
             )}
           </>
-        )}
-      </section>
-
-      <HelmFooter module="Money" right="Read-only · straight from Stripe" />
-    </div>
   );
 }

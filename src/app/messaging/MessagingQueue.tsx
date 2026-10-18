@@ -33,6 +33,7 @@ import {
 import { RentalInquiryPanel } from './RentalInquiryPanel';
 import { addonItem, handoffItem, quotesItem } from './guest-card-blocks';
 import { guestAnsweredWhere, waitReason } from '@/lib/card-wait-reason';
+import { stripeLookupHref } from '@/lib/stripe-lookup-link';
 import { HeldPitches, type HeldPitch } from './HeldPitches';
 import { inquiryDraftState, inquiryMessageText, inquiryQuoteHref } from '@/lib/rental-inquiry';
 import { ThreadPanel } from './Thread';
@@ -184,6 +185,16 @@ function GuestCard({
     ? 'Opens the quote form with their home filled in. The reply above is unaffected.'
     : 'Opens the quote form with this guest filled in. Pick their home there. The reply above is unaffected.';
   const stayLabel = formatStayDates(approval.check_in, approval.check_out);
+  // "Did they pay?" one click away: the Stripe lookup prefilled with this
+  // guest's email and stay. Owners only, like the lookup (canPrice is the
+  // owner check above); a rental inquiry has no stay to look up.
+  const lookupHref = canPrice && !inquiry
+    ? stripeLookupHref({
+        email: approval.guest_email,
+        name: pre?.guest_last ? `${approval.guest_first || ''} ${pre.guest_last}` : null,
+        checkOut: approval.check_out,
+      })
+    : null;
   const kind = proactiveKind(approval.guesty_message_id, approval.topic);
   const badge = proactiveBadge(kind);
   // A proactive card has no guest message, so "Guest said thanks" cannot apply.
@@ -422,6 +433,11 @@ function GuestCard({
             <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={`${approval.check_in || '?'} to ${approval.check_out || '?'}`}>
               {stayLabel}
             </span>
+          )}
+          {lookupHref && (
+            <a href={lookupHref} target="_blank" rel="noopener noreferrer" className="eyebrow" style={{ color: 'var(--tide-deep)' }}>
+              Stripe lookup →
+            </a>
           )}
           {!isScheduled &&
             (badge ? (

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 /** The search controls. A plain GET form so every result is a shareable URL
- *  and the back button behaves. */
+ *  and the back button behaves. The button says Searching the moment it is
+ *  pressed; the page then streams a progress line until Stripe answers. */
 export function PaymentsSearchForm({
   properties,
   initial,
@@ -19,6 +20,13 @@ export function PaymentsSearchForm({
   };
 }) {
   const [includeUnsuccessful, setIncludeUnsuccessful] = useState(initial.includeUnsuccessful);
+  const [searching, setSearching] = useState(false);
+  // Back to this page from the back-forward cache: the button is a button again.
+  useEffect(() => {
+    const reset = () => setSearching(false);
+    window.addEventListener('pageshow', reset);
+    return () => window.removeEventListener('pageshow', reset);
+  }, []);
   const input: React.CSSProperties = {
     border: '1px solid var(--ink-3)',
     background: 'var(--paper)',
@@ -30,7 +38,7 @@ export function PaymentsSearchForm({
   const label: React.CSSProperties = { display: 'block', marginBottom: 6, color: 'var(--ink-3)' };
 
   return (
-    <form method="GET" style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', alignItems: 'end' }}>
+    <form method="GET" onSubmit={() => setSearching(true)} style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', alignItems: 'end' }}>
       <div>
         <span className="eyebrow" style={label}>Guest email</span>
         <input type="email" name="email" defaultValue={initial.email} placeholder="guest@example.com" style={input} />
@@ -78,10 +86,11 @@ export function PaymentsSearchForm({
             letterSpacing: '0.18em',
             textTransform: 'uppercase',
             fontWeight: 700,
-            cursor: 'pointer',
+            cursor: searching ? 'wait' : 'pointer',
+            opacity: searching ? 0.7 : 1,
           }}
         >
-          Search
+          {searching ? 'Searching…' : 'Search'}
         </button>
       </div>
     </form>
