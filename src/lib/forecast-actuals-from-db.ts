@@ -1,8 +1,8 @@
 /**
  * Dynamic bank-actuals derived from `overhead_expenses` (the table the
- * /api/ingest-overhead upload on the Cost Analysis tab writes to). The
- * Forecast page uses this so a single upload over there ALSO refreshes
- * the Forecast's "ACT" rows and clears the staleness banner — no
+ * /api/ingest-overhead upload under the Forecast's Actuals section writes
+ * to). The Forecast page uses this so a single upload refreshes its
+ * measured months and clears the staleness banner — no
  * offline parser re-run, no hardcoded ACTUALS_2026 edit needed.
  *
  * On any error returns an empty result so the page falls back to the
@@ -298,8 +298,8 @@ export async function getActualsFromDb(
       // A channel commission already netted out of rental revenue is not
       // overhead. VRBO and its peers bill the card and the same fee is
       // deducted before a statement ever sees the revenue, so counting it
-      // here charges Rising Tide twice. It stays visible in Cost Analysis,
-      // where watching the cash move in and back out is the point.
+      // here charges Rising Tide twice. It stays visible in the Actuals
+      // ledger, where watching the cash move in and back out is the point.
       if (cat === 'Pass-through') {
         // deliberately counted nowhere
       } else if (acct === 'card') {

@@ -15,6 +15,8 @@ import { applyBooksFilter, parseBooksFilter, quarterOptions, type BooksFilter } 
 import { UploadCsv } from './UploadCsv';
 import { BooksReviewSection } from './BooksReviewSection';
 import { BooksFilterBar } from './BooksFilterBar';
+import { Vendor1099Section } from './Vendor1099Section';
+import { getVendor1099Report } from '@/lib/vendor-1099';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,7 +32,8 @@ const supabase = createClient(supabaseUrl || 'https://placeholder.supabase.co', 
  *
  * The review table is filtered by the link (books-review-filter.ts):
  * unreviewed only by default, a quarter, a description search. Categorize
- * and Accept act on the same filtered rows.
+ * and Accept act on the same filtered rows. The Rising Tide ledger also
+ * carries the year's 1099 candidates (from Cost Analysis, 2026-10-18).
  */
 
 type AccountRow = {
@@ -189,6 +192,10 @@ export default async function BookEntityPage({
         property_id: a.property_id || null,
       }));
 
+  // The 1099 list is Rising Tide STR LLC's year-end filing, so it rides
+  // that ledger only. It reads cleaning, repairs and overhead, not the
+  // ledger tables, so it does not wait on them.
+  const report1099Load = entity_id === 'rising_tide' ? getVendor1099Report() : Promise.resolve(null);
   const [{ rows: txns, matching }, summary, unreviewedByEntity] = tableReady
     ? await Promise.all([loadFilteredTransactions(entity_id, filter), loadEntitySummary(entity_id, filter), loadUnreviewedByEntity()])
     : [
@@ -196,6 +203,7 @@ export default async function BookEntityPage({
         { total: 0, unreviewed: 0, uncategorized: 0, filtered_uncategorized: 0, filtered_high_confidence: 0, date_range: null },
         {} as Record<string, number | null>,
       ];
+  const report1099 = await report1099Load;
   const entities = Object.values(LLC_ENTITIES).sort((a, b) => a.sort - b.sort);
 
   // Account lookup map for the review table's bank-column rendering.
@@ -335,6 +343,8 @@ export default async function BookEntityPage({
           </div>
         )}
       </section>
+
+      {report1099 && <Vendor1099Section report={report1099} />}
 
       <HelmFooter module="LLC Accounting" />
     </div>

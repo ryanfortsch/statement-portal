@@ -166,7 +166,7 @@ export function ForecastClient({
   );
   // Substitute bank-derived actuals for completed 2026 months. The data
   // comes from the parent (page.tsx) — either the live overhead_expenses
-  // table (refreshed by Cost Analysis uploads) or the hardcoded fallback.
+  // table (refreshed by uploads under Actuals) or the hardcoded fallback.
   // 2027 is fully projected.
   const actualsForYear = yearKey === 2026 ? bankActuals2026 : undefined;
   const actualsThrough = yearKey === 2026 ? bankActualsThrough2026 : undefined;
@@ -1549,7 +1549,7 @@ function ForecastTable({
     ...(cardOnly.length > 0
       ? [{
           label: `Card only (${cardOnly.join(', ')})`,
-          text: 'Card actual. The operating account export has not reached this month, so rent, the contractor bench, payroll, the bookkeeper and bank fees are the model\'s own terms for it. Upload the Chase ...5130 export on Cost Analysis to replace them.',
+          text: 'Card actual. The operating account export has not reached this month, so rent, the contractor bench, payroll, the bookkeeper and bank fees are the model\'s own terms for it. Upload the Chase ...5130 export under Actuals below to replace them.',
         }]
       : []),
     ...[...revenue, ...recurring, ...people, ...periodic]

@@ -2,6 +2,8 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { ForecastClient } from './ForecastClient';
+import { ActualsSection } from './ActualsSection';
+import { getOverhead } from '@/lib/cost-analysis';
 import { isConfigured } from '@/lib/supabase';
 import {
   forwardMonths,
@@ -146,8 +148,8 @@ function CoverSheet() {
 
 /**
  * Banner that surfaces when bank-derived actuals are more than 30 days
- * old — points at the Cost Analysis tab where an upload refreshes them
- * for both pages.
+ * old. Points at the Actuals section at the foot of this page, where the
+ * upload refreshes them.
  *
  * Two exports feed the actuals and they lag differently. The card export
  * usually runs later than the operating-account one, and the latest
@@ -215,11 +217,11 @@ function StaleDataBanner({
               and projects rent, the bench, payroll and bank fees (the card-only months).{' '}
             </>
           ) : null}
-          Drop a fresh Chase corporate card or operating CSV (or XLSX) in the{' '}
-          <a href="/cost-analysis" style={{ color: 'var(--signal)', textDecoration: 'underline' }}>
-            Cost Analysis
+          Upload a fresh Chase card or operating CSV (or XLSX) under{' '}
+          <a href="#actuals" style={{ color: 'var(--signal)', textDecoration: 'underline' }}>
+            Actuals
           </a>{' '}
-          tab to refresh.
+          to refresh.
         </span>
       </div>
     </section>
@@ -343,6 +345,7 @@ export default async function ForecastPage({
     prospects2028,
     statementRevenue,
     statementMgmtFee,
+    overhead,
   ] = await Promise.all([
     getSmartForecast(2028),
     getProspectForecast(2026),
@@ -350,6 +353,9 @@ export default async function ForecastPage({
     getProspectForecast(2028),
     getStatementRevenueByMonth(),
     getStatementMgmtFeeByProperty(),
+    // The Actuals section's ledger; same overhead_expenses rows the
+    // measured months read, through Cost Analysis's old loader.
+    getOverhead(),
   ]);
   const smart2026 = filterToYear(smartAll, 2026);
   const smart2027 = filterToYear(smartAll, 2027);
@@ -371,7 +377,7 @@ export default async function ForecastPage({
 
   // 2026 bank actuals: prefer the dynamic source (rows from the
   // /api/ingest-overhead upload's overhead_expenses table, refreshed
-  // on every Cost Analysis upload). Fall back to the hardcoded
+  // on every upload under Actuals below). Fall back to the hardcoded
   // ACTUALS_2026 when the DB has nothing yet (migration unrun, etc.)
   // so the page still renders cleanly in either state.
   const dbActuals2026 = await getActualsFromDb(2026, statementRevenue);
@@ -408,6 +414,8 @@ export default async function ForecastPage({
         bankActualsThrough2026={bankActualsThrough2026}
         initialScenario={initialScenario}
       />
+
+      <ActualsSection overhead={overhead} operatingLatestDate={hasDbActuals ? dbActuals2026.operatingLatestTxnDate : null} />
 
       <HelmFooter
         module="Forecast"

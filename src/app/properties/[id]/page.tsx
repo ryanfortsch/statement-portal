@@ -50,6 +50,7 @@ import { getGuestCodeView } from '@/lib/guest-locks';
 import { getPropertyCleaners } from '@/lib/property-crew';
 import type { PaymentVerifySignal } from '@/lib/sca-launch';
 import { CollapsibleSection } from '@/components/properties/CollapsibleSection';
+import { CostToTurnSection } from './CostToTurnSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
@@ -1894,6 +1895,14 @@ export default async function PropertyDetailPage({
           </div>
         )}
       </CollapsibleSection>
+      )}
+      {/* COST TO TURN: one line per recent statement month, from the
+          statements' cleaning and repairs. Owner money, streamed so the
+          page never waits on it. */}
+      {owner && (
+        <Suspense fallback={null}>
+          <CostToTurnSection propertyId={p.id} />
+        </Suspense>
       )}
 
         </TabSection>

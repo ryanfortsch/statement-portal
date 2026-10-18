@@ -81,9 +81,6 @@ describe('what a staff login may open', () => {
       '/fieldwork/shoots',
       '/fieldwork/rate-card',
       '/fieldwork/packets/test',
-      // The company ledger and every contractor's pay print here.
-      '/cost-analysis',
-      '/cost-analysis/anything',
       // Growth's owner chores: the AirDNA upload and the competitor
       // roster with its owner-of-record research.
       '/marketing/airdna',
@@ -177,7 +174,7 @@ describe('what a staff login may open', () => {
     for (const p of ['/api/markets/airdna/gloucester', '/api/cron/sync-competitors', '/api/cron/airdna-reminder']) {
       assert.equal(apiRequiresOwner(p), false, `${p} should stay open`);
     }
-    // What staff keep: the company-card upload on /cost-analysis, the
+    // What staff keep: the company-card upload route (its page, Forecast's Actuals, is owner-only), the
     // launch checklist's Stripe wiring check, the crons, uploads, search.
     for (const p of ['/api/ingest-overhead', '/api/stripe-account-check', '/api/cron/sync-guesty', '/api/upload', '/api/search', '/api/ask', '/api/work']) {
       assert.equal(apiRequiresOwner(p), false, `${p} should stay open to staff`);
@@ -347,7 +344,7 @@ describe('the section strips never offer a tab the proxy would bounce', () => {
   const STRIPS: Record<string, number> = {
     'src/components/MessagingTabs.tsx': 1,
     'src/components/FieldTabs.tsx': 1,
-    'src/components/FinancialsTabs.tsx': 6,
+    'src/components/FinancialsTabs.tsx': 5,
     'src/components/GrowthTabs.tsx': 2,
     'src/components/WorkTabs.tsx': 0,
     'src/components/TurnoverTabs.tsx': 0,
@@ -627,10 +624,18 @@ describe('owner money on the pages staff keep renders for owners only (part two)
     }
   });
 
-  test('/cost-analysis is gated as a page and flagged in the atlas', () => {
-    assert.ok(OWNER_PATH_PREFIXES.includes('/cost-analysis'));
-    const mod = HELM_MODULES.find((m) => m.id === 'cost-analysis');
-    assert.equal(mod?.access, 'owner', 'the module must be flagged so nav and search hide it');
+  test('/cost-analysis is retired: out of the atlas and the strip, landing on Actuals', () => {
+    // Its redirect target is owner-gated, so the old route needs no gate of its own.
+    assert.ok(!OWNER_PATH_PREFIXES.includes('/cost-analysis'));
+    assert.equal(HELM_MODULES.find((m) => m.id === 'cost-analysis'), undefined, 'no atlas entry, so nav and search never offer it');
+    assert.ok(!read('src/components/FinancialsTabs.tsx').includes("'/cost-analysis'"), 'no Money strip tab');
+    assert.ok(read('src/app/cost-analysis/page.tsx').includes("redirect('/forecast#actuals')"), 'old links land on Actuals');
+    // Its three parts each have a home.
+    assert.ok(read('src/app/forecast/page.tsx').includes('<ActualsSection'), 'the upload and ledger are on Forecast');
+    assert.ok(read('src/app/books/[entity_id]/page.tsx').includes('<Vendor1099Section'), 'the 1099 table is on the Rising Tide ledger');
+    const property = read('src/app/properties/[id]/page.tsx');
+    const at = property.indexOf('<CostToTurnSection');
+    assert.ok(at > 0 && property.slice(Math.max(0, at - 200), at).includes('{owner && ('), 'cost to turn is on the property page, owners only');
   });
 });
 
