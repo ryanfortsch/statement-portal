@@ -3,7 +3,7 @@
  *
  * Flow: /api/cron/cleaner-schedule drafts tomorrow's digest every
  * afternoon (one cleaner_schedule_digests row per service_date PER REGION).
- * The card on /cleaner-messaging shows the Cape Ann draft with the live
+ * The card on the Team inbox (/messaging/team) shows the Cape Ann draft with the live
  * schedule, lets the operator edit the text, and Approve sends it through
  * HELM'S OWN Quo credentials (src/lib/quo.ts sendMessage - the same path
  * the field contractor texts use, NOT the stay-concierge send path, so the

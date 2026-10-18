@@ -27,7 +27,7 @@ export function UndoToast({
   onUndone,
 }: {
   decision: Decision | null;
-  undo: (id: string) => Promise<CardResult>;
+  undo: (id: string, audience?: string) => Promise<CardResult>;
   onClose: () => void;
   /** The card is back: refresh the queue feed. */
   onUndone: () => void;
@@ -44,7 +44,7 @@ function Toast({
   onUndone,
 }: {
   decision: Decision;
-  undo: (id: string) => Promise<CardResult>;
+  undo: (id: string, audience?: string) => Promise<CardResult>;
   onClose: () => void;
   onUndone: () => void;
 }) {
@@ -69,7 +69,7 @@ function Toast({
   const doUndo = () => {
     setError(null);
     startTransition(async () => {
-      const res = await undo(decision.id);
+      const res = await (decision.audience ? undo(decision.id, decision.audience) : undo(decision.id));
       if (!res.ok) {
         setError(res.error);
         return;

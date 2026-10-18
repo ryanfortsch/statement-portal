@@ -2,7 +2,7 @@
 
 /**
  * Server actions for the cleaner checkout schedule: the digest card on
- * /cleaner-messaging, the schedule workroom at /turnovers/schedule, and
+ * the Team inbox (/messaging/team), the schedule workroom at /turnovers/schedule, and
  * the recipient and default-times forms on /turnovers/settings.
  *
  * House landing rules: every exit is a redirect back to where the acted-on
@@ -30,7 +30,8 @@ import { detectExtensionHolds } from '@/lib/extension-holds';
 import { decideTurnoverNote } from '@/lib/turnover-notes';
 import { saveOperatorNote, resolveNoteBlock, withOperatorNote } from '@/lib/cleaner-note';
 
-const CARD = '/cleaner-messaging';
+// The schedule card lives on the Team inbox since 2026-10-18.
+const CARD = '/messaging/team';
 const CARD_ANCHOR = `${CARD}#schedule-digest`;
 const PAGE = '/turnovers/schedule';
 /** Cleaner settings: who gets the daily text and each home's default
@@ -38,7 +39,7 @@ const PAGE = '/turnovers/schedule';
 const SETTINGS = '/turnovers/settings';
 
 /** The digest region a form is about. Defaults to Cape Ann, which is the
- *  only region the /cleaner-messaging card ever posts. */
+ *  only region the Team inbox card ever posts. */
 function regionFrom(formData: FormData): string {
   const raw = String(formData.get('region') || '').trim();
   return /^[a-z0-9_]{1,40}$/.test(raw) ? raw : CAPE_ANN_REGION;
@@ -65,7 +66,7 @@ function withParam(query: string, key: string, value: string): string {
 }
 
 /** A digest exit, anchored on the digest that was acted on. The
- *  /cleaner-messaging card is one card, #schedule-digest; the schedule
+ *  Team inbox card is one card, #schedule-digest; the schedule
  *  page has one section per region, #digest-<region>, so its forms post
  *  a hidden region (none = Cape Ann, whose card always renders). The page
  *  landing also carries region=<region> so the outcome notice renders in
@@ -591,7 +592,7 @@ export async function saveDefaultTimesAction(formData: FormData): Promise<void> 
 /** Cron freshness guard: a visit before the cron has drafted tomorrow
  *  simply drafts it inline and lands on the card. The schedule page posts
  *  a region (and back=page) to draft another region's digest; the
- *  /cleaner-messaging card posts nothing and gets Cape Ann as always. */
+ *  Team inbox card posts nothing and gets Cape Ann as always. */
 export async function ensureTomorrowDraft(formData?: FormData): Promise<void> {
   await requireEmail();
   const region = formData ? regionFrom(formData) : CAPE_ANN_REGION;
@@ -695,7 +696,7 @@ export async function saveRecipientAction(formData: FormData): Promise<void> {
 
 /**
  * The operator's answer to "does this owner block need a cleaning after?"
- * (OwnerHoldQuestionsCard on /cleaner-messaging and the home feed).
+ * (OwnerHoldQuestionsCard on the Team inbox and the home feed).
  *
  * The answer is recorded in owner_hold_decisions, keyed on the stay like
  * every other schedule overlay. 'no_clean' ALSO writes the same

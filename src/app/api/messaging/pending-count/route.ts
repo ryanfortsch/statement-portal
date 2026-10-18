@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 // The cleaner tab also carries the Helm-native schedule-digest card:
 // one pending digest for today-or-later counts as one pending card,
-// exactly matching what /cleaner-messaging renders (a sent/skipped
+// exactly matching what the Team inbox renders (a sent/skipped
 // digest renders as history, not an ask). Independent of the concierge.
 async function pendingDigestCount(): Promise<number | null> {
   try {

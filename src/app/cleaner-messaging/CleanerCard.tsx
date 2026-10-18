@@ -1,19 +1,16 @@
 'use client';
 
-import { useCallback, type ReactNode } from 'react';
-import { useQueueRefresh } from '@/components/QueueRefreshControl';
-import { useApprovalQueue } from '@/lib/use-approval-queue';
+import type { ReactNode } from 'react';
 import type { CleanerApproval } from '@/lib/stay-concierge';
 import { prettifyTopic } from '@/app/messaging/format';
 import { EnglishLine } from '@/components/messaging/TranslationLine';
 import { ApprovalCard, BodyText, sentAgoLabel } from '@/components/messaging/card/ApprovalCard';
-import { ApprovalQueue, type QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
+import type { QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
 import { useWorkSlip } from '@/components/messaging/card/useWorkSlip';
 import { TEAM_HANDLED_REASONS, isTeamProactive, reasonsFor } from '@/components/messaging/card/reasons';
 import {
   approveCleanerDraft,
   markCleanerHandled,
-  undoCleanerDecision,
   coachCleanerDraft,
   editCleanerDraft,
   redraftCleanerDraft,
@@ -23,49 +20,8 @@ import {
 
 type PropertyOption = { id: string; name: string };
 
-// How often the REST of the page re-renders. The cards poll their own feed
-// every 15s (useApprovalQueue), so a coached draft appears as soon as the
-// service has it.
-const PAGE_REFRESH_MS = 60_000;
-
-/** The cleaner queue: the one approval card, Portuguese with the English
- *  under each side, and the work slip a text implies. */
-export function CleanerMessagingQueue({
-  initialPending,
-  properties,
-}: {
-  initialPending: CleanerApproval[];
-  /** Helm property list for the proposed-slip selector on each card. */
-  properties: PropertyOption[];
-}) {
-  const { approvals, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue(initialPending, 'cleaners');
-  const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
-  const onRefresh = useCallback(() => {
-    refresh();
-    softRefresh();
-  }, [refresh, softRefresh]);
-
-  return (
-    <ApprovalQueue
-      approvals={approvals}
-      updatedTick={updatedTick}
-      onRefresh={onRefresh}
-      undo={undoCleanerDecision}
-      emptyMessage="No cleaner texts waiting."
-      renderCard={(approval, helpers) => (
-        <CleanerCard
-          key={approval.id}
-          approval={approval}
-          properties={properties}
-          helpers={helpers}
-          onRegenerating={watchRegen}
-          regenStalled={stalledId === approval.id}
-        />
-      )}
-    />
-  );
-}
-
+/** A cleaner's text on the one approval card, on the Team inbox: Portuguese
+ *  with the English under each side, and the work slip a text implies. */
 export function CleanerCard({
   approval,
   properties,

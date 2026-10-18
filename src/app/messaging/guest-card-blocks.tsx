@@ -22,8 +22,8 @@ const ADDON_TONE = '#6b4f7a';
 // The teammate handoff: internal work, never the guest or their money.
 const HANDOFF_TONE = '#3d6b63';
 const HANDOFF_LABEL: Record<string, string> = { cleaner: 'Cleaner note', contractor: 'Contractor note', owner: 'Owner note' };
-const HANDOFF_HREF: Record<string, string> = { cleaner: '/cleaner-messaging', contractor: '/contractor-messaging', owner: '/owner-messaging' };
-const HANDOFF_SURFACE: Record<string, string> = { cleaner: 'Cleaner messaging', contractor: 'Contractor messaging', owner: 'Owner messaging' };
+const HANDOFF_HREF: Record<string, string> = { cleaner: '/messaging/team?audience=cleaners', contractor: '/messaging/team?audience=contractors', owner: '/owner-messaging' };
+const HANDOFF_SURFACE: Record<string, string> = { cleaner: 'the Team inbox', contractor: 'the Team inbox', owner: 'Owner messaging' };
 
 /** One colour per quote state. Sent and accepted are the two the operator
  *  is looking for; the rest stay quiet. */
@@ -227,7 +227,7 @@ export function handoffItem({
             <p style={{ fontSize: 12 }}>Sent to {handoff.target_name || 'the cleaner'}.</p>
           ) : ['sending', 'scheduled', 'rejected', 'superseded'].includes(handoff.note_status || '') ? (
             <p style={{ fontSize: 12 }}>
-              This note is {handoff.note_status}. Review it in <Link href="/cleaner-messaging">Cleaner messaging</Link>.
+              This note is {handoff.note_status}. Review it in the <Link href="/messaging/team?audience=cleaners">Team inbox</Link>.
             </p>
           ) : (
             <>
@@ -298,7 +298,7 @@ export function handoffItem({
           <p style={{ marginTop: 8, fontSize: 12, color: 'var(--signal)' }}>
             {handoff.audience === 'cleaner' ? (
               <>
-                Note needs review: {handoff.create_error} <Link href="/cleaner-messaging">Open Cleaner messaging</Link>.
+                Note needs review: {handoff.create_error} <Link href="/messaging/team?audience=cleaners">Open the Team inbox</Link>.
               </>
             ) : (
               <>Filing this last time failed ({handoff.create_error}). Approving tries again.</>

@@ -24,8 +24,8 @@ const read = (repoPath: string): string =>
 const QUEUES = [
   'src/app/messaging/MessagingQueue.tsx',
   'src/app/owner-messaging/OwnerMessagingQueue.tsx',
-  'src/app/cleaner-messaging/CleanerMessagingQueue.tsx',
-  'src/app/contractor-messaging/ContractorMessagingQueue.tsx',
+  'src/app/cleaner-messaging/CleanerCard.tsx',
+  'src/app/contractor-messaging/ContractorCard.tsx',
 ];
 const ACTIONS = [
   'src/app/messaging/actions.ts',

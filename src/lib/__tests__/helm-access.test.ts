@@ -105,6 +105,7 @@ describe('what a staff login may open', () => {
       '/properties/21_horton',
       '/properties/onboarding',
       '/messaging',
+      '/messaging/team',
       '/cleaner-messaging',
       '/contractor-messaging',
       '/channels',

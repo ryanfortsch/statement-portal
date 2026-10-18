@@ -24,7 +24,7 @@ import {
  */
 
 const AUDIENCE = 'contractor';
-const PAGE = '/contractor-messaging';
+const PAGE = '/messaging/team';
 
 async function requireSession(): Promise<{ ok: true } | { ok: false; error: string }> {
   const session = await auth();

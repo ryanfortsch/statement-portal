@@ -23,6 +23,8 @@ export type DecidedRow = {
   quote?: string;
   at?: string | null;
   decidedBy?: string;
+  /** Whose card, on a mixed ledger (the Team inbox). */
+  audience?: string;
 };
 
 // One word. A card closed without a reply is Handled whether the service
@@ -34,7 +36,7 @@ const LABELS: Record<string, string> = {
 
 const DEFAULT_VISIBLE = 3;
 
-export function DecidedRecently({ items, undo }: { items: DecidedRow[]; undo: (id: string) => Promise<CardResult> }) {
+export function DecidedRecently({ items, undo }: { items: DecidedRow[]; undo: (id: string, audience?: string) => Promise<CardResult> }) {
   const [expanded, setExpanded] = useState(false);
   if (items.length === 0) return null;
   const visible = expanded ? items : items.slice(0, DEFAULT_VISIBLE);
@@ -85,7 +87,7 @@ export function DecidedRecently({ items, undo }: { items: DecidedRow[]; undo: (i
                 {relativeTimeShort(row.at || '')}
                 {who ? ` · ${who}` : ''}
               </span>
-              <UndoButton id={row.id} undo={undo} />
+              <UndoButton id={row.id} undo={row.audience ? (id) => undo(id, row.audience) : undo} />
             </li>
           );
         })}

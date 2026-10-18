@@ -32,7 +32,7 @@ import type { ScheduleDay } from '@/lib/checkout-schedule';
  *      exactly as before; Luana's Bridgeport draft is its own row.
  *
  * NOTHING SENDS FROM HERE. The Cape Ann draft surfaces as a card on
- * /cleaner-messaging and every region's on /turnovers/schedule; the
+ * the Team inbox and every region's on /turnovers/schedule; the
  * operator approves (and can edit) there, and only that click texts the
  * crew via Quo. That approval gate is why this cron can run at a
  * draft-friendly hour without any quiet-hours logic.

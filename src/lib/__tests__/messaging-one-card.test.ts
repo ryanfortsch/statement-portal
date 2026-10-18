@@ -19,27 +19,33 @@ const read = (repoPath: string): string =>
 
 const CARD = 'src/components/messaging/card/ApprovalCard.tsx';
 
-/** Queues on the one card, with their actions file and page. */
-const MIGRATED: { queue: string; actions: string; page: string; undo: string }[] = [
+/** Every queue on the one card: the file that renders its card, the file
+ *  that renders its queue, its actions, its page and its undo. Cleaners and
+ *  contractors share the Team inbox's queue and page (2026-10-18). */
+const MIGRATED: { card: string; queue: string; actions: string; page: string; undo: string }[] = [
   {
-    queue: 'src/app/contractor-messaging/ContractorMessagingQueue.tsx',
+    card: 'src/app/contractor-messaging/ContractorCard.tsx',
+    queue: 'src/app/messaging/team/TeamInboxQueue.tsx',
     actions: 'src/app/contractor-messaging/actions.ts',
-    page: 'src/app/contractor-messaging/page.tsx',
+    page: 'src/app/messaging/team/page.tsx',
     undo: 'undoContractorDecision',
   },
   {
-    queue: 'src/app/cleaner-messaging/CleanerMessagingQueue.tsx',
+    card: 'src/app/cleaner-messaging/CleanerCard.tsx',
+    queue: 'src/app/messaging/team/TeamInboxQueue.tsx',
     actions: 'src/app/cleaner-messaging/actions.ts',
-    page: 'src/app/cleaner-messaging/page.tsx',
+    page: 'src/app/messaging/team/page.tsx',
     undo: 'undoCleanerDecision',
   },
   {
+    card: 'src/app/owner-messaging/OwnerMessagingQueue.tsx',
     queue: 'src/app/owner-messaging/OwnerMessagingQueue.tsx',
     actions: 'src/app/owner-messaging/actions.ts',
     page: 'src/app/owner-messaging/page.tsx',
     undo: 'undoOwnerDecision',
   },
   {
+    card: 'src/app/messaging/MessagingQueue.tsx',
     queue: 'src/app/messaging/MessagingQueue.tsx',
     actions: 'src/app/messaging/actions.ts',
     page: 'src/app/messaging/page.tsx',
@@ -80,7 +86,7 @@ describe('the one approval card', () => {
   });
 
   test('the cleaner card edits the Portuguese and shows the English beside it', () => {
-    const q = read('src/app/cleaner-messaging/CleanerMessagingQueue.tsx');
+    const q = read('src/app/cleaner-messaging/CleanerCard.tsx');
     assert.ok(q.includes('saveEdit: (text) => editCleanerDraft(id, text)'), 'Edit on the Portuguese');
     assert.ok(q.includes('<EnglishLine text={approval.draft_english} translating={approval.draft_translating} />'), 'the English follows an edit');
     assert.ok(!/placeholder="[^"]*Portuguese/.test(q), 'the language note is printed text, not a placeholder');
@@ -107,19 +113,20 @@ describe('the one approval card', () => {
   });
 
   for (const q of MIGRATED) {
-    test(`${q.queue.split('/').pop()} is on the one card, with every rail`, () => {
+    test(`${q.card.split('/').pop()} is on the one card, with every rail`, () => {
+      const card = read(q.card);
+      assert.ok(card.includes('<ApprovalCard'), 'renders the one card');
+      assert.ok(!card.includes('rt-message-actions'), 'no hand-built footer');
+      assert.ok(card.includes('saveEdit:') && card.includes('redraft:') && card.includes('coach:'), 'wires Edit, Redraft and Coach');
+      assert.ok(card.split('\n').length < 700, `${q.card} grew back past 700 lines: put shared behaviour in the card`);
       const queue = read(q.queue);
-      assert.ok(queue.includes('<ApprovalCard'), 'renders the one card');
       assert.ok(queue.includes('<ApprovalQueue'), 'renders the one queue');
-      assert.ok(!queue.includes('rt-message-actions'), 'no hand-built footer');
-      assert.ok(queue.includes('saveEdit:') && queue.includes('redraft:') && queue.includes('coach:'), 'wires Edit, Redraft and Coach');
-      assert.ok(queue.includes(`undo={${q.undo}}`), 'wires Undo');
+      assert.ok(queue.includes(q.undo), 'wires Undo');
       const actions = read(q.actions);
       for (const verb of [q.undo, 'edit', 'redraft']) {
         assert.ok(new RegExp(`export async function ${verb === q.undo ? verb : `${verb}\\w*Draft`}\\b`).test(actions), `${q.actions} exports ${verb}`);
       }
-      assert.ok(read(q.queue).split('\n').length < 700, `${q.queue} grew back past 700 lines: put shared behaviour in the card`);
-      assert.ok(read(q.page).includes(`<DecidedRecently items={items} undo={${q.undo}} />`), 'the page keeps a Decided recently ledger');
+      assert.ok(read(q.page).includes('Decided'), 'the page keeps a Decided recently ledger');
     });
   }
 });

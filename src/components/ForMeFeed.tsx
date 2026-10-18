@@ -244,7 +244,7 @@ export async function ForMeFeed() {
       ownerHoldAsks.length > 0 ? (
         <>
           <SectionHeaderLink
-            href="/cleaner-messaging#owner-holds"
+            href="/messaging/team#owner-holds"
             title="Owner blocks · clean after?"
             eyebrow={`${ownerHoldAsks.length} to answer`}
             subline="On the cleaner schedule until you say otherwise."

@@ -51,6 +51,9 @@ type Audience = 'cleaner' | 'owner' | 'contractor';
 type Props = {
   audience: Audience;
   actions: ProactiveReminderActions;
+  /** The Team inbox shows a cleaner and a contractor panel together, so
+   *  each says whose it is. */
+  title?: string;
 };
 
 const WEEKDAYS = [
@@ -88,7 +91,7 @@ function cadenceLabel(r: RecurringMessage): string {
   return picked.join(', ');
 }
 
-export function ProactiveRemindersPanel({ audience, actions }: Props) {
+export function ProactiveRemindersPanel({ audience, actions, title = 'Proactive messages' }: Props) {
   const [open, setOpen] = useState(false);
   const [endedIds, setEndedIds] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState(false);
@@ -116,7 +119,7 @@ export function ProactiveRemindersPanel({ audience, actions }: Props) {
 
   return (
     <Section
-      title="Proactive messages"
+      title={title}
       eyebrow={recurring.length > 0 ? `${recurring.length} scheduled` : 'recurring + one-time'}
       paddingTop={36}
       right={

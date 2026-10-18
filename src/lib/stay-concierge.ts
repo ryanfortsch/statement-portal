@@ -123,7 +123,7 @@ export type AddonCharge = {
  *
  * The reply says "11am works, you're all set" and Rosa has to plan the
  * turnover around it. Leaving the box ticked files this as a PENDING card in
- * that audience's own queue (/cleaner-messaging, /contractor-messaging,
+ * that audience's own queue (the Team inbox at /messaging/team,
  * /owner-messaging), where it waits for a second approve. Nothing sends from
  * the guest card. Absent on ordinary cards, and absent once the teammate card
  * exists, so a re-opened card never offers to file a duplicate. */

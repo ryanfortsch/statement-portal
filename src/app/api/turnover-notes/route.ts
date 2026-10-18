@@ -170,7 +170,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  revalidatePath('/cleaner-messaging');
+  revalidatePath('/messaging/team');
   revalidatePath('/turnovers/schedule');
   return NextResponse.json({
     ok: true,

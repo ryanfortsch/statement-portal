@@ -78,7 +78,7 @@ export function noteStatus(note: FollowupNote): string {
   if (note.error) return 'Needs review';
   return ({approved: 'Sent', pending: 'Draft awaiting approval', proposed: 'Proposed', scheduled: 'Scheduled', sending: 'Sending', rejected: 'Handled', skipped: 'Skipped', superseded: 'Replaced', manual_sent: 'Handled', failed: 'Failed', unavailable: 'Status unavailable'} as Record<string,string>)[note.status] || 'Status unknown';
 }
-export const NOTE_ROUTES = {guest: '/messaging', owner: '/owner-messaging', cleaner: '/cleaner-messaging', contractor: '/contractor-messaging'};
+export const NOTE_ROUTES = {guest: '/messaging', owner: '/owner-messaging', cleaner: '/messaging/team', contractor: '/messaging/team'};
 
 export type FieldVisit = { id:string; date:string; name:string; status:string };
 export type FieldStop = { work_slip_id?:string; status:string; completed_at:string|null; inspection_packets: {id:string;status:string;visit_date:string;awarded_contractor_id:string|null} | null };

@@ -4,7 +4,7 @@ import { CompactDisclosure } from './CompactDisclosure';
 import { MessageOutcomes } from './MessageOutcomes';
 import type { RecentFollowup } from '@/lib/recent-followups';
 
-export function RecentMessageOutcomes({ initial, audience, initialError = false }: { initial: RecentFollowup[]; audience: string; initialError?: boolean }) {
+export function RecentMessageOutcomes({ initial, audience, initialError = false, title = 'Follow-up history' }: { initial: RecentFollowup[]; audience: string; initialError?: boolean; title?: string }) {
   const [snapshot, setSnapshot] = useState<{items:RecentFollowup[]; error:boolean}>({items:initial,error:initialError});
   const [expanded, setExpanded] = useState(false);
   const active = useRef<AbortController | null>(null);
@@ -32,7 +32,7 @@ export function RecentMessageOutcomes({ initial, audience, initialError = false 
   }, [refresh, initial]);
   const items = snapshot.items;
   if (!items.length && !snapshot.error) return null;
-  return <CompactDisclosure title="Follow-up history" status={snapshot.error ? 'History unavailable' : undefined} attention={snapshot.error}>
+  return <CompactDisclosure title={title} status={snapshot.error ? 'History unavailable' : undefined} attention={snapshot.error}>
     <div className="rt-disclosure-toolbar">
       <span>Work and notes from resolved messages · past 7 days</span>
       <button type="button" className="rt-inline-action" onClick={() => void refresh()}>Refresh</button>

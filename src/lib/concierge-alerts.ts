@@ -114,7 +114,7 @@ const CHARGE: AlertVerb = { label: 'Send the link', href: '/messaging/send?tab=c
 const CONVERSATIONS: AlertVerb = { label: 'Open Conversations', href: '/messaging#conversations' };
 const WORK: AlertVerb = { label: 'File a slip', href: '/work' };
 const OWNER_INBOX: AlertVerb = { label: 'Open owner messages', href: '/owner-messaging' };
-const CLEANER_INBOX: AlertVerb = { label: 'Open cleaner messages', href: '/cleaner-messaging' };
+const CLEANER_INBOX: AlertVerb = { label: 'Open cleaner messages', href: '/messaging/team?audience=cleaners' };
 const ONBOARDING: AlertVerb = { label: 'Open onboarding', href: '/properties/onboarding' };
 
 /** The thread on the Inbox's Conversations list, opened. */
