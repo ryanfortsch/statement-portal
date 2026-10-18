@@ -39,14 +39,23 @@ await writeFile(join(scratch, 'actions.js'), `
   export const refreshScaSiteData = (...args) => call('refresh', args);
   export const pullFromGuesty = (...args) => call('guesty', args);
   export const draftScaCopyWithAi = (...args) => call('ai', args);
+  export const adoptLiveScaListing = (...args) => call('adopt', args);
 `);
 await writeFile(join(scratch, 'upload.js'), compile(`
   import React from 'react';
-  export function PhotoUploader({value,onChange,onUploadingChange,disabled}) {
-    return <button disabled={disabled} onClick={()=>{
-      onUploadingChange(true);
-      window.finishUpload=()=>{onChange([...value,'https://example.test/new-photo.jpg']);onUploadingChange(false);};
-    }}>Start synthetic upload</button>;
+  export function PhotoUploader({value,onChange,onUploadingChange,onFailedUploadsChange,disabled}) {
+    // Internal state, like the real uploader's failure list: it must follow
+    // its own room when an earlier room is removed.
+    const [failed,setFailed]=React.useState(false);
+    React.useEffect(()=>{onFailedUploadsChange?.(failed?1:0);},[failed]);
+    return <span>
+      <button disabled={disabled} onClick={()=>{
+        onUploadingChange(true);
+        window.finishUpload=()=>{onChange([...value,'https://example.test/new-photo.jpg']);onUploadingChange(false);};
+      }}>Start synthetic upload</button>
+      <button onClick={()=>setFailed(true)}>Fail synthetic upload</button>
+      {failed&&<><span>Synthetic failed upload</span><button onClick={()=>setFailed(false)}>Clear synthetic failure</button></>}
+    </span>;
   }
 `));
 await writeFile(join(scratch, 'entry.js'), compile(`
@@ -76,11 +85,13 @@ await writeFile(join(scratch, 'entry.js'), compile(`
     return Promise.resolve(result);
   };
   if(params.has('stale')) draft.tagline='Newer saved tagline';
+  const liveDraft=params.has('livedraft')?{...structuredClone(draft),tagline:'Live tagline'}:params.has('adopt')?structuredClone(draft):null;
   window.row={property_id:'synthetic',guesty_listing_id:'synthetic',status:params.has('launch')?'pr_open':'live',
     branch_name:params.has('launch')?'sca-launch/synthetic':'sca-update/synthetic',
     registry_entry:structuredClone(draft),pr_number:123,pr_url:'https://example.test/pr',
     preview_url:'https://example.test/old-preview',live_url:'https://example.test/live',
     payment_publishable_set:!params.has('unpaid'),payment_secret_set:true,payment_webhook_set:true};
+  if(params.has('livedraft')) window.row={...window.row,branch_name:null,pr_number:null,pr_url:null};
   window.succeed=()=>{
     const call=window.calls.at(-1);
     if(call.kind==='save'||call.kind==='preview') {
@@ -109,7 +120,8 @@ await writeFile(join(scratch, 'entry.js'), compile(`
         </>}
       </aside>
       {mounted && <ScaLaunchClient propertyId="synthetic" propertyName="Synthetic House"
-        defaults={draft} initialRow={window.row} signedIn githubConfigured isOwner={!params.has('staff')}/>}
+        defaults={draft} initialRow={params.has('adopt')?null:window.row} signedIn githubConfigured isOwner={!params.has('staff')}
+        liveDraft={liveDraft} adoptable={params.has('adopt')}/>}
     </>;
   }
   createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -165,7 +177,7 @@ try{
         button.click();
       },text);
     };
-    const reset=async(query='')=>{await page.goto(origin+'/'+query);await page.waitForSelector('fieldset');};
+    const reset=async(query='')=>{await page.goto(origin+'/'+query);await page.waitForSelector(query.includes('adopt')?'section':'fieldset');};
     const field='input[placeholder="Stay at Granite Point"]';
     const edit=value=>page.$eval(field,(input,value)=>{
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,value);
@@ -280,6 +292,38 @@ try{
     await page.evaluate(()=>window.unmount());await page.waitForFunction(()=>!window.guarded());
     assert.deepEqual(errors,[]);
     pass('uploads block saves and exits; completed photos are unsaved and unmount releases the guard');
+    const tagline='input[placeholder^="On Granite Point"]';
+    await reset('?livedraft=1');await waitText('A draft saved here earlier differs from it.');
+    assert.equal(await page.$eval(tagline,i=>i.value),'Live tagline');assert.equal(await guard(),false);
+    await click('Use the saved draft');await page.waitForFunction(t=>document.querySelector(t).value==='Saved tagline',{},tagline);
+    assert.equal(await guard(),false);assert.equal(await page.evaluate(()=>document.body.innerText.includes('differs from it')),false);
+    pass('a live listing opens on the live page and can switch to the saved draft without reading as unsaved');
+
+    await reset('?adopt=1');await waitText('is already on the site');
+    assert.equal(await page.$('fieldset'),null);
+    await click('Open the live listing');await waitCalls(1);
+    assert.deepEqual(await page.evaluate(()=>window.calls.at(-1).args),['synthetic']);
+    await page.evaluate(()=>window.calls.at(-1).resolve({ok:true,row:{...window.row,branch_name:null,pr_number:null}}));
+    await page.waitForSelector('fieldset');assert.equal(await page.$eval(tagline,i=>i.value),'Saved tagline');
+    assert.equal(await guard(),false);await waitEnabled('Update live listing →');
+    pass('a live home with no launch record opens its live listing before anything edits it');
+
+    await reset('?livedraft=1');
+    await page.evaluate(()=>[...document.querySelectorAll('#sleeping button')].find(b=>b.textContent==='+ Add').click());
+    await page.waitForFunction(()=>document.querySelectorAll('#sleeping input[placeholder^="Room"]').length===2);
+    await page.evaluate(()=>[...document.querySelectorAll('#sleeping button')].filter(b=>b.textContent==='Fail synthetic upload')[1].click());
+    await waitText('Retry or remove the failed bedroom uploads');
+    assert.equal(await enabled('Save draft'),false);assert.equal(await enabled('Update live listing →'),false);assert.equal(await guard(),true);
+    await page.evaluate(()=>[...document.querySelectorAll('#sleeping button')].filter(b=>b.textContent==='Remove')[0].click());
+    await page.waitForFunction(()=>document.querySelectorAll('#sleeping input[placeholder^="Room"]').length===1);
+    assert.equal(await page.$eval('#sleeping input[placeholder^="Room"]',i=>i.value),'');
+    assert.equal(await page.evaluate(()=>document.querySelector('#sleeping').innerText.includes('Synthetic failed upload')),true);
+    assert.equal(await enabled('Save draft'),false);
+    await page.evaluate(()=>[...document.querySelectorAll('#sleeping button')].find(b=>b.textContent==='Remove').click());
+    await page.waitForFunction(()=>document.querySelectorAll('#sleeping input[placeholder^="Room"]').length===0);
+    await waitEnabled('Save draft');assert.equal(await page.evaluate(()=>document.body.innerText.includes('Retry or remove the failed')),false);
+    assert.deepEqual(errors,[]);
+    pass('a failed bedroom upload blocks saving, stays with its own room when an earlier one goes, and goes with its room');
     console.log(`All ${checks} launch safeguard browser checks passed.`);
   }
 }catch(error){

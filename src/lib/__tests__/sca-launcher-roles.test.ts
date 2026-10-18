@@ -63,8 +63,9 @@ test('the page passes the role and the client renders Steps 3 and 4 for owners o
   // Staff get one line for payments instead.
   assert.ok(client.includes("{!props.isOwner && ("));
   assert.ok(client.includes("<strong>Payments: {paymentsWired ? 'wired' : 'not wired'}</strong>"));
-  // A demo-mode probe is never reported to staff as wired.
-  assert.ok(client.includes("const paymentsWired = paymentsReady && row?.payment_verify_signal !== 'demo_mode';"));
+  // Wired = the owner's ticked boxes or a passing probe; a demo-mode probe is
+  // never reported to staff as wired.
+  assert.ok(client.includes("const paymentsWired = (paymentsReady || row?.payment_verify_signal === 'wired') && row?.payment_verify_signal !== 'demo_mode';"));
 });
 
 test('Step 1 collapses to one column on a phone', () => {

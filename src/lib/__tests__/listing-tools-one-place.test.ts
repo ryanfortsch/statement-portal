@@ -45,3 +45,31 @@ test('Draft with AI sits beside Pull from Guesty and in the Listing form, on one
   // The launch step opens the Listing section, where the draft lands.
   assert.ok(read('src/app/properties/[id]/launch/LaunchStepCard.tsx').includes("href: `/properties/${propertyId}?tab=guest#listing`, label: 'Open Listing'"));
 });
+
+test('Bedroom photos redirects to the home launcher, the one place its photos are published', () => {
+  const page = read('src/app/properties/bedroom-photos/page.tsx');
+  assert.ok(page.includes("redirect(id ? `/properties/${id}/stay-cape-ann#sleeping` : '/properties');"));
+  assert.ok(!exists('src/app/properties/bedroom-photos/BedroomPhotosClient.tsx'));
+  assert.ok(!exists('src/app/properties/bedroom-photos/actions.ts'));
+  for (const file of ['src/app/properties/[id]/page.tsx', 'src/app/properties/page.tsx', 'src/lib/helm-modules.ts']) {
+    assert.ok(!read(file).includes("'/properties/bedroom-photos") && !read(file).includes('"/properties/bedroom-photos'), `${file} still links Bedroom photos`);
+    assert.ok(!read(file).includes('/properties/bedroom-photos?'), `${file} still links Bedroom photos`);
+  }
+  // The launcher's rooms carry the uploader, keyed by a stable identity.
+  const client = read('src/app/properties/[id]/stay-cape-ann/ScaLaunchClient.tsx');
+  assert.ok(client.includes('id="sleeping"') && client.includes('keys={roomKeys}'));
+  assert.ok(client.includes('onFailedUploadsChange={(count) => { if (roomKeys[i]) setRoomFlag(setFailedSlots, roomKeys[i], count > 0); }}'));
+});
+
+test('a launcher PR writes over the live entry, never in place of it', () => {
+  const actions = read('src/app/properties/[id]/stay-cape-ann/actions.ts');
+  assert.match(actions, /function entryOverLive[\s\S]*?mergeRegistryEntry\(live, built\)/);
+  for (const name of ['openScaPr', 'openScaUpdatePr']) {
+    const body = actions.match(new RegExp(`export async function ${name}\\b[\\s\\S]*?(?=\\nexport async function )`))![0];
+    assert.ok(body.includes('const entry = entryOverLive(file.contentUtf8, form);'), `${name} must merge over the live entry`);
+    assert.ok(!body.includes('buildRegistryEntry(form)'), `${name} must not write the bare form entry`);
+  }
+  // A live listing opens on what guests see.
+  const page = read('src/app/properties/[id]/stay-cape-ann/page.tsx');
+  assert.ok(page.includes('liveDraft={liveDraft}') && page.includes('adoptable={adoptable}'));
+});

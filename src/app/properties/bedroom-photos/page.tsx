@@ -1,135 +1,41 @@
-import Link from 'next/link';
-import { HelmMasthead } from '@/components/HelmMasthead';
-import { HelmHero } from '@/components/HelmHero';
-import { auth } from '@/auth';
-import * as gh from '@/lib/github';
-import {
-  listRegistryListings,
-  internalNameToSlug,
-} from '@/lib/sca-launch';
-import { SCA_REGISTRY_PATH, SCA_PROD_BRANCH, SCA_SITE_ORIGIN } from '@/lib/sca-config';
-import { findScaListingByGuestyId } from '@/lib/sca-listings';
-import { BedroomPhotosClient, type BedroomListing } from './BedroomPhotosClient';
+import { redirect } from 'next/navigation';
+import { supabaseAdmin as supabase, isServiceConfigured } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
 
-const MANIFEST_PATH = 'data/bedroom-photos.json';
+/**
+ * Bedroom photos is retired as a fleet page (2026-10-18). It was a second
+ * publish path for the registry entry the launcher edits: the same uploader
+ * sits in each home's Stay Cape Ann launcher, under Sleeping arrangements and
+ * bedroom photos, and a live listing opens there on what guests see. Old
+ * links land on that home's launcher.
+ */
+const PROPERTY_ID = /^[a-z0-9_]{1,60}$/;
 
-function toPhotoArray(photo?: string | string[]): string[] {
-  if (!photo) return [];
-  return Array.isArray(photo) ? photo.filter(Boolean) : [photo];
+async function propertyForListing(listingId: string): Promise<string | null> {
+  if (!isServiceConfigured || !listingId) return null;
+  const { data: launch } = await supabase
+    .from('sca_launches')
+    .select('property_id')
+    .eq('guesty_listing_id', listingId)
+    .limit(1)
+    .maybeSingle();
+  if (launch?.property_id) return String(launch.property_id);
+  const { data: prop } = await supabase
+    .from('properties')
+    .select('id')
+    .eq('guesty_listing_id', listingId)
+    .limit(1)
+    .maybeSingle();
+  return prop?.id ? String(prop.id) : null;
 }
 
-/** Read the legacy bedroom-photos manifest (slug -> filenames). Best-effort. */
-async function loadLegacyManifest(): Promise<Record<string, string[]>> {
-  try {
-    const file = await gh.getFile(MANIFEST_PATH, SCA_PROD_BRANCH);
-    if (!file) return {};
-    const parsed = JSON.parse(file.contentUtf8) as { listings?: Record<string, string[]> };
-    return parsed.listings ?? {};
-  } catch {
-    return {};
-  }
-}
-
-async function loadListings(): Promise<{ listings: BedroomListing[]; error: string | null }> {
-  const file = await gh.getFile(SCA_REGISTRY_PATH, SCA_PROD_BRANCH);
-  if (!file) return { listings: [], error: `Could not read ${SCA_REGISTRY_PATH} on ${SCA_PROD_BRANCH}.` };
-
-  const manifest = await loadLegacyManifest();
-  const summaries = listRegistryListings(file.contentUtf8);
-
-  const listings: BedroomListing[] = summaries.map((s) => {
-    const slug = internalNameToSlug(s.internalName);
-    const legacyFiles = manifest[slug] ?? [];
-    return {
-      guestyListingId: s.guestyListingId,
-      internalName: s.internalName,
-      publicName: s.publicName,
-      slug,
-      bedrooms: findScaListingByGuestyId(s.guestyListingId)?.bedrooms ?? null,
-      arrangements: s.sleepingArrangements.map((a) => ({
-        name: a.name,
-        beds: a.beds,
-        photo: toPhotoArray(a.photo),
-      })),
-      legacyPhotoUrls: legacyFiles.map((f) => `${SCA_SITE_ORIGIN}/photos/${slug}/bedrooms/${f}`),
-    };
-  });
-
-  return { listings, error: null };
-}
-
-export default async function BedroomPhotosPage({
+export default async function BedroomPhotosRedirect({
   searchParams,
 }: {
   searchParams: Promise<{ listing?: string; property?: string }>;
 }) {
   const { listing, property } = await searchParams;
-  const session = await auth();
-  const signedIn = !!session?.user?.email;
-  const githubConfigured = gh.isGithubConfigured();
-
-  // Only reach across to the SCA repo for an authenticated operator.
-  const { listings, error } =
-    signedIn && githubConfigured
-      ? await loadListings()
-      : { listings: [] as BedroomListing[], error: null };
-
-  return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
-      <HelmMasthead />
-
-      <div className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingTop: 20 }}>
-        <Link
-          href={property ? `/properties/${property}?tab=guest` : '/properties'}
-          style={{ fontSize: 12, color: 'var(--ink-3)', textDecoration: 'none', letterSpacing: '.04em' }}
-        >
-          ← Properties
-        </Link>
-      </div>
-
-      <HelmHero
-        eyebrow="Helm · Properties"
-        title="Bedroom photos for"
-        emphasis="Stay Cape Ann"
-        description="Pick a listing, drop in a photo for each bedroom, and publish. Helm uploads the photos and updates staycapeann.com for you — no file names, no commands, no work computer required."
-        paddingTop={28}
-      />
-
-      <main className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 80, flex: 1 }}>
-        {!signedIn ? (
-          <Notice>Sign in with your Rising Tide account to manage bedroom photos.</Notice>
-        ) : !githubConfigured ? (
-          <Notice>
-            GITHUB_TOKEN is not configured on Helm, so it can&apos;t reach the Stay Cape Ann repo.
-            Add it in Vercel, then reload.
-          </Notice>
-        ) : error ? (
-          <Notice>{error}</Notice>
-        ) : listings.length === 0 ? (
-          <Notice>No Stay Cape Ann listings found in the registry yet.</Notice>
-        ) : (
-          <BedroomPhotosClient listings={listings} initialListingId={listing ?? null} />
-        )}
-      </main>
-    </div>
-  );
-}
-
-function Notice({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        padding: '16px 18px',
-        border: '1px solid var(--rule)',
-        background: 'var(--paper-2)',
-        fontSize: 14,
-        color: 'var(--ink-3)',
-        maxWidth: 640,
-      }}
-    >
-      {children}
-    </div>
-  );
+  const id = property && PROPERTY_ID.test(property) ? property : await propertyForListing((listing ?? '').trim());
+  redirect(id ? `/properties/${id}/stay-cape-ann#sleeping` : '/properties');
 }
