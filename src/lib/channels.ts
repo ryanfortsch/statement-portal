@@ -21,6 +21,8 @@ import type {
   BookingChannel,
 } from '@/lib/channels-types';
 import { selectAllPaged } from '@/lib/paged-select';
+import { operatingDate } from '@/lib/operating-date';
+import { expiredInquiriesOrFilter } from '@/lib/inquiry-expiry';
 import { STAY_STATUSES, findDoubleBookings, type DoubleBooking } from '@/lib/booking-conflicts';
 import { lastPullsByProperty, type ExportPull } from '@/lib/ical-export-pulls';
 
@@ -175,16 +177,45 @@ export async function listRecentSyncRuns(limit = 50): Promise<IcalSyncRun[]> {
   return (data ?? []) as IcalSyncRun[];
 }
 
-export async function listOpenInquiries(): Promise<Booking[]> {
+/**
+ * Inquiries still waiting for a decision: the ones whose check-in has not
+ * passed (src/lib/inquiry-expiry.ts). This is the "pending" count on
+ * /channels, so it never includes an expired request.
+ */
+export async function listOpenInquiries(today: string = operatingDate()): Promise<Booking[]> {
   if (!isConfigured) return [];
   const { data, error } = await supabase
     .from('bookings')
     .select('*')
     .eq('status', 'inquiry')
+    .gte('check_in', today)
     .is('duplicate_of', null)
     .order('created_at', { ascending: false });
   if (error) return [];
   return (data ?? []) as Booking[];
+}
+
+export type ExpiredInquiry = Booking & { cancel_reason?: string | null };
+
+/**
+ * The fold under the open inquiries: requests whose check-in passed (a
+ * feed's, still 'inquiry') and Helm's own the nightly sweep closed. Newest
+ * check-in first; `total` counts the same filter.
+ */
+export async function listExpiredInquiries(
+  today: string = operatingDate(),
+  limit = 20,
+): Promise<{ rows: ExpiredInquiry[]; total: number }> {
+  if (!isConfigured) return { rows: [], total: 0 };
+  const { data, error, count } = await supabase
+    .from('bookings')
+    .select('*', { count: 'exact' })
+    .or(expiredInquiriesOrFilter(today))
+    .is('duplicate_of', null)
+    .order('check_in', { ascending: false })
+    .range(0, Math.max(0, limit - 1));
+  if (error) return { rows: [], total: 0 };
+  return { rows: (data ?? []) as ExpiredInquiry[], total: count ?? (data ?? []).length };
 }
 
 export type BookingConflict = DoubleBooking<Booking>;
