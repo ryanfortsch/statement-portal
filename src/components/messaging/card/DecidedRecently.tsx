@@ -83,7 +83,7 @@ export function DecidedRecently({ items, undo }: { items: DecidedRow[]; undo: (i
                 {row.property && <span style={{ color: 'var(--ink-3)' }}> · {row.property}</span>}
                 {quote && <span style={{ color: 'var(--ink-4)' }}> · “{quote}”</span>}
               </span>
-              <span style={{ color: 'var(--ink-4)', fontSize: 11, whiteSpace: 'nowrap' }} title={row.at || undefined}>
+              <span suppressHydrationWarning style={{ color: 'var(--ink-4)', fontSize: 11, whiteSpace: 'nowrap' }} title={row.at || undefined}>
                 {relativeTimeShort(row.at || '')}
                 {who ? ` · ${who}` : ''}
               </span>

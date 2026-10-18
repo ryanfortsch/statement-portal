@@ -8,6 +8,7 @@ import { CONTACT_TYPE_LABELS } from '@/lib/crm';
 import type { LastTouch } from './page';
 import { RefreshCrmButton } from './RefreshCrmButton';
 import { NewContactModal } from './NewContactModal';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 /**
  * The CRM list: the contacts ledger, filtered by type and searched. The
@@ -152,7 +153,7 @@ export function CrmListClient({ contacts, properties, counts, lastTouchByContact
                       )}
                     </div>
                     {lastTouchByContact[c.id] && (
-                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                      <div suppressHydrationWarning style={{ marginTop: 4, fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
                         <span style={{ color: 'var(--tide-deep)', fontWeight: 600 }}>{lastTouchByContact[c.id].channel}</span>
                         {' · '}
                         &ldquo;{truncate(lastTouchByContact[c.id].summary, 80)}&rdquo;
@@ -258,7 +259,7 @@ function formatRelative(iso: string): string {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     if (days < 7) return `${days}d ago`;
-    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ });
   } catch {
     return iso;
   }

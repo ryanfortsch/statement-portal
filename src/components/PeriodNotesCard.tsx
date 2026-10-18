@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PROPERTIES } from '@/lib/properties';
 import { useConfirm } from '@/components/ConfirmDialog';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 /**
  * Close-out notes for the selected statement month.
@@ -30,7 +31,7 @@ type Note = {
 function formatTimestamp(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: GLOUCESTER_TZ });
   } catch { return iso; }
 }
 

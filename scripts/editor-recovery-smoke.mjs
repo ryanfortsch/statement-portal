@@ -15,7 +15,7 @@ const {webpack}=require('next/dist/compiled/webpack/webpack');
 const root=process.cwd();
 const scratch=await mkdtemp(join(tmpdir(),'helm-editor-recovery-'));
 const compile=source=>ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-for(const [name,path] of [
+for(const [name,path] of [['stabletime','src/lib/stable-time.ts'],
   ['owner','src/app/work/[id]/SlipOwnerActionEditor.tsx'],
   ['slip-controls','src/app/work/[id]/slip-controls.ts'],['back','src/app/work/[id]/BackToBoardLink.tsx'],['gmail-links','src/lib/gmail-links.ts'],
   ['crm','src/app/crm/[id]/ContactDetail.tsx'],['propcheck','src/app/crm/PropertyCheckboxes.tsx'],
@@ -103,7 +103,7 @@ await writeFile(join(scratch,'entry.js'),compile(`
   createRoot(document.getElementById('root')).render(<Fixture/>);
 `));
 await new Promise((done,reject)=>{
-  const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{'./PropertyCheckboxes':join(scratch,'propcheck.js'),'../PropertyCheckboxes':join(scratch,'propcheck.js'),
+  const compiler=webpack({mode:'development',devtool:false,context:scratch,entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),'./PropertyCheckboxes':join(scratch,'propcheck.js'),'../PropertyCheckboxes':join(scratch,'propcheck.js'),
     '../actions':join(scratch,'actions.js'),'../../actions':join(scratch,'actions.js'),'./actions':join(scratch,'actions.js'),'./onboarding-actions':join(scratch,'actions.js'),
     '@/lib/use-soft-refresh':join(scratch,'refresh.js'),'@/lib/unsaved-work':join(scratch,'unsaved-work.js'),
     './slip-controls':join(scratch,'slip-controls.js'),'../../[id]/BackToBoardLink':join(scratch,'back.js'),'@/lib/gmail-links':join(scratch,'gmail-links.js'),'next-auth/react':join(scratch,'session.js'),

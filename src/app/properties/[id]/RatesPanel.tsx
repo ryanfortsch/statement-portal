@@ -15,6 +15,7 @@ import type { RateDayRow, RatePlanRow, TaxConfigRow } from '@/lib/rate-plan';
 import { regionLabel } from '@/lib/property-scope';
 import { clearRatesConfirm } from '@/lib/irreversible-confirms';
 import { HousePolicyReadout, type HousePolicyValues } from './HousePolicyReadout';
+import { etStamp } from '@/lib/stable-time';
 
 /**
  * The property page's Rates & taxes section (Guest & listing tab): Guesty's Pricing & policies, Tax
@@ -109,7 +110,7 @@ function PlanForm({ propertyId, plan, housePolicy }: { propertyId: string; plan:
     <form key={formKey} action={formAction} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SectionHead
         title="Rate plan"
-        note={plan?.updated_at ? `Saved ${new Date(plan.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${plan.updated_by ? ` by ${plan.updated_by}` : ''}` : 'Not saved yet'}
+        note={plan?.updated_at ? `Saved ${etStamp(plan.updated_at)}${plan.updated_by ? ` by ${plan.updated_by}` : ''}` : 'Not saved yet'}
       />
 
       <Group label="Nightly">

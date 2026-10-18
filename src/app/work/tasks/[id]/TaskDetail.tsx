@@ -15,6 +15,7 @@ import { TeamPicker } from '@/components/TeamPicker';
 import { displayNameForEmail } from '@/lib/team';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type PropertyForPicker = { id: string; name: string; title: string | null; city: string; is_active: boolean };
 
@@ -491,6 +492,7 @@ function formatTimestamp(iso: string): string {
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
+      timeZone: GLOUCESTER_TZ,
     });
   } catch {
     return iso;

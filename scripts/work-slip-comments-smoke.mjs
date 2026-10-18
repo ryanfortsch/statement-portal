@@ -17,7 +17,7 @@ const scratch = await mkdtemp(join(tmpdir(), 'helm-work-slip-comments-'));
 const compile = source => ts.transpileModule(source, { compilerOptions: {
   target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX,
 } }).outputText;
-for (const [name, path] of [
+for (const [name, path] of [['stabletime', 'src/lib/stable-time.ts'], 
   ['comments', 'src/app/work/[id]/SlipComments.tsx'],
   ['close', 'src/app/work/[id]/SlipClosePanel.tsx'],
   ['SnoozeButton', 'src/app/work/[id]/SnoozeButton.tsx'],
@@ -60,7 +60,7 @@ await writeFile(join(scratch, 'entry.js'), compile(`
 await new Promise((done,reject)=>{
   const compiler=webpack({mode:'development',devtool:false,context:scratch,
     entry:join(scratch,'entry.js'),output:{path:scratch,filename:'bundle.js'},
-    resolve:{modules:[join(root,'node_modules')],alias:{
+    resolve:{modules:[join(root,'node_modules')],alias:{'@/lib/stable-time':join(scratch,'stabletime.js'),
       '../actions':join(scratch,'actions.js'),
       '@/lib/use-soft-refresh':join(scratch,'refresh.js'),
       './slip-controls':join(scratch,'slip-controls.js'),

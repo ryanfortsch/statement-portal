@@ -747,7 +747,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
           ) : (
             <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`Drafted ${createdAt || ''}${shortId ? ` · id ${shortId}` : ''}`}>
               {'drafted '}
-              <span style={{ color: ageTone, fontWeight: ageTone === 'var(--signal)' ? 700 : 500 }}>{ageLabel}</span>
+              <span suppressHydrationWarning style={{ color: ageTone, fontWeight: ageTone === 'var(--signal)' ? 700 : 500 }}>{ageLabel}</span>
             </span>
           )}
         </header>
@@ -980,7 +980,8 @@ export function FieldBlock({
       >
         <span>{label}</span>
         {sub && (
-          <span style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.10em', color: 'var(--ink-3)', textTransform: 'none' }} title={subTitle}>
+          // `sub` is often an age ("sent 3m ago") that reads the clock.
+          <span suppressHydrationWarning style={{ fontSize: 10, fontWeight: 400, letterSpacing: '0.10em', color: 'var(--ink-3)', textTransform: 'none' }} title={subTitle}>
             {sub}
           </span>
         )}

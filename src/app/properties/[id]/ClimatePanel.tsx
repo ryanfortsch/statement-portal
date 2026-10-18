@@ -8,6 +8,7 @@ import {
 } from './climate-actions';
 import type { ClimateProfile } from '@/lib/climate';
 import type { SeamThermostat } from '@/lib/seam';
+import { etStamp } from '@/lib/stable-time';
 
 /**
  * Climate automation panel (Operations tab).
@@ -71,7 +72,7 @@ export function ClimatePanel({
         ) : lastApplied ? (
           <span>
             Last set <strong style={{ color: 'var(--ink)' }}>{lastApplied}</strong>
-            {profile?.last_applied_at ? ` · ${new Date(profile.last_applied_at).toLocaleString()}` : ''}
+            {profile?.last_applied_at ? ` · ${etStamp(profile.last_applied_at)}` : ''}
           </span>
         ) : (
           <span>Not run yet.</span>

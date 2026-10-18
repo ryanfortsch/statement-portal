@@ -5,6 +5,7 @@ import type { WorkSlipCommentRow } from '@/lib/work-types';
 import { displayNameForEmail } from '@/lib/team';
 import { addWorkSlipComment, deleteWorkSlipComment } from '../actions';
 import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type Props = {
   slipId: string;
@@ -132,7 +133,9 @@ export function SlipComments({ slipId, initialComments, myEmail }: Props) {
               }}
             >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em', marginBottom: 4 }}>
+                {/* The age reads the clock, so the server's "4m ago" can be
+                    the browser's "5m ago": keep the server text on hydrate. */}
+                <div suppressHydrationWarning style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em', marginBottom: 4 }}>
                   <span style={{ fontWeight: 600, color: 'var(--ink-3)' }}>{displayNameForEmail(c.author_email)}</span>
                   {' · '}
                   {formatRelative(c.created_at)}
@@ -255,7 +258,7 @@ function formatRelative(iso: string): string {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     if (days < 7) return `${days}d ago`;
-    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return then.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ });
   } catch {
     return iso;
   }

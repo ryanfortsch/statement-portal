@@ -5,6 +5,7 @@ import type { ContactMeetingRow } from '@/lib/meetings-core';
 import { defaultImportant, meetingWhen, todayET } from '@/lib/meetings-core';
 import { displayNameForEmail } from '@/lib/team';
 import { addContactMeeting, cancelContactMeeting } from '../actions';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type PropertyMini = { id: string; name: string };
 
@@ -268,7 +269,7 @@ function MeetingRow({
   const reminder = !m.important
     ? null
     : m.reminder_sent_at
-      ? `Texted ${new Date(m.reminder_sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+      ? `Texted ${new Date(m.reminder_sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ })}`
       : m.reminder_error
         ? 'Text failed, retrying'
         : m.meeting_date > today

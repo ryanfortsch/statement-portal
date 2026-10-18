@@ -15,6 +15,7 @@ import {
 } from '@/lib/projection-redlines';
 import type { ProjectionRow } from '@/lib/projections-types';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type Mode = 'interpret' | 'precise';
 type Step = 'input' | 'preview' | 'applied';
@@ -389,7 +390,7 @@ function truncate(s: string, n: number): string {
 }
 
 function formatTime(d: Date): string {
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: GLOUCESTER_TZ });
 }
 
 // ─── Mode toggle + Interpret input ──────────────────────────────────────────

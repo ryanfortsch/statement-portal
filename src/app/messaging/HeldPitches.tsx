@@ -27,7 +27,7 @@ export function HeldPitches({ items }: { items: HeldPitch[] }) {
             <span style={{ minWidth: 0, flex: '1 1 260px', overflowWrap: 'anywhere', color: 'var(--ink-2)' }}>
               Held as a pitch: <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{item.sender || 'Unknown sender'}</span>
               {item.subject ? ` · ${item.subject}` : ''}
-              <span style={{ color: 'var(--ink-4)' }}> · {heldAgo(item.held_at)}</span>
+              <span suppressHydrationWarning style={{ color: 'var(--ink-4)' }}> · {heldAgo(item.held_at)}</span>
             </span>
             <form action={releaseHeldPitch}>
               <input type="hidden" name="source_id" value={item.source_id} />

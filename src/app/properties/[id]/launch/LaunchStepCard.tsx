@@ -9,6 +9,7 @@ import {
 } from './actions';
 import { LAUNCH_WHO_LABELS, type LaunchStep, type LaunchStepRow, type LaunchStepStatus } from '@/lib/launch-checklist';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
+import { GLOUCESTER_TZ } from '@/lib/stable-time';
 
 type Props = {
   propertyId: string;
@@ -251,7 +252,7 @@ export function LaunchStepCard({
               </div>
             )}
             {row?.completed_at && isDone && (
-              <div className="rt-launch-row-stamp">
+              <div className="rt-launch-row-stamp" suppressHydrationWarning>
                 ✓ {formatRelative(row.completed_at)}
                 {row.completed_by ? ` · ${row.completed_by}` : ''}
               </div>
@@ -533,7 +534,7 @@ function formatRelative(iso: string): string {
   if (diffMs < 2 * day) return 'yesterday';
   const days = Math.floor(diffMs / day);
   if (days < 30) return `${days}d ago`;
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: GLOUCESTER_TZ });
 }
 
 // ─── CSS ────────────────────────────────────────────────────────────────────
