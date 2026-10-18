@@ -100,6 +100,9 @@ export type BoardRow = {
      *  the `#stay-<pid>-<checkIn>` link. Null when the schedule does not list it. */
     scheduleCheckIn: string | null;
   } | null;
+  /** This checkout's entry on /turnovers/schedule, when that page shows its
+   *  day. Null otherwise (already gone, or past the schedule's week). */
+  scheduleHref: string | null;
   arrive: { date: string; time: string; when: string; guest: string | null; nights: number | null } | null;
   /** "Out 10:00 · In 4:00" */
   pair: string;
@@ -241,9 +244,25 @@ export function boardRangeFor(date: string, today: string): '2d' | '3d' | '7d' |
 }
 
 /** The board row of a checkout: every row with a departure in range carries
- *  the `out-<pid>-<date>` anchor, paired with an arrival or not. */
+ *  the `out-<pid>-<date>` anchor, paired with an arrival or not. The
+ *  schedule's rows link here. */
 export function checkoutBoardHref(propertyId: string, date: string, today: string): string {
   return `/turnovers?range=${boardRangeFor(date, today)}#out-${propertyId}-${date}`;
+}
+
+/** How many days /turnovers/schedule shows, today first (its DAYS). */
+export const SCHEDULE_DAYS = 7;
+
+/** A checkout's row on /turnovers/schedule, when the page shows that day. */
+export function scheduleHrefFor(
+  propertyId: string,
+  out: { date: string; scheduleCheckIn: string | null } | null,
+  today: string,
+): string | null {
+  if (!out?.scheduleCheckIn) return null;
+  const n = daysBetween(today, out.date);
+  if (n < 0 || n >= SCHEDULE_DAYS) return null;
+  return `/turnovers/schedule#stay-${propertyId}-${out.scheduleCheckIn}`;
 }
 
 // ── the lifecycle, on the Eastern clock ───────────────────────────────
@@ -523,6 +542,7 @@ export function composeBoard(input: BoardInput): Board {
     rows.push({
       id: `turnover-${t.propertyId}-${t.reservationId}`,
       outAnchor: inRange && out ? `out-${t.propertyId}-${out.date}` : null,
+      scheduleHref: scheduleHrefFor(t.propertyId, out, today),
       day,
       propertyId: t.propertyId,
       propertyName: t.propertyName,
@@ -556,6 +576,7 @@ export function composeBoard(input: BoardInput): Board {
     rows.push({
       id: `out-${pid}-${e.date}`,
       outAnchor: null,
+      scheduleHref: scheduleHrefFor(pid, out, today),
       day: e.date,
       propertyId: pid,
       propertyName: e.propertyName,

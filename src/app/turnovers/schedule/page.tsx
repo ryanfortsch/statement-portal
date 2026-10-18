@@ -18,6 +18,7 @@ import {
 } from '@/lib/checkout-schedule';
 import { isCapeAnnOps, regionLabel, CAPE_ANN_REGION } from '@/lib/property-scope';
 import { operatingDate } from '@/lib/operating-date';
+import { checkoutBoardHref } from '@/lib/turnover-board';
 import { expireStaleProposals } from '@/lib/schedule-proposal-expiry';
 import { formatOperatorNote, noteRenderingIsStale } from '@/lib/cleaner-note';
 import {
@@ -291,6 +292,15 @@ function StayRow({
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-4)' }}>adjust ▾</span>
       </summary>
       <div style={{ padding: '4px 0 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* The same house's line on the turnover board: the cleaner, the
+            walk and the arrival this checkout clears the way for. The
+            board's row links back here. */}
+        <Link
+          href={checkoutBoardHref(row.propertyId, row.effectiveCheckOut, today)}
+          style={{ fontSize: 12, color: 'var(--tide-deep)', textDecoration: 'none', alignSelf: 'flex-start' }}
+        >
+          On the board →
+        </Link>
         {row.ownerHold && (
           // The owner-hold answer lives on the row it changes (it used to be
           // answerable only on the cleaner inbox and the home feed). The same

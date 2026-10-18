@@ -158,6 +158,13 @@ export function BoardLine({ row, today, myEmail }: { row: BoardRow; today: strin
                 {fieldChipLabel(fp)} →
               </Link>
             )}
+            {/* The checkout's own row on the schedule, where its time and
+                date move; the schedule's row links back here. */}
+            {row.scheduleHref && (
+              <Link href={row.scheduleHref} className="rt-tb-chip">
+                Checkout schedule →
+              </Link>
+            )}
             {t && !row.done && (
               <form action={markTurnoverComplete} style={{ margin: 0 }}>
                 <input type="hidden" name="property_id" value={t.propertyId} />
