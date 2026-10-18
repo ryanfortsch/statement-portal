@@ -445,9 +445,10 @@ export default async function HelmHome() {
           /turnovers/cleanings. Renders nothing when the read fails. */}
       <CleaningsStrip />
 
-      {/* OCCUPANCY CALENDAR — next 7 days, shared with the Turnovers page */}
+      {/* OCCUPANCY CALENDAR — next 7 days. The only place it renders now:
+          the Turnovers page links here (#occupancy-calendar). */}
       {ops?.calendar && ops.calendar.rows.length > 0 && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 64 }}>
+        <section id="occupancy-calendar" className="max-w-[1100px] mx-auto px-10" style={{ width: '100%', paddingBottom: 64, scrollMarginTop: 100 }}>
           <div
             className="flex items-baseline justify-between flex-wrap"
             style={{ gap: 12, marginBottom: 14 }}

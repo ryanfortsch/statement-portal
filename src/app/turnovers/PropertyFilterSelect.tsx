@@ -2,10 +2,9 @@
 
 /**
  * Property filter for the turnover pipeline: a native select styled to sit
- * in the editorial header controls row, same treatment as the calendar's
- * month jump. Picking a property navigates to ?property=<id> via an href the
- * server built with opsHref, so the list range, calendar range, paging
- * offset, and month mode all survive; the blank option clears the filter.
+ * in the editorial header controls row. Picking a property navigates to
+ * ?property=<id> via an href the server built with opsHref, so the list
+ * range survives; the blank option clears the filter.
  * Props are plain strings so this client island never imports server-only
  * code.
  */
