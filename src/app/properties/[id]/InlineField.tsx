@@ -8,7 +8,7 @@ import { useUnsavedWorkGuard } from '@/lib/unsaved-work';
 import { useSoftRefresh } from '@/lib/use-soft-refresh';
 
 /**
- * Fill one blank fact without leaving the page.
+ * Fill a blank fact, or correct a written one, without leaving the page.
  *
  * Reading a wrong or missing value on Facts and fixing it used to be a trip
  * to the edit form, a hunt for the field, a save and a bounce back. For a
@@ -38,17 +38,28 @@ export function InlineField({
   propertyId,
   column,
   label,
+  current,
+  mono,
 }: {
   propertyId: string;
   column: string;
   label: string;
+  /**
+   * The value on file. Present means the row shows it with a quiet Edit that
+   * opens the field prefilled; absent means a blank with Add.
+   */
+  current?: string | null;
+  /** Codes and passwords read in the mono face, as the fact sheet prints them. */
+  mono?: boolean;
 }) {
   const softRefresh = useSoftRefresh();
   const [open, setOpen] = useState(false);
+  const shown = (current ?? '').trim();
   const [value, setValue] = useState('');
+  const dirty = value.trim() !== '' && value.trim() !== shown;
   const { pending, busy, error, setError, run } = useRecoverableAction();
 
-  useUnsavedWorkGuard(pending || (open && !!value.trim()));
+  useUnsavedWorkGuard(pending || (open && dirty));
 
   const col = captureColumn(column);
   const numeric = col?.type === 'int' || col?.type === 'float';
@@ -58,6 +69,10 @@ export function InlineField({
     if (busy.current) return;
     const raw = value.trim();
     if (!raw) return;
+    if (raw === shown) {
+      setOpen(false);
+      return;
+    }
     setError(null);
     run(async () => {
       const res = await applyPropertyCaptureAction(propertyId, [
@@ -92,11 +107,45 @@ export function InlineField({
     }, 'Could not confirm this field was saved. Your value is kept; try again.');
   }
 
+  const openWith = () => {
+    setValue(shown);
+    setOpen(true);
+  };
+
   if (!open) {
+    if (shown) {
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+          <span
+            className={mono ? 'font-mono' : undefined}
+            style={{ color: 'var(--ink)', fontSize: mono ? 12 : 14, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}
+          >
+            {shown}
+          </span>
+          <button
+            type="button"
+            onClick={openWith}
+            aria-label={`Edit ${label}`}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              fontSize: 11,
+              color: 'var(--ink-4)',
+              fontFamily: 'inherit',
+              letterSpacing: '.04em',
+            }}
+          >
+            Edit
+          </button>
+        </span>
+      );
+    }
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openWith}
         style={{
           background: 'none',
           border: 'none',
@@ -123,7 +172,7 @@ export function InlineField({
           onKeyDown={(e) => {
             if (busy.current) return;
             if (e.key === 'Enter') { e.preventDefault(); save(); }
-            if (e.key === 'Escape' && (!value.trim() || confirm('Discard this field edit?'))) {
+            if (e.key === 'Escape' && (!dirty || confirm('Discard this field edit?'))) {
               setOpen(false);
               setValue('');
               setError(null);
@@ -145,7 +194,7 @@ export function InlineField({
         <button
           type="button"
           onClick={save}
-          disabled={pending || !value.trim()}
+          disabled={pending || !dirty}
           style={{
             fontSize: 10,
             letterSpacing: '.16em',
@@ -155,10 +204,33 @@ export function InlineField({
             background: 'var(--ink)',
             color: 'var(--paper)',
             cursor: pending ? 'wait' : 'pointer',
-            opacity: pending || !value.trim() ? 0.6 : 1,
+            opacity: pending || !dirty ? 0.6 : 1,
           }}
         >
           {pending ? 'Saving' : 'Save'}
+        </button>
+        {/* A phone has no Escape key. */}
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            if (dirty && !confirm('Discard this field edit?')) return;
+            setOpen(false);
+            setValue('');
+            setError(null);
+          }}
+          style={{
+            fontSize: 10,
+            letterSpacing: '.16em',
+            textTransform: 'uppercase',
+            padding: '5px 4px',
+            border: 'none',
+            background: 'none',
+            color: 'var(--ink-4)',
+            cursor: 'pointer',
+          }}
+        >
+          Cancel
         </button>
       </div>
       {highStakes && (

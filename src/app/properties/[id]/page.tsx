@@ -51,7 +51,7 @@ import { describeOperatingWindow } from '@/lib/forecast-operating-windows';
 import { getGuestCodeView } from '@/lib/guest-locks';
 import { getPropertyCleaners } from '@/lib/property-crew';
 import type { PaymentVerifySignal } from '@/lib/sca-launch';
-import { CollapsibleSection, CollapsibleSubSection } from '@/components/properties/CollapsibleSection';
+import { CollapsibleSection } from '@/components/properties/CollapsibleSection';
 import { HashOpenScript } from '@/components/properties/HashOpenScript';
 import { getPropertyNotices } from '@/lib/property-notices';
 import { getPropertyNotes } from '@/lib/property-notes';
@@ -1243,93 +1243,11 @@ export default async function PropertyDetailPage({
 
         {/* ════════════ FACTS ════════════ */}
         <TabSection tab="facts">
-          {/* Launcher tiles, same grammar as the Growth tab's grid, replacing
-              the old right-aligned ghost-link row: each tool gets a card with
-              its one-line pitch instead of a bare label. Backfill is a true
-              one-shot server action (not a destination), so its tile hosts
-              the button + its result panel rather than an Open link. */}
-          <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 36, width: '100%' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-              <GrowthTile
-                eyebrow="Data"
-                title="Edit operational data"
-                description="Wi-Fi, utilities, access, emergency contact, safety gear: the fields every deliverable and checklist on this page draws from."
-                href={`/properties/${p.id}/edit`}
-              />
-              <GrowthTile
-                eyebrow="Distribution"
-                title="Channels"
-                description={
-                  helmRun
-                    ? 'Helm runs this calendar: per-channel listings, iCal in and out, bookings. Rates live under Rates & taxes on the Guest & listing tab.'
-                    : 'Where this property is listed: per-channel listings, bookings, and its iCal export feed. Guesty still runs the calendar.'
-                }
-                href={`/channels/${p.id}`}
-                status={helmRun ? 'Helm ✓' : 'Guesty'}
-              />
-              <GrowthTile
-                eyebrow="Inspections"
-                title="Inspection layout"
-                description="The room-by-room card deck a field inspection walks through at this property."
-                href={`/properties/${p.id}/layout`}
-              />
-              {/* A helm-run home has no live Guesty listing to fill from; the
-                  tile would only offer a call that returns nothing. */}
-              {!helmRun && (
-                <div style={{ border: '1px solid var(--rule)', padding: '18px 18px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div className="eyebrow">Integrations</div>
-                  <h3 className="font-serif" style={{ fontSize: 18, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
-                    Fill blanks from Guesty
-                  </h3>
-                  <p style={{ margin: '4px 0 8px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.55 }}>
-                    Pulls bedrooms, bathrooms, property type, and coordinates from the live listing.
-                    Fills empty fields only, never overwrites.
-                  </p>
-                  <div style={{ marginTop: 'auto' }}>
-                    <PropertyBackfillButton propertyId={p.id} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-
-      <CollapsibleSection
-        title="Rental season"
-        summary={describeOperatingWindow(p.id) ?? describePeriods(rentalPeriods)}
-      >
-        <RentalSeasonPanel
-          propertyId={p.id}
-          periods={rentalPeriods}
-          codeWindow={describeOperatingWindow(p.id)}
-        />
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        title="Climate automation"
-        summary={climateProfile?.enabled ? 'on' : 'not set up'}
-      >
-        {/* The Seam thermostat list is a fleet-wide external call. It used
-            to run in this page's Promise.all, so every arrival at every
-            property waited on Seam to fill a device picker inside a section
-            that renders collapsed. Streamed instead. */}
-        <Suspense
-          fallback={
-            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
-              Loading thermostats…
-            </div>
-          }
-        >
-          <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
-        </Suspense>
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        id="guest-codes"
-        title="Guest door codes"
-        summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
-      >
-        <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
-      </CollapsibleSection>
+      {/* THE FACT SHEET, open: seven groups shaped by the question they
+          answer, as plain headed lists. Facts used to be fifteen closed folds
+          with this one three taps deep; a phone in the driveway reads it now
+          without opening anything. Every row edits in place, blank or not. */}
+      <FactSheet p={p} summary={operationalSummary} />
 
       {/* HOUSE POLICY — the decisions a guest, a listing or the concierge
           quotes. Each of these was a tick in the Setup catalog recording
@@ -1339,6 +1257,7 @@ export default async function PropertyDetailPage({
           field that answers it, never as a dash. */}
       <CollapsibleSection
         id="policy"
+        defaultOpen
         title="House policy"
         summary={(() => {
           const set = [
@@ -1393,6 +1312,14 @@ export default async function PropertyDetailPage({
             </Fragment>
           ))}
         </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        id="guest-codes"
+        title="Guest door codes"
+        summary={guestCodeView.locks.length > 1 ? `${guestCodeView.locks.length} locks mapped` : guestCodeView.locks.length === 1 ? 'lock mapped' : 'no lock mapped'}
+      >
+        <GuestCodesPanel propertyId={p.id} view={guestCodeView} />
       </CollapsibleSection>
 
       {/* WHO SERVES THIS HOUSE — the people who physically go there.
@@ -1556,36 +1483,36 @@ export default async function PropertyDetailPage({
           </div>
         )}
       </CollapsibleSection>
-      {/* THE FACT SHEET — seven groups shaped by the question they answer
-          rather than by the table they came from, each linking at the edit
-          group that owns it.
 
-          The `populated > 0` gate is gone on purpose. It hid this block
-          entirely on a property with nothing filled in, which is exactly
-          the property whose blanks ARE the work. A blank now renders as its
-          own label with an Add link. */}
-      <CollapsibleSection id="facts" title="The fact sheet" summary={operationalSummary}>
-        <OperationalSections p={p} />
+      <CollapsibleSection
+        title="Climate automation"
+        summary={climateProfile?.enabled ? 'on' : 'not set up'}
+      >
+        {/* The Seam thermostat list is a fleet-wide external call. It used
+            to run in this page's Promise.all, so every arrival at every
+            property waited on Seam to fill a device picker inside a section
+            that renders collapsed. Streamed instead. */}
+        <Suspense
+          fallback={
+            <div style={{ padding: '4px 0 16px', color: 'var(--ink-3)', fontSize: 13 }}>
+              Loading thermostats…
+            </div>
+          }
+        >
+          <ClimatePanelLoader propertyId={p.id} profile={climateProfile} />
+        </Suspense>
       </CollapsibleSection>
 
-      {/* REFERENCE — Helm IDs, sync state, and the Perfection link, all in one
-          quiet block at the bottom. Used rarely; collapsed by default. */}
-      {/* Setup has retired off the strip for this house, so the readiness
-          number needs somewhere to still be reachable. One line, not a tab. */}
-      {!showSetup && showLaunchChecklist && (
-        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
-          <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
-            Setup is complete for {p.name}.{' '}
-            <Link
-              href={`/properties/${p.id}/launch`}
-              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
-            >
-              Open the launch checklist
-            </Link>{' '}
-            to review the {onboardingResolved} of {onboardingTotal} items on record.
-          </p>
-        </section>
-      )}
+      <CollapsibleSection
+        title="Rental season"
+        summary={describeOperatingWindow(p.id) ?? describePeriods(rentalPeriods)}
+      >
+        <RentalSeasonPanel
+          propertyId={p.id}
+          periods={rentalPeriods}
+          codeWindow={describeOperatingWindow(p.id)}
+        />
+      </CollapsibleSection>
 
       <CollapsibleSection title="Reference" summary="IDs · timestamps · external links">
         <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px 64px', fontSize: 13, marginBottom: 24 }}>
@@ -1637,6 +1564,34 @@ export default async function PropertyDetailPage({
           </a>
         </div>
       </CollapsibleSection>
+
+      {/* Setup has retired off the strip for this house, so the readiness
+          number needs somewhere to still be reachable. One line, not a tab. */}
+      {!showSetup && showLaunchChecklist && (
+        <section className="max-w-[1100px] mx-auto px-10" style={{ paddingBottom: 24, width: '100%' }}>
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.6 }}>
+            Setup is complete for {p.name}.{' '}
+            <Link
+              href={`/properties/${p.id}/launch`}
+              style={{ color: 'var(--tide-deep)', textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              Open the launch checklist
+            </Link>{' '}
+            to review the {onboardingResolved} of {onboardingTotal} items on record.
+          </p>
+        </section>
+      )}
+
+      {/* TOOLS: the launchers, as one quiet line at the foot of the tab.
+          They are navigation, not content, and as tiles they pushed the
+          first fact below the fold. */}
+      <ToolsLine>
+        <ToolLink href={`/properties/${p.id}/edit`}>Edit all facts</ToolLink>
+        <ToolLink href={`/channels/${p.id}`}>Channels ({helmRun ? 'Helm runs the calendar' : 'Guesty runs the calendar'})</ToolLink>
+        <ToolLink href={`/properties/${p.id}/layout`}>Inspection layout</ToolLink>
+        {/* A helm-run home has no live Guesty listing to fill from. */}
+        {!helmRun && <PropertyBackfillButton propertyId={p.id} />}
+      </ToolsLine>
 
         </TabSection>
 
@@ -2574,6 +2529,13 @@ type OpRow = {
    * catalog, and keeps its link to the form.
    */
   col?: string;
+  /** A short source note printed beside the label ("DPW list"). */
+  note?: string;
+  /**
+   * The row is answered elsewhere and is not edited here: the text says why
+   * (a trash day outside Gloucester is the city's, not a column to type).
+   */
+  fixed?: string;
 };
 
 /** ONE primary treatment for the whole page (the thing you came to do:
@@ -2744,10 +2706,10 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Supply closet', value: p.supply_closet_location, col: 'supply_closet_location' },
   ];
   const connectivity: OpRow[] = [
-    { label: p.wifi_label ? `WiFi name (${p.wifi_label})` : 'WiFi name', value: p.wifi_name },
-    { label: p.wifi_label ? `WiFi password (${p.wifi_label})` : 'WiFi password', value: p.wifi_password, mono: true },
-    { label: p.wifi_label_2 ? `WiFi name (${p.wifi_label_2})` : 'WiFi name 2', value: p.wifi_name_2 },
-    { label: p.wifi_label_2 ? `WiFi password (${p.wifi_label_2})` : 'WiFi password 2', value: p.wifi_password_2, mono: true },
+    { label: p.wifi_label ? `Wi-Fi name (${p.wifi_label})` : 'Wi-Fi name', value: p.wifi_name, col: 'wifi_name' },
+    { label: p.wifi_label ? `Wi-Fi password (${p.wifi_label})` : 'Wi-Fi password', value: p.wifi_password, mono: true, col: 'wifi_password' },
+    { label: p.wifi_label_2 ? `Wi-Fi name (${p.wifi_label_2})` : 'Wi-Fi name 2', value: p.wifi_name_2, col: 'wifi_name_2' },
+    { label: p.wifi_label_2 ? `Wi-Fi password (${p.wifi_label_2})` : 'Wi-Fi password 2', value: p.wifi_password_2, mono: true, col: 'wifi_password_2' },
     { label: 'Internet', value: p.internet_provider, col: 'internet_provider' },
     { label: 'Cable / TV', value: p.cable_provider, col: 'cable_provider' },
     { label: 'TVs', value: p.num_tvs, col: 'num_tvs' },
@@ -2782,10 +2744,23 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Known issues', value: p.known_issues },
     { label: 'Upcoming maintenance', value: p.upcoming_maintenance },
   ];
+  // The trash day the band, the fridge card and the guest AI all print:
+  // resolved through civic.ts, with its source. Only Gloucester's column is
+  // ours to type (an operator who phoned DPW); elsewhere the city answers.
+  const trash = trashDayFact(p);
   const civic: OpRow[] = [
-    { label: 'Trash day', value: p.trash_day, col: 'trash_day' },
+    trash.kind === 'day'
+      ? {
+          label: 'Trash day',
+          value: trash.day,
+          note: trash.source === 'row' ? 'DPW confirmed' : 'DPW list',
+          col: (p.city || '').split(',')[0].trim() === 'Gloucester' ? 'trash_day' : undefined,
+        }
+      : trash.kind === 'ask_dpw'
+        ? { label: 'Trash day', value: null, col: 'trash_day' }
+        : { label: 'Trash day', value: null, fixed: trash.kind === 'no_curbside' ? 'No curbside pickup' : 'See the city schedule' },
     { label: 'Recycling day', value: p.recycling_day, col: 'recycling_day' },
-    { label: 'Trash notes (location only)', value: p.trash_notes },
+    { label: 'Where the carts live', value: p.trash_notes, col: 'trash_notes' },
     { label: 'Parking', value: p.parking, col: 'parking' },
     { label: 'Parking regulations', value: p.parking_regulations, col: 'parking_regulations' },
   ];
@@ -2801,9 +2776,9 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'STR insurance', value: p.str_insurance_carrier, col: 'str_insurance_carrier' },
   ];
   const emergency: OpRow[] = [
-    { label: 'Name', value: p.emergency_contact_name },
+    { label: 'Name', value: p.emergency_contact_name, col: 'emergency_contact_name' },
     { label: 'Relationship', value: p.emergency_contact_relationship, col: 'emergency_contact_relationship' },
-    { label: 'Phone', value: formatUsPhone(p.emergency_contact_phone), mono: true },
+    { label: 'Phone', value: formatUsPhone(p.emergency_contact_phone), mono: true, col: 'emergency_contact_phone' },
     { label: 'Email', value: p.emergency_contact_email, mono: true },
   ];
   const listing: OpRow[] = [
@@ -2811,15 +2786,15 @@ function operationalGroups(p: HelmPropertyRow) {
     { label: 'Listing URLs', value: p.existing_listing_urls, mono: true },
   ];
   return [
-    // Draws from two edit sections (STR setup holds guest access and the
-    // smart lock; Property access holds the rest). Linked at the larger half.
-    { title: 'Entry and credentials', rows: entry, editAnchor: 'access' },
-    { title: 'Connectivity', rows: connectivity, editAnchor: 'utilities' },
-    { title: 'House and systems', rows: systems, editAnchor: 'specs' },
-    { title: 'Trash, parking and civic', rows: civic, editAnchor: 'safety' },
+    // One vocabulary: the edit form's groups carry these same names and
+    // these ids, so a row's Edit lands on the group of the same name.
+    { title: 'Entry and credentials', rows: entry, editAnchor: 'entry' },
+    { title: 'Connectivity', rows: connectivity, editAnchor: 'connectivity' },
+    { title: 'House and systems', rows: systems, editAnchor: 'house' },
+    { title: 'Trash, parking and civic', rows: civic, editAnchor: 'civic' },
     { title: 'Safety and permits', rows: safety, editAnchor: 'safety' },
     { title: 'Emergency contact', rows: emergency, editAnchor: 'emergency' },
-    { title: 'Listing', rows: listing, editAnchor: 'str' },
+    { title: 'Listing', rows: listing, editAnchor: 'listing' },
   ];
 }
 
@@ -2832,58 +2807,82 @@ function countOperationalFields(p: HelmPropertyRow): { populated: number; total:
   for (const g of groups) {
     for (const r of g.rows) {
       total++;
-      if (r.value != null && r.value !== '') populated++;
+      if ((r.value != null && r.value !== '') || r.fixed) populated++;
     }
   }
   return { populated, total };
 }
 
 /**
- * The fact sheet.
+ * The fact sheet, open.
  *
- * Every group renders, populated or not, and every blank renders as its own
- * label linked at the control that fills it. The old version dropped a group
- * the moment it had nothing in it, which meant the block disappeared exactly
- * when its blanks were the work: during setup, when knowing what is missing
- * is the whole point.
+ * Seven groups as plain headed lists, no folds. Every group renders, populated
+ * or not, and every row edits in place: a populated row shows its value with
+ * a quiet Edit (prefilled), a blank shows Add. A row composed from several
+ * columns (the smart lock, guest gear) or outside the capture catalog keeps
+ * its link to the edit form group of the same name.
  */
-function OperationalSections({ p }: { p: HelmPropertyRow }) {
+function FactSheet({ p, summary }: { p: HelmPropertyRow; summary: string }) {
   const groups = operationalGroups(p);
-
   return (
-    <div>
+    <section id="facts" className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 26, paddingBottom: 30, width: '100%', scrollMarginTop: 120 }}>
+      <div className="flex items-baseline justify-between" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+        <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>
+          The fact sheet
+        </h2>
+        <span className="eyebrow">{summary}</span>
+      </div>
       {groups.map((g) => {
-        const populated = g.rows.filter((r) => r.value != null && r.value !== '');
-        const summary =
-          populated.length === g.rows.length
-            ? 'complete'
-            : populated.length === 0
-              ? `nothing yet · ${g.rows.length} fields`
-              : `${populated.length} of ${g.rows.length}`;
+        const populated = g.rows.filter((r) => (r.value != null && r.value !== '') || r.fixed).length;
         return (
-          <CollapsibleSubSection key={g.title} title={g.title} summary={summary}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-              <Link
-                href={`/properties/${p.id}/edit#${g.editAnchor}`}
-                style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}
-              >
-                Edit these &rarr;
-              </Link>
+          <div key={g.title} id={`facts-${g.editAnchor}`} style={{ borderTop: '1px solid var(--ink)', marginTop: 18, paddingTop: 14 }}>
+            <div className="flex items-baseline justify-between" style={{ gap: 12, marginBottom: 12 }}>
+              <h3 className="font-serif" style={{ fontSize: 17, fontWeight: 500, letterSpacing: '-0.005em', color: 'var(--ink)', margin: 0 }}>
+                {g.title}
+              </h3>
+              <span style={{ fontSize: 11, color: 'var(--ink-4)', letterSpacing: '.04em' }}>
+                {populated === g.rows.length ? 'complete' : `${populated} of ${g.rows.length}`}
+              </span>
             </div>
-            <dl style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 48px', fontSize: 13 }}>
-              {g.rows.map((r) =>
-                r.value != null && r.value !== '' ? (
-                  <Detail key={r.label} term={r.label} definition={String(r.value)} mono={r.mono === true} />
-                ) : (
-                  <div key={r.label}>
-                    <dt className="eyebrow" style={{ marginBottom: 4 }}>{r.label}</dt>
+            <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px 40px', fontSize: 13, margin: 0 }}>
+              {g.rows.map((r) => {
+                const has = r.value != null && r.value !== '';
+                return (
+                  <div key={r.label} style={{ minWidth: 0 }}>
+                    <dt className="eyebrow" style={{ marginBottom: 4 }}>
+                      {r.label}
+                      {r.note && has ? (
+                        <span style={{ marginLeft: 6, color: 'var(--ink-4)', letterSpacing: 0, textTransform: 'none', fontSize: 10 }}>{r.note}</span>
+                      ) : null}
+                    </dt>
                     <dd style={{ margin: 0 }}>
-                      {/* A row that maps to exactly one catalog column is
-                          filled here; anything composed from several columns
-                          keeps the trip to the form, where the whole shape
-                          is visible. */}
                       {r.col ? (
-                        <InlineField propertyId={p.id} column={r.col} label={r.label} />
+                        <InlineField
+                          propertyId={p.id}
+                          column={r.col}
+                          label={r.label}
+                          current={has ? String(r.value) : null}
+                          mono={r.mono === true}
+                        />
+                      ) : has ? (
+                        <span style={{ display: 'inline-flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', minWidth: 0 }}>
+                          <span
+                            className={r.mono ? 'font-mono' : ''}
+                            style={{ color: 'var(--ink)', fontSize: r.mono ? 12 : 14, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}
+                          >
+                            {String(r.value)}
+                          </span>
+                          {r.fixed ? null : (
+                            <Link
+                              href={`/properties/${p.id}/edit#${g.editAnchor}`}
+                              style={{ fontSize: 11, color: 'var(--ink-4)', textDecoration: 'none', letterSpacing: '.04em' }}
+                            >
+                              Edit
+                            </Link>
+                          )}
+                        </span>
+                      ) : r.fixed ? (
+                        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{r.fixed}</span>
                       ) : (
                         <Link
                           href={`/properties/${p.id}/edit#${g.editAnchor}`}
@@ -2894,13 +2893,44 @@ function OperationalSections({ p }: { p: HelmPropertyRow }) {
                       )}
                     </dd>
                   </div>
-                ),
-              )}
+                );
+              })}
             </dl>
-          </CollapsibleSubSection>
+          </div>
         );
       })}
-    </div>
+    </section>
+  );
+}
+
+/** One quiet line of tool links at the foot of a tab. */
+function ToolsLine({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="max-w-[1100px] mx-auto px-10" style={{ paddingTop: 18, paddingBottom: 30, width: '100%' }}>
+      <div
+        style={{
+          borderTop: '1px solid var(--rule)',
+          paddingTop: 12,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'baseline',
+          gap: '8px 20px',
+          fontSize: 11,
+          color: 'var(--ink-3)',
+        }}
+      >
+        <span className="eyebrow">Tools</span>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function ToolLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} style={{ fontSize: 11, color: 'var(--tide-deep)', textDecoration: 'none', letterSpacing: '.04em' }}>
+      {children}
+    </Link>
   );
 }
 

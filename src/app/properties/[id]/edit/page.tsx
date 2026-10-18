@@ -8,6 +8,7 @@ import { EditFormShell } from './EditFormShell';
 import type { HelmPropertyRow } from '@/lib/properties';
 import { formatUsPhone } from '@/lib/phone';
 import { isOwnerSession } from '@/lib/helm-access-server';
+import { trashDayFact } from '@/lib/civic';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,6 +67,13 @@ export default async function PropertyEditPage({
   // its FormData payload.
   const action = updatePropertyWithState.bind(null, id);
 
+  // The trash day the street list already answers, shown as the blank's
+  // placeholder so a Gloucester home does not look unset (src/lib/civic.ts).
+  const isGloucester = (p.city || '').split(',')[0].trim() === 'Gloucester';
+  const trash = trashDayFact(p);
+  const trashPlaceholder =
+    trash.kind === 'day' && trash.source === 'street' ? `${trash.day} (DPW list)` : undefined;
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
@@ -73,29 +81,32 @@ export default async function PropertyEditPage({
       <HelmBreadcrumb
         trail={[
           { label: p.name, href: `/properties/${p.id}` },
-          { label: 'Edit operational data' },
+          { label: 'Edit facts' },
         ]}
       />
 
       <section className="max-w-[900px] mx-auto px-10" style={{ paddingTop: 24, paddingBottom: 28, width: '100%' }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Edit operational data</div>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Edit facts</div>
         <h1 className="font-serif" style={{ fontSize: 40, lineHeight: 1.05, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--ink)' }}>
           {p.name}
         </h1>
         <p style={{ marginTop: 12, fontSize: 14, color: 'var(--ink-3)', maxWidth: 640, lineHeight: 1.6 }}>
-          Fill in or update operational details for this property. Saved changes flow through to the
-          guest deliverables (Welcome Guide, Wi-Fi Placard, Information Note) and to anything that
-          reads from the properties table. Leave a field blank to clear it.
+          The groups are the Facts tab&rsquo;s, in its order. Leave a field blank to clear it.
         </p>
       </section>
 
       <EditFormShell action={action} propertyId={p.id}>
         {returnTab ? <input type="hidden" name="return_tab" value={returnTab} /> : null}
-        {/* ── Owner contact ── */}
-        <Group eyebrow="01" id="owner" title="Owner contact">
+        {/* One vocabulary: after Owner, these groups carry the Facts tab's
+            names in the Facts tab's order, and their ids are the anchors the
+            fact sheet's Edit links use. The empty spans keep the anchors the
+            form used to have (#specs, #utilities, #str, #access) landing. */}
+
+        {/* ── Owner ── */}
+        <Group eyebrow="01" id="owner" title="Owner">
           <Row>
-            <Field name="owner_full" label="Owner name" defaultValue={p.owner_full} hint="As it should read on the statement — e.g. Khristin Lambert-Vorais" />
-            <Field name="owner_greeting" label="Greeting" defaultValue={p.owner_greeting} hint="First name(s) for emails — e.g. Khristin and Carol Ann" />
+            <Field name="owner_full" label="Owner name" defaultValue={p.owner_full} hint="As it should read on the statement, e.g. Khristin Lambert-Vorais" />
+            <Field name="owner_greeting" label="Greeting" defaultValue={p.owner_greeting} hint="First name(s) for emails, e.g. Khristin and Carol Ann" />
           </Row>
           {owner && (
             <Field name="owner_emails" label="Owner emails" defaultValue={p.owner_emails.join(', ')} hint="Comma-separated. Everyone here gets the monthly statement." />
@@ -107,8 +118,63 @@ export default async function PropertyEditPage({
           <Field name="owner_mailing_address" label="Owner mailing address" defaultValue={p.owner_mailing_address} />
         </Group>
 
-        {/* ── Property specs ── */}
-        <Group eyebrow="02" id="specs" title="Property specs">
+        {/* ── Entry and credentials ── */}
+        <Group eyebrow="02" id="entry" title="Entry and credentials">
+          <span id="access" className="rt-edit-alias" aria-hidden />
+          <Field name="guest_access_method" label="Guest access" defaultValue={p.guest_access_method} hint="Smart Lock / Key Box / Other" />
+          <Row>
+            <Field name="smart_lock_brand" label="Smart lock brand" defaultValue={p.smart_lock_brand} />
+            <Field name="smart_lock_code" label="Smart lock code" defaultValue={p.smart_lock_code} />
+          </Row>
+          <Field name="key_code_location" label="Key / code location" defaultValue={p.key_code_location} />
+          <Row>
+            <Field name="gate_code" label="Gate code" defaultValue={p.gate_code} hint="Driveway / community gate" />
+            <Field name="garage_code" label="Garage code" defaultValue={p.garage_code} hint="Numeric keypad code" />
+          </Row>
+          <Field name="alarm_system" label="Alarm system" defaultValue={p.alarm_system} />
+          <Field name="security_cameras" label="Cameras" defaultValue={p.security_cameras} hint="Yes / No, and locations if yes" />
+          <Field
+            name="arrival_brief"
+            label="Arrival brief (crew)"
+            defaultValue={p.arrival_brief}
+            id="arrival"
+            textarea
+            hint="Colleague tone, not guest tone. Where to park, which door, what to expect on the way in. The Field packet's How to get in panel prints this."
+          />
+          <Field name="supply_closet_location" label="Supply closet" defaultValue={p.supply_closet_location} hint="Where cleaning supplies, linens, and paper goods are kept, e.g. basement utility room, second-floor hall closet" />
+        </Group>
+
+        {/* ── Connectivity ── */}
+        <Group eyebrow="03" id="connectivity" title="Connectivity">
+          <span id="utilities" className="rt-edit-alias" aria-hidden />
+          <Row>
+            <Field name="wifi_name" label="Wi-Fi name" defaultValue={p.wifi_name} id="wifi" />
+            <Field name="wifi_password" label="Wi-Fi password" defaultValue={p.wifi_password} />
+          </Row>
+          {/* Two-unit homes get a second network. Labels name the unit
+              each network covers; leave the whole row blank for single-
+              network properties and nothing downstream changes. */}
+          <Row>
+            <Field name="wifi_label" label="Wi-Fi 1 unit label" defaultValue={p.wifi_label} hint="Only for two-network homes, e.g. Main House" />
+            <Field name="wifi_name_2" label="Wi-Fi 2 name" defaultValue={p.wifi_name_2} />
+            <Field name="wifi_password_2" label="Wi-Fi 2 password" defaultValue={p.wifi_password_2} />
+          </Row>
+          <Row>
+            <Field name="wifi_label_2" label="Wi-Fi 2 unit label" defaultValue={p.wifi_label_2} hint="e.g. Guest House / Boat House" />
+          </Row>
+          <Row>
+            <Field name="internet_provider" label="Internet" defaultValue={p.internet_provider} />
+            <Field name="cable_provider" label="Cable / TV" defaultValue={p.cable_provider} />
+          </Row>
+          <Row>
+            <Field name="num_tvs" label="TVs" type="number" defaultValue={p.num_tvs} />
+            <Field name="smart_tv" label="Smart TV" defaultValue={p.smart_tv} hint="Yes / No" />
+          </Row>
+        </Group>
+
+        {/* ── House and systems ── */}
+        <Group eyebrow="04" id="house" title="House and systems">
+          <span id="specs" className="rt-edit-alias" aria-hidden />
           <Row>
             <Field name="bedrooms" label="Bedrooms" type="number" defaultValue={p.bedrooms} />
             <Field name="bathrooms" label="Bathrooms" type="number" step="0.5" defaultValue={p.bathrooms} />
@@ -116,9 +182,17 @@ export default async function PropertyEditPage({
             <Field name="livable_floors" label="Livable floors" type="number" defaultValue={p.livable_floors} />
           </Row>
           <Row>
-            <Field name="basement" label="Basement" defaultValue={p.basement} hint="Yes / No — finished or unfinished" />
-            <Field name="parking" label="Parking" defaultValue={p.parking} id="parking" hint="Garage / Driveway / Street" />
+            <Field name="basement" label="Basement" defaultValue={p.basement} hint="Yes / No, finished or unfinished" />
             <Field name="hoa" label="HOA" defaultValue={p.hoa} />
+          </Row>
+          <Row>
+            <Field name="heating" label="Heating" defaultValue={p.heating} hint="Gas, Electric, Oil, Heat pump…" />
+            <Field name="cooling" label="Cooling" defaultValue={p.cooling} hint="Central A/C, Mini-split, None…" />
+            <Field name="electricity_provider" label="Electricity" defaultValue={p.electricity_provider} />
+          </Row>
+          <Row>
+            <Field name="thermostat_brand" label="Smart thermostat brand" defaultValue={p.thermostat_brand} hint="Nest / ecobee / Honeywell…" />
+            <Field name="thermostat_code" label="Smart thermostat code / PIN" defaultValue={p.thermostat_code} />
           </Row>
           <CheckGroup
             label="Guest gear on-site"
@@ -130,133 +204,58 @@ export default async function PropertyEditPage({
           </CheckGroup>
           <Field
             name="pullout_linens_location"
-            label="Pullout linens location"
+            label="Pullout linens"
             defaultValue={p.pullout_linens_location}
-            hint="Where the pullout sheets are kept — e.g. drawers under the TV. Shows on the inspection's pullout card."
+            hint="Where the pullout sheets are kept, e.g. drawers under the TV. Shows on the inspection's pullout card."
           />
-        </Group>
-
-        {/* ── Utilities ── */}
-        <Group eyebrow="03" id="utilities" title="Utilities">
-          <Row>
-            <Field name="electricity_provider" label="Electricity provider" defaultValue={p.electricity_provider} />
-            <Field name="heating" label="Heating" defaultValue={p.heating} hint="Gas, Electric, Oil, Heat pump…" />
-          </Row>
-          <Row>
-            <Field name="cooling" label="Cooling" defaultValue={p.cooling} hint="Central A/C, Mini-split, None…" />
-            <Field name="internet_provider" label="Internet provider" defaultValue={p.internet_provider} />
-          </Row>
-          <Row>
-            <Field name="cable_provider" label="Cable / TV provider" defaultValue={p.cable_provider} />
-            <Field name="wifi_name" label="Wi-Fi name" defaultValue={p.wifi_name} id="wifi" />
-            <Field name="wifi_password" label="Wi-Fi password" defaultValue={p.wifi_password} />
-          </Row>
-          {/* Two-unit homes get a second network. Labels name the unit
-              each network covers; leave the whole row blank for single-
-              network properties and nothing downstream changes. */}
-          <Row>
-            <Field name="wifi_label" label="Wi-Fi 1 unit label" defaultValue={p.wifi_label} hint="Only for two-network homes — e.g. Main House" />
-            <Field name="wifi_name_2" label="Wi-Fi 2 name" defaultValue={p.wifi_name_2} />
-            <Field name="wifi_password_2" label="Wi-Fi 2 password" defaultValue={p.wifi_password_2} />
-          </Row>
-          <Row>
-            <Field name="wifi_label_2" label="Wi-Fi 2 unit label" defaultValue={p.wifi_label_2} hint="e.g. Guest House / Boat House" />
-          </Row>
-          <Row>
-            <Field name="thermostat_brand" label="Thermostat brand" defaultValue={p.thermostat_brand} hint="Nest / ecobee / Honeywell…" />
-            <Field name="thermostat_code" label="Thermostat code / PIN" defaultValue={p.thermostat_code} />
-          </Row>
-          <Row>
-            <Field name="num_tvs" label="Number of TVs" type="number" defaultValue={p.num_tvs} />
-            <Field name="smart_tv" label="Smart TV?" defaultValue={p.smart_tv} hint="Yes / No" />
-          </Row>
-        </Group>
-
-        {/* ── STR setup ── */}
-        <Group eyebrow="04" id="str" title="STR setup">
-          <Field name="currently_listed" label="Currently listed?" defaultValue={p.currently_listed} hint="Platform(s)" />
-          <Field name="existing_listing_urls" label="Existing listing URL(s)" defaultValue={p.existing_listing_urls} />
-          <Row>
-            <Field name="str_registration_id" label="STR registration #" defaultValue={p.str_registration_id} />
-            <Field name="str_insurance_carrier" label="STR insurance carrier" defaultValue={p.str_insurance_carrier} />
-          </Row>
-          <Field name="guest_access_method" label="Guest access method" defaultValue={p.guest_access_method} hint="Smart Lock / Key Box / Other" />
-          <Row>
-            <Field name="smart_lock_brand" label="Smart lock brand" defaultValue={p.smart_lock_brand} />
-            <Field name="smart_lock_code" label="Smart lock code" defaultValue={p.smart_lock_code} />
-          </Row>
-          <Field name="security_cameras" label="Security cameras" defaultValue={p.security_cameras} hint="Yes / No — locations if yes" />
-        </Group>
-
-        {/* ── Access & notes ── */}
-        <Group eyebrow="05" id="access" title="Property access & notes">
-          <Field name="key_code_location" label="Key / code location" defaultValue={p.key_code_location} />
-          <Field
-            name="arrival_brief"
-            label="Arrival brief for field crews"
-            defaultValue={p.arrival_brief}
-            id="arrival"
-            textarea
-            hint="Colleague tone, not guest tone. Where to park, which door, what to expect on the way in. The Field packet's How to get in panel prints this."
-          />
-          <Field name="supply_closet_location" label="Supply closet location" defaultValue={p.supply_closet_location} hint="Where cleaning supplies, linens, and paper goods are kept — e.g. basement utility room, second-floor hall closet" />
-          <Field name="alarm_system" label="Alarm system" defaultValue={p.alarm_system} />
-          <Row>
-            <Field name="garage_code" label="Garage code" defaultValue={p.garage_code} hint="Numeric keypad code" />
-            <Field name="gate_code" label="Gate code" defaultValue={p.gate_code} hint="Driveway / community gate" />
-          </Row>
           <Field name="known_issues" label="Known issues" defaultValue={p.known_issues} textarea />
           <Field name="upcoming_maintenance" label="Upcoming maintenance" defaultValue={p.upcoming_maintenance} textarea />
-          {/* Freeform notes live in the Property Notes accordion on the
-              property page now — one row per discrete note. The form
-              field that lived here has been retired in favor of the
-              structured editor at /properties/[id]/notes/new. */}
         </Group>
 
-        {/* ── Emergency contact ── */}
-        <Group eyebrow="06" id="emergency" title="Emergency contact">
+        {/* ── Trash, parking and civic ── */}
+        <Group eyebrow="05" id="civic" title="Trash, parking and civic">
           <Row>
-            <Field name="emergency_contact_name" label="Name" defaultValue={p.emergency_contact_name} />
-            <Field name="emergency_contact_relationship" label="Relationship" defaultValue={p.emergency_contact_relationship} />
+            <Field
+              name="trash_day"
+              label="Trash day"
+              defaultValue={p.trash_day}
+              id="trash"
+              placeholder={trashPlaceholder}
+              hint={isGloucester ? 'Blank uses the DPW street list. Set it only once DPW has confirmed the day for this address.' : 'Leave blank outside Gloucester: the city schedule answers, and the guest AI would read a typed day as Gloucester\'s rule.'}
+            />
+            <Field name="recycling_day" label="Recycling day" defaultValue={p.recycling_day} />
           </Row>
-          <Row>
-            <Field name="emergency_contact_phone" label="Phone" type="tel" defaultValue={formatUsPhone(p.emergency_contact_phone)} hint="(781) 223-1091" />
-            <Field name="emergency_contact_email" label="Email" type="email" defaultValue={p.emergency_contact_email} />
-          </Row>
-        </Group>
-
-        {/* ── Inspection & safety ── */}
-        <Group eyebrow="07" id="safety" title="Inspection & safety">
-          <Row>
-            <Field name="trash_day" label="Trash pickup day" defaultValue={p.trash_day} id="trash" hint="Auto-derived from address for Gloucester — set here to override" />
-            <Field name="recycling_day" label="Recycling pickup day" defaultValue={p.recycling_day} />
-          </Row>
-          <Field name="trash_notes" label="Trash & recycling notes" defaultValue={p.trash_notes} hint="Where the indoor bins and outdoor carts live. The city set-out rule is added automatically, do not repeat it here." textarea />
+          <Field name="trash_notes" label="Where the carts live" defaultValue={p.trash_notes} hint="Where the indoor bins and outdoor carts live. The city set-out rule is added automatically, do not repeat it here." textarea />
           <CheckGroup label="Carts" hint="Tick when we, or someone we arrange, roll the City carts to the curb and back, so the guest only fills them. The trash-day fridge card then says so instead of asking the guest to roll them out.">
             <CheckField name="carts_handled_by_us" label="We move the carts, not the guest" checked={p.carts_handled_by_us} />
           </CheckGroup>
+          <Field name="parking" label="Parking" defaultValue={p.parking} id="parking" hint="Garage / Driveway / Street" />
           <Field
             name="parking_regulations"
             label="Parking regulations"
             defaultValue={p.parking_regulations}
-            hint="Resident-only zones, street sweeping, snow emergencies, permit info — overrides the city default"
+            hint="Resident-only zones, street sweeping, snow emergencies, permit info. Overrides the city default."
             textarea
           />
+        </Group>
+
+        {/* ── Safety and permits ── */}
+        <Group eyebrow="06" id="safety" title="Safety and permits">
           <Row>
-            <Field name="gas_shutoff_location" label="Gas shutoff location" defaultValue={p.gas_shutoff_location} hint="e.g. basement, behind the boiler" />
-            <Field name="water_shutoff_location" label="Water shutoff location" defaultValue={p.water_shutoff_location} />
+            <Field name="gas_shutoff_location" label="Gas shutoff" defaultValue={p.gas_shutoff_location} hint="e.g. basement, behind the boiler" />
+            <Field name="water_shutoff_location" label="Water shutoff" defaultValue={p.water_shutoff_location} />
           </Row>
-          <Field name="electrical_panel_location" label="Electrical panel location" defaultValue={p.electrical_panel_location} />
+          <Field name="electrical_panel_location" label="Electrical panel" defaultValue={p.electrical_panel_location} />
           <Field
             name="fire_extinguisher_locations"
-            label="Fire extinguisher locations"
+            label="Fire extinguishers"
             defaultValue={p.fire_extinguisher_locations}
             hint="Comma-separated, e.g. kitchen under sink, basement"
             textarea
           />
           <Field
             name="smoke_detector_locations"
-            label="Smoke / CO detector locations"
+            label="Smoke / CO detectors"
             defaultValue={p.smoke_detector_locations}
             hint="Each floor / hallway / bedroom"
             textarea
@@ -268,7 +267,30 @@ export default async function PropertyEditPage({
             hint="Primary + secondary egress"
             textarea
           />
-          <Field name="str_permit_expires" label="STR permit expiration" defaultValue={p.str_permit_expires} id="permit" hint="If known. e.g. 2027-04-30" />
+          <Field name="str_permit_expires" label="STR permit expires" defaultValue={p.str_permit_expires} id="permit" hint="If known. e.g. 2027-04-30" />
+          <Row>
+            <Field name="str_registration_id" label="STR registration" defaultValue={p.str_registration_id} />
+            <Field name="str_insurance_carrier" label="STR insurance" defaultValue={p.str_insurance_carrier} />
+          </Row>
+        </Group>
+
+        {/* ── Emergency contact ── */}
+        <Group eyebrow="07" id="emergency" title="Emergency contact">
+          <Row>
+            <Field name="emergency_contact_name" label="Name" defaultValue={p.emergency_contact_name} />
+            <Field name="emergency_contact_relationship" label="Relationship" defaultValue={p.emergency_contact_relationship} />
+          </Row>
+          <Row>
+            <Field name="emergency_contact_phone" label="Phone" type="tel" defaultValue={formatUsPhone(p.emergency_contact_phone)} hint="(781) 223-1091" />
+            <Field name="emergency_contact_email" label="Email" type="email" defaultValue={p.emergency_contact_email} />
+          </Row>
+        </Group>
+
+        {/* ── Listing ── */}
+        <Group eyebrow="08" id="listing" title="Listing">
+          <span id="str" className="rt-edit-alias" aria-hidden />
+          <Field name="currently_listed" label="Currently listed" defaultValue={p.currently_listed} hint="Platform(s)" />
+          <Field name="existing_listing_urls" label="Listing URLs" defaultValue={p.existing_listing_urls} />
         </Group>
 
         {/* ── House policy ──
@@ -276,7 +298,7 @@ export default async function PropertyEditPage({
             somebody decided. The decisions themselves had nowhere to live,
             so the listing, the home guide and the concierge all had to
             invent an answer or ask. */}
-        <Group eyebrow="08" id="policy-group" title="House policy">
+        <Group eyebrow="09" id="policy-group" title="House policy">
           <Row>
             <Field
               name="default_checkin_time"
@@ -327,7 +349,7 @@ export default async function PropertyEditPage({
         </Group>
 
         {/* ── Billing ── */}
-        <Group eyebrow="09" id="billing" title="Billing">
+        <Group eyebrow="10" id="billing" title="Billing">
           {owner && (
             <Field
               name="bank_last4"
@@ -398,17 +420,18 @@ type FieldProps = {
   /** Anchor target so the detail page can deep-link straight to this field. */
   id?: string;
   maxLength?: number;
+  placeholder?: string;
 };
 
-function Field({ name, label, defaultValue, type, step, hint, textarea, id, maxLength }: FieldProps) {
+function Field({ name, label, defaultValue, type, step, hint, textarea, id, maxLength, placeholder }: FieldProps) {
   const dv = defaultValue == null ? '' : String(defaultValue);
   return (
     <label className="rt-edit-field" id={id}>
       <span className="rt-edit-label">{label}</span>
       {textarea ? (
-        <textarea name={name} defaultValue={dv} rows={3} />
+        <textarea name={name} defaultValue={dv} rows={3} placeholder={placeholder} />
       ) : (
-        <input name={name} type={type || 'text'} step={step} maxLength={maxLength} defaultValue={dv} />
+        <input name={name} type={type || 'text'} step={step} maxLength={maxLength} defaultValue={dv} placeholder={placeholder} />
       )}
       {hint && <span className="rt-edit-hint">{hint}</span>}
     </label>
@@ -470,6 +493,7 @@ const editCss = `
   /* Deep-linked fields (e.g. #bank from the detail stat card) shouldn't
      land under the sticky masthead. */
   .rt-edit-field[id] { scroll-margin-top: 90px; }
+  .rt-edit-alias { display: block; height: 0; scroll-margin-top: 100px; }
   .rt-edit-label {
     font-size: 11px;
     letter-spacing: 0.06em;

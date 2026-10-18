@@ -38,25 +38,24 @@ export function PropertyBackfillButton({ propertyId }: Props) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flexBasis: result || error ? '100%' : 'auto' }}>
       <button
         type="button"
         onClick={onClick}
         disabled={pending}
         style={{
           fontSize: 11,
-          letterSpacing: '.18em',
-          textTransform: 'uppercase',
-          color: 'var(--ink)',
-          background: 'transparent',
-          border: '1px solid var(--rule)',
-          padding: '8px 14px',
-          fontWeight: 500,
+          letterSpacing: '.04em',
+          color: 'var(--tide-deep)',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          fontFamily: 'inherit',
           cursor: pending ? 'wait' : 'pointer',
           alignSelf: 'flex-start',
         }}
       >
-        {pending ? 'Pulling…' : 'Backfill from integrations'}
+        {pending ? 'Pulling from Guesty…' : 'Fill blanks from Guesty'}
       </button>
 
       {error && (
@@ -86,7 +85,7 @@ export function PropertyBackfillButton({ propertyId }: Props) {
         >
           {result.filled.length === 0 && result.warnings.length === 0 && (
             <div style={{ color: 'var(--ink-4)' }}>
-              Nothing new to fill — every field we could backfill is already populated.
+              Nothing new to fill. Every field Guesty could fill is already set.
             </div>
           )}
 
@@ -114,7 +113,7 @@ export function PropertyBackfillButton({ propertyId }: Props) {
           {result.skipped.length > 0 && (
             <>
               <div className="eyebrow" style={{ marginBottom: 6 }}>
-                Left alone ({result.skipped.length}) — already set
+                Left alone ({result.skipped.length}), already set
               </div>
               <ul style={{ margin: '0 0 8px', paddingLeft: 18, lineHeight: 1.55 }}>
                 {result.skipped.slice(0, 6).map((line) => (
