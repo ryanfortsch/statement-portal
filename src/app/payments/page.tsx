@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { HelmHero } from '@/components/HelmHero';
@@ -111,6 +112,10 @@ export default async function PaymentsPage({
       />
 
       <section className="max-w-[1100px] mx-auto px-10 w-full" style={{ paddingBottom: 56 }}>
+        <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--ink-3)' }}>
+          Saved-card balances for far-future stays are charged from{' '}
+          <Link href="/payments/balance-charges" style={{ color: 'var(--tide-deep)' }}>Balance charges</Link>.
+        </div>
         <PaymentsSearchForm
           properties={fleet.map((p) => ({ id: p.id, name: p.name }))}
           initial={{ email, q, propertyId, from, to, includeUnsuccessful }}

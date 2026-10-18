@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HelmMasthead } from '@/components/HelmMasthead';
+import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { HelmHero } from '@/components/HelmHero';
 import { HelmFooter } from '@/components/HelmFooter';
 import { SubmitButton } from '@/components/SubmitButton';
@@ -19,6 +20,10 @@ import { balanceChargeConfirm } from '@/lib/irreversible-confirms';
  * the PaymentIntent in the property's own Stripe account - one click, no
  * link minting, no guest chasing. The concierge's balance work slip points
  * here; failures fall back to a hand-sent payment link.
+ *
+ * It lives under /payments (2026-10-18): it is a payments surface, not part
+ * of the statement close. /statements/balance-charges redirects here
+ * (next.config.ts), so the concierge's older work slips still land.
  */
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -108,29 +113,29 @@ export default async function BalanceChargesPage({
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <HelmMasthead />
+      <FinancialsTabs current="payments" />
       <HelmHero
-        eyebrow="Helm · Statements"
-        title="Balance charges,"
-        emphasis="one click."
-        description="Far-future booking balances pre-authorized on the card saved at deposit time. When a charge date arrives, approve it here - Helm charges the property's own Stripe account off-session, sends Stripe's receipt, and the payment flows to the statements extras queue."
+        eyebrow="Helm · Payments"
+        title="Balance charges"
+        description="Far-future balances, charged to the card the guest saved at deposit once their date arrives."
       />
 
-      <main className="max-w-[1000px] mx-auto px-10 pb-20 flex-1" style={{ width: '100%' }}>
+      <main className="max-w-[1100px] mx-auto px-10 pb-20 flex-1" style={{ width: '100%' }}>
         <div style={{ marginBottom: 24 }}>
-          <Link href="/statements" style={{ fontSize: 13, opacity: 0.7 }}>
-            ← Back to Statements
+          <Link href="/payments" style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            ← Payments
           </Link>
         </div>
 
         {errCopy && (
           <div
             style={{
-              border: '1px solid rgba(200,90,58,0.5)',
-              background: 'rgba(200,90,58,0.08)',
-              borderRadius: 10,
+              borderLeft: '3px solid var(--signal)',
+              background: 'var(--paper-2)',
               padding: '12px 16px',
               marginBottom: 20,
-              fontSize: 14,
+              fontSize: 13,
+              color: 'var(--ink-2)',
             }}
           >
             {errCopy}
@@ -172,10 +177,11 @@ export default async function BalanceChargesPage({
                   style={{
                     background: 'var(--ink)',
                     color: 'var(--paper)',
-                    borderRadius: 8,
                     padding: '10px 18px',
-                    fontSize: 14,
+                    fontSize: 11,
                     fontWeight: 600,
+                    letterSpacing: '.1em',
+                    textTransform: 'uppercase',
                     border: 'none',
                   }}
                 />
@@ -201,9 +207,7 @@ export default async function BalanceChargesPage({
                 {r.failure_message ? ` - ${r.failure_message}` : ''}
               </Meta>
               <Meta>
-                Fallback: mint and send the guest a payment link for the balance instead (the
-                concierge&apos;s work slip on this stay carries the details). Retry only if the
-                failure looks transient.
+                Send the guest a payment link for the balance instead (the stay&apos;s work slip has the details). Retry only if the failure looks transient.
               </Meta>
               <form action={chargeBalance} style={{ marginTop: 12 }}>
                 <input type="hidden" name="id" value={r.id} />
@@ -216,11 +220,12 @@ export default async function BalanceChargesPage({
                   style={{
                     background: 'transparent',
                     color: 'var(--ink)',
-                    borderRadius: 8,
                     padding: '9px 16px',
-                    fontSize: 13,
+                    fontSize: 11,
                     fontWeight: 600,
-                    border: '1px solid rgba(30,46,52,0.35)',
+                    letterSpacing: '.1em',
+                    textTransform: 'uppercase',
+                    border: '1px solid var(--ink)',
                   }}
                 />
               </form>
@@ -271,19 +276,24 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section style={{ marginBottom: 36 }}>
       <h2
+        className="font-serif"
         style={{
-          fontFamily: 'var(--font-fraunces), serif',
-          fontSize: 22,
-          marginBottom: 14,
+          fontSize: 18,
+          fontWeight: 500,
+          color: 'var(--ink)',
+          margin: 0,
+          paddingBottom: 10,
+          borderBottom: '1px solid var(--ink)',
         }}
       >
         {title}
       </h2>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>{children}</div>
     </section>
   );
 }
 
+/** One balance: a ruled row like a statements card, signal-edged when it failed. */
 function Card({
   id,
   tone,
@@ -297,10 +307,10 @@ function Card({
     <div
       id={id}
       style={{
-        border: tone === 'warn' ? '1px solid rgba(200,90,58,0.5)' : '1px solid rgba(30,46,52,0.15)',
-        background: tone === 'warn' ? 'rgba(200,90,58,0.05)' : 'rgba(255,255,255,0.55)',
-        borderRadius: 12,
-        padding: '16px 20px',
+        borderBottom: '1px dotted var(--rule)',
+        borderLeft: tone === 'warn' ? '3px solid var(--signal)' : undefined,
+        background: tone === 'warn' ? 'var(--paper-2)' : 'transparent',
+        padding: tone === 'warn' ? '14px 16px' : '14px 0',
       }}
     >
       {children}
@@ -311,10 +321,10 @@ function Card({
 function RowHeader({ name, guest, amount }: { name: string; guest: string; amount: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-      <div style={{ fontSize: 15, fontWeight: 600 }}>
-        {name} <span style={{ opacity: 0.6, fontWeight: 400 }}>· {guest}</span>
+      <div className="font-serif" style={{ fontSize: 16, fontWeight: 500, color: 'var(--ink)' }}>
+        {name} <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>· {guest}</span>
       </div>
-      <div style={{ fontFamily: 'var(--font-mono-dash), ui-monospace, monospace', fontSize: 16, fontWeight: 600 }}>
+      <div className="font-serif tabular-nums" style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)' }}>
         {amount}
       </div>
     </div>
@@ -325,10 +335,9 @@ function Meta({ tone, children }: { tone?: 'warn'; children: React.ReactNode }) 
   return (
     <div
       style={{
-        fontSize: 13,
+        fontSize: 12,
         marginTop: 6,
-        opacity: tone === 'warn' ? 1 : 0.7,
-        color: tone === 'warn' ? '#c85a3a' : undefined,
+        color: tone === 'warn' ? 'var(--signal)' : 'var(--ink-3)',
       }}
     >
       {children}
@@ -337,5 +346,5 @@ function Meta({ tone, children }: { tone?: 'warn'; children: React.ReactNode }) 
 }
 
 function Empty({ text }: { text: string }) {
-  return <div style={{ fontSize: 13, opacity: 0.55 }}>{text}</div>;
+  return <div style={{ fontSize: 12, color: 'var(--ink-4)', padding: '12px 0' }}>{text}</div>;
 }

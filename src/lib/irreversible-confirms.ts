@@ -83,7 +83,7 @@ export function clearRatesConfirm(
   return `Clear ${plural(inRange.length, 'override')} from ${range}${seeded > 0 ? `, ${seeded} of them seeded from PriceLabs` : ''}? ${tail}`;
 }
 
-/** The one-tap balance charge on /statements/balance-charges. */
+/** The one-tap balance charge on /payments/balance-charges. */
 export function balanceChargeConfirm(amount: string, guestName: string | null): string {
   return `Charge ${amount} to ${guestName?.trim() ? `${guestName.trim()}'s` : "the guest's"} saved card now?`;
 }
