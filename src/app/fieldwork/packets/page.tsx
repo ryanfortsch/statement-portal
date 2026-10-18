@@ -8,7 +8,7 @@ import { HelmMasthead } from '@/components/HelmMasthead';
 import { FieldTabs } from '@/components/FieldTabs';
 import { HelmFooter } from '@/components/HelmFooter';
 import { fieldDb, isFieldConfigured } from '@/lib/field-db';
-import { loadInspectionCalendar, loadPackets , loadOfficeAssignedPacketIds } from '@/lib/field-packets';
+import { loadInspectionCalendar, loadPackets, loadOfficeAssignedPacketIds, loadOpenMaintenance } from '@/lib/field-packets';
 import { totalPayoutCents, dollars, fmtVisitTime, parseTrade, navTrade, canClaim, type ContractorRow, type ContractorTrade, type PacketRow } from '@/lib/field-types';
 import { isLiveStatus, isWorkingStatus } from '@/lib/field-packet-status';
 import { PacketStatusStrip } from './PacketStatusStrip';
@@ -17,6 +17,7 @@ import { SubmitButton } from '@/components/SubmitButton';
 
 type Who = { name: string; photoUrl: string | null } | null;
 import { InspectionCalendar } from './InspectionCalendar';
+import { MaintenanceBundler } from './MaintenanceBundler';
 import { SentFlash } from './SentFlash';
 import { approvePacket, markPacketPaid, releasePacket, publishPacket, cancelPacket } from './actions';
 import { isOwnerSession } from '@/lib/helm-access-server';
@@ -132,11 +133,13 @@ export default async function PacketsBoard({
     return `/fieldwork/packets?${query}#field-results`;
   };
 
-  const [calendar, allPackets, { data: cData }, reviewPackets] = await Promise.all([
+  const [calendar, allPackets, { data: cData }, reviewPackets, openMaintenance] = await Promise.all([
     loadInspectionCalendar(from, to),
     loadPackets(),
     fieldDb().from('contractors').select('*'),
     loadFieldReview().catch(() => null),
+    // Only the Handymen board bundles open slips.
+    trade === 'maintenance' && focus === 'all' ? loadOpenMaintenance() : Promise.resolve(null),
   ]);
   // Scope the board to the active job type. Packets carry a trade; legacy rows
   // with none are inspection. Creative has no packets and never links here.
@@ -212,7 +215,7 @@ export default async function PacketsBoard({
       <FieldTabs current="packets" trade={trade} />
       {reviewPackets && <RefreshNavCounts revision={reviewPackets.map(p => p.id).join(',')} />}
       <section className="max-w-[1000px] mx-auto px-10" style={{ width: '100%', paddingTop: 28, paddingBottom: 48 }}>
-        {/* One calm header: title left, the two CREATE actions right.
+        {/* One calm header: title left, the one CREATE action right.
             "Manage contractors" was a duplicate of the CONTRACTORS tab above;
             the date filter and test console are secondary, so they whisper on
             their own line instead of crowding the title. */}
@@ -224,7 +227,6 @@ export default async function PacketsBoard({
             {/* One create door: the Send a job form, keyed by kind, sent to
                 this board's trade. */}
             <Link href={`/fieldwork/packets/new?trade=${trade}`} style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Send a job</Link>
-            <Link href="/fieldwork/packets/maintenance" style={{ ...btnGhost, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>+ Maintenance run</Link>
           </div>
         </div>
 
@@ -275,6 +277,14 @@ export default async function PacketsBoard({
             </p>
           )}
         </section>}
+
+        {/* The planner slot: the inspectors bundle from the calendar, the
+            handymen from their open slips, with the same bundle bar. */}
+        {trade === 'maintenance' && focus === 'all' && openMaintenance && (
+          <div style={{ marginTop: 28 }}>
+            <MaintenanceBundler slips={openMaintenance} assignable={assignable} />
+          </div>
+        )}
 
         {trade === 'inspection' && focus === 'all' && (
         <div style={{ marginTop: 28 }}>

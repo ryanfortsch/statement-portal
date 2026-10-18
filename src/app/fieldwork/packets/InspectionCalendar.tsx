@@ -7,6 +7,7 @@ import { PROXIMITY_MILES, MAX_STOPS, priceCents, isRushVisit } from '@/lib/field
 import type { CalRow, InspectionCalendarData } from '@/lib/field-packets';
 import { PacketRouteMap } from '@/app/field/PacketRouteMap';
 import { bundleAndSend, bundleAsDraft } from './actions';
+import { ShowToChips } from './ShowToChips';
 
 // Greedy proximity clusters of the properties open (inspectable) on a given
 // day. Each cluster is one feasible "one visit"; the largest is the best bundle.
@@ -303,46 +304,7 @@ export function InspectionCalendar({ days, rows, assignable }: Pick<InspectionCa
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {assignable.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Who can see this">
-                <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>Show to</span>
-                {assignable.map((c) => {
-                  const on = offerTo.includes(c.id);
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => toggleOffer(c.id)}
-                      aria-pressed={on}
-                      title={on ? `Only these inspectors will see it` : `Limit this packet to ${c.name}`}
-                      style={{
-                        font: 'inherit',
-                        fontSize: 12.5,
-                        cursor: 'pointer',
-                        borderRadius: 999,
-                        padding: '6px 11px',
-                        border: `1px solid ${on ? 'var(--tide-deep)' : 'var(--rule)'}`,
-                        background: on ? 'rgba(58,107,138,0.12)' : 'var(--paper-2, #fff)',
-                        color: on ? 'var(--tide-deep)' : 'var(--ink-3)',
-                        fontWeight: on ? 600 : 400,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {on ? '✓ ' : ''}{c.name.split(' ')[0]}
-                    </button>
-                  );
-                })}
-                {offerTo.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setOfferTo([])}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-4)', fontSize: 11.5, textDecoration: 'underline', textUnderlineOffset: 3, padding: 0 }}
-                  >
-                    everyone
-                  </button>
-                )}
-              </div>
-            )}
+            <ShowToChips people={assignable} picked={offerTo} onToggle={toggleOffer} onClear={() => setOfferTo([])} noun="inspectors" />
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, border: '1px solid var(--rule)', borderRadius: 8, padding: '5px 9px', background: 'var(--paper-2, #fff)' }}>
               <span style={{ color: 'var(--ink-4)', fontSize: 13 }}>$</span>
               <input
