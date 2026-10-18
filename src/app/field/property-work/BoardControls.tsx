@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { PhotoUploader } from '@/components/PhotoUploader';
-import { completeBoardSlip, createBoardSlip } from '../actions';
+import { completeBoardSlip } from '../actions';
 
 function SubmitBtn({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -82,49 +82,6 @@ export function BoardSlipDone({ slipId }: { slipId: string }) {
             + add note or photo
           </button>
         )}
-      </div>
-    </form>
-  );
-}
-
-/** File a new slip for any home — collapsed to one quiet button until wanted. */
-export function BoardNewSlip({ properties }: { properties: Array<{ id: string; name: string }> }) {
-  const [open, setOpen] = useState(false);
-  const [photos, setPhotos] = useState<string[]>([]);
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        style={{ background: 'var(--paper-2, #fff)', border: '1px solid var(--rule)', borderRadius: 10, cursor: 'pointer', color: 'var(--ink)', fontSize: 14, fontWeight: 600, padding: '14px 18px', width: '100%', textAlign: 'left' }}
-      >
-        + File a work slip
-      </button>
-    );
-  }
-  const inp: React.CSSProperties = { width: '100%', font: 'inherit', fontSize: 16, color: 'var(--ink)', background: 'var(--paper)', border: '1px solid var(--rule)', padding: '10px 12px' };
-  return (
-    <form action={createBoardSlip} style={{ border: '1px solid var(--rule)', borderRadius: 10, background: 'var(--paper-2, #fff)', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <input type="hidden" name="photo_urls" value={JSON.stringify(photos)} />
-      <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--ink-4)' }}>New work slip</div>
-      <select name="property_id" required defaultValue="" style={inp}>
-        <option value="" disabled>Which home…</option>
-        {properties.map((p) => (
-          <option key={p.id} value={p.id}>{p.name}</option>
-        ))}
-      </select>
-      <input name="title" required minLength={3} maxLength={200} placeholder="What needs attention" style={inp} />
-      <textarea name="description" rows={2} placeholder="Details (optional)" style={{ ...inp, resize: 'vertical' }} />
-      <select name="priority" defaultValue="normal" style={inp}>
-        <option value="low">Low priority</option>
-        <option value="normal">Normal priority</option>
-        <option value="high">High priority</option>
-      </select>
-      <PhotoUploader value={photos} onChange={setPhotos} folder="field-board" />
-      <ReceiptField hint="receipt total, if you bought something for the house (added to your payout)" />
-      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-        <SubmitBtn label="File it" />
-        <button type="button" onClick={() => setOpen(false)} style={quietBtn}>cancel</button>
       </div>
     </form>
   );

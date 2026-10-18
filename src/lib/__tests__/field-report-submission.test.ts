@@ -9,8 +9,15 @@ const body = source.slice(source.indexOf('export type ReportState'), source.inde
 const code = ts.transpileModule(body.replaceAll('export ', ''), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function fixture() {
   const rows = new Map<string, Record<string, unknown>>();
-  const state = { actor: 'actor-a', allowed: true, readError: false, loseInsertResponse: false, events: 0, recomputes: 0 };
-  const fieldDb = () => ({ from: () => {
+  const state = { actor: 'actor-a', allowed: true, board: false, readError: false, loseInsertResponse: false, events: 0, recomputes: 0, homed: 0 };
+  // Homes the board grant can reach (any home outside the visit window).
+  const homes: Record<string, { id: string; name: string }> = { 'home-b': { id: 'home-b', name: 'Other synthetic home' } };
+  const fieldDb = () => ({ from: (table: string) => {
+    if (table === 'properties') {
+      let id = '';
+      const props = { select: () => props, eq: (_k: string, v: string) => { id = v; return props; }, maybeSingle: async () => ({ data: homes[id] ?? null, error: null }) };
+      return props;
+    }
     const filters: [string, unknown][] = [];
     const query = {
       select: () => query,
@@ -25,16 +32,17 @@ function fixture() {
     };
     return query;
   } });
-  const api = new Function('fieldDb', 'fieldSubmissionId', 'resolveContractorFromCookie', 'loadRecentVisits', 'recomputePacketExpenses', 'logEvent', 'revalidatePath', code + '; return { reportFieldWorkSlip, checkFieldReportSubmission };')(
+  const api = new Function('fieldDb', 'fieldSubmissionId', 'resolveContractorFromCookie', 'loadRecentVisits', 'recomputePacketExpenses', 'logEvent', 'revalidatePath', 'canFlagAnyHome', 'parseReceiptDollars', 'resolveReceiptPacket', 'homeReceipt', code + '; return { reportFieldWorkSlip, checkFieldReportSubmission };')(
     fieldDb, fieldSubmissionId, async () => state.actor ? { id: state.actor, email: 'synthetic@example.test' } : null,
     async () => state.allowed ? [{ propertyId: 'home-a', propertyName: 'Synthetic home', packetId: 'packet-a' }] : [],
     async () => { state.recomputes++; }, async () => { state.events++; }, () => {},
+    () => state.board, (raw: unknown) => Math.min(Math.round(Number(raw || 0) * 100), 50_000), async () => 'packet-live', async () => { state.homed++; },
   );
   return { api, rows, state };
 }
-function form(token = '138f4efe-fdc5-4d1d-bb11-6ba9cbbf8383') {
+function form(token = '138f4efe-fdc5-4d1d-bb11-6ba9cbbf8383', propertyId = 'home-a') {
   const data = new FormData();
-  for (const [key, value] of Object.entries({ submission_id: token, property_id: 'home-a', title: 'Synthetic leak', expense_dollars: '27.60' })) data.set(key, value);
+  for (const [key, value] of Object.entries({ submission_id: token, property_id: propertyId, title: 'Synthetic leak', expense_dollars: '27.60' })) data.set(key, value);
   return data;
 }
 test('simultaneous report retries create one work slip and one audit event', async () => {
@@ -49,6 +57,19 @@ test('lost insert response is confirmed, and an expired visit can confirm but ca
   assert.equal((await api.reportFieldWorkSlip({}, form())).ok, true);
   assert.equal((await api.reportFieldWorkSlip({}, form('238f4efe-fdc5-4d1d-bb11-6ba9cbbf8383'))).ok, false);
   assert.equal(rows.size, 1);
+});
+test('the board grant files at any home once per attempt; without it a home outside the window is refused', async () => {
+  const { api, rows, state } = fixture();
+  const token = '338f4efe-fdc5-4d1d-bb11-6ba9cbbf8383';
+  assert.equal((await api.reportFieldWorkSlip({}, form(token, 'home-b'))).ok, false, 'no grant, no visit: refused');
+  assert.equal(rows.size, 0);
+  state.board = true;
+  const results = await Promise.all([api.reportFieldWorkSlip({}, form(token, 'home-b')), api.reportFieldWorkSlip({}, form(token, 'home-b'))]);
+  assert.ok(results.every((r) => r.ok)); assert.equal(rows.size, 1, 'one slip for one attempt');
+  const row = [...rows.values()][0];
+  assert.equal(row.property_id, 'home-b'); assert.equal(row.reported_from_packet_id, undefined, 'no source trip');
+  assert.equal(row.expense_cents, 2760); assert.equal(state.homed, 1, 'the receipt rides the live trip once');
+  assert.equal((await api.reportFieldWorkSlip({}, form('438f4efe-fdc5-4d1d-bb11-6ba9cbbf8383', 'home-z'))).ok, false, 'an unknown home is refused');
 });
 test('confirmation is scoped to contractor and property; lookup failures never authorize insertion', async () => {
   const { api, rows, state } = fixture();
