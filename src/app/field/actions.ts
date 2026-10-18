@@ -11,6 +11,7 @@ import { haversineMiles } from '@/lib/proximity';
 import { resolveContractorFromCookie, endContractorSession } from '@/lib/field-auth';
 import { canClaim, canFlagAnyHome, type ContractorRow, type PacketRow, type PacketStopRow } from '@/lib/field-types';
 import { isWorkingStatus } from '@/lib/field-packet-status';
+import { alreadyHandledNote } from '@/lib/field-slip-outcomes';
 import { recomputePacketExpenses, revalidatePacket, getContractorReliability } from '@/lib/field-packets';
 import { loadRecentVisits } from '@/lib/field-report';
 import { parseReceiptDollars, resolveReceiptPacket, homeReceipt } from '@/lib/field-receipts';
@@ -1205,9 +1206,7 @@ export async function resolveSlipFromStop(input: {
 
   const trimmed = (input.note || '').trim().slice(0, 2000);
   const handled = input.outcome === 'already_handled';
-  const note = handled
-    ? `Already handled by the time ${contractor.full_name} arrived (Field)${trimmed ? `: ${trimmed}` : ''}`
-    : trimmed;
+  const note = handled ? alreadyHandledNote(contractor.full_name, trimmed) : trimmed;
   const res = await applyAttachedSlipCompletion({
     contractor: { id: contractor.id, email: contractor.email },
     packetId: input.packetId,
