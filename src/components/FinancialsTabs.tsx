@@ -1,5 +1,6 @@
 import { SectionTabs } from './SectionTabs';
 import { NavTabCount } from '@/components/NavTabCount';
+import { isStatementMonth, statementsHref } from '@/lib/statements-month';
 
 /**
  * Sub-navigation tab strip for the Financials section: Statements,
@@ -16,12 +17,21 @@ import { NavTabCount } from '@/components/NavTabCount';
  * Role-aware through SectionTabs: every one of these routes that sits in
  * OWNER_PATH_PREFIXES drops out of the strip for a staff login, so the
  * strip never offers a page the proxy would bounce.
+ *
+ * `month` carries the month on screen across the strip: Revenue showing one
+ * calendar month opens Statements on it (/statements?month=), and
+ * Statements opens Revenue on its month (/revenue?range=). A range that is
+ * not one month carries nothing.
  */
 export function FinancialsTabs({
   current,
+  month = null,
 }: {
   current: 'statements' | 'revenue' | 'forecast' | 'books' | 'payments';
+  /** YYYY-MM the page is showing, when it is showing exactly one month. */
+  month?: string | null;
 }) {
+  const m = isStatementMonth(month) ? month : null;
   return (
     <SectionTabs
       current={current}
@@ -29,8 +39,8 @@ export function FinancialsTabs({
         // The pill sits beside the tab, not inside it: it is its own link to
         // the month it counts (/statements?month=), which a bare tab click
         // need not be.
-        { id: 'statements', label: 'Statements', href: '/statements', badgeOutside: true, badge: <NavTabCount kind="statementsReview" /> },
-        { id: 'revenue', label: 'Revenue', href: '/revenue' },
+        { id: 'statements', label: 'Statements', href: statementsHref(m), badgeOutside: true, badge: <NavTabCount kind="statementsReview" /> },
+        { id: 'revenue', label: 'Revenue', href: m ? `/revenue?range=${m}` : '/revenue' },
         { id: 'forecast', label: 'Forecast', href: '/forecast' },
         { id: 'books', label: 'LLC Accounting', href: '/books' },
         { id: 'payments', label: 'Payments', href: '/payments' },

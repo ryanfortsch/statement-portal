@@ -3970,7 +3970,7 @@ function DashboardContent() {
           </select>
         }
       />
-      <FinancialsTabs current="statements" />
+      <FinancialsTabs current="statements" month={selectedMonth || null} />
     </>
   );
 
