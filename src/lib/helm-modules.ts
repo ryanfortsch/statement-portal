@@ -353,27 +353,12 @@ export const HELM_MODULES: HelmModule[] = [
     primary: true,
     group: 'operations',
   },
-  // The gear grid is reached from the Work board and the specialists'
-  // property-work board. Registered here for search, surfaced in-context
-  // (hidden from menus).
   {
     id: 'maintenance-runs',
     href: '/work/maintenance',
     number: '04b',
     title: 'Maintenance',
     description: 'Handyman jobs bundled onto days a home is empty. Publish a run for a contractor to claim, or email the work order to a vendor.',
-    status: 'active',
-    primary: false,
-    hidden: true,
-    group: 'operations',
-    section: 'work',
-  },
-  {
-    id: 'gear',
-    href: '/work/gear',
-    number: '04a',
-    title: 'Guest Gear Grid',
-    description: 'Which properties hold which guest gear. Pack-n-plays, high chairs, and where each one lives.',
     status: 'active',
     primary: false,
     hidden: true,
@@ -421,6 +406,22 @@ export const HELM_MODULES: HelmModule[] = [
     group: 'relationships',
     section: 'properties',
     access: 'owner',
+  },
+  // The guest gear grid, a fact about the homes: a tab on the Properties
+  // strip and the specialists' property-work board (it was a Work tab until
+  // 2026-10-18; /work/gear redirects). Registered for search, hidden from
+  // menus.
+  {
+    id: 'gear',
+    href: '/properties/guest-gear',
+    number: '05f',
+    title: 'Guest gear',
+    description: 'Which homes hold which guest gear. Pack-n-plays, high chairs, and where each one lives.',
+    status: 'active',
+    primary: false,
+    hidden: true,
+    group: 'operations',
+    section: 'properties',
   },
   // The fleet-wide trash-day notice print page. Reached from a property's
   // Guest Deliverables tile; registered here for search, hidden from menus.

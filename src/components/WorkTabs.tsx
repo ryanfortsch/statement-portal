@@ -2,7 +2,8 @@ import { SectionTabs } from './SectionTabs';
 
 /**
  * Sub-navigation tab strip for the Work section, which is now just the
- * queue: the board plus its Maintenance and Gear lenses. Turnovers, Field,
+ * queue: the board plus its Maintenance lens. Guest gear moved to
+ * Properties on 2026-10-18 (/work/gear redirects). Turnovers, Field,
  * Properties, and Today were promoted out of this strip in the Phase 1
  * masthead expansion; each is its own masthead section (Today has no tab
  * at all, home and the morning SMS link it).
@@ -14,7 +15,7 @@ import { SectionTabs } from './SectionTabs';
 export function WorkTabs({
   current,
 }: {
-  current?: 'work' | 'maintenance' | 'gear';
+  current?: 'work' | 'maintenance';
 }) {
   return (
     <SectionTabs
@@ -22,7 +23,6 @@ export function WorkTabs({
       tabs={[
         { id: 'work', label: 'Board', href: '/work' },
         { id: 'maintenance', label: 'Maintenance', href: '/work/maintenance' },
-        { id: 'gear', label: 'Gear', href: '/work/gear' },
       ]}
     />
   );

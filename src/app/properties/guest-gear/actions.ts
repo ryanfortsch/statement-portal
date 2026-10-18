@@ -9,7 +9,7 @@ export async function saveGearCellOffice(propertyId: string, itemKey: string, lo
   const session = await auth();
   if (!session?.user?.email) return { ok: false };
   const res = await upsertGearCell(propertyId, itemKey, location, session.user.email);
-  revalidatePath('/work/gear');
+  revalidatePath('/properties/guest-gear');
   revalidatePath('/field/property-work');
   return res;
 }
