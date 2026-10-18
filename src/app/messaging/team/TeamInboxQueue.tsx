@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
+import { invalidatePendingCounts } from '@/lib/pending-count-client';
 import type { CleanerApproval, ContractorApproval } from '@/lib/stay-concierge';
 import type { ApprovalContext } from '@/lib/contractor-approval-context';
 import { ApprovalQueue } from '@/components/messaging/card/ApprovalQueue';
@@ -13,6 +14,9 @@ import { ContractorCard } from '@/app/contractor-messaging/ContractorCard';
 import { undoCleanerDecision } from '@/app/cleaner-messaging/actions';
 import { undoContractorDecision } from '@/app/contractor-messaging/actions';
 import { TEAM_AUDIENCES, teamHref, type TeamAudience } from '@/lib/team-inbox';
+import type { VendorVisitCardData } from '@/lib/vendor-visit-cards';
+import { VendorVisitCard } from './VendorVisitCard';
+import { undoVendorVisitAction } from './vendor-visit-actions';
 
 type PropertyOption = { id: string; name: string };
 
@@ -20,11 +24,12 @@ type PropertyOption = { id: string; name: string };
 // feeds every 15s.
 const PAGE_REFRESH_MS = 60_000;
 
-const AUDIENCE_TONE = { cleaner: '#1f5e6b', contractor: '#7a5c3a' } as const;
+const AUDIENCE_TONE = { cleaner: '#1f5e6b', contractor: '#7a5c3a', vendor_visit: '#5a4a7a' } as const;
 
 type Row =
   | { id: string; status: string; send_at: string; created_at: string; kind: 'cleaner'; approval: CleanerApproval }
-  | { id: string; status: string; send_at: string; created_at: string; kind: 'contractor'; approval: ContractorApproval };
+  | { id: string; status: string; send_at: string; created_at: string; kind: 'contractor'; approval: ContractorApproval }
+  | { id: string; status: string; send_at: string; created_at: string; kind: 'vendor_visit'; card: VendorVisitCardData };
 
 /**
  * The Team inbox (2026-10-18): the cleaner and contractor queues as one list,
@@ -32,6 +37,10 @@ type Row =
  * one option group and one warning; a new hire learned one and was wrong on
  * the other. Each audience keeps its own feed, its own card blocks and its
  * own server actions (Next server actions are per-route).
+ *
+ * A trade vendor's confirmed day rides with the contractors as a Vendor card
+ * (docs/vendor-visit-holds.md): Helm-native, so it comes with the page render
+ * rather than the concierge feed, and its approve holds the calendar.
  */
 export function TeamInboxQueue({
   initialCleaners,
@@ -40,9 +49,12 @@ export function TeamInboxQueue({
   properties,
   audience,
   aiPaused,
+  vendorVisits = [],
 }: {
   initialCleaners: CleanerApproval[];
   initialContractors: ContractorApproval[];
+  /** Trade vendors' confirmed days waiting on a hold (Helm-native). */
+  vendorVisits?: VendorVisitCardData[];
   contractorContext?: Record<string, ApprovalContext>;
   properties: PropertyOption[];
   audience: TeamAudience;
@@ -56,6 +68,12 @@ export function TeamInboxQueue({
     contractorContext,
   );
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
+  // The vendor cards come with the page, not a polled feed: when the set
+  // changes (approved, handled, a new one), the Team pill reads again.
+  const visitRevision = vendorVisits.map((v) => v.id).join(',');
+  useEffect(() => {
+    invalidatePendingCounts();
+  }, [visitRevision]);
   const refreshCleaners = cleaners.refresh;
   const refreshContractors = contractors.refresh;
   const onRefresh = useCallback(() => {
@@ -67,16 +85,20 @@ export function TeamInboxQueue({
   const all: Row[] = [
     ...cleaners.approvals.map((a) => ({ id: a.id, status: a.status, send_at: a.send_at, created_at: a.created_at, kind: 'cleaner' as const, approval: a })),
     ...contractors.approvals.map((a) => ({ id: a.id, status: a.status, send_at: a.send_at, created_at: a.created_at, kind: 'contractor' as const, approval: a })),
+    ...vendorVisits.map((c) => ({ id: c.id, status: 'pending', send_at: '', created_at: c.messageAt, kind: 'vendor_visit' as const, card: c })),
   ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   const waiting = (kind: Row['kind']) => all.filter((r) => r.kind === kind && r.status !== 'scheduled').length;
-  const counts = { all: waiting('cleaner') + waiting('contractor'), cleaners: waiting('cleaner'), contractors: waiting('contractor') };
-  const shown = audience === 'all' ? all : all.filter((r) => (audience === 'cleaners' ? r.kind === 'cleaner' : r.kind === 'contractor'));
+  const crew = waiting('contractor') + waiting('vendor_visit');
+  const counts = { all: waiting('cleaner') + crew, cleaners: waiting('cleaner'), contractors: crew };
+  const shown = audience === 'all' ? all : all.filter((r) => (audience === 'cleaners' ? r.kind === 'cleaner' : r.kind !== 'cleaner'));
 
   return (
     <ApprovalQueue
       approvals={shown}
       onRefresh={onRefresh}
-      undo={(id, kind) => (kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id))}
+      undo={(id, kind) =>
+        kind === 'vendor_visit' ? undoVendorVisitAction(id) : kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id)
+      }
       emptyMessage={
         audience === 'cleaners'
           ? 'No cleaner texts waiting.'
@@ -87,6 +109,17 @@ export function TeamInboxQueue({
       toolbar={<TeamFilter audience={audience} counts={counts} />}
       renderCard={(row, helpers) => {
         const tagged = { ...helpers, onDecided: (d: { id: string; name: string; property?: string }) => helpers.onDecided({ ...d, audience: row.kind }) };
+        if (row.kind === 'vendor_visit') {
+          return (
+            <VendorVisitCard
+              key={`${row.id}:${row.card.property?.id ?? ''}:${row.card.start ?? ''}:${row.card.end ?? ''}:${row.card.startTime ?? ''}`}
+              card={row.card}
+              properties={properties}
+              helpers={tagged}
+              audienceChip={<Pill label="Vendor" tone={AUDIENCE_TONE.vendor_visit} />}
+            />
+          );
+        }
         const chip = <Pill label={row.kind === 'cleaner' ? 'Cleaner' : 'Contractor'} tone={AUDIENCE_TONE[row.kind]} />;
         return row.kind === 'cleaner' ? (
           <CleanerCard

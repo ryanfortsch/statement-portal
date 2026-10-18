@@ -82,6 +82,9 @@ export type ApprovalCardProps = {
   channel?: string;
   /** What they wrote, as one line for the phone review row. */
   preview?: string | null;
+  /** The phone review row's call to action, when there is no reply to
+   *  review (a vendor visit proposes a hold). Defaults to "Review reply". */
+  reviewLabel?: string;
   /** Header chips after the name: channel, stay dates, topic, audience. */
   chips?: ReactNode;
   /** Chips on the collapsed queued row. */
@@ -147,7 +150,7 @@ export type ApprovalCardProps = {
 
 export function ApprovalCard(props: ApprovalCardProps) {
   const {
-    id, status, sendAt, name, property, channel, preview, chips, queuedChips, accent, ageMinutes, createdAt, shortId,
+    id, status, sendAt, name, property, channel, preview, reviewLabel, chips, queuedChips, accent, ageMinutes, createdAt, shortId,
     wait, layout = 'columns', said, between, reply, afterColumns, also, verbs, handledReasons,
     pastePlaceholder = 'Paste the reply you sent, by text or by email', approveLabel, approveBlocked,
     scheduleBlocked, coachHint, externalBusy, redraftOutcome, footer, queuedLead, outcomes, onResolved, onDecided,
@@ -682,6 +685,7 @@ export function ApprovalCard(props: ApprovalCardProps) {
       name={name}
       property={property || ''}
       preview={preview}
+      reviewLabel={reviewLabel}
       channel={channel || ''}
       enabled={!isScheduled}
       keepOpen={busy || !!error || regenStalled}

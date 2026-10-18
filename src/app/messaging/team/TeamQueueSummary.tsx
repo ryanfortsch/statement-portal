@@ -4,6 +4,7 @@ import { showsCleaners, showsContractors, type TeamAudience } from '@/lib/team-i
 import { getOpenDigest } from '@/lib/cleaner-digest';
 import { countPendingOwnerHoldQuestions } from '@/lib/owner-hold-questions';
 import { cleanerKindsLine } from '@/lib/cleaner-queue-kinds';
+import { countPendingVendorVisits } from '@/lib/vendor-visit-cards';
 
 /**
  * The title row under the Team tab: what the pill's one number is made of
@@ -15,15 +16,23 @@ export async function TeamQueueSummary({ audience }: { audience: TeamAudience })
   const waiting = (r: { ok: boolean; data?: { approvals: { status: string }[] } }) =>
     r.ok && r.data ? r.data.approvals.filter((a) => a.status !== 'scheduled').length : null;
   const cleaners = showsCleaners(audience);
-  const [texts, contractorTexts, schedules, questions] = await Promise.all([
+  const [texts, contractorTexts, schedules, questions, vendorVisits] = await Promise.all([
     cleaners && isStayConciergeConfigured() ? listCleanerApprovals().then(waiting).catch(() => null) : Promise.resolve(0),
     showsContractors(audience) && isStayConciergeConfigured() ? listContractorApprovals().then(waiting).catch(() => null) : Promise.resolve(0),
     // The pill counts a pending digest dated today or later; getOpenDigest
     // returns exactly that row first and falls back to a sent one otherwise.
     cleaners ? getOpenDigest(supabase).then((d) => (d && d.status === 'pending' ? 1 : 0)).catch(() => null) : Promise.resolve(0),
     cleaners ? countPendingOwnerHoldQuestions(supabase).catch(() => null) : Promise.resolve(0),
+    // A trade vendor's confirmed day waiting on a hold, with the contractors.
+    showsContractors(audience) ? countPendingVendorVisits() : Promise.resolve(0),
   ]);
-  const kinds = cleanerKindsLine({ texts, schedules, questions, contractorTexts: audience === 'cleaners' ? undefined : contractorTexts });
+  const kinds = cleanerKindsLine({
+    texts,
+    schedules,
+    questions,
+    contractorTexts: audience === 'cleaners' ? undefined : contractorTexts,
+    vendorVisits: audience === 'cleaners' ? undefined : vendorVisits,
+  });
   if (kinds.length === 0) return null;
   return (
     <div

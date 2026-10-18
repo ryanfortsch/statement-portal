@@ -3,9 +3,12 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 /** Compact mobile review, with the existing card and its draft state kept mounted. */
-export function MobileInboxReview({ id, name, property, preview, channel, enabled = true, keepOpen = false, draftInProgress = false, children }: {
+export function MobileInboxReview({ id, name, property, preview, channel, enabled = true, keepOpen = false, draftInProgress = false, reviewLabel = 'Review reply', children }: {
   id: string; name: string; property?: string; preview?: string | null; channel?: string;
-  enabled?: boolean; keepOpen?: boolean; draftInProgress?: boolean; children: ReactNode;
+  enabled?: boolean; keepOpen?: boolean; draftInProgress?: boolean;
+  /** The row's call to action, for a card with no reply (a vendor visit's hold). */
+  reviewLabel?: string;
+  children: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const bodyId = useId();
@@ -34,7 +37,7 @@ export function MobileInboxReview({ id, name, property, preview, channel, enable
         <span className="rt-inbox-review-heading"><span className="font-serif">{name}</span><span className="rt-inbox-review-channel">{channel?.replace(/^email.*$/i, "Email").replace(/^airbnb.*$/i, "Airbnb")}</span></span>
         {property && <span className="rt-inbox-review-property">{property}</span>}
         <span className="rt-inbox-review-preview">{preview?.trim() || 'Reply ready to review'}</span>
-        <span className="rt-inbox-review-link">{draftInProgress ? "Continue reply" : "Review reply"} <span aria-hidden="true">→</span></span>
+        <span className="rt-inbox-review-link">{draftInProgress ? "Continue reply" : reviewLabel} <span aria-hidden="true">→</span></span>
       </>}
     </button>
     <div id={bodyId} className="rt-inbox-review-body">{children}

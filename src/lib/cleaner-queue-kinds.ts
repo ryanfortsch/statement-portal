@@ -16,6 +16,8 @@ export type CleanerKindCounts = {
    *  cleaner and contractor queues are one list. Absent: a cleaners-only
    *  line, where a text is a cleaner's. */
   contractorTexts?: number | null;
+  /** Trade vendors' confirmed days waiting on a hold (Contractors filter). */
+  vendorVisits?: number | null;
 };
 
 export type CleanerKind = { label: string; href: string };
@@ -31,6 +33,7 @@ export function cleanerKindsLine(c: CleanerKindCounts): CleanerKind[] {
     add(c.texts, 'cleaner text', 'cleaner texts', '#needs-review');
     add(c.contractorTexts, 'contractor text', 'contractor texts', '#needs-review');
   }
+  if (c.vendorVisits !== undefined) add(c.vendorVisits, 'vendor visit', 'vendor visits', '#needs-review');
   add(c.schedules, 'schedule', 'schedules', '#schedule-digest');
   add(c.questions, 'question', 'questions', '#owner-holds');
   return parts;

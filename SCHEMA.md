@@ -316,6 +316,17 @@ timeline, not a dispatchable outfit with an after-hours line and a COI
 expiry. Rows are retired via `archived_at`, never deleted -- old bank
 descriptors still name them.
 
+`vendor_visit_proposals` is a trade vendor's text naming a visit day
+("Tuesday 10/27 at 1 works"), one row per Quo message (`quo_message_id`
+unique), filed by the Quo ingest (`src/lib/vendor-visits.ts`) and shown as a
+Vendor card on the Team inbox. A null `visit_date` or `property_id` is a
+question the card asks. Nothing is held or scheduled until the operator
+approves: `src/lib/vendor-visit-approve.ts` then writes the calendar hold
+(Guesty for a guesty-run home, a `bookings` block with `hold_kind
+'maintenance'` for a helm-run one) and stamps the ticked `work_slips`, and
+records what it did in `hold_result` / `scheduled_slip_ids`. Service role
+only. See `docs/vendor-visit-holds.md`.
+
 ---
 
 ## Calendar / operations

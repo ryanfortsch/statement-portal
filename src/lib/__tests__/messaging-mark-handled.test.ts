@@ -51,7 +51,11 @@ describe('Mark handled, streamlined', () => {
     }
     assert.ok(/undo=\{undoOwnerDecision\}/.test(read('src/app/owner-messaging/OwnerMessagingQueue.tsx')), 'the owner queue lost its undo');
     const team = read('src/app/messaging/team/TeamInboxQueue.tsx');
-    assert.ok(team.includes("undo={(id, kind) => (kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id))}"), 'the Team inbox undoes each card with its own audience');
+    // A vendor visit card (2026-10-18) is the third kind on the Team inbox.
+    assert.ok(
+      team.includes("kind === 'vendor_visit' ? undoVendorVisitAction(id) : kind === 'contractor' ? undoContractorDecision(id) : undoCleanerDecision(id)"),
+      'the Team inbox undoes each card with its own audience',
+    );
     const card = read('src/components/messaging/card/ApprovalCard.tsx');
     assert.ok(card.includes('onClick={() => markHandled({ reason })}'), 'a reason is one tap on the card');
     assert.ok(card.includes('onDecided({ id, name, property });'), 'the undo toast follows a Mark handled');
