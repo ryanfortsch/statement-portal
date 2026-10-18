@@ -1224,6 +1224,22 @@ td:has(.rt-info-icon:focus-within) {
 
 /* Follow-ups expose their selected action without crowding out the reply. */
 .rt-inbox-group-title { margin: 14px 0 0; padding-top: 20px; border-top: 1px solid var(--rule); font-family: var(--font-fraunces), serif; font-size: 20px; font-weight: 500; }
+/* Also on approve: what approving the card will also do, one line each (2026-10-18). */
+.rt-also { margin-top: 16px; border: 1px solid var(--rule); background: var(--paper); min-width: 0; }
+.rt-also-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 14px 0; }
+.rt-also-list { list-style: none; margin: 0; padding: 4px 14px 10px; }
+.rt-also-item { padding: 6px 0; border-top: 1px solid var(--rule-soft); font-size: 13px; color: var(--ink-2); }
+.rt-also-item:first-child { border-top: 0; }
+.rt-also-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 12px; }
+.rt-also-status { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+.rt-also-status[data-attention] { color: var(--signal); font-weight: 600; }
+.rt-also-body { margin-top: 8px; padding: 10px 0 4px; border-top: 1px dashed var(--rule); }
+@media (max-width: 640px) {
+  .rt-also-line { grid-template-columns: minmax(0, 1fr); }
+  .rt-also-status { white-space: normal; }
+  .rt-also-body select { max-width: 100%; }
+  .rt-also-body label { min-height: 36px; }
+}
 .rt-inbox-followup { margin-top: 12px; border: 1px solid var(--rule); background: var(--paper); min-width: 0; }
 .rt-inbox-followup > summary { padding: 12px 14px; min-height: 44px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; cursor: pointer; list-style: none; font-size: 13px; }
 .rt-inbox-followup > summary::-webkit-details-marker { display: none; }

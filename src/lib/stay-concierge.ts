@@ -54,6 +54,12 @@ export type Approval = MessageOutcomeCarrier & {
   /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
    * Empty for a normal pending draft. */
   send_at: string;
+  /** Why a scheduled send has not gone out yet (concierge #89): the retry
+   *  count and the last failure, either the send's own error text or a code
+   *  (newer_activity, rate_limited, interrupted). Cleared when the operator
+   *  schedules or cancels again. Absent on an older concierge. */
+  send_attempts?: number;
+  last_send_error?: string;
   /** Mined add-on charge (Tesla charger, pet fee, early check-in fee) with
    * its Stripe payment link. Null/absent for ordinary cards. */
   addon?: AddonCharge | null;
@@ -557,16 +563,20 @@ export async function undoApproval(id: string, actor?: string) {
   );
 }
 
-export function explainUndoRefusal(detail: string): string {
+/** `who` is who the reply would have reached: 'the guest' on the guest
+ *  queue, 'them' on the team queues. */
+export function explainUndoRefusal(detail: string, who: 'the guest' | 'them' = 'the guest'): string {
   switch (detail) {
     case 'sent':
-      return 'That reply already went to the guest, so there is nothing to take back. Follow up in the thread.';
+      return `That reply already went to ${who}, so there is nothing to take back. Follow up in the thread.`;
     case 'still_pending':
       return 'It is already back in the queue.';
     case 'superseded_by_newer':
-      return 'A newer draft exists for this message. Look for it in the queue.';
+      return who === 'the guest'
+        ? 'A newer draft exists for this message. Look for it in the queue.'
+        : 'They wrote again since, and their newer message has its own card.';
     case 'host_replied':
-      return 'Someone already answered this guest on the thread since the decision.';
+      return `Someone already answered ${who} on the thread since the decision.`;
     default:
       return `That decision cannot be reversed (${detail || 'unknown reason'}).`;
   }
@@ -644,11 +654,31 @@ export type ThreadMessage = {
  * on the concierge), so give the first cold call more headroom than the
  * standard 13s render budget. */
 export async function listConversations(days = 60) {
-  return request<{ conversations: ConversationSummary[]; count: number }>(
+  return request<ConversationsResponse>(
     `/api/conversations?days=${days}`,
     { method: 'GET', timeoutMs: 20_000 },
   );
 }
+
+/** The list for one check-in window (YYYY-MM-DD, at most 120 days; concierge
+ *  #90). `truncated` means the window held more stays than one list returns. */
+export async function listConversationsInRange(checkInFrom: string, checkInTo: string) {
+  return request<ConversationsResponse>(
+    `/api/conversations?check_in_from=${encodeURIComponent(checkInFrom)}&check_in_to=${encodeURIComponent(checkInTo)}`,
+    { method: 'GET', timeoutMs: 25_000 },
+  );
+}
+
+export type ConversationsResponse = {
+  conversations: ConversationSummary[];
+  count: number;
+  /** The check-in window the list covers (concierge #90; absent before). */
+  check_in_from?: string;
+  check_in_to?: string;
+  truncated?: boolean;
+  /** The last good list, served while Guesty is refusing. */
+  stale?: boolean;
+};
 
 export async function getConversationThread(conversationId: string, limit = 200) {
   return request<{ messages: ThreadMessage[]; count: number }>(
@@ -727,6 +757,12 @@ export type OwnerApproval = MessageOutcomeCarrier & {
   /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
    * Empty otherwise. */
   send_at: string;
+  /** Why a scheduled send has not gone out yet (concierge #89): the retry
+   *  count and the last failure, either the send's own error text or a code
+   *  (newer_activity, rate_limited, interrupted). Cleared when the operator
+   *  schedules or cancels again. Absent on an older concierge. */
+  send_attempts?: number;
+  last_send_error?: string;
   /** What approving this card ALSO does: work slips for physical things and
    *  heads-up cards for the cleaning crew, mined from the owner's message
    *  (2026-09-23). Empty or absent when the message asked for nothing. */
@@ -874,8 +910,17 @@ export async function rejectOwnerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/reject`, { method: 'POST' });
 }
 
-export async function markHandledOwnerApproval(id: string, fileActions = true) {
-  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, { method: 'POST', body: { file_actions: fileActions } });
+export async function markHandledOwnerApproval(
+  id: string,
+  fileActions = true,
+  capture?: MarkHandledCapture,
+  actor?: string,
+) {
+  return request<{ status: string; id: string }>(`/api/owner-approvals/${id}/mark_handled`, {
+    method: 'POST',
+    actor,
+    body: { file_actions: fileActions, ...(capture ?? {}) },
+  });
 }
 
 /** Queue an owner draft to send at a future UTC ISO time. `finalText` is the
@@ -1060,6 +1105,8 @@ export type CleanerApproval = MessageOutcomeCarrier & {
   inbound_language: 'pt' | 'en' | 'mixed' | string;
   draft: string;                    // Portuguese — what gets sent on approve
   draft_english: string;            // English translation for operator audit
+  /** The English for an operator-edited draft is being made (#88). */
+  draft_translating?: boolean;
   topic: string;
   status: string;
   final_response: string;
@@ -1072,6 +1119,12 @@ export type CleanerApproval = MessageOutcomeCarrier & {
   /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
    * Empty otherwise. */
   send_at: string;
+  /** Why a scheduled send has not gone out yet (concierge #89): the retry
+   *  count and the last failure, either the send's own error text or a code
+   *  (newer_activity, rate_limited, interrupted). Cleared when the operator
+   *  schedules or cancels again. Absent on an older concierge. */
+  send_attempts?: number;
+  last_send_error?: string;
 };
 
 export type CleanerApprovalsResponse = {
@@ -1110,8 +1163,12 @@ export async function rejectCleanerApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/reject`, { method: 'POST' });
 }
 
-export async function markHandledCleanerApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/mark_handled`, { method: 'POST' });
+export async function markHandledCleanerApproval(id: string, capture?: MarkHandledCapture, actor?: string) {
+  return request<{ status: string; id: string }>(`/api/cleaner-approvals/${id}/mark_handled`, {
+    method: 'POST',
+    actor,
+    body: capture ?? {},
+  });
 }
 
 /** Queue a cleaner draft to send at a future UTC ISO time. The UI disables
@@ -1186,6 +1243,12 @@ export type ContractorApproval = MessageOutcomeCarrier & {
   /** UTC ISO fire time when status==='scheduled' (a queued delayed send).
    * Empty otherwise. */
   send_at: string;
+  /** Why a scheduled send has not gone out yet (concierge #89): the retry
+   *  count and the last failure, either the send's own error text or a code
+   *  (newer_activity, rate_limited, interrupted). Cleared when the operator
+   *  schedules or cancels again. Absent on an older concierge. */
+  send_attempts?: number;
+  last_send_error?: string;
 };
 
 export type ContractorApprovalsResponse = {
@@ -1242,8 +1305,54 @@ export async function rejectContractorApproval(id: string) {
   return request<{ status: string; id: string }>(`/api/contractor-approvals/${id}/reject`, { method: 'POST' });
 }
 
-export async function markHandledContractorApproval(id: string) {
-  return request<{ status: string; id: string }>(`/api/contractor-approvals/${id}/mark_handled`, { method: 'POST' });
+export async function markHandledContractorApproval(id: string, capture?: MarkHandledCapture, actor?: string) {
+  return request<{ status: string; id: string }>(`/api/contractor-approvals/${id}/mark_handled`, {
+    method: 'POST',
+    actor,
+    body: capture ?? {},
+  });
+}
+
+// ── The guest card's rails on the team queues (concierge #88) ───────────
+// Edit, Redraft and Undo for owners, cleaners and contractors, so the one
+// approval card offers the same verbs on every tab.
+
+export type TeamAudience = 'owner' | 'cleaner' | 'contractor';
+
+/** Replace a team draft with the operator's words (pending only; 409
+ *  already_<status> otherwise). A cleaner edit drops the stored English and
+ *  the next poll carries the translation of the edited text. */
+export async function editTeamApproval(audience: TeamAudience, id: string, text: string) {
+  return request<{ status: string; id: string; draft: string }>(
+    `/api/${audience}-approvals/${encodeURIComponent(id)}/draft`,
+    { method: 'PUT', body: { text } },
+  );
+}
+
+/** Re-run a team draft on today's data. 202; the card is replaced by its
+ *  rewrite like a coached one, and nothing is taught. */
+export async function redraftTeamApproval(audience: TeamAudience, id: string, actor?: string) {
+  return request<{ status: string; id: string }>(
+    `/api/${audience}-approvals/${encodeURIComponent(id)}/redraft`,
+    { method: 'POST', actor, timeoutMs: STAY_CONCIERGE_LLM_TIMEOUT_MS },
+  );
+}
+
+/** Put a handled team card back in the queue. 409 detail names why not:
+ *  sent, still_pending, superseded_by_newer, not_reversible:<status>. */
+export async function undoTeamApproval(audience: TeamAudience, id: string, actor?: string) {
+  return request<{ status: string; id: string; from_status: string }>(
+    `/api/${audience}-approvals/${encodeURIComponent(id)}/undo`,
+    { method: 'POST', actor },
+  );
+}
+
+/** Handled team cards from the last `hours`, each with `reversible` and
+ *  `decided_by`, for Decided recently. */
+export async function listDecidedTeamApprovals<T>(audience: TeamAudience, hours = 12) {
+  return request<{ approvals: (T & { reversible?: boolean; reversible_reason?: string; decided_by?: string })[]; count: number }>(
+    `/api/${audience}-approvals/decided?hours=${hours}`,
+  );
 }
 
 export async function coachContractorApproval(id: string, feedback: string) {

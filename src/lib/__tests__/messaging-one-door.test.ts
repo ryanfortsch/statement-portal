@@ -40,11 +40,15 @@ describe('one door for no reply', () => {
       const src = read(path);
       assert.ok(!/>\s*Reject\s*</.test(src) && !/'Reject'/.test(src), `${path} still offers Reject`);
       assert.ok(!/\breject[A-Z]\w*Draft\b/.test(src), `${path} still wires a reject action`);
-      assert.ok(/Mark handled/.test(src) || src.includes('<HandledConfirm'), `${path} lost the one door`);
+      // A queue on the one card (components/messaging/card) gets the door
+      // from the card itself.
+      assert.ok(/Mark handled/.test(src) || src.includes('<HandledConfirm') || src.includes('<ApprovalCard'), `${path} lost the one door`);
     }
     for (const path of ACTIONS) {
       assert.ok(!/export async function reject/.test(read(path)), `${path} still exports a reject action`);
     }
+    const card = read('src/components/messaging/card/ApprovalCard.tsx');
+    assert.ok(!/>\s*Reject\s*</.test(card) && /Mark handled/.test(card), 'the one card offers Mark handled and no Reject');
   });
 
   test('the owner card has no bare-key shortcuts; Cmd+Enter in the draft still sends', () => {

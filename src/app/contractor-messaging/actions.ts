@@ -8,16 +8,36 @@ import {
   coachContractorApproval,
   scheduleContractorApproval,
   cancelScheduleContractorApproval,
+  editTeamApproval,
+  redraftTeamApproval,
+  undoTeamApproval,
   saveContractorCuratedFacts,
   explainError,
+  explainUndoRefusal,
+  isStaleConflict,
+  type MarkHandledCapture,
+  type StayConciergeError,
 } from '@/lib/stay-concierge';
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+/** `stale` means the card moved on under the operator (a coached rewrite
+ *  replaced it, someone else decided it): the card refreshes instead of
+ *  showing a red error. */
+export type ActionResult = { ok: true } | { ok: false; error: string; stale?: boolean };
 
-async function requireSession(): Promise<ActionResult> {
+type ClientResult = { ok: true } | { ok: false; error: StayConciergeError };
+
+function mapResult(res: ClientResult): ActionResult {
+  if (res.ok) {
+    revalidatePath('/contractor-messaging');
+    return { ok: true };
+  }
+  return { ok: false, error: explainError(res.error), stale: isStaleConflict(res.error) };
+}
+
+async function requireSession(): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.email) return { ok: false, error: 'Not signed in' };
-  return { ok: true };
+  return { ok: true, email: session.user.email };
 }
 
 /** `opts` carries the card's proposed-work-slip decision (file it or not,
@@ -29,19 +49,45 @@ export async function approveContractorDraft(
 ): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const res = await approveContractorApproval(id, opts);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/contractor-messaging');
-  return { ok: true };
+  return mapResult(await approveContractorApproval(id, opts));
 }
 
-export async function markContractorHandled(id: string): Promise<ActionResult> {
+/** Clear the card without sending. `capture` is why (a reason) and, when the
+ *  operator replied elsewhere, what she sent. Undo puts it back. */
+export async function markContractorHandled(id: string, capture?: MarkHandledCapture): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const res = await markHandledContractorApproval(id);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/contractor-messaging');
-  return { ok: true };
+  return mapResult(await markHandledContractorApproval(id, capture, sess.email));
+}
+
+/** Reverse a Mark handled: the card returns exactly as it was. */
+export async function undoContractorDecision(id: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const res = await undoTeamApproval('contractor', id, sess.email);
+  if (res.ok) {
+    revalidatePath('/contractor-messaging');
+    return { ok: true };
+  }
+  const e = res.error;
+  if (e.kind === 'http' && e.status === 409) return { ok: false, error: explainUndoRefusal(e.detail, 'them') };
+  return { ok: false, error: explainError(e) };
+}
+
+/** Edit changes this reply only: the operator's words become the draft. */
+export async function editContractorDraft(id: string, text: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: false, error: 'The reply cannot be empty' };
+  return mapResult(await editTeamApproval('contractor', id, trimmed));
+}
+
+/** Re-run the draft on today's data. Nothing is sent and nothing is taught. */
+export async function redraftContractorDraft(id: string): Promise<ActionResult> {
+  const sess = await requireSession();
+  if (!sess.ok) return sess;
+  return mapResult(await redraftTeamApproval('contractor', id, sess.email));
 }
 
 /** Queue the draft to send at a future time (the send-later element). The
@@ -50,20 +96,14 @@ export async function scheduleContractorDraft(id: string, sendAt: string): Promi
   const sess = await requireSession();
   if (!sess.ok) return sess;
   if (!sendAt) return { ok: false, error: 'Pick a time to schedule' };
-  const res = await scheduleContractorApproval(id, sendAt);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/contractor-messaging');
-  return { ok: true };
+  return mapResult(await scheduleContractorApproval(id, sendAt));
 }
 
 /** Unschedule a queued send, returning the draft to the pending queue. */
 export async function cancelContractorSchedule(id: string): Promise<ActionResult> {
   const sess = await requireSession();
   if (!sess.ok) return sess;
-  const res = await cancelScheduleContractorApproval(id);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/contractor-messaging');
-  return { ok: true };
+  return mapResult(await cancelScheduleContractorApproval(id));
 }
 
 export async function coachContractorDraft(id: string, feedback: string): Promise<ActionResult> {
@@ -71,10 +111,7 @@ export async function coachContractorDraft(id: string, feedback: string): Promis
   if (!sess.ok) return sess;
   const trimmed = feedback.trim();
   if (!trimmed) return { ok: false, error: 'Add a coaching note before sending' };
-  const res = await coachContractorApproval(id, trimmed);
-  if (!res.ok) return { ok: false, error: explainError(res.error) };
-  revalidatePath('/contractor-messaging');
-  return { ok: true };
+  return mapResult(await coachContractorApproval(id, trimmed));
 }
 
 export async function saveContractorFacts(content: string): Promise<ActionResult> {

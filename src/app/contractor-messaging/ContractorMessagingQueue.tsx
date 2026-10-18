@@ -1,783 +1,159 @@
 'use client';
 
-import { Fragment } from 'react';
-import { InboxFollowup } from '@/components/InboxFollowup';
-import { HandledConfirm } from '@/components/HandledConfirm';
-
-import { MobileInboxReview } from '@/components/MobileInboxReview';
-
-import { MessageOutcomes } from '@/components/MessageOutcomes';
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
-import { Section } from '@/components/Section';
-import { QueueRefreshControl, useQueueRefresh } from '@/components/QueueRefreshControl';
+import { useCallback, type ReactNode } from 'react';
+import { useQueueRefresh } from '@/components/QueueRefreshControl';
 import { useApprovalQueue } from '@/lib/use-approval-queue';
 import type { ContractorApproval } from '@/lib/stay-concierge';
 import type { ApprovalContext } from '@/lib/contractor-approval-context';
+import { prettifyTopic } from '@/app/messaging/format';
+import { ApprovalCard, BodyText, sentAgoLabel } from '@/components/messaging/card/ApprovalCard';
+import { ApprovalQueue, type QueueCardHelpers } from '@/components/messaging/card/ApprovalQueue';
+import { useWorkSlip } from '@/components/messaging/card/useWorkSlip';
+import { TEAM_HANDLED_REASONS, isTeamProactive, reasonsFor } from '@/components/messaging/card/reasons';
 import {
   approveContractorDraft,
   markContractorHandled,
+  undoContractorDecision,
   coachContractorDraft,
+  editContractorDraft,
+  redraftContractorDraft,
   scheduleContractorDraft,
   cancelContractorSchedule,
 } from './actions';
-import { prettifyTopic, ageToneColor, relativeTimeShort, sendsInLabel } from '@/app/messaging/format';
-import {
-  QUEUED_TONE,
-  QueuedBadge,
-  SplitSendButton,
-  SchedulePopover,
-} from '@/components/ScheduleSend';
 
 type PropertyOption = { id: string; name: string };
 
-type Props = {
+// How often the REST of the page re-renders. The cards poll their own feed
+// every 15s (useApprovalQueue), so a coached draft appears as soon as the
+// service has it.
+const PAGE_REFRESH_MS = 60_000;
+
+/** The contractor queue: the one approval card, with the work slip their
+ *  text implies and the homes on their run today offered first. */
+export function ContractorMessagingQueue({
+  initialPending,
+  properties,
+  context,
+}: {
   initialPending: ContractorApproval[];
   context?: Record<string, ApprovalContext>;
   /** Helm property list for the proposed-slip selector on each card. */
   properties: PropertyOption[];
-};
-
-// How often the REST of the page re-renders. The cards no longer ride this:
-// they poll their own feed every 15s (see useApprovalQueue), so a coached
-// draft appears as soon as the service has it instead of waiting on whatever
-// else the page is fetching.
-const PAGE_REFRESH_MS = 60_000;
-
-// Teal for the work-slip-on-approval block: an operational side effect,
-// distinct from both the draft (ink) and error/stale (signal) tones.
-const SLIP_TONE = '#1f5e6b';
-
-export function ContractorMessagingQueue({ initialPending, properties, context }: Props) {
-  // The cards come from the queue's own feed, Field context included: a
-  // coached rewrite lands under a new id, and the context that narrows its
-  // property dropdown is keyed by id, so it has to travel with the card
-  // rather than wait for the next page render.
-  const {
-    approvals,
-    context: liveContext,
-    updatedTick,
-    refresh,
-    watchRegen,
-    stalledId,
-  } = useApprovalQueue<ContractorApproval, Record<string, ApprovalContext>>(
-    initialPending,
-    'contractors',
-    context,
-  );
-  // Shared refresh brain (QueueRefreshControl): transition-wrapped
-  // router.refresh on a jittered, visibility-gated interval (the #1236
-  // stampede fix, which this queue never got). Now only the sections below
-  // the queue depend on it.
+}) {
+  // The Field context travels with the feed: a coached rewrite lands under a
+  // new id, and the context that narrows its property dropdown is keyed by id.
+  const { approvals, context: liveContext, updatedTick, refresh, watchRegen, stalledId } = useApprovalQueue<
+    ContractorApproval,
+    Record<string, ApprovalContext>
+  >(initialPending, 'contractors', context);
   const { softRefresh } = useQueueRefresh(PAGE_REFRESH_MS);
-
-  // A card action changes both: the queue feed answers in ~60ms and drops the
-  // card, the page catches up with what sits underneath in its own time.
-  const onResolved = useCallback(() => {
+  const onRefresh = useCallback(() => {
     refresh();
     softRefresh();
   }, [refresh, softRefresh]);
 
-  // Decisions first; scheduled sends stay visible in their own group.
-  const queued = approvals
-    .filter((a) => a.status === 'scheduled')
-    .sort((a, b) => (a.send_at || '').localeCompare(b.send_at || ''));
-  const pending = approvals.filter((a) => a.status !== 'scheduled');
-  const ordered = [...pending, ...queued];
-  const title =
-    approvals.length === 0
-      ? 'Inbox zero'
-      : pending.length === 0
-        ? `Scheduled (${queued.length})`
-        : `Needs review (${pending.length})`;
-
   return (
-    <Section
-      id="needs-review"
-      title={title}
-      right={<QueueRefreshControl onRefresh={onResolved} refreshTick={updatedTick} />}
-      empty={approvals.length === 0}
+    <ApprovalQueue
+      approvals={approvals}
+      updatedTick={updatedTick}
+      onRefresh={onRefresh}
+      undo={undoContractorDecision}
       emptyMessage="No contractor texts waiting."
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {ordered.map((approval, index) => (
-          <Fragment key={approval.id}>
-          {pending.length > 0 && queued.length > 0 && index === pending.length && <h3 className="rt-inbox-group-title">Scheduled ({queued.length})</h3>}
-          <ContractorApprovalCard
-            key={approval.id}
-            approval={approval}
-            properties={properties}
-            ctx={liveContext?.[approval.id]}
-            onResolved={onResolved}
-            onRegenerating={watchRegen}
-            regenStalled={stalledId === approval.id}
-          />
-          </Fragment>
-        ))}
-      </div>
-    </Section>
+      renderCard={(approval, helpers) => (
+        <ContractorCard
+          key={approval.id}
+          approval={approval}
+          properties={properties}
+          ctx={liveContext?.[approval.id]}
+          helpers={helpers}
+          onRegenerating={watchRegen}
+          regenStalled={stalledId === approval.id}
+        />
+      )}
+    />
   );
 }
 
-type PendingAction =
-  | 'approve'
-  | 'mark-handled'
-  | 'coach'
-  | 'schedule'
-  | 'send-now'
-  | 'cancel-schedule'
-  | null;
-
-function ContractorApprovalCard({
+export function ContractorCard({
   approval,
   properties,
   ctx,
-  onResolved,
+  helpers,
   onRegenerating,
   regenStalled,
+  audienceChip,
 }: {
   approval: ContractorApproval;
   properties: PropertyOption[];
   ctx?: ApprovalContext;
-  onResolved: () => void;
-  /** Coaching accepted upstream: watch closely for the rewritten card. */
+  helpers: QueueCardHelpers;
   onRegenerating: (id: string) => void;
-  /** The rewrite never came back. */
   regenStalled: boolean;
+  /** The Team inbox says whose card this is. */
+  audienceChip?: ReactNode;
 }) {
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [showCoach, setShowCoach] = useState(false);
-  const [feedback, setFeedback] = useState('');
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
-  // In-flight for card purposes: a coached card stays locked past its own
-  // request, until the rewrite replaces it (see runCoach).
-  const busy = isPending || pendingAction === 'coach';
-  // Send-later drawer + collapsed state for queued cards (guest pattern).
-  const [showSchedule, setShowSchedule] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const cardRef = useRef<HTMLElement | null>(null);
-  const isScheduled = approval.status === 'scheduled';
+  const id = approval.id;
+  // The concierge's own inference wins if it names a known home; otherwise
+  // Helm's run-derived guess (the home they just finished, or flagged).
+  const inferred = properties.some((p) => p.id === approval.property_id) ? approval.property_id : '';
+  const runGuess = ctx?.suggestedPropertyId && properties.some((p) => p.id === ctx.suggestedPropertyId) ? ctx.suggestedPropertyId : '';
+  const slip = useWorkSlip({
+    id,
+    slip: approval.proposed_slip ?? null,
+    properties,
+    initialPropertyId: approval.proposed_slip ? inferred || runGuess : '',
+    runProperties: ctx?.runProperties,
+    alreadyFiled: ctx?.alreadyFiled,
+  });
+  const proactive = isTeamProactive(approval);
+  const name = approval.contractor_name || approval.contractor_contact || 'Contractor';
 
-  // Dismiss the schedule menu on Escape or a click outside this card.
-  useEffect(() => {
-    if (!showSchedule) return;
-    const onDown = (e: MouseEvent) => {
-      if (cardRef.current && !cardRef.current.contains(e.target as Node)) setShowSchedule(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowSchedule(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [showSchedule]);
-
-  // Proposed work slip mined from the contractor's message. The operator picks
-  // the property and can untick filing entirely; the decision rides along on
-  // approve. Default the select to the inferred property when Helm knows it.
-  const slip = approval.proposed_slip ?? null;
-  const inferredKnown = properties.some((p) => p.id === approval.property_id);
-  // stay-concierge's own inference wins if it named a known home; otherwise fall
-  // back to Helm's run-derived guess (the home she'd just finished, or the one
-  // she already flagged in an inspection).
-  const runKnown = ctx?.suggestedPropertyId && properties.some((p) => p.id === ctx.suggestedPropertyId);
-  const [slipPropertyId, setSlipPropertyId] = useState(
-    slip && inferredKnown ? approval.property_id : slip && runKnown ? (ctx!.suggestedPropertyId as string) : '',
-  );
-  const [fileSlip, setFileSlip] = useState(true);
-  // Filing needs a destination: block approve rather than silently dropping
-  // the slip (or filing it nowhere). Unticking the box unblocks.
-  const slipBlocked = !!slip && fileSlip && !slipPropertyId;
-
-  const nameLabel = approval.contractor_name || approval.contractor_contact || 'Contractor';
-  const topicLabel = prettifyTopic(approval.topic) || 'General';
-
-  const ageLabel =
-    approval.age_minutes == null
-      ? 'just now'
-      : approval.age_minutes < 1
-        ? 'just now'
-        : approval.age_minutes < 60
-          ? `${approval.age_minutes} min ago`
-          : `${Math.floor(approval.age_minutes / 60)}h ${approval.age_minutes % 60}m ago`;
-
-  const run = (action: PendingAction, fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
-    setError(null);
-    setPendingAction(action);
-    startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) {
-        setError(res.error);
-        setPendingAction(null);
-        return;
+  return (
+    <ApprovalCard
+      id={id}
+      status={approval.status}
+      sendAt={approval.send_at}
+      name={name}
+      preview={approval.contractor_text}
+      channel="SMS"
+      chips={
+        <>
+          {audienceChip}
+          <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>{prettifyTopic(approval.topic) || 'General'}</span>
+        </>
       }
-      onResolved();
-    });
-  };
-
-  // Coaching is the one action whose work outlives its request: the service
-  // answers 202 and rewrites in the background, so the transition ends while
-  // this card is already doomed. Hand the id to the queue, which watches for
-  // the replacement every 2s, and keep the card locked meanwhile so nobody
-  // approves a draft about to be superseded out from under them.
-  const runCoach = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
-    setError(null);
-    setPendingAction('coach');
-    startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) {
-        setError(res.error);
-        setPendingAction(null);
-        return;
-      }
-      onRegenerating(approval.id);
-    });
-  };
-
-  // The watch gave up: the regen failed upstream, leaving this card pending.
-  // Stop claiming to be working on it and hand the note back.
-  useEffect(() => {
-    if (!regenStalled || pendingAction !== 'coach') return;
-    setPendingAction(null);
-    setShowCoach(true);
-    setError("The rewrite hasn't come back. Send the note again.");
-  }, [regenStalled, pendingAction]);
-
-  const doSchedule = (sendAtIso: string) => {
-    setShowSchedule(false);
-    run('schedule', () => scheduleContractorDraft(approval.id, sendAtIso));
-  };
-  const doSendNow = () => run('send-now', () => approveContractorDraft(approval.id));
-  const doCancelSchedule = () => run('cancel-schedule', () => cancelContractorSchedule(approval.id));
-
-  // Collapsed queued card: a single dense row so waiting sends stay quiet.
-  if (isScheduled && !expanded) {
-    return (
-      <MobileInboxReview id={approval.id} name={nameLabel} property={''} preview={approval.contractor_text} channel={'SMS'} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={showCoach || showSchedule}>
-    <article
-        id={`approval-${approval.id}`}
-        ref={cardRef}
-        className="rt-message-card"
-        style={{
-          border: '1px solid var(--rule)',
-          borderLeft: `3px solid ${QUEUED_TONE}`,
-          background: 'var(--paper-2)',
-          padding: '11px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexWrap: 'wrap',
-        }}
-      >
-        <QueuedBadge />
-        <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, letterSpacing: '-0.01em' }}>
-          {nameLabel}
-        </span>
-        <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
-          {sendsInLabel(approval.send_at)}
-        </span>
-        <span
-          style={{
-            flex: '1 1 120px',
-            minWidth: 0,
-            fontSize: 12,
-            color: 'var(--ink-4)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-          title={approval.draft}
-        >
-          {approval.draft}
-        </span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="eyebrow"
-            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
-          >
-            Show ▾
-          </button>
-          <SecondaryButton onClick={doSendNow} disabled={busy}>
-            {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
-          </SecondaryButton>
-          <SecondaryButton onClick={doCancelSchedule} disabled={busy}>
-            {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
-          </SecondaryButton>
-        </div>
-        {error && (
-          <p style={{ width: '100%', margin: '4px 0 0', fontSize: 12, color: 'var(--signal)', fontWeight: 500 }} role="alert">
-            {error}
-          </p>
-        )}
-          <MessageOutcomes value={approval.outcomes} />
-    </article>
-    </MobileInboxReview>
-    );
-  }
-
-  return (
-    <MobileInboxReview id={approval.id} name={nameLabel} property={''} preview={approval.contractor_text} channel={'SMS'} enabled={!isScheduled} keepOpen={busy || !!error || regenStalled} draftInProgress={showCoach || showSchedule}>
-    <article
-      id={`approval-${approval.id}`}
-      ref={cardRef}
-      className="rt-message-card"
-      style={{
-        border: '1px solid var(--rule)',
-        borderLeft: isScheduled ? `3px solid ${QUEUED_TONE}` : '1px solid var(--rule)',
-        background: 'var(--paper-2)',
-        padding: 20,
+      queuedChips={audienceChip}
+      ageMinutes={approval.age_minutes}
+      createdAt={approval.created_at}
+      shortId={approval.short_id}
+      said={{
+        label: 'They said',
+        sub: sentAgoLabel(approval.created_at),
+        subTitle: approval.created_at,
+        body: <BodyText>{approval.contractor_text || '(empty)'}</BodyText>,
       }}
-    >
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginBottom: 14,
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-          <span className="font-serif" style={{ fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em' }}>
-            {nameLabel}
-          </span>
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-            {topicLabel}
-          </span>
-          {isScheduled && (
-            <>
-              <QueuedBadge />
-              <span className="eyebrow" style={{ color: 'var(--ink-3)' }} title={approval.send_at}>
-                {sendsInLabel(approval.send_at)}
-              </span>
-            </>
-          )}
-        </div>
-        {isScheduled ? (
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            className="eyebrow"
-            style={{ color: 'var(--ink-4)', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}
-          >
-            Hide ▴
-          </button>
-        ) : (
-          <span className="eyebrow" style={{ color: 'var(--ink-4)' }} title={`${approval.created_at} · ${approval.short_id}`}>
-            {'drafted '}
-            <span
-              style={{
-                color: ageToneColor(approval.age_minutes),
-                fontWeight: ageToneColor(approval.age_minutes) === 'var(--signal)' ? 700 : 500,
-              }}
-            >
-              {ageLabel}
-            </span>
-          </span>
-        )}
-      </header>
-
-      <div className="rt-msg-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-        <FieldBlock
-          label="They said"
-          sub={relativeTimeShort(approval.created_at) ? `sent ${relativeTimeShort(approval.created_at)}` : ''}
-          subTitle={approval.created_at}
-        >
-          <BodyText>{approval.contractor_text || '(empty)'}</BodyText>
-        </FieldBlock>
-        <FieldBlock label="Proposed reply">
-          <BodyText emphasis>{approval.draft || '(no draft)'}</BodyText>
-        </FieldBlock>
-      </div>
-
-      {slip && (
-        <InboxFollowup title={`Work slip · ${slip.title}`} attention={slipBlocked || !!ctx?.alreadyFiled.length}
-          status={slipBlocked ? 'Select property' : fileSlip ? 'Create when approved' : 'Skip'}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            <span className="font-serif" style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink)' }}>
-              {slip.title}
-            </span>
-            <SlipChip>{slip.category}</SlipChip>
-            <SlipChip tone={slip.priority === 'high' ? 'var(--signal)' : undefined}>
-              {slip.priority} priority
-            </SlipChip>
-          </div>
-          {slip.note && (
-            <p style={{ margin: '6px 0 0', fontSize: 13, lineHeight: 1.55, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>
-              {slip.note}
-            </p>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
-            <select
-              value={slipPropertyId}
-              onChange={(e) => setSlipPropertyId(e.target.value)}
-              aria-label="Property for the work slip"
-              style={{
-                fontSize: 13,
-                padding: '6px 8px',
-                background: 'var(--paper)',
-                color: 'var(--ink)',
-                border: '1px solid var(--rule)',
-                outline: 'none',
-              }}
-            >
-              <option value="">Select property…</option>
-              {ctx && ctx.runProperties.length > 0 && (
-                <optgroup label="On their run today">
-                  {ctx.runProperties.map((p) => (
-                    <option key={`run-${p.id}`} value={p.id}>{p.name}</option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup label={ctx && ctx.runProperties.length > 0 ? 'Other properties' : 'Properties'}>
-                {properties.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </optgroup>
-            </select>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--ink-2)', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={fileSlip}
-                onChange={(e) => setFileSlip(e.target.checked)}
-                style={{ accentColor: SLIP_TONE, width: 14, height: 14 }}
-              />
-              File this slip when I approve
-            </label>
-          </div>
-          {ctx && ctx.alreadyFiled.length > 0 && (
-            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)', lineHeight: 1.5 }}>
-              Heads up: they already filed {ctx.alreadyFiled.map((f) => `"${f.title}" at ${f.name}`).join(' and ')} during today&apos;s inspection. Filing here may duplicate it; untick if so.
-            </p>
-          )}
-          {slipBlocked && (
-            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--signal)' }}>
-              Pick a property for the slip (or untick it).
-            </p>
-          )}
-        </InboxFollowup>
-      )}
-
-      {error && (
-        <p style={{ marginTop: 14, fontSize: 13, color: 'var(--signal)', fontWeight: 500 }} role="alert">
-          {error}
-        </p>
-      )}
-
-      <footer
-        className="rt-message-actions"
-        style={{
-          marginTop: 18,
-          display: 'flex',
-          gap: 10,
-          flexWrap: 'wrap',
-          alignItems: 'center',
-        }}
-      >
-        {isScheduled ? (
-          <>
-            <SecondaryButton
-              onClick={doSendNow}
-              disabled={busy}
-              title="Send this reply right now instead of waiting."
-            >
-              {pendingAction === 'send-now' ? 'Sending…' : 'Send now'}
-            </SecondaryButton>
-            <SecondaryButton
-              onClick={doCancelSchedule}
-              disabled={busy}
-              title="Stop the scheduled send and return this draft to the queue."
-            >
-              {pendingAction === 'cancel-schedule' ? 'Cancelling…' : 'Cancel send'}
-            </SecondaryButton>
-            <span className="eyebrow" style={{ color: 'var(--ink-4)' }}>
-              Cancel send to edit or coach
-            </span>
-          </>
-        ) : (
-          <>
-            <SplitSendButton
-              onApprove={() =>
-                run('approve', () =>
-                  approveContractorDraft(
-                    approval.id,
-                    slip
-                      ? { fileSlip, slipPropertyId: slipPropertyId || undefined }
-                      : undefined,
-                  ),
-                )
-              }
-              onToggle={() => setShowSchedule((v) => !v)}
-              disabled={busy || slipBlocked}
-              // A queued send would file the slip with mined defaults, silently
-              // dropping the operator's untick / property pick — so slip cards
-              // send immediately only.
-              toggleDisabled={!!slip}
-              toggleTitle={
-                slip
-                  ? 'This card files a work slip, so it sends immediately (your slip choices ride along on approve).'
-                  : undefined
-              }
-              loading={pendingAction === 'approve'}
-              open={showSchedule}
-            />
-            {/* Proactive reminders are the operator's own composed message, not an
-                AI draft of an inbound, so there is nothing to coach/regenerate. */}
-            {approval.topic !== 'proactive_reminder' && (
-              <SecondaryButton onClick={() => setShowCoach((v) => !v)} disabled={busy}>
-                {pendingAction === 'coach'
-                  ? 'Regenerating…'
-                  : showCoach
-                    ? 'Cancel coaching'
-                    : 'Coach the AI'}
-              </SecondaryButton>
-            )}
-            {/* On the card, not in a menu (2026-10-18); asks once, since
-                this queue has no undo. */}
-            <div className="rt-message-quiet">
-              <HandledConfirm
-                onConfirm={() => run('mark-handled', () => markContractorHandled(approval.id))}
-                disabled={busy}
-                loading={pendingAction === 'mark-handled'}
-                title="You replied elsewhere, or no reply is needed. Clears the card without sending."
-              />
-            </div>
-          </>
-        )}
-      </footer>
-
-      {showSchedule && !isScheduled && (
-        <SchedulePopover onSchedule={doSchedule} disabled={busy} />
-      )}
-
-      {pendingAction === 'coach' && (
-        <p
-          style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-3)', fontStyle: 'italic' }}
-          role="status"
-          aria-live="polite"
-        >
-          Implementing your coaching. The rewritten draft replaces this one in a
-          few seconds.
-        </p>
-      )}
-
-      {showCoach && (
-        <div style={{ marginTop: 14 }}>
-          <label
-            htmlFor={`contractor-coach-${approval.id}`}
-            className="eyebrow"
-            style={{ display: 'block', marginBottom: 6, color: 'var(--ink-3)' }}
-          >
-            Coaching note
-          </label>
-          <textarea
-            id={`contractor-coach-${approval.id}`}
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-            placeholder="Say what's wrong with the draft. The AI will regenerate the reply."
-            rows={3}
-            style={{
-              width: '100%',
-              padding: 10,
-              border: '1px solid var(--rule)',
-              background: 'var(--paper)',
-              fontFamily: 'inherit',
-              fontSize: 14,
-              color: 'var(--ink)',
-              resize: 'vertical',
-            }}
-          />
-          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-            <PrimaryButton
-              onClick={() => {
-                // Collapse immediately so the in-flight status above reads
-                // for the whole regeneration; reopen on failure to revise.
-                setShowCoach(false);
-                // The note stays in the textarea until this card is actually
-                // replaced: if the rewrite never lands, the operator gets
-                // their own words back rather than having to retype them.
-                runCoach(async () => {
-                  const res = await coachContractorDraft(approval.id, feedback);
-                  if (!res.ok) setShowCoach(true);
-                  return res;
-                });
-              }}
-              disabled={busy || !feedback.trim()}
-            >
-              {pendingAction === 'coach' ? 'Regenerating…' : 'Regenerate with this note'}
-            </PrimaryButton>
-            <SecondaryButton
-              onClick={() => {
-                setShowCoach(false);
-                setFeedback('');
-              }}
-              disabled={busy}
-            >
-              Cancel
-            </SecondaryButton>
-          </div>
-        </div>
-      )}
-      <MessageOutcomes value={approval.outcomes} />
-    </article>
-    </MobileInboxReview>
-  );
-}
-
-function FieldBlock({
-  label,
-  sub,
-  subTitle,
-  children,
-}: {
-  label: string;
-  sub?: string;
-  subTitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <div
-        className="eyebrow"
-        style={{
-          marginBottom: 6,
-          color: 'var(--ink-4)',
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 8,
-          flexWrap: 'wrap',
-        }}
-      >
-        <span>{label}</span>
-        {sub && (
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 400,
-              letterSpacing: '0.10em',
-              color: 'var(--ink-3)',
-              textTransform: 'none',
-            }}
-            title={subTitle}
-          >
-            {sub}
-          </span>
-        )}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function BodyText({ children, emphasis = false }: { children: React.ReactNode; emphasis?: boolean }) {
-  return (
-    <p
-      style={{
-        margin: 0,
-        fontSize: 14,
-        lineHeight: 1.55,
-        color: emphasis ? 'var(--ink)' : 'var(--ink-2)',
-        whiteSpace: 'pre-wrap',
-        fontWeight: emphasis ? 500 : 400,
+      reply={{ text: approval.draft }}
+      also={slip.item ? [slip.item] : undefined}
+      approveBlocked={slip.blocked}
+      scheduleBlocked={slip.scheduleBlocked}
+      verbs={{
+        approve: () => approveContractorDraft(id, slip.opts),
+        schedule: (at) => scheduleContractorDraft(id, at),
+        sendNow: () => approveContractorDraft(id),
+        cancelSchedule: () => cancelContractorSchedule(id),
+        saveEdit: (text) => editContractorDraft(id, text),
+        // A proactive reminder is the operator's own message: nothing to
+        // coach or redraft.
+        coach: proactive ? undefined : (note) => coachContractorDraft(id, note),
+        redraft: proactive ? undefined : () => redraftContractorDraft(id),
+        markHandled: (capture) => markContractorHandled(id, capture),
       }}
-    >
-      {children}
-    </p>
-  );
-}
-
-/** Small uppercase chip for a proposed slip's category/priority. Neutral ink
- * by default; a high priority borrows the signal tone so it reads urgent. */
-function SlipChip({ children, tone }: { children: React.ReactNode; tone?: string }) {
-  const color = tone || 'var(--ink-3)';
-  return (
-    <span
-      style={{
-        fontSize: 9,
-        fontWeight: 700,
-        letterSpacing: '.16em',
-        textTransform: 'uppercase',
-        color,
-        border: `1px solid ${color}`,
-        padding: '2px 8px',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function PrimaryButton({
-  children,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        background: disabled ? 'var(--ink-4)' : 'var(--ink)',
-        color: 'var(--paper)',
-        border: '2px solid var(--ink)',
-        padding: '13px 22px',
-        fontSize: 12,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        fontWeight: 700,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.7 : 1,
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-
-function SecondaryButton({
-  children,
-  onClick,
-  disabled,
-  title,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      style={{
-        background: 'var(--paper)',
-        color: 'var(--ink-2)',
-        border: '1px solid var(--ink-3)',
-        padding: '10px 16px',
-        fontSize: 11,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        fontWeight: 500,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      {children}
-    </button>
+      handledReasons={reasonsFor(TEAM_HANDLED_REASONS, proactive)}
+      outcomes={approval.outcomes}
+      onResolved={helpers.onResolved}
+      onDecided={helpers.onDecided}
+      onRegenerating={onRegenerating}
+      regenStalled={regenStalled}
+    />
   );
 }
