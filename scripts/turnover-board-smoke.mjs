@@ -24,6 +24,7 @@ const board=composeBoard({today:TODAY,rangeEnd:'2026-10-19',nowMs:NOW,departureS
   turnover({propertyId:'same_day_home',checkIn:TODAY,previousCheckout:TODAY,isSameDayTurnover:true,prepSlips:[{id:'slip-1',title:'Pack-n-play',actionSummary:'Set up the pack-n-play'}]}),
   turnover({propertyId:'lock_home',checkIn:TODAY,previousCheckout:'2026-10-17',lockMonitored:true,cleaningSession:{enteredAt:'2026-10-18T12:30:00Z',finishedAt:null,entrySource:'seam_lock',finishSource:null,finishEstimated:false}}),
   turnover({propertyId:'later_home',checkIn:'2026-10-22',previousCheckout:TODAY}),
+  turnover({propertyId:'field_home',checkIn:'2026-10-19',previousCheckout:'2026-10-17',cleaning:{completedAt:'2026-10-17T18:00:00Z',source:'quo',sourcePhone:null},fieldPacket:{packetId:'packet-1',status:'claimed',contractorName:'Alex Synthetic'}}),
   turnover({propertyId:'walked_home',checkIn:TODAY,previousCheckout:'2026-10-17',inspectionStatus:'complete',inspection:{id:'insp-1',property_id:'walked_home',started_at:'2026-10-18T12:00:00Z',completed_at:'2026-10-18T12:40:00Z'}}),
  ],
  cleaningDays:[{date:TODAY,announced:true,booked:2,checkouts:3,attention:1,skipped:[],items:[
@@ -33,7 +34,7 @@ const board=composeBoard({today:TODAY,rangeEnd:'2026-10-19',nowMs:NOW,departureS
  ]}]});
 const rows=[...board.days.flatMap(d=>d.rows),...board.done];
 const byHome=Object.fromEntries(rows.map(r=>[r.propertyId,r]));
-assert.equal(rows.length,5,'four turnovers and one checkout with nobody behind it');
+assert.equal(rows.length,6,'five turnovers and one checkout with nobody behind it');
 
 // ── the fixture page ──
 for(const [name,path] of [
@@ -107,6 +108,8 @@ const vacant=await text(sel('vacant_home'));
 assert.ok(vacant.includes('Out 10:00 · Vacant')&&vacant.includes('No cleaner booked'));
 assert.equal(await page.$$eval(sel('vacant_home')+' .rt-tb-verb *',es=>es.length),0,'a checkout with nobody behind it has no verb');
 assert.ok((await text(sel('walked_home'))).includes('Summary'));
+assert.equal(await page.$eval(sel('field_home')+' .rt-tb-walk a',a=>a.textContent+' '+a.getAttribute('href')),'Field · Alex Synthetic /fieldwork/packets/packet-1','a Field walk names who has it and links the packet');
+assert.equal(await page.$$eval(sel('field_home')+' .rt-tb-verb *',es=>es.length),0,'a live packet holds back Start');
 assert.ok(await page.$('#out-same_day_home-'+TODAY),'the schedule anchor exists on the paired row');
 assert.equal((await text(sel('same_day_home'))).includes('Arriving Synthetic'),false,'names wait for the opened row');
 pass('each line prints the pair, the cleaner, the walk and one verb in the model\'s words');
@@ -151,12 +154,14 @@ pass('Plan walk opens the walk planner');
 
 // ── phone ──
 await load(375,812);
-const phone=await page.$$eval('.rt-tb-row',rs=>rs.map(r=>{const b=s=>{const e=r.querySelector(s);return e?e.getBoundingClientRect():null;};const t=b('.rt-tb-toggle'),f=b('.rt-tb-pair'),v=r.querySelector('.rt-tb-verb button, .rt-tb-verb a');return {toggleBottom:t.bottom,toggleH:t.height,factsTop:f.top,verbH:v?v.getBoundingClientRect().height:null};}));
+const phone=await page.$$eval('.rt-tb-row',rs=>rs.map(r=>{const b=s=>{const e=r.querySelector(s);return e?e.getBoundingClientRect():null;};const t=b('.rt-tb-toggle'),f=b('.rt-tb-pair'),v=r.querySelector('.rt-tb-verb button, .rt-tb-verb a'),l=r.querySelector('.rt-tb-facts a');return {toggleBottom:t.bottom,toggleH:t.height,factsTop:f.top,verbH:v?v.getBoundingClientRect().height:null,linkH:l?l.getBoundingClientRect().height:null};}));
 for(const p of phone){
  assert.ok(p.factsTop>=p.toggleBottom-1,'the facts wrap to a second line under the house');
  assert.ok(p.toggleH>=44,'the toggle is a 44px target');
  if(p.verbH!==null)assert.ok(p.verbH>=44,'the verb is a 44px target');
+ if(p.linkH!==null)assert.ok(p.linkH>=44,'a link in the facts line is a 44px target');
 }
+assert.ok(phone.some(p=>p.linkH!==null),'the fixture has a Field link to measure');
 assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'no sideways scroll on a phone');
 await toggle('lock_home');
 assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'the opened rail fits a phone');

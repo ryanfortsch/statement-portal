@@ -90,10 +90,10 @@ ORDER is the durable part and has not moved; the numbers drift with the repo.
 | `/forecast` | The business plan as an interactive model |
 | `/books` | In-house bookkeeping for the three LLCs, quarterly P&Ls, 1099s |
 | `/cost-analysis` | Housekeeping cost trends per property |
-| `/turnovers` | Turnover pipeline and the six-stage cleaning lifecycle |
+| `/turnovers` | The turnover board: one line per house per day (house, `Out 10:00 · In 4:00`, the cleaner verdict, the walk, one verb), today plus tomorrow by default. The model is `src/lib/turnover-board.ts`; the six-stage rail opens only on lock-monitored homes |
 | `/turnovers/calendar` | The occupancy calendar, 7, 14 or 30 days. The only place it renders; the pipeline links to it |
-| `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions |
-| `/turnovers/cleanings` | Cape Ann Elite's own bookings (A-1 Maintenance, via Jobber reminder texts to Quo) against our checkouts. A three-day strip of the same data sits on the home page |
+| `/turnovers/schedule` | Cleaner checkout schedule, merged with late checkouts and extensions. Each row links to its board row and back |
+| `/turnovers/cleanings` | From Cape Ann Elite: only what no board row can show (a visit booked where nobody checks out, unannounced days). Not a tab; reached from the board and the home feed. Every checkout's verdict prints on its board row; a three-day strip of the same data sits on the home page |
 | `/inspections` | Property inspection runs |
 | `/fieldwork/*` | Contractor-facing ops: packets, roster, hiring, shoots (creative pay ledger), trades (the outside vendor directory), close (the field's handoff before the statement close; staff add items, owners file them through the receipt path) |
 | `/field` | The external 1099 contractor portal. Separate auth plane, magic-link tokens |
