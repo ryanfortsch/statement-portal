@@ -8,7 +8,8 @@ import { createDraftFromBrief, createDraftCampaign } from '../actions';
 import { DraftButton } from './DraftButton';
 
 type Props = {
-  segments: { id: string; name: string }[];
+  /** The audiences, with who each reaches today (null when the count could not be read). */
+  segments: { id: string; name: string; description?: string | null; count?: number | null }[];
   tones: { id: string; label: string; sub: string }[];
   defaultSegment: string;
 };
@@ -17,6 +18,7 @@ export function CampaignCreationForms({ segments, tones, defaultSegment }: Props
   const [brief, setBrief] = useState('');
   const [tone, setTone] = useState(tones[0]?.id ?? 'editorial');
   const [segment, setSegment] = useState(defaultSegment);
+  const selected = segments.find((s) => s.id === segment);
   const [name, setName] = useState('');
   const [active, setActive] = useState<'brief' | 'blank'>('brief');
   const { busy, pending, error, run } = useRecoverableAction();
@@ -111,7 +113,7 @@ export function CampaignCreationForms({ segments, tones, defaultSegment }: Props
 
           <div>
             <label htmlFor="segment_id" className="eyebrow" style={{ display: 'block', marginBottom: 8 }}>
-              Send to
+              Audience
             </label>
             <select
               id="segment_id"
@@ -135,13 +137,13 @@ export function CampaignCreationForms({ segments, tones, defaultSegment }: Props
               <option value="">No segment yet (pick later)</option>
               {segments.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {s.name}{s.count != null ? ` · ${s.count.toLocaleString('en-US')} ${s.count === 1 ? 'person' : 'people'}` : ''}
                 </option>
               ))}
             </select>
-            <p style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-4)' }}>
-              Picking now helps the AI tune the message to who&rsquo;s receiving it. You can change this on the composer.
-            </p>
+            {selected?.description && (
+              <p style={{ marginTop: 6, fontSize: 12, color: 'var(--ink-4)' }}>{selected.description}</p>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>

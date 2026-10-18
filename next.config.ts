@@ -223,6 +223,20 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
 
+      // Segments and Import stopped being pages (2026-10-18): the two system
+      // segments ride the new-campaign Audience select with their counts,
+      // and the CSV import is a file input under Contacts' Manage list menu.
+      {
+        source: '/guests/segments',
+        destination: '/guests/campaigns/new',
+        permanent: true,
+      },
+      {
+        source: '/guests/import',
+        destination: '/guests/contacts',
+        permanent: true,
+      },
+
       // Query-param tabs promoted to real routes. Bare /guests stays the
       // Reviews lens; the Contacts and Agreements tabs get honest URLs.
       {
