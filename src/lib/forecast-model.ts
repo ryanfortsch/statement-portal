@@ -561,7 +561,7 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
     key: 'supplies',
     label: 'Guest supplies & inventory',
     monthly: 4000,
-    info: 'What a settled home consumes and replaces: Amazon consumables (cleaning and dishwasher products, paper, bath refills, coffee pods, trash bags), replacement towels and small durables, Target and HomeGoods. Projected at $2,950 per live home per year on the turnover curve pulled a month early, because a house is stocked before its guests arrive: $1,805 of consumables measured item by item on the Amazon Business export of 2026-10-15, about $1,000 of replacements, and the non-Amazon stores. The summer 2026 peak ($16,925 in June) was eleven outfittings, which the Onboarding line carries; September, the first clean month after the wave, read $2,892 for sixteen homes. ACT months show the real card figure.',
+    info: 'What a settled home consumes and replaces: Amazon consumables (cleaning and dishwasher products, paper, bath refills, coffee pods, trash bags), replacement towels and small durables, Target and HomeGoods. Projected at $2,950 per live home per year on the turnover curve pulled a month early, because a house is stocked before its guests arrive: $1,805 of consumables measured item by item on the Amazon Business export of 2026-10-15, about $1,000 of replacements, and the non-Amazon stores. The summer 2026 peak ($16,925 in June) was eleven outfittings, which the Onboarding line carries; September, the first clean month after the wave, read $2,892 for sixteen homes. Measured months show the real card figure.',
   },
   {
     key: 'repairs',
@@ -573,7 +573,7 @@ export const CC_OPERATING_BREAKDOWN: ReadonlyArray<{
     key: 'vehicle_insurance',
     label: 'Vehicle & other insurance',
     monthly: 519,
-    info: 'GEICO auto, $519 every month of 2026 and unchanged since March 2025, and that is the run rate forward. ACT months show the real GEICO charge. The $3,189 Arbella premium that hit the card on 2026-04-15 is a one-time payment and sits on the Insurance line below, beside Phillips, not in this row.',
+    info: 'GEICO auto, $519 every month of 2026 and unchanged since March 2025, and that is the run rate forward. Measured months show the real GEICO charge. The $3,189 Arbella premium that hit the card on 2026-04-15 is a one-time payment and sits on the Insurance line below, beside Phillips, not in this row.',
   },
   {
     key: 'travel_other',

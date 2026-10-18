@@ -3,17 +3,15 @@
  * belongs to.
  *
  * Cape Ann Elite bills through QuickBooks and greets each invoice with the
- * property's street address ("Dear Allie O'Brien:21 Horton St,"). Two
- * consumers parse that greeting:
+ * property's street address ("Dear Allie O'Brien:21 Horton St,").
+ * `/api/sync-invoices` parses that greeting to corroborate a bank cleaning
+ * row with the invoice that explains it, or to file the invoice as an orphan.
  *
- *   - `/api/sync-invoices` -- corroborates a bank cleaning row with the
- *     invoice that explains it, or files the invoice as an orphan.
- *   - `src/lib/forecast-cleaning.ts` -- the trailing-12-month cost grid.
- *
- * Both used to carry their own hardcoded needle map, and the two had drifted
- * apart by eight properties. A property missing from a map parses with
- * property_id = null: the sync skips the invoice (its cleaning row stays
- * uncorroborated) and its spend lands in "Unattributed" on /forecast.
+ * A second consumer, the trailing-12-month cost grid on /forecast, used to
+ * carry its own hardcoded needle map, and the two had drifted apart by eight
+ * properties. The grid left the page on 2026-10-18 (it never fed the model).
+ * A property missing from the needles parses with property_id = null: the
+ * sync skips the invoice and its cleaning row stays uncorroborated.
  *
  * NONE of this touches owner statements. The statement PDF prints one
  * Cleaning line and `cleaning_total` comes from the bank, which stays the
@@ -131,9 +129,7 @@ export async function loadInvoiceNeedles(): Promise<InvoiceNeedles> {
 
   try {
     // No is_active filter on purpose: an offboarded property still owns its
-    // historical invoices, which the trailing-12-month grid still shows.
-    // Ordered so the merge is deterministic -- getCleaningCosts keys its
-    // cache on this object, and an unstable order would thrash the key.
+    // historical invoices. Ordered so the merge is deterministic.
     const { data, error } = await supabaseAdmin
       .from('properties')
       .select('id, name, address, invoice_match')

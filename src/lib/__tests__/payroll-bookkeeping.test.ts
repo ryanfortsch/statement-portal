@@ -177,7 +177,8 @@ describe('the forecast carries the salary on its own line', () => {
 
   test('the table renders the line, so the rows still foot to the total on screen', () => {
     const ui = read('src/app/forecast/ForecastClient.tsx');
-    assert.ok(ui.includes('values={monthly.map((r) => r.exp_payroll)}'), 'the Operations manager row must read exp_payroll');
-    assert.ok(ui.includes('values={monthly.map((r) => r.exp_contractors)}'), 'beside the Contractors row');
+    assert.ok(ui.includes("label: 'Operations manager'") && ui.includes('values: monthly.map((r) => r.exp_payroll)'), 'the Operations manager row must read exp_payroll');
+    assert.ok(ui.includes('values: monthly.map((r) => r.exp_contractors)'), 'beside the Contractors row');
+    assert.ok(ui.includes('{lineRows(people)}'), 'and the People lines are rendered');
   });
 });

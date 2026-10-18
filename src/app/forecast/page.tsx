@@ -1,9 +1,7 @@
-import { Suspense } from 'react';
 import { HelmMasthead } from '@/components/HelmMasthead';
 import { HelmFooter } from '@/components/HelmFooter';
 import { FinancialsTabs } from '@/components/FinancialsTabs';
 import { ForecastClient } from './ForecastClient';
-import { CleaningCostsSection } from './CleaningCostsSection';
 import { isConfigured } from '@/lib/supabase';
 import {
   forwardMonths,
@@ -32,6 +30,8 @@ import {
   getStatementMgmtFeeByProperty,
 } from '@/lib/forecast-statement-actuals';
 import { summarizeYtd } from '@/lib/forecast-fy-total';
+import { getYearConfig } from '@/lib/forecast-model';
+import { parseScenario } from '@/lib/forecast-scenario';
 
 // We pull live booking data from Helm's guesty_reservations table — must
 // be dynamic so the smart-forecast picks up new bookings without a redeploy.
@@ -212,7 +212,7 @@ function StaleDataBanner({
             <>
               The operating account (Chase ...5130) export runs only to <strong>{operatingLatestDate}</strong>
               , {operatingDays} days ago. A month the card export covers but this one does not reads the card
-              and projects rent, the bench, payroll and bank fees (the ACT* columns).{' '}
+              and projects rent, the bench, payroll and bank fees (the card-only months).{' '}
             </>
           ) : null}
           Drop a fresh Chase corporate card or operating CSV (or XLSX) in the{' '}
@@ -325,7 +325,15 @@ function filterToYear(smart: SmartForecast | null, year: number): SmartForecast 
   return { months, monthInputs, properties, totals };
 }
 
-export default async function ForecastPage() {
+export default async function ForecastPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ year?: string | string[]; new?: string | string[] }>;
+}) {
+  // The scenario is the link: ?year=2027&new=3,2,0. A bare /forecast is
+  // 2026 with three new homes a year, as it always opened.
+  const initialScenario = parseScenario(await searchParams, (y) => getYearConfig(y).newOrder.length);
+
   // Pull Guesty bookings + Helm prospects pipeline + reconciled statements
   // in parallel. Statements feed actual mgmt-fee revenue per closed month.
   const [
@@ -398,32 +406,8 @@ export default async function ForecastPage() {
         ytdByYear={ytdByYear}
         bankActuals2026={bankActuals2026}
         bankActualsThrough2026={bankActualsThrough2026}
+        initialScenario={initialScenario}
       />
-
-      {/*
-        Cleaning costs pull invoices from Gmail — slow and unrelated to the
-        forecast model. Suspense-stream it so it never blocks the page.
-      */}
-      <Suspense
-        fallback={
-          <section
-            className="max-w-[1100px] mx-auto px-10"
-            style={{ paddingBottom: 32, width: '100%' }}
-          >
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--ink-3)',
-                fontStyle: 'italic',
-              }}
-            >
-              Loading cleaning costs…
-            </div>
-          </section>
-        }
-      >
-        <CleaningCostsSection />
-      </Suspense>
 
       <HelmFooter
         module="Forecast"
