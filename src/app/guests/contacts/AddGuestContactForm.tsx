@@ -4,11 +4,17 @@ import { useState } from 'react';
 import { useRecoverableAction } from '@/lib/use-recoverable-action';
 import { useDraftNavigationGuard } from '@/lib/use-draft-navigation-guard';
 import { manuallyAddContact } from '../actions';
+import { addContactMessage } from '@/lib/guest-contact-add';
 
 const empty = { email: '', first_name: '', last_name: '', tags: '' };
+// The form's no-JS fallback posts straight to the action and ignores what it
+// returns; with JS, onSubmit runs it and shows the outcome.
+const fallbackAction = manuallyAddContact as unknown as (formData: FormData) => Promise<void>;
 export function AddGuestContactForm() {
   const [draft, setDraft] = useState(empty);
-  const [saved, setSaved] = useState(false);
+  // What the add did, once confirmed: added, or already on the list (an
+  // unsubscribed or bounced address keeps its status, and the line says so).
+  const [saved, setSaved] = useState<string | null>(null);
   const { busy, pending, error, run } = useRecoverableAction();
   useDraftNavigationGuard(Object.values(draft).some(Boolean), pending);
   return (
@@ -17,13 +23,13 @@ export function AddGuestContactForm() {
               Add contact
             </summary>
             <form
-              action={manuallyAddContact}
+              action={fallbackAction}
               onSubmit={event => {
                 event.preventDefault();
                 if (busy.current) return;
                 const data = new FormData(event.currentTarget);
-                setSaved(false);
-                run(async () => { await manuallyAddContact(data); setDraft(empty); setSaved(true); }, 'Could not confirm the contact was added. Your details are still here. Check Contacts before retrying.');
+                setSaved(null);
+                run(async () => { const outcome = await manuallyAddContact(data); setDraft(empty); setSaved(addContactMessage(outcome)); }, 'Could not confirm the contact was added. Your details are still here. Check Contacts before retrying.');
               }}
               style={{
                 position: 'absolute',
@@ -38,15 +44,15 @@ export function AddGuestContactForm() {
                 gap: 8,
               }}
             >
-              <input name="email" aria-label="Email" value={draft.email} onChange={event => { setSaved(false); setDraft(prev => ({ ...prev, email: event.target.value })); }} disabled={pending} type="email" placeholder="email@example.com" required style={inputStyle} />
+              <input name="email" aria-label="Email" value={draft.email} onChange={event => { setSaved(null); setDraft(prev => ({ ...prev, email: event.target.value })); }} disabled={pending} type="email" placeholder="email@example.com" required style={inputStyle} />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <input name="first_name" aria-label="First name" value={draft.first_name} onChange={event => { setSaved(false); setDraft(prev => ({ ...prev, first_name: event.target.value })); }} disabled={pending} placeholder="First" style={inputStyle} />
-                <input name="last_name" aria-label="Last name" value={draft.last_name} onChange={event => { setSaved(false); setDraft(prev => ({ ...prev, last_name: event.target.value })); }} disabled={pending} placeholder="Last" style={inputStyle} />
+                <input name="first_name" aria-label="First name" value={draft.first_name} onChange={event => { setSaved(null); setDraft(prev => ({ ...prev, first_name: event.target.value })); }} disabled={pending} placeholder="First" style={inputStyle} />
+                <input name="last_name" aria-label="Last name" value={draft.last_name} onChange={event => { setSaved(null); setDraft(prev => ({ ...prev, last_name: event.target.value })); }} disabled={pending} placeholder="Last" style={inputStyle} />
               </div>
-              <input name="tags" aria-label="Tags" value={draft.tags} onChange={event => { setSaved(false); setDraft(prev => ({ ...prev, tags: event.target.value })); }} disabled={pending} placeholder="tags, comma, separated" style={inputStyle} />
+              <input name="tags" aria-label="Tags" value={draft.tags} onChange={event => { setSaved(null); setDraft(prev => ({ ...prev, tags: event.target.value })); }} disabled={pending} placeholder="tags, comma, separated" style={inputStyle} />
               <button type="submit" disabled={pending} aria-busy={pending} style={primaryButtonStyle}>{pending ? 'Adding…' : 'Add'}</button>
               {error && <p role="alert" style={{ color: 'var(--negative)' }}>{error} <a href="/guests/contacts" target="_blank" rel="noopener noreferrer">Check Contacts</a></p>}
-              {saved && <p role="status">Contact added</p>}
+              {saved && <p role="status">{saved}</p>}
             </form>
           </details>
   );
