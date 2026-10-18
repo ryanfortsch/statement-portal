@@ -9,10 +9,13 @@ import { renderEmail } from '@/lib/email-render';
 import { unsubscribeUrl } from '@/lib/guests-unsubscribe-token';
 import { sendTransactionalViaResend } from '@/lib/resend';
 import {
+  campaignSendProgress,
+  campaignSentContactIds,
   getCampaign,
   getSegment,
   resolveSegmentRecipients,
 } from '@/lib/guests-campaigns';
+import { campaignSendStopped, confirmedCountMatches } from '@/lib/campaign-send';
 import { draftCampaign } from '@/lib/ai/draft-campaign';
 import type { CampaignTone } from '@/lib/ai/brand-voice';
 
@@ -265,9 +268,40 @@ export async function sendCampaignTest(formData: FormData): Promise<void> {
 }
 
 /**
- * Resolve the segment, send the campaign to every recipient, and mark
- * sent. v1 sends transactionally per recipient (one POST to Resend per
- * email) instead of using Broadcasts. Reasons:
+ * Step one of a send: save the form and open the review panel, which names
+ * the audience, the live count, the subject and the from address. Nothing
+ * goes out from here. Open to any login so staff can see who a draft would
+ * reach; only an owner's panel carries the send button.
+ */
+export async function reviewCampaignSend(formData: FormData): Promise<void> {
+  const session = await auth();
+  if (!session?.user?.email) throw new Error('Not signed in');
+
+  const id = formData.get('id') as string;
+  if (!id) throw new Error('Missing campaign id');
+
+  const campaign = await getCampaign(id);
+  if (!campaign) throw new Error('Campaign not found');
+  if (campaign.status !== 'draft') {
+    throw new Error('Already sent or in flight. Refresh the page.');
+  }
+  await persistDraftFromFormData(id, formData);
+
+  revalidatePath(`/guests/campaigns/${id}`);
+  redirect(`/guests/campaigns/${id}?review=1`);
+}
+
+/**
+ * Step two: resolve the segment, send the campaign to every recipient, and
+ * mark sent. Posted only by the review panel, with the count the operator
+ * saw (`confirm_count`); a post without it, or with a count the list no
+ * longer matches, lands back on the review instead of sending.
+ *
+ * A campaign reset after a stopped send (resetStuckCampaign) sends only to
+ * the contacts that never got it: everyone with a `sent` event is skipped.
+ *
+ * v1 sends transactionally per recipient (one POST to Resend per email)
+ * instead of using Broadcasts. Reasons:
  *   - Per-contact unsubscribe URLs without managing Resend audiences
  *   - Uniform webhook coverage (delivered/opened/clicked/bounced) for
  *     every send, regardless of channel
@@ -286,7 +320,8 @@ export async function sendCampaign(formData: FormData): Promise<void> {
   if (!id) throw new Error('Missing campaign id');
 
   // Persist current form values before sending so the record reflects
-  // exactly what went out.
+  // exactly what went out. The review panel posts only the id and the
+  // count, so this is a no-op there; an old tab's full form still saves.
   await persistDraftFromFormData(id, formData);
 
   const campaign = await getCampaign(id);
@@ -303,21 +338,32 @@ export async function sendCampaign(formData: FormData): Promise<void> {
   const segment = await getSegment(campaign.segment_id);
   if (!segment) throw new Error('Segment not found.');
 
-  const recipients = await resolveSegmentRecipients(segment, { emailOnly: true });
+  const alreadySent = await campaignSentContactIds(id);
+  const recipients = (await resolveSegmentRecipients(segment, { emailOnly: true }))
+    .filter((r) => !alreadySent.has(r.id));
   if (recipients.length === 0) {
     throw new Error('No recipients match this segment. Adjust the filter and try again.');
   }
 
-  // Lock the campaign so a second click doesn't double-fire.
-  const { error: lockErr } = await supabase
+  // The count on the button the operator pressed must be the count that
+  // goes out. Anything else (no count, or the list moved) is a re-review.
+  if (!confirmedCountMatches(formData.get('confirm_count'), recipients.length)) {
+    redirect(`/guests/campaigns/${id}?review=1${formData.get('confirm_count') ? '&changed=1' : ''}`);
+  }
+
+  // Lock the campaign so a second click doesn't double-fire. The row count
+  // is the lock: a send that lost the race matches nothing and stops here.
+  const { data: locked, error: lockErr } = await supabase
     .from('audience_campaigns')
     .update({
       status: 'sending',
-      recipient_count: recipients.length,
+      recipient_count: alreadySent.size + recipients.length,
     })
     .eq('id', id)
-    .eq('status', 'draft');
+    .eq('status', 'draft')
+    .select('id');
   if (lockErr) throw new Error(lockErr.message);
+  if (!locked?.length) throw new Error('Already sent or in flight. Refresh the page.');
 
   let delivered = 0;
   let failed = 0;
@@ -367,13 +413,59 @@ export async function sendCampaign(formData: FormData): Promise<void> {
     .update({
       status: failed > 0 && delivered === 0 ? 'failed' : 'sent',
       sent_at: new Date().toISOString(),
-      delivered_count: delivered,
+      delivered_count: alreadySent.size + delivered,
       failed_reason:
         failed > 0
           ? `${failed} of ${recipients.length} failed. First few: ${failedEmails.slice(0, 5).join(', ')}`
           : null,
     })
     .eq('id', id);
+
+  revalidatePath('/guests/campaigns');
+  revalidatePath(`/guests/campaigns/${id}`);
+}
+
+/**
+ * A send that stopped part way (the function was cut off mid-loop) leaves
+ * the row on `sending` forever. An owner puts it back to draft from the
+ * page; sending it again goes only to the contacts that never got it.
+ * Refuses while the send still shows activity (CAMPAIGN_STUCK_MS).
+ */
+export async function resetStuckCampaign(formData: FormData): Promise<void> {
+  const email = await requireOwnerEmail();
+
+  const id = formData.get('id') as string;
+  if (!id) throw new Error('Missing campaign id');
+
+  const campaign = await getCampaign(id);
+  if (!campaign) throw new Error('Campaign not found');
+  if (campaign.status !== 'sending') throw new Error('This campaign is not sending. Refresh the page.');
+
+  const { sentCount, lastSentAt } = await campaignSendProgress(id);
+  const lastActivity = [campaign.updated_at, lastSentAt].filter(Boolean).sort().pop() ?? null;
+  if (!campaignSendStopped(lastActivity)) {
+    throw new Error('This send is still going. Give it a few minutes, then refresh.');
+  }
+
+  const total = campaign.recipient_count ?? sentCount;
+  // Every email went out and only the closing write was lost: record the
+  // send as finished instead of offering a draft with nobody left to reach.
+  const allOut = total > 0 && sentCount >= total;
+  const { error } = await supabase
+    .from('audience_campaigns')
+    .update(
+      allOut
+        ? { status: 'sent', sent_at: lastSentAt, delivered_count: sentCount, failed_reason: null }
+        : {
+            status: 'draft',
+            failed_reason:
+              `The last send stopped after ${sentCount} of ${total}. ${email} put it back to draft; ` +
+              'sending it again goes only to the people who did not get it.',
+          },
+    )
+    .eq('id', id)
+    .eq('status', 'sending');
+  if (error) throw new Error(error.message);
 
   revalidatePath('/guests/campaigns');
   revalidatePath(`/guests/campaigns/${id}`);
